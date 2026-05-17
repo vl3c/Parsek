@@ -456,7 +456,8 @@ namespace Parsek
         internal static bool ShowPreSwitchDecisionDialog(
             Vessel target,
             System.Action mergeAction,
-            System.Action discardAction)
+            System.Action discardAction,
+            RecordingTree priorTreeOverride = null)
         {
             if (target == null)
             {
@@ -478,6 +479,13 @@ namespace Parsek
             // unavailable for any reason, fall back to a stub body so the
             // dialog still spawns rather than silently leaving the player
             // stranded with no decision UI.
+            //
+            // No-session Case B (2026-05-17 follow-up): callers in the
+            // no-session pre-switch path pass the live activeTree via
+            // priorTreeOverride. We skip the session-id-based resolver
+            // and render the dialog body directly from that tree (with
+            // ResolveDialogBodyDuration falling back to tree-wide
+            // duration in the absence of a session — already supported).
             var scenario = ParsekScenario.Instance;
             var session = scenario != null
                 ? scenario.ActiveSwitchSegmentSession
@@ -496,40 +504,56 @@ namespace Parsek
             RecordingTree priorTree = null;
             RecordingStore.TreeSlotSource priorTreeSlot =
                 RecordingStore.TreeSlotSource.None;
-            try
+            if (priorTreeOverride != null)
             {
-                if (session != null)
+                priorTree = priorTreeOverride;
+                // Case B: tree comes straight from the caller (live
+                // ActiveTreeForDisplay). No slot resolution and no
+                // committed-slot guard — Case B never crosses a
+                // CommittedTrees boundary because we hand the tree in
+                // directly.
+                priorTreeSlot = RecordingStore.TreeSlotSource.Active;
+            }
+            else
+            {
+                try
                 {
-                    RecordingStore.TryResolveTreeById(
-                        session.TreeId, out priorTree, out priorTreeSlot);
+                    if (session != null)
+                    {
+                        RecordingStore.TryResolveTreeById(
+                            session.TreeId, out priorTree, out priorTreeSlot);
+                    }
                 }
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"ShowPreSwitchDecisionDialog: tree lookup threw " +
-                    $"{ex.GetType().Name}: {ex.Message} — body will use a stub");
-                priorTree = null;
-                priorTreeSlot = RecordingStore.TreeSlotSource.None;
-            }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"ShowPreSwitchDecisionDialog: tree lookup threw " +
+                        $"{ex.GetType().Name}: {ex.Message} — body will use a stub");
+                    priorTree = null;
+                    priorTreeSlot = RecordingStore.TreeSlotSource.None;
+                }
 
-            // M1 (PR #876 round-5 review): if the session's tree resolved
-            // to the CommittedTrees slot specifically, refuse to spawn the
-            // dialog. The Merge button would call MergeCommit -> the M1
-            // guard there would refuse (the tree isn't in pendingTree),
-            // and the player would see a dialog that does nothing. The
-            // session marker probably needs cleanup separately, but that
-            // is out of scope for this PR — defensive log + refuse here
-            // so we don't trigger the misbehaving Merge path.
-            if (priorTreeSlot == RecordingStore.TreeSlotSource.Committed)
-            {
-                ParsekLog.Warn("SwitchIntentPatch",
-                    $"bug-c-dialog-refused-session-tree-in-committed-slot " +
-                    $"priorSessionId={priorSessionIdStr} " +
-                    $"treeId={(session != null ? session.TreeId ?? "<null>" : "<no-session>")} " +
-                    $"newTargetPid={target.persistentId} — " +
-                    "Merge would no-op via the merge-commit-tree-mismatch guard");
-                return false;
+                // M1 (PR #876 round-5 review): if the session's tree
+                // resolved to the CommittedTrees slot specifically,
+                // refuse to spawn the dialog. The Merge button would
+                // call MergeCommit -> the M1 guard there would refuse
+                // (the tree isn't in pendingTree), and the player would
+                // see a dialog that does nothing. The session marker
+                // probably needs cleanup separately, but that is out
+                // of scope for this PR — defensive log + refuse here
+                // so we don't trigger the misbehaving Merge path.
+                // Skipped on the no-session Case B branch above
+                // because the caller passes the active tree directly.
+                if (priorTreeSlot == RecordingStore.TreeSlotSource.Committed)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"bug-c-dialog-refused-session-tree-in-committed-slot " +
+                        $"priorSessionId={priorSessionIdStr} " +
+                        $"treeId={(session != null ? session.TreeId ?? "<null>" : "<no-session>")} " +
+                        $"newTargetPid={target.persistentId} — " +
+                        "Merge would no-op via the merge-commit-tree-mismatch guard");
+                    return false;
+                }
             }
 
             string message;
@@ -656,7 +680,8 @@ namespace Parsek
                     // log line below. The recursion is bounded by the player's
                     // own input — every Esc press just re-opens the dialog.
                     ClearPendingFlag("pre-switch-dialog popup teardown (re-spawn)");
-                    ShowPreSwitchDecisionDialog(target, mergeAction, discardAction);
+                    ShowPreSwitchDecisionDialog(
+                        target, mergeAction, discardAction, priorTreeOverride);
                 };
                 ParsekLog.Info("SwitchIntentPatch",
                     $"pre-switch-dialog-opened priorSessionId={priorSessionIdStr} " +

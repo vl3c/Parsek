@@ -163,6 +163,48 @@ confirm the expected log lines fired.
    - `[SwitchIntentPatch] pre-switch-dialog-discard-chosen` and
      `pre-switch-dialog scoped-discard-success` appear in the log.
 
+## 13. Pre-switch dialog: Map Switch-To from actively-recording vessel to a FAR (unloaded) vessel
+1. Launch vessel A from the pad. Fly for 60+ seconds so a real
+   recording exists. Do NOT trigger any Switch-To or stock Fly action
+   yet (so no `SwitchSegmentSession` is armed; the in-flight recording
+   is the launch's auto-recording).
+2. Open Map view. Find a vessel B that is FAR from vessel A's current
+   position (out-of-bubble, packed/unloaded -- e.g. a committed
+   recording's parked vessel several km away, or any saved orbital
+   asset). Confirm vessel B is unloaded: the Tracking Station info
+   panel will list it as "Packed" or it appears as an icon outside
+   the physics bubble.
+3. Right-click vessel B's map icon, click **Switch To** in the popup.
+4. Pass criteria:
+   - The "Pending switch-segment recording" Merge/Discard dialog
+     appears BEFORE the scene reloads. The dialog body reads
+     `"{TreeName} - {Duration}"` where Duration is the live
+     wall-clock duration of vessel A's launch recording.
+   - Esc is disabled (the dialog re-spawns if you press Esc).
+   - Click **Merge**: vessel A's recording is committed under its
+     tree as a new continuation row, then KSP scene-reloads into
+     vessel B's FLIGHT, and the first-modification watcher arms on
+     vessel B. `[SwitchIntentPatch] pre-switch-dialog-merge-chosen-no-session`
+     appears in the log followed by the scene-reload sequence.
+   - Repeat the test (relaunch + fly + Map Switch-To to far vessel),
+     this time click **Discard**: vessel A's recording is removed
+     (no continuation row in the tree), the scene reloads into
+     vessel B, and the launch ledger is rolled back. The recordings
+     window shows the EXACT committed-recording count from BEFORE
+     vessel A's launch.
+     `[SwitchIntentPatch] pre-switch-dialog-discard-chosen-no-session`
+     appears in the log.
+5. **Regression checks** (no behavior change for in-bubble Switch-To
+   or sessioned Switch-To):
+   - Launch vessel A, fly briefly, Switch-To to a vessel within
+     physics range (loaded, in-bubble). NO dialog should appear --
+     the in-FLIGHT auto-record-on-switch flow runs as before
+     (segment session arms, vessel A's recording continues in BG).
+   - With a `SwitchSegmentSession` armed (after test #11's setup),
+     Map Switch-To to a far vessel must still take the **Case A**
+     path -- `pre-switch-dialog-merge-chosen` (NOT the
+     `-no-session` variant) appears in the log.
+
 ---
 
 ## Reporting issues found

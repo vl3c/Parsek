@@ -210,6 +210,14 @@ namespace Parsek.Patches
             // because the dialog button handlers will arm the new intent and
             // call SetActiveVessel themselves.
             //
+            // Case B (no-session unloaded-target, 2026-05-17 follow-up):
+            // when no SwitchSegmentSession is armed but an in-flight
+            // recording exists AND the target is unloaded, the stock path
+            // would silently scene-reload (FLIGHT→FLIGHT transitions skip
+            // the SceneExit Esc-to-Space-Center dialog filter). Open the
+            // same Merge/Discard dialog so the player makes a deliberate
+            // call before the reload, matching the Esc-to-SC UX.
+            //
             // Same-target Switch-To (player double-clicks the active session's
             // own vessel) bypasses the dialog: the consume helper's existing
             // `duplicate-intent-same-target` branch handles it.
@@ -218,16 +226,35 @@ namespace Parsek.Patches
             // dialog or any other), defer to the existing one so the player
             // resolves it first.
             var existingSession = scenario.ActiveSwitchSegmentSession;
+            var flightForGate = ParsekFlight.Instance;
+            bool hasActiveRecording = flightForGate != null && flightForGate.HasActiveTree;
+            // Vessel.loaded == false signals the target is out-of-bubble.
+            // FlightGlobals.setActiveVessel detects this and routes through
+            // onVesselSwitchingToUnloaded + FlightDriver.StartAndFocusVessel,
+            // which is a scene reload — the load-bearing condition for
+            // Case B. A null vessel.loaded read is treated as "loaded" so
+            // we don't spuriously trigger the dialog on the in-bubble path;
+            // an in-bubble switch with no session is the existing
+            // continuation-recording flow and stays unchanged.
+            bool targetIsUnloaded = !vessel.loaded;
             var decision = DecidePreSwitchDialogAction(
                 hasActiveSession: existingSession != null,
                 priorFocusedPid: existingSession?.FocusedVesselPersistentId ?? 0u,
                 newTargetPid: vessel.persistentId,
-                anotherDialogOpen: ParsekScenario.MergeDialogPending);
+                anotherDialogOpen: ParsekScenario.MergeDialogPending,
+                hasActiveRecording: hasActiveRecording,
+                targetIsUnloaded: targetIsUnloaded);
             switch (decision)
             {
                 case PreSwitchDialogDecision.OpenDialog:
                     {
-                        bool dialogOpened = TryOpenPreSwitchDecisionDialog(vessel, existingSession);
+                        // Branch on whether a session is armed. Case A keeps
+                        // the existing session-aware handlers; Case B routes
+                        // through the new no-session handlers that commit /
+                        // discard the live active tree directly.
+                        bool dialogOpened = existingSession != null
+                            ? TryOpenPreSwitchDecisionDialog(vessel, existingSession)
+                            : TryOpenPreSwitchDecisionDialogNoSession(vessel);
                         if (dialogOpened)
                         {
                             // Skip stock OnSelect; dialog button handlers will arm
@@ -235,10 +262,13 @@ namespace Parsek.Patches
                             return false;
                         }
                         // Dialog spawn failed — fall through to the original
-                        // arm-and-skip flow. The existing `superseded-by-new-switch`
-                        // defensive path in the consume helper will still log the
-                        // orphan as a documented degradation. Already Warn-logged by
-                        // ShowPreSwitchDecisionDialog.
+                        // arm-and-skip flow. For Case A the existing
+                        // `superseded-by-new-switch` defensive path in the
+                        // consume helper still logs the orphan as a documented
+                        // degradation. For Case B the prior recording silently
+                        // survives the scene reload as it did before this
+                        // change — no regression vs. the pre-extension shape.
+                        // Already Warn-logged by ShowPreSwitchDecisionDialog.
                         break;
                     }
                 case PreSwitchDialogDecision.SkipDialogSameTarget:
@@ -250,7 +280,8 @@ namespace Parsek.Patches
                 case PreSwitchDialogDecision.SkipDialogReEntry:
                     ParsekLog.Verbose("SwitchIntentPatch",
                         $"pre-switch-dialog skipped: another merge dialog is open " +
-                        $"priorSessionId={existingSession.SessionId:D} " +
+                        $"priorSessionId={existingSession?.SessionId.ToString("D", CultureInfo.InvariantCulture) ?? "<no-session>"} " +
+                        $"hasActiveRecording={hasActiveRecording} targetIsUnloaded={targetIsUnloaded} " +
                         $"targetPid={vessel.persistentId} - re-entry guard");
                     break;
                 case PreSwitchDialogDecision.NoPriorSession:
@@ -316,6 +347,46 @@ namespace Parsek.Patches
                 target,
                 mergeAction: () => MergePriorAndSwitchTo(target, priorSession),
                 discardAction: () => DiscardPriorAndSwitchTo(target, priorSession));
+        }
+
+        /// <summary>
+        /// No-session Case B: open the pre-switch Merge / Discard dialog
+        /// when an in-flight recording exists but no
+        /// <see cref="SwitchSegmentSession"/> is armed and the new
+        /// target vessel is unloaded (out-of-bubble). The Map Switch-To
+        /// stock path would otherwise scene-reload (FLIGHT→FLIGHT) and
+        /// skip the SceneExit Esc-to-Space-Center dialog filter, so the
+        /// player would never get a deliberate Merge/Discard prompt
+        /// for the prior recording today.
+        ///
+        /// <para>The handlers commit-in-flight (Merge) or
+        /// active-tree-discard (Discard) the live tree, then arm a fresh
+        /// intent + call <see cref="FlightGlobals.SetActiveVessel"/>
+        /// like the session-armed path. There is no scoped-discard
+        /// subtree helper to call here because no segment marker exists.
+        /// </para>
+        ///
+        /// <para>Returns true when the dialog was spawned; false when
+        /// the live active tree is missing (degenerate state — the
+        /// outer Prefix already gated on
+        /// <c>HasActiveTree</c>) or the dialog spawn fails.</para>
+        /// </summary>
+        private static bool TryOpenPreSwitchDecisionDialogNoSession(Vessel target)
+        {
+            var flight = ParsekFlight.Instance;
+            var activeTree = flight?.ActiveTreeForDisplay;
+            if (activeTree == null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    "pre-switch-dialog-no-session: no active tree at dialog spawn time " +
+                    "(race with recorder teardown) - falling through to stock OnSelect");
+                return false;
+            }
+            return MergeDialog.ShowPreSwitchDecisionDialog(
+                target,
+                mergeAction: () => MergeActiveTreeAndSwitchTo(target),
+                discardAction: () => DiscardActiveRecordingAndSwitchTo(target),
+                priorTreeOverride: activeTree);
         }
 
         /// <summary>
@@ -494,6 +565,165 @@ namespace Parsek.Patches
         }
 
         /// <summary>
+        /// No-session Case B Merge handler: commits the live active tree
+        /// via <see cref="ParsekFlight.CommitTreeFlight"/> (which is
+        /// session-agnostic — it operates on <c>activeTree</c>
+        /// directly), invokes <see cref="MergeDialog.OnTreeCommitted"/>
+        /// so ghost-chain evaluation picks up the newly committed
+        /// recordings, then arms a fresh intent and calls
+        /// <see cref="FlightGlobals.SetActiveVessel"/>.
+        ///
+        /// <para>No <c>ClearSwitchSegmentSession</c> call (no session
+        /// armed). Mirrors the active-merge-journal guard from the
+        /// session-armed Merge handler so a Re-Fly merge journal
+        /// finisher cannot race the commit.</para>
+        /// </summary>
+        private static void MergeActiveTreeAndSwitchTo(Vessel target)
+        {
+            var scenario = ParsekScenario.Instance;
+            var flight = ParsekFlight.Instance;
+            string priorTreeIdStr = flight?.ActiveTreeForDisplay?.Id ?? "<no-tree>";
+
+            // Mirror the session-armed guard (L8 PR #876 round-5
+            // review): refuse if a Re-Fly merge journal is concurrently
+            // active. CommitTreeFlight could race the journal finisher.
+            if (scenario != null && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"merge-refused-active-merge-journal-no-session " +
+                    $"priorTreeId={priorTreeIdStr} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage(
+                    "Switch-to merge: re-fly merge in progress - retry in a moment", 3f);
+                return;
+            }
+
+            if (flight != null && flight.HasActiveTree)
+            {
+                try
+                {
+                    flight.CommitTreeFlight();
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-merge-chosen-no-session " +
+                        $"priorTreeId={priorTreeIdStr} " +
+                        $"newTargetPid={(target != null ? target.persistentId : 0u)}");
+                }
+                catch (Exception ex)
+                {
+                    // Defensive on CommitTreeFlight exception: abort the
+                    // switch rather than letting ArmIntentAndSwitchTo
+                    // proceed against a half-finalized tree (mirrors L2
+                    // in MergePriorAndSwitchTo).
+                    ParsekLog.Error("SwitchIntentPatch",
+                        $"pre-switch-dialog merge (no-session): CommitTreeFlight threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - aborting switch");
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"pre-switch-dialog merge abort (no-session): priorTreeId={priorTreeIdStr} " +
+                        $"newTargetPid={(target != null ? target.persistentId : 0u)} - " +
+                        "player remains on prior vessel; retry the Switch-To click");
+                    ParsekLog.ScreenMessage(
+                        "Switch-to canceled: failed to commit prior recording", 4f);
+                    return;
+                }
+
+                // L3 PR #876 round-5 review: CommitTreeFlight does not
+                // fire MergeDialog.OnTreeCommitted, so the
+                // EvaluateAndApplyGhostChains subscriber on
+                // ParsekFlight wouldn't run on this path. Invoke
+                // directly so newly committed recordings get picked
+                // up immediately.
+                try
+                {
+                    MergeDialog.OnTreeCommitted?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Warn("SwitchIntentPatch",
+                        $"pre-switch-dialog merge (no-session): OnTreeCommitted invoker threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - continuing with switch");
+                }
+            }
+            else
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog merge (no-session): no active tree to commit " +
+                    $"priorTreeId={priorTreeIdStr} - proceeding with switch");
+            }
+
+            ArmIntentAndSwitchTo(target);
+        }
+
+        /// <summary>
+        /// No-session Case B Discard handler: drops the live active
+        /// tree without committing it via
+        /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/>
+        /// (which despite its name does the full active-tree teardown:
+        /// stops continuations and gloops, ForceStops the recorder,
+        /// discards the background recorder, nulls
+        /// <c>activeTree</c>, and rolls back any future-time ledger
+        /// entries via
+        /// <c>LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions</c>).
+        /// Then arms a fresh intent and calls
+        /// <see cref="FlightGlobals.SetActiveVessel"/>.
+        ///
+        /// <para>Mirrors the active-merge-journal guard so the journal
+        /// finisher cannot race the discard.</para>
+        /// </summary>
+        private static void DiscardActiveRecordingAndSwitchTo(Vessel target)
+        {
+            var scenario = ParsekScenario.Instance;
+            var flight = ParsekFlight.Instance;
+            string priorTreeIdStr = flight?.ActiveTreeForDisplay?.Id ?? "<no-tree>";
+
+            // Mirror the session-armed merge guard for symmetry: refuse
+            // if a Re-Fly merge journal is concurrently active.
+            // AutoDiscardIdleActiveTree calls
+            // LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions,
+            // which would race the journal's rollback.
+            if (scenario != null && scenario.ActiveMergeJournal != null)
+            {
+                ParsekLog.Warn("SwitchIntentPatch",
+                    $"discard-refused-active-merge-journal-no-session " +
+                    $"priorTreeId={priorTreeIdStr} " +
+                    $"journal={scenario.ActiveMergeJournal.JournalId ?? "<no-id>"}");
+                ParsekLog.ScreenMessage(
+                    "Switch-to discard: re-fly merge in progress - retry in a moment", 3f);
+                return;
+            }
+
+            if (flight != null && flight.HasActiveTree)
+            {
+                try
+                {
+                    flight.AutoDiscardIdleActiveTree(
+                        "pre-switch-dialog discard (no-session)");
+                    ParsekLog.Info("SwitchIntentPatch",
+                        $"pre-switch-dialog-discard-chosen-no-session " +
+                        $"priorTreeId={priorTreeIdStr} " +
+                        $"newTargetPid={(target != null ? target.persistentId : 0u)}");
+                }
+                catch (Exception ex)
+                {
+                    // Defensive on discard exception: log + proceed with
+                    // the switch. The live tree may be in an
+                    // intermediate state, but the next scene-load /
+                    // OnSave will sweep it.
+                    ParsekLog.Error("SwitchIntentPatch",
+                        $"pre-switch-dialog discard (no-session): AutoDiscardIdleActiveTree threw " +
+                        $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
+                }
+            }
+            else
+            {
+                ParsekLog.Info("SwitchIntentPatch",
+                    $"pre-switch-dialog discard (no-session): no active tree to discard " +
+                    $"priorTreeId={priorTreeIdStr} - proceeding with switch");
+            }
+
+            ArmIntentAndSwitchTo(target);
+        }
+
+        /// <summary>
         /// Shared arm-then-switch finisher for the dialog button handlers.
         /// Arms a fresh Map Switch-To intent and invokes
         /// <c>FlightGlobals.SetActiveVessel(target)</c>. The consume helper
@@ -623,22 +853,37 @@ namespace Parsek.Patches
 
         /// <summary>
         /// Pre-switch decision branch selector exposed for unit tests. The
-        /// Prefix opens the pre-switch Merge / Discard dialog only when a
-        /// switch-segment session is already armed, the new target vessel
-        /// PID differs from the session's focused PID, and no other merge
-        /// dialog is open. Otherwise the original arm-and-skip flow runs.
+        /// Prefix opens the pre-switch Merge / Discard dialog in two
+        /// independent cases (predicate priority: session always beats
+        /// no-session):
+        ///
+        /// <para><b>Case A — switch-segment session armed.</b> A prior
+        /// session exists with a different focused PID; the dialog opens
+        /// and stock OnSelect is skipped. Same-target re-click defers to
+        /// the consume helper's <c>duplicate-intent-same-target</c> path
+        /// without opening a dialog.</para>
+        ///
+        /// <para><b>Case B — no session, active in-flight recording,
+        /// target out-of-bubble (unloaded).</b> Map Switch-To to an
+        /// unloaded target triggers stock's
+        /// <c>FlightDriver.StartAndFocusVessel</c> scene reload. The
+        /// existing SceneExit dialog filter explicitly skips FLIGHT→FLIGHT
+        /// transitions (see <see cref="SceneExitInterceptor"/>), so the
+        /// prior recording silently survives the reload without a player
+        /// decision today. This branch surfaces the same Merge/Discard
+        /// dialog the Esc-to-Space-Center flow uses, before the scene
+        /// reload runs.</para>
         ///
         /// <para>Returns:
         /// <list type="bullet">
-        /// <item><c>OpenDialog</c>: a prior session exists with a different
-        ///     focused PID; the dialog should be opened and stock OnSelect
-        ///     skipped.</item>
-        /// <item><c>SkipDialogSameTarget</c>: the prior session targets the
-        ///     same vessel — the consume helper's
-        ///     `duplicate-intent-same-target` branch will handle.</item>
+        /// <item><c>OpenDialog</c>: dialog should be opened, stock OnSelect
+        ///     skipped (either Case A or Case B).</item>
+        /// <item><c>SkipDialogSameTarget</c>: Case A only — the prior
+        ///     session targets the same vessel; consume helper's
+        ///     <c>duplicate-intent-same-target</c> branch handles.</item>
         /// <item><c>SkipDialogReEntry</c>: another merge/dialog popup is
-        ///     already open; defer to that one.</item>
-        /// <item><c>NoPriorSession</c>: no session is armed; the regular
+        ///     already open; defer to that one regardless of case.</item>
+        /// <item><c>NoPriorSession</c>: neither case applies; the regular
         ///     arm-and-skip flow runs unchanged.</item>
         /// </list>
         /// </para>
@@ -653,21 +898,40 @@ namespace Parsek.Patches
 
         /// <summary>
         /// Pure helper for unit-testing the pre-switch dialog gate. See
-        /// <see cref="PreSwitchDialogDecision"/> for the truth table.
+        /// <see cref="PreSwitchDialogDecision"/> for the full truth table.
+        /// Case A (active session) ALWAYS takes priority over Case B
+        /// (no session, active recording, unloaded target): a live session
+        /// is a stronger signal than a passive recording, and the existing
+        /// session-aware Merge path keeps its session-specific bookkeeping
+        /// (clear marker, scoped discard).
         /// </summary>
         internal static PreSwitchDialogDecision DecidePreSwitchDialogAction(
             bool hasActiveSession,
             uint priorFocusedPid,
             uint newTargetPid,
-            bool anotherDialogOpen)
+            bool anotherDialogOpen,
+            bool hasActiveRecording,
+            bool targetIsUnloaded)
         {
-            if (!hasActiveSession)
-                return PreSwitchDialogDecision.NoPriorSession;
-            if (priorFocusedPid == newTargetPid)
-                return PreSwitchDialogDecision.SkipDialogSameTarget;
-            if (anotherDialogOpen)
-                return PreSwitchDialogDecision.SkipDialogReEntry;
-            return PreSwitchDialogDecision.OpenDialog;
+            if (hasActiveSession)
+            {
+                if (priorFocusedPid == newTargetPid)
+                    return PreSwitchDialogDecision.SkipDialogSameTarget;
+                if (anotherDialogOpen)
+                    return PreSwitchDialogDecision.SkipDialogReEntry;
+                return PreSwitchDialogDecision.OpenDialog;
+            }
+            // Case B: no session armed, but a recording is in flight AND
+            // the target is unloaded. Stock would scene-reload silently
+            // and skip the Esc-to-SC dialog filter — surface the choice
+            // before the reload.
+            if (hasActiveRecording && targetIsUnloaded)
+            {
+                if (anotherDialogOpen)
+                    return PreSwitchDialogDecision.SkipDialogReEntry;
+                return PreSwitchDialogDecision.OpenDialog;
+            }
+            return PreSwitchDialogDecision.NoPriorSession;
         }
     }
 }
