@@ -8042,6 +8042,8 @@ namespace Parsek
 
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
@@ -8268,6 +8270,8 @@ namespace Parsek
 
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecId,
@@ -8355,7 +8359,7 @@ namespace Parsek
                 activeTree = new RecordingTree
                 {
                     Id = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture),
-                    TreeName = newVessel.vesselName ?? "Standalone",
+                    TreeName = Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Standalone",
                     BranchPoints = new List<BranchPoint>(),
                 };
                 if (chainManager != null)
@@ -8376,6 +8380,8 @@ namespace Parsek
             // Standalone path: parent is null, no branch-point id needed.
             // LOW 10 (PR #876 review): focusedRootPartPid parameter removed
             // — see SwitchSegmentBuilder.CreateSwitchContinuationSegment.
+            // VesselName resolution (#autoLOC token -> "Jumping Flea") is
+            // centralized inside SwitchSegmentBuilder.CreateSwitchContinuationSegment.
             var creation = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
                 activeTree,
                 parentRecordingIdOrNull: null,

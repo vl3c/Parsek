@@ -438,7 +438,13 @@ namespace Parsek
                 RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
                 TreeId = tree.Id,
                 VesselPersistentId = focusedVesselPersistentId,
-                VesselName = focusedVesselName ?? string.Empty,
+                // Resolve KSP localization keys (e.g. stock-craft "#autoLOC_501224"
+                // -> "Jumping Flea") at the single point that constructs the
+                // continuation Recording so any future fifth caller is immune
+                // to passing a raw token. Idempotent: already-resolved strings
+                // and non-"#" prefixes fall through unchanged. Diagnostic logs
+                // elsewhere still see the raw value for KSP.log grep parity.
+                VesselName = Recording.ResolveLocalizedName(focusedVesselName) ?? string.Empty,
                 ExplicitStartUT = switchUT,
                 // Step 6: stamp the SwitchSegmentSession owner. We deliberately
                 // do not touch CreatingSessionId — that field is owned by Re-Fly.

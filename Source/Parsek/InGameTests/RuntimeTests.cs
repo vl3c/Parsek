@@ -253,6 +253,78 @@ namespace Parsek.InGameTests
 
         #endregion
 
+        #region LocalizedName
+
+        [InGameTest(Category = "LocalizedName",
+            Description = "KSP Localizer resolves the Jumping Flea stock-craft #autoLOC token under live KSP")]
+        public void ResolveLocalizedName_StockCraftToken_ResolvesUnderLiveKsp()
+        {
+            // xUnit-side ResolveLocalizedNameTests cover the null/empty/passthrough
+            // branches but cannot exercise the live Localizer. This is the in-game
+            // guard for "the Localizer actually loads stock-craft autoLOC tokens"
+            // — the failure mode that ships #autoLOC_501224 to the recordings list.
+            const string token = "#autoLOC_501224";
+            string resolved = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsNotNull(resolved, "ResolveLocalizedName returned null");
+            InGameAssert.IsTrue(resolved != token,
+                $"Expected Localizer to resolve '{token}' under live KSP, got '{resolved}' (Localizer not loaded?)");
+            InGameAssert.IsTrue(resolved.Length > 0 && resolved[0] != '#',
+                $"Resolved name should not retain the # prefix, got '{resolved}'");
+            ParsekLog.Verbose("TestRunner", $"ResolveLocalizedName('{token}') -> '{resolved}'");
+        }
+
+        [InGameTest(Category = "LocalizedName",
+            Description = "SwitchSegmentBuilder writes resolved VesselName when passed an #autoLOC token")]
+        public void SwitchSegmentBuilder_AutoLocVesselName_WritesResolvedNameToRecording()
+        {
+            // End-to-end coverage for the builder-internal wrap: pass a raw
+            // #autoLOC stock-craft token as focusedVesselName and assert the
+            // resulting Recording.VesselName is resolved. Catches a regression
+            // where the wrap is removed or moved back to callers.
+            const string token = "#autoLOC_501224";
+            string expected = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsTrue(expected != token,
+                $"Test prerequisite: Localizer must resolve '{token}' (got '{expected}')");
+
+            var tree = new RecordingTree
+            {
+                Id = "tree-autoloc-test",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint>(),
+            };
+            string newRecId = System.Guid.NewGuid().ToString("N");
+            TrajectoryPoint Boundary(double ut) => new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = 0,
+                longitude = 0,
+                altitude = 100,
+                bodyName = "Kerbin",
+            };
+
+            var result = SwitchSegmentBuilder.CreateSwitchContinuationSegment(
+                tree,
+                parentRecordingIdOrNull: null,
+                focusedVesselPersistentId: 7777u,
+                focusedVesselName: token,
+                switchUT: 0.0,
+                entryReason: SwitchSegmentEntryReason.KscMarkerFly,
+                intentId: System.Guid.NewGuid(),
+                sessionId: System.Guid.NewGuid(),
+                newRecordingId: newRecId,
+                newBranchPointId: null,
+                initialBoundaryPointFactory: Boundary);
+
+            InGameAssert.IsTrue(result.Created,
+                $"Expected Created=true, got failureReason='{result.FailureReason ?? "<null>"}'");
+            Recording newRec = tree.Recordings[newRecId];
+            InGameAssert.AreEqual(expected, newRec.VesselName);
+            InGameAssert.IsTrue(newRec.VesselName != token,
+                $"Builder shipped raw token '{token}' instead of resolved name");
+        }
+
+        #endregion
+
         #region TrajectoryMath
 
         [InGameTest(Category = "TrajectoryMath", Description = "ShouldRecordPoint returns true when velocity direction changes")]
