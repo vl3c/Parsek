@@ -78,5 +78,69 @@ namespace Parsek.Tests
             Assert.Null(restored.TreeId);
             Assert.Null(restored.StartedRealTime);
         }
+
+        [Fact]
+        public void MergeJournal_SaveInto_DoesNotPersistRecoveredSubtreeIds()
+        {
+            // Pass 2 review L7 / r7-design-doc invariant: RecoveredSubtreeIds is
+            // a transient cross-block thread inside CompleteFromPostDurable —
+            // it MUST NOT be in SaveInto. The field's XML doc explicitly
+            // forbids persistence; this test locks the contract in code so a
+            // future refactor that "helpfully" adds it to the codec
+            // immediately surfaces.
+            var journal = new MergeJournal
+            {
+                JournalId = "mj_transient",
+                SessionId = "sess",
+                Phase = MergeJournal.Phases.Tombstone,
+                StartedUT = 200.0,
+                RecoveredSubtreeIds = new System.Collections.Generic.List<string>
+                {
+                    "should_not_persist_1",
+                    "should_not_persist_2",
+                },
+            };
+
+            var parent = new ConfigNode("PARSEK");
+            journal.SaveInto(parent);
+
+            // Confirm the journal node carries the persistent fields…
+            var node = parent.GetNode("MERGE_JOURNAL");
+            Assert.NotNull(node);
+            Assert.Equal("mj_transient", node.GetValue("journalId"));
+            Assert.Equal(MergeJournal.Phases.Tombstone, node.GetValue("phase"));
+
+            // …but nothing serialising the transient list.
+            Assert.Null(node.GetValue("recoveredSubtreeIds"));
+            Assert.Null(node.GetValue("recoveredSubtreeId"));
+            Assert.False(node.HasNode("RECOVERED_SUBTREE_IDS"));
+            // Whole-text scan as a belt-and-braces check against an unexpected
+            // future serialisation form.
+            string serialised = node.ToString();
+            Assert.DoesNotContain("should_not_persist", serialised);
+        }
+
+        [Fact]
+        public void MergeJournal_LoadFrom_LeavesRecoveredSubtreeIdsNull()
+        {
+            // Mirror of the SaveInto invariant on the LoadFrom side: nothing
+            // in the on-disk format hydrates RecoveredSubtreeIds, so a
+            // freshly-loaded journal must have it null. The orchestrator
+            // relies on this for the "fresh-load resume entering at
+            // Tombstone" path to fall through to RebuildSubtree.
+            var node = new ConfigNode("MERGE_JOURNAL");
+            node.AddValue("journalId", "mj_load");
+            node.AddValue("sessionId", "sess");
+            node.AddValue("phase", MergeJournal.Phases.Tombstone);
+            node.AddValue("startedUT", "150.0");
+            // Even if a malformed save sneaks the field in, the loader must
+            // ignore it (LoadFrom doesn't read it; this catches a future
+            // refactor that added a load path).
+            node.AddValue("recoveredSubtreeIds", "rogue_id_1");
+
+            var restored = MergeJournal.LoadFrom(node);
+
+            Assert.Null(restored.RecoveredSubtreeIds);
+        }
     }
 }

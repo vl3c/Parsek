@@ -454,6 +454,100 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Walks PART/crew= values in a vessel snapshot ConfigNode and rewrites any
+        /// stand-in names back to their original kerbal names. Returns the number
+        /// of crew entries that were rewritten.
+        ///
+        /// Called from <see cref="VesselSpawner.TryBackupSnapshot"/> so every
+        /// captured snapshot persists the original kerbals — not whichever stand-in
+        /// happens to be seated on the live vessel at capture time. Without this
+        /// step, a snapshot captured after <see cref="CrewReservationManager.SwapReservedCrewInFlight"/>
+        /// or <see cref="CrewReservationManager.PlaceOrphanedReplacements"/> seats a
+        /// stand-in would bake that stand-in name into the snapshot. At spawn time
+        /// <see cref="VesselSpawner.EnsureCrewExistInRoster"/> would then fabricate
+        /// a brand-new kerbal with that name (random gender, traits, stats) instead
+        /// of restoring the original recorded crew.
+        ///
+        /// Pure-ish (only reads <see cref="LedgerOrchestrator.Kerbals"/> via the
+        /// slot-chain fallback) — safe to call when the slot map is empty; the
+        /// in-flight <paramref name="replacements"/> dict still covers same-session
+        /// swaps even before any commit walk runs.
+        /// </summary>
+        internal static int ReverseMapCrewNamesInSnapshot(
+            ConfigNode snapshot,
+            IReadOnlyDictionary<string, string> replacements,
+            string contextForLog)
+        {
+            if (snapshot == null)
+                return 0;
+
+            int rewritten = 0;
+            foreach (ConfigNode partNode in snapshot.GetNodes("PART"))
+            {
+                if (partNode == null) continue;
+
+                string[] crewNames = partNode.GetValues("crew");
+                if (crewNames == null || crewNames.Length == 0) continue;
+
+                var rewrittenList = new List<string>(crewNames.Length);
+                bool partChanged = false;
+
+                for (int i = 0; i < crewNames.Length; i++)
+                {
+                    string name = crewNames[i];
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        rewrittenList.Add(name);
+                        continue;
+                    }
+
+                    string original = null;
+                    if (replacements != null)
+                    {
+                        foreach (var kvp in replacements)
+                        {
+                            if (string.Equals(kvp.Value, name, System.StringComparison.Ordinal))
+                            {
+                                original = kvp.Key;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (original == null)
+                        original = TryReverseMapCrewNameFromSlots(name);
+
+                    if (original != null && !string.Equals(original, name, System.StringComparison.Ordinal))
+                    {
+                        rewrittenList.Add(original);
+                        partChanged = true;
+                        rewritten++;
+                    }
+                    else
+                    {
+                        rewrittenList.Add(name);
+                    }
+                }
+
+                if (partChanged)
+                {
+                    partNode.RemoveValues("crew");
+                    for (int i = 0; i < rewrittenList.Count; i++)
+                        partNode.AddValue("crew", rewrittenList[i]);
+                }
+            }
+
+            if (rewritten > 0)
+            {
+                ParsekLog.Info(Tag,
+                    $"ReverseMapCrewNamesInSnapshot: rewrote {rewritten} stand-in crew name(s) " +
+                    $"back to originals in snapshot ({contextForLog ?? "no-context"})");
+            }
+
+            return rewritten;
+        }
+
         internal static KerbalEndState InferCrewEndState(
             string crewName,
             TerminalState? terminalState,

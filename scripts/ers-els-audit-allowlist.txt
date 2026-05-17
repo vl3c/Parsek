@@ -245,3 +245,15 @@ Source/Parsek/Rendering/CoBubbleBlender.cs
 # reasons than the post-finalize classifier will. No mutation; no scenario
 # state-version bumps. Same trust scope as SupersedeCommit.cs above.
 Source/Parsek/ReFlyAutoSealPreview.cs
+
+# RecordingTreeSplitter.SplitOriginAtRewindUT is the Re-Fly merge-time
+# orchestrator that splits the origin recording at the rewind UT into HEAD
+# (kept visible) and TIP (about to be superseded). It must read the raw
+# CommittedRecordings list to resolve origin / chain siblings / debris
+# children by id and the raw Ledger.Actions list to UT-partition action
+# RecordingIds across the split — routing through ERS/ELS would hide TIP
+# (which the supersede write is about to introduce) and pre-existing
+# NotCommitted provisionals on neighboring slots. Same trust scope as
+# SupersedeCommit.cs above. Documented at the call site with an inline
+# [ERS-exempt] comment.
+Source/Parsek/RecordingTreeSplitter.cs

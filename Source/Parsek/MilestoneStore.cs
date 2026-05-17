@@ -533,6 +533,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes the last appended milestone (no-op if empty). Used by
+        /// in-game test teardown to reverse <see cref="AddMilestoneForTesting"/>
+        /// without clobbering the live save's milestone history.
+        /// </summary>
+        internal static void RemoveLastMilestoneForTesting()
+        {
+            if (milestones.Count == 0) return;
+            milestones.RemoveAt(milestones.Count - 1);
+        }
+
+        /// <summary>
         /// Phase 6 of Rewind-to-Staging (design §6.4 reconciliation table):
         /// appends a milestone during bundle restore. Identical to
         /// <see cref="AddMilestoneForTesting"/> but named for production use so

@@ -20267,6 +20267,469 @@ namespace Parsek.InGameTests
                 "foreign-SOI segments should not render through a gap in the v1 selector");
         }
 
+        /// <summary>
+        /// Bug-repro acceptance test for the split-at-rewind-UT fix
+        /// (plan §7d / docs/dev/plans/fix-supersede-identity-scope.md).
+        ///
+        /// <para>
+        /// Installs a synthetic single-recording tree where origin covers
+        /// UT [8.42, 52.7] with a Destroyed terminal and one on-board kerbal
+        /// marked Dead, plus a provisional fork covering [34.5, ...]. Builds
+        /// a re-fly marker with <c>RewindPointUT = 34.24</c>, then drives
+        /// <see cref="MergeJournalOrchestrator.RunMerge"/> end-to-end. After
+        /// the merge:
+        /// </para>
+        ///
+        /// <list type="bullet">
+        ///   <item><description>The origin recording is split into HEAD [8.42, 34.24] (visible) and TIP [34.24, 52.7] (superseded by the fork). HEAD keeps the original id; TIP gets a new id; they share a ChainId.</description></item>
+        ///   <item><description>The kerbal's <c>KerbalEndState=Dead</c> ledger action is retagged to TIP, then tombstoned — ELS does not credit the kerbal as dead.</description></item>
+        ///   <item><description>The pre-rewind <c>FirstLaunch</c> milestone at UT 9.4 stays attributed to HEAD (not retagged to TIP).</description></item>
+        ///   <item><description><c>TimelineBuilder.Build</c> produces a <c>RecordingStart</c> entry for HEAD.</description></item>
+        ///   <item><description>The slot's effective tip via the composite walker resolves to the fork, not HEAD.</description></item>
+        ///   <item><description><c>IsPreRewindCarveOut(HEAD, marker)</c> returns <c>(true, PreRewindChainHead)</c>.</description></item>
+        /// </list>
+        ///
+        /// <para>
+        /// All scenario / store / ledger / milestone mutations are reversed
+        /// in the finally block so the live save is restored to its pre-test
+        /// state regardless of pass/fail. <c>DurableSaveForTesting</c> is
+        /// installed to bypass <c>persistent.sfs</c> writes during the
+        /// orchestrator's three durable barriers.
+        /// </para>
+        /// </summary>
+        [InGameTest(Category = "Rewind", Scene = GameScenes.SPACECENTER,
+            Description = "Re-Fly on a recording spanning the rewind UT: split keeps launch row, retags+tombstones post-rewind Dead crew action")]
+        public void ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew()
+        {
+            var scenario = ParsekScenario.Instance;
+            InGameAssert.IsNotNull(scenario, "ParsekScenario.Instance is null");
+
+            // Preserve live session/scenario/ledger state so the synthetic
+            // fixture doesn't clobber a real save.
+            var priorMarker = scenario.ActiveReFlySessionMarker;
+            var priorJournal = scenario.ActiveMergeJournal;
+            var priorSupersedes = scenario.RecordingSupersedes;
+            var priorTombstones = scenario.LedgerTombstones;
+            var priorRps = scenario.RewindPoints;
+            int priorLedgerCount = Ledger.Actions.Count;
+            int priorMilestoneCount = MilestoneStore.Milestones.Count;
+            var priorDurableSaveHook = MergeJournalOrchestrator.DurableSaveForTesting;
+            var priorSaveGameHook = MergeJournalOrchestrator.SaveGameForTesting;
+
+            string sessId = "spanned_split_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string treeId = "spanned_split_tree_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string originId = "spanned_split_origin_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string forkId = "spanned_split_fork_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string deadActionId = "act_dead_" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            const double originStartUT = 8.42;
+            const double rewindUT = 34.24;
+            const double originEndUT = 52.7;
+            const double launchMilestoneUT = 9.4;
+            const double deadActionUT = 50.0;
+
+            // Build origin recording: spans [8.42, 52.7] with a sample at the
+            // rewind UT so SplitAtSection's Unity-runtime-only Slerp branch
+            // is bypassed (same pattern as the unit-test BuildSpanningOrigin
+            // helper in MergeJournalOrchestratorTests.cs:801).
+            var origin = new Recording
+            {
+                RecordingId = originId,
+                VesselName = "Kerbal X (acceptance)",
+                TreeId = treeId,
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                LaunchSiteName = "LaunchPad",
+                StartBodyName = "Kerbin",
+            };
+            origin.Points.Add(new TrajectoryPoint { ut = originStartUT });
+            origin.Points.Add(new TrajectoryPoint { ut = rewindUT });
+            origin.Points.Add(new TrajectoryPoint { ut = originEndUT });
+            origin.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = originStartUT,
+                endUT = originEndUT,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = originStartUT },
+                    new TrajectoryPoint { ut = rewindUT },
+                    new TrajectoryPoint { ut = originEndUT },
+                },
+            });
+            origin.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                ["Jebediah Kerman"] = KerbalEndState.Dead,
+            };
+            origin.CrewEndStatesResolved = true;
+
+            // Build the provisional fork: covers [34.5, ...] with Landed terminal.
+            var fork = new Recording
+            {
+                RecordingId = forkId,
+                VesselName = "Kerbal X (acceptance) re-fly",
+                TreeId = treeId,
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = TerminalState.Landed,
+                SupersedeTargetId = originId,
+                CreatingSessionId = sessId,
+            };
+            fork.Points.Add(new TrajectoryPoint { ut = 34.5 });
+            fork.Points.Add(new TrajectoryPoint { ut = 45.0 });
+
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = "SpannedSplit_" + treeId,
+                RootRecordingId = originId,
+                ActiveRecordingId = originId,
+                BranchPoints = new List<BranchPoint>(),
+            };
+            tree.AddOrReplaceRecording(origin);
+            tree.AddOrReplaceRecording(fork);
+
+            // Install the synthetic tree + recordings into committed storage.
+            RecordingStore.AddCommittedInternal(origin);
+            RecordingStore.AddCommittedInternal(fork);
+            var trees = RecordingStore.CommittedTrees;
+            for (int i = trees.Count - 1; i >= 0; i--)
+                if (trees[i] != null && trees[i].Id == treeId) trees.RemoveAt(i);
+            trees.Add(tree);
+
+            // Pre-rewind milestone: FirstLaunch at UT 9.4. The retag predicate
+            // is `StartUT >= rewindUT - epsilon`, so this milestone with
+            // StartUT ~0 (window from 0..9.4) MUST stay attributed to HEAD.
+            var launchMilestone = new Milestone
+            {
+                StartUT = 0.0,
+                EndUT = launchMilestoneUT,
+                RecordingId = originId,
+            };
+            MilestoneStore.AddMilestoneForTesting(launchMilestone);
+
+            // Post-rewind ledger action: KerbalAssignment for the dead kerbal.
+            // After the split, this action's UT (50.0) is post-rewind so its
+            // RecordingId should be retagged from origin → TIP, then
+            // CommitTombstones writes a LedgerTombstone for its ActionId.
+            var deadAction = new GameAction
+            {
+                ActionId = deadActionId,
+                Type = GameActionType.KerbalAssignment,
+                RecordingId = originId,
+                UT = deadActionUT,
+                KerbalName = "Jebediah Kerman",
+                KerbalRole = "Pilot",
+                KerbalEndStateField = KerbalEndState.Dead,
+                StartUT = (float)originStartUT,
+                EndUT = (float)deadActionUT,
+            };
+            Ledger.AddAction(deadAction);
+
+            // Build the marker per plan §7d.
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = sessId,
+                TreeId = treeId,
+                ActiveReFlyRecordingId = forkId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                RewindPointUT = rewindUT,
+                InvokedUT = rewindUT,
+                InvokedRealTime = System.DateTime.UtcNow.ToString("o"),
+            };
+
+            // Install fresh scenario collections so we can deterministically
+            // count what AppendRelations + CommitTombstones wrote without
+            // having to subtract baselines from real save state.
+            scenario.ActiveReFlySessionMarker = marker;
+            scenario.ActiveMergeJournal = null;
+            scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
+            scenario.LedgerTombstones = new List<LedgerTombstone>();
+            scenario.RewindPoints = new List<RewindPoint>();
+            scenario.BumpSupersedeStateVersion();
+
+            // Bypass persistent.sfs writes — the orchestrator fires five
+            // synchronous DurableSave barriers (begin / split / durable1 /
+            // durable2 / durable3) and we don't want to touch the player's
+            // save during a Run All sweep.
+            var durableCheckpoints = new List<string>();
+            MergeJournalOrchestrator.DurableSaveForTesting =
+                label => durableCheckpoints.Add(label);
+            MergeJournalOrchestrator.SaveGameForTesting =
+                (saveName, saveFolder, mode) => "ok";
+
+            ParsekLog.Info("RewindTest",
+                $"ReFlyFromSpannedRecording_PreservesLaunchRowAndTombstonesPostRewindCrew: " +
+                $"installed origin={originId} fork={forkId} sess={sessId} " +
+                $"rewindUT={rewindUT.ToString("F2", CultureInfo.InvariantCulture)} — invoking RunMerge");
+
+            try
+            {
+                bool ok = MergeJournalOrchestrator.RunMerge(marker, fork);
+                InGameAssert.IsTrue(ok, "MergeJournalOrchestrator.RunMerge returned false");
+
+                // 1. Tree topology: two recordings where origin used to be,
+                //    HEAD [originStartUT..rewindUT] keeps the original id,
+                //    TIP [rewindUT..originEndUT] has a new id, sharing a ChainId.
+                Recording head = null;
+                Recording tip = null;
+                foreach (var rec in RecordingStore.CommittedRecordings)
+                {
+                    if (rec == null) continue;
+                    if (rec.RecordingId == originId) head = rec;
+                    else if (rec.TreeId == treeId
+                        && rec.RecordingId != forkId
+                        && rec.ChainIndex == 1) tip = rec;
+                }
+                InGameAssert.IsNotNull(head, "HEAD (origin id preserved) not found post-merge");
+                InGameAssert.IsNotNull(tip, "TIP (new chain sibling at ChainIndex=1) not found post-merge");
+                InGameAssert.AreNotEqual(originId, tip.RecordingId,
+                    "TIP must have a new id, distinct from origin's");
+                InGameAssert.AreEqual(head.ChainId, tip.ChainId,
+                    "HEAD and TIP must share the same ChainId");
+                InGameAssert.IsTrue(!string.IsNullOrEmpty(head.ChainId),
+                    "Split must allocate a non-empty ChainId on HEAD");
+                InGameAssert.AreEqual(0, head.ChainIndex, "HEAD.ChainIndex should be 0");
+                InGameAssert.AreEqual(1, tip.ChainIndex, "TIP.ChainIndex should be 1");
+                InGameAssert.ApproxEqual(originStartUT, head.StartUT, 0.001,
+                    "HEAD.StartUT should equal origin's pre-split StartUT");
+                InGameAssert.ApproxEqual(rewindUT, head.EndUT, 0.001,
+                    "HEAD.EndUT should equal the rewind UT");
+                InGameAssert.ApproxEqual(rewindUT, tip.StartUT, 0.001,
+                    "TIP.StartUT should equal the rewind UT");
+                InGameAssert.ApproxEqual(originEndUT, tip.EndUT, 0.001,
+                    "TIP.EndUT should equal origin's pre-split EndUT");
+
+                // 2. Supersede graph: TIP is superseded by fork; HEAD is NOT.
+                bool tipSupersededByFork = false;
+                bool headSupersededByFork = false;
+                for (int i = 0; i < scenario.RecordingSupersedes.Count; i++)
+                {
+                    var rel = scenario.RecordingSupersedes[i];
+                    if (rel == null) continue;
+                    if (rel.NewRecordingId == forkId)
+                    {
+                        if (rel.OldRecordingId == tip.RecordingId) tipSupersededByFork = true;
+                        if (rel.OldRecordingId == originId) headSupersededByFork = true;
+                    }
+                }
+                InGameAssert.IsTrue(tipSupersededByFork,
+                    $"Expected supersede row TIP→fork; got rows={scenario.RecordingSupersedes.Count}");
+                InGameAssert.IsFalse(headSupersededByFork,
+                    "HEAD must NOT be in the supersede write-set (pre-rewind chain-head carve-out)");
+
+                // 3. ERS includes HEAD (visible) but NOT TIP (superseded). Fork
+                //    is also visible (nothing supersedes it yet).
+                var ers = EffectiveState.ComputeERS();
+                bool ersHasHead = false, ersHasTip = false, ersHasFork = false;
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var rec = ers[i];
+                    if (rec == null) continue;
+                    if (rec.RecordingId == head.RecordingId) ersHasHead = true;
+                    else if (rec.RecordingId == tip.RecordingId) ersHasTip = true;
+                    else if (rec.RecordingId == forkId) ersHasFork = true;
+                }
+                InGameAssert.IsTrue(ersHasHead,
+                    "ERS must include HEAD (launch portion stays visible)");
+                InGameAssert.IsFalse(ersHasTip,
+                    "ERS must NOT include TIP (superseded by fork)");
+                InGameAssert.IsTrue(ersHasFork,
+                    "ERS must include fork (nothing supersedes the new tip yet)");
+
+                // 4. Ledger action retag + tombstone: the Dead action was on
+                //    origin's id pre-merge with UT 50.0 (post-rewind), so the
+                //    split retagged it to TIP, then CommitTombstones wrote a
+                //    LedgerTombstone targeting its ActionId. ELS does not
+                //    include the Dead action.
+                GameAction retaggedAction = null;
+                for (int i = 0; i < Ledger.Actions.Count; i++)
+                {
+                    if (Ledger.Actions[i] != null
+                        && Ledger.Actions[i].ActionId == deadActionId)
+                    {
+                        retaggedAction = Ledger.Actions[i];
+                        break;
+                    }
+                }
+                InGameAssert.IsNotNull(retaggedAction,
+                    "Dead action vanished from the ledger — retag should have rewritten its RecordingId, not removed it");
+                InGameAssert.AreEqual(tip.RecordingId, retaggedAction.RecordingId,
+                    $"Dead action should be retagged to TIP ({tip.RecordingId}) — got {retaggedAction.RecordingId}");
+
+                bool deadActionTombstoned = false;
+                for (int i = 0; i < scenario.LedgerTombstones.Count; i++)
+                {
+                    var ts = scenario.LedgerTombstones[i];
+                    if (ts != null && ts.ActionId == deadActionId)
+                    {
+                        deadActionTombstoned = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(deadActionTombstoned,
+                    $"Dead action {deadActionId} should have a LedgerTombstone after merge");
+
+                var els = EffectiveState.ComputeELS();
+                bool elsHasDead = false;
+                for (int i = 0; i < els.Count; i++)
+                {
+                    if (els[i] != null && els[i].ActionId == deadActionId)
+                    {
+                        elsHasDead = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsFalse(elsHasDead,
+                    "ELS must NOT credit the Dead action — it should be filtered by its tombstone");
+
+                // 5. Milestone retag: the pre-rewind FirstLaunch milestone
+                //    (StartUT=0, EndUT=9.4) stays attributed to HEAD's id
+                //    because its events-window start is before the rewind.
+                Milestone foundLaunchMs = null;
+                var milestones = MilestoneStore.Milestones;
+                for (int i = 0; i < milestones.Count; i++)
+                {
+                    var ms = milestones[i];
+                    if (ms == null) continue;
+                    if (System.Math.Abs(ms.EndUT - launchMilestoneUT) < 0.01)
+                    {
+                        foundLaunchMs = ms;
+                        break;
+                    }
+                }
+                InGameAssert.IsNotNull(foundLaunchMs, "FirstLaunch milestone vanished after merge");
+                InGameAssert.AreEqual(originId, foundLaunchMs.RecordingId,
+                    $"Pre-rewind FirstLaunch milestone should stay tagged HEAD ({originId}) — got {foundLaunchMs.RecordingId}");
+
+                // 6. TimelineBuilder.Build produces a Start entry for HEAD.
+                var timeline = TimelineBuilder.Build(
+                    RecordingStore.CommittedRecordings,
+                    Ledger.Actions,
+                    MilestoneStore.Milestones,
+                    isLegacyEventVisible: null);
+                bool sawHeadStart = false;
+                for (int i = 0; i < timeline.Count; i++)
+                {
+                    var entry = timeline[i];
+                    if (entry == null) continue;
+                    if (entry.Type == TimelineEntryType.RecordingStart
+                        && entry.RecordingId == head.RecordingId)
+                    {
+                        sawHeadStart = true;
+                        break;
+                    }
+                }
+                InGameAssert.IsTrue(sawHeadStart,
+                    "Timeline must contain a RecordingStart entry for HEAD's id (launch row preserved)");
+
+                // 7. Slot tip via the composite walker: HEAD → (chain) → TIP →
+                //    (supersede) → fork. The slot's OriginChildRecordingId
+                //    points at HEAD; EffectiveTipRecordingId chases the
+                //    chain hop and then the supersede edge.
+                string compositeTip = EffectiveState.EffectiveTipRecordingId(
+                    originId, scenario.RecordingSupersedes);
+                InGameAssert.AreEqual(forkId, compositeTip,
+                    $"Composite walker for slot.OriginChildRecordingId={originId} should resolve to fork " +
+                    $"({forkId}); got {compositeTip}");
+
+                // 8. Pre-rewind carve-out predicate on HEAD. The marker was
+                //    cleared at the end of RunMerge (step 7), so reconstruct
+                //    a marker shell for the predicate check using the same
+                //    RewindPointUT used by the merge.
+                var carveOutMarker = new ReFlySessionMarker
+                {
+                    RewindPointUT = rewindUT,
+                    InvokedUT = rewindUT,
+                };
+                SupersedeCommit.PreRewindCarveOutReason carveOutReason;
+                bool isCarveOut = SupersedeCommit.IsPreRewindCarveOut(
+                    head, carveOutMarker, out carveOutReason);
+                InGameAssert.IsTrue(isCarveOut,
+                    "IsPreRewindCarveOut(HEAD, marker) should return true after the split");
+                InGameAssert.AreEqual(
+                    SupersedeCommit.PreRewindCarveOutReason.PreRewindChainHead,
+                    carveOutReason,
+                    $"IsPreRewindCarveOut reason should be PreRewindChainHead; got {carveOutReason}");
+
+                // 9. Watch button enabledness for HEAD. The predicate is a
+                //    pure helper — sanity-check that with the four
+                //    preconditions satisfied it returns true for HEAD.
+                bool watchEnabled = RecordingsTableUI.IsWatchButtonEnabled(
+                    hasGhost: true, sameBody: true, inRange: true,
+                    isDebris: head.IsDebris);
+                InGameAssert.IsTrue(watchEnabled,
+                    "IsWatchButtonEnabled(HEAD) with all preconditions met should return true " +
+                    "(Bug 1's playback-window issue is separate and out of scope)");
+
+                // 10. Durable barriers fired in order, including the new
+                //     post-Begin Split barrier.
+                int beginIdx = durableCheckpoints.IndexOf("begin");
+                int splitIdx = durableCheckpoints.IndexOf("split");
+                int durable1Idx = durableCheckpoints.IndexOf("durable1");
+                InGameAssert.IsTrue(
+                    beginIdx >= 0 && splitIdx > beginIdx && durable1Idx > splitIdx,
+                    $"Expected ordered durable barriers begin < split < durable1; got [{string.Join(",", durableCheckpoints)}]");
+
+                ParsekLog.Info("RewindTest",
+                    $"ReFlyFromSpannedRecording: all 10 invariants passed " +
+                    $"(head={head.RecordingId}, tip={tip.RecordingId}, fork={forkId}, " +
+                    $"supersedeRows={scenario.RecordingSupersedes.Count}, " +
+                    $"tombstones={scenario.LedgerTombstones.Count})");
+            }
+            finally
+            {
+                // Restore the live save state in the exact reverse of install.
+                MergeJournalOrchestrator.DurableSaveForTesting = priorDurableSaveHook;
+                MergeJournalOrchestrator.SaveGameForTesting = priorSaveGameHook;
+
+                // Drop every recording in our synthetic tree (HEAD = origin id,
+                // TIP under the synthetic treeId with our chainId, and fork).
+                // The split may have inserted TIP with a generated id, so we
+                // sweep by TreeId rather than by id alone.
+                var committed = RecordingStore.CommittedRecordings;
+                for (int i = committed.Count - 1; i >= 0; i--)
+                {
+                    var rec = committed[i];
+                    if (rec != null && rec.TreeId == treeId)
+                        RecordingStore.RemoveCommittedInternal(rec);
+                }
+                var liveTrees = RecordingStore.CommittedTrees;
+                for (int i = liveTrees.Count - 1; i >= 0; i--)
+                    if (liveTrees[i] != null && liveTrees[i].Id == treeId)
+                        liveTrees.RemoveAt(i);
+
+                // Drop the synthetic ledger action(s). Anything we added is
+                // tagged with originId pre-split or TIP post-split; the
+                // simplest restore is to truncate the ledger back to its
+                // pre-test count, since AddAction only appends.
+                if (Ledger.Actions.Count > priorLedgerCount)
+                {
+                    Ledger.TruncateActionsForTesting(priorLedgerCount);
+                }
+
+                // Drop the synthetic launch milestone (and any retagged one).
+                // MilestoneStore.AddMilestoneForTesting also only appends.
+                // Reset to pre-test count by removing trailing entries.
+                while (MilestoneStore.Milestones.Count > priorMilestoneCount)
+                {
+                    MilestoneStore.RemoveLastMilestoneForTesting();
+                }
+
+                scenario.ActiveReFlySessionMarker = priorMarker;
+                scenario.ActiveMergeJournal = priorJournal;
+                scenario.RecordingSupersedes = priorSupersedes;
+                scenario.LedgerTombstones = priorTombstones;
+                scenario.RewindPoints = priorRps;
+                scenario.BumpSupersedeStateVersion();
+                EffectiveState.ResetCachesForTesting();
+            }
+        }
+
         private static BallisticStateVector MakeApoapsisState(
             string bodyName,
             double gravParameter,

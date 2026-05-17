@@ -16,6 +16,7 @@ KSP directory resolution (first match wins):
 import argparse
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SKIP_SAVES = {"scenarios", "training"}
+ACTIVE_SAVE_RE = re.compile(r"Game State Saved to saves/([^/]+)/")
 
 
 def find_ksp_dir(explicit=None):
@@ -140,8 +142,38 @@ def copy_tree(src, dst):
     return True
 
 
-def detect_save(ksp_dir):
-    """Find save with most recently modified persistent.sfs."""
+def _detect_save_from_ksp_log(ksp_dir):
+    """Return the last save folder KSP wrote to according to KSP.log, or None.
+
+    Parses lines of the form `Game State Saved to saves/<name>/persistent` (also
+    matches quicksaves under the same folder). This tracks the *active* save —
+    what KSP was actually loaded against — rather than whichever persistent.sfs
+    on disk was touched most recently (e.g. by `dotnet test` writing into a
+    different save after the playtest ended).
+    """
+    log_path = ksp_dir / "KSP.log"
+    if not log_path.is_file():
+        return None
+    saves_dir = ksp_dir / "saves"
+    try:
+        with log_path.open("r", encoding="utf-8", errors="replace") as f:
+            data = f.read()
+    except OSError:
+        return None
+
+    last = None
+    for match in ACTIVE_SAVE_RE.finditer(data):
+        name = match.group(1)
+        if name in SKIP_SAVES:
+            continue
+        if not (saves_dir / name / "persistent.sfs").is_file():
+            continue
+        last = name
+    return last
+
+
+def _detect_save_from_mtime(ksp_dir):
+    """Fallback: pick the save with the most recently modified persistent.sfs."""
     saves_dir = ksp_dir / "saves"
     if not saves_dir.is_dir():
         return None
@@ -157,6 +189,17 @@ def detect_save(ksp_dir):
                 best_mtime = mtime
                 best_name = entry.name
     return best_name
+
+
+def detect_save(ksp_dir):
+    """Detect the active save. Returns (name, source) or (None, None)."""
+    name = _detect_save_from_ksp_log(ksp_dir)
+    if name:
+        return name, "KSP.log"
+    name = _detect_save_from_mtime(ksp_dir)
+    if name:
+        return name, "mtime (KSP.log unavailable or had no save markers)"
+    return None, None
 
 
 def git_state():
@@ -270,7 +313,11 @@ def main():
     logs_dir = Path(args.output_dir) if args.output_dir else REPO_ROOT.parent / "logs"
 
     # Resolve save
-    save_name = args.save or detect_save(ksp_dir)
+    if args.save:
+        save_name = args.save
+        save_source = "--save argument"
+    else:
+        save_name, save_source = detect_save(ksp_dir)
     if not save_name:
         print("ERROR: No save games found.", file=sys.stderr)
         sys.exit(1)
@@ -290,7 +337,7 @@ def main():
 
     print(f"Collecting logs into: {folder}/")
     print(f"KSP: {ksp_dir}")
-    print(f"Save game: {save_name}")
+    print(f"Save game: {save_name}  (source: {save_source})")
     print()
 
     # KSP logs
