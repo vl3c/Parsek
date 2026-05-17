@@ -8,6 +8,49 @@ namespace Parsek.Tests
     public class MergeJournalRoundTripTests
     {
         [Fact]
+        public void PhaseEnumEntries_MatchPhasesStringConstants_ByNameAndOrder()
+        {
+            // Bug fix-refly-abandon-and-fork-persist L3 review fixup:
+            // MergeJournalOrchestrator.Phase enum mirrors MergeJournal.
+            // Phases string constants. Skew (e.g. adding a phase string
+            // without the enum entry, or reordering) breaks
+            // MaybeInject(Phase.X) dispatch silently. Assert byName
+            // equality for every non-None enum entry — if a new phase
+            // string is added without the enum entry or vice versa,
+            // this test fails at the missing-name lookup. Order is
+            // verified by the test list literal: any future re-order
+            // of either side would also fail unless this list is kept
+            // in lockstep, which is what we want as a tripwire.
+            var expected = new[]
+            {
+                MergeJournal.Phases.Begin,
+                MergeJournal.Phases.TreeMerge,
+                MergeJournal.Phases.Split,
+                MergeJournal.Phases.Supersede,
+                MergeJournal.Phases.Tombstone,
+                MergeJournal.Phases.Finalize,
+                MergeJournal.Phases.Durable1Done,
+                MergeJournal.Phases.RpReap,
+                MergeJournal.Phases.MarkerCleared,
+                MergeJournal.Phases.Durable2Done,
+                MergeJournal.Phases.Complete,
+            };
+            var enumNames = System.Enum
+                .GetNames(typeof(MergeJournalOrchestrator.Phase));
+
+            // First enum entry is "None" (sentinel for "no phase set");
+            // skip it. The rest must match the Phases string constants
+            // 1:1 by name and order.
+            Assert.Equal("None", enumNames[0]);
+            Assert.Equal(expected.Length, enumNames.Length - 1);
+            for (int i = 0; i < expected.Length; i++)
+            {
+                Assert.Equal(expected[i], enumNames[i + 1]);
+            }
+        }
+
+
+        [Fact]
         public void MergeJournal_BeginPhase_RoundTrips()
         {
             var journal = new MergeJournal
