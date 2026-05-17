@@ -4843,6 +4843,23 @@ namespace Parsek
                 return;
             }
 
+            // Re-fly provisional anchor bypass: while a ReFlySessionMarker is
+            // live and the focus recording is the provisional, pin the Relative
+            // anchor to the supersede target (or OriginChildRecordingId
+            // fallback) instead of letting the generic nearest-search pick a
+            // fast-separating sibling that happens to be in-bubble. See
+            // docs/dev/plans/fix-refly-relative-anchor-selection.md.
+            if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
+                    tree,
+                    treeRec.RecordingId,
+                    out string reflyAnchor,
+                    out string reflySource))
+            {
+                ApplyReFlyProvisionalAnchorToState(
+                    state, treeRec, bgVessel, ut, reflyAnchor, reflySource);
+                return;
+            }
+
             var candidates = BuildBackgroundRecordingAnchorCandidates(
                 state,
                 bgVessel,
@@ -5275,6 +5292,68 @@ namespace Parsek
                 state,
                 ut,
                 "debris-parent-relative-enter");
+        }
+
+        // Re-fly provisional Relative anchor bypass for the BG recorder. Pins
+        // the anchor to the supersede target (or OriginChildRecordingId
+        // fallback) resolved by ReFlyAnchorSelection so the provisional's
+        // anchor-local offsets are recorded against a stable physical-identity
+        // continuation rather than against a fast-separating sibling that the
+        // generic nearest-search would otherwise pick.
+        private void ApplyReFlyProvisionalAnchorToState(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel bgVessel,
+            double ut,
+            string reflyAnchorRecordingId,
+            string reflySource)
+        {
+            if (state == null || treeRec == null) return;
+            if (string.IsNullOrEmpty(reflyAnchorRecordingId)) return;
+
+            string previousAnchorRecordingId = state.currentAnchorRecordingId;
+            bool wasRelative = state.isRelativeMode;
+            bool anchorChanged = !wasRelative
+                || !string.Equals(
+                    previousAnchorRecordingId,
+                    reflyAnchorRecordingId,
+                    StringComparison.Ordinal);
+
+            // Pin the recording id. No live candidate is constructed — pose
+            // resolution at playback flows through the recorded-anchor path
+            // exactly as for the station-rendezvous contract.
+            state.isRelativeMode = true;
+            state.currentAnchorRecordingId = reflyAnchorRecordingId;
+            state.currentAnchorCandidate = default;
+            state.hasCurrentAnchorCandidate = false;
+
+            bool needsSectionFlip = state.trackSectionActive
+                && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;
+            if (needsSectionFlip || anchorChanged)
+            {
+                SegmentEnvironment env = state.environmentHysteresis != null
+                    ? state.environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                if (state.trackSectionActive)
+                    CloseBackgroundTrackSection(state, ut);
+                StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                ForceNextBackgroundTrajectorySample(state, ut, "refly-relative-enter");
+                if (anchorChanged)
+                {
+                    string transition = previousAnchorRecordingId == null ? "entered" : "switched";
+                    ParsekLog.Info("BgRecorder",
+                        $"re-fly anchor {transition} (BG): pid={state.vesselPid} " +
+                        $"recordingId={treeRec.RecordingId} " +
+                        $"anchorRecordingId={reflyAnchorRecordingId} source={reflySource} " +
+                        $"previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
+                        $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
+            }
+            else
+            {
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+            }
         }
 
         private static void ForceNextBackgroundTrajectorySample(
