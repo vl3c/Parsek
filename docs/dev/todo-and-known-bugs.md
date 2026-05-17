@@ -12,7 +12,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Closed - v0.9.2 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
+## Closed - v0.10.0 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
 
 **Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — `rec_675a9193` (Kerbal X #2) and `rec_3cdedee5` (Kerbal X #3) appear as `NotCommitted` provisional recordings in `persistent.sfs:1646` and `:2558`, each with `creatingSessionId` naming a session whose marker was cleared at retry time. The next session's `AppendRelations` closure walk found them as PID peers of the new TIP and wrote invalid supersede rows `oldRecordingId=rec_675a9193 → newRecordingId=rec_3993fbe2` (`:3046`) and `oldRecordingId=rec_3cdedee5 → newRecordingId=rec_f944e1e4` (`:3086`). NotCommitted is the in-progress-provisional state and must never appear as a supersede source — an invariant violation of the data model.
 
@@ -29,7 +29,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Closed - v0.9.2 In-place-continuation fork dropped from RECORDING_TREE on save
+## Closed - v0.10.0 In-place-continuation fork dropped from RECORDING_TREE on save
 
 **Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — fork `rec_12b7252f…` (the post-rewind continuation of Kerbal X #1, committed `Immutable` at runtime and referenced by the supersede table + tombstones) has all four sidecar files on disk (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft`) but zero RECORDING nodes anywhere in `persistent.sfs`. Tree `cde7313f…` has `activeRecordingId = 575240c7…` (the HEAD launch) instead of pointing at the fork. The user sees the launch row but no post-rewind continuation in the recordings table — and the cited evidence's `[Anchor] recorded-relative-unresolved: reason=focus-tree-missing recordingId=rec_12b7252f` confirms downstream consumers couldn't find it either.
 
