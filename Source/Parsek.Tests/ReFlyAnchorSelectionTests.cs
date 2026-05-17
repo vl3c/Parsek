@@ -217,7 +217,7 @@ namespace Parsek.Tests
                 logLines,
                 l => l.Contains("[WARN]") && l.Contains("[Anchor]")
                     && l.Contains("cycle detected")
-                    && l.Contains("falling back to Absolute"));
+                    && l.Contains("bypass declined, falling back to nearest-search"));
         }
 
         [Fact]
@@ -253,7 +253,7 @@ namespace Parsek.Tests
                 logLines,
                 l => l.Contains("[WARN]") && l.Contains("[Anchor]")
                     && l.Contains("depth cap exceeded")
-                    && l.Contains("falling back to Absolute"));
+                    && l.Contains("bypass declined, falling back to nearest-search"));
         }
 
         [Fact]

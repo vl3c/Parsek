@@ -5319,13 +5319,28 @@ namespace Parsek
                     reflyAnchorRecordingId,
                     StringComparison.Ordinal);
 
-            // Pin the recording id. No live candidate is constructed — pose
+            // Pin the recording id. A synthetic candidate is constructed
+            // tagged with AnchorCandidateSource.ReFlyProvisionalSupersede so
+            // downstream BG log sites (ApplyBackgroundRelativeOffset error
+            // paths, exit-relative diagnostics) surface the bypass identity
+            // instead of defaulting to source=Live diagnosticPid=0. Pose
             // resolution at playback flows through the recorded-anchor path
-            // exactly as for the station-rendezvous contract.
+            // exactly as for the station-rendezvous contract; pos/rot fields
+            // here are placeholder (never consumed at playback).
+            var reflyCandidate = new RecordingAnchorCandidate(
+                reflyAnchorRecordingId,
+                worldPos: Vector3d.zero,
+                worldRotation: Quaternion.identity,
+                source: AnchorCandidateSource.ReFlyProvisionalSupersede,
+                diagnosticPid: 0u,
+                ghostIndex: -1,
+                isSealed: false,
+                isSameReplayPoint: false,
+                isSameVesselLineage: false);
             state.isRelativeMode = true;
             state.currentAnchorRecordingId = reflyAnchorRecordingId;
-            state.currentAnchorCandidate = default;
-            state.hasCurrentAnchorCandidate = false;
+            state.currentAnchorCandidate = reflyCandidate;
+            state.hasCurrentAnchorCandidate = true;
 
             bool needsSectionFlip = state.trackSectionActive
                 && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;

@@ -100,13 +100,23 @@ namespace Parsek
                 ? SourceSupersedeTarget
                 : SourceOriginChild;
 
+            // When the bypass declines, the caller falls back to the existing
+            // anchor-selection path (nearest-search at both recorders).
+            // Wording avoids claiming "recording as Absolute" because the
+            // caller's nearest-search may still open a Relative section
+            // against a different anchor candidate. The log surfaces the
+            // bypass-decline with enough context to identify which fall-back
+            // path will actually run.
+            const string BypassDeclineSuffix = " -> bypass declined, falling back to nearest-search";
+
             if (string.IsNullOrEmpty(candidate))
             {
                 ParsekLog.Warn(
                     "Anchor",
                     "re-fly anchor unavailable: provisionalRecId=" +
                     (activeRecordingId ?? "(none)") +
-                    " supersedeTargetId=(none) originChildRecordingId=(none) -> recording as Absolute");
+                    " supersedeTargetId=(none) originChildRecordingId=(none)" +
+                    BypassDeclineSuffix);
                 return false;
             }
 
@@ -117,7 +127,7 @@ namespace Parsek
                     "re-fly anchor walk: no resolver provided provisionalRecId=" +
                     (activeRecordingId ?? "(none)") +
                     " candidate=" + candidate +
-                    " -> falling back to Absolute");
+                    BypassDeclineSuffix);
                 return false;
             }
 
@@ -133,13 +143,14 @@ namespace Parsek
                     " provisionalRecId=" + (activeRecordingId ?? "(none)") +
                     " candidate=" + candidate +
                     " source=" + candidateSource +
-                    " -> falling back to Absolute");
+                    BypassDeclineSuffix);
                 return false;
             }
 
             // Confirm the candidate itself resolves to a known recording. If
             // the resolver returns null, the candidate is referenced but not
-            // loaded — bypass declines and the caller records Absolute.
+            // loaded — bypass declines and the caller falls back to
+            // nearest-search.
             Recording candidateRec = resolveRecording(candidate);
             if (candidateRec == null)
             {
@@ -149,7 +160,7 @@ namespace Parsek
                     (activeRecordingId ?? "(none)") +
                     " candidate=" + candidate +
                     " source=" + candidateSource +
-                    " -> falling back to Absolute");
+                    BypassDeclineSuffix);
                 return false;
             }
 
