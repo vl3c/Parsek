@@ -929,7 +929,16 @@ namespace Parsek
             }
 
             int recsAfter = committedTree.Recordings?.Count ?? 0;
-            ParsekLog.Info(Tag,
+            // M1 review fix: downgrade no-op idempotent re-runs to Verbose
+            // so a crash-resumed merge doesn't spam Info every time the
+                // finisher re-invokes the helper. State-change (recs added,
+            // active id moved, union work) keeps Info so the production
+            // happy-path stays visible.
+            bool didWork = recsAfter != recsBefore
+                || !string.Equals(activeIdBefore, committedTree.ActiveRecordingId, StringComparison.Ordinal)
+                || unionedRecs != 0
+                || unionedBps != 0;
+            string msg =
                 $"MigrateActiveReFlyForkIntoCommittedTree: fork={provisional.RecordingId ?? "<no-id>"} " +
                 $"committedTreeRecsBefore={recsBefore.ToString(CultureInfo.InvariantCulture)} " +
                 $"committedTreeRecsAfter={recsAfter.ToString(CultureInfo.InvariantCulture)} " +
@@ -937,7 +946,12 @@ namespace Parsek
                 $"activeRecordingIdAfter={committedTree.ActiveRecordingId ?? "<null>"} " +
                 $"unionedRecs={unionedRecs.ToString(CultureInfo.InvariantCulture)} " +
                 $"unionedBps={unionedBps.ToString(CultureInfo.InvariantCulture)} " +
-                $"sess={marker.SessionId ?? "<no-id>"}");
+                $"sess={marker.SessionId ?? "<no-id>"} " +
+                $"didWork={didWork}";
+            if (didWork)
+                ParsekLog.Info(Tag, msg);
+            else
+                ParsekLog.Verbose(Tag, msg);
         }
 
         private static Recording ResolveProvisional(ParsekScenario scenario)

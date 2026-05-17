@@ -1541,7 +1541,10 @@ namespace Parsek
                 catch (Exception ex)
                 {
                     ParsekLog.Warn(SessionTag,
-                        $"ReapPriorProvisional: DeleteRecordingFiles threw for rec={id}: {ex.Message}");
+                        $"ReapPriorProvisional: DeleteRecordingFiles threw for rec={id} " +
+                        $"priorSess={priorSess} newSess={newSessionId} rp={rpId}: " +
+                        $"{ex.GetType().Name}: {ex.Message} " +
+                        "(in-memory removal succeeded; sidecar files may leak on disk)");
                 }
 
                 ParsekLog.Info(SessionTag,

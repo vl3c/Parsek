@@ -1857,6 +1857,13 @@ namespace Parsek
         /// <c>activeIdSwapped</c> out param because the merge-phase caller
         /// reads <c>committedTree.ActiveRecordingId</c> directly to build
         /// its log line.
+        ///
+        /// <para><b>Only caller</b>:
+        /// <c>MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree</c>
+        /// at the <c>TreeMerge</c> phase. If you're adding a third caller
+        /// or generalizing the union semantics, audit both call sites for
+        /// the "marker present + tree id matches" precondition this
+        /// helper inherits from the private callee.</para>
         /// </summary>
         internal static bool UnionActiveReFlyTreeIntoCommittedForMerge(
             RecordingTree existing, RecordingTree incoming, ReFlySessionMarker marker,

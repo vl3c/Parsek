@@ -167,19 +167,39 @@ namespace Parsek.Tests
             ParsekScenario.SetInstanceForTesting(new ParsekScenario());
             var marker = NewMarker("sess_1", "tree_1", "rec_fork", inPlace: true);
 
-            // First call: adds fork, promotes active id.
+            // First call: adds fork, promotes active id → INFO log
+            // (real work happened).
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
                 marker, fork, ParsekScenario.Instance);
             int recsAfterFirst = committedTree.Recordings.Count;
             string activeAfterFirst = committedTree.ActiveRecordingId;
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][MergeJournal]") &&
+                l.Contains("MigrateActiveReFlyForkIntoCommittedTree") &&
+                l.Contains("didWork=True"));
 
-            // Second call: no net change.
+            int logCountBeforeSecond = logLines.Count;
+
+            // Second call: no net change → VERBOSE log (idempotent re-run).
             MergeJournalOrchestrator.MigrateActiveReFlyForkIntoCommittedTree(
                 marker, fork, ParsekScenario.Instance);
 
             Assert.Equal(recsAfterFirst, committedTree.Recordings.Count);
             Assert.Equal(activeAfterFirst, committedTree.ActiveRecordingId);
             Assert.Equal("rec_fork", committedTree.ActiveRecordingId);
+
+            // The second call's migrate-helper log is VERBOSE not INFO —
+            // so a crash-resumed CompleteFromPostDurable re-invocation
+            // does not spam Info every time.
+            var secondCallLines = logLines.GetRange(
+                logCountBeforeSecond, logLines.Count - logCountBeforeSecond);
+            Assert.Contains(secondCallLines, l =>
+                l.Contains("[Parsek][VERBOSE][MergeJournal]") &&
+                l.Contains("MigrateActiveReFlyForkIntoCommittedTree") &&
+                l.Contains("didWork=False"));
+            Assert.DoesNotContain(secondCallLines, l =>
+                l.Contains("[Parsek][INFO][MergeJournal]") &&
+                l.Contains("MigrateActiveReFlyForkIntoCommittedTree"));
         }
 
         [Fact]
