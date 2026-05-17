@@ -237,9 +237,15 @@ namespace Parsek
                     // match. Without this branch, the reaper would treat a
                     // Destroyed chain-tip slot as closed and drop the RP that
                     // the UI is still listing as a re-flyable unfinished
-                    // flight. Qualifies(considerSealed:true) filters sealed
-                    // slots internally; the explicit !slot.Sealed short-
-                    // circuits the common case before the classifier walk.
+                    // flight. Passing considerSealed:true makes Qualifies
+                    // reject sealed slots with reason=slotSealed, so the
+                    // explicit !slot.Sealed short-circuit is purely a perf
+                    // hint (skip the classifier walk for the closed path);
+                    // removing it would not bypass the seal gate. Perf: one
+                    // Qualifies call per Immutable+unsealed slot; acceptable
+                    // at current RP counts. If reap latency ever shows up,
+                    // EffectiveTipRecordingId has a hot-loop dict overload
+                    // that can memoize chain-tip lookups across slots.
                     if (!slot.Sealed
                         && UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed: true))
                     {

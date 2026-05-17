@@ -383,9 +383,15 @@ namespace Parsek.Tests
             //   ApplyRewindProvisionalMergeStates because it had a parentBp
             //   link), chain TIP = Immutable (born default and never promoted,
             //   because it has no branch link and is no slot's origin).
-            // The slot's EffectiveRecordingId walks to the TIP. Pre-fix, the
-            // reaper saw the TIP as Immutable + not stashed and dropped the
-            // RP, breaking Re-Fly on the destroyed chain.
+            // The slot's OriginChildRecordingId = "rec_head" (chainIndex=0).
+            // slot.EffectiveRecordingId calls EffectiveState.EffectiveTipRecordingId,
+            // which hops via ResolveChainTerminalRecording: same ChainId,
+            // same ChainBranch (both default 0), higher ChainIndex wins, so
+            // rec_head (0) -> rec_tip (1). The reaper looks up rec_tip
+            // (Immutable + Destroyed) and pre-fix would drop the RP.
+            // Post-fix it routes through Qualifies, which walks the chain
+            // again from rec_tip (tip-of-self), sees terminal=Destroyed,
+            // and returns true (reason=crashed) -> RP retained.
             var bp = Bp("bp_1", "rp_1");
             var chainHead = new Recording
             {
@@ -426,11 +432,83 @@ namespace Parsek.Tests
             // The keep-alive log must name the chain TIP (the recording the
             // slot's effective walker landed on), proving the reaper saw the
             // Immutable tip and still routed through Qualifies rather than
-            // the legacy unconditional `continue`.
+            // the legacy unconditional `continue`. If the chain hop ever
+            // regresses, this assertion catches it: a broken hop would log
+            // rec=rec_head instead.
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]")
                 && l.Contains("immutable-qualifies-as-unfinished-flight")
                 && l.Contains("rec=rec_tip"));
+        }
+
+        [Fact]
+        public void Reap_ImmutableDestroyedChainTipWithDownstreamRp_Reaped()
+        {
+            // The classifier's `downstreamBp` reject branch: a chain-tip
+            // recording whose ChildBranchPointId points at a downstream BP
+            // that has its own real RewindPoint. The destroyed terminal is
+            // no longer "open" from the upstream RP's perspective because
+            // the player can re-fly from the downstream RP instead, so the
+            // UPSTREAM rp_1 must be reapable even though the slot's
+            // effective recording is Immutable + Destroyed. The DOWNSTREAM
+            // rp_2 still owns its own re-fly slot and must NOT reap.
+            //
+            // The downstreamBp check fires only when the downstream RP's
+            // slot resolves to the chain tip via ResolveRewindPointSlotIndex
+            // ForRecording. The simplest synthetic representation is
+            // slot.OriginChildRecordingId = rec_tip (mechanism #1: direct
+            // origin-id equality); a real re-fly chain would resolve via
+            // the supersede walker, but the predicate is the same.
+            var bpUpstream = Bp("bp_1", "rp_1");
+            var bpDownstream = Bp("bp_2", "rp_2");
+            var chainHead = new Recording
+            {
+                RecordingId = "rec_head",
+                VesselName = "Probe",
+                TreeId = "tree_1",
+                MergeState = MergeState.Immutable,
+                ParentBranchPointId = "bp_1",
+                ChainId = "chain_1",
+                ChainIndex = 0,
+            };
+            var chainTip = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Probe",
+                TreeId = "tree_1",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ChildBranchPointId = "bp_2",
+                ChainId = "chain_1",
+                ChainIndex = 1,
+            };
+            InstallTree("tree_1",
+                new List<Recording> { chainHead, chainTip },
+                new List<BranchPoint> { bpUpstream, bpDownstream });
+            // Upstream slot: origin walks chain rec_head -> rec_tip.
+            var rpUpstream = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_head"));
+            // Downstream slot: origin resolves directly to rec_tip, so
+            // HasResolvedRewindPointForBranch finds a real downstream rewind
+            // route and Qualifies on rp_1's slot returns false with
+            // reason=downstreamBp.
+            var rpDownstream = Rp("rp_2", "bp_2", sessionProvisional: false,
+                Slot(0, "rec_tip"));
+            var scenario = InstallScenario(
+                new List<RewindPoint> { rpUpstream, rpDownstream });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            // rp_1 reaped (upstream RP no longer needed). rp_2 stays (the
+            // chain-tip's ChildBranchPointId matches rp_2.BranchPointId, so
+            // rp_2's own slot evaluates as `crashed` and keeps its RP
+            // alive for the downstream re-fly path).
+            Assert.Equal(1, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_2", scenario.RewindPoints[0].RewindPointId);
+            Assert.Null(bpUpstream.RewindPointId);
+            Assert.Equal("rp_2", bpDownstream.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
         }
 
         [Fact]
