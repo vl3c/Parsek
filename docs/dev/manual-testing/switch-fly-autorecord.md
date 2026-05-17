@@ -92,13 +92,17 @@ confirm the expected log lines fired.
 2. Press Esc and click "Revert to Tracking Station" (or otherwise trigger a
    scene exit).
 3. In the Merge / Discard dialog that appears:
-   - Verify the dialog title and body include the verb "Fly" (e.g. "Keep your
-     new flight on 'VesselName'?").
+   - Verify the dialog body reads `"{TreeName} - {Duration}"` and the
+     duration matches the time you spent in this segment (post-#876 playtest
+     fix: a single shared dialog template, the duration line distinguishes a
+     short switch-segment from a long-running launch tree).
    - Click **Discard**.
 4. Pass criteria:
    - The Parsek recordings table returns to the EXACT pre-switch committed
      recording count (no new segment recording remaining, but every previously
-     committed recording still present).
+     committed recording still present). Debris recordings spawned during the
+     segment (e.g. from in-segment staging) are also removed.
+   - Only one dialog appears — no second whole-pending-tree prompt.
    - `KSP.log` shows `[SwitchSegment]` discard summary with the segment id
      listed as removed.
 
@@ -112,55 +116,13 @@ confirm the expected log lines fired.
      previously committed history).
    - `[SwitchSegment] cleared: ... reason=scoped-merge-success` in the log.
 
-## 10. Map Switch-To verb in dialog copy
+## 10. Map Switch-To dialog body
 1. Perform test #3 (Map Switch-To), fly for 20+ seconds.
 2. Trigger scene exit.
 3. Pass criteria:
-   - The dialog body uses the verb "switch into" (e.g. "Keep your switch into
-     'VesselName'?") — NOT "new flight on".
-
-## 11. Second whole-pending dialog after scoped Discard
-1. Set up a pending state with multiple changes: spawn a fresh vessel, fly it
-   briefly to record, then without finalizing, Map Switch-To a committed
-   vessel and fly the new segment.
-2. Trigger scene exit.
-3. In the FIRST scoped dialog, click **Discard**.
-4. Pass criteria (all three sub-flows must be observable; run the test three
-   times to cover each terminal button):
-   - A SECOND dialog appears for the pre-existing pending changes, with
-     **Merge to Timeline / Discard / Cancel** buttons.
-
-### 11a. Cancel
-1. Click **Cancel** in the second dialog.
-2. Pass criteria:
-   - Scene transition does NOT proceed; player stays in FLIGHT.
-   - The pre-existing pending state remains in place AND the segment-scoped
-     Discard already took effect.
-   - `KSP.log` shows `[SwitchSegment] Secondary pending-tree dialog: Cancel chosen`.
-
-### 11b. Merge to Timeline
-1. Re-arrange the same setup; this time click **Merge to Timeline** in the
-   second dialog.
-2. Pass criteria:
-   - Scene transition proceeds (player returns to Tracking Station / Space
-     Center).
-   - Both the pre-existing pending recordings AND the scoped-discard
-     completion commit cleanly into the committed timeline. On reload, every
-     pre-switch recording plus the surviving pre-existing pending ones are
-     present, but the switch segment itself is gone (Discard took effect).
-   - `KSP.log` shows `[SwitchSegment] scoped-merge-success` followed by the
-     regular tree-commit lines.
-
-### 11c. Discard (whole pending tree)
-1. Re-arrange the same setup; this time click **Discard** in the second
-   dialog.
-2. Pass criteria:
-   - Scene transition proceeds (player returns to Tracking Station / Space
-     Center).
-   - The full whole-pending-tree discard runs in addition to the scoped
-     discard; on reload, only the original committed state is present.
-   - `KSP.log` shows `[SwitchSegment] Secondary pending-tree dialog: Discard
-     chosen` followed by `[Recording] discard-pending-tree`.
+   - The dialog body reads `"{TreeName} - {Duration}"` — the same template
+     used by long-running launch trees. The duration line is the load-bearing
+     distinguisher between a 16s segment and a 30-minute launch.
 
 ---
 

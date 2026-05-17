@@ -7976,11 +7976,29 @@ namespace Parsek
             // focused PID. Pull the #866 clone through the same code path
             // the FlightReady seam uses (TryRestoreCommittedTreeForSpawnedActiveVessel)
             // and then attach the continuation.
+            //
+            // Bug 5 (post-#876 playtest 2026-05-17): the PID match has two
+            // shapes — direct VesselPersistentId match (an already-live
+            // committed vessel) and SpawnedVesselPersistentId match (a
+            // Parsek-spawned vessel whose live PID was minted at spawn time
+            // and stored on the committed recording by the spawn-at-end
+            // pipeline). Before this fix, the lookup checked only
+            // VesselPersistentId, so a Switch-To on a Parsek-spawned vessel
+            // fell through to standalone routing — wrong root cause for the
+            // segment created during the bug 5 playtest. We now also check
+            // SpawnedVesselPersistentId. The downstream
+            // TryRestoreCommittedTreeForSpawnedActiveVessel /
+            // TryFindCommittedTreeForSpawnedVessel pipeline already keys off
+            // SpawnedVesselPersistentId, so the restore + clone path is
+            // unchanged once we route this way.
             if (!activeIsCommittedClone && activeTree == null)
             {
                 bool committedMatchExists = TryFindCommittedTreeMatchingVessel(newPid);
                 if (committedMatchExists)
                 {
+                    ParsekLog.Info("SwitchSegment",
+                        $"route=committed-spawned-clone reason=focused-pid-matched-committed-tree " +
+                        $"pid={newPid} intentId={marker.IntentId:D}");
                     bool restored = TryRestoreCommittedTreeForSpawnedActiveVessel();
                     if (!restored || activeTree == null)
                     {
@@ -8097,7 +8115,24 @@ namespace Parsek
             return false;
         }
 
-        private static bool TryFindCommittedTreeMatchingVessel(uint pid)
+        /// <summary>
+        /// Bug 5 (post-#876 playtest 2026-05-17): probes both the direct
+        /// <see cref="Recording.VesselPersistentId"/> (live committed vessel)
+        /// and <see cref="Recording.SpawnedVesselPersistentId"/> (Parsek-
+        /// spawned vessel whose live PID was minted at spawn time and stored
+        /// on the committed recording by the spawn-at-end pipeline). The
+        /// downstream <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/>
+        /// pipeline already keys off <c>SpawnedVesselPersistentId</c> via
+        /// <see cref="TryFindCommittedTreeForSpawnedVessel"/>, so a positive
+        /// answer here lands in the same restore + clone path regardless of
+        /// which field matched.
+        ///
+        /// <para>Before this fix, the lookup checked only
+        /// <c>VesselPersistentId</c>, so a Switch-To on a Parsek-spawned
+        /// vessel fell through to standalone routing rather than the
+        /// committed-clone branch.</para>
+        /// </summary>
+        internal static bool TryFindCommittedTreeMatchingVessel(uint pid)
         {
             if (pid == 0u) return false;
             var trees = RecordingStore.CommittedTrees;
@@ -8108,8 +8143,20 @@ namespace Parsek
                 if (tree == null || tree.Recordings == null) continue;
                 foreach (var rec in tree.Recordings.Values)
                 {
-                    if (rec != null && rec.VesselPersistentId == pid)
+                    if (rec == null) continue;
+                    if (rec.VesselPersistentId == pid)
                         return true;
+                    // Bug 5: also match recordings whose Parsek-spawned vessel
+                    // is the focused one. SpawnedVesselPersistentId is set by
+                    // the spawn-at-end pipeline at the new live PID minted on
+                    // spawn; VesselPersistentId still carries the original
+                    // recording PID.
+                    if (rec.VesselSpawned
+                        && rec.SpawnedVesselPersistentId != 0
+                        && rec.SpawnedVesselPersistentId == pid)
+                    {
+                        return true;
+                    }
                 }
             }
             return false;
@@ -10020,6 +10067,40 @@ namespace Parsek
                 "will skip only this pid for the lifetime of this scene");
         }
 
+        /// <summary>
+        /// Bug 1 (post-#876 playtest 2026-05-17): single dispatch point for the
+        /// stock-action intent consume helper. Called at the top of
+        /// <see cref="OnFlightReady"/> after the in-progress-restore-coroutine
+        /// skip but before <see cref="ShouldIgnoreFlightReadyReset"/>, so the
+        /// consume runs on EVERY OnFlightReady path that has a valid live active
+        /// vessel — both the "live recorder/tree already own this flight"
+        /// early-return path (TS Fly / KSC Fly after
+        /// <see cref="TryRestoreCommittedTreeForSpawnedActiveVessel"/> pre-attached
+        /// the recorder) and the full-reset path.
+        ///
+        /// <para>The consume helper's own gates (intent != null, freshness, target-
+        /// PID match) keep this a no-op when no intent is armed.</para>
+        ///
+        /// <para>Skipped intentionally when <c>restoringActiveTree=true</c> because
+        /// the restore coroutine is rebuilding <c>activeTree</c> and consume mutating
+        /// tree state mid-restore would race that coroutine. The intent marker
+        /// stays armed; the TTL handles the leak.</para>
+        /// </summary>
+        private void DispatchConsumeIntentIfArmed()
+        {
+            var activeVesselForConsume = FlightGlobals.ActiveVessel;
+            if (activeVesselForConsume == null
+                || GhostMapPresence.IsGhostMapVessel(activeVesselForConsume.persistentId))
+            {
+                return;
+            }
+            var consumeResult = TryConsumeStockActionIntent(activeVesselForConsume);
+            if (consumeResult.StartedSegment)
+            {
+                DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
+            }
+        }
+
         void OnFlightReady()
         {
             Log("Flight ready. Checking for pending recordings...");
@@ -10034,6 +10115,20 @@ namespace Parsek
                     "OnFlightReady: restore coroutine already in progress — skipping reset and dispatch");
                 return;
             }
+
+            // Bug 1 (post-#876 playtest 2026-05-17): the TS Fly / KSC marker Fly
+            // consume must run on EVERY OnFlightReady path, not only the full-reset
+            // path. When TryRestoreCommittedTreeForSpawnedActiveVessel attached the
+            // recorder pre-OnFlightReady, ShouldIgnoreFlightReadyReset returns true
+            // and the function used to bail before reaching the consume block at the
+            // bottom — so the marker armed in TS / SPACECENTER survived OnLoad but
+            // never got consumed, and the segment-scoped Merge dialog never fired.
+            // Dispatch the consume helper here at the top (after the in-progress
+            // restore coroutine skip, BEFORE ShouldIgnoreFlightReadyReset and the
+            // full-reset path). The helper's own gates (CurrentStockActionIntent
+            // != null, freshness, target-PID match) keep it a no-op when no intent
+            // is armed.
+            DispatchConsumeIntentIfArmed();
 
             var restoreMode = ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
             if (ShouldIgnoreFlightReadyReset(
@@ -10110,25 +10205,11 @@ namespace Parsek
                 TryRestoreCommittedTreeForSpawnedActiveVessel();
             }
 
-            // Phase C: OnLoad-tail consume for TS Fly / KSC marker Fly. The
-            // marker armed in TRACKSTATION / SPACECENTER survived
-            // GamePersistence.SaveGame + scene tear-down + FLIGHT load and
-            // was freshness-validated in ParsekScenario.LoadRewindStagingState.
-            // Now that FlightGlobals.ActiveVessel is populated and the
-            // committed-tree restore has run, dispatch into the consume
-            // helper. A successful Started* route disarms the
-            // first-modification watcher so it doesn't double-fire. NoIntent /
-            // Refused_* routes leave the watcher to its normal behavior.
-            var activeVesselForConsume = FlightGlobals.ActiveVessel;
-            if (activeVesselForConsume != null
-                && !GhostMapPresence.IsGhostMapVessel(activeVesselForConsume.persistentId))
-            {
-                var consumeResult = TryConsumeStockActionIntent(activeVesselForConsume);
-                if (consumeResult.StartedSegment)
-                {
-                    DisarmPostSwitchAutoRecord("consumed-by-stock-action-segment");
-                }
-            }
+            // Bug 1 (post-#876 playtest 2026-05-17): consume dispatch was moved
+            // to the top of OnFlightReady (after the restoringActiveTree skip,
+            // before ShouldIgnoreFlightReadyReset) so it runs on EVERY non-
+            // restore-coroutine path. See DispatchConsumeIntentIfArmed.
+
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
             // SpaceCenter was never visited, or name change edge cases).

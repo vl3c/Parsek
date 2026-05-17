@@ -308,9 +308,9 @@ namespace Parsek.Tests
                 return "ok";
             };
 
-            var result = MergeDialog.MergeDiscardWithResult(tree, postChoice: null);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
-            Assert.Equal(MergeDialog.MergeDiscardOutcome.RanToCompletion, result);
+            Assert.True(result);
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Empty(RecordingStore.CommittedRecordings);
@@ -1264,7 +1264,7 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void MergeDiscardWithResult_JournalActive_RefusesAndReturnsRefusedOutcome()
+        public void MergeDiscardRanToCompletion_JournalActive_RefusesAndReturnsFalse()
         {
             var rec = MakeRecording("rec-journal-discard", "tree-journal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-journal-discard", "rec-journal-discard", rec);
@@ -1284,9 +1284,9 @@ namespace Parsek.Tests
             };
             ParsekScenario.SetInstanceForTesting(scenario);
 
-            var result = MergeDialog.MergeDiscardWithResult(tree, postChoice: null);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
-            Assert.Equal(MergeDialog.MergeDiscardOutcome.RefusedJournalActive, result);
+            Assert.False(result);
             // Pending tree must remain stashed - the refusal is a no-op
             // for state.
             Assert.True(RecordingStore.HasPendingTree);
@@ -1366,18 +1366,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MergeDiscardWithResult_NormalDiscard_ReturnsRanToCompletion()
+        public void MergeDiscardRanToCompletion_NormalDiscard_ReturnsTrue()
         {
-            // Sanity: tri-state overload returns RanToCompletion on the
-            // normal path so the pre-transition wrapper proceeds with
-            // postChoice.
+            // Sanity: the bool overload returns true on the normal path so
+            // the pre-transition wrapper proceeds with postChoice.
             var rec = MakeRecording("rec-normal-discard", "tree-normal-discard", 100.0, 200.0);
             var tree = MakeTree("tree-normal-discard", "rec-normal-discard", rec);
             RecordingStore.StashPendingTree(tree);
 
-            var result = MergeDialog.MergeDiscardWithResult(tree, postChoice: null);
+            bool result = MergeDialog.MergeDiscardRanToCompletion(tree);
 
-            Assert.Equal(MergeDialog.MergeDiscardOutcome.RanToCompletion, result);
+            Assert.True(result);
             Assert.False(RecordingStore.HasPendingTree);
         }
     }

@@ -1070,5 +1070,87 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // =================================================================
+        // Bug 5 (post-#876 playtest 2026-05-17): TryRouteCommittedSpawnedClone
+        // must recognize Parsek-spawned vessels (live PID stored on the
+        // committed recording as SpawnedVesselPersistentId, not
+        // VesselPersistentId). Before this fix, the lookup matched only
+        // VesselPersistentId, so a Switch-To on a Parsek-spawned vessel fell
+        // through to standalone routing.
+        //
+        // We can't drive TryRouteCommittedSpawnedClone end-to-end from xUnit
+        // (Unity Vessel needed); the helper under test is
+        // TryFindCommittedTreeMatchingVessel, which is the actual lookup
+        // routing branches through.
+        // =================================================================
+
+        // Fails if: the lookup falls back to standalone for a focused PID
+        // that came from Parsek's own spawn-at-end pipeline.
+        [Fact]
+        public void TryFindCommittedTreeMatchingVessel_FocusedPidIsParsekSpawnedFromCommittedTree_ReturnsTrue()
+        {
+            // Build a committed tree whose recording has the spawned-vessel
+            // form: original VesselPersistentId is 100 (the PID at recording
+            // time), and SpawnedVesselPersistentId=999 is the live PID Parsek
+            // minted when it spawned the vessel at end-of-recording.
+            var tree = MakeTree("rec_active");
+            tree.Id = "tree_spawned";
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100u;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 999u;
+            tree.Recordings["rec_active"].TerminalStateValue = TerminalState.Orbiting;
+
+            AddTreeToCommittedStore(tree);
+
+            // Focused PID = the live spawned PID, not the recording PID.
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(999u));
+            // Direct PID match path still works (regression).
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(100u));
+        }
+
+        // Fails if: a future refactor breaks the negative case and spuriously
+        // routes unrelated vessels to committed-clone.
+        [Fact]
+        public void TryFindCommittedTreeMatchingVessel_FocusedPidIsUnrelated_ReturnsFalse()
+        {
+            var tree = MakeTree("rec_active");
+            tree.Id = "tree_unrelated";
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100u;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 999u;
+
+            AddTreeToCommittedStore(tree);
+
+            // A PID that matches neither VesselPersistentId nor
+            // SpawnedVesselPersistentId routes to standalone (returns false).
+            Assert.False(ParsekFlight.TryFindCommittedTreeMatchingVessel(7777u));
+        }
+
+        // Fails if: the spawn-PID check inadvertently fires when
+        // VesselSpawned is false (e.g. a freshly captured recording whose
+        // SpawnedVesselPersistentId is stale from a prior commit but
+        // VesselSpawned is currently false).
+        [Fact]
+        public void TryFindCommittedTreeMatchingVessel_VesselSpawnedFalse_DoesNotMatchSpawnedPid()
+        {
+            var tree = MakeTree("rec_active");
+            tree.Id = "tree_unspawned";
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100u;
+            tree.Recordings["rec_active"].VesselSpawned = false;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 999u;
+
+            AddTreeToCommittedStore(tree);
+
+            // 999u is set but VesselSpawned is false — the spawn-PID gate
+            // must require both VesselSpawned=true AND SpawnedVesselPersistentId
+            // != 0 before treating it as a live-vessel match.
+            Assert.False(ParsekFlight.TryFindCommittedTreeMatchingVessel(999u));
+            // Direct VesselPersistentId match still works.
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(100u));
+        }
     }
 }

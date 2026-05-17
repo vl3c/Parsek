@@ -7,16 +7,27 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase E coverage for segment-scoped switch/Fly auto-record: the
-    /// scoped Discard helper (<see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>),
-    /// the remaining-pending-changes probe
-    /// (<see cref="RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard"/>),
-    /// the <see cref="MergeDialog"/> hook + second-dialog flow, and the
-    /// entry-reason-aware dialog copy. Per plan
+    /// Phase E + post-#876 playtest coverage (2026-05-17) for segment-scoped
+    /// switch/Fly auto-record: the scoped Discard helper
+    /// (<see cref="RecordingStore.TryDiscardActiveSwitchSegmentAttempt"/>),
+    /// the topology-based subtree collector
+    /// (<see cref="RecordingStore.CollectSwitchSegmentSubtreeRecordingIds"/>),
+    /// the <see cref="MergeDialog"/> hook, and the unified whole-tree body
+    /// builder. Per plan
     /// <c>docs/dev/plans/segment-scoped-switch-fly-autorecord.md</c>
     /// §"Merge and Discard Scope", §"Final Disposition After Scoped
     /// Discard", and §"Dialog and UI Copy" plus the test list at the
     /// bottom of the plan.
+    ///
+    /// <para>Bug 2 follow-up (post-#876 playtest 2026-05-17): the second
+    /// whole-pending-tree dialog flow was deleted in favor of a broader
+    /// topology-based subtree sweep. Tests pinning the old second-dialog
+    /// behavior have been removed.</para>
+    ///
+    /// <para>Bug 3 follow-up: the entry-reason-aware copy
+    /// (<c>BuildSwitchSegmentDialogBody</c>) was deleted; both switch-segment
+    /// and regular tree-merge dialogs now share
+    /// <c>BuildWholeTreeMergeDialogBody</c> with a duration line.</para>
     /// </summary>
     [Collection("Sequential")]
     public class SwitchSegmentDiscardScopeTests : IDisposable
@@ -182,26 +193,40 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // Pending-tree disposition: prune segment, preserve pre-existing
-        // pending changes, second dialog should fire.
+        // Pending-tree disposition: prune segment subtree, preserve siblings
+        // in OTHER trees, no second dialog.
         // -----------------------------------------------------------------
 
-        // Fails if: pre-existing pending recordings disappear when the
-        // segment-scoped discard runs, or the post-discard remaining-
-        // pending-changes probe misses them. Plan test #15.
+        // Bug 2 (post-#876 playtest 2026-05-17): debris from a Breakup-during-
+        // segment must be removed even though it carries no
+        // SwitchSegmentSessionId stamp. The topology-based sweep is the
+        // load-bearing contract: descendants are in scope regardless of
+        // marker stamp.
+        //
+        // Fails if: a future refactor reverts to marker-only filtering;
+        // orphan debris from a Breakup-during-segment survives the discard
+        // and the secondary-dialog regression returns.
         [Fact]
-        public void Discard_AfterPendingTreeSwitch_PreservesPreExistingPendingChanges_AndPromptsSecondDialog()
+        public void Discard_DebrisFromBreakupDuringSegment_IsRemoved()
         {
             var (scenario, session, tree, parent, segment, bp) =
                 BuildPendingTreeWithSegment();
 
-            // Add a pre-existing pending recording (not marker-owned, not
-            // committed). The session's PreSessionBranchPointIds is empty
-            // but this pre-existing recording exists independently of any
-            // session-authored BP.
-            var preExisting = MakeRecording("rec_pre_existing", tree.Id,
-                vesselName: "Pre-Existing Probe");
-            tree.AddOrReplaceRecording(preExisting);
+            // Breakup-during-segment authors a debris recording that does
+            // NOT inherit the SwitchSegmentSessionId stamp (per the original
+            // design: physical-split children carry their own provenance).
+            // Under the topology-based sweep, that debris is in scope
+            // because it descends from the segment recording.
+            string debrisBpId = "bp_breakup_debris";
+            segment.ChildBranchPointId = debrisBpId;
+            var debris = MakeRecording("rec_debris", tree.Id,
+                switchSegmentSessionId: null, // intentional: no marker stamp
+                parentBranchPointId: debrisBpId,
+                vesselName: "Debris");
+            tree.AddOrReplaceRecording(debris);
+            tree.BranchPoints.Add(MakeBranchPoint(
+                debrisBpId, segment.RecordingId, debris.RecordingId,
+                type: BranchPointType.Breakup));
 
             RecordingStore.StashPendingTree(tree);
 
@@ -214,46 +239,34 @@ namespace Parsek.Tests
                 disposition);
             Assert.Equal("scoped-discard-success", reason);
 
-            // Segment + branch point gone, parent + pre-existing preserved.
+            // Segment AND debris are gone — the topology sweep took both.
             Assert.False(tree.Recordings.ContainsKey(segment.RecordingId));
+            Assert.False(tree.Recordings.ContainsKey(debris.RecordingId));
+            // Parent preserved.
             Assert.True(tree.Recordings.ContainsKey(parent.RecordingId));
-            Assert.True(tree.Recordings.ContainsKey(preExisting.RecordingId));
-            Assert.DoesNotContain(tree.BranchPoints, b =>
-                string.Equals(b.Id, bp.Id, StringComparison.Ordinal));
-            // Parent's ChildBranchPointId scrubbed.
-            Assert.Null(parent.ChildBranchPointId);
-
-            // Second-dialog probe says remaining pending changes exist.
-            int remainingRecordings;
-            int remainingBps;
-            Assert.True(
-                RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard(
-                    out remainingRecordings, out remainingBps));
-            Assert.True(remainingRecordings >= 1,
-                $"Expected at least one remaining recording, got {remainingRecordings}");
-
-            // Session marker cleared.
-            Assert.Null(scenario.ActiveSwitchSegmentSession);
         }
 
-        // Fails if: a tree with NO pre-existing pending changes (segment
-        // only) still reports remaining pending changes after scoped
-        // discard.
+        // Bug 2 (post-#876 playtest 2026-05-17): the scoped sweep walks only
+        // the segment's tree. A recording in a different tree never touched
+        // by the segment must not be removed.
+        //
+        // Fails if: a future refactor over-broadens the scope and sweeps
+        // unrelated pending state.
         [Fact]
-        public void Discard_AfterPendingTreeSwitch_NoPreExistingChanges_NoSecondDialog()
+        public void Discard_RecordingInSiblingTree_IsNotRemoved()
         {
-            var (scenario, session, tree, parent, segment, bp) =
-                BuildPendingTreeWithSegment();
+            var (scenario, session, treeA, parentA, segmentA, bpA) =
+                BuildPendingTreeWithSegment(treeId: "tree_a");
 
-            // Both parent and segment are owned-or-original tree members.
-            // The "pre-existing" parent recording is in committed storage
-            // (representing the committed timeline), the segment is the
-            // marker-owned child.
-            // Commit the parent into committed storage so it counts as
-            // "committed history" (not pending).
-            RecordingStore.AddCommittedInternal(parent);
+            // Build an entirely separate tree B as committed history.
+            var siblingTreeBRec = MakeRecording("rec_sibling_b", "tree_b",
+                vesselName: "Sibling B Vessel");
+            var treeB = MakeTree("tree_b", activeRecordingId: "rec_sibling_b",
+                siblingTreeBRec);
+            RecordingStore.AddCommittedInternal(siblingTreeBRec);
+            RecordingStore.AddCommittedTreeForTesting(treeB);
 
-            RecordingStore.StashPendingTree(tree);
+            RecordingStore.StashPendingTree(treeA);
 
             string reason;
             var disposition =
@@ -263,20 +276,63 @@ namespace Parsek.Tests
                 RecordingStore.SwitchSegmentDiscardDisposition.PendingTreePrune,
                 disposition);
 
-            int remainingRecordings;
-            int remainingBps;
-            // Parent is committed (so doesn't count as remaining pending).
-            // Segment was removed. No BPs left.
-            bool hasRemaining =
-                RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard(
-                    out remainingRecordings, out remainingBps);
-            Assert.Equal(0, remainingRecordings);
-            Assert.Equal(0, remainingBps);
-            Assert.False(hasRemaining);
+            // Segment A is gone from tree A.
+            Assert.False(treeA.Recordings.ContainsKey(segmentA.RecordingId));
+            // Tree B is untouched.
+            Assert.True(RecordingStore.IsCommittedRecordingId("rec_sibling_b"));
+            var cTree = RecordingStore.CommittedTrees.Find(
+                t => t.Id == "tree_b");
+            Assert.NotNull(cTree);
+            Assert.True(cTree.Recordings.ContainsKey("rec_sibling_b"));
+        }
+
+        // Bug 2 (post-#876 playtest 2026-05-17): direct test of the topology
+        // walker. A 4-level chain should collect all descendants.
+        //
+        // Fails if: the walk fails to traverse multi-level descendants.
+        [Fact]
+        public void CollectSubtree_DeepChain_CollectsAllDescendants()
+        {
+            var (scenario, session, tree, parent, segment, bp) =
+                BuildPendingTreeWithSegment();
+
+            // Build a 4-level chain rooted at the segment:
+            //   segment -> bp1 -> childA -> bp2 -> childB -> bp3 -> childC.
+            string bp1Id = "bp_chain_1";
+            string bp2Id = "bp_chain_2";
+            string bp3Id = "bp_chain_3";
+            segment.ChildBranchPointId = bp1Id;
+            var childA = MakeRecording("rec_child_a", tree.Id,
+                parentBranchPointId: bp1Id,
+                childBranchPointId: bp2Id);
+            var childB = MakeRecording("rec_child_b", tree.Id,
+                parentBranchPointId: bp2Id,
+                childBranchPointId: bp3Id);
+            var childC = MakeRecording("rec_child_c", tree.Id,
+                parentBranchPointId: bp3Id);
+            tree.AddOrReplaceRecording(childA);
+            tree.AddOrReplaceRecording(childB);
+            tree.AddOrReplaceRecording(childC);
+            tree.BranchPoints.Add(MakeBranchPoint(bp1Id,
+                segment.RecordingId, childA.RecordingId));
+            tree.BranchPoints.Add(MakeBranchPoint(bp2Id,
+                childA.RecordingId, childB.RecordingId));
+            tree.BranchPoints.Add(MakeBranchPoint(bp3Id,
+                childB.RecordingId, childC.RecordingId));
+
+            HashSet<string> collected =
+                RecordingStore.CollectSwitchSegmentSubtreeRecordingIds(tree, session);
+
+            Assert.Contains(segment.RecordingId, collected);
+            Assert.Contains(childA.RecordingId, collected);
+            Assert.Contains(childB.RecordingId, collected);
+            Assert.Contains(childC.RecordingId, collected);
+            // Parent (above the segment) is NOT in scope.
+            Assert.DoesNotContain(parent.RecordingId, collected);
         }
 
         // -----------------------------------------------------------------
-        // Owned-id transitive closure + recordings cleanup
+        // Cycle protection
         // -----------------------------------------------------------------
 
         // Fails if: the descendant-walk iteration cap is removed or its
@@ -285,17 +341,9 @@ namespace Parsek.Tests
         // Warn log line so a future blow-up leaves a diagnostic trail in
         // KSP.log. The cap is a defense-in-depth guard against a
         // corrupted branch-point graph that no current healthy production
-        // path can trip on its own (the marker-stamp scan adds every
-        // session-stamped recording up front, so the do/while typically
-        // terminates after a single empty pass). Testing the runtime path
-        // would require injecting a corrupted graph; instead we pin three
-        // anchors that together guarantee the safety net stays in place:
-        // (a) the constant exists with a sensible value, (b) the function
-        // surface still walks tree.Recordings, (c) the Warn log line
-        // template is present in the source so the diagnostic message
-        // shape can't drift silently.
+        // path can trip on its own.
         [Fact]
-        public void CollectMarkerOwned_DeepCycleProtection_LogsWarn_AndReturnsPartialList()
+        public void CollectSubtree_CycleProtection_LogsWarn_AndReturnsPartialList()
         {
             // (a) the constant exists and is non-trivial — anything below
             // realistic tree depth would risk false-positive caps on
@@ -304,35 +352,7 @@ namespace Parsek.Tests
                 RecordingStore.SwitchSegmentRecordingTreeWalkMaxIterations >= 256,
                 "cap must allow realistic tree depth");
 
-            // (b) sanity-check the function still returns a sensible set
-            // for a normal small chain (regression: a refactor that
-            // accidentally bypassed the marker-stamp scan would surface
-            // here as a count-1 collection).
-            var (scenario, session, tree, parent, segment, bp) =
-                BuildPendingTreeWithSegment();
-            string sessionIdStr = SessionIdString(session.SessionId);
-            string bp2Id = "bp_chain";
-            segment.ChildBranchPointId = bp2Id;
-            var grandchild = MakeRecording("rec_grandchild", tree.Id,
-                switchSegmentSessionId: sessionIdStr,
-                parentBranchPointId: bp2Id);
-            tree.AddOrReplaceRecording(grandchild);
-            tree.BranchPoints.Add(MakeBranchPoint(
-                bp2Id, segment.RecordingId, grandchild.RecordingId));
-
-            HashSet<string> collected =
-                RecordingStore.CollectSwitchSegmentMarkerOwnedRecordingIds(tree, session);
-            Assert.Contains(segment.RecordingId, collected);
-            Assert.Contains(grandchild.RecordingId, collected);
-            Assert.DoesNotContain(parent.RecordingId, collected);
-
-            // (c) source-text gate on the Warn log line shape. The break
-            // path is defense-in-depth — we cannot easily exercise it
-            // from xUnit because the marker-stamp scan + the descendant
-            // walk's `ids.Contains(childId) continue` guard together make
-            // the loop terminate after one empty pass on every healthy
-            // input. The source-text gate pins the diagnostic content so
-            // a future regression cannot silently strip the break log.
+            // (b) source-text gate on the Warn log line shape.
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", ".."));
@@ -350,16 +370,21 @@ namespace Parsek.Tests
                 source);
         }
 
-        // Fails if: a descendant recording stamped with the session id is
-        // left in the tree. Owned-id walk must follow ChildBranchPointId
-        // chains.
+        // Bug 2 follow-up (post-#876 playtest 2026-05-17): the
+        // marker-only filter has been replaced with a topology sweep.
+        // The descendant test now asserts that a descendant recording
+        // (chained via ChildBranchPointId -> BranchPoint.ChildRecordingIds)
+        // IS removed regardless of its SwitchSegmentSessionId stamp. The
+        // previously-uncovered "unrelated debris" branch is now covered
+        // by the dedicated Discard_DebrisFromBreakupDuringSegment_IsRemoved
+        // test above.
         [Fact]
         public void Discard_RemovesAllMarkerOwnedRecordings_AndDescendants()
         {
             var (scenario, session, tree, parent, segment, bp) =
                 BuildPendingTreeWithSegment();
 
-            // Chained segment-owned descendant: segment -> bp2 -> grandchild.
+            // Chained session-stamped descendant: segment -> bp2 -> grandchild.
             string sessionIdStr = SessionIdString(session.SessionId);
             string bp2Id = "bp_chain";
             segment.ChildBranchPointId = bp2Id;
@@ -370,12 +395,11 @@ namespace Parsek.Tests
             tree.BranchPoints.Add(MakeBranchPoint(
                 bp2Id, segment.RecordingId, grandchild.RecordingId));
 
-            // Distinct physical-split child of segment that did NOT inherit
-            // the session id stays out of scope. Per plan §"Composing with
-            // existing branch types during an active segment". Make it via
-            // a Breakup-style child under a separate non-session BP though:
-            // since segment's ChildBranchPointId already points at bp2,
-            // hang the unrelated child off the grandchild instead.
+            // Bug 2 (post-#876 playtest 2026-05-17): under the new topology
+            // contract, a Breakup-style child descended from the segment IS
+            // removed — even when it carries no session stamp. Hang it off
+            // the grandchild to confirm the walk follows ChildBranchPointId
+            // through multiple levels regardless of stamp.
             string bpUnrelatedId = "bp_breakup";
             grandchild.ChildBranchPointId = bpUnrelatedId;
             var unrelated = MakeRecording("rec_unrelated_debris", tree.Id,
@@ -393,15 +417,9 @@ namespace Parsek.Tests
 
             Assert.False(tree.Recordings.ContainsKey(segment.RecordingId));
             Assert.False(tree.Recordings.ContainsKey(grandchild.RecordingId));
-            // The "unrelated" debris is NOT marker-owned (no stamp). It
-            // would survive the owned-id closure pass; structural-BP
-            // walk via session-authored branch points removes it too
-            // (bpUnrelatedId was authored after the session started and
-            // is not in PreSessionBranchPointIds). The test asserts the
-            // marker-owned closure correctly excluded it from ownedIds —
-            // bp-prune treats it as session-authored topology since the
-            // BP was added during the session. We observe the surviving
-            // semantics indirectly: parent + segment chain ids are gone.
+            // Bug 2: the topologically-descended debris IS now removed by
+            // the subtree sweep (regardless of its missing stamp).
+            Assert.False(tree.Recordings.ContainsKey(unrelated.RecordingId));
             Assert.True(tree.Recordings.ContainsKey(parent.RecordingId));
         }
 
@@ -498,12 +516,10 @@ namespace Parsek.Tests
             // Anchor 3: scoped helper does NOT iterate over the whole
             // pending tree's Recordings.Values for deletion — only
             // ownedIds is the source of recordings to wipe.
-            // (Loose anchor: ensure no `foreach (var rec in pendingTree.Recordings.Values)`
-            // appears inside the scoped helper.)
             int helperStart = source.IndexOf(
                 "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
             int helperEnd = source.IndexOf(
-                "internal static bool HasRemainingPendingChangesAfterSegmentDiscard");
+                "private static RecordingTree FindSegmentTreeForSession");
             Assert.True(helperStart > 0 && helperEnd > helperStart);
             string helperBody = source.Substring(helperStart, helperEnd - helperStart);
             Assert.DoesNotContain(
@@ -725,7 +741,7 @@ namespace Parsek.Tests
             int helperStart = source.IndexOf(
                 "internal static SwitchSegmentDiscardDisposition TryDiscardActiveSwitchSegmentAttempt");
             int helperEnd = source.IndexOf(
-                "internal static bool HasRemainingPendingChangesAfterSegmentDiscard");
+                "private static RecordingTree FindSegmentTreeForSession");
             Assert.True(helperStart > 0 && helperEnd > helperStart);
             string helperBody = source.Substring(helperStart, helperEnd - helperStart);
 
@@ -794,135 +810,36 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
-        // Dialog copy: entry-reason-aware verbs
+        // Bug 3 (post-#876 playtest 2026-05-17): unified whole-tree dialog
+        // body
         // -----------------------------------------------------------------
 
-        // Fails if: the TS Fly entry reason produces non-"Fly" verb copy.
+        // Fails if: a future refactor drops the duration line; the player
+        // loses the only signal that distinguishes a 16s switch-segment
+        // dialog from a 30-minute launch dialog.
         [Fact]
-        public void DialogCopy_TsFly_UsesFlyVerb()
+        public void DialogBody_AlwaysIncludesDuration()
         {
-            var (scenario, session, tree, parent, segment, bp) =
-                BuildPendingTreeWithSegment(
-                    entryReason: SwitchSegmentEntryReason.TrackingStationFly);
-            string body = MergeDialog.BuildSwitchSegmentDialogBody(session, tree);
-            Assert.Contains("Keep your new flight on 'Probe Alpha'?", body);
-            Assert.DoesNotContain("switch into", body);
+            var tree = MakeTree("Kerbal X",
+                activeRecordingId: "rec_main",
+                MakeRecording("rec_main", "Kerbal X", vesselName: "Kerbal X"));
+            // The recording's start/end is 100..200 per MakeRecording
+            // defaults, so the tree duration is 100s. FormatDuration(100)
+            // renders as "1m 40s".
+            string body = MergeDialog.BuildWholeTreeMergeDialogBody(tree);
+            Assert.Contains("Kerbal X", body);
+            Assert.Contains("1m 40s", body);
         }
 
-        // Fails if: the KSC marker Fly entry reason does not use the Fly verb.
+        // Fails if: a null tree input throws instead of returning a safe
+        // placeholder body.
         [Fact]
-        public void DialogCopy_KscMarkerFly_UsesFlyVerb()
+        public void DialogBody_NullTree_RendersFallback()
         {
-            var (scenario, session, tree, parent, segment, bp) =
-                BuildPendingTreeWithSegment(
-                    entryReason: SwitchSegmentEntryReason.KscMarkerFly);
-            string body = MergeDialog.BuildSwitchSegmentDialogBody(session, tree);
-            Assert.Contains("Keep your new flight on 'Probe Alpha'?", body);
-            Assert.DoesNotContain("switch into", body);
-        }
-
-        // Fails if: the Map Switch-To entry reason does not use the Switch verb.
-        [Fact]
-        public void DialogCopy_MapSwitchTo_UsesSwitchVerb()
-        {
-            var (scenario, session, tree, parent, segment, bp) =
-                BuildPendingTreeWithSegment(
-                    entryReason: SwitchSegmentEntryReason.MapSwitchTo);
-            string body = MergeDialog.BuildSwitchSegmentDialogBody(session, tree);
-            Assert.Contains("Keep your switch into 'Probe Alpha'?", body);
-            Assert.DoesNotContain("new flight on", body);
-        }
-
-        // Fails if: the trailing clause documenting Discard / Merge
-        // semantics is missing from either entry-reason variant.
-        [Fact]
-        public void DialogCopy_AlwaysIncludesDiscardMergeTrailingClause()
-        {
-            var (scenario1, session1, tree1, _, _, _) =
-                BuildPendingTreeWithSegment(
-                    entryReason: SwitchSegmentEntryReason.TrackingStationFly);
-            var (scenario2, session2, tree2, _, _, _) =
-                BuildPendingTreeWithSegment(
-                    entryReason: SwitchSegmentEntryReason.MapSwitchTo);
-
-            const string expected =
-                "Choosing Discard returns to the committed timeline; " +
-                "choosing Merge appends this segment under it.";
-            Assert.Contains(expected, MergeDialog.BuildSwitchSegmentDialogBody(session1, tree1));
-            Assert.Contains(expected, MergeDialog.BuildSwitchSegmentDialogBody(session2, tree2));
-        }
-
-        // Fails if: a null session or a segment recording with no
-        // VesselName falls through to anything other than "this vessel".
-        [Fact]
-        public void DialogCopy_FallsBackToThisVessel_WhenVesselNameUnknown()
-        {
-            var session = new SwitchSegmentSession
-            {
-                SessionId = Guid.NewGuid(),
-                EntryReason = SwitchSegmentEntryReason.TrackingStationFly,
-                ActiveSegmentRecordingId = null,
-                PreSessionBranchPointIds = new List<string>(),
-            };
-            string body = MergeDialog.BuildSwitchSegmentDialogBody(session, null);
-            Assert.Contains("'this vessel'", body);
-        }
-
-        // -----------------------------------------------------------------
-        // Second dialog wiring + Cancel: source-text gate on the
-        // second-dialog opener (Unity PopupDialog needed at runtime).
-        // -----------------------------------------------------------------
-
-        // Fails if: the secondary dialog does NOT offer all three of
-        // Merge / Discard / Cancel.
-        [Fact]
-        public void SecondDialog_AfterScopedDiscard_OffersCancelAlongMergeAndDiscard()
-        {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
-            string source = File.ReadAllText(path);
-
-            // ShowSecondaryPendingDiscardDialog must construct all three
-            // buttons.
-            int secondOpener = source.IndexOf(
-                "internal static void ShowSecondaryPendingDiscardDialog");
-            Assert.True(secondOpener > 0,
-                "ShowSecondaryPendingDiscardDialog opener not found");
-            string body = source.Substring(secondOpener);
-            int endOfMethod = body.IndexOf("\n        }\n");
-            string scopedBody = endOfMethod > 0 ? body.Substring(0, endOfMethod) : body;
-            Assert.Contains("new DialogGUIButton(\"Merge to Timeline\"", scopedBody);
-            Assert.Contains("new DialogGUIButton(\"Discard\"", scopedBody);
-            Assert.Contains("new DialogGUIButton(\"Cancel\"", scopedBody);
-        }
-
-        // Fails if: the Cancel button in the secondary dialog disposes
-        // the pruned pending tree instead of leaving it intact.
-        [Fact]
-        public void SecondDialog_Cancel_LeavesPrunedPendingTreeIntact_AndUnlocksInputLock()
-        {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
-            string source = File.ReadAllText(path);
-
-            // The Cancel button must call ClearPendingFlag (which releases
-            // the input lock) and NOT call DiscardPendingTreeAndRecalculate.
-            int cancelButton = source.IndexOf(
-                "new DialogGUIButton(\"Cancel\", () =>");
-            Assert.True(cancelButton > 0, "Cancel button construction not found");
-            int cancelEnd = source.IndexOf("})", cancelButton);
-            Assert.True(cancelEnd > cancelButton);
-            string cancelBody = source.Substring(cancelButton, cancelEnd - cancelButton);
-
-            Assert.Contains("ClearPendingFlag", cancelBody);
-            Assert.DoesNotContain("DiscardPendingTreeAndRecalculate", cancelBody);
-            Assert.DoesNotContain("RecordingStore.PopPendingTree", cancelBody);
+            string body = MergeDialog.BuildWholeTreeMergeDialogBody(null);
+            // Fallback "<unnamed> - 0s" — duration 0 because tree is null.
+            Assert.Contains("<unnamed>", body);
+            Assert.Contains("0s", body);
         }
 
         // -----------------------------------------------------------------
@@ -932,7 +849,7 @@ namespace Parsek.Tests
 
         // Fails if: TryDiscardActiveSwitchSegmentAttempt is not called
         // before DiscardPendingTreeAndRecalculate inside
-        // MergeDiscardWithResult.
+        // MergeDiscardRanToCompletion.
         [Fact]
         public void MergeDiscard_CallsScopedSwitchSegmentHookBeforeWholeTreeFallback()
         {
@@ -944,7 +861,7 @@ namespace Parsek.Tests
             string source = File.ReadAllText(path);
 
             int methodStart = source.IndexOf(
-                "internal static MergeDiscardOutcome MergeDiscardWithResult");
+                "internal static bool MergeDiscardRanToCompletion");
             int methodEnd = source.IndexOf(
                 "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology",
                 methodStart);
@@ -955,73 +872,20 @@ namespace Parsek.Tests
                 "RecordingStore.TryDiscardActiveSwitchSegmentAttempt");
             int wholeTreeCall = body.IndexOf(
                 "ParsekScenario.DiscardPendingTreeAndRecalculate");
-            Assert.True(hookCall > 0, "Scoped switch-segment hook not found in MergeDiscardWithResult");
+            Assert.True(hookCall > 0, "Scoped switch-segment hook not found in MergeDiscardRanToCompletion");
             Assert.True(wholeTreeCall > 0, "Whole-pending-tree fallback not found");
             Assert.True(hookCall < wholeTreeCall,
                 "Scoped switch-segment hook must run BEFORE whole-tree discard fallback");
         }
 
-        // Fails if: MergeDiscardWithResult does not call
-        // ShowSecondaryPendingDiscardDialog when HasRemainingPendingChangesAfterSegmentDiscard
-        // returns true.
-        [Fact]
-        public void MergeDiscard_OpensSecondaryDialog_WhenScopedDiscardLeavesPendingChanges()
-        {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
-            string source = File.ReadAllText(path);
-
-            int methodStart = source.IndexOf(
-                "internal static MergeDiscardOutcome MergeDiscardWithResult");
-            int methodEnd = source.IndexOf(
-                "internal static AttemptDiscardSummary PruneActiveReFlyAttemptOwnedTopology",
-                methodStart);
-            string body = source.Substring(methodStart, methodEnd - methodStart);
-
-            Assert.Contains(
-                "RecordingStore.HasRemainingPendingChangesAfterSegmentDiscard",
-                body);
-            // HIGH 1: pre-transition path forwards the postChoice
-            // continuation so the secondary dialog's terminal handlers
-            // can run the scene transition after the player commits.
-            Assert.Contains(
-                "ShowSecondaryPendingDiscardDialog(",
-                body);
-            Assert.Contains(
-                "RecordingStore.PendingTree, postChoice",
-                body);
-        }
-
-        // -----------------------------------------------------------------
-        // HIGH 1 (PR #876 review): the pre-transition Discard path must
-        // defer the scene-load continuation while the secondary dialog is
-        // still on-screen.
+        // Bug 2 (post-#876 playtest 2026-05-17): the secondary-dialog flow
+        // has been removed. The discard hook just returns and the caller
+        // proceeds to postChoice (scene transition) without prompting again.
         //
-        // Plan §"Final Disposition After Scoped Discard": "Scene exit is
-        // blocked only until the player picks one of the three; there
-        // must not be a state where the first dialog is dismissed but the
-        // scene is half-transitioning while the second one is waiting."
-        //
-        // Before this fix, MergeDiscardWithResult returned true after
-        // opening the secondary dialog, and RunPreTransitionAction
-        // immediately invoked postChoice (HighLogic.LoadScene) - tearing
-        // down FLIGHT while the player was still looking at Merge /
-        // Discard / Cancel. The fix is structural: tri-state return,
-        // deferral signal, and the secondary dialog's Merge / Discard
-        // handlers re-invoke postChoice on a terminal choice; Cancel
-        // drops it.
-        // -----------------------------------------------------------------
-
-        // Fails if: any of the four structural anchors regresses such that
-        // a scene transition could fire while the secondary dialog is up.
-        // We cannot drive ShowSecondaryPendingDiscardDialog from xUnit
-        // (Unity PopupDialog needed), so we pin the wiring via source
-        // anchors.
+        // Fails if: a future refactor restores the secondary-dialog flow
+        // and re-introduces the orphan-debris false-positive prompt.
         [Fact]
-        public void MergeDiscard_OpensSecondaryDialog_PostChoiceDeferredUntilSecondaryTerminalChoice()
+        public void MergeDiscard_DoesNotOpenSecondaryDialog_AfterScopedDiscard()
         {
             string projectRoot = Path.GetFullPath(
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -1030,218 +894,19 @@ namespace Parsek.Tests
                 "Source", "Parsek", "MergeDialog.cs");
             string source = File.ReadAllText(path);
 
-            // (1) The tri-state enum exists and includes the deferred value.
-            // Fails if: someone collapses the contract back to bool, losing
-            // the "deferred to secondary dialog" signal between the discard
-            // helper and the pre-transition wrapper.
-            Assert.Contains("internal enum MergeDiscardOutcome", source);
-            Assert.Contains("DeferredToSecondaryDialog", source);
-            Assert.Contains("RanToCompletion", source);
-            Assert.Contains("RefusedJournalActive", source);
-
-            // (2) MergeDiscardWithResult returns DeferredToSecondaryDialog
-            // immediately after opening the secondary dialog.
-            // Fails if: a refactor reorders the return after the secondary
-            // open to return RanToCompletion, which would cause
-            // RunPreTransitionAction to run postChoice while the dialog
-            // is still up.
-            int secondaryOpenCall = source.IndexOf(
-                "ShowSecondaryPendingDiscardDialog(\r\n                            RecordingStore.PendingTree, postChoice)");
-            if (secondaryOpenCall < 0)
-            {
-                secondaryOpenCall = source.IndexOf(
-                    "ShowSecondaryPendingDiscardDialog(\n                            RecordingStore.PendingTree, postChoice)");
-            }
-            Assert.True(secondaryOpenCall > 0,
-                "secondary dialog opener call (with postChoice forward) not found");
-            int deferredReturn = source.IndexOf(
-                "return MergeDiscardOutcome.DeferredToSecondaryDialog;",
-                secondaryOpenCall);
-            Assert.True(deferredReturn > secondaryOpenCall,
-                "Deferred return must follow the secondary dialog open call");
-            Assert.True(deferredReturn - secondaryOpenCall < 600,
-                "Deferred return must be the immediate post-open action " +
-                "(was " + (deferredReturn - secondaryOpenCall) + " chars away)");
-
-            // (3) RunPreTransitionAction must understand the deferred case
-            // and skip postChoice on it.
-            // Fails if: the deferred branch falls through to the postChoice
-            // invoke at the bottom of the method.
-            int wrapperStart = source.IndexOf(
-                "private static void RunPreTransitionAction(");
-            // Locate the wrapper's closing brace by scanning to the next
-            // "private static" / "internal static" sibling declaration.
-            int wrapperNext = source.IndexOf(
-                "internal enum MergeDiscardOutcome", wrapperStart);
-            Assert.True(wrapperStart > 0 && wrapperNext > wrapperStart);
-            string wrapperBody = source.Substring(wrapperStart, wrapperNext - wrapperStart);
-            Assert.Contains(
-                "outcome == MergeDiscardOutcome.DeferredToSecondaryDialog",
-                wrapperBody);
-            Assert.Contains(
-                "deferring postChoice until secondary terminal choice",
-                wrapperBody);
-            int deferredCheck = wrapperBody.IndexOf(
-                "outcome == MergeDiscardOutcome.DeferredToSecondaryDialog");
-            int nextReturn = wrapperBody.IndexOf("return;", deferredCheck);
-            Assert.True(nextReturn > deferredCheck,
-                "Deferred branch must return before falling through");
-            // The final postChoice?.Invoke must appear AFTER the deferred
-            // return statement, not BEFORE it (so the deferred branch
-            // exits before it could be reached).
-            int finalPostChoiceInvoke = wrapperBody.IndexOf("postChoice?.Invoke", deferredCheck);
-            Assert.True(finalPostChoiceInvoke < 0
-                || finalPostChoiceInvoke > nextReturn,
-                "Deferred branch's return must precede any unguarded postChoice invoke");
-
-            // (4) ShowSecondaryPendingDiscardDialog accepts a postChoice
-            // continuation and routes it through Merge / Discard handlers
-            // (terminal) but NOT through Cancel.
-            // Fails if: the signature drops postChoice, Cancel starts
-            // invoking it, or Merge/Discard stop invoking it.
-            int secondaryOpener = source.IndexOf(
-                "internal static void ShowSecondaryPendingDiscardDialog(");
-            Assert.True(secondaryOpener > 0);
-            int secondaryEnd = source.IndexOf(
-                "private static void InvokePostChoiceSafely",
-                secondaryOpener);
-            Assert.True(secondaryEnd > secondaryOpener);
-            string secondaryBody = source.Substring(
-                secondaryOpener, secondaryEnd - secondaryOpener);
-            Assert.Contains("System.Action postChoice", secondaryBody);
-            int mergeBtn = secondaryBody.IndexOf("\"Merge to Timeline\"");
-            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
-            int cancelBtn = secondaryBody.IndexOf("\"Cancel\"");
-            Assert.True(mergeBtn > 0 && discardBtn > mergeBtn && cancelBtn > discardBtn);
-            // The buttons[] array closes with `};` before the
-            // PopupDialog.SpawnPopupDialog call. Use that as the upper bound
-            // for the Cancel slice so the spawn-null fallback's
-            // InvokePostChoiceSafely call below is excluded.
-            int buttonsArrayEnd = secondaryBody.IndexOf(
-                "PopupDialog.DismissPopup(DialogName)", cancelBtn);
-            Assert.True(buttonsArrayEnd > cancelBtn,
-                "Could not locate buttons[] array end before PopupDialog.DismissPopup");
-            string mergeSlice = secondaryBody.Substring(mergeBtn, discardBtn - mergeBtn);
-            string discardSlice = secondaryBody.Substring(discardBtn, cancelBtn - discardBtn);
-            string cancelSlice = secondaryBody.Substring(cancelBtn, buttonsArrayEnd - cancelBtn);
-            Assert.Contains("InvokePostChoiceSafely(", mergeSlice);
-            Assert.Contains("InvokePostChoiceSafely(", discardSlice);
-            Assert.DoesNotContain("InvokePostChoiceSafely(", cancelSlice);
-        }
-
-        // -----------------------------------------------------------------
-        // MED 7 (PR #876 review): the secondary dialog's Merge / Discard
-        // handlers refuse to act when an unexpected ReFlySessionMarker is
-        // armed at terminal-choice time. By design, the first dialog's
-        // ReFly hook handles Re-Fly state before scoped switch-segment
-        // discard ever opens the secondary dialog, so a Re-Fly marker
-        // here is a "should never happen" path that historically would
-        // have silently bypassed the Re-Fly supersede pipeline by routing
-        // straight through MergeCommit / DiscardPendingTreeAndRecalculate.
-        // The guard logs a Warn under [SwitchSegment] and bails.
-        //
-        // ShowSecondaryPendingDiscardDialog cannot be driven directly from
-        // xUnit (Unity PopupDialog.SpawnPopupDialog is required to surface
-        // the button lambdas to a caller). Source-text gates pin the four
-        // anchors that together guarantee the guard cannot regress:
-        // (1) the Merge handler reads ActiveReFlySessionMarker and
-        //     short-circuits on non-null, (2) the Discard handler does
-        //     the same, (3) both log under [SwitchSegment] with the
-        //     unexpected-refly-active-in-secondary-dialog tag, (4) the
-        //     refusal returns before MergeCommit /
-        //     DiscardPendingTreeAndRecalculate run.
-        // -----------------------------------------------------------------
-
-        // Fails if: the secondary dialog Merge handler no longer guards
-        // against an unexpected armed ReFlySessionMarker, or stops logging
-        // the refusal under [SwitchSegment].
-        [Fact]
-        public void SecondaryDialog_Merge_RefusesWhenReFlyMarkerActive_LogsWarn()
-        {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
-            string source = File.ReadAllText(path);
-
-            int secondaryOpener = source.IndexOf(
-                "internal static void ShowSecondaryPendingDiscardDialog(");
-            Assert.True(secondaryOpener > 0,
-                "ShowSecondaryPendingDiscardDialog opener not found");
-            int secondaryEnd = source.IndexOf(
-                "private static void InvokePostChoiceSafely",
-                secondaryOpener);
-            Assert.True(secondaryEnd > secondaryOpener);
-            string secondaryBody = source.Substring(
-                secondaryOpener, secondaryEnd - secondaryOpener);
-
-            int mergeBtn = secondaryBody.IndexOf("\"Merge to Timeline\"");
-            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
-            Assert.True(mergeBtn > 0 && discardBtn > mergeBtn);
-            string mergeSlice = secondaryBody.Substring(mergeBtn, discardBtn - mergeBtn);
-
-            // (1) Merge handler reads ActiveReFlySessionMarker.
-            Assert.Contains("ActiveReFlySessionMarker", mergeSlice);
-
-            // (2) Refuses on non-null with a Warn under [SwitchSegment].
-            Assert.Contains("unexpected-refly-active-in-secondary-dialog", mergeSlice);
-            Assert.Contains("ParsekLog.Warn(\"SwitchSegment\"", mergeSlice);
-            Assert.Contains("Merge refused", mergeSlice);
-
-            // (3) Refusal returns before MergeCommit runs. The MergeCommit
-            //     call must appear AFTER the Warn so the guard's `return`
-            //     prevents MergeCommit from executing.
-            int warnInMerge = mergeSlice.IndexOf("unexpected-refly-active-in-secondary-dialog");
-            int mergeCommitInMerge = mergeSlice.IndexOf("MergeCommit(");
-            Assert.True(warnInMerge > 0 && mergeCommitInMerge > warnInMerge,
-                "Warn must precede MergeCommit so the guard's return skips the commit");
-        }
-
-        // Fails if: the secondary dialog Discard handler no longer guards
-        // against an unexpected armed ReFlySessionMarker, or stops logging
-        // the refusal under [SwitchSegment].
-        [Fact]
-        public void SecondaryDialog_Discard_RefusesWhenReFlyMarkerActive_LogsWarn()
-        {
-            string projectRoot = Path.GetFullPath(
-                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", ".."));
-            string path = Path.Combine(projectRoot,
-                "Source", "Parsek", "MergeDialog.cs");
-            string source = File.ReadAllText(path);
-
-            int secondaryOpener = source.IndexOf(
-                "internal static void ShowSecondaryPendingDiscardDialog(");
-            Assert.True(secondaryOpener > 0,
-                "ShowSecondaryPendingDiscardDialog opener not found");
-            int secondaryEnd = source.IndexOf(
-                "private static void InvokePostChoiceSafely",
-                secondaryOpener);
-            Assert.True(secondaryEnd > secondaryOpener);
-            string secondaryBody = source.Substring(
-                secondaryOpener, secondaryEnd - secondaryOpener);
-
-            int discardBtn = secondaryBody.IndexOf("\"Discard\"");
-            int cancelBtn = secondaryBody.IndexOf("\"Cancel\"");
-            Assert.True(discardBtn > 0 && cancelBtn > discardBtn);
-            string discardSlice = secondaryBody.Substring(discardBtn, cancelBtn - discardBtn);
-
-            // (1) Discard handler reads ActiveReFlySessionMarker.
-            Assert.Contains("ActiveReFlySessionMarker", discardSlice);
-
-            // (2) Refuses on non-null with a Warn under [SwitchSegment].
-            Assert.Contains("unexpected-refly-active-in-secondary-dialog", discardSlice);
-            Assert.Contains("ParsekLog.Warn(\"SwitchSegment\"", discardSlice);
-            Assert.Contains("Discard refused", discardSlice);
-
-            // (3) Refusal returns before DiscardPendingTreeAndRecalculate
-            //     runs. The discard call must appear AFTER the Warn so the
-            //     guard's `return` prevents whole-tree discard from running.
-            int warnInDiscard = discardSlice.IndexOf("unexpected-refly-active-in-secondary-dialog");
-            int discardCallInDiscard = discardSlice.IndexOf("DiscardPendingTreeAndRecalculate");
-            Assert.True(warnInDiscard > 0 && discardCallInDiscard > warnInDiscard,
-                "Warn must precede DiscardPendingTreeAndRecalculate so the guard's return skips the discard");
+            // The deleted symbols must not reappear.
+            Assert.DoesNotContain(
+                "HasRemainingPendingChangesAfterSegmentDiscard",
+                source);
+            Assert.DoesNotContain(
+                "ShowSecondaryPendingDiscardDialog",
+                source);
+            Assert.DoesNotContain(
+                "BuildSecondaryPendingTreeDialogBody",
+                source);
+            Assert.DoesNotContain(
+                "DeferredToSecondaryDialog",
+                source);
         }
     }
 }

@@ -10,12 +10,15 @@ All notable changes to Parsek are documented here.
 
 - Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
-- Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog whose copy reflects the entry verb (Fly vs Switch To); Discard removes only the new segment and preserves committed history, and a second whole-pending dialog appears when pre-existing pending changes still need a disposition.
+- Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
+
+### Bug Fixes
+
+- Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
 
 ### Internals
 
-- Implement segment-scoped switch/Fly auto-record per `docs/dev/plans/segment-scoped-switch-fly-autorecord.md` (PR #876).
-- PR #876 review follow-ups: secondary-dialog scene-transition deferral via `MergeDiscardOutcome` tri-state, ReFly guard in the secondary dialog, scenario sidecar-refresh `SwitchSegmentSessionId` preservation, and assorted observability/reliability tightening.
+- Implement segment-scoped switch/Fly auto-record per `docs/dev/plans/segment-scoped-switch-fly-autorecord.md` (PR #876). Playtest follow-up: scoped Discard now walks the topological subtree rooted at the segment recording (catching in-segment debris), the second whole-pending-tree dialog flow was deleted, the consume dispatch was hoisted to the top of `OnFlightReady`, the merge dialog body unifies on `BuildWholeTreeMergeDialogBody`, and `TryFindCommittedTreeMatchingVessel` recognizes Parsek-spawned vessels via `SpawnedVesselPersistentId`.
 
 ---
 

@@ -490,5 +490,94 @@ namespace Parsek.Tests
                 RegexOptions.Multiline),
                 source);
         }
+
+        // -----------------------------------------------------------------
+        // Bug 1 (post-#876 playtest 2026-05-17): the consume dispatch
+        // must run on EVERY OnFlightReady path that has a valid active
+        // vessel — including the ShouldIgnoreFlightReadyReset early-return
+        // path (the TS Fly / KSC Fly common case where
+        // TryRestoreCommittedTreeForSpawnedActiveVessel pre-attached the
+        // recorder). The old call site was below ShouldIgnoreFlightReadyReset,
+        // so the marker armed in TS / SPACECENTER never got consumed and
+        // the segment-scoped Merge dialog never fired. The fix hoists the
+        // dispatch to the top of OnFlightReady (after the
+        // restoringActiveTree skip, before ShouldIgnoreFlightReadyReset).
+        //
+        // We cannot drive OnFlightReady from xUnit (Unity scene lifecycle
+        // needed), so this is a source-text gate over ParsekFlight.cs.
+        //
+        // Fails if: a future refactor of OnFlightReady moves the consume
+        // dispatch back behind ShouldIgnoreFlightReadyReset, regressing the
+        // TS Fly / KSC Fly path.
+        [Fact]
+        public void OnFlightReady_ConsumeDispatch_RunsBeforeShouldIgnoreReset_AndOnFullResetPath()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(flightPath));
+            string source = File.ReadAllText(flightPath);
+
+            // Locate the OnFlightReady method body.
+            int methodStart = source.IndexOf("void OnFlightReady()");
+            Assert.True(methodStart > 0, "OnFlightReady not found");
+            // Find a stable downstream sibling/method we know follows.
+            int methodEnd = source.IndexOf(
+                "private System.Collections.IEnumerator DeferredResumeScreenMessage",
+                methodStart);
+            // Fallback: just scan the next ~30k chars if the sibling moved.
+            if (methodEnd < 0)
+                methodEnd = Math.Min(methodStart + 30000, source.Length);
+            string body = source.Substring(methodStart, methodEnd - methodStart);
+
+            // (a) The consume dispatch helper is called exactly once inside
+            //     OnFlightReady. (Counter sweep — multiple calls would mean
+            //     the old TryConsumeStockActionIntent block was left behind.)
+            int consumeCalls = 0;
+            int idx = 0;
+            while ((idx = body.IndexOf("DispatchConsumeIntentIfArmed()", idx)) >= 0)
+            {
+                consumeCalls++;
+                idx++;
+            }
+            Assert.Equal(1, consumeCalls);
+
+            // (b) The consume dispatch comes AFTER the in-progress restore
+            //     coroutine skip (restoringActiveTree return) and BEFORE
+            //     ShouldIgnoreFlightReadyReset. This ordering is load-bearing:
+            //     skipping it on the in-progress restore is intentional
+            //     (race avoidance), while running it on the early-return path
+            //     is the bug-1 fix.
+            int restoringActiveTreeIf = body.IndexOf("if (restoringActiveTree)");
+            int restoringActiveTreeReturn = body.IndexOf("return;", restoringActiveTreeIf);
+            int consumeDispatch = body.IndexOf("DispatchConsumeIntentIfArmed()");
+            int shouldIgnoreCheck = body.IndexOf("ShouldIgnoreFlightReadyReset(");
+
+            Assert.True(restoringActiveTreeIf > 0,
+                "restoringActiveTree guard not found");
+            Assert.True(restoringActiveTreeReturn > restoringActiveTreeIf,
+                "restoringActiveTree return not found");
+            Assert.True(consumeDispatch > restoringActiveTreeReturn,
+                "Consume dispatch must follow the restoringActiveTree return");
+            Assert.True(shouldIgnoreCheck > consumeDispatch,
+                "Consume dispatch must precede ShouldIgnoreFlightReadyReset so " +
+                "the consume runs on the early-return path (Bug 1 fix).");
+
+            // (c) The helper itself contains the active-vessel + ghost-vessel
+            //     guards inherited from the prior call site, so the move is
+            //     behavior-preserving for the no-intent case.
+            int helperStart = source.IndexOf("private void DispatchConsumeIntentIfArmed()");
+            Assert.True(helperStart > 0,
+                "DispatchConsumeIntentIfArmed helper definition not found");
+            int helperEnd = source.IndexOf("\n        }", helperStart);
+            Assert.True(helperEnd > helperStart);
+            string helperBody = source.Substring(helperStart, helperEnd - helperStart);
+            Assert.Contains("FlightGlobals.ActiveVessel", helperBody);
+            Assert.Contains("GhostMapPresence.IsGhostMapVessel", helperBody);
+            Assert.Contains("TryConsumeStockActionIntent", helperBody);
+            Assert.Contains("DisarmPostSwitchAutoRecord", helperBody);
+        }
     }
 }
