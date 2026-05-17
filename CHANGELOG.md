@@ -6,8 +6,17 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### Defaults
+
+- Co-bubble peer blending now defaults OFF. Each ghost renders its own standalone absolute trajectory with no peer-blend. Opt in via the new Settings window > Diagnostics > "Use co-bubble peer blending" toggle.
+
+### UI
+
+- Settings window > Diagnostics now has a "Use co-bubble peer blending" toggle so the rendering pipeline can be flipped between standalone-absolute and co-bubble-blended at runtime.
+
 ### Bug Fixes
 
+- Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh on the active vessel was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed on the recording. Same fix applies to the background-vessel destroy path.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 
 ---

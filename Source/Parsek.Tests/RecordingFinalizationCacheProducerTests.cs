@@ -372,6 +372,142 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryBuildFromLiveVessel_DestroyEventReason_OverridesSurfaceTerminal_StampsDestroyed()
+        {
+            // Repro for the v0.9.2 "auto-seal because landed" Re-Fly dialog
+            // bug: when the active vessel impacts the ground, KSP flips
+            // Situation to LANDED for a moment before the destroy_event
+            // fires. Without this branch the surface-terminal short-circuit
+            // would stamp TerminalState.Landed and the merge dialog's reasons
+            // list would read "landed" on a recording the player saw as a
+            // crash. What makes it fail: a producer that runs
+            // TryBuildSurfaceTerminalCache before checking the
+            // destroy_event reason would store TerminalState.Landed here.
+            var vessel = new FakeVesselView
+            {
+                PersistentIdValue = 303u,
+                SituationValue = Vessel.Situations.LANDED,
+                BodyNameValue = "Kerbin",
+                LatitudeValue = -0.0972,
+                LongitudeValue = -74.5577,
+                AltitudeValue = 75.2,
+                HeightFromTerrainValue = 1.1,
+                SurfaceRelativeRotationValue = Quaternion.identity
+            };
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-destroyed",
+                VesselPersistentId = 303u
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                160.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "destroy_event",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(FinalizationCacheStatus.Fresh, cache.Status);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(160.0, cache.TerminalUT);
+            Assert.Equal("Kerbin", cache.TerminalBodyName);
+            Assert.Contains(logLines, line =>
+                line.Contains("[Parsek][VERBOSE][FinalizerCache]") &&
+                line.Contains("Refresh accepted") &&
+                line.Contains("rec=rec-live-destroyed") &&
+                line.Contains("terminal=Destroyed"));
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_BackgroundDestroyReason_OverridesSurfaceTerminal_StampsDestroyed()
+        {
+            // Same bug class on the background-vessel destroy path: when
+            // BackgroundRecorder.OnBackgroundVesselWillDestroy fires for a
+            // BG vessel whose last sampled Situation was LANDED, the
+            // background_destroy refresh must stamp Destroyed, not Landed.
+            var vessel = new FakeVesselView
+            {
+                PersistentIdValue = 404u,
+                SituationValue = Vessel.Situations.LANDED,
+                BodyNameValue = "Kerbin",
+                LatitudeValue = 1.0,
+                LongitudeValue = 2.0,
+                AltitudeValue = 30.0,
+                SurfaceRelativeRotationValue = Quaternion.identity
+            };
+            var recording = new Recording
+            {
+                RecordingId = "rec-bg-destroyed",
+                VesselPersistentId = 404u
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                250.0,
+                FinalizationCacheOwner.BackgroundLoaded,
+                "background_destroy",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
+            Assert.Equal(250.0, cache.TerminalUT);
+        }
+
+        [Fact]
+        public void TryBuildFromLiveVessel_NonDestroyReason_LandedSituationStillStampsLanded()
+        {
+            // Negative pair to the destroy_event override: ordinary refresh
+            // reasons (periodic, joint_break, part_die, etc.) must keep the
+            // surface-terminal short-circuit so a vessel that genuinely
+            // lands without dying still classifies as Landed. What makes it
+            // fail: an over-broad IsDestroyRefreshReason that catches every
+            // ground-contact reason would regress normal landed-terminal
+            // recording.
+            var vessel = new FakeVesselView
+            {
+                PersistentIdValue = 505u,
+                SituationValue = Vessel.Situations.LANDED,
+                BodyNameValue = "Kerbin",
+                SurfaceRelativeRotationValue = Quaternion.identity
+            };
+            var recording = new Recording
+            {
+                RecordingId = "rec-live-landed-periodic",
+                VesselPersistentId = 505u
+            };
+
+            bool built = RecordingFinalizationCacheProducer.TryBuildFromLiveVessel(
+                recording,
+                vessel,
+                300.0,
+                FinalizationCacheOwner.ActiveRecorder,
+                "periodic",
+                hasMeaningfulThrust: false,
+                out RecordingFinalizationCache cache);
+
+            Assert.True(built);
+            Assert.Equal(TerminalState.Landed, cache.TerminalState);
+        }
+
+        [Fact]
+        public void IsDestroyRefreshReason_MatchesDestroyEventAndBackgroundDestroyOnly()
+        {
+            Assert.True(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("destroy_event"));
+            Assert.True(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("background_destroy"));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("periodic"));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("joint_break"));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("part_die"));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason(null));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason(""));
+            Assert.False(RecordingFinalizationCacheProducer.IsDestroyRefreshReason("DESTROY_EVENT"));
+        }
+
+        [Fact]
         public void TryBuildFromLiveVessel_ExtrapolatorBranch_CachesDefaultFinalizerTailAndLogs()
         {
             RecordingFinalizationCacheProducer.TryBuildDefaultFinalizationResultOverrideForTesting =
