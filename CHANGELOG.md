@@ -34,6 +34,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - Implement segment-scoped switch/Fly auto-record per `docs/dev/plans/segment-scoped-switch-fly-autorecord.md` (PR #876). Playtest follow-up: scoped Discard now walks the topological subtree rooted at the segment recording (catching in-segment debris), the second whole-pending-tree dialog flow was deleted, the consume dispatch was hoisted to the top of `OnFlightReady`, the merge dialog body unifies on `BuildWholeTreeMergeDialogBody`, and `TryFindCommittedTreeMatchingVessel` recognizes Parsek-spawned vessels via `SpawnedVesselPersistentId`.
+- Final review follow-up: deferred consume dispatch when restore is pending to avoid a race against `ResetFlightReadyState`; doc reconciliation across plan, todo, and CHANGELOG; minor logging hygiene.
 
 ---
 
@@ -177,7 +178,7 @@ All notable changes to Parsek are documented here.
 - New `GhostRenderTrace.EmitActivationDecision` structured phase emit covers the deferred-ghost activation hide/activate split for `RenderInRangeGhost` and `SynchronizeLoadedGhostForWatch`. Gated by `ghostRenderTracing`. See `docs/dev/plans/fix-controlled-ghost-init-slide.md` Phase 1.
 - New `SceneExitInterceptor` Harmony Prefix on `HighLogic.LoadScene(GameScenes)` (HarmonyPriority.Last). Single chokepoint that catches PauseMenu's `saveAndExit`, PauseMenu's CanRestart no-save, and FlightResultsDialog's KSC/Menu/TS direct LoadScene paths. Decision matrix is pure for unit-testability.
 - New `MergeDialog.ShowTreeDialog(tree, labels, preCommitFinalize, postChoice)` overload. Decision-building (`BuildDefaultVesselDecisions`) runs AFTER `preCommitFinalize` so `CanPersistVessel` reads finalized `TerminalStateValue` rather than the live activeTree's null values.
-- New `MergeDialog.MergeDiscardWithResult` returns a `MergeDiscardOutcome` tri-state (`RanToCompletion` / `RefusedJournalActive` / `DeferredToSecondaryDialog`) so the pre-transition wrapper can detect a refused discard (merge-journal-active guard) AND a deferral while the secondary dialog is on-screen, and skip the LoadScene re-invoke in both cases. Plan §"Final Disposition After Scoped Discard".
+- New `MergeDialog.MergeDiscardRanToCompletion` returns `bool` so the pre-transition wrapper can detect a refused discard (merge-journal-active guard inside `MergeDiscardRanToCompletion`'s deferred branch) and skip the LoadScene re-invoke when the discard did not complete. The 2026-05-17 playtest follow-up deleted the second whole-pending-tree dialog flow, so the original `MergeDiscardOutcome` tri-state collapsed back to a bool.
 - `MergeDialog.MergeDiscard` and `MergeDialog.TryDiscardActiveReFlyAttempt` now refuse defensively when `ParsekScenario.ActiveMergeJournal != null`, mirroring `RevertInterceptor.DiscardReFlyHandler`'s long-standing guard. Closes a pre-existing race against the journal finisher.
 - New `VesselSpawner.BackfillMaxDistanceAbsoluteOnly` filters to Absolute-frame TrackSection points so the live idle-on-pad fast path doesn't misread RELATIVE-frame `lat/lon/alt` (which are anchor-local Cartesian metres) as body-fixed coordinates.
 - `RecordingStore.NextTreeSceneExitCommitSuppressionArmedForTesting` renamed to `IsNextTreeSceneExitCommitSuppressionArmed` - the flag is no longer test-only.
@@ -196,7 +197,7 @@ All notable changes to Parsek are documented here.
 - New `GhostRenderTraceTests` cases for the activation-decision phase: hidden-frame field shape, first-visible transition with `hiddenPoseDelta`, detailed-window open at first-visible, `AfterUpdate` raw-UT appends, default-valued `rawPlaybackUT` contract, and the loop-path invariant that all three loop call sites emit `clampFired=false`.
 - New `SceneExitInterceptorTests` covering the decision matrix and `SafeWritePersistent` test seam.
 - New `RelativeAnchorResolverTests` coverage for structured failure outcomes, same-chain continuation cycle propagation, non-finite relative poses, empty-frame range metadata, and the invariant that small-gap helper failures do not emit a second outer range warning.
-- New journal-active-guard tests for `MergeDiscard`, `MergeDiscardWithResult`, and `TryDiscardActiveReFlyAttempt`.
+- New journal-active-guard tests for `MergeDiscard`, `MergeDiscardRanToCompletion`, and `TryDiscardActiveReFlyAttempt`.
 - New `Source/Parsek.Tests/Harness/` resolver-level regression harness (PR 1 of the recording & ghost policies refactor; see `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md`). Hashes `RelativeAnchorResolver.TryResolveRecordingPose` outputs as a SHA-256 baseline; ships scenarios 1, 2, 6, 9 which must remain stable across PRs 3a/3b/3c.
 - Harness debris baselines (PR 2 of the refactor): scenarios 4, 5, 7 capture today's BROKEN debris composition (anchorRecordingId points at nearest eligible vessel rather than parent recording), plus scenario 10 (non-debris same-chain continuation invariant). 4/5/7 reset in PR 3b once the parent-anchor contract lands; 10 stays stable.
 - `RecordingFieldExtensionTests` continue to cover `DebrisParentRecordingId` sparse ConfigNode round-trips and the `IPlaybackTrajectory` bridge under the current v13 schema.

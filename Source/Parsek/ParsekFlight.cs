@@ -7996,9 +7996,16 @@ namespace Parsek
                 bool committedMatchExists = TryFindCommittedTreeMatchingVessel(newPid);
                 if (committedMatchExists)
                 {
-                    ParsekLog.Info("SwitchSegment",
-                        $"route=committed-spawned-clone reason=focused-pid-matched-committed-tree " +
-                        $"pid={newPid} intentId={marker.IntentId:D}");
+                    // L5 (PR #876 final review): only emit the
+                    // `route=committed-spawned-clone` success log AFTER the
+                    // restore actually succeeds. Previously the route log
+                    // fired before the call and could be followed by
+                    // `committed-spawned-clone-restore-failed-start-standalone`,
+                    // making KSP.log readers see an aspirational intermediate
+                    // route that never took effect. Emit the failure log
+                    // directly on the restore-failure path without an earlier
+                    // route line so the FINAL route is always the only one
+                    // logged.
                     bool restored = TryRestoreCommittedTreeForSpawnedActiveVessel();
                     if (!restored || activeTree == null)
                     {
@@ -8011,6 +8018,9 @@ namespace Parsek
                             fallthroughReason: "committed-clone-restore-failed");
                         return true;
                     }
+                    ParsekLog.Info("SwitchSegment",
+                        $"route=committed-spawned-clone reason=focused-pid-matched-committed-tree " +
+                        $"pid={newPid} intentId={marker.IntentId:D}");
                     activeIsCommittedClone = true;
                 }
             }
@@ -10091,9 +10101,44 @@ namespace Parsek
         /// the restore coroutine is rebuilding <c>activeTree</c> and consume mutating
         /// tree state mid-restore would race that coroutine. The intent marker
         /// stays armed; the TTL handles the leak.</para>
+        ///
+        /// <para>M1 (PR #876 final review): also skipped when
+        /// <see cref="ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady"/>
+        /// is non-<c>None</c> — i.e. when <c>OnLoad</c> has scheduled a restore
+        /// coroutine that has not started yet. If the consume runs here it can
+        /// install a fresh standalone <c>activeTree</c> and bind the recorder,
+        /// then <see cref="ResetFlightReadyState"/> a few lines down nulls
+        /// both, leaving <see cref="SwitchSegmentSession.TreeId"/> pointing at
+        /// a dead tree. The restore coroutines themselves invoke this helper
+        /// once they successfully install the restored tree, so the consume
+        /// still runs — just deferred until the tree is alive. If the restore
+        /// fails or aborts, the marker's TTL handles the leak.</para>
         /// </summary>
         private void DispatchConsumeIntentIfArmed()
         {
+            // M1: defer the consume when a restore is pending — the restore
+            // coroutines re-invoke this helper on success. Without this gate
+            // the consume could install a fresh standalone tree right before
+            // ResetFlightReadyState nulls it, leaving SwitchSegmentSession
+            // pointing at a dead TreeId.
+            var pendingRestoreMode =
+                ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady;
+            if (pendingRestoreMode != ParsekScenario.ActiveTreeRestoreMode.None)
+            {
+                var pendingScenario = ParsekScenario.Instance;
+                var pendingMarker = !object.ReferenceEquals(null, pendingScenario)
+                    ? pendingScenario.CurrentStockActionIntent
+                    : null;
+                string pendingIntentId = pendingMarker != null
+                    ? pendingMarker.IntentId.ToString("D",
+                        System.Globalization.CultureInfo.InvariantCulture)
+                    : "<none>";
+                ParsekLog.Verbose("SwitchIntent",
+                    $"consume-deferred-pending-restore restoreMode={pendingRestoreMode} " +
+                    $"intentId={pendingIntentId}");
+                return;
+            }
+
             var activeVesselForConsume = FlightGlobals.ActiveVessel;
             if (activeVesselForConsume == null
                 || GhostMapPresence.IsGhostMapVessel(activeVesselForConsume.persistentId))
@@ -10211,10 +10256,7 @@ namespace Parsek
                 TryRestoreCommittedTreeForSpawnedActiveVessel();
             }
 
-            // Bug 1 (post-#876 playtest 2026-05-17): consume dispatch was moved
-            // to the top of OnFlightReady (after the restoringActiveTree skip,
-            // before ShouldIgnoreFlightReadyReset) so it runs on EVERY non-
-            // restore-coroutine path. See DispatchConsumeIntentIfArmed.
+            // Note: consume dispatch lives at the top of OnFlightReady — see DispatchConsumeIntentIfArmed.
 
             // Belt-and-suspenders: recover orphaned spawned vessels that survived
             // the protoVessel stripping in OnLoad (e.g., FLIGHT→FLIGHT revert where
@@ -12313,6 +12355,14 @@ namespace Parsek
             {
                 restoringActiveTree = false;
             }
+
+            // M1 (PR #876 final review): dispatch any deferred consume now that
+            // the restored tree is live. DispatchConsumeIntentIfArmed at the
+            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
+            // is non-None to avoid racing the restore. Re-invoking here picks
+            // up an intent that survived the F5 -> reload round-trip and
+            // attaches the new switch segment to the just-restored tree.
+            DispatchConsumeIntentIfArmed();
         }
 
         /// <summary>
@@ -12446,6 +12496,14 @@ namespace Parsek
             {
                 restoringActiveTree = false;
             }
+
+            // M1 (PR #876 final review): dispatch any deferred consume now that
+            // the restored tree is live. DispatchConsumeIntentIfArmed at the
+            // top of OnFlightReady skips when ScheduleActiveTreeRestoreOnFlightReady
+            // is non-None to avoid racing the restore. Re-invoking here picks
+            // up an intent that survived the F5 -> reload round-trip and
+            // attaches the new switch segment to the just-restored tree.
+            DispatchConsumeIntentIfArmed();
         }
 
         /// <summary>

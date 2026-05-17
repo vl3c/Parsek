@@ -579,5 +579,92 @@ namespace Parsek.Tests
             Assert.Contains("TryConsumeStockActionIntent", helperBody);
             Assert.Contains("DisarmPostSwitchAutoRecord", helperBody);
         }
+
+        // -----------------------------------------------------------------
+        // M1 (PR #876 final review): the consume dispatch helper must defer
+        // its body when a restore is pending. If it ran during the OnFlightReady
+        // restore-pending path, it could install a fresh standalone activeTree
+        // and bind the recorder, then ResetFlightReadyState a few lines down
+        // nulls both, leaving SwitchSegmentSession.TreeId pointing at a dead
+        // tree. The restore coroutines themselves re-invoke the helper after
+        // they install the restored tree — that way the consume still runs
+        // but is properly attached to the restored tree, not a doomed
+        // standalone one.
+        //
+        // We cannot drive the coroutine + scenario static interplay from
+        // xUnit (Unity StartCoroutine + ParsekScenario static field needed),
+        // so this is a source-text gate over ParsekFlight.cs.
+        //
+        // Fails if: a future refactor reverts the defer-on-restore gate and
+        // reintroduces the race where consume installs activeTree right
+        // before ResetFlightReadyState nulls it.
+        [Fact]
+        public void DispatchConsumeIntentIfArmed_RestorePending_DefersAndLogs()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(flightPath));
+            string source = File.ReadAllText(flightPath);
+
+            // (a) DispatchConsumeIntentIfArmed body checks
+            //     ScheduleActiveTreeRestoreOnFlightReady and returns when the
+            //     mode is not None. We bound the helper body by its signature
+            //     and the next method's open brace.
+            int helperStart = source.IndexOf(
+                "private void DispatchConsumeIntentIfArmed()");
+            Assert.True(helperStart > 0,
+                "DispatchConsumeIntentIfArmed helper definition not found");
+            int helperEnd = source.IndexOf("void OnFlightReady()", helperStart);
+            Assert.True(helperEnd > helperStart,
+                "OnFlightReady (next method) not found after helper");
+            string helperBody = source.Substring(helperStart, helperEnd - helperStart);
+
+            Assert.Contains(
+                "ParsekScenario.ScheduleActiveTreeRestoreOnFlightReady",
+                helperBody);
+            Assert.Contains(
+                "ParsekScenario.ActiveTreeRestoreMode.None",
+                helperBody);
+
+            // (c) The deferred-log string `consume-deferred-pending-restore`
+            //     appears inside the helper.
+            Assert.Contains("consume-deferred-pending-restore", helperBody);
+
+            // (b) BOTH restore coroutines call DispatchConsumeIntentIfArmed
+            //     near their exit. The Quickload coroutine is
+            //     `RestoreActiveTreeFromPending`; the VesselSwitch coroutine is
+            //     `RestoreActiveTreeFromPendingForVesselSwitch`. We bound each
+            //     coroutine by its signature and the next method's open brace,
+            //     then assert the helper call is present in each body.
+
+            int quickloadStart = source.IndexOf(
+                "IEnumerator RestoreActiveTreeFromPending()");
+            Assert.True(quickloadStart > 0,
+                "RestoreActiveTreeFromPending coroutine not found");
+            int quickloadEnd = source.IndexOf(
+                "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()",
+                quickloadStart);
+            Assert.True(quickloadEnd > quickloadStart,
+                "Next coroutine signature not found");
+            string quickloadBody = source.Substring(
+                quickloadStart, quickloadEnd - quickloadStart);
+            Assert.Contains("DispatchConsumeIntentIfArmed()", quickloadBody);
+
+            int vsStart = source.IndexOf(
+                "IEnumerator RestoreActiveTreeFromPendingForVesselSwitch()");
+            Assert.True(vsStart > 0,
+                "RestoreActiveTreeFromPendingForVesselSwitch coroutine not found");
+            // Bound the VS coroutine: scan forward for a sentinel that is
+            // definitely past the coroutine body — the FlightFlowStash region.
+            int vsEnd = source.IndexOf(
+                "Flight→Flight stash path", vsStart);
+            if (vsEnd < 0)
+                vsEnd = Math.Min(vsStart + 30000, source.Length);
+            string vsBody = source.Substring(vsStart, vsEnd - vsStart);
+            Assert.Contains("DispatchConsumeIntentIfArmed()", vsBody);
+        }
     }
 }

@@ -213,7 +213,7 @@ namespace Parsek
                 {
                     ParsekLog.Info("MergeDialog",
                         $"Switch-segment merge dialog (post-transition): " +
-                        $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                        $"sessionId={reFlyScenario.ActiveSwitchSegmentSession.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} " +
                         $"entryReason={reFlyScenario.ActiveSwitchSegmentSession.EntryReason}");
                 }
                 message = BuildWholeTreeMergeDialogBody(tree);
@@ -358,7 +358,7 @@ namespace Parsek
                 {
                     ParsekLog.Info("MergeDialog",
                         $"Switch-segment merge dialog (pre-transition): " +
-                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId:D} " +
+                        $"sessionId={switchScenario.ActiveSwitchSegmentSession.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} " +
                         $"entryReason={switchScenario.ActiveSwitchSegmentSession.EntryReason}");
                 }
                 message = BuildWholeTreeMergeDialogBody(liveTree);
@@ -660,7 +660,26 @@ namespace Parsek
         internal static string BuildWholeTreeMergeDialogBody(RecordingTree tree)
         {
             string treeName = tree?.TreeName ?? "<unnamed>";
-            double duration = ResolveDialogBodyDuration(tree);
+            // L2 (PR #876 final review): ParsekScenario.Instance is a Unity-static
+            // touch point — its static initializer can race during scene load
+            // and throw a TypeInitializationException (or a downstream null
+            // chase). Wrap the dispatch so a broken scenario state cannot
+            // crash the dialog. Falling back to the tree-wide duration is the
+            // safe whole-launch reading; the [SwitchSegment] Warn surfaces the
+            // race in KSP.log so a real bug can still be diagnosed.
+            double duration;
+            try
+            {
+                duration = ResolveDialogBodyDuration(tree);
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Warn("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: dialog-body-static-exception " +
+                    $"exType={ex.GetType().Name} " +
+                    $"message={ex.Message ?? "<null>"} — falling back to tree-wide duration");
+                duration = ComputeTreeDurationRange(tree);
+            }
             return $"{treeName} - {FormatDuration(duration)}";
         }
 
@@ -707,7 +726,7 @@ namespace Parsek
                     $"recId={segment.RecordingId ?? "<null>"} " +
                     $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                     $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
+                    $"sessionId={session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} — falling back to tree-wide duration");
                 return ComputeTreeDurationRange(tree);
             }
 
@@ -716,7 +735,7 @@ namespace Parsek
                 $"BuildWholeTreeMergeDialogBody: using segment duration " +
                 $"recId={segment.RecordingId ?? "<null>"} " +
                 $"durationSec={segmentDuration.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
-                $"sessionId={session.SessionId:D} treeId={tree.Id ?? "<null>"}");
+                $"sessionId={session.SessionId.ToString("D", System.Globalization.CultureInfo.InvariantCulture)} treeId={tree.Id ?? "<null>"}");
             return segmentDuration;
         }
 
