@@ -8046,7 +8046,7 @@ namespace Parsek
                 activeTree,
                 parentRecId,
                 newPid,
-                newVessel.vesselName ?? "Unknown",
+                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8272,7 +8272,7 @@ namespace Parsek
                 activeTree,
                 parentRecId,
                 newPid,
-                newVessel.vesselName ?? "Unknown",
+                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,
@@ -8355,7 +8355,7 @@ namespace Parsek
                 activeTree = new RecordingTree
                 {
                     Id = Guid.NewGuid().ToString("D", CultureInfo.InvariantCulture),
-                    TreeName = newVessel.vesselName ?? "Standalone",
+                    TreeName = Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Standalone",
                     BranchPoints = new List<BranchPoint>(),
                 };
                 if (chainManager != null)
@@ -8380,7 +8380,7 @@ namespace Parsek
                 activeTree,
                 parentRecordingIdOrNull: null,
                 newPid,
-                newVessel.vesselName ?? "Unknown",
+                Recording.ResolveLocalizedName(newVessel.vesselName) ?? "Unknown",
                 switchUT,
                 MapIntentActionToEntryReason(marker.Action),
                 marker.IntentId,

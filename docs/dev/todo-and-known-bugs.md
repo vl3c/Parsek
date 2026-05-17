@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Switch/Fly auto-record started recordings with raw #autoLOC vessel-name token
+
+- ~~Stock UI Fly / Switch-To clicks on a stock craft (Jumping Flea, Kerbal X, etc.) stored the recording's `VesselName` and the fresh tree's `TreeName` as the raw KSP localization key (e.g. `#autoLOC_501224`) instead of the readable craft name. Reproduced in `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/persistent.sfs:1605-1645` — root recording `d612a4bc…` has `vesselName = #autoLOC_501224` and tree `7e91f96d…` has `treeName = #autoLOC_501224`, while the EVA-split child recording 11 s later correctly shows `vesselName = Jumping Flea`.~~
+
+**Root cause:** All three `SwitchSegmentBuilder.CreateSwitchContinuationSegment` callers in `ParsekFlight.cs` (committed-spawned-clone, bg-member-continuation, standalone) passed `newVessel.vesselName ?? "Unknown"` raw, and the standalone path's fresh-tree creation seeded `TreeName = newVessel.vesselName ?? "Standalone"`. The legacy recording-creation paths (e.g. `ParsekFlight.cs:8246` root recording, the EVA-split branches in `BuildSplitBranchData`, the merged-vessel path) all wrap with `Recording.ResolveLocalizedName`, which is why the EVA-split child resolved correctly while the root did not.
+
+**Fix:** Wrap all four call sites with `Recording.ResolveLocalizedName(newVessel.vesselName) ?? "..."`. The Localizer is loaded by FLIGHT scene entry, so the resolution succeeds; the existing `ResolveLocalizedNameTests` cover the underlying helper. The `_vessel.craft` ProtoVessel snapshot's `name` field still contains the raw token because KSP keeps the live `Vessel.vesselName` as the loc key — that's a separate concern for snapshot-driven respawn display and is not addressed by this fix.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Done - v0.10.0 Parsek-spawned terminal-orbit vessels cascade-exploded on first Switch-To / Watch / TS-Fly
 
 - ~~A vessel spawned at a recording's terminal orbit (canonical case: the stock Kerbal X with three `ForceHeaviest`-autostrutted `landingLeg1-2` legs surface-attached to the Rockomax fuel tank) cascade-exploded within ~40 ms of being focused. The central stack (pod, heatshield, parachute, tank, decoupler, antenna) blew up while the legs detached cleanly. Reproduced in `logs/2026-05-17_1437_switch-fly-test/` against a Parsek-spawned Kerbal X at alt 418 km.~~
