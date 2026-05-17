@@ -173,6 +173,25 @@ namespace Parsek
                 return CompleteRefresh(cache, false, recordingsExamined, 1, 0);
             }
 
+            // Destroy-event refreshes are the call site's "this vessel is being
+            // destroyed right now" signal (FlightRecorder.OnVesselDestroyed -> "destroy_event",
+            // BackgroundRecorder.OnBackgroundVesselWillDestroy -> "background_destroy").
+            // Without this branch the live vessel's transient post-impact LANDED
+            // situation would short-circuit through TryBuildSurfaceTerminalCache
+            // and stamp TerminalState.Landed on a recording that the player
+            // observed as a crash, surfacing as "would auto-seal because
+            // landed" copy in the Re-Fly merge dialog. The branch also
+            // eagerly mutates recording.TerminalStateValue so the
+            // TryBuildAlreadyClassifiedDestroyedSkip short-circuit catches any
+            // subsequent same-frame refresh (part_die / joint_break / periodic
+            // for residual parts) before they reach the surface-terminal
+            // branch and re-stamp Landed on the same transient LANDED
+            // situation.
+            if (IsDestroyRefreshReason(reason))
+                return CompleteRefresh(
+                    cache, PopulateDestroyEventTerminalCache(recording, cache, refreshUT, reason, vessel.Situation),
+                    recordingsExamined, 0, 1);
+
             if (TryBuildSurfaceTerminalCache(cache, vessel, refreshUT))
                 return CompleteRefresh(cache, true, recordingsExamined, 0, 0);
 
@@ -800,6 +819,88 @@ namespace Parsek
             cache.TailStartsAtUT = terminalUT;
             cache.PredictedSegments = new List<OrbitSegment>();
             return Accept(cache);
+        }
+
+        /// <summary>
+        /// Stamp <see cref="TerminalState.Destroyed"/> for a "this vessel is
+        /// being destroyed right now" refresh, bypassing the surface-terminal
+        /// short-circuit. Same shape as
+        /// <see cref="PopulateAtmosphericDeletionCache"/> but called from a
+        /// different signal: the destroy-event call sites in
+        /// <see cref="FlightRecorder"/> and <see cref="BackgroundRecorder"/>
+        /// know the vessel is gone, even when KSP's transient last-frame
+        /// situation still says LANDED.
+        ///
+        /// <para>
+        /// Also eagerly mutates <c>recording.TerminalStateValue</c> to
+        /// <see cref="TerminalState.Destroyed"/> when unset, so any same-frame
+        /// follow-up refresh (e.g. <c>part_die</c>, <c>joint_break</c>,
+        /// <c>periodic</c> on a still-LANDED-situation residual hull) short-
+        /// circuits through <see cref="TryBuildAlreadyClassifiedDestroyedSkip"/>
+        /// instead of re-reaching <see cref="TryBuildSurfaceTerminalCache"/>
+        /// and clobbering the stamp with <see cref="TerminalState.Landed"/>.
+        /// Production callers normally let <see cref="RecordingFinalizationCacheApplier"/>
+        /// be the only writer of <c>TerminalStateValue</c>, so we only mutate
+        /// when the recording's terminal is still null: pre-existing terminal
+        /// verdicts (the cleared-stale-verdict path in
+        /// <see cref="IncompleteBallisticSceneExitFinalizer.ClearAlreadyClassifiedDestroyed"/>,
+        /// for example) are not overwritten.
+        /// </para>
+        /// </summary>
+        private static bool PopulateDestroyEventTerminalCache(
+            Recording recording,
+            RecordingFinalizationCache cache,
+            double terminalUT,
+            string reason,
+            Vessel.Situations observedSituation)
+        {
+            cache.Status = FinalizationCacheStatus.Fresh;
+            cache.TerminalState = TerminalState.Destroyed;
+            cache.TerminalUT = terminalUT;
+            cache.TerminalBodyName = cache.LastObservedBodyName;
+            cache.TailStartsAtUT = terminalUT;
+            cache.PredictedSegments = new List<OrbitSegment>();
+
+            bool eagerStamp = false;
+            if (recording != null && !recording.TerminalStateValue.HasValue)
+            {
+                recording.TerminalStateValue = TerminalState.Destroyed;
+                eagerStamp = true;
+            }
+
+            // Info-level (not rate-limited) so a destroy override is visible
+            // in KSP.log even if a prior Landed stamp's
+            // VerboseRateLimited "Refresh accepted" line is in the dedup
+            // window for the same vessel.
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Destroy-reason override: rec={0} pid={1} reason={2} situation={3} terminalUT={4:F3} eagerRecordingStamp={5}",
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    reason ?? "(none)",
+                    observedSituation,
+                    terminalUT,
+                    eagerStamp));
+            return Accept(cache);
+        }
+
+        /// <summary>
+        /// True when <paramref name="reason"/> names a refresh triggered by a
+        /// vessel-destroy event. The active-vessel path uses
+        /// <c>"destroy_event"</c> (<see cref="FlightRecorder.OnVesselDestroyed"/>),
+        /// and the background-vessel path uses <c>"background_destroy"</c>
+        /// (<see cref="BackgroundRecorder.OnBackgroundVesselWillDestroy"/>).
+        /// Both signal that the caller has decided the vessel is gone, so the
+        /// producer must not round the transient last-sampled
+        /// <see cref="Vessel.Situations.LANDED"/> situation up to
+        /// <see cref="TerminalState.Landed"/>.
+        /// </summary>
+        internal static bool IsDestroyRefreshReason(string reason)
+        {
+            if (string.IsNullOrEmpty(reason)) return false;
+            return string.Equals(reason, "destroy_event", StringComparison.Ordinal)
+                || string.Equals(reason, "background_destroy", StringComparison.Ordinal);
         }
 
         private static bool Accept(RecordingFinalizationCache cache)
