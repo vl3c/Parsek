@@ -335,6 +335,201 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "rp_1" }, deletedRpIds);
         }
 
+        // ---------- Auto-UF keep-open (fix-rp-reap-auto-uf) -----------------
+        //
+        // An Immutable slot whose chain ends in an automatic Unfinished Flight
+        // outcome (crashed terminal, stranded EVA, non-focused stable leaf)
+        // must keep its RP alive even when the slot has never been manually
+        // stashed. The UI shows these slots as re-flyable; reaping the RP
+        // would silently strip the Re-Fly button.
+
+        [Fact]
+        public void Reap_ImmutableCrashedSlot_KeepsRpAlive()
+        {
+            // Slot's origin recording ended Destroyed. The slot is unsealed
+            // and not stashed (auto-UF, not manual). Reaper must keep RP.
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                    Rec("rec_destroyed", MergeState.Immutable, TerminalState.Destroyed,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true),
+                Slot(1, "rec_destroyed"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("immutable-qualifies-as-unfinished-flight")
+                && l.Contains("rec=rec_destroyed"));
+        }
+
+        [Fact]
+        public void Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive()
+        {
+            // Regression for the kerbalx-probe-stash-refly playtest:
+            //   chain HEAD = CommittedProvisional (promoted by
+            //   ApplyRewindProvisionalMergeStates because it had a parentBp
+            //   link), chain TIP = Immutable (born default and never promoted,
+            //   because it has no branch link and is no slot's origin).
+            // The slot's EffectiveRecordingId walks to the TIP. Pre-fix, the
+            // reaper saw the TIP as Immutable + not stashed and dropped the
+            // RP, breaking Re-Fly on the destroyed chain.
+            var bp = Bp("bp_1", "rp_1");
+            var chainHead = new Recording
+            {
+                RecordingId = "rec_head",
+                VesselName = "Probe",
+                TreeId = "tree_1",
+                MergeState = MergeState.CommittedProvisional,
+                ParentBranchPointId = "bp_1",
+                ChainId = "chain_1",
+                ChainIndex = 0,
+            };
+            var chainTip = new Recording
+            {
+                RecordingId = "rec_tip",
+                VesselName = "Probe",
+                TreeId = "tree_1",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+                ChainId = "chain_1",
+                ChainIndex = 1,
+            };
+            var siblingA = Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
+                parentBranchPointId: "bp_1");
+            InstallTree("tree_1",
+                new List<Recording> { siblingA, chainHead, chainTip },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true),
+                Slot(1, "rec_head"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+            // The keep-alive log must name the chain TIP (the recording the
+            // slot's effective walker landed on), proving the reaper saw the
+            // Immutable tip and still routed through Qualifies rather than
+            // the legacy unconditional `continue`.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("immutable-qualifies-as-unfinished-flight")
+                && l.Contains("rec=rec_tip"));
+        }
+
+        [Fact]
+        public void Reap_ImmutableStrandedEvaSlot_KeepsRpAlive()
+        {
+            // EVA crew Landed (not Boarded) qualifies as `strandedEva` per the
+            // classifier. Without manual stash, an Immutable slot in this
+            // state must still keep the RP alive.
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                    Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                        evaCrewName: "Jebediah Kerman",
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true),
+                Slot(1, "rec_eva"));
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_ImmutableNonFocusStableLeafSlot_KeepsRpAlive()
+        {
+            // Non-focused stable leaf (Orbiting at a slot that isn't
+            // rp.FocusSlotIndex) qualifies as `stableLeafUnconcluded`. The
+            // focus slot must close on its own terminal path; the non-focus
+            // slot stays open until the player Seals it.
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_focus", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                    Rec("rec_other", MergeState.Immutable, TerminalState.Orbiting,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_focus", sealedSlot: true),
+                Slot(1, "rec_other"));
+            rp.FocusSlotIndex = 0;
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int reaped = RewindPointReaper.ReapOrphanedRPs();
+
+            Assert.Equal(0, reaped);
+            Assert.Single(scenario.RewindPoints);
+            Assert.Equal("rp_1", bp.RewindPointId);
+            Assert.Empty(deletedRpIds);
+        }
+
+        [Fact]
+        public void Reap_ImmutableCrashedSlot_SealedClosesIt()
+        {
+            // Auto-UF keep-open is conditional on !slot.Sealed. Once the
+            // player explicitly seals a crashed slot, it counts as closed
+            // and the RP reaps on the next pass.
+            var bp = Bp("bp_1", "rp_1");
+            InstallTree("tree_1",
+                new List<Recording>
+                {
+                    Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
+                        parentBranchPointId: "bp_1"),
+                    Rec("rec_destroyed", MergeState.Immutable, TerminalState.Destroyed,
+                        parentBranchPointId: "bp_1"),
+                },
+                new List<BranchPoint> { bp });
+            var crashedSlot = Slot(1, "rec_destroyed");
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
+                Slot(0, "rec_a", sealedSlot: true),
+                crashedSlot);
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+
+            int first = RewindPointReaper.ReapOrphanedRPs();
+            Assert.Equal(0, first);
+            Assert.Single(scenario.RewindPoints);
+
+            crashedSlot.Sealed = true;
+            crashedSlot.SealedRealTime = "2026-05-17T18:00:00.0000000Z";
+
+            int second = RewindPointReaper.ReapOrphanedRPs();
+            Assert.Equal(1, second);
+            Assert.Empty(scenario.RewindPoints);
+            Assert.Null(bp.RewindPointId);
+            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+        }
+
         [Fact]
         public void Reap_AnySlotNotCommitted_Retained()
         {
