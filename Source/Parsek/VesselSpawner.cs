@@ -5486,32 +5486,62 @@ namespace Parsek
         // FlightIntegrator only updates Part.rb.mass for UNPACKED parts
         // (Assembly-CSharp FlightIntegrator: `if (part.packed) continue;`
         // inside the per-part mass-update loop). A ProtoVessel.Load done by
-        // Parsek's terminal-orbit / re-fly spawn paths instantiates the
-        // vessel in PACKED state, so every Part.rb keeps Unity's default
-        // mass=1 until the vessel is first unpacked. The Part.Start chain
-        // runs UpdateAutoStrut->CycleAutoStrut->SecureAutoStruts shortly
-        // after pv.Load, while the vessel is still packed; if all rb.mass
-        // values are still the Unity default, Part.MassivePartCheck's
-        // approximate-equality branch ties at mass=1 across every part and
-        // falls into the distance tiebreaker, so ForceHeaviest legs anchor
-        // to whichever sibling part happens to be closest instead of the
-        // actual heaviest part (the fuel tank). The wrong-anchor autostrut
-        // joints survive the packed coast at breakingForce=MaxValue, and
-        // when the player Switch-To unpacks the vessel they release all at
-        // once and cascade-explode the central stack within ~40ms.
-        // Seeding rb.mass right after pv.Load is enough to keep
-        // MassivePartCheck on the real heaviest part. Matches the formula
-        // FlightIntegrator uses for unpacked parts (minus the
-        // GetPhysicslessChildMass roll-up, which only matters for
-        // physicsless siblings the autostrut ranking already ignores).
+        // Parsek's terminal-orbit / validated-respawn spawn paths
+        // instantiates the vessel in PACKED state, so every Part.rb keeps
+        // Unity's default mass=1 until the vessel is first unpacked. The
+        // Part.Start chain runs UpdateAutoStrut->CycleAutoStrut->
+        // SecureAutoStruts shortly after pv.Load, while the vessel is still
+        // packed; if all rb.mass values are still the Unity default,
+        // Part.MassivePartCheck's approximate-equality branch ties at
+        // mass=1 across every part and falls into the distance tiebreaker,
+        // so ForceHeaviest legs anchor to whichever sibling part happens to
+        // be closest instead of the actual heaviest part (the fuel tank).
+        // The wrong-anchor autostrut joints survive the packed coast at
+        // breakingForce=MaxValue, and when the player Switch-To unpacks the
+        // vessel they release all at once and cascade-explode the central
+        // stack within ~40ms. Seeding rb.mass right after pv.Load is enough
+        // to keep MassivePartCheck on the real heaviest part. Matches the
+        // formula FlightIntegrator uses for unpacked parts (including the
+        // GetPhysicslessChildMass roll-up so a physical parent under a
+        // cluster of physicsless decorative children still ranks at the
+        // mass FlightIntegrator would assign at unpack).
+        //
+        // Not invoked from the flag-spawn or ghost-map-presence ProtoVessel
+        // paths: those create single-part vessels with autostrutMode=Off
+        // (no autostrut anchor selection runs against them) and the
+        // Part.Start coroutine never reaches MassivePartCheck on a vessel
+        // of size 1.
         internal static float ComputeRigidbodyMassForPackedSpawn(
             float partMass,
             float resourceMass,
+            float physicslessChildMass,
             float minimumMass,
             float minimumRBMass)
         {
-            float effectiveMass = Mathf.Max(partMass + resourceMass, minimumMass);
+            float effectiveMass = Mathf.Max(
+                partMass + resourceMass + physicslessChildMass,
+                minimumMass);
             return Mathf.Max(effectiveMass, minimumRBMass);
+        }
+
+        // Sum mass + resourceMass of physicsless descendants under `parent`,
+        // matching FlightIntegrator.GetPhysicslessChildMass: rb==null children
+        // roll their mass up to the nearest physical ancestor's rb.mass.
+        // Physicsless children can themselves have physicsless descendants,
+        // so the walk is recursive but bounded by part-tree depth.
+        private static float SumPhysicslessChildMass(Part parent)
+        {
+            if (parent == null || parent.children == null) return 0f;
+            float total = 0f;
+            for (int i = 0; i < parent.children.Count; i++)
+            {
+                Part child = parent.children[i];
+                if (child == null) continue;
+                if (child.rb != null) continue;
+                total += child.mass + child.resourceMass;
+                total += SumPhysicslessChildMass(child);
+            }
+            return total;
         }
 
         internal static void SeedRigidbodyMassesForPackedSpawn(Vessel vessel, string logContext)
@@ -5528,9 +5558,11 @@ namespace Parsek
                 if (part.rb == null) { skippedNoRb++; continue; }
                 AvailablePart partInfo = part.partInfo;
                 if (partInfo == null) { skippedNoPartInfo++; continue; }
+                float physicslessChildMass = SumPhysicslessChildMass(part);
                 float seededMass = ComputeRigidbodyMassForPackedSpawn(
                     part.mass,
                     part.resourceMass,
+                    physicslessChildMass,
                     partInfo.MinimumMass,
                     partInfo.MinimumRBMass);
                 part.rb.mass = seededMass;
