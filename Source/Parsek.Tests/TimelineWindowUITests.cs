@@ -330,6 +330,31 @@ namespace Parsek.Tests
             Assert.Equal(1, committedLookup["rec-b"]);
         }
 
+        // Pins the W-button code path's resolver contract: given a CommittedRecordings-
+        // shaped lookup, FindCommittedRecordingIndexById returns the committed-list
+        // index for every recording, INCLUDING ones that would be filtered out of ERS.
+        // A future refactor that swapped this back to an ERS-shaped lookup would still
+        // pass BuildRecordingIndexLookup_*; this test catches the actual regression.
+        [Fact]
+        public void FindCommittedRecordingIndexById_ReturnsCommittedIndex_IncludingForErsFilteredRecordings()
+        {
+            var committedList = new[]
+            {
+                new Recording { RecordingId = "rec-a" }, // Committed 0
+                new Recording { RecordingId = "rec-b" }, // Committed 1 (would be ERS-filtered)
+                new Recording { RecordingId = "rec-c" }  // Committed 2
+            };
+            var committedLookup = TimelineWindowUI.BuildRecordingIndexLookup(committedList);
+
+            Assert.Equal(0, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, "rec-a"));
+            Assert.Equal(1, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, "rec-b"));
+            Assert.Equal(2, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, "rec-c"));
+            Assert.Equal(-1, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, "missing"));
+            Assert.Equal(-1, TimelineWindowUI.FindCommittedRecordingIndexById(null, "rec-a"));
+            Assert.Equal(-1, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, null));
+            Assert.Equal(-1, TimelineWindowUI.FindCommittedRecordingIndexById(committedLookup, string.Empty));
+        }
+
         [Fact]
         public void BuildWatchButtonDescriptor_WatchedUnavailableRow_UsesExitTooltipAndStaysEnabled()
         {
