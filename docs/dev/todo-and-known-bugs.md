@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 RewindPointReaper dropped the RP for crashed chain-tip slots, silently stripping Re-Fly
+
+- ~~User playtest `logs/2026-05-17_1728_kerbalx-probe-stash-refly/` (switch-fly-autorecord build; bug is in shared code on main). Player launched Kerbal X, decoupled "Kerbal X Probe", vessel-switched between probe and parent, eventually let the probe crash on rails at UT 1307.7. The classifier correctly marked the probe's chain-head recording `50560293…` as `IsUnfinishedFlight=true reason=crashed` (KSP.log line 20547) and `ApplyRewindProvisionalMergeStates` promoted it to `CommittedProvisional`. Two seconds later, on the FLIGHT->SPACECENTER scene change, `RewindPointReaper.ReapOrphanedRPs` deleted `rp_e2ce2420…` (line 22132). From that point on the recording stayed visible in the timeline but no longer matched any RP, so neither Re-Fly nor manual Stash was available.~~
+
+**Root cause:** `RewindPointReaper.IsReapEligible` resolves each slot's effective recording via `slot.EffectiveRecordingId(supersedes)`, a composite chain+supersede walker that returns the chain TIP. For the probe slot the walker returned `ef843aae…` (chainIndex=1), which was born `Immutable` and never promoted by `ApplyRewindProvisionalMergeStates` (it has no `parentBranchPointId`/`childBranchPointId` and no slot lists it as `OriginChildRecordingId`, so `IsUnfinishedFlightCandidateShape` rejects it). The reaper's Immutable branch only kept the RP alive when `slot.Stashed && !slot.Sealed && UnfinishedFlightClassifier.Qualifies(...)`, so any auto-UF outcome (crashed terminal, stranded EVA, non-focused stable leaf) that wasn't manually stashed fell through to `continue` (closed). The chain-head's `CommittedProvisional` state was invisible to the reaper because the walker landed on the tip.
+
+**Fix:** In `RewindPointReaper.IsReapEligible`, route all unsealed Immutable slots through `UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed:true)`. The classifier already walks the chain via `ResolveChainTerminalRecording`, matches the slot via `ResolveRewindPointSlotIndexForRecording`'s composite tip walker, and returns true for `crashed` / `strandedEva` / `stashedStableLeaf` / `stableLeafUnconcluded`, giving a single source of truth with `IsVisibleUnfinishedFlight` (the UI predicate). Sealed slots return false from `Qualifies(considerSealed:true)`, so the explicit `!slot.Sealed` short-circuit just avoids the classifier walk for the closed path. Five new unit tests in `RewindPointReaperTests`:`Reap_ImmutableCrashedSlot_KeepsRpAlive`, `Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive` (regression for this exact scenario), `Reap_ImmutableStrandedEvaSlot_KeepsRpAlive`, `Reap_ImmutableNonFocusStableLeafSlot_KeepsRpAlive`, and `Reap_ImmutableCrashedSlot_SealedClosesIt`.
+
+**Status:** CLOSED 2026-05-17.
+
+---
+
 ## Done - v0.10.0 Parsek-spawned terminal-orbit vessels cascade-exploded on first Switch-To / Watch / TS-Fly
 
 - ~~A vessel spawned at a recording's terminal orbit (canonical case: the stock Kerbal X with three `ForceHeaviest`-autostrutted `landingLeg1-2` legs surface-attached to the Rockomax fuel tank) cascade-exploded within ~40 ms of being focused. The central stack (pod, heatshield, parachute, tank, decoupler, antenna) blew up while the legs detached cleanly. Reproduced in `logs/2026-05-17_1437_switch-fly-test/` against a Parsek-spawned Kerbal X at alt 418 km.~~
