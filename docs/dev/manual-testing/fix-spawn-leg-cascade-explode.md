@@ -8,7 +8,7 @@ shortly after spawn.
 
 ## Background
 
-Pre-fix: KSP's `FlightIntegrator` only updates `Part.rb.mass` for unpacked
+KSP's `FlightIntegrator` only updates `Part.rb.mass` for unpacked
 parts. A Parsek terminal-orbit spawn instantiates the vessel packed, so every
 `rb.mass` keeps Unity's default of `1`. `Part.Start` runs
 `UpdateAutoStrut`/`CycleAutoStrut`/`SecureAutoStruts` before the vessel ever
@@ -20,9 +20,19 @@ on-rails coast at `breakingForce = float.MaxValue`. At Switch-To the per-part
 them simultaneously and the central stack cascade-explodes within ~40 ms.
 
 The fix seeds `Part.rb.mass = mass + resourceMass` (clamped to
-`MinimumMass`/`MinimumRBMass`) on every freshly loaded packed part right
-after `pv.Load`, so `MassivePartCheck` ranks the heaviest part correctly the
-first time and the cascade never sets up.
+`MinimumMass`/`MinimumRBMass`) on every freshly-loaded packed part right
+after `Vessel.Load()` returns (which is after `ProtoVessel.LoadObjects`
+instantiates the parts), so `MassivePartCheck` ranks the heaviest part
+correctly the first time and the cascade never sets up.
+
+**Important PR #890 amendment:** PR #885 originally placed the seeder right
+after `pv.Load(flightState)`, but ilspycmd of `Assembly-CSharp.dll` shows
+that overload never calls `protoVessel.LoadObjects()`, so the parts list
+was empty at the seeder call and the loop iterated zero times. Every
+historical seeder log line shows `updated=0`. PR #890 retargeted to a
+Harmony postfix on `Vessel.Load()` (where parts are populated) and removed
+the inline calls. The verification check below now expects
+`updated=<count>` with `<count> > 0`, not just the line's mere presence.
 
 ## Reproducer Save
 
@@ -45,7 +55,7 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
    floating away.
 4. Tail `Kerbal Space Program/KSP.log`. Expected log lines:
    - `[Parsek][INFO][Spawner] Seeded packed-spawn rb.mass for
-     ProtoVesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=17 ...`
+     VesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=17 ...`
      (the single seeder log: PR #890 removed the previous inline
      `SpawnAtPosition` / `RespawnVessel` log lines so the postfix is now the
      only seed-site).
@@ -56,7 +66,7 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
      physics activation.
 5. As a control, repeat the spawn path against a stock-craft vessel without
    `ForceHeaviest` autostruts (e.g., a single-pod test rocket); confirm the
-   `Seeded packed-spawn rb.mass for ProtoVesselLoadPostfix` log line still
+   `Seeded packed-spawn rb.mass for VesselLoadPostfix` log line still
    appears (the seeder loop walks every part on every multi-part spawn; the
    per-part rb.mass write itself is gated on the part having a non-null
    rigidbody and `partInfo`) and the vessel still spawns and unpacks
@@ -94,7 +104,7 @@ and load `persistent.sfs`.
    away, no `landingLeg1-2` joints breaking.
 4. Tail `Kerbal Space Program/KSP.log`. Expected log lines, in this order:
    - `[Parsek][INFO][Spawner] Seeded packed-spawn rb.mass for
-     ProtoVesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=<count>
+     VesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=<count>
      ...` (this is the new patch firing on the save-load reconstruction).
    - `Unpacking Kerbal X` shortly after (KSP's own log).
    - No `[Parsek][VERBOSE][Recorder] OnPartJointBreak diagnostics: ...
@@ -106,6 +116,6 @@ and load `persistent.sfs`.
      physics activation.
 5. As a regression control, quicksave (F5) and quickload (F9) on a
    stationary multi-part vessel with deployed-leg autostruts; confirm
-   the `Seeded packed-spawn rb.mass for ProtoVesselLoadPostfix` log line
+   the `Seeded packed-spawn rb.mass for VesselLoadPostfix` log line
    appears on the F9 path and the vessel remains intact through the next
    physics frame after the quickload.

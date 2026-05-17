@@ -629,16 +629,17 @@ namespace Parsek
                     ParsekLog.Warn("Spawner", "Spawned vessel has no orbitDriver — may not appear in map view");
 
                 // rb.mass seeding is handled centrally by the
-                // ProtoVesselLoadRigidbodyMassSeederPatch Harmony postfix on
-                // ProtoVessel.Load (covers this RespawnVessel path plus stock
-                // FlightDriver / Game.AddVessel / ConstructShip paths in one
-                // place).
+                // VesselLoadRigidbodyMassSeederPatch Harmony postfix on
+                // Vessel.Load (covers this RespawnVessel path once the
+                // freshly-spawned proto activates into physics, plus every
+                // stock save-load reconstruction in one place).
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
 
                 // Zero velocity for surface spawns to prevent physics jitter (#239)
                 ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
+
 
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
@@ -1073,10 +1074,10 @@ namespace Parsek
                     ParsekLog.Warn("Spawner", "SpawnAtPosition vessel has no orbitDriver — may not appear in map view");
 
                 // rb.mass seeding is handled centrally by the
-                // ProtoVesselLoadRigidbodyMassSeederPatch Harmony postfix on
-                // ProtoVessel.Load (covers this SpawnAtPosition path plus stock
-                // FlightDriver / Game.AddVessel / ConstructShip paths in one
-                // place).
+                // VesselLoadRigidbodyMassSeederPatch Harmony postfix on
+                // Vessel.Load (covers this SpawnAtPosition path once the
+                // freshly-spawned proto activates into physics, plus every
+                // stock save-load reconstruction in one place).
 
                 // Suppress g-force destruction from spawn position correction (#235)
                 pv.vesselRef.IgnoreGForces(240);
@@ -5513,18 +5514,23 @@ namespace Parsek
         // cluster of physicsless decorative children still ranks at the
         // mass FlightIntegrator would assign at unpack).
         //
-        // Single source of truth: the Patches.ProtoVesselLoadRigidbodyMassSeederPatch
-        // Harmony postfix on the internal ProtoVessel.Load(FlightState, Vessel)
-        // overload is the ONLY caller of this helper in production. The
-        // postfix covers every entry point in one place: Parsek's
-        // SpawnAtPosition / RespawnVessel paths, KSP's stock
-        // FlightDriver.StartAndFocusVessel save-load, Game.AddVessel, and
-        // the MissionSystem / ContractSystem ConstructShip coroutines. The
-        // postfix gate intentionally skips flag-spawn and ghost-map-presence
-        // ProtoVessels: those create single-part vessels with
-        // autostrutMode=Off, so the wrong-anchor failure mode cannot manifest
-        // and the Part.Start coroutine never reaches MassivePartCheck on a
-        // vessel of size 1.
+        // Single source of truth: the Patches.VesselLoadRigidbodyMassSeederPatch
+        // Harmony postfix on Vessel.Load() is the ONLY caller of this
+        // helper in production. ProtoVessel.Load was the previously-attempted
+        // target but it never populates vessel.parts (parts are
+        // instantiated by ProtoVessel.LoadObjects, which Vessel.Load calls
+        // before firing GameEvents.onVesselLoaded), so the seeder loop
+        // there iterated zero times for two months -- visible as
+        // updated=0 in every production seeder log line. Vessel.Load is
+        // the single entry point through which every freshly-loaded packed
+        // vessel passes (active vessel after scene load via
+        // Vessel.MakeActive, background vessels entering physics range,
+        // every Parsek SpawnAtPosition / RespawnVessel spawn once
+        // activated). The postfix gate intentionally skips flag-spawn and
+        // ghost-map-presence vessels: those are single-part with
+        // autostrutMode=Off, so the wrong-anchor failure mode cannot
+        // manifest and the Part.Start coroutine never reaches
+        // MassivePartCheck on a vessel of size 1.
         internal static float ComputeRigidbodyMassForPackedSpawn(
             float partMass,
             float resourceMass,

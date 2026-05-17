@@ -215,7 +215,7 @@ namespace Parsek.Tests
             Assert.Contains("partsNull=T", msg);
         }
 
-        // Pure-decision tests for the ProtoVessel.Load postfix gate. The live
+        // Pure-decision tests for the Vessel.Load postfix gate. The live
         // postfix wrapper can't be invoked from xUnit because deriving
         // `isFlag` / `isGhostMap` reads `vessel.vesselType` and
         // `vessel.persistentId` through Unity's overloaded `Vessel == null`
@@ -225,54 +225,53 @@ namespace Parsek.Tests
         // directly.
 
         [Fact]
-        public void PvLoadPostfix_NullVessel_SkipsSeeding()
+        public void VesselLoadPostfix_NullVessel_SkipsSeeding()
         {
             // Fails if: a future refactor lets the postfix call
             // SeedRigidbodyMassesForPackedSpawn with a null Vessel; the inner
             // loop would NRE before its own null-guard could log the skip.
-            Assert.False(ProtoVesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterPvLoad(
+            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
                 vesselNull: true, isFlag: false, isGhostMap: false));
         }
 
         [Fact]
-        public void PvLoadPostfix_FlagVessel_SkipsSeeding()
+        public void VesselLoadPostfix_FlagVessel_SkipsSeeding()
         {
-            // Fails if: flag-spawn ProtoVessel.Load paths (GhostVisualBuilder
-            // flag spawns) trigger the seeder. Flags are single-part vessels
-            // with autostrutMode=Off; the wrong-anchor failure mode cannot
-            // manifest and seeding them adds log noise without any benefit.
-            // Matches the intentional flag-skip in
-            // VesselSpawner.SeedRigidbodyMassesForPackedSpawn's caller scope.
-            Assert.False(ProtoVesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterPvLoad(
+            // Fails if: flag-spawn Vessel.Load paths (GhostVisualBuilder
+            // flag spawns once they activate into physics range) trigger the
+            // seeder. Flags are single-part vessels with autostrutMode=Off;
+            // the wrong-anchor failure mode cannot manifest and seeding them
+            // adds log noise without any benefit.
+            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
                 vesselNull: false, isFlag: true, isGhostMap: false));
         }
 
         [Fact]
-        public void PvLoadPostfix_GhostMapVessel_SkipsSeeding()
+        public void VesselLoadPostfix_GhostMapVessel_SkipsSeeding()
         {
             // Fails if: ghost-map ProtoVessels (registered in
             // GhostMapPresence.ghostMapVesselPids before pv.Load) trigger the
-            // seeder. Ghost-map vessels are intentionally lightweight
-            // single-part presences; running the seeder loop on them adds work
-            // for no benefit and could mask a missing-fix regression on the
-            // real save-load reconstruction case behind a noisy ghost log line.
-            Assert.False(ProtoVesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterPvLoad(
+            // seeder when they activate into physics range. Ghost-map vessels
+            // are intentionally lightweight single-part presences; running
+            // the seeder loop on them adds work for no benefit and could mask
+            // a missing-fix regression on the real save-load reconstruction
+            // case behind a noisy ghost log line.
+            Assert.False(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
                 vesselNull: false, isFlag: false, isGhostMap: true));
         }
 
         [Fact]
-        public void PvLoadPostfix_StockSaveLoadVessel_SeedsRbMass()
+        public void VesselLoadPostfix_StockSaveLoadVessel_SeedsRbMass()
         {
             // Fails if: a future "skip-by-default" refactor of the gate ever
             // declines to seed a normal save-load-reconstructed vessel. This
-            // is the bug-recurrence signature for the PR coverage gap (the
-            // 19:43:06 Kerbal X cascade in
-            // logs/2026-05-17_1944_switch-fly-edge-case/KSP.log): a packed
+            // is the bug-recurrence signature for the cascade reproduced in
+            // logs/2026-05-17_1944_switch-fly-edge-case/KSP.log: a packed
             // multi-part vessel reconstructed by KSP's
             // FlightDriver.StartAndFocusVessel must hit the seeder before
             // first Unpack, or ForceHeaviest autostruts will misanchor and
             // cascade-explode the central stack.
-            Assert.True(ProtoVesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterPvLoad(
+            Assert.True(VesselLoadRigidbodyMassSeederPatch.ShouldSeedAfterVesselLoad(
                 vesselNull: false, isFlag: false, isGhostMap: false));
         }
     }
