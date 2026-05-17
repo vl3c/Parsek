@@ -2338,14 +2338,68 @@ namespace Parsek
         /// </summary>
         internal void AutoDiscardIdleActiveTree(string reason)
         {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: "Recording discarded - idle on pad",
+                ledgerRecalcReason: "suppressed-scene-exit-discard",
+                chainStopReason: "idle-on-pad auto-discard");
+        }
+
+        /// <summary>
+        /// Reason-aware variant of <see cref="AutoDiscardIdleActiveTree"/>
+        /// that lets callers override the on-screen toast and the
+        /// ledger-recalc reason string. Same teardown body as the original
+        /// entry point; introduced for the pre-switch-dialog Case B
+        /// no-session Discard handler (PR #876 round-6 review) where the
+        /// "idle on pad" toast and "suppressed-scene-exit-discard" reason
+        /// are wrong-context — the player has been actively flying out of
+        /// the bubble, not sitting on the pad.
+        /// </summary>
+        /// <param name="reason">Internal log reason (subsystem trace).</param>
+        /// <param name="screenMessage">On-screen toast shown to the player.</param>
+        /// <param name="ledgerRecalcReason">Reason string passed to
+        /// <see cref="LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions"/>;
+        /// grep-able from ledger-recalc log lines.</param>
+        internal void AutoDiscardActiveTreeWithMessage(
+            string reason,
+            string screenMessage,
+            string ledgerRecalcReason)
+        {
+            AutoDiscardActiveTreeCore(
+                reason: reason,
+                screenMessage: screenMessage,
+                ledgerRecalcReason: ledgerRecalcReason,
+                chainStopReason: reason);
+        }
+
+        /// <summary>
+        /// Shared teardown body for <see cref="AutoDiscardIdleActiveTree"/>
+        /// and <see cref="AutoDiscardActiveTreeWithMessage"/>. The screen
+        /// message and ledger-recalc reason are parameterized so the
+        /// existing idle-on-pad entry point keeps its toast/reason and the
+        /// new reason-aware entry point can supply context-appropriate
+        /// strings (e.g. the Case B Switch-To Discard handler).
+        /// </summary>
+        private void AutoDiscardActiveTreeCore(
+            string reason,
+            string screenMessage,
+            string ledgerRecalcReason,
+            string chainStopReason)
+        {
             ParsekLog.Info("Flight",
-                $"AutoDiscardIdleActiveTree: discarding live tree reason='{reason}'");
-            ScreenMessage("Recording discarded - idle on pad", 3f);
+                $"AutoDiscardActiveTreeCore: discarding live tree reason='{reason}' " +
+                $"ledgerRecalcReason='{ledgerRecalcReason}'");
+            if (!string.IsNullOrEmpty(screenMessage))
+                ScreenMessage(screenMessage, 3f);
 
             // Mirror OnSceneChangeRequested's pre-finalize prep so any
             // active continuation / gloops / transient state is cleaned
-            // up before we drop the recorder.
-            chainManager.StopAllContinuations("idle-on-pad auto-discard");
+            // up before we drop the recorder. The idle-on-pad call site
+            // historically passed the literal "idle-on-pad auto-discard"
+            // here regardless of the caller's reason; the
+            // reason-aware overload forwards its own reason so the
+            // chain-continuation log line carries the same context.
+            chainManager.StopAllContinuations(chainStopReason);
             CleanupGloopsRecorder();
             ClearSceneChangeTransientState();
 
@@ -2376,7 +2430,7 @@ namespace Parsek
             // recording.
             LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions(
                 ParsekScenario.GetCurrentTimelineUTForLedgerRecalc(),
-                "suppressed-scene-exit-discard");
+                ledgerRecalcReason);
         }
 
         private void FinalizeTreeOnSceneChangeCore(

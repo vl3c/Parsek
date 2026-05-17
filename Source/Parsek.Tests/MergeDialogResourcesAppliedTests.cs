@@ -1518,9 +1518,11 @@ namespace Parsek.Tests
             // ShowPreSwitchDecisionDialog. Use a regex that anchors on the
             // OnDismiss handler's `if (buttonClicked)` check (close to the
             // re-spawn log), not the initial `bool buttonClicked = false;`
-            // declaration far above.
+            // declaration far above. The gap budgets were bumped in PR
+            // #876 round-6 review because the respawn log now branches on
+            // Case A vs Case B with a comment block in between (LOW 3).
             var respawnRegex = new System.Text.RegularExpressions.Regex(
-                @"if \(buttonClicked\)[\s\S]{0,1500}?pre-switch-dialog-esc-refused-respawning[\s\S]{0,1000}?ShowPreSwitchDecisionDialog\(",
+                @"if \(buttonClicked\)[\s\S]{0,2500}?pre-switch-dialog-esc-refused-respawning[\s\S]{0,2000}?ShowPreSwitchDecisionDialog\(",
                 System.Text.RegularExpressions.RegexOptions.Multiline);
             Assert.Matches(respawnRegex, source);
         }

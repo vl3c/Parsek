@@ -518,12 +518,15 @@ namespace Parsek.Tests
             string discardBody = source.Substring(
                 discardStart, nextMethod - discardStart);
 
-            // (a) Uses AutoDiscardIdleActiveTree — the active-tree
-            //     teardown helper that ALSO rolls back the launch
-            //     ledger via LedgerOrchestrator. A simple
-            //     `activeTree = null` would leak the ledger entries.
+            // (a) Uses AutoDiscardActiveTreeWithMessage — the reason-aware
+            //     overload of AutoDiscardIdleActiveTree introduced for
+            //     this Case B handler (PR #876 round-6 review). Same
+            //     teardown body as the idle-on-pad entry point but
+            //     accepts context-appropriate screen message + ledger
+            //     reason. A simple `activeTree = null` would leak the
+            //     ledger entries.
             Assert.Contains(
-                "flight.AutoDiscardIdleActiveTree",
+                "flight.AutoDiscardActiveTreeWithMessage",
                 discardBody);
 
             // (b) Does NOT call the session-scoped discard helper
@@ -546,6 +549,132 @@ namespace Parsek.Tests
 
             // (e) ArmIntentAndSwitchTo runs at the end.
             Assert.Contains("ArmIntentAndSwitchTo(target)", discardBody);
+        }
+
+        // -----------------------------------------------------------------
+        // Round-6 review tests: MED1 reason-aware Case B discard.
+        // -----------------------------------------------------------------
+
+        // Fails if: a future refactor hardcodes the screen message back
+        // into AutoDiscardActiveTreeCore, regressing the misleading
+        // "idle on pad" toast for the Case B switching-to-far-vessel
+        // path. The reason-aware overload must pass the caller's
+        // screen message and ledger reason through to the core teardown.
+        [Fact]
+        public void AutoDiscardActiveTreeWithMessage_PassesCustomScreenMessage()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            string flightSource = File.ReadAllText(flightPath);
+
+            // The new entry point exists.
+            Assert.Contains(
+                "internal void AutoDiscardActiveTreeWithMessage(",
+                flightSource);
+
+            // Locate the shared core and assert it routes the screen
+            // message and ledger reason parameters all the way through.
+            int coreStart = flightSource.IndexOf(
+                "private void AutoDiscardActiveTreeCore(",
+                StringComparison.Ordinal);
+            Assert.True(coreStart > 0,
+                "AutoDiscardActiveTreeCore helper must be defined");
+            // The core body ends at the next top-level method. Use
+            // FinalizeTreeOnSceneChangeCore as the next sibling sentinel
+            // since it is declared immediately after AutoDiscardIdleActiveTree
+            // in the same file.
+            int coreEnd = flightSource.IndexOf(
+                "private void FinalizeTreeOnSceneChangeCore",
+                coreStart, StringComparison.Ordinal);
+            Assert.True(coreEnd > coreStart,
+                "FinalizeTreeOnSceneChangeCore should follow AutoDiscardActiveTreeCore");
+            string coreBody = flightSource.Substring(
+                coreStart, coreEnd - coreStart);
+
+            // ScreenMessage(screenMessage, ...) — parameterized, not a
+            // literal "Recording discarded - idle on pad".
+            Assert.Contains("ScreenMessage(screenMessage", coreBody);
+            Assert.DoesNotContain(
+                "ScreenMessage(\"Recording discarded - idle on pad\"",
+                coreBody);
+
+            // Ledger recalc reason is the parameter, not a literal.
+            Assert.Contains("ledgerRecalcReason", coreBody);
+            // The pre-fix literal must not appear inside the core
+            // anymore — only inside AutoDiscardIdleActiveTree's call
+            // site that supplies the literal.
+            int suppressIdx = coreBody.IndexOf(
+                "\"suppressed-scene-exit-discard\"", StringComparison.Ordinal);
+            Assert.True(suppressIdx < 0,
+                "AutoDiscardActiveTreeCore must use the ledgerRecalcReason parameter, " +
+                "not the historical \"suppressed-scene-exit-discard\" literal");
+
+            // The original idle-on-pad entry point is the only path
+            // that still supplies the "Recording discarded - idle on pad"
+            // string + suppressed-scene-exit-discard reason. Both must
+            // remain greppable for the existing scene-exit code path.
+            Assert.Contains(
+                "\"Recording discarded - idle on pad\"",
+                flightSource);
+            Assert.Contains(
+                "\"suppressed-scene-exit-discard\"",
+                flightSource);
+        }
+
+        // Fails if: the Case B no-session Discard handler reverts to
+        // calling AutoDiscardIdleActiveTree(reason) and inherits the
+        // wrong-context "idle on pad" toast + "suppressed-scene-exit-
+        // discard" ledger reason. The reason-aware overload must be
+        // used so the toast says "switching to far vessel" and the
+        // ledger recalc reason is "pre-switch-dialog-discard-no-session".
+        [Fact]
+        public void DiscardActiveRecordingAndSwitchTo_NoSession_UsesContextAwareMessage()
+        {
+            string source = ReadMapFocusObjectPatchSource();
+
+            int discardStart = source.IndexOf(
+                "private static void DiscardActiveRecordingAndSwitchTo(",
+                StringComparison.Ordinal);
+            Assert.True(discardStart > 0,
+                "DiscardActiveRecordingAndSwitchTo handler must be defined");
+            int nextMethod = source.IndexOf(
+                "        static void Postfix",
+                discardStart + 1, StringComparison.Ordinal);
+            Assert.True(nextMethod > discardStart,
+                "Postfix should follow DiscardActiveRecordingAndSwitchTo");
+            string discardBody = source.Substring(
+                discardStart, nextMethod - discardStart);
+
+            // (a) Calls the reason-aware overload, not the idle entry.
+            Assert.Contains(
+                "flight.AutoDiscardActiveTreeWithMessage",
+                discardBody);
+            Assert.DoesNotContain(
+                "flight.AutoDiscardIdleActiveTree(",
+                discardBody);
+
+            // (b) Passes the context-appropriate screen message and
+            //     ledger recalc reason. The toast must reflect
+            //     "switching to far vessel"; the ledger reason must be
+            //     the new grep-able "pre-switch-dialog-discard-no-session".
+            Assert.Contains(
+                "\"Recording discarded - switching to far vessel\"",
+                discardBody);
+            Assert.Contains(
+                "\"pre-switch-dialog-discard-no-session\"",
+                discardBody);
+
+            // (c) Must NOT pass the historical idle-on-pad strings on
+            //     this path.
+            Assert.DoesNotContain(
+                "\"Recording discarded - idle on pad\"",
+                discardBody);
+            Assert.DoesNotContain(
+                "\"suppressed-scene-exit-discard\"",
+                discardBody);
         }
 
         // Fails if: ShowPreSwitchDecisionDialog drops the

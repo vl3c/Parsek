@@ -656,15 +656,26 @@ namespace Parsek.Patches
         /// <summary>
         /// No-session Case B Discard handler: drops the live active
         /// tree without committing it via
-        /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/>
-        /// (which despite its name does the full active-tree teardown:
-        /// stops continuations and gloops, ForceStops the recorder,
-        /// discards the background recorder, nulls
+        /// <see cref="ParsekFlight.AutoDiscardActiveTreeWithMessage"/>
+        /// (the reason-aware overload of
+        /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/> — same
+        /// teardown body: stops continuations and gloops, ForceStops
+        /// the recorder, discards the background recorder, nulls
         /// <c>activeTree</c>, and rolls back any future-time ledger
         /// entries via
         /// <c>LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions</c>).
         /// Then arms a fresh intent and calls
         /// <see cref="FlightGlobals.SetActiveVessel"/>.
+        ///
+        /// <para>Round-6 review: passes a context-aware screen message
+        /// ("Recording discarded - switching to far vessel") and ledger
+        /// reason ("pre-switch-dialog-discard-no-session"). The default
+        /// "idle on pad" toast is wrong-context here because the
+        /// predicate requires <c>targetIsUnloaded</c> AND
+        /// <c>HasActiveTree</c>, i.e. the player has been actively
+        /// flying out of the bubble; the default
+        /// "suppressed-scene-exit-discard" ledger reason is
+        /// similarly wrong-context.</para>
         ///
         /// <para>Mirrors the active-merge-journal guard so the journal
         /// finisher cannot race the discard.</para>
@@ -677,7 +688,7 @@ namespace Parsek.Patches
 
             // Mirror the session-armed merge guard for symmetry: refuse
             // if a Re-Fly merge journal is concurrently active.
-            // AutoDiscardIdleActiveTree calls
+            // AutoDiscardActiveTreeWithMessage calls
             // LedgerOrchestrator.RecalculateAndPatchForCurrentTimelineIfFutureActions,
             // which would race the journal's rollback.
             if (scenario != null && scenario.ActiveMergeJournal != null)
@@ -695,8 +706,10 @@ namespace Parsek.Patches
             {
                 try
                 {
-                    flight.AutoDiscardIdleActiveTree(
-                        "pre-switch-dialog discard (no-session)");
+                    flight.AutoDiscardActiveTreeWithMessage(
+                        reason: "pre-switch-dialog discard (no-session)",
+                        screenMessage: "Recording discarded - switching to far vessel",
+                        ledgerRecalcReason: "pre-switch-dialog-discard-no-session");
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-discard-chosen-no-session " +
                         $"priorTreeId={priorTreeIdStr} " +
@@ -709,7 +722,7 @@ namespace Parsek.Patches
                     // intermediate state, but the next scene-load /
                     // OnSave will sweep it.
                     ParsekLog.Error("SwitchIntentPatch",
-                        $"pre-switch-dialog discard (no-session): AutoDiscardIdleActiveTree threw " +
+                        $"pre-switch-dialog discard (no-session): AutoDiscardActiveTreeWithMessage threw " +
                         $"{ex.GetType().Name}: {ex.Message} - continuing with switch anyway");
                 }
             }

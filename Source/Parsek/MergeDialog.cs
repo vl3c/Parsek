@@ -591,14 +591,24 @@ namespace Parsek
             // knows whether to re-spawn or just clean up.
             bool buttonClicked = false;
 
+            // MED2 (PR #876 round-6 review): gate the generic Merge / Discard
+            // log lines on the session-armed path. For Case B
+            // (priorTreeOverride != null), `priorSessionId` is always
+            // "<none>" and the Case B handler emits its own
+            // `*-chosen-no-session` log line with the priorTreeId — the
+            // generic line would be redundant noise.
+            bool isCaseB = priorTreeOverride != null;
             DialogGUIButton[] buttons = new[]
             {
                 new DialogGUIButton("Merge", () =>
                 {
                     buttonClicked = true;
-                    ParsekLog.Info("SwitchIntentPatch",
-                        $"pre-switch-dialog-merge-chosen priorSessionId={priorSessionIdStr} " +
-                        $"newTargetPid={target.persistentId}");
+                    if (!isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-merge-chosen priorSessionId={priorSessionIdStr} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
                     ClearPendingFlag("pre-switch-dialog merge button");
                     try
                     {
@@ -614,9 +624,12 @@ namespace Parsek
                 new DialogGUIButton("Discard", () =>
                 {
                     buttonClicked = true;
-                    ParsekLog.Info("SwitchIntentPatch",
-                        $"pre-switch-dialog-discard-chosen priorSessionId={priorSessionIdStr} " +
-                        $"newTargetPid={target.persistentId}");
+                    if (!isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-discard-chosen priorSessionId={priorSessionIdStr} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
                     ClearPendingFlag("pre-switch-dialog discard button");
                     try
                     {
@@ -671,9 +684,28 @@ namespace Parsek
                     // OnDismiss cleared the input lock but left the prior
                     // session armed, so the next Switch-To opened a wrong-tree
                     // dialog. Forcing Merge/Discard is the contract.
-                    ParsekLog.Info("SwitchIntentPatch",
-                        $"pre-switch-dialog-esc-refused-respawning " +
-                        $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+                    //
+                    // LOW 3 (PR #876 round-6 review): emit a case
+                    // discriminator so the reader can tell whether the
+                    // respawn was for the session-armed (Case A) or
+                    // no-session (Case B) path. `priorSessionId` is
+                    // "<none>" on Case B and the priorTreeId is the
+                    // identifying field instead.
+                    if (isCaseB)
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-esc-refused-respawning " +
+                            $"case=case-B-no-session " +
+                            $"priorTreeId={priorTreeOverride?.Id ?? "<null>"} " +
+                            $"newTargetPid={target.persistentId}");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog-esc-refused-respawning " +
+                            $"case=case-A-session " +
+                            $"priorSessionId={priorSessionIdStr} newTargetPid={target.persistentId}");
+                    }
                     // Recursive re-spawn through the same helper. If THAT spawn
                     // fails, the lock is released and we fall back to the
                     // defensive supersede path documented at the spawn-failed
@@ -943,6 +975,14 @@ namespace Parsek
             {
                 duration = ResolveDialogBodyDuration(tree);
             }
+            // LOW 2 (PR #876 round-6 review): defensive for Unity-runtime
+            // hazards (Planetarium.GetUniversalTime throwing during scene
+            // tear-down, ParsekScenario.Instance static initializer
+            // racing scene load, etc.). For Case A (session-active), the
+            // catch falls back from segment-scoped to tree-wide duration.
+            // For Case B (no-session, priorTreeOverride), the normal
+            // path already returns ComputeTreeDurationRange(tree) — the
+            // catch is purely a safety net there.
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("SwitchSegment",
@@ -1083,9 +1123,21 @@ namespace Parsek
                         $"sessionId={session.SessionId:D} — falling back to tree-wide duration");
                     return ComputeTreeDurationRange(tree);
                 }
-                // endUT == startUT and no live clock — return 0 explicitly
-                // through the normal branch below; the Verbose log keeps the
-                // log shape consistent for the segment-aware path.
+                // LOW 1 (PR #876 round-6 review): endUT == startUT and
+                // no live clock available. The function falls through to
+                // the normal-path Verbose below reporting durationSec=0,
+                // which a reader grepping for "using live segment
+                // duration" would never see. Emit a greppable
+                // `live-clock-unavailable` Verbose so the fallthrough
+                // is visible in the diagnostic trail.
+                ParsekLog.Verbose("SwitchSegment",
+                    $"BuildWholeTreeMergeDialogBody: live-clock-unavailable " +
+                    $"durationSec=0 " +
+                    $"endUT={endUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"startUT={startUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"currentUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                    $"recId={segment.RecordingId ?? "<null>"} " +
+                    $"sessionId={session.SessionId:D}");
             }
 
             double segmentDuration = endUT - startUT;

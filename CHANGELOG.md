@@ -40,6 +40,7 @@ All notable changes to Parsek are documented here.
 - Implement segment-scoped switch/Fly auto-record per `docs/dev/plans/segment-scoped-switch-fly-autorecord.md` (PR #876). Playtest follow-up: scoped Discard now walks the topological subtree rooted at the segment recording (catching in-segment debris), the second whole-pending-tree dialog flow was deleted, the consume dispatch was hoisted to the top of `OnFlightReady`, the merge dialog body unifies on `BuildWholeTreeMergeDialogBody`, and `TryFindCommittedTreeMatchingVessel` recognizes Parsek-spawned vessels via `SpawnedVesselPersistentId`.
 - Final review follow-up: deferred consume dispatch when restore is pending to avoid a race against `ResetFlightReadyState`; doc reconciliation across plan, todo, and CHANGELOG; minor logging hygiene.
 - Round-5 review follow-up: defensive guards in merge/discard tree-passing, Esc disabled on pre-switch dialog, shared tree resolver between SceneExit and pre-switch dialog, and assorted doc + test polish.
+- Pre-switch dialog Round-6 review follow-up: context-aware ScreenMessage and ledger reason on no-session Discard, plus minor diagnostic log hygiene.
 
 ---
 
