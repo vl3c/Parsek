@@ -174,13 +174,13 @@ namespace Parsek
         /// A <see cref="RewindPoint"/> is reap-eligible when <b>all</b> of:
         /// <list type="bullet">
         ///   <item><description><see cref="RewindPoint.SessionProvisional"/> is false (the owning session has merged).</description></item>
-        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed, stashed, and still qualifies as an Unfinished Flight, or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
+        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed and still qualifies as an Unfinished Flight (the canonical UI-visibility predicate, which covers manual stashed-keep-open AND auto-UF outcomes: crashed terminal, stranded EVA, non-focused stable leaf), or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
         /// </list>
         /// A slot whose OriginChildRecordingId is null/blank is treated as
         /// terminal-Immutable (there is no recording that could still be
-        /// re-flown). An RP with no slots at all is eligible — the feature
+        /// re-flown). An RP with no slots at all is eligible (the feature
         /// doesn't create empty RPs, but defensive: an empty slot list has
-        /// no open rewind arrows.
+        /// no open rewind arrows).
         /// </summary>
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
@@ -225,10 +225,35 @@ namespace Parsek
                     return false;
                 if (rec.MergeState == MergeState.Immutable)
                 {
-                    if (slot.Stashed
-                        && !slot.Sealed
+                    // Keep the RP alive for any slot that still qualifies as
+                    // an Unfinished Flight. Covers the manual stashed-keep-
+                    // open exception AND the auto-UF cases (crashed terminal,
+                    // stranded EVA, non-focused stable leaf) where the slot's
+                    // chain HEAD is CommittedProvisional but its chain TIP
+                    // (the recording returned by slot.EffectiveRecordingId)
+                    // was born Immutable and never promoted, because
+                    // ApplyRewindProvisionalMergeStates only promotes
+                    // recordings with a branch-point link or origin-slot
+                    // match. Without this branch, the reaper would treat a
+                    // Destroyed chain-tip slot as closed and drop the RP that
+                    // the UI is still listing as a re-flyable unfinished
+                    // flight. Passing considerSealed:true makes Qualifies
+                    // reject sealed slots with reason=slotSealed, so the
+                    // explicit !slot.Sealed short-circuit is purely a perf
+                    // hint (skip the classifier walk for the closed path);
+                    // removing it would not bypass the seal gate. Perf: one
+                    // Qualifies call per Immutable+unsealed slot; acceptable
+                    // at current RP counts. If reap latency ever shows up,
+                    // EffectiveTipRecordingId has a hot-loop dict overload
+                    // that can memoize chain-tip lookups across slots.
+                    if (!slot.Sealed
                         && UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed: true))
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"IsReapEligible: keeping rp={rp.RewindPointId ?? "<no-id>"} " +
+                            $"slot={s} rec={rec.RecordingId ?? "<no-id>"} reason=immutable-qualifies-as-unfinished-flight");
                         return false;
+                    }
                     continue;
                 }
                 if (slot.Sealed)

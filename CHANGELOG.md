@@ -31,6 +31,7 @@ All notable changes to Parsek are documented here.
 - Re-Fly abandon-and-retry no longer leaves the prior session's provisional in the timeline as a phantom row. The new attempt reaps any abandoned attempt on the same rewind point before its closure walk runs, so the retry's supersede table cannot pick up an invalid row pointing at the orphan.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 - Vessels spawned at a recording's terminal orbit no longer cascade-explode the first time you Switch-To, Watch, or TS-Fly them. The fix seeds part rigidbody masses right after the spawn so landing-leg autostruts anchor to the actual heaviest part instead of whichever sibling happens to be closest.
+- Re-Fly is no longer silently stripped from a crashed slot whose recording continued through a vessel switch before being destroyed. The rewind-point reaper was reaping the RP on the next scene change even while the timeline still showed the slot as a re-flyable unfinished flight.
 
 ### Internals
 
