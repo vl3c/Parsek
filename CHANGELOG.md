@@ -9,7 +9,7 @@ All notable changes to Parsek are documented here.
 ### Breaking Changes
 
 - Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
-- Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id; per-source toggles in Settings let the player disable any of the three sources.
+- Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog whose copy reflects the entry verb (Fly vs Switch To); Discard removes only the new segment and preserves committed history, and a second whole-pending dialog appears when pre-existing pending changes still need a disposition.
 
 ### Internals

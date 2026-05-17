@@ -20961,12 +20961,12 @@ namespace Parsek.InGameTests
 
         // ----------------------------------------------------------------
         // Phase F in-game promotion: pure-gate predicate coverage for the
-        // Map Switch-To Prefix arming logic. The Prefix's four-gate decision
-        // (setting-on, FocusMode == OwnedVessel, CanSwitchVesselsFar,
-        // vessel non-null) is factored into Patches.MapFocusObjectOnSelectPatch
-        // .ShouldArmMapSwitchTo so we can drive each branch combinatorially
-        // here from a live KSP scene without needing to inject a real
-        // MapContextMenuOptions.FocusObject instance. Plan test #22.
+        // Map Switch-To Prefix arming logic. The Prefix's three-gate decision
+        // (FocusMode == OwnedVessel, CanSwitchVesselsFar, vessel non-null)
+        // is factored into Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo
+        // so we can drive each branch combinatorially here from a live KSP
+        // scene without needing to inject a real MapContextMenuOptions.FocusObject
+        // instance. Plan test #22.
         // ----------------------------------------------------------------
 
         [InGameTest(
@@ -20976,15 +20976,14 @@ namespace Parsek.InGameTests
         public void MapFocusObjectOnSelect_PrefixGate_OwnedVesselFocusMode_AllowsArm()
         {
             // Fails if: the OwnedVessel branch (Switch-To on a real owned
-            // vessel with the setting on, far-switch enabled, and a non-null
-            // vessel reference) is refused. This is the in-scope happy path.
+            // vessel with far-switch enabled and a non-null vessel reference)
+            // is refused. This is the in-scope happy path.
             bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: true,
                 isOwnedVesselMode: true,
                 canSwitchVesselsFar: true,
                 vesselNotNull: true);
             InGameAssert.IsTrue(wouldArm,
-                "OwnedVessel + setting-on + far-switch + non-null vessel must arm");
+                "OwnedVessel + far-switch + non-null vessel must arm");
         }
 
         [InGameTest(
@@ -20998,7 +20997,6 @@ namespace Parsek.InGameTests
             // TRACKSTATION — the TS Fly patch is responsible for arming
             // there, not the Map Switch-To patch.
             bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: true,
                 isOwnedVesselMode: false,
                 canSwitchVesselsFar: true,
                 vesselNotNull: true);
@@ -21016,7 +21014,6 @@ namespace Parsek.InGameTests
             // branch is camera-only (PlanetariumCamera.SetTarget); no
             // vessel switch happens.
             bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: true,
                 isOwnedVesselMode: false,
                 canSwitchVesselsFar: true,
                 vesselNotNull: true);
@@ -21034,7 +21031,6 @@ namespace Parsek.InGameTests
             // refuses the switch in that case; arming would leak a stuck
             // marker.
             bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: true,
                 isOwnedVesselMode: true,
                 canSwitchVesselsFar: false,
                 vesselNotNull: true);
@@ -21052,30 +21048,11 @@ namespace Parsek.InGameTests
             // with PID 0). Stock would crash inside SetActiveVessel; our
             // Prefix must bail and log a Warn instead.
             bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: true,
                 isOwnedVesselMode: true,
                 canSwitchVesselsFar: true,
                 vesselNotNull: false);
             InGameAssert.IsFalse(wouldArm,
                 "vessel=null must NOT arm Map Switch-To intent");
-        }
-
-        [InGameTest(
-            Category = "SwitchSegment",
-            Description = "Map Switch-To gate refuses arming when per-source auto-record setting is off",
-            Scene = GameScenes.FLIGHT)]
-        public void MapFocusObjectOnSelect_PrefixGate_SettingOff_DoesNotArm()
-        {
-            // Fails if: arming proceeds with autoRecordOnMapSwitchTo=false.
-            // The player explicitly disabled the auto-record source; the
-            // gate must respect it.
-            bool wouldArm = Parsek.Patches.MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn: false,
-                isOwnedVesselMode: true,
-                canSwitchVesselsFar: true,
-                vesselNotNull: true);
-            InGameAssert.IsFalse(wouldArm,
-                "settingOn=false must NOT arm Map Switch-To intent");
         }
 
         // ----------------------------------------------------------------

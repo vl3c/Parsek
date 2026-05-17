@@ -46,14 +46,6 @@ namespace Parsek.Patches
                 return;
             }
 
-            var settings = ParsekSettings.Current;
-            if (settings != null && !settings.autoRecordOnKscFly)
-            {
-                ParsekLog.Verbose("SwitchIntentPatch",
-                    $"KSC marker Fly intent not armed: setting-off targetPid={v.persistentId} vessel='{v.vesselName ?? "(unknown)"}'");
-                return;
-            }
-
             var scenario = ParsekScenario.Instance;
             if (scenario == null)
             {

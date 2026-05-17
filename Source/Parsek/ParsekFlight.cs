@@ -7746,37 +7746,6 @@ namespace Parsek
         // ---------------------------------------------------------------------
 
         /// <summary>
-        /// Resolves which per-source auto-record setting applies to a stock
-        /// action. Pure so the consume decision can be tested without a live
-        /// <see cref="ParsekSettings.Current"/>.
-        /// </summary>
-        internal static bool IsSettingEnabledForAction(
-            StockActionType action, ParsekSettings settings)
-        {
-            if (settings == null)
-            {
-                // MED 5 (PR #876 review): plan defaults are ON for all three
-                // sources (ParsekSettings autoRecordOn{TsFly,KscFly,MapSwitchTo}
-                // all initialize to true). If ParsekSettings.Current happens
-                // to be null at consume time (early load race, scene
-                // transition tear-down), returning false would silently
-                // refuse every consume with `setting-toggled-off`. Mirror
-                // the field defaults instead and emit a Warn so the rare
-                // null-settings race is observable in KSP.log.
-                ParsekLog.Warn("SwitchSegment",
-                    $"settings-null-consuming-as-default-on: action={action}");
-                return true;
-            }
-            switch (action)
-            {
-                case StockActionType.TrackingStationFly: return settings.autoRecordOnTsFly;
-                case StockActionType.KscMarkerFly: return settings.autoRecordOnKscFly;
-                case StockActionType.MapSwitchTo: return settings.autoRecordOnMapSwitchTo;
-                default: return false;
-            }
-        }
-
-        /// <summary>
         /// 1:1 mapping from the stock UI action that armed the intent to the
         /// segment session's entry reason. The two enums are kept separate so
         /// the type system reflects "intent fired" vs "session started", but
@@ -7866,9 +7835,6 @@ namespace Parsek
             bool missedSwitchRecoveryActive =
                 currentVesselSwitchRecoveryDiagnosticContext.IsRecovery;
 
-            bool settingEnabled = IsSettingEnabledForAction(
-                marker.Action, ParsekSettings.Current);
-
             uint activeSessionFocusedPid =
                 scenario.ActiveSwitchSegmentSession?.FocusedVesselPersistentId ?? 0u;
 
@@ -7880,7 +7846,6 @@ namespace Parsek
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker,
                 newPid,
-                settingEnabled,
                 ParsekProcess.ProcessSessionId,
                 currentRealtime,
                 currentUT,

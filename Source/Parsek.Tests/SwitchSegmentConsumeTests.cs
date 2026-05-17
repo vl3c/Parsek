@@ -71,7 +71,6 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker: null,
                 newVesselPersistentId: 42u,
-                settingEnabledForAction: true,
                 currentProcessSessionId: Guid.NewGuid(),
                 currentRealtime: 0f,
                 currentUT: 0.0,
@@ -93,7 +92,7 @@ namespace Parsek.Tests
             var marker = BuildMarker(StockActionType.TrackingStationFly,
                 targetPid: 99u, processSessionId: armProcess);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, consumeProcess, 100f, 1000.0,
+                marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
                 activeSessionFocusedPid: 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun, outcome);
@@ -114,7 +113,7 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Elapsed = 200 - 100 = 100s, TTL = 10s → expired.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, procId, 200f, 1000.0,
+                marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
                 activeSessionFocusedPid: 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
@@ -136,7 +135,7 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Elapsed = 105 - 100 = 5s, MapSwitchTo TTL = 2s → expired.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, procId, 105f, 1000.0, false, 0u);
+                marker, 99u, procId, 105f, 1000.0, false, 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
             Assert.Equal(SwitchSegmentEntryRoute.Refused_StaleIntent,
@@ -154,7 +153,7 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Within TTL but UT regressed by more than UtRegressionToleranceSeconds.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, procId, 101f, 950.0,
+                marker, 99u, procId, 101f, 950.0,
                 missedSwitchRecoveryInProgress: false,
                 activeSessionFocusedPid: 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentUtRegressed,
@@ -176,75 +175,6 @@ namespace Parsek.Tests
                 targetPid: 100u, processSessionId: procId);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, newVesselPersistentId: 200u,
-                settingEnabledForAction: true, currentProcessSessionId: procId,
-                currentRealtime: 101f, currentUT: 1001.0,
-                missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
-            Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
-            Assert.Equal("stale-target-mismatch",
-                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
-            Assert.Equal(SwitchSegmentEntryRoute.Refused_TargetMismatch,
-                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
-        }
-
-        // Fails if: the per-source auto-record setting toggle is ignored at
-        // consume time. The Harmony patches already gate on the setting at
-        // arm time, but the player can toggle it off between arm and consume.
-        // One [Fact] per source so each is independently observable.
-        [Fact]
-        public void Evaluate_SettingDisabled_TsFly_ReturnsUnauthorizedSetting()
-            => AssertSettingDisabledRefusesConsume(StockActionType.TrackingStationFly);
-
-        // Fails if: the KSC marker Fly setting toggle is ignored at consume
-        // time (e.g. a refactor accidentally maps KscMarkerFly to the TS
-        // Fly bool, or drops the per-source check entirely). Pinned per
-        // source so a partial regression on only one action is visible.
-        [Fact]
-        public void Evaluate_SettingDisabled_KscFly_ReturnsUnauthorizedSetting()
-            => AssertSettingDisabledRefusesConsume(StockActionType.KscMarkerFly);
-
-        // Fails if: the Map Switch-To setting toggle is ignored at consume
-        // time. Same rationale as the KSC variant - per-source coverage so
-        // a mis-wiring of one action does not hide behind another's pass.
-        [Fact]
-        public void Evaluate_SettingDisabled_MapSwitchTo_ReturnsUnauthorizedSetting()
-            => AssertSettingDisabledRefusesConsume(StockActionType.MapSwitchTo);
-
-        private static void AssertSettingDisabledRefusesConsume(StockActionType action)
-        {
-            Guid procId = Guid.NewGuid();
-            var marker = BuildMarker(action, targetPid: 50u, processSessionId: procId);
-            var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, newVesselPersistentId: 50u,
-                settingEnabledForAction: false,
-                currentProcessSessionId: procId,
-                currentRealtime: 101f, currentUT: 1001.0,
-                missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
-            Assert.Equal(StockActionIntentConsumeDecision.Outcome.UnauthorizedSetting, outcome);
-            Assert.Equal("setting-toggled-off",
-                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
-            Assert.Equal(SwitchSegmentEntryRoute.Refused_UnauthorizedSetting,
-                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
-        }
-
-        // Fails if: a stale-target marker is reported as setting-toggled-off
-        // when both the target-mismatch AND the setting-off conditions hold
-        // simultaneously. Phase F review fix (1b): target-mismatch must
-        // dominate setting-off so the refusal log attributes the failure to
-        // the PID divergence (which is the diagnostic signal a developer
-        // chasing a stuck marker actually needs). Without the reorder, a
-        // mod-conflict double-fire case would be misclassified as a setting
-        // toggle.
-        [Fact]
-        public void Evaluate_TargetMismatch_AndSettingOff_PrefersTargetMismatch()
-        {
-            Guid procId = Guid.NewGuid();
-            var marker = BuildMarker(StockActionType.TrackingStationFly,
-                targetPid: 100u, processSessionId: procId);
-            var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, newVesselPersistentId: 200u,
-                settingEnabledForAction: false,
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
@@ -267,7 +197,6 @@ namespace Parsek.Tests
                 targetPid: 77u, processSessionId: procId);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, newVesselPersistentId: 77u,
-                settingEnabledForAction: true,
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
@@ -292,7 +221,6 @@ namespace Parsek.Tests
             // targets vessel B (pid 200); new active vessel matches new intent.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, newVesselPersistentId: 200u,
-                settingEnabledForAction: true,
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
@@ -313,7 +241,7 @@ namespace Parsek.Tests
             var marker = BuildMarker(StockActionType.TrackingStationFly,
                 targetPid: 99u, processSessionId: armProcess);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, consumeProcess, 100f, 1000.0,
+                marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
                 activeSessionFocusedPid: 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun,
@@ -335,7 +263,7 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Elapsed = 200 - 100 = 100s, TTL = 10s → expired.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, true, procId, 200f, 1000.0,
+                marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
                 activeSessionFocusedPid: 0u);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
@@ -353,7 +281,6 @@ namespace Parsek.Tests
                 targetPid: 11u, processSessionId: procId);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, newVesselPersistentId: 11u,
-                settingEnabledForAction: true,
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: true,
@@ -366,9 +293,8 @@ namespace Parsek.Tests
                 StockActionIntentConsumeDecision.RouteForRefusal(outcome));
         }
 
-        // Fails if: a fresh marker matching the target vessel with the
-        // setting on is refused. Authorized must mean "caller proceeds to
-        // branch routing".
+        // Fails if: a fresh marker matching the target vessel is refused.
+        // Authorized must mean "caller proceeds to branch routing".
         [Fact]
         public void Evaluate_FreshAuthorized_ReturnsAuthorized()
         {
@@ -378,7 +304,6 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, newVesselPersistentId: 99u,
-                settingEnabledForAction: true,
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
@@ -403,51 +328,6 @@ namespace Parsek.Tests
                 ParsekFlight.MapIntentActionToEntryReason(StockActionType.KscMarkerFly));
             Assert.Equal(SwitchSegmentEntryReason.MapSwitchTo,
                 ParsekFlight.MapIntentActionToEntryReason(StockActionType.MapSwitchTo));
-        }
-
-        // Fails if: the per-source setting lookup drifts (e.g. TS reads the
-        // KSC field). Each action reads its own bool.
-        [Fact]
-        public void IsSettingEnabledForAction_ResolvesPerSource()
-        {
-            var settings = new ParsekSettings
-            {
-                autoRecordOnTsFly = true,
-                autoRecordOnKscFly = false,
-                autoRecordOnMapSwitchTo = true,
-            };
-            Assert.True(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.TrackingStationFly, settings));
-            Assert.False(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.KscMarkerFly, settings));
-            Assert.True(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.MapSwitchTo, settings));
-        }
-
-        // Fails if: null settings (early scene load race) are treated as
-        // OFF instead of mirroring the plan's default-ON for all three
-        // sources. MED 5 (PR #876 review): the old false-on-null behavior
-        // silently refused every consume during the rare race - now we
-        // default-on and log a Warn so the race is observable.
-        [Fact]
-        public void IsSettingEnabledForAction_NullSettings_ReturnsDefaultOn_AndLogsWarn()
-        {
-            Assert.True(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.TrackingStationFly, null));
-            Assert.True(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.KscMarkerFly, null));
-            Assert.True(ParsekFlight.IsSettingEnabledForAction(
-                StockActionType.MapSwitchTo, null));
-            // At least one Warn line per call, with the diagnostic tag.
-            int warnCount = 0;
-            foreach (var line in logLines)
-            {
-                if (line.Contains("[SwitchSegment]")
-                    && line.Contains("settings-null-consuming-as-default-on"))
-                    warnCount++;
-            }
-            Assert.True(warnCount >= 3,
-                $"expected at least 3 default-on Warn log lines, saw {warnCount}");
         }
 
         // Fails if: BuildSwitchSegmentBoundaryPoint throws on a null vessel.

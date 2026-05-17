@@ -6,7 +6,9 @@ need real UI button clicks and full scene transitions, which the in-game test
 framework (`Ctrl+Shift+T`) cannot drive. Run each test in a fresh KSP session
 with a save that already contains at least two previously spawned, committed
 vessels (e.g. a probe in orbit + a lander on Mun) and `Parsek.cfg` settings at
-defaults (all three switch/Fly sources ON).
+defaults. The feature is always-on subject to its intrinsic gates
+(FocusMode.OwnedVessel for Map, CanSwitchVesselsFar, non-null vessel,
+ghost-vessel guards).
 
 After each test, grep `KSP.log` for `[SwitchSegment]` and `[SwitchIntent]` to
 confirm the expected log lines fired.
@@ -159,19 +161,6 @@ confirm the expected log lines fired.
      discard; on reload, only the original committed state is present.
    - `KSP.log` shows `[SwitchSegment] Secondary pending-tree dialog: Discard
      chosen` followed by `[Recording] discard-pending-tree`.
-
-## 12. Per-source setting toggle disables that source only
-1. In Settings → Recording, disable "Auto-record on Tracking Station Fly".
-2. Leave "Auto-record on Map Switch-To" enabled.
-3. From TS, Fly into a committed vessel.
-4. Pass criteria:
-   - NO segment is started (`[SwitchSegment]` arm log line absent).
-   - `[SwitchIntentPatch] TS Fly intent not armed: setting-off` appears in
-     the log.
-   - The first-modification watcher takes over (existing fallback behavior).
-5. Now from FLIGHT Map view, Switch-To another committed vessel.
-6. Pass criteria:
-   - Segment IS started (Map Switch-To setting was left on).
 
 ---
 

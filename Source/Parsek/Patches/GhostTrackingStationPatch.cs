@@ -519,14 +519,6 @@ namespace Parsek.Patches
             if (v == null || GhostMapPresence.IsGhostMapVessel(v.persistentId))
                 return;
 
-            var settings = ParsekSettings.Current;
-            if (settings != null && !settings.autoRecordOnTsFly)
-            {
-                ParsekLog.Verbose("SwitchIntentPatch",
-                    $"TS Fly intent not armed: setting-off targetPid={v.persistentId} vessel='{v.vesselName ?? "(unknown)"}'");
-                return;
-            }
-
             var scenario = ParsekScenario.Instance;
             if (scenario == null)
             {

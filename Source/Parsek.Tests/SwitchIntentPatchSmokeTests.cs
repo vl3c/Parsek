@@ -79,25 +79,23 @@ namespace Parsek.Tests
         }
 
         [Theory]
-        // settingOn, isOwnedVesselMode, canSwitchVesselsFar, vesselNotNull, expected
-        [InlineData(true, true, true, true, true)]
-        [InlineData(false, true, true, true, false)]
-        [InlineData(true, false, true, true, false)]
-        [InlineData(true, true, false, true, false)]
-        [InlineData(true, true, true, false, false)]
-        [InlineData(false, false, false, false, false)]
+        // isOwnedVesselMode, canSwitchVesselsFar, vesselNotNull, expected
+        [InlineData(true, true, true, true)]
+        [InlineData(false, true, true, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(true, true, false, false)]
+        [InlineData(false, false, false, false)]
         public void MapFocusObjectOnSelectPatch_ShouldArm_GateMatrix(
-            bool settingOn,
             bool isOwnedVesselMode,
             bool canSwitchVesselsFar,
             bool vesselNotNull,
             bool expected)
         {
             // Fails if: ShouldArmMapSwitchTo changes its truth table and one of
-            // the four gates (setting / FocusMode / CanSwitchVesselsFar / vessel)
-            // stops being load-bearing for the arm decision.
+            // the three gates (FocusMode / CanSwitchVesselsFar / vessel) stops
+            // being load-bearing for the arm decision.
             bool actual = MapFocusObjectOnSelectPatch.ShouldArmMapSwitchTo(
-                settingOn, isOwnedVesselMode, canSwitchVesselsFar, vesselNotNull);
+                isOwnedVesselMode, canSwitchVesselsFar, vesselNotNull);
             Assert.Equal(expected, actual);
         }
     }

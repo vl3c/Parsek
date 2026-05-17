@@ -192,14 +192,6 @@ namespace Parsek.Patches
                 return;
             }
 
-            var settings = ParsekSettings.Current;
-            if (settings != null && !settings.autoRecordOnMapSwitchTo)
-            {
-                ParsekLog.Verbose("SwitchIntentPatch",
-                    $"Map Switch-To intent not armed: setting-off targetPid={vessel.persistentId} vessel='{vessel.vesselName ?? "(unknown)"}'");
-                return;
-            }
-
             var scenario = ParsekScenario.Instance;
             if (scenario == null)
             {
@@ -299,12 +291,11 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// Pure gate predicate exposed for unit tests. Mirrors the four Prefix
-        /// gates: setting-on, FocusMode == OwnedVessel, CanSwitchVesselsFar, and
-        /// vessel non-null. Returns true only when all four gates pass.
+        /// Pure gate predicate exposed for unit tests. Mirrors the three Prefix
+        /// gates: FocusMode == OwnedVessel, CanSwitchVesselsFar, and vessel
+        /// non-null. Returns true only when all three gates pass.
         /// </summary>
         internal static bool ShouldArmMapSwitchTo(
-            bool settingOn,
             bool isOwnedVesselMode,
             bool canSwitchVesselsFar,
             bool vesselNotNull)
@@ -312,7 +303,6 @@ namespace Parsek.Patches
             if (!vesselNotNull) return false;
             if (!isOwnedVesselMode) return false;
             if (!canSwitchVesselsFar) return false;
-            if (!settingOn) return false;
             return true;
         }
     }

@@ -7,10 +7,10 @@ namespace Parsek
     /// Which entry branch the consume site chose (or refused to enter) for
     /// an armed <see cref="StockActionIntentMarker"/>. The three <c>Started*</c>
     /// values represent the three branches in plan §"Behavior by Entry Path";
-    /// the <c>Refused_*</c> values represent the staleness / setting /
-    /// target-mismatch guards that clear the marker without starting a
-    /// segment; <see cref="NoIntent"/> is the common no-op path for `[`
-    /// keyboard cycling, EVA boarding, docking, etc.
+    /// the <c>Refused_*</c> values represent the staleness / target-mismatch
+    /// guards that clear the marker without starting a segment;
+    /// <see cref="NoIntent"/> is the common no-op path for `[` keyboard
+    /// cycling, EVA boarding, docking, etc.
     /// </summary>
     internal enum SwitchSegmentEntryRoute
     {
@@ -28,10 +28,6 @@ namespace Parsek
         /// <summary>Marker targeted a different vessel than the one that just
         /// became active — cleared with reason <c>stale-target-mismatch</c>.</summary>
         Refused_TargetMismatch = 3,
-
-        /// <summary>Per-source auto-record setting toggled off between arm and
-        /// consume — cleared with reason <c>setting-toggled-off</c>.</summary>
-        Refused_UnauthorizedSetting = 4,
 
         /// <summary>Same target vessel as an already-active session with the
         /// same focused PID — cleared with reason <c>duplicate-intent-same-target</c>.
@@ -98,11 +94,11 @@ namespace Parsek
 
     /// <summary>
     /// Pure decision predicate for the consume site. Resolves the marker's
-    /// staleness, the per-source setting check, the target-mismatch guard,
-    /// and the duplicate-same-target / missed-switch-recovery short-circuits
-    /// before the routing branches run. The branch selection itself (committed
-    /// clone vs BG member vs standalone) lives in the live-side wrapper because
-    /// it needs the activeTree plus committed-store lookups.
+    /// staleness, the target-mismatch guard, and the duplicate-same-target /
+    /// missed-switch-recovery short-circuits before the routing branches run.
+    /// The branch selection itself (committed clone vs BG member vs standalone)
+    /// lives in the live-side wrapper because it needs the activeTree plus
+    /// committed-store lookups.
     ///
     /// <para>Exposed as a pure static method so unit tests can pin every
     /// pre-routing branch without driving the live KSP clock or Planetarium.</para>
@@ -117,8 +113,8 @@ namespace Parsek
         /// </summary>
         internal enum Outcome
         {
-            /// <summary>Marker is fresh, target matches, setting is on, no
-            /// session conflict — caller proceeds to branch routing.</summary>
+            /// <summary>Marker is fresh, target matches, no session conflict
+            /// — caller proceeds to branch routing.</summary>
             Authorized = 0,
 
             /// <summary>No marker armed — return <see cref="SwitchSegmentEntryRoute.NoIntent"/>
@@ -129,7 +125,6 @@ namespace Parsek
             StaleIntentTtlExpired = 3,
             StaleIntentUtRegressed = 4,
             TargetMismatch = 5,
-            UnauthorizedSetting = 6,
             DuplicateSameTarget = 7,
             MissedSwitchRecovery = 8,
         }
@@ -147,7 +142,6 @@ namespace Parsek
                 case Outcome.StaleIntentTtlExpired: return "stale-intent-ttl";
                 case Outcome.StaleIntentUtRegressed: return "stale-intent-ut-regressed";
                 case Outcome.TargetMismatch: return "stale-target-mismatch";
-                case Outcome.UnauthorizedSetting: return "setting-toggled-off";
                 case Outcome.DuplicateSameTarget: return "duplicate-intent-same-target";
                 case Outcome.MissedSwitchRecovery: return "stale-cross-run";
                 default: return null;
@@ -171,7 +165,6 @@ namespace Parsek
                 case Outcome.StaleIntentUtRegressed:
                     return SwitchSegmentEntryRoute.Refused_StaleIntent;
                 case Outcome.TargetMismatch: return SwitchSegmentEntryRoute.Refused_TargetMismatch;
-                case Outcome.UnauthorizedSetting: return SwitchSegmentEntryRoute.Refused_UnauthorizedSetting;
                 case Outcome.DuplicateSameTarget: return SwitchSegmentEntryRoute.Refused_DuplicateSameTarget;
                 case Outcome.MissedSwitchRecovery: return SwitchSegmentEntryRoute.Refused_MissedSwitchRecovery;
                 case Outcome.Authorized:
@@ -186,8 +179,6 @@ namespace Parsek
         /// </summary>
         /// <param name="marker">Pending intent marker. Null returns <see cref="Outcome.NoIntent"/>.</param>
         /// <param name="newVesselPersistentId">PID of the just-activated focused vessel.</param>
-        /// <param name="settingEnabledForAction">Value of the per-source auto-record
-        /// setting (autoRecordOnTsFly / autoRecordOnKscFly / autoRecordOnMapSwitchTo).</param>
         /// <param name="currentProcessSessionId"><see cref="ParsekProcess.ProcessSessionId"/>
         /// at consume time.</param>
         /// <param name="currentRealtime"><see cref="UnityEngine.Time.realtimeSinceStartup"/>
@@ -202,7 +193,6 @@ namespace Parsek
         internal static Outcome Evaluate(
             StockActionIntentMarker marker,
             uint newVesselPersistentId,
-            bool settingEnabledForAction,
             Guid currentProcessSessionId,
             float currentRealtime,
             double currentUT,
@@ -237,20 +227,12 @@ namespace Parsek
             if (missedSwitchRecoveryInProgress)
                 return Outcome.MissedSwitchRecovery;
 
-            // Target-mismatch BEFORE the setting-toggled-off branch: a marker
-            // armed for vessel A while the active vessel is vessel B is a
-            // diagnostic-relevant mis-target (player clicked Switch-To on B
-            // while [/] cycling lands on A, or a mod conflict races SetActive
-            // vessel). The reason needs to be `stale-target-mismatch` so the
-            // log clearly attributes the refusal to the PID divergence, not
-            // to a coincidental setting toggle. Reviewer note (Phase F 1b):
-            // earlier ordering put setting-off ahead of target-mismatch, which
-            // could mask the mismatch when both fired together.
+            // Target-mismatch: a marker armed for vessel A while the active
+            // vessel is vessel B is a diagnostic-relevant mis-target (player
+            // clicked Switch-To on B while [/] cycling lands on A, or a mod
+            // conflict races SetActiveVessel).
             if (marker.TargetVesselPersistentId != newVesselPersistentId)
                 return Outcome.TargetMismatch;
-
-            if (!settingEnabledForAction)
-                return Outcome.UnauthorizedSetting;
 
             // Duplicate-same-target short-circuit: a session is already armed
             // for the same vessel as this marker targets, and the new active
