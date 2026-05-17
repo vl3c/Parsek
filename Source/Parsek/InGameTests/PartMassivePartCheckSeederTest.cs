@@ -71,23 +71,59 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Spawner", Scene = GameScenes.FLIGHT,
-            Description = "Part.MassivePartCheck seeder has mutated at least one part rb.mass since process start")]
+            Description = "Part.MassivePartCheck seeder has mutated at least one part rb.mass since process start (requires an autostrut-bearing vessel in scene)")]
         public static void SeededPartCount_IsPositiveInFlight()
         {
-            int count = PartMassivePartCheckSeederPatch.SeededPartCount;
+            // Precondition: MassivePartCheck only fires for parts whose
+            // autoStrutMode != Off. If no in-range vessel has any
+            // autostrut-bearing parts (single-stage probes, a vanilla
+            // Stayputnik launch, an EVA-only scene), the prefix never gets
+            // invoked and SeededPartCount stays 0. Skip in that case rather
+            // than spuriously failing on what is genuinely the absence of
+            // a code-path exercise.
+            bool sceneHasAutostrutCandidate = SceneHasAnyAutoStrutCandidate();
+            if (!sceneHasAutostrutCandidate)
+            {
+                InGameAssert.Skip(
+                    "No vessel in physics range has any part with autoStrutMode != Off. " +
+                    "MassivePartCheck does not fire on autostrut-Off parts, so SeededPartCount " +
+                    "cannot be exercised. Re-run with a multi-part vessel (e.g., stock Kerbal X) " +
+                    "in physics range to exercise the prefix.");
+                return;
+            }
 
+            int count = PartMassivePartCheckSeederPatch.SeededPartCount;
             InGameAssert.IsTrue(count > 0,
                 $"PartMassivePartCheckSeederPatch.SeededPartCount is {count}. " +
-                "Expected > 0 by the time a FLIGHT-scene test runs: the active " +
-                "vessel (and any in-range vessels) should have triggered " +
-                "Part.Start -> UpdateAutoStrut -> MassivePartCheck on any " +
-                "ForceHeaviest autostrut, and the prefix should have seeded at " +
-                "least one packed rb.mass before the read. A zero counter means " +
-                "the prefix is registered but its body is a no-op (wrong gate, " +
-                "missing rb, or wrong-method target).");
+                "An autostrut-bearing vessel is in scene so MassivePartCheck should " +
+                "have fired during Part.Start's UpdateAutoStrut chain, and the prefix " +
+                "should have seeded at least one packed rb.mass before the read. A zero " +
+                "counter here means the prefix is registered but its body is a no-op " +
+                "(wrong gate, missing rb, or wrong-method target).");
 
             ParsekLog.Info("TestRunner",
-                $"MassivePartCheck seeder mutation check: SeededPartCount={count}");
+                $"MassivePartCheck seeder mutation check: SeededPartCount={count}, " +
+                $"sceneHasAutostrutCandidate=True");
+        }
+
+        // Walks every in-range vessel's part list and returns true if any
+        // part has autoStrutMode != AutoStrutMode.Off. Used by the
+        // SeededPartCount test as a precondition check.
+        private static bool SceneHasAnyAutoStrutCandidate()
+        {
+            if (FlightGlobals.VesselsLoaded == null) return false;
+            for (int v = 0; v < FlightGlobals.VesselsLoaded.Count; v++)
+            {
+                Vessel vessel = FlightGlobals.VesselsLoaded[v];
+                if (vessel == null || vessel.parts == null) continue;
+                for (int p = 0; p < vessel.parts.Count; p++)
+                {
+                    Part part = vessel.parts[p];
+                    if (part == null) continue;
+                    if (part.autoStrutMode != Part.AutoStrutMode.Off) return true;
+                }
+            }
+            return false;
         }
     }
 }

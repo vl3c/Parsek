@@ -81,14 +81,15 @@ namespace Parsek.Patches
         /// <c>p.rb</c> / <c>p.vessel</c> goes through Unity's overloaded
         /// <c>Part == null</c> operator (same ECall SecurityException
         /// constraint that forced the
-        /// <c>FormatPackedSpawnSeedSkipMessage</c> split in PR #885).
+        /// previous skip-message-formatter split in PR #885, now removed).
         /// </summary>
         internal static bool ShouldSeedPart(
-            bool partNull, bool rbNull, bool partPacked, bool rbMassAtUnityDefault,
-            bool vesselNull, bool isFlag, bool isGhostMap)
+            bool partNull, bool rbNull, bool partInfoNull, bool partPacked,
+            bool rbMassAtUnityDefault, bool vesselNull, bool isFlag, bool isGhostMap)
         {
             if (partNull) return false;
             if (rbNull) return false;
+            if (partInfoNull) return false;
             if (!partPacked) return false;
             if (!rbMassAtUnityDefault) return false;
             if (vesselNull) return false;
@@ -118,6 +119,7 @@ namespace Parsek.Patches
         {
             bool partNull = ReferenceEquals(p, null);
             bool rbNull = !partNull && p.rb == null;
+            bool partInfoNull = !partNull && p.partInfo == null;
             bool partPacked = !partNull && p.packed;
             bool rbMassAtUnityDefault = !partNull && !rbNull && p.rb.mass == 1f;
             Vessel vessel = partNull ? null : p.vessel;
@@ -126,8 +128,8 @@ namespace Parsek.Patches
             bool isGhostMap = !vesselNull
                 && GhostMapPresence.IsGhostMapVessel(vessel.persistentId);
 
-            if (!ShouldSeedPart(partNull, rbNull, partPacked, rbMassAtUnityDefault,
-                    vesselNull, isFlag, isGhostMap))
+            if (!ShouldSeedPart(partNull, rbNull, partInfoNull, partPacked,
+                    rbMassAtUnityDefault, vesselNull, isFlag, isGhostMap))
                 return;
 
             if (VesselSpawner.SeedSinglePackedPart(p))

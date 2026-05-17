@@ -644,7 +644,6 @@ namespace Parsek
                 // Zero velocity for surface spawns to prevent physics jitter (#239)
                 ApplyPostSpawnStabilization(pv.vesselRef, spawnNode.GetValue("sit"));
 
-
                 GameEvents.onNewVesselCreated.Fire(pv.vesselRef);
 
                 // #615 P1 review (fourth pass): now that pv.vesselRef has a
@@ -5524,10 +5523,7 @@ namespace Parsek
         //
         // Production seeding is per-part lazy at the actual rb.mass read
         // site: see Patches.PartMassivePartCheckSeederPatch. That prefix
-        // calls SeedSinglePackedPart below. The vessel-walking
-        // SeedRigidbodyMassesForPackedSpawn helper here is retained only
-        // for its tested log-format / null-guard contract; no production
-        // call site invokes it on a real vessel anymore.
+        // calls SeedSinglePackedPart below.
         //
         // PR #885 placed inline calls right after pv.Load(flightState),
         // but ilspycmd of Assembly-CSharp.dll showed that overload never
@@ -5575,25 +5571,13 @@ namespace Parsek
             return total;
         }
 
-        // Pure log-message formatters so the format contract is xUnit-testable
-        // (the live wrapper itself can't be called from xUnit because Unity's
-        // overloaded `Part == null` operator on the inner loop is an ECall
-        // method that throws SecurityException outside the engine runtime).
-        internal static string FormatPackedSpawnSeedSkipMessage(
-            string logContext, bool vesselNull, bool partsNull)
-        {
-            return "SeedRigidbodyMassesForPackedSpawn skipped for " + logContext + ": " +
-                "vesselNull=" + (vesselNull ? "T" : "F") + " " +
-                "partsNull=" + (partsNull ? "T" : "F") + " — " +
-                "ForceHeaviest autostrut anchor selection on this vessel falls back to " +
-                "Unity's rb.mass=1 default until first unpack";
-        }
-
         // Single-part seeder used by PartMassivePartCheckSeederPatch.
         // Returns true if a write happened (caller increments a counter for
-        // diagnostics). Caller is responsible for the
-        // packed / rb==1f / vesselType / ghost-map gate; this helper only
-        // refuses on hard-null conditions and the partInfo lookup.
+        // diagnostics). Caller (the patch's gate) already enforces the
+        // packed / rb==null / partInfo==null / vesselType / ghost-map
+        // checks before reaching here; the defensive guards below are a
+        // belt-and-braces backup so a refactor that opens a new caller
+        // cannot NRE.
         internal static bool SeedSinglePackedPart(Part p)
         {
             if (p == null || p.rb == null) return false;
@@ -5608,49 +5592,6 @@ namespace Parsek
                 partInfo.MinimumRBMass);
             p.rb.mass = seededMass;
             return true;
-        }
-
-        internal static void SeedRigidbodyMassesForPackedSpawn(Vessel vessel, string logContext)
-        {
-            // ReferenceEquals bypasses UnityEngine.Object.op_Equality on the
-            // top-level null check. Production callers already null-check
-            // pv.vesselRef before reaching here, so the lifecycle-aware
-            // destroyed-vs-null distinction is not needed at this seam.
-            bool vesselNull = ReferenceEquals(vessel, null);
-            bool partsNull = !vesselNull && vessel.parts == null;
-            if (vesselNull || partsNull)
-            {
-                ParsekLog.Warn("Spawner",
-                    FormatPackedSpawnSeedSkipMessage(logContext, vesselNull, partsNull));
-                return;
-            }
-
-            int updatedCount = 0;
-            int skippedNoRb = 0;
-            int skippedNoPartInfo = 0;
-            for (int i = 0; i < vessel.parts.Count; i++)
-            {
-                Part part = vessel.parts[i];
-                if (part == null) continue;
-                if (part.rb == null) { skippedNoRb++; continue; }
-                AvailablePart partInfo = part.partInfo;
-                if (partInfo == null) { skippedNoPartInfo++; continue; }
-                float physicslessChildMass = SumPhysicslessChildMass(part);
-                float seededMass = ComputeRigidbodyMassForPackedSpawn(
-                    part.mass,
-                    part.resourceMass,
-                    physicslessChildMass,
-                    partInfo.MinimumMass,
-                    partInfo.MinimumRBMass);
-                part.rb.mass = seededMass;
-                updatedCount++;
-            }
-
-            ParsekLog.Info("Spawner",
-                $"Seeded packed-spawn rb.mass for {logContext}: vessel='{vessel.vesselName}' " +
-                $"pid={vessel.persistentId} updated={updatedCount} skippedNoRb={skippedNoRb} " +
-                $"skippedNoPartInfo={skippedNoPartInfo} (defends ForceHeaviest autostrut anchor " +
-                $"selection from rb.mass=1 default on packed parts)");
         }
 
         #endregion
