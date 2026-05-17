@@ -180,10 +180,16 @@ namespace Parsek
             // situation would short-circuit through TryBuildSurfaceTerminalCache
             // and stamp TerminalState.Landed on a recording that the player
             // observed as a crash, surfacing as "would auto-seal because
-            // landed" copy in the Re-Fly merge dialog.
+            // landed" copy in the Re-Fly merge dialog. The branch also
+            // eagerly mutates recording.TerminalStateValue so the
+            // TryBuildAlreadyClassifiedDestroyedSkip short-circuit catches any
+            // subsequent same-frame refresh (part_die / joint_break / periodic
+            // for residual parts) before they reach the surface-terminal
+            // branch and re-stamp Landed on the same transient LANDED
+            // situation.
             if (IsDestroyRefreshReason(reason))
                 return CompleteRefresh(
-                    cache, PopulateDestroyEventTerminalCache(cache, refreshUT),
+                    cache, PopulateDestroyEventTerminalCache(recording, cache, refreshUT, reason, vessel.Situation),
                     recordingsExamined, 0, 1);
 
             if (TryBuildSurfaceTerminalCache(cache, vessel, refreshUT))
@@ -824,10 +830,29 @@ namespace Parsek
         /// <see cref="FlightRecorder"/> and <see cref="BackgroundRecorder"/>
         /// know the vessel is gone, even when KSP's transient last-frame
         /// situation still says LANDED.
+        ///
+        /// <para>
+        /// Also eagerly mutates <c>recording.TerminalStateValue</c> to
+        /// <see cref="TerminalState.Destroyed"/> when unset, so any same-frame
+        /// follow-up refresh (e.g. <c>part_die</c>, <c>joint_break</c>,
+        /// <c>periodic</c> on a still-LANDED-situation residual hull) short-
+        /// circuits through <see cref="TryBuildAlreadyClassifiedDestroyedSkip"/>
+        /// instead of re-reaching <see cref="TryBuildSurfaceTerminalCache"/>
+        /// and clobbering the stamp with <see cref="TerminalState.Landed"/>.
+        /// Production callers normally let <see cref="RecordingFinalizationCacheApplier"/>
+        /// be the only writer of <c>TerminalStateValue</c>, so we only mutate
+        /// when the recording's terminal is still null: pre-existing terminal
+        /// verdicts (the cleared-stale-verdict path in
+        /// <see cref="IncompleteBallisticSceneExitFinalizer.ClearAlreadyClassifiedDestroyed"/>,
+        /// for example) are not overwritten.
+        /// </para>
         /// </summary>
         private static bool PopulateDestroyEventTerminalCache(
+            Recording recording,
             RecordingFinalizationCache cache,
-            double terminalUT)
+            double terminalUT,
+            string reason,
+            Vessel.Situations observedSituation)
         {
             cache.Status = FinalizationCacheStatus.Fresh;
             cache.TerminalState = TerminalState.Destroyed;
@@ -835,6 +860,28 @@ namespace Parsek
             cache.TerminalBodyName = cache.LastObservedBodyName;
             cache.TailStartsAtUT = terminalUT;
             cache.PredictedSegments = new List<OrbitSegment>();
+
+            bool eagerStamp = false;
+            if (recording != null && !recording.TerminalStateValue.HasValue)
+            {
+                recording.TerminalStateValue = TerminalState.Destroyed;
+                eagerStamp = true;
+            }
+
+            // Info-level (not rate-limited) so a destroy override is visible
+            // in KSP.log even if a prior Landed stamp's
+            // VerboseRateLimited "Refresh accepted" line is in the dedup
+            // window for the same vessel.
+            ParsekLog.Info("FinalizerCache",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Destroy-reason override: rec={0} pid={1} reason={2} situation={3} terminalUT={4:F3} eagerRecordingStamp={5}",
+                    cache.RecordingId ?? "(pending)",
+                    cache.VesselPersistentId,
+                    reason ?? "(none)",
+                    observedSituation,
+                    terminalUT,
+                    eagerStamp));
             return Accept(cache);
         }
 

@@ -16,7 +16,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh on the active vessel was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed on the recording. Same fix applies to the background-vessel destroy path.
+- Re-Fly merge dialog no longer says the vessel "landed" when you actually crashed. The destroy-event refresh was racing KSP's transient LANDED situation flag on ground impact and stamping TerminalState.Landed instead of TerminalState.Destroyed; subsequent part-die and joint-break refreshes for residual parts in the same impact frame could also clobber the destroy stamp. Same fix applies to the background-vessel destroy path.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 
 ---

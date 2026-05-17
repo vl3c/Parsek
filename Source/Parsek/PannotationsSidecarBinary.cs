@@ -876,10 +876,13 @@ namespace Parsek
         /// </summary>
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
-            // Backward-compatible overload: tests that don't care about
-            // Phase 5 / Phase 6 / Phase 8 flags default them to true (matches
-            // the shipped defaults). Production callers should use the
-            // four-argument overload below so a flag flip invalidates cached
+            // Backward-compatible overload kept for tests wired before the
+            // Phase 5 / Phase 6 / Phase 8 rollout flags were threaded through.
+            // The flag values here are NOT the v0.10 shipped defaults (which
+            // are useCoBubbleBlend=false): they are frozen to match the
+            // pre-Phase-N hash bytes so legacy hashes don't shift under
+            // existing tests. Production callers must use the four-argument
+            // overload below so a flag flip actually invalidates cached
             // .pann files.
             return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true,
                 useCoBubbleBlend: true, useOutlierRejection: true);
@@ -887,8 +890,9 @@ namespace Parsek
 
         /// <summary>
         /// Phase 6 follow-up: two-argument overload kept for any caller that
-        /// was wired before Phase 5. Defaults remaining flags to true
-        /// (matches the shipped defaults).
+        /// was wired before Phase 5. The remaining flag values are frozen at
+        /// the pre-Phase-N levels so legacy hashes stay stable; they do not
+        /// reflect the v0.10 shipped defaults.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg, bool useAnchorTaxonomy)

@@ -1639,15 +1639,16 @@ namespace Parsek.Rendering
         /// <summary>
         /// Resolves the Phase 5 <c>useCoBubbleBlend</c> flag through the test
         /// seam first, then through <see cref="ParsekSettings.Current"/>.
-        /// Defaults to true when <c>Current</c> is null (matches the shipped
-        /// default and Phase 6's <c>useAnchorTaxonomy</c> resolver pattern).
+        /// Defaults to false when <c>Current</c> is null (matches the v0.10
+        /// shipped default: co-bubble peer blending opt-in via the
+        /// Diagnostics toggle).
         /// </summary>
         internal static bool ResolveUseCoBubbleBlend()
         {
             var seam = UseCoBubbleBlendResolverForTesting;
             if (seam != null) return seam();
             ParsekSettings settings = ParsekSettings.Current;
-            return settings?.useCoBubbleBlend ?? true;
+            return settings?.useCoBubbleBlend ?? false;
         }
 
         /// <summary>
