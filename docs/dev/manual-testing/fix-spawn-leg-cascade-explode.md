@@ -58,3 +58,51 @@ into a clean `Kerbal Space Program/saves/<name>/`, launch KSP, and load
    walks every part on every multi-part spawn; the per-part rb.mass write
    itself is gated on the part having a non-null rigidbody and `partInfo`)
    and the vessel still spawns and unpacks normally.
+
+## Stock Save-Load Reconstruction (PR #885 Coverage Gap Follow-Up)
+
+Verifies that vessels reconstructed by KSP's own `ProtoVessel.Load` path
+(quickload, scene reload from a `SetActiveVessel`-on-unloaded-target,
+mission/contract `ConstructShip`) also seed `rb.mass` before first Unpack.
+The `ProtoVesselLoadRigidbodyMassSeederPatch` Harmony postfix is the
+mechanism; the existing PR #885 inline callers in `SpawnAtPosition` /
+`RespawnVessel` only cover Parsek's own spawn entry points.
+
+### Reproducer Save
+
+The follow-up investigation repro lives at
+`logs/2026-05-17_1944_switch-fly-edge-case/saves/s16/`. Copy that save
+directory into a clean `Kerbal Space Program/saves/<name>/`, launch KSP,
+and load `persistent.sfs`.
+
+### Checklist
+
+1. Load the repro save. The active vessel should be `Kerbal X Probe`.
+   Confirm Map view shows a separate `Kerbal X` vessel on the same orbit
+   (the unloaded target that triggered the cascade in the repro log).
+2. Open the Map view, right-click the `Kerbal X` vessel marker, and click
+   `Switch To`. Confirm the pre-switch dialog and click `Merge`. Do not
+   warp first. Watch for any debris or explosion FX during the scene
+   transition (this is the path that previously crashed via
+   `SetActiveVessel` -> `SaveGame` -> `FlightDriver.StartAndFocusVessel`).
+3. After the FLIGHT scene loads, wait 5 seconds of in-game time with the
+   vessel focused. Confirm `Kerbal X` is intact: all parts still attached,
+   no `Decoupler.2` / `Rockomax16.BW` / `mediumDishAntenna` debris floating
+   away, no `landingLeg1-2` joints breaking.
+4. Tail `Kerbal Space Program/KSP.log`. Expected log lines, in this order:
+   - `[Parsek][INFO][Spawner] Seeded packed-spawn rb.mass for
+     ProtoVesselLoadPostfix: vessel='Kerbal X' pid=<n> updated=<count>
+     ...` (this is the new patch firing on the save-load reconstruction).
+   - `Unpacking Kerbal X` shortly after (KSP's own log).
+   - No `[Parsek][VERBOSE][Recorder] OnPartJointBreak diagnostics: ...
+     breakForce=0.0 structural=F childAttachMatchesJoint=F` entries on
+     `landingLeg1-2` parts within the first 100 ms after `Unpacking
+     Kerbal X`.
+   - No `landingLeg1-2 / parachuteLarge / ladder1 / HeatShield2 / mk1-3pod
+     Exploded!!` lines on parts of `Kerbal X` within the first 5 s of
+     physics activation.
+5. As a regression control, quicksave (F5) and quickload (F9) on a
+   stationary multi-part vessel with deployed-leg autostruts; confirm
+   the `Seeded packed-spawn rb.mass for ProtoVesselLoadPostfix` log line
+   appears on the F9 path and the vessel remains intact through the next
+   physics frame after the quickload.
