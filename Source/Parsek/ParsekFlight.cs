@@ -737,6 +737,10 @@ namespace Parsek
         // Merge event detection (tree mode)
         private bool pendingTreeDockMerge;           // true when a tree dock merge is pending
         private uint pendingDockAbsorbedPid;         // PID of absorbed vessel in dock merge
+        // Route partner PID resolved from the couple event (independent of BackgroundMap).
+        // 0 means partner was foreign or unresolved; non-zero means the merge child should
+        // carry a route window. Cleared when the pending dock state is cleared.
+        private uint pendingDockRouteTargetPid;
         private RouteEndpoint? pendingDockRouteEndpointAtDock;
         private int pendingDockRouteEndpointSituation = -1;
         private bool pendingBoardingTargetInTree;    // true if boarding target is in the tree
@@ -5153,10 +5157,67 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure helper: resolves the dock partner's vessel persistentId directly from
+        /// the KSP couple event, independent of <c>activeTree.BackgroundMap</c>. Returns
+        /// the side of the dock pair that is NOT the recorder's own vessel, or 0 when
+        /// neither side qualifies. Used by the route-proof path so cross-tree partners
+        /// (committed recording in a previous tree, not in the current
+        /// <c>BackgroundMap</c>) still resolve correctly.
+        /// </summary>
+        internal static uint ResolveDockPartnerPidFromEvent(
+            uint fromVesselPid,
+            uint toVesselPid,
+            uint selfVesselPid)
+        {
+            if (fromVesselPid != 0 && fromVesselPid != selfVesselPid) return fromVesselPid;
+            if (toVesselPid != 0 && toVesselPid != selfVesselPid) return toVesselPid;
+            return 0;
+        }
+
+        /// <summary>
+        /// Validation gate for route-eligibility of a dock partner. Returns true when
+        /// the partner has a known Parsek recording — either an entry in the current
+        /// <paramref name="activeTreeRecordings"/> (excluding the recorder's own
+        /// vessel) or in <paramref name="committedRecordings"/>. Returns false for
+        /// truly foreign vessels (KSP-visible but no Parsek recording), keeping them
+        /// out of the route-proof path while still allowing the dock to merge normally.
+        /// </summary>
+        internal static bool IsKnownDockPartnerForRoute(
+            uint partnerPid,
+            uint selfVesselPid,
+            IEnumerable<Recording> activeTreeRecordings,
+            IReadOnlyList<Recording> committedRecordings)
+        {
+            if (partnerPid == 0 || partnerPid == selfVesselPid) return false;
+
+            if (activeTreeRecordings != null)
+            {
+                foreach (Recording r in activeTreeRecordings)
+                {
+                    if (r != null && r.VesselPersistentId == partnerPid) return true;
+                }
+            }
+
+            if (committedRecordings != null)
+            {
+                for (int i = 0; i < committedRecordings.Count; i++)
+                {
+                    Recording r = committedRecordings[i];
+                    if (r != null && r.VesselPersistentId == partnerPid) return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// When we are the dock target (our PID unchanged), finds the PID of the vessel
         /// that was absorbed into us. Scans BackgroundMap for a vessel that is no longer
         /// a separate entity (its Vessel object is gone or merged into ours).
-        /// Returns 0 if the partner is not in the tree (foreign vessel).
+        /// Returns 0 if the partner is not in the tree (foreign vessel or cross-tree
+        /// partner with a committed recording but no background entry). Tree-merge
+        /// bookkeeping is the only consumer — route-target resolution now uses
+        /// <see cref="ResolveDockPartnerPidFromEvent"/> instead.
         /// </summary>
         uint FindAbsorbedDockPartnerPid(uint mergedPid, Vessel mergedVessel)
         {
@@ -5182,6 +5243,79 @@ namespace Parsek
 
             // No background vessel was absorbed -- partner is a foreign vessel
             return 0;
+        }
+
+        /// <summary>
+        /// Cross-tree partner fallback for the dock-route window's
+        /// <c>EndpointPartPersistentIds</c>. Tries (1) a live KSP vessel snapshot,
+        /// (2) any matching recording in <c>activeTree.Recordings</c>, (3) any
+        /// matching recording in <see cref="RecordingStore.CommittedRecordings"/>.
+        /// Returns null when no usable snapshot can be located; callers preserve any
+        /// existing list rather than overwriting it with null.
+        /// </summary>
+        private List<uint> TryDeriveEndpointPartPidsFromPartner(uint partnerPid)
+        {
+            if (partnerPid == 0) return null;
+
+            Vessel partnerVessel = FlightRecorder.FindVesselByPid(partnerPid);
+            if (partnerVessel != null)
+            {
+                ConfigNode partnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerVessel);
+                if (partnerSnapshot != null)
+                {
+                    List<uint> pids = VesselSpawner.CollectPartPersistentIds(partnerSnapshot);
+                    if (pids != null && pids.Count > 0)
+                    {
+                        ParsekLog.Verbose("Flight",
+                            $"TryDeriveEndpointPartPidsFromPartner: live-vessel snapshot " +
+                            $"partnerPid={partnerPid} parts={pids.Count}");
+                        return pids;
+                    }
+                }
+            }
+
+            if (activeTree?.Recordings != null)
+            {
+                foreach (var kvp in activeTree.Recordings)
+                {
+                    Recording r = kvp.Value;
+                    if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
+                    {
+                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        if (pids != null && pids.Count > 0)
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"TryDeriveEndpointPartPidsFromPartner: active-tree recording " +
+                                $"partnerPid={partnerPid} recId={r.RecordingId} parts={pids.Count}");
+                            return pids;
+                        }
+                    }
+                }
+            }
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed != null)
+            {
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording r = committed[i];
+                    if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
+                    {
+                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        if (pids != null && pids.Count > 0)
+                        {
+                            ParsekLog.Verbose("Flight",
+                                $"TryDeriveEndpointPartPidsFromPartner: committed recording " +
+                                $"partnerPid={partnerPid} recId={r.RecordingId} parts={pids.Count}");
+                            return pids;
+                        }
+                    }
+                }
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"TryDeriveEndpointPartPidsFromPartner: no snapshot available partnerPid={partnerPid}");
+            return null;
         }
 
         /// <summary>
@@ -5260,6 +5394,18 @@ namespace Parsek
                 List<uint> endpointPartPids = bgParentRec?.VesselSnapshot != null
                     ? VesselSpawner.CollectPartPersistentIds(bgParentRec.VesselSnapshot)
                     : null;
+
+                // Cross-tree partner fallback: when the partner has a committed
+                // recording from a prior tree (or is otherwise not in
+                // activeTree.BackgroundMap), bgParentRec is null. Derive part PIDs from
+                // a live vessel snapshot first, then from any known recording for the
+                // partner PID (active tree or committed).
+                if ((endpointPartPids == null || endpointPartPids.Count == 0)
+                    && routeTargetVesselPid != 0)
+                {
+                    endpointPartPids = TryDeriveEndpointPartPidsFromPartner(routeTargetVesselPid)
+                        ?? endpointPartPids;
+                }
 
                 RouteEndpoint? endpointAtDock = pendingDockRouteEndpointAtDock;
                 int endpointSituation = pendingDockRouteEndpointSituation;
@@ -9144,7 +9290,28 @@ namespace Parsek
                         absorbedPid = recorder.RecordingVesselId;
                     }
 
-                    uint routeTargetPid = ResolveDockRouteTargetPid(isTarget, mergedPid, absorbedPid);
+                    // Resolve the route-partner PID from the couple event directly.
+                    // BackgroundMap is intra-tree only, so a partner with a committed
+                    // recording from a prior tree is invisible to FindAbsorbedDockPartnerPid.
+                    // Validate via IsKnownDockPartnerForRoute so truly foreign vessels do
+                    // not produce route-eligible windows.
+                    uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
+                    uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
+                    uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
+                        fromPid, toPid, recorder.RecordingVesselId);
+                    bool partnerKnown = IsKnownDockPartnerForRoute(
+                        partnerPidFromEvent,
+                        recorder.RecordingVesselId,
+                        activeTree?.Recordings?.Values,
+                        RecordingStore.CommittedRecordings);
+                    uint routeTargetPid = partnerKnown ? partnerPidFromEvent : 0u;
+
+                    ParsekLog.Verbose("Flight",
+                        $"OnPartCouple route-partner resolve: selfPid={recorder.RecordingVesselId} " +
+                        $"mergedPid={mergedPid} isTarget={isTarget} absorbedPid={absorbedPid} " +
+                        $"partnerPidFromEvent={partnerPidFromEvent} partnerKnown={partnerKnown} " +
+                        $"routeTargetPid={routeTargetPid}");
+
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
                     // Stop recorder synchronously
@@ -9154,6 +9321,7 @@ namespace Parsek
                     pendingTreeDockMerge = true;
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
+                    pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockAsTarget = isTarget;
                     dockConfirmFrames = 0;
 
@@ -9181,15 +9349,31 @@ namespace Parsek
                             $"mergedPid={mergedPid}; skipping route endpoint capture");
                         return;
                     }
-                    uint routeTargetPid = ResolveDockRouteTargetPid(
-                        activeWasDockTarget: false,
-                        mergedVesselPid: mergedPid,
-                        absorbedVesselPid: absorbedPid);
+                    // Mirror the recording-path resolver: derive partner from event,
+                    // validate via known-recordings registry, and emit the same diagnostic.
+                    uint fromPidR = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
+                    uint toPidR = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
+                    uint partnerPidFromEventR = ResolveDockPartnerPidFromEvent(
+                        fromPidR, toPidR, recorder.RecordingVesselId);
+                    bool partnerKnownR = IsKnownDockPartnerForRoute(
+                        partnerPidFromEventR,
+                        recorder.RecordingVesselId,
+                        activeTree?.Recordings?.Values,
+                        RecordingStore.CommittedRecordings);
+                    uint routeTargetPid = partnerKnownR ? partnerPidFromEventR : 0u;
+
+                    ParsekLog.Verbose("Flight",
+                        $"OnPartCouple route-partner resolve (retroactive): " +
+                        $"selfPid={recorder.RecordingVesselId} mergedPid={mergedPid} " +
+                        $"absorbedPid={absorbedPid} partnerPidFromEvent={partnerPidFromEventR} " +
+                        $"partnerKnown={partnerKnownR} routeTargetPid={routeTargetPid}");
+
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
                     pendingTreeDockMerge = true;
                     pendingDockMergedPid = mergedPid;
                     pendingDockAbsorbedPid = absorbedPid;
+                    pendingDockRouteTargetPid = routeTargetPid;
                     pendingDockAsTarget = false;
                     dockConfirmFrames = 0;
 
@@ -9933,6 +10117,7 @@ namespace Parsek
                     pendingDockAsTarget = false;
                     pendingTreeDockMerge = false;
                     pendingDockAbsorbedPid = 0;
+                    pendingDockRouteTargetPid = 0;
                     pendingDockRouteEndpointAtDock = null;
                     pendingDockRouteEndpointSituation = -1;
                     dockConfirmFrames = 0;
@@ -10067,6 +10252,7 @@ namespace Parsek
             pendingUndockOtherPid = 0;
             undockConfirmFrames = 0;
             pendingDockAbsorbedPid = 0;
+            pendingDockRouteTargetPid = 0;
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
         }
@@ -10117,10 +10303,11 @@ namespace Parsek
 
             var stoppedRecorder = recorder;
             recorder = null;
-            uint routeTargetPid = ResolveDockRouteTargetPid(
-                pendingDockAsTarget,
-                pendingDockMergedPid,
-                pendingDockAbsorbedPid);
+            // Route target was already resolved from the couple event in OnPartCouple
+            // and persisted on pendingDockRouteTargetPid. Falling back to the legacy
+            // BackgroundMap-derived ResolveDockRouteTargetPid would drop the partner
+            // for cross-tree dock partners (committed-recording case).
+            uint routeTargetPid = pendingDockRouteTargetPid;
 
             CreateMergeBranch(
                 BranchPointType.Dock,
@@ -10138,6 +10325,7 @@ namespace Parsek
             pendingTreeDockMerge = false;
             pendingDockMergedPid = 0;
             pendingDockAbsorbedPid = 0;
+            pendingDockRouteTargetPid = 0;
             pendingDockRouteEndpointAtDock = null;
             pendingDockRouteEndpointSituation = -1;
             dockConfirmFrames = 0;

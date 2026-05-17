@@ -62,6 +62,48 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
+            Description = "Route proof survives a dock whose partner vessel only has a committed recording from a prior tree (not in the current tree's BackgroundMap)")]
+        public void RouteProof_CrossTreeCommittedPartner_HasEndpointProof()
+        {
+            // The previous resolver bug: FindAbsorbedDockPartnerPid only consulted
+            // activeTree.BackgroundMap. A dock partner whose recording was committed
+            // in a prior tree is invisible to BackgroundMap, so routeTargetPid
+            // resolved to 0 and no RouteConnectionWindow was attached to the merged
+            // child. The fix derives the partner PID from the couple event and
+            // validates it against CommittedRecordings / activeTree.Recordings.
+            RouteWindowRuntimeView view = FindRouteWindow(candidate =>
+            {
+                RouteConnectionWindow w = candidate.Window;
+                if (w == null || w.TransferTargetVesselPid == 0) return false;
+
+                // Active-as-target dock window AND partner PID matches a recording
+                // in CommittedRecordings (the cross-tree case).
+                if (w.TransferTargetVesselPid == candidate.Recording.VesselPersistentId)
+                    return false; // initiator case — covered by sibling test
+
+                IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+                if (committed == null) return false;
+                for (int i = 0; i < committed.Count; i++)
+                {
+                    Recording r = committed[i];
+                    if (r != null && r.VesselPersistentId == w.TransferTargetVesselPid)
+                        return true;
+                }
+                return false;
+            });
+
+            if (view == null)
+            {
+                InGameAssert.Skip(
+                    "No cross-tree-committed-partner dock route window found. " +
+                    "Repro: commit one tree on vessel A, then launch vessel B in a fresh tree and dock B into A; " +
+                    "the merged child on B's tree should carry a route window whose TransferTargetVesselPid matches A's committed recording.");
+            }
+
+            AssertEndpointProof(view, "cross-tree-committed-partner");
+        }
+
+        [InGameTest(Category = "Logistics", Scene = GameScenes.FLIGHT,
             Description = "Moving a stock cargo item between live ModuleInventoryPart containers preserves logistics payload identity",
             AllowBatchExecution = false,
             BatchSkipReason = "Manual stock-inventory mutation test. Run from the row play button on a disposable flight scene with two cargo containers.")]
