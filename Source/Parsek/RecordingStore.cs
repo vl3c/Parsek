@@ -852,12 +852,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits a recording tree directly to the timeline.
-        /// Adds all recordings to CommittedRecordings (for ghost playback)
-        /// and the tree itself to CommittedTrees (for tree-specific queries).
-        /// </summary>
-        /// <summary>
         /// Commits <paramref name="tree"/> into <see cref="CommittedTrees"/>.
+        /// Adds all recordings to <see cref="CommittedRecordings"/> (for ghost
+        /// playback) and the tree itself to <see cref="CommittedTrees"/> (for
+        /// tree-specific queries).
         ///
         /// <para><b>Active-Re-Fly union side-effect (Bug fix-refly-abandon-and-fork-persist
         /// §Bug2a)</b>: when a live <c>ParsekScenario.Instance?.ActiveReFlySessionMarker</c>

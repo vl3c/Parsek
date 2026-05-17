@@ -917,7 +917,7 @@ namespace Parsek
             int recsAfter = committedTree.Recordings?.Count ?? 0;
             // M1 review fix: downgrade no-op idempotent re-runs to Verbose
             // so a crash-resumed merge doesn't spam Info every time the
-                // finisher re-invokes the helper. State-change (recs added,
+            // finisher re-invokes the helper. State-change (recs added,
             // active id moved, union work) keeps Info so the production
             // happy-path stays visible.
             bool didWork = recsAfter != recsBefore
