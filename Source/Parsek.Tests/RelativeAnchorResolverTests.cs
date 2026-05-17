@@ -156,7 +156,7 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(absolute);
             tree.AddOrReplaceRecording(relative);
 
-            var context = MakeContext(tree);
+            var context = MakeContext(tree, focusRecordingId: relative.RecordingId);
 
             bool resolved = RelativeAnchorResolver.TryResolveAnchorPose(
                 context,
@@ -172,7 +172,8 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=anchor-recording-id-missing") &&
-                l.Contains("focusRecordingId=relative-child"));
+                l.Contains("focusRecordingId=relative-child") &&
+                l.Contains("anchorRecordingId=relative-child"));
             Assert.DoesNotContain(logLines, l => l.Contains("anchorPid=12345"));
         }
 
@@ -1618,10 +1619,17 @@ namespace Parsek.Tests
             Assert.True(callbackInvoked);
             Assert.Equal(RelativeAnchorResolveOutcome.AnchorOutOfScope, failure.Outcome);
             Assert.Equal("loop-live-anchor-unresolved", failure.Reason);
+            // After the Phase 4 + follow-up tightening, focusRecordingId is
+            // the outer focus (the recording that started the resolution)
+            // and anchorRecordingId is the loop-anchored recording whose
+            // live PID failed to resolve. Previously both fields were the
+            // loop-anchored recording's id, which was the misleading
+            // artifact the audit closed.
             Assert.Contains(logLines, l =>
                 l.Contains("[RelativeAnchorResolver]") &&
                 l.Contains("reason=loop-live-anchor-unresolved") &&
-                l.Contains("focusRecordingId=loop-root"));
+                l.Contains("focusRecordingId=child") &&
+                l.Contains("anchorRecordingId=loop-root"));
         }
 
         [Fact]

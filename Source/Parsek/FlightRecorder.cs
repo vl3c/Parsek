@@ -5824,11 +5824,7 @@ namespace Parsek
             // committed list. The flag flows into RecordingAnchorCandidate
             // for diagnostic logging only.
             Recording anchorRec = null;
-            if (ActiveTree?.Recordings != null
-                && !ActiveTree.Recordings.TryGetValue(reflyAnchorRecordingId, out anchorRec))
-            {
-                anchorRec = null;
-            }
+            ActiveTree?.Recordings?.TryGetValue(reflyAnchorRecordingId, out anchorRec);
             if (anchorRec == null)
                 anchorRec = RecordingStore.TryFindCommittedRecordingById(reflyAnchorRecordingId);
             bool isSealed = AnchorDetector.IsSealedRecordingAnchor(anchorRec);

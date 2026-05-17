@@ -158,7 +158,8 @@ namespace Parsek.Tests
                 logLines,
                 l => l.Contains("[WARN]") && l.Contains("[Anchor]")
                     && l.Contains("re-fly anchor unavailable")
-                    && l.Contains("rec_prov"));
+                    && l.Contains("rec_prov")
+                    && l.Contains("bypass declined, falling back to nearest-search"));
         }
 
         [Fact]

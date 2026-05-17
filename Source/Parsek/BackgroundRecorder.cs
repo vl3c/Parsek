@@ -4849,6 +4849,15 @@ namespace Parsek
             // fallback) instead of letting the generic nearest-search pick a
             // fast-separating sibling that happens to be in-bubble. See
             // docs/dev/plans/fix-refly-relative-anchor-selection.md.
+            //
+            // Placement: AFTER the on-surface check, not immediately after the
+            // debris-parent bypass as the plan's section 4.3 text suggested.
+            // Surface vessels exit Relative mode unconditionally (the existing
+            // RELATIVE-is-for-orbital-approaches rule applies to re-fly
+            // provisionals too — we do not want to author Relative offsets on
+            // the launch pad). This placement is symmetric with the
+            // FlightRecorder bypass at `UpdateAnchorDetection`'s
+            // `else if (!onSurface)` branch.
             if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
                     tree,
                     treeRec.RecordingId,
