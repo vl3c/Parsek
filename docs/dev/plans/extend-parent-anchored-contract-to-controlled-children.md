@@ -240,38 +240,40 @@ Findings from a per-site audit of every read of `DebrisParentRecordingId` in `So
 
 | Site | Today's behavior | Verdict |
 |---|---|---|
-| `BackgroundRecorder.cs:1411-1461` | TTL gate inside `RegisterChildRecordingsFromSplit` is keyed by `!string.IsNullOrEmpty(childRec.DebrisParentRecordingId)`. Today this only fires on debris because today only debris carry the field. | **SAFE.** After the plan, controlled children would enter this branch and inherit debris-TTL behavior - but the surrounding loop is the `hasController == false` branch (per the file structure), so the TTL logic does not fire from the controlled-child loop in the first place. Confirm during implementation by re-reading `:1170-1260`. |
+| `BackgroundRecorder.cs:1411-1461` | TTL gate inside `RegisterChildRecordingsFromSplit` keyed by `!string.IsNullOrEmpty(childRec.DebrisParentRecordingId)`. | **SAFE.** The TTL helpers iterate the `debrisTTLExpiry` dictionary, whose entries are populated only at the `!hasController` (debris) call site (`:1244`). Controlled children never appear as keys, so the TTL gate never sees them regardless of whether they now carry `DebrisParentRecordingId`. Conclusion unchanged from prior revision; reasoning corrected. |
 | `BackgroundRecorder.cs:3779-3990` (`InitializeLoadedState` debris-seed path) | Already gates on `DebrisParentRecordingId != null`; switches between Relative-seed and Absolute-seed by proximity. | **SAFE.** Already generic. Verify the Relative-seed branch handles the controlled-child case correctly when the live parent is far away (typical for distant decouples): expected behavior is the warn-and-fall-back-to-Absolute-seed path. |
 | `BackgroundRecorder.cs:4462, 4486, 4600, 4830, 5151-5152, 5339` | Parent-anchored seed / per-tick anchor logic. | **SAFE.** All already key on `DebrisParentRecordingId != null` directly. No proxy. |
 | `BackgroundRecorder.cs:5893-5898` (`IsDebrisAwareSampleCapEligible`) | Dual conjunct `IsDebris && DebrisParentRecordingId != null`. | **KEEP (debris-only).** See section 4.4. Document inline. |
 | `DebrisRelativeRecorderPolicy.cs:24-30` (`ShouldNormalizeParentAnchoredDebris`) | Dual conjunct. | **KEEP (debris-only).** See section 4.5. Document inline. |
-| `DebrisRelativePlaybackPolicy.cs:60` (`ShouldPlaybackParentAnchoredDebrisRelatively`) | Dual conjunct gating parent-anchored playback decision. | **NEEDS UPDATE.** This is the highest-impact playback gate. Drop the `IsDebris` conjunct to admit controlled children. The playback policy is "if the recording carries a parent-anchor surface, prefer that path"; this applies to both populations. |
-| `DebrisRelativePlaybackPolicy.cs:5754-5756` (`ShouldUseLoopAnchoredDebrisChain`) | Dual conjunct gating loop-anchored chain detection. | **NEEDS UPDATE OR KEEP - DECIDE PER REVIEW.** Loop-anchored debris chains are constructed by loop-anchored ancestors (debris of a looped vessel). Today's controlled children almost never participate in loop-anchored chains. Keep `IsDebris` until a follow-up test confirms controlled children inside loop-anchored chains play correctly. Document the gate's intent. |
-| `EffectiveState.cs:1434` (parent-anchored children walk) | `if (!cand.IsDebris) continue;` inside the supersede-closure walk. | **NEEDS UPDATE.** The walk's purpose is to enumerate parent-anchored children of a given parent recording. Change to `if (string.IsNullOrEmpty(cand.DebrisParentRecordingId)) continue;` (with `cand.DebrisParentRecordingId == rec.RecordingId` match retained). This is the read site mentioned in the audit-checklist row for `EffectiveState.cs:1394`; same line. |
+| `DebrisRelativePlaybackPolicy.cs:56-62` (`ShouldRetireOnRecordedParentAnchorMiss`) | Dual conjunct `traj.IsDebris && traj.DebrisParentRecordingId != null`. **Retirement** predicate, NOT a "should play back" predicate; has FOUR transitive callers: `ShouldRetireOutsideAuthoredRelativeCoverage` (`:64`), `ShouldSkipRecordedRelativeResolverForAuthoredFrameGap` (`:85`), `BuildAuthoredCoverageDiagnostic` (`:128`), and `TryResolveInitialStructuralSeedBridgeEndUT` (`:238`). | **NEEDS UPDATE.** Drop the `IsDebris` conjunct. After the flip, each of the four caller-paths newly admits controlled children: (1) retirement-outside-coverage correctly fires when neither relative nor body-fixed frames cover playback UT within a Relative section (the controlled child retires for THAT frame within THAT section); (2) skip-recorded-relative-resolver correctly routes controlled children to the body-fixed primary path; (3) the diagnostic struct gets populated for controlled children (used by trace logs); (4) the structural-seed-bridge UT resolution adopts controlled-child seeds. The post-window Absolute tail is unaffected because the engine dispatches per-section and `TryGetRelativeSectionAtUT` returns false for Absolute sections (see section 7). Phase 3 acceptance includes one xUnit fixture per transitive caller asserting controlled-child behavior. |
+| `DebrisRelativePlaybackPolicy.cs:5753-5757` (`ShouldUseLoopAnchoredDebrisChain`) | Dual conjunct. | **KEEP.** Loop-anchored chains are debris-of-a-looped-vessel; controlled children do not participate in loop-anchored chains today (no design support for re-attaching a controlled vessel as a loop anchor's payload). Document the gate's intent inline. |
+| `EffectiveState.cs:1434` (`EnqueueDebrisChildren` walker) | `if (!cand.IsDebris) continue;` plus tree-id match, parent-id match, and `bp.Type == BranchPointType.Breakup` filter at `:1447`. | **KEEP.** Closure walker for breakup-debris children only. The "double duty" comment at `:1403-1419` documents that the field also serves as a relative-sampling anchor for BG-split debris pointing at the parent continuation, and the BP-type-Breakup gate at `:1447` is what fences that BG-split case out. Flipping `IsDebris` here would either (a) admit BG-split controlled children into closure expansion (silently changes ERS / ELS closure shapes for re-fly), or (b) admit focused-breakup controlled children (changes re-fly carve-out semantics). Neither is in scope for this fix. Add an inline comment naming the controlled-child case explicitly so a future audit pass does not collapse the gate. If a future plan needs controlled children in closure expansion, it will need its own design decision on which BP types qualify. |
 | `SupersedeCommit.cs:520-525` (`IsPreRewindCarveOut` debris branch) and `:564` (non-debris HEAD branch) | Both keep `IsDebris` as a semantic discriminator. | **KEEP both conjuncts.** Pre-rewind debris carve-out is debris-specific by design; controlled children that happen to be pre-rewind go through the chain-head carve-out (non-debris branch) instead. Document the dual-check rationale inline. Add unit test `SupersedeCommit_ProvisionalWithControlledChildParentAnchor_NotMisCarvedOut`. |
-| `GhostPlaybackEngine.cs:2920-2922` (canonical `TryPositionRelativeSectionAtPlaybackUT` gate) | Dual conjunct. | **NEEDS UPDATE.** This is the canonical playback gate. Drop the `IsDebris` conjunct. The variable name `parentAnchoredDebris` should change to `parentAnchored` in the same edit. |
-| `GhostPlaybackEngine.cs:3054, 3375, 5755` (sibling gates in same engine) | Dual conjuncts in `ShouldUseLoopAnchoredDebrisChain` cross-call sites. | Follow the same decision as `DebrisRelativePlaybackPolicy.cs:5754-5756` (likely **KEEP** until validated; document inline). |
-| `GhostPlaybackEngine.cs:235` (early-return on `!traj.IsDebris`) | Single conjunct, not dual. | **NEEDS UPDATE.** This site is in the parent-anchored playback dispatch chain (per the playback readout). Switch to `if (string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId)) return;`. Verify by reading `:230-245` for surrounding context at implementation time. |
+| `GhostPlaybackEngine.cs:2920-2922` (canonical `TryPositionRelativeSectionAtPlaybackUT` gate) | Dual conjunct. | **NEEDS UPDATE.** This is the canonical playback gate. Drop the `IsDebris` conjunct. The variable name `parentAnchoredDebris` should change to `parentAnchored` in the same edit. The downstream retirement helper `ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage` (`:2862-2882`) inherits the gate widening transitively through `ShouldRetireOnRecordedParentAnchorMiss` (after that file's flip), so the retirement decision becomes consistent across all sites for the controlled-child case. |
+| `GhostPlaybackEngine.cs:3054, 3375, 5755` (`ShouldUseLoopAnchoredDebrisChain` cross-call sites) | Dual conjuncts. | **KEEP** matching the underlying `ShouldUseLoopAnchoredDebrisChain` decision above. Document inline. |
+| `GhostPlaybackEngine.cs:227-282` (`ShouldRenderSuppressedCompanionDebris`, contains `:235` `!traj.IsDebris` early-return) | Re-Fly session-suppressed companion-debris render carve-out: hides pre-rewind sibling debris whose `DebrisParentRecordingId == marker.OriginChildRecordingId` and whose `StartUT < marker.RewindPointUT`, so the original-timeline debris does not visually accompany the just-re-flown attempt. | **KEEP.** The predicate is intentionally debris-only - it scopes a carve-out for pre-rewind companion *debris* of the re-fly origin, not for parent-anchored siblings in general. Controlled children today carry `IsDebris=false` and pass this gate as "not eligible for the carve-out", which is correct. Flipping `!traj.IsDebris` to a `DebrisParentRecordingId`-only check would newly hide pre-rewind controlled children of the origin during re-fly playback - a visible regression. The prior plan revision had this wrong. |
 | `GhostPlaybackEngine.cs:4647, 5270` (`traj.IsDebris && GhostVisualBuilder.GetGhostSnapshot(traj) == null`) | Ghost-snapshot existence check; debris are visual-only. | **KEEP.** Controlled children have ghost snapshots; the `IsDebris` here gates on "this is a no-snapshot population." |
 | `GhostMapPresence.cs` map-presence resolver | Already does not gate on `IsDebris` for parent-anchored playback (per readout). | **SAFE.** No change. |
 | `RelativeAnchorResolver.cs:170-176` (`IsDebrisFocusRecording`) | Single `focus.IsDebris` check, no `DebrisParentRecordingId` paired. | **NEEDS UPDATE - highest-risk omission.** The predicate is semantically "this focus uses a parent-anchor surface", not "this focus is debris specifically." Change to `focus != null && !string.IsNullOrEmpty(focus.DebrisParentRecordingId)`. Rename the predicate to a name that does not mention debris in the sibling-plan rename pass; for this plan keep the function name and add an inline comment noting the rename is deferred to the sibling plan. |
-| `Rendering/AnchorPropagator.cs:353` (`&& rChildClassify.IsDebris`) | Gates DockOrMerge ε propagation for child recordings. | **REVIEW - keep until playback-validated.** The audit flagged this as "probable proxy" but the body-fixed playback contract has not been verified end-to-end for controlled children in DockOrMerge events. Add an in-game test `ControlledChild_PlaybackAlignment_WithoutDockOrMergeEps` and a counterpart `_WithDockOrMergeEps`; flip the predicate only if both pass. If unflipped at PR-time, file as a follow-up. |
+| `Rendering/AnchorPropagator.cs:345-356` (`&& rChildClassify.IsDebris`) | Gates DockOrMerge ε propagation for child recordings. The comment block at `:345-356` explicitly states "Only controlled children walk" - the `IsDebris` check is semantic: ε must NOT propagate to debris children. | **KEEP with confidence.** No test gate needed. Controlled children today pass `IsDebris=false` and already receive DockOrMerge ε propagation through this site; the parent-anchored contract change does not alter their `IsDebris` status. The prior plan revision over-cautioned here. |
 | `Rendering/CoBubblePrimarySelector.cs:284-285` (Rule 6) | `a.IsDebris && !b.IsDebris` → b wins. | **KEEP (safety net).** Per PR #874. Rule 6 stays as the cross-tree co-bubble safety net. |
 | `RecordingOptimizer.cs:127` (`a.IsDebris != b.IsDebris -> false`) | Auto-merge guard. | **KEEP.** Debris and non-debris must never auto-merge regardless of parent-anchor. |
 | `RecordingTree.cs:1296, 1305`, `RecordingGroupStore.cs:80, 159, 206, 247, 528, 554`, `RecordingsTableUI.cs:*`, `TimelineWindowUI.cs:*`, `TimelineBuilder.cs:*`, `ParsekUI.cs:1145`, `ParsekTrackingStation.cs:684`, `UnfinishedFlightClassifier.cs:101` | UI / classification / grouping / timeline / tracking-station-marker / unfinished-flight semantics. | **KEEP across the board.** Controlled children get the same UI treatment as today (non-debris row in the table, present in timeline, watch button enabled, etc.). The "Debris" UI group label is intentionally debris-only. |
 | `IdentityLossClassifier.cs:35, 109` | Debris opt-out for identity-loss classification. | **KEEP.** Controlled children DO need identity-loss classification (per the v0.9.2 BG-tracked vessel mis-classified bug fix); `IsDebris == false` semantics are correct here. |
-| `ParsekPlaybackPolicy.cs:982, 984, 1120` | `evt.Trajectory.IsDebris` early-return (`:982`) and `|| rec.IsDebris` gate (`:1120`). | **NEEDS UPDATE (probable proxy).** Re-read each site at implementation time. `:982` early-return is for the policy event chain; `:1120` is in spawn eligibility. Both likely need to admit controlled children. Per-site decision goes in the audit allowlist. |
-| `RecordingStore.cs:4820` (`!rec.IsDebris || string.IsNullOrEmpty(rec.TreeId)`) | Loop-sync parent linking. | **NEEDS UPDATE (probable proxy).** Re-read at implementation time. If switching to parent-anchor field changes UI behavior, defer; otherwise flip. |
+| `ParsekPlaybackPolicy.cs:982-988` (`HandleGhostCreated` debris skip from map presence) and `:1110-1125` (`ShouldRetainMapPresenceForTerminalRealSpawn` debris skip) | `evt.Trajectory.IsDebris` early-return at `:982` and `|| rec.IsDebris` at `:1120`. Both skip debris from getting tracking-station map presence / orbit-line ghosts. | **KEEP.** Controlled children today have `IsDebris=false` and PASS these gates (they get map presence) - which is the correct behavior we want preserved. Flipping to `DebrisParentRecordingId != null` would newly SKIP controlled children from map presence, the opposite of intent. The prior plan revision had this wrong. |
+| `RecordingStore.cs:4812-4825` (`PopulateLoopSyncParentIndices`, contains `:4820` `!rec.IsDebris` fast-skip) | Iterates recordings to find the non-debris loop-parent whose UT range covers each debris's start. The `!rec.IsDebris` at `:4820` skips non-debris entries (they don't need a loop-sync parent index). | **KEEP.** Controlled children are not loop-synced to a non-debris parent. Flipping the gate would newly add a loop-sync parent lookup for controlled children with no useful result. The prior plan revision had this wrong. |
 
-**Summary:**
-- **NEEDS UPDATE (must change for this fix to work):** 5 sites - `DebrisRelativePlaybackPolicy.cs:60` (playback policy), `GhostPlaybackEngine.cs:2920-2922` (canonical playback gate), `GhostPlaybackEngine.cs:235` (early-return), `RelativeAnchorResolver.cs:170-176` (focus predicate), `EffectiveState.cs:1434` (children walk).
-- **NEEDS UPDATE (probable proxy, validate per-site):** 3 sites - `ParsekPlaybackPolicy.cs:982-1120` (2 reads), `RecordingStore.cs:4820`.
-- **REVIEW (validate via playback test before flipping):** 1 site - `AnchorPropagator.cs:353`.
-- **KEEP `IsDebris` (semantic):** all other sites.
+**Summary (post-review correction):**
+- **NEEDS UPDATE (must flip for this fix to work):** 3 sites.
+  1. `DebrisRelativePlaybackPolicy.cs:56-62` (`ShouldRetireOnRecordedParentAnchorMiss`) - drops the `IsDebris` conjunct. Four transitive callers inherit the widening; each gets its own xUnit fixture.
+  2. `GhostPlaybackEngine.cs:2920-2922` (canonical `TryPositionRelativeSectionAtPlaybackUT` gate) - drops the `IsDebris` conjunct; local variable renamed `parentAnchoredDebris` -> `parentAnchored`.
+  3. `RelativeAnchorResolver.cs:170-176` (`IsDebrisFocusRecording`) - switches to `focus != null && !string.IsNullOrEmpty(focus.DebrisParentRecordingId)`.
+- **KEEP `IsDebris` semantically (document inline at this PR's sites):** `BackgroundRecorder.cs:5893-5898` (sample-cap), `DebrisRelativeRecorderPolicy.cs:24-30` (tail-normalize), `DebrisRelativePlaybackPolicy.cs:5753-5757` + `GhostPlaybackEngine.cs:3054, 3375, 5755` (loop-anchored debris chain), `SupersedeCommit.cs:520-525, :564` (pre-rewind carve-out), `GhostPlaybackEngine.cs:227-282` (companion-debris render carve-out), `EffectiveState.cs:1434` (closure walker), `ParsekPlaybackPolicy.cs:982, 1120` (map-presence debris skip), `RecordingStore.cs:4820` (loop-sync parent index), `AnchorPropagator.cs:345-356` (DockOrMerge ε propagation), `CoBubblePrimarySelector.cs:284-285` (Rule 6), and all UI / classification / grouping / timeline / tracking-station / unfinished-flight sites.
+- **SAFE (already generic on `DebrisParentRecordingId`):** the BG-recorder anchor-detection gate at `:4830`, the per-tick anchor logic, the map-presence resolver in `GhostMapPresence`.
 
-Estimated diff churn: 8-10 source-file touches, 50-100 lines of net change across logic + comments. The change is small enough to fit a single PR without a rename refactor.
+Estimated diff churn: 3 logic flips + ~10 inline comments + ~5 new xUnit fixtures + 1 in-game test. Strictly smaller scope than the prior revision claimed.
 
-**If the proxy audit at implementation time finds the scope is larger than this (e.g. a per-site decision uncovers cascading behavior changes), STOP and ASK** per the prompt's escalation gate.
+**If the per-site re-read at implementation time uncovers a previously-misclassified site that needs to flip, STOP and ASK** per the prompt's escalation gate. The post-review summary above replaces the prior verdict counts; do not work from earlier drafts of this table.
 
 ### 5.2 `IsDebris` read-site audit checklist (Phase 3 work)
 
@@ -309,7 +311,9 @@ Allowlist file: `scripts/parent-anchor-proxy-audit-allowlist.txt`. CI gate `scri
 - All pre-fix recordings reject on load with reason `"generation-older"` via `RecordingStore.IsRecordingSchemaCompatible` at `RecordingStore.cs:150-156`. Consistent with project policy "no backwards compatibility for old recordings" (`memory/feedback_no_recording_compat.md`).
 - One CHANGELOG line: "Recordings authored before v0.10.0 are no longer loaded; export-replay them in the prior version first if needed." (Identical to prior format-version-bump CHANGELOG entries.)
 - The named constant `ControlledChildParentAnchorSchemaGeneration = 2` (or whichever name) lives in `RecordingStore.cs` next to `CurrentRecordingFormatVersion = 1` and `CurrentRecordingSchemaGeneration` (today `= 1`). New behavior in the recorder gates on the named constant per the project convention.
-- Three test files have hardcoded literals that flip at the bump and need updating: `FormatVersionTests.cs:36, 91, 288` and `FormatRoundtripTests.cs:45` (re-derive these at Phase 6 start; sibling plan section 4.3 has the current locations).
+- Test literals flip at the bump. Find them via grep recipe (line numbers will have drifted; do NOT trust hard-coded line citations):
+  - `grep -rn "CurrentRecordingSchemaGeneration\|recordingSchemaGeneration" Source/Parsek.Tests/` - every literal `1` paired with this constant becomes `2`; every `[InlineData(... , 2, "generation-newer")]` row becomes `(... , 3, "generation-newer")`; every `node.AddValue("recordingSchemaGeneration", "2")` becomes `"3"`.
+  - Expected hits at time of writing (verify at Phase 6 start): `FormatVersionTests.cs` around lines 36-43 (Assert.Equal(1, …)), 91-98 ([InlineData(0, 2, ...)]), and a future-generation rejection test around line 285+ (node.AddValue("recordingSchemaGeneration", "2")); `FormatRoundtripTests.cs` around lines 45-51 (Assert.Equal(1, …)). Re-derive precise lines via the grep above before editing.
 
 **My recommendation: BUMP.** Rationale:
 - The downgrade case is real (some players keep multiple mod versions side by side for save-compat reasons).
@@ -333,7 +337,11 @@ Per the playback-readout agent's findings, the parent-anchored body-fixed primar
 
 Once these three (plus the two sibling sites at `DebrisRelativePlaybackPolicy.cs:60` and `EffectiveState.cs:1434`) flip, a controlled child carrying a Relative section with both `frames` and `bodyFixedFrames` resolves through the same path that genuine debris already takes today.
 
-**Coverage end-of-window behavior:** when the recorder closes the Relative section at the 550m hysteresis exit and opens a fresh Absolute section, playback walks `TrackSections` per-section by `referenceFrame`. The post-window Absolute section plays through the standard Absolute path (no parent-anchored machinery involved). The retirement helper `ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage` (`GhostPlaybackEngine.cs:2862-2882`) only fires when playback UT is inside a Relative section but the section's authored coverage doesn't cover that UT - for controlled children this should be rare (recorder authored both surfaces continuously while in proximity), but verify with an in-game test that the retirement does NOT fire when playback UT is in the post-window Absolute section.
+**Coverage end-of-window behavior:** when the recorder closes the Relative section at the 550m hysteresis exit and opens a fresh Absolute section, playback walks `TrackSections` per-section by `referenceFrame`. The post-window Absolute section plays through the standard Absolute path (no parent-anchored machinery involved). Specifically:
+
+- `TryGetRelativeSectionAtUT` (`GhostPlaybackEngine.cs:2835`-ish) returns false for Absolute sections, so `TryPositionRelativeSectionAtPlaybackUT` (where the canonical gate at `:2920-2922` lives) is never entered when the playback UT is inside the post-window Absolute section. The retirement helper at `:2862-2882` therefore never runs for the Absolute-tail dispatch path.
+- The retirement helper only fires when the playback UT is INSIDE a Relative section but the section's authored coverage does not cover that UT. For controlled children this is rare (recorder authored both `frames` and `bodyFixedFrames` continuously while in proximity), but if it does fire the retire-this-frame behavior is correct: the same UT a frame later falls into the next (Absolute) section and the engine routes through the standard Absolute path. The retire decision is per-frame, not sticky.
+- Verify both behaviors with the in-game test `ControlledChild_PlaybackAbsoluteTailAfterHysteresisExit_NoRetirement_NoCoBubbleBlend` (section 9.2).
 
 **Trace seam for the in-game test assertion:** `[Parsek][VERBOSE][PlaybackTrace] ParentAnchored hit: recId=... parentRecId=... section=...` already fires from `GhostPlaybackEngine.cs:19430-19437` (per audit). The in-game test asserts this trace fires for the controlled child during re-fly, naming the parent recording id, and that no `large-delta` or `cobubble-blend-window` trace lines fire for the same recording.
 
@@ -377,17 +385,23 @@ Log-assertion tests per `RewindLoggingTests.cs` pattern: `ParentAnchorContractLo
 
 ### 9.2 In-game test (`Source/Parsek/InGameTests/RuntimeTests.cs`)
 
-New test under category `"ParentAnchorContract"`, scene `GameScenes.FLIGHT`:
+New tests under category `"ParentAnchorContract"`, scene `GameScenes.FLIGHT`:
 
-`ControlledDecoupledChild_PlaysViaParentAnchoredPath_NotCoBubbleBlend`:
+**`ControlledDecoupledChild_PlaysViaParentAnchoredPath_NotCoBubbleBlend`** (canonical acceptance):
 - Setup: build a small multi-stage vessel with a probe-cored payload (Mk1 lander, probeCoreCube), launch, ascend, decouple the upper stage while staying within 250m of the parent stage.
 - Phase 1 (recording): assert the new child recording exists, `IsDebris == false`, `DebrisParentRecordingId == parent.RecordingId`, first `TrackSection` has `referenceFrame == ReferenceFrame.Relative`, the section's `bodyFixedFrames` has ≥2 samples, the section's `anchorRecordingId == parent.RecordingId`.
 - Phase 2 (force background): switch focus to a third vessel so the controlled child goes background; continue recording for 5s; assert the section closes at exit hysteresis and a follow-up Absolute section opens.
-- Phase 3 (re-fly + playback assertion): trigger Re-Fly on the parent stage, watch the ghost during playback, assert the canonical playback log line indicates the parent-anchored path: trace pattern `[PlaybackTrace] ParentAnchored hit: recId=<controlled-child-id> parentRecId=<parent-id>` fires; no `[CoBubble] blend-window` trace line fires for the controlled child; no `large-delta` trace fires for the controlled child.
+- Phase 3 (re-fly + playback assertion): trigger Re-Fly on the parent stage, watch the ghost during playback INSIDE the Relative section's UT range, assert the canonical playback log line indicates the parent-anchored path: trace pattern `[PlaybackTrace] ParentAnchored hit: recId=<controlled-child-id> parentRecId=<parent-id>` fires; no `[CoBubble] blend-window` trace line fires for the controlled child; no `large-delta` trace fires for the controlled child. Canonical acceptance per the user prompt: "the path log line indicates the parent recording id, not a co-bubble blend window."
 
-This is the canonical acceptance assertion per the user prompt: "the path log line indicates the parent recording id, not a co-bubble blend window."
+**`ControlledChild_PlaybackAbsoluteTailAfterHysteresisExit_NoRetirement_NoCoBubbleBlend`** (post-window regression):
+- Same setup as above through Phase 2.
+- Phase 3 (re-fly + playback assertion, but OUTSIDE the Relative section's UT range): play back at a UT that falls inside the post-hysteresis Absolute section. Assert: the engine routes through the standard Absolute path (`[PlaybackTrace] Absolute hit` trace pattern); no `ParentAnchoredDebrisCoverageRetired` trace fires; no CoBubble blend-window trace fires; the ghost remains visible (not retired).
 
-If the in-game test runner cannot stand up a Re-Fly scenario within a test (KSP state management, save corruption risk), fall back to a scripted xUnit fixture: pre-build a tree with two recordings (parent + controlled child with the new contract), invoke the playback dispatch directly, assert the same trace pattern. The xUnit version is sufficient for CI; the in-game version is the manual smoke-pass deliverable.
+**`Debris_ParentAnchoredPlayback_UnchangedAfterFix`** (genuine-debris regression):
+- Setup: build a vessel with a radial booster, launch, decouple the booster (which becomes debris, no controller).
+- Phase 3 (re-fly + playback assertion): assert the debris ghost plays through the same body-fixed primary path it did before the fix: `[PlaybackTrace] ParentAnchored hit: recId=<debris-id> parentRecId=<parent-id>` trace pattern matches. This pins that the gate flips did not change behavior for genuine debris.
+
+If the in-game test runner cannot stand up a Re-Fly scenario within a test (KSP state management, save corruption risk), fall back to scripted xUnit fixtures: pre-build trees with the required recording shapes, invoke the playback dispatch directly, assert the same trace patterns. The xUnit version is sufficient for CI; the in-game version is the manual smoke-pass deliverable.
 
 ### 9.3 PR #872 repro acceptance (manual)
 
@@ -425,23 +439,37 @@ This document. Lands on `plan-controlled-child-parent-anchored` branch in worktr
 
 ### Phase 3: `IsDebris` proxy audit + cleanup (one commit)
 
-Touch the 5 NEEDS UPDATE sites enumerated in section 5.1 + the 3 PROBABLE PROXY sites (after per-site re-read at implementation time):
+Flip exactly the 3 NEEDS UPDATE sites from section 5.1 summary. Add inline-comment documentation at the KEEP sites in the same commit:
 
-- `DebrisRelativePlaybackPolicy.cs:60`
-- `GhostPlaybackEngine.cs:2920-2922` (rename local `parentAnchoredDebris` to `parentAnchored` in the same edit)
-- `GhostPlaybackEngine.cs:235`
-- `RelativeAnchorResolver.cs:170-176`
-- `EffectiveState.cs:1434`
-- `ParsekPlaybackPolicy.cs:982, 984, 1120` (3 reads, per-site verdict at implementation time)
-- `RecordingStore.cs:4820` (per-site verdict)
+**Flips:**
+- `DebrisRelativePlaybackPolicy.cs:56-62` (`ShouldRetireOnRecordedParentAnchorMiss`): drop the `IsDebris` conjunct. Verify by reading the four transitive callers (`:64`, `:85`, `:128`, `:238`) that the widening produces the intended behavior for controlled children at each.
+- `GhostPlaybackEngine.cs:2920-2922` (canonical playback gate): drop the `IsDebris` conjunct; rename local variable `parentAnchoredDebris` -> `parentAnchored` in the same edit.
+- `RelativeAnchorResolver.cs:170-176` (`IsDebrisFocusRecording`): switch to `focus != null && !string.IsNullOrEmpty(focus.DebrisParentRecordingId)`. Keep the function name (rename is sibling-plan scope); add an inline comment noting the deferred rename.
 
-Document each KEEP `IsDebris` site (5.1 table's KEEP rows) with a one-line inline comment naming the semantic rationale.
+**Inline-comment documentation** (per the KEEP rows in section 5.1; one short comment per site naming the semantic rationale):
+- `BackgroundRecorder.cs:5893-5898` (sample-cap eligibility) - "debris-only by design; controlled children record indefinitely and would multiply long-loiter storage cost"
+- `DebrisRelativeRecorderPolicy.cs:24-30` (tail-normalize) - "debris-only by design; controlled children record post-window Absolute tails that must not be truncated"
+- `DebrisRelativePlaybackPolicy.cs:5753-5757`, `GhostPlaybackEngine.cs:3054, 3375, 5755` (loop-anchored debris chain) - "loop-anchored chains are debris-of-a-looped-vessel; controlled children do not participate"
+- `GhostPlaybackEngine.cs:227-282` (companion-debris render carve-out) - "Re-Fly carve-out scoped to pre-rewind debris only; controlled children must not be hidden"
+- `SupersedeCommit.cs:520-525, :564` (pre-rewind carve-out) - "debris-specific by design; controlled children use the chain-head carve-out branch instead"
+- `EffectiveState.cs:1434` (closure walker) - "breakup-debris children only; the BP-type-Breakup gate at :1447 fences the BG-split anchor case"
+- `ParsekPlaybackPolicy.cs:982, 1120` (map-presence debris skip) - "debris-only skip; controlled children get map presence"
+- `RecordingStore.cs:4820` (loop-sync parent index) - "debris-only; controlled children are not loop-synced to a non-debris parent"
+- `AnchorPropagator.cs:345-356` (DockOrMerge ε propagation) - already has the explanatory comment; no change needed.
 
-xUnit: `ParentAnchorPlaybackGateTests` (5 tests above).
+xUnit (`ParentAnchorPlaybackGateTests`):
+- `DebrisRelativePlaybackPolicy_ShouldRetire_ControlledChild_BehavesConsistently` - one fixture per transitive caller (retirement, skip-resolver, diagnostic struct, structural-seed-bridge) asserting controlled-child behavior.
+- `GhostPlaybackEngine_TryPositionRelativeSection_ControlledChild_TakesParentAnchoredPath`.
+- `RelativeAnchorResolver_IsParentAnchoredFocus_ControlledChild_ReturnsTrue`.
+- `Debris_RetirementBehavior_UnchangedAfterFlip` (regression): same fixtures with `IsDebris=true` produce identical retire/skip outcomes as before the flip.
 
-**Acceptance:** a controlled child with non-null `DebrisParentRecordingId` reaches the parent-anchored body-fixed primary playback path during playback. PR #872 repro shows no mid-flight snap during a focused playtest.
+**Acceptance:**
+- All flips compile and pass `dotnet test` green.
+- `dotnet test --filter LogContract` green (the LogContract suite pins log format / level / resource invariants; the Phase 3 changes do not add new log sites, but verify).
+- A controlled child with non-null `DebrisParentRecordingId` reaches the parent-anchored body-fixed primary playback path during playback (asserted by `GhostPlaybackEngine_TryPositionRelativeSection_ControlledChild_TakesParentAnchoredPath`).
+- PR #872 repro shows no mid-flight snap during a focused manual playtest.
 
-**STOP AND ASK escalation gate:** if the per-site audit at implementation time uncovers >3 additional NEEDS UPDATE sites not in section 5.1, OR a flip touches behavior beyond playback (e.g. save/load, UI grouping, classifier), STOP and report the expanded scope.
+**STOP AND ASK escalation gate:** if the per-site re-read at implementation time uncovers any site classified KEEP in section 5.1 that, on closer reading, genuinely needs to flip - OR if any of the 3 NEEDS UPDATE flips changes more than one xUnit test outcome unexpectedly (suggesting a behavioral coupling we missed) - STOP and report. Cumulative scope expansion of more than 1 additional site or more than 5 unexpected test changes blocks the phase.
 
 ### Phase 4: BackgroundRecorder dual-surface emission verification (one commit)
 
@@ -485,10 +513,10 @@ If user picks defer:
 
 ## 11. Risks, decisions, and stop-and-ask gates
 
-### 11.1 Open decisions for the user (stop and ask BEFORE Phase 2)
+### 11.1 User-resolved decisions
 
-1. **Plan ordering (section 3): Option A or Option B?** A = this plan ships first; B = absorb into sibling superset plan.
-2. **Format-version bump (section 6): bump or defer?** Bump in this PR or defer to sibling plan.
+1. **Plan ordering (section 3):** Option A confirmed by the user (this plan ships first; sibling superset plan absorbs Re-Fly provisional + rename later).
+2. **Format-version bump (section 6):** Bump confirmed by the user ("bump the format, we will reset it later if needed"). Phase 6 is in scope.
 
 ### 11.2 Risks identified
 
@@ -499,8 +527,9 @@ If user picks defer:
 
 ### 11.3 Stop-and-ask gates during implementation
 
-- **Phase 3 audit scope expansion.** If the per-site re-read uncovers >3 additional NEEDS UPDATE sites, stop and report scope.
-- **Phase 5 in-game test flakiness.** If the in-game test can't be made deterministic within 1 day of effort, fall back to the xUnit fixture and document why.
+- **Phase 3 audit scope expansion** (tightened post-review). After the post-review audit-table correction, only 3 sites flip. If the per-site re-read uncovers any KEEP-classified site that genuinely needs to flip - or if any of the 3 flips changes more than one xUnit test outcome unexpectedly - STOP and report. Cumulative scope expansion of more than 1 additional site or more than 5 unexpected test changes blocks the phase.
+- **`EffectiveState.cs:1434` closure-walk semantics.** The walker is KEEP in this plan. If a controlled-child-aware closure expansion is ever needed by a future feature, that is a separate design decision (which BP types qualify, how to fence the BG-split anchor double-duty, etc.) - do NOT widen the walker as a side effect of this plan.
+- **Phase 5 in-game test flakiness.** If the in-game tests cannot be made deterministic within 1 day of effort, fall back to the xUnit fixtures and document why.
 - **Any xUnit regression that cannot be attributed to the plan's changes.** Stop and ask before proceeding.
 
 ### 11.4 Out-of-scope follow-ups (not done in this plan)
