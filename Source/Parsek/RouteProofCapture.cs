@@ -410,6 +410,17 @@ namespace Parsek
                 return false;
             }
 
+            // Observational warning when part configuration drifted during the
+            // docked window (EVA construction etc.). Doesn't reject the route —
+            // disjoint verifier already passed and resource accounting still works
+            // for the originally-listed parts. Stock fuel/inventory transfers
+            // don't trip this; only outer part-set changes do.
+            LogRoutePartSetEqualityWarnings(
+                undockSnapshots,
+                window.TransportPartPersistentIds,
+                window.EndpointPartPersistentIds,
+                window.WindowId);
+
             window.UndockUT = undockUT;
             window.UndockTransportResources = ExtractResourceManifestFromSnapshots(
                 undockSnapshots,
@@ -433,6 +444,110 @@ namespace Parsek
                 $"endpointInv={window.UndockEndpointInventory?.Count ?? 0}");
 
             return true;
+        }
+
+        /// <summary>
+        /// Compares an actual part-PID set (captured from a post-undock vessel half)
+        /// against the pre-dock expected set. Returns the symmetric difference split
+        /// into added (in actual, not in expected) and removed (in expected, not in
+        /// actual). Pure / static / testable.
+        /// </summary>
+        internal static void ComputePartSetDifferences(
+            IEnumerable<uint> actualPartPids,
+            IEnumerable<uint> expectedPartPids,
+            out List<uint> addedPids,
+            out List<uint> removedPids)
+        {
+            addedPids = new List<uint>();
+            removedPids = new List<uint>();
+
+            HashSet<uint> actual = actualPartPids != null
+                ? new HashSet<uint>(actualPartPids)
+                : new HashSet<uint>();
+            HashSet<uint> expected = expectedPartPids != null
+                ? new HashSet<uint>(expectedPartPids)
+                : new HashSet<uint>();
+
+            foreach (uint pid in actual)
+            {
+                if (!expected.Contains(pid)) addedPids.Add(pid);
+            }
+            foreach (uint pid in expected)
+            {
+                if (!actual.Contains(pid)) removedPids.Add(pid);
+            }
+
+            addedPids.Sort();
+            removedPids.Sort();
+        }
+
+        /// <summary>
+        /// After the disjoint-set verifier accepts an undock split, walks each
+        /// snapshot and warns if its part-PID set is not equal to the expected
+        /// pre-dock set. The disjoint verifier is the route-eligibility gate (no
+        /// transport/endpoint overlap); this warning is observational — it surfaces
+        /// part configuration drift during the docked window (e.g. EVA construction
+        /// added or removed parts) without rejecting the route. Stock fuel/inventory
+        /// transfers do NOT trip these warnings because they don't change either
+        /// side's outer part-PID set.
+        /// </summary>
+        internal static void LogRoutePartSetEqualityWarnings(
+            ConfigNode[] snapshots,
+            ICollection<uint> transportPartPersistentIds,
+            ICollection<uint> endpointPartPersistentIds,
+            string windowId)
+        {
+            if (snapshots == null) return;
+            if (transportPartPersistentIds == null || endpointPartPersistentIds == null) return;
+
+            for (int i = 0; i < snapshots.Length; i++)
+            {
+                ConfigNode snapshot = snapshots[i];
+                if (snapshot == null) continue;
+
+                bool hasTransport = SnapshotContainsAnyPartPersistentId(
+                    snapshot, transportPartPersistentIds);
+                bool hasEndpoint = SnapshotContainsAnyPartPersistentId(
+                    snapshot, endpointPartPersistentIds);
+                if (hasTransport == hasEndpoint) continue; // both/neither — disjoint verifier filtered
+
+                ICollection<uint> expected = hasTransport
+                    ? transportPartPersistentIds
+                    : endpointPartPersistentIds;
+                string sideLabel = hasTransport ? "transport" : "endpoint";
+
+                List<uint> actual = VesselSpawner.CollectPartPersistentIds(snapshot)
+                    ?? new List<uint>();
+                ComputePartSetDifferences(
+                    actual,
+                    expected,
+                    out List<uint> addedPids,
+                    out List<uint> removedPids);
+
+                if (addedPids.Count == 0 && removedPids.Count == 0) continue;
+
+                ParsekLog.Warn("Flight",
+                    $"Route window part-set drift on undock side='{sideLabel}' " +
+                    $"window={windowId ?? "<none>"} " +
+                    $"expected={expected.Count} actual={actual.Count} " +
+                    $"added={FormatPidList(addedPids)} removed={FormatPidList(removedPids)} " +
+                    "(disjoint check still passed — route eligibility unchanged; investigate if " +
+                    "ghost replay or resource accounting looks wrong)");
+            }
+        }
+
+        private static string FormatPidList(List<uint> pids)
+        {
+            if (pids == null || pids.Count == 0) return "[]";
+            var sb = new System.Text.StringBuilder();
+            sb.Append('[');
+            for (int i = 0; i < pids.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(pids[i].ToString(CultureInfo.InvariantCulture));
+            }
+            sb.Append(']');
+            return sb.ToString();
         }
 
         private static bool TryVerifyRoutePartSetsSeparated(

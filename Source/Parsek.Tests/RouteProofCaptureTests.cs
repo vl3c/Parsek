@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek;
 using Xunit;
 
 namespace Parsek.Tests
@@ -306,6 +307,237 @@ namespace Parsek.Tests
             Assert.NotNull(window);
             Assert.Equal(80.0, window.DockTransportResources["LiquidFuel"].amount);
             Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].amount);
+        }
+
+        // --- ComputePartSetDifferences (pure helper) ---
+
+        [Fact]
+        public void ComputePartSetDifferences_EqualSets_NoDifferences()
+        {
+            RouteProofCapture.ComputePartSetDifferences(
+                new List<uint> { 100u, 200u, 300u },
+                new List<uint> { 100u, 200u, 300u },
+                out List<uint> added,
+                out List<uint> removed);
+
+            Assert.Empty(added);
+            Assert.Empty(removed);
+        }
+
+        [Fact]
+        public void ComputePartSetDifferences_ActualHasExtra_ReturnsAdded()
+        {
+            RouteProofCapture.ComputePartSetDifferences(
+                actualPartPids: new List<uint> { 100u, 200u, 999u },
+                expectedPartPids: new List<uint> { 100u, 200u },
+                out List<uint> added,
+                out List<uint> removed);
+
+            Assert.Equal(new List<uint> { 999u }, added);
+            Assert.Empty(removed);
+        }
+
+        [Fact]
+        public void ComputePartSetDifferences_ActualMissingPart_ReturnsRemoved()
+        {
+            RouteProofCapture.ComputePartSetDifferences(
+                actualPartPids: new List<uint> { 100u },
+                expectedPartPids: new List<uint> { 100u, 200u, 300u },
+                out List<uint> added,
+                out List<uint> removed);
+
+            Assert.Empty(added);
+            Assert.Equal(new List<uint> { 200u, 300u }, removed);
+        }
+
+        [Fact]
+        public void ComputePartSetDifferences_BothAddedAndRemoved_ReturnsBothLists()
+        {
+            RouteProofCapture.ComputePartSetDifferences(
+                actualPartPids: new List<uint> { 100u, 555u },
+                expectedPartPids: new List<uint> { 100u, 200u },
+                out List<uint> added,
+                out List<uint> removed);
+
+            Assert.Equal(new List<uint> { 555u }, added);
+            Assert.Equal(new List<uint> { 200u }, removed);
+        }
+
+        [Fact]
+        public void ComputePartSetDifferences_NullInputs_TreatedAsEmpty()
+        {
+            RouteProofCapture.ComputePartSetDifferences(
+                actualPartPids: null,
+                expectedPartPids: null,
+                out List<uint> added,
+                out List<uint> removed);
+
+            Assert.Empty(added);
+            Assert.Empty(removed);
+        }
+
+        // --- LogRoutePartSetEqualityWarnings end-to-end ---
+
+        [Fact]
+        public void LogRoutePartSetEqualityWarnings_PerfectMatch_EmitsNoWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ConfigNode transport = MakeVessel(
+                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)));
+                ConfigNode endpoint = MakeVessel(
+                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 50.0, 200.0)));
+
+                RouteProofCapture.LogRoutePartSetEqualityWarnings(
+                    new[] { transport, endpoint },
+                    transportPartPersistentIds: new List<uint> { 100u },
+                    endpointPartPersistentIds: new List<uint> { 200u },
+                    windowId: "test-window");
+
+                Assert.DoesNotContain(logLines, l => l.Contains("part-set drift"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void LogRoutePartSetEqualityWarnings_TransportGainedPart_EmitsWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // Transport snapshot at undock has pid 999 that wasn't in pre-dock transport set.
+                ConfigNode transport = MakeVessel(
+                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)),
+                    MakePart(999, "newPartFromEvaConstruction", MakeResource("MonoPropellant", 5.0, 5.0)));
+                ConfigNode endpoint = MakeVessel(
+                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 50.0, 200.0)));
+
+                RouteProofCapture.LogRoutePartSetEqualityWarnings(
+                    new[] { transport, endpoint },
+                    transportPartPersistentIds: new List<uint> { 100u },
+                    endpointPartPersistentIds: new List<uint> { 200u },
+                    windowId: "test-window");
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("part-set drift")
+                    && l.Contains("side='transport'")
+                    && l.Contains("window=test-window")
+                    && l.Contains("added=[999]"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        [Fact]
+        public void LogRoutePartSetEqualityWarnings_EndpointLostPart_EmitsWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                ConfigNode transport = MakeVessel(
+                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)));
+                // Endpoint expected pids 200, 201; actual at undock has only 200 (jettisoned).
+                ConfigNode endpoint = MakeVessel(
+                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 50.0, 200.0)));
+
+                RouteProofCapture.LogRoutePartSetEqualityWarnings(
+                    new[] { transport, endpoint },
+                    transportPartPersistentIds: new List<uint> { 100u },
+                    endpointPartPersistentIds: new List<uint> { 200u, 201u },
+                    windowId: "test-window");
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("part-set drift")
+                    && l.Contains("side='endpoint'")
+                    && l.Contains("removed=[201]"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        // Catches a regression where the warning is emitted on the disjoint-overlap
+        // failure path (where the disjoint verifier should catch it first and reject
+        // the route). The warning is observational ONLY for accepted splits.
+        [Fact]
+        public void LogRoutePartSetEqualityWarnings_DisjointAmbiguousSnapshot_SkipsWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // Snapshot has parts from BOTH sets — disjoint verifier would reject
+                // this case in production. The warning emitter must skip snapshots
+                // that aren't cleanly transport-only or endpoint-only.
+                ConfigNode mixed = MakeVessel(
+                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 30.0, 100.0)),
+                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 50.0, 200.0)));
+
+                RouteProofCapture.LogRoutePartSetEqualityWarnings(
+                    new[] { mixed },
+                    transportPartPersistentIds: new List<uint> { 100u },
+                    endpointPartPersistentIds: new List<uint> { 200u },
+                    windowId: "test-window");
+
+                Assert.DoesNotContain(logLines, l => l.Contains("part-set drift"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
+        // Regression for the 2026-05-18 playtest: a stock fuel transfer pumps fuel
+        // between two tanks BUT leaves the outer part-PID set unchanged. The
+        // warning must NOT fire — only outer-part changes (EVA construction etc.)
+        // should trip it.
+        [Fact]
+        public void LogRoutePartSetEqualityWarnings_FuelTransferOnly_DoesNotEmitWarning()
+        {
+            var logLines = new List<string>();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                // Transport had 200 LF pre-dock, has 400 LF post-undock (gained 200).
+                // Endpoint had 200 LF pre-dock, has 0 LF post-undock (lost 200).
+                // Same part-PID sets on both sides.
+                ConfigNode transport = MakeVessel(
+                    MakePart(100, "transportTank", MakeResource("LiquidFuel", 400.0, 400.0)));
+                ConfigNode endpoint = MakeVessel(
+                    MakePart(200, "endpointTank", MakeResource("LiquidFuel", 0.0, 400.0)));
+
+                RouteProofCapture.LogRoutePartSetEqualityWarnings(
+                    new[] { transport, endpoint },
+                    transportPartPersistentIds: new List<uint> { 100u },
+                    endpointPartPersistentIds: new List<uint> { 200u },
+                    windowId: "test-window");
+
+                Assert.DoesNotContain(logLines, l => l.Contains("part-set drift"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
         }
 
         [Fact]
