@@ -3560,6 +3560,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsPreRewindCarveOut_ProvisionalAnchoredOnSupersedeTarget_DoesNotCarveOutParent()
+        {
+            // fix-refly-relative-anchor Phase 4 audit: ReFlyAnchorSelection
+            // writes TrackSection.anchorRecordingId on the provisional's
+            // Relative sections, pointing at the supersede target. The
+            // carve-out filter must NOT pick up that edge and reclassify the
+            // supersede target (TIP) as a pre-rewind carve-out — TIP is the
+            // recording the provisional supersedes, not a pre-rewind chain
+            // sibling. This test pins that invariant by building TIP with the
+            // expected post-rewind shape (ChainIndex >= provisional's index,
+            // EndUT past rewindUT) AND a TrackSection.anchorRecordingId edge
+            // back to itself (mirroring what the recorder writes for a
+            // boundary-relative provisional). The carve-out filter walks
+            // chain shape only and must still return False with reason=None.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_provisional_anchor",
+                IsDebris = false,
+                ChainId = "chain_anchor_audit",
+                ChainBranch = 0,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            // Add a Relative TrackSection whose anchorRecordingId points
+            // back at this recording (the section-level edge the Phase 2
+            // bypass authors on a re-fly provisional). The carve-out filter
+            // does not read TrackSection fields, so this edge must be
+            // invisible to the predicate.
+            var tipSection = new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 34.0,
+                endUT = 52.0,
+                anchorRecordingId = "rec_tip_provisional_anchor",
+                anchorVesselId = 0u,
+            };
+            tip.TrackSections.Add(tipSection);
+            StampActualBounds(tip, 34.0, 52.0);
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_provisional_anchor",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                tip, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
         public void IsPreRewindCarveOut_NonHeadSiblingEndingAtRewindUT_NotCarvedOut()
         {
             // Pass 2 review User-H2: an EVA recording ending on a Board BP at
