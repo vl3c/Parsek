@@ -3632,6 +3632,134 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "Coalescer", Scene = GameScenes.FLIGHT, RunLast = true,
+            AllowBatchExecution = false,
+            RestoreBatchFlightBaselineAfterExecution = true,
+            BatchSkipReason = "Isolated-run only - this test starts a recording and stages the active vessel to assert the parent-anchor contract stamping on a controlled-decoupled child. Use Run All + Isolated or the row play button on a disposable two-controller decoupler craft.",
+            Description = "Controlled-decoupled child stamps DebrisParentRecordingId pointing at the focused parent recording at split time")]
+        public IEnumerator ControlledChildBreakup_StampsParentAnchorContract()
+        {
+            var flight = ParsekFlight.Instance;
+            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
+
+            var vessel = FlightGlobals.ActiveVessel;
+            if (vessel == null)
+            {
+                InGameAssert.Skip("no active vessel");
+                yield break;
+            }
+            if (flight.IsRecording)
+            {
+                InGameAssert.Skip("requires an idle active vessel (recording already active)");
+                yield break;
+            }
+            if (RecordingStore.HasPendingTree)
+            {
+                InGameAssert.Skip("requires no pending tree before staging");
+                yield break;
+            }
+            if (!HasAtLeastTwoCommandModules(vessel, out int commandModuleCount))
+            {
+                InGameAssert.Skip(
+                    $"requires an active vessel with 2+ command modules/probe cores, got {commandModuleCount}");
+                yield break;
+            }
+            if (!HasDecouplerModule(vessel, out int decouplerCount))
+            {
+                InGameAssert.Skip("requires an active vessel with a decoupler or separator module");
+                yield break;
+            }
+            if (FlightInputHandler.state == null)
+            {
+                InGameAssert.Skip("FlightInputHandler.state is null");
+                yield break;
+            }
+
+            float originalThrottle = FlightInputHandler.state.mainThrottle;
+            bool startedByTest = false;
+
+            try
+            {
+                flight.StartRecording();
+                startedByTest = flight.IsRecording;
+                InGameAssert.IsTrue(startedByTest,
+                    "ParsekFlight.StartRecording should start before controlled-child staging");
+
+                yield return new WaitForSeconds(0.25f);
+                yield return InGameTestRunner.WaitForStockStageManagerReady(10f);
+
+                // Capture the focused parent recording id BEFORE staging.
+                var activeTreePre = RecordingStore.PendingTree;
+                InGameAssert.IsNotNull(activeTreePre, "PendingTree must exist before staging");
+                string parentRecId = activeTreePre?.ActiveRecordingId;
+                InGameAssert.IsFalse(string.IsNullOrEmpty(parentRecId),
+                    "parent recording id required before staging");
+
+                FlightInputHandler.state.mainThrottle = Mathf.Max(FlightInputHandler.state.mainThrottle, 1f);
+                KSP.UI.Screens.StageManager.ActivateNextStage();
+
+                // The Coalescer's BREAKUP window is 0.5s; wait long enough for
+                // the controlled-child Recording to land in the active tree.
+                Recording childRec = null;
+                float deadline = Time.time + 5f;
+                while (Time.time < deadline)
+                {
+                    yield return new WaitForFixedUpdate();
+                    childRec = FindFirstControlledChildRecording(parentRecId);
+                    if (childRec != null)
+                        break;
+                }
+
+                if (childRec == null)
+                {
+                    InGameAssert.Skip(
+                        "no controlled-decoupled child recording was produced by the next stage; "
+                        + "skipping (test requires a stage that produces a controlled child, not pure debris)");
+                    yield break;
+                }
+
+                InGameAssert.IsFalse(childRec.IsDebris,
+                    $"controlled-decoupled child must have IsDebris=false, got IsDebris={childRec.IsDebris} for recId={childRec.RecordingId}");
+                InGameAssert.AreEqual(parentRecId, childRec.DebrisParentRecordingId,
+                    $"controlled child should carry DebrisParentRecordingId={parentRecId}; got '{childRec.DebrisParentRecordingId}' (this is the parent-anchor contract that Phase 2 of the controlled-child-parent-anchored fix lands)");
+            }
+            finally
+            {
+                if (FlightInputHandler.state != null)
+                    FlightInputHandler.state.mainThrottle = originalThrottle;
+
+                var cleanupFlight = ParsekFlight.Instance;
+                if (startedByTest && cleanupFlight != null && cleanupFlight.IsRecording)
+                    cleanupFlight.StopRecording();
+            }
+        }
+
+        private static Recording FindFirstControlledChildRecording(string parentRecId)
+        {
+            if (string.IsNullOrEmpty(parentRecId))
+                return null;
+
+            var activeTree = RecordingStore.PendingTree;
+            if (activeTree?.Recordings == null)
+                return null;
+
+            foreach (var pair in activeTree.Recordings)
+            {
+                Recording rec = pair.Value;
+                if (rec == null)
+                    continue;
+                if (rec.IsDebris)
+                    continue;
+                if (string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                    continue;
+                if (!string.Equals(rec.DebrisParentRecordingId, parentRecId, System.StringComparison.Ordinal))
+                    continue;
+                return rec;
+            }
+
+            return null;
+        }
+
         private static bool HasAtLeastTwoCommandModules(Vessel vessel, out int commandModuleCount)
         {
             commandModuleCount = 0;

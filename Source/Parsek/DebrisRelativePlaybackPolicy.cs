@@ -56,8 +56,14 @@ namespace Parsek
         internal static bool ShouldRetireOnRecordedParentAnchorMiss(
             IPlaybackTrajectory traj)
         {
+            // Parent-anchored gate is now `DebrisParentRecordingId != null` alone:
+            // both genuine debris and controlled-decoupled children participate in
+            // the parent-anchored coverage / retirement / authored-frame-gap policy.
+            // The retirement decision is per-frame (not sticky) and only fires
+            // within a Relative section; controlled children's post-window Absolute
+            // tail dispatches through the standard Absolute path without reaching
+            // this predicate (see plan section 7).
             return traj != null
-                && traj.IsDebris
                 && traj.DebrisParentRecordingId != null;
         }
 

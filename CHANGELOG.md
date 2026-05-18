@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Breaking Changes
 
+- Recording schema generation bumped 1 -> 2 for the controlled-decoupled child parent-anchor contract. Pre-bump recordings are rejected on load with reason `generation-older`; export-replay them in the prior version first if needed.
 - Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
@@ -39,6 +40,7 @@ All notable changes to Parsek are documented here.
 - Vessels with `ForceHeaviest`-autostrutted radial parts (canonical case: stock Kerbal X with three landing legs surface-attached to the central tank) no longer cascade-explode at first Unpack on any load path. The fix seeds packed-part rigidbody masses lazily at the autostrut read site so the heaviest-part anchor picks the real heaviest part instead of whichever sibling happens to be closest.
 - Re-Fly is no longer silently stripped from a crashed slot whose recording continued through a vessel switch before being destroyed. The rewind-point reaper was reaping the RP on the next scene change even while the timeline still showed the slot as a re-flyable unfinished flight.
 - STASH no longer doubles each Re-Fly slot when the flight crossed the atmosphere boundary. A two-stage launch that crashed both stages was producing 4 STASH rows (one per chain half from the optimizer's Atmospheric/ExoBallistic split) instead of 2. The consumer-facing Unfinished Flight predicate now collapses chain continuations onto the chain head, so the STASH, the regular-tree filter, the timeline separation marker, and the legacy R-button suppression all render one row per logical flight; the continuation halves stay visible as ordinary rows under the mission tree. The chain head also remains the only row that refuses to be hidden, the only row whose timeline L (Watch) entry is suppressed against a pending re-fly, and the only row the group picker blocks as a manual-drop target; the continuation halves now flow through those gates as ordinary recordings.
+- Controlled-decoupled child vessels (probes, landers, capsules that come off a parent through a decoupler) now anchor on their tree parent during ghost playback, fixing the mid-flight trajectory snap PR #872 / PR #874 worked around with a CoBubble selector tiebreaker. The lower-stage probe ghost during Kerbal X Re-Fly no longer rides through a sibling debris piece's trajectory and crossfades back when that debris crashes.
 
 ### Internals
 
