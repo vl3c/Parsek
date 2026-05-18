@@ -55,10 +55,27 @@ namespace Parsek
 
         /// <summary>
         /// Computes the current member list: every recording in ERS that
-        /// satisfies <see cref="EffectiveState.IsUnfinishedFlight"/>.
-        /// Returns a fresh read-only list each call. The underlying ERS
-        /// source is cached by <see cref="EffectiveState"/>, so repeated
-        /// calls within a frame are cheap.
+        /// satisfies <see cref="EffectiveState.IsUnfinishedFlight"/>,
+        /// deduplicated to one entry per chain (the chain head — lowest
+        /// <see cref="Recording.ChainIndex"/>). Returns a fresh read-only
+        /// list each call. The underlying ERS source is cached by
+        /// <see cref="EffectiveState"/>, so repeated calls within a frame
+        /// are cheap.
+        /// <para>
+        /// Chain dedupe: <c>RecordingOptimizer</c> phase-change splits
+        /// (e.g. Atmospheric → ExoBallistic at the karman line) produce a
+        /// chain HEAD + chain TIP from a single logical flight. Both
+        /// qualify under <see cref="EffectiveState.IsUnfinishedFlight"/>
+        /// because the classifier deliberately follows the shared chain
+        /// walker — that lookup must keep working for
+        /// <see cref="RewindPointReaper"/>, which routes a slot's
+        /// effective recording (the chain TIP) through the same predicate
+        /// to decide whether to retire the rewind point. The STASH should
+        /// list one row per logical flight though: only the chain head
+        /// owns the Fly / Seal buttons (its BPs anchor it to the rewind
+        /// point), and surfacing both halves duplicates each Re-Fly slot
+        /// in the UI.
+        /// </para>
         /// </summary>
         public static IReadOnlyList<Recording> ComputeMembers()
         {
@@ -66,32 +83,60 @@ namespace Parsek
             var members = new List<Recording>();
             if (ers == null)
             {
-                LogRecompute(0);
+                LogRecompute(0, 0);
                 return members;
             }
 
+            // First pass: per (ChainId, ChainBranch) bucket, remember the
+            // qualifying member with the lowest ChainIndex (= the chain
+            // head). Non-chain recordings (null/empty ChainId) bypass
+            // bucketing and admit directly.
+            var chainHeads = new Dictionary<string, Recording>(System.StringComparer.Ordinal);
+            int chainDuplicatesSkipped = 0;
             for (int i = 0; i < ers.Count; i++)
             {
                 var rec = ers[i];
                 if (rec == null) continue;
-                if (EffectiveState.IsUnfinishedFlight(rec))
-                    members.Add(rec);
-            }
+                if (!EffectiveState.IsUnfinishedFlight(rec)) continue;
 
-            LogRecompute(members.Count);
+                if (string.IsNullOrEmpty(rec.ChainId))
+                {
+                    members.Add(rec);
+                    continue;
+                }
+
+                string chainKey = rec.ChainId + "|" + rec.ChainBranch.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if (!chainHeads.TryGetValue(chainKey, out var existing))
+                {
+                    chainHeads[chainKey] = rec;
+                    continue;
+                }
+
+                // Keep the lower ChainIndex (chain head). Both members
+                // already passed IsUnfinishedFlight, so this purely picks
+                // the row to surface — the loser is the chain continuation
+                // that has no slot-anchoring BPs of its own.
+                if (rec.ChainIndex < existing.ChainIndex)
+                    chainHeads[chainKey] = rec;
+                chainDuplicatesSkipped++;
+            }
+            foreach (var head in chainHeads.Values)
+                members.Add(head);
+
+            LogRecompute(members.Count, chainDuplicatesSkipped);
             return members;
         }
 
         // Verbose-rate-limited recompute summary per design §10.5:
-        //   [UnfinishedFlights] recompute: N entries
+        //   [UnfinishedFlights] recompute: N entries (chainDuplicatesSkipped=K)
         // Rate-limited with shared key "unfinishedflights-recompute" so
         // per-frame UI draw does not spam the log.
-        private static void LogRecompute(int count)
+        private static void LogRecompute(int count, int chainDuplicatesSkipped)
         {
             ParsekLog.VerboseRateLimited(
                 "UnfinishedFlights",
                 "unfinishedflights-recompute",
-                $"recompute: {count} entries");
+                $"recompute: {count} entries chainDuplicatesSkipped={chainDuplicatesSkipped}");
         }
     }
 }

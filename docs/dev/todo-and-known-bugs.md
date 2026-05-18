@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 STASH listed every chain half from the optimizer's phase-change split, doubling each Re-Fly slot
+
+- ~~Playtest 2026-05-18 (`logs/2026-05-18_1853_stash-4-recordings/`): a two-stage launch crashed both stages and surfaced 4 STASH rows for a 2-slot rewind point. The user expected one row per controllable PID (upper / lower stage). The four rows were `847b9b53` Kerbal X + `a54896` Kerbal X (origin-only) for slot 0, and `c059aabfd4` Kerbal X Probe + `3d059f9c` Kerbal X Probe (origin-only) for slot 1, with both pairs sharing a ChainId.~~
+
+**Root cause:** `RecordingOptimizer.SplitAtSection` ran a `PersistedPhaseChange` split at UT≈335.6 (Atmospheric → ExoBallistic, the karman line crossing) on both finalised recordings. Each finalised recording became a chain HEAD (BPs anchored to the rewind point) plus a chain TIP (no BPs, terminal Destroyed). `UnfinishedFlightClassifier.SlotMatchesRecordingOrigin` qualifies a recording when `EffectiveState.ResolveRewindPointSlotIndexForRecording` lands on the slot index — and that walker hops chain-then-supersede by design, so the TIP slot-resolved to the same slot as the HEAD and both halves rendered with Fly / Seal buttons in the STASH group. `RewindPointReaper.IsReapEligible` depends on the chain-hop in the same walker (the reaper passes the slot's chain-tip recording to `Qualifies` to decide whether the slot is still unfinished and the rewind point must be kept alive — pinned by `RewindPointReaperTests.Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive`), so the classifier predicate itself has to keep saying yes for the TIP.
+
+**Fix:** Dedupe at the STASH UI render step rather than narrowing the classifier predicate. `UnfinishedFlightsGroup.ComputeMembers` now buckets qualifying recordings by `(ChainId, ChainBranch)` and keeps only the lowest `ChainIndex` member per chain (the head, which owns the Fly / Seal buttons). Non-chain recordings (null `ChainId`) admit directly. The classifier remains permissive so the reaper still sees the chain TIP as unfinished and keeps the rewind point alive; the chain continuation halves stay visible in the regular recordings group, just not in the STASH. New unit test `UnfinishedFlightClassifierTests.OptimizerSplitChainContinuation_StashGroupDeduplicatesByChain` pins the dedupe: both chain members pass `EffectiveState.IsUnfinishedFlight` but `UnfinishedFlightsGroup.ComputeMembers` returns the chain head only.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
 ## Done - v0.10.0 Map Switch-To to a previously committed fresh-launched vessel fragmented it into a standalone tree
 
 - ~~Post-#876 playtest 2026-05-17 (`logs/2026-05-17_2122_kerbalx-grouping-bug/`). Player launched Kerbal X (NEW_FROM_FILE rollout), flew it to orbit, the mission committed (tree `6c70ac3ed4aa498aaa64ba407adb1ebf` with root recording `79663bae...` carrying `VesselPersistentId=2708531065`). Player launched a second mission (GDLV3), then Map Switch-To'd back to Kerbal X. The new 28 s switch-segment recording (`fab1cd54...`) landed in a brand-new standalone tree `c0f6063d-9d20-48d5-bed5-b17a15d13b7b` (also named "Kerbal X") instead of attaching as a continuation under the original mission tree. The auto-grouping then placed the segment outside the existing "Kerbal X" group.~~

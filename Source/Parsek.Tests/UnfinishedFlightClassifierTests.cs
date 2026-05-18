@@ -235,6 +235,54 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OptimizerSplitChainContinuation_StashGroupDeduplicatesByChain()
+        {
+            // Reproduces the bug from logs/2026-05-18_1853_stash-4-recordings:
+            // RecordingOptimizer phase-change split creates a chain HEAD
+            // (with BPs matching the rewind point) and a chain TIP (no BPs)
+            // sharing the same ChainId. Both pass the classifier predicate
+            // — the predicate must keep saying yes for the chain TIP so
+            // RewindPointReaper still treats the slot as unfinished — but
+            // the STASH UI group must only render one row per chain (the
+            // chain head, which owns the Fly / Seal buttons). With both
+            // halves rendered, the stash showed 4 entries for a 2-slot RP;
+            // post-fix it shows 2.
+            const string treeId = "tree_phase_split";
+            const string bpId = "bp_slot_anchor";
+            const string chainId = "chain_kerbal_x";
+            var head = Rec(
+                "rec_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                childBranchPointId: bpId);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+            var tip = Rec(
+                "rec_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_slot_anchor", bpId, 0, "rec_head", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // The classifier predicate stays permissive — both chain
+            // members still qualify so the reaper can route the chain
+            // TIP through Qualifies and decide to keep the rewind point
+            // alive (covered by RewindPointReaperTests).
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.True(EffectiveState.IsUnfinishedFlight(tip));
+
+            // The STASH UI must list one row per logical flight. Only the
+            // chain head (lowest ChainIndex) survives the dedupe, even
+            // though both chain members pass IsUnfinishedFlight.
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_head", members[0].RecordingId);
+        }
+
+        [Fact]
         public void OriginOnlyFallback_WithMultipleMatchingRps_ResolvesLatest()
         {
             const string treeId = "tree_multi_rp";

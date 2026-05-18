@@ -35,6 +35,7 @@ All notable changes to Parsek are documented here.
 - Timeline W (Watch) button now works for every launch row after a Re-Fly. The button used to render permanently disabled for any launch sitting after a superseded recording.
 - Vessels with `ForceHeaviest`-autostrutted radial parts (canonical case: stock Kerbal X with three landing legs surface-attached to the central tank) no longer cascade-explode at first Unpack on any load path. The fix seeds packed-part rigidbody masses lazily at the autostrut read site so the heaviest-part anchor picks the real heaviest part instead of whichever sibling happens to be closest.
 - Re-Fly is no longer silently stripped from a crashed slot whose recording continued through a vessel switch before being destroyed. The rewind-point reaper was reaping the RP on the next scene change even while the timeline still showed the slot as a re-flyable unfinished flight.
+- STASH no longer doubles each Re-Fly slot when the flight crossed the atmosphere boundary. A two-stage launch that crashed both stages was producing 4 STASH rows (one per chain half from the optimizer's atmospheric/exoballistic split) instead of 2; only the chain head owns the Fly / Seal buttons, so the continuation halves now stay in the regular recordings group.
 
 ### Internals
 
