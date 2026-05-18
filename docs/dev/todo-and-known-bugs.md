@@ -12,6 +12,29 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - Dock/undock recording-structure gaps (§5.1 retroactive partner snapshot, §5.4 transient undock structural snapshot, transient-undock no recording continuation)
+
+- ~~Three followup gaps surfaced by writing `docs/dev/dock-undock-recording-structure.md`. (§5.1) The retroactive `onPartCouple (tree, retroactive)` branch (where `OnPhysicsFrame` stopped the recorder before `OnPartCouple` fired) didn't capture the pre-couple partner snapshot, so the endpoint baseline fallback could still inflate. (§5.4) The transient-state `OnPartUndock` branch (`newPid == recorder.RecordingVesselId`, KSP hasn't reparented yet) skipped `AppendStructuralEventSnapshot` — ghost playback across the unbroken merged-child recording could interpolate the undock UT without a flagged boundary, and the optimizer's splittable-boundary detection was missing the seam. (Recording-continuation) The transient-state path completed the route window via a separate deferred coroutine but did NOT create an Undock branch point or per-half recordings, leaving the un-decoupled half un-tracked until the user manually started another recording.~~
+
+**Fix (§5.1):** The retroactive `onPartCouple` branch in `OnPartCouple` now ALSO attempts the pre-couple partner snapshot. Same `pendingDockPartnerSnapshot` / `pendingDockPartnerSnapshotPid` fields, same gate (`data.from.vessel != data.to.vessel`), same partner-side identification logic. When `OnPhysicsFrame` stopped the recorder before `OnPartCouple` fired AND KSP hasn't already reparented at retroactive-event time, the snapshot is captured and feeds into `CreateMergeBranch`'s endpoint baseline. If KSP already reparented, the snapshot is null and the existing fallbacks (`TryDeriveEndpointPartPidsFromPartner`) run with the accepted over-count risk.
+
+**Fix (§5.4 + recording-continuation, combined):** The transient-state branch in `OnPartUndock` was rewritten. Instead of returning early after scheduling a route-window-only deferred coroutine, it now:
+
+1. Writes the `Undock` structural-event snapshot to the recorder (and the background recorder, if present).
+2. Stops the recorder synchronously via `StopRecordingForChainBoundary`.
+3. Sets `pendingSplitInProgress = true` and `pendingSplitRecorder = recorder` (so any follow-up `onPartUndock` from KSP early-returns at the top of `OnPartUndock`, preventing double-processing).
+4. Schedules `DeferredHandleTransientUndock(undockedPartPid)`, a new coroutine that waits one frame for KSP to finish the vessel split, walks `FlightGlobals.Vessels` for a vessel whose pid differs from the stopped recorder's `RecordingVesselId` AND whose `parts` list contains the docking-port part KSP told us about at event time, validates `IsTrackableVessel` + branch-dedup, then dispatches through `CreateSplitBranch(BranchPointType.Undock, ...)` — the same entry point the normal chain-split path uses.
+
+`CreateSplitBranch` already calls `TryCompleteLatestRouteConnectionWindow` for `Undock` branch types, so the route window's `UndockUT` and post-undock resource / inventory manifests are written via the existing pipeline. The Undock branch point and per-half recordings get created the same way the normal path produces them. Result: both halves of a transient-only undock now have continuous Parsek recording coverage, ghost playback gets the flagged boundary at the undock UT, and tree topology correctly reflects the split.
+
+The previous helpers `TryScheduleDeferredRouteWindowCompletionOnUndock` and `DeferredCompleteRouteWindowOnUndock` are now dead code (the new path subsumes their behavior) and were removed. The route window's completion contract (`IsComplete = !double.IsNaN(UndockUT)`) is unchanged.
+
+**Coverage:** Existing 12407 xUnit tests pass with no regressions. The new code path is mostly KSP-coupled (live `Vessel` objects, `StartCoroutine`, `FlightGlobals.Vessels`) so direct xUnit coverage isn't practical; the validation contract is the next playtest. `DeferredHandleTransientUndock`'s fallback branches (`ResumeSplitRecorder` for "vessel not found" / "debris") mirror `DeferredUndockBranch`'s tested behavior. The doc `docs/dev/dock-undock-recording-structure.md` was updated to reflect the closed gaps — §5.4 now describes the transient-state structural snapshot, §6.4 describes the unified transient-undock flow, and the §9 invariants no longer list the transient gap as known.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
 ## Done - Logistics dock/undock route window: endpoint baseline inflated + undock completion stalled (second playtest failure)
 
 - ~~Second in-game dock test of the v0 logistics system (`logs/2026-05-18_0015_logistics-v0-dock-test-2/`). The dock-partner PID resolver (yesterday's fix) worked correctly — `partnerKnown=True`, `routeTargetPid=3965530352`, the route window was captured at the dock event with the correct `dockUT=118.06` and 14 transport / 28 endpoint PIDs. The user then actually transferred 200 LF from the endpoint vessel into the transport vessel (post-undock state: transport pid=3077499886 had `LiquidFuel=400/400` saturated, endpoint pid=3965530352 had `LiquidFuel=0/400` empty — a clean 200-unit transfer). But on tree commit at 00:14:47.882, `RouteAnalysisEngine` still rejected the candidate as `MissingRouteProof`. Two distinct sub-bugs:~~

@@ -150,7 +150,7 @@ There are five distinct kinds of "snapshot" in the dock/undock pipeline. Don't c
 
 **Stored as:** `ConfigNode pendingDockPartnerSnapshot` + `uint pendingDockPartnerSnapshotPid` on `ParsekFlight`. Consumed in `CreateMergeBranch` and cleared in `ClearDockUndockState` and the deferred-merge cleanup paths.
 
-**When this can be null:** the retroactive `onPartCouple (tree, retroactive)` branch (where `OnPhysicsFrame` stopped the recorder before `OnPartCouple` fired) doesn't currently capture this snapshot. In that case `CreateMergeBranch` falls back to `TryDeriveEndpointPartPidsFromPartner` (live vessel → active-tree recording → committed recording), accepting the over-count risk. The retroactive path is rare and not blocking.
+**When this can be null:** the retroactive `onPartCouple (tree, retroactive)` branch (where `OnPhysicsFrame` stopped the recorder before `OnPartCouple` fired) ALSO captures this snapshot now (post-fix), provided `data.from.vessel` and `data.to.vessel` still reference distinct vessels at retroactive-event time. If KSP has already reparented by then, the snapshot can't be captured and `CreateMergeBranch` falls back to `TryDeriveEndpointPartPidsFromPartner` (live vessel → active-tree recording → committed recording), accepting the over-count risk. The retroactive path is rare in practice.
 
 ### 5.2 Merged-vessel snapshot — `mergedSnapshot`
 
@@ -180,7 +180,7 @@ There are five distinct kinds of "snapshot" in the dock/undock pipeline. Don't c
 
 **Why:** mirrors the couple-side rationale. Required for `Trajectory-Anchor` candidate detection and visual continuity.
 
-**Important:** this snapshot fires even in the transient-state early-return path? **No.** The current code structure runs `AppendStructuralEventSnapshot` AFTER the `newPid == recorder.RecordingVesselId` early-return at line 10522. This means in the transient-only case (the 2026-05-18 playtest), the undock UT structural event snapshot does NOT get written. The recording continues unbroken through the undock without a flagged boundary. This is a known gap; the new deferred route-window-completion coroutine compensates only for the route window, not for ghost-playback boundary detection.
+**Transient-state path coverage (post-fix):** the structural-event snapshot is also written in the transient-state branch of `OnPartUndock` (`newPid == recorder.RecordingVesselId`), BEFORE the recorder is stopped and the deferred coroutine is scheduled. The transient path now mirrors the normal path: write the structural snapshot, stop the recorder, set `pendingSplitInProgress`, schedule `DeferredHandleTransientUndock` (which next frame discovers the un-decoupled half by part-pid lookup and dispatches through `CreateSplitBranch(BranchPointType.Undock, ...)` — same call the normal chain-split path uses). Ghost playback gets a flagged boundary at the undock UT regardless of whether KSP fires onPartUndock once or twice.
 
 ### 5.5 Route window snapshots (dock-side and undock-side)
 
@@ -237,20 +237,19 @@ When `onPartUndock` fires with the proper (non-transient) PID, `OnPartUndock` ca
 
 After this, `IsComplete` returns `true` and `RouteAnalysisEngine.AnalyzeTree` will consider the window viable. Net cargo movement = `UndockTransportResources - DockTransportResources` (transport deltas) and `UndockEndpointResources - DockEndpointResources` (endpoint deltas), which by conservation must sum to zero per resource.
 
-### 6.4 Phase 3: window closed at undock — transient-state path (post-2026-05-18 fix)
+### 6.4 Phase 3: window closed at undock — transient-state path
 
-When `onPartUndock` fires only once with `newPid == recorder.RecordingVesselId` (transient state, no follow-up event), the chain-split path never runs. Instead:
+When `onPartUndock` fires only once with `newPid == recorder.RecordingVesselId` (transient state, no follow-up event from KSP), the path is identical to the normal one with one extra discovery step:
 
-1. `OnPartUndock` calls `TryScheduleDeferredRouteWindowCompletionOnUndock`.
-2. That helper inspects `activeTree.Recordings[activeTree.ActiveRecordingId]` (the merged child, which carries the open window).
-3. If any `RouteConnectionWindow.IsComplete == false`, it schedules `DeferredCompleteRouteWindowOnUndock(recordingId, undockUT)`.
-4. The coroutine waits one frame for KSP to finish the split, then walks `FlightGlobals.Vessels` to find the two halves by part-PID membership (each half's `vessel.parts` contains either transport-only PIDs or endpoint-only PIDs — never both).
-5. Snapshots each half via `VesselSpawner.TryBackupSnapshot`.
-6. Calls `TryCompleteLatestRouteConnectionWindow(rec, undockUT, transportSnapshot, endpointSnapshot)`.
+1. `OnPartUndock`'s transient branch writes the `Undock` structural-event snapshot, stops the recorder, sets `pendingSplitInProgress = true` / `pendingSplitRecorder = recorder`, and schedules `DeferredHandleTransientUndock(undockedPartPid)`.
+2. The coroutine waits one frame for KSP to finish the split.
+3. Walks `FlightGlobals.Vessels` for a vessel whose pid differs from the recorder's `RecordingVesselId` AND whose `parts` list contains `undockedPartPid` (the docking-port part KSP told us about at event time). This identifies the un-decoupled half regardless of which side KSP assigned the new pid to.
+4. Validates the new vessel passes `IsTrackableVessel` and the branch-dedup check.
+5. Calls `CreateSplitBranch(BranchPointType.Undock, activeVessel, newVessel, undockUT, stoppedRecorder)` — the SAME entry point the normal chain-split path uses. This produces an Undock branch point, per-half recordings, and (because the parent has an open `RouteConnectionWindow`) calls `TryCompleteLatestRouteConnectionWindow` internally to write `UndockUT` and the post-undock resource/inventory manifests.
 
-Idempotency: the coroutine re-checks `IsComplete` before doing any work. If a follow-up `onPartUndock` did fire AND the chain-split path completed the window already, the deferred coroutine no-ops. Likewise if a future `OnPartUndock` triggers chain-split AFTER the deferred coroutine has already completed the window, `TryCompleteLatestRouteConnectionWindow` finds no incomplete window and returns false harmlessly.
+Fallbacks: if no separate vessel can be found (KSP didn't actually split — false alarm), the coroutine calls `ResumeSplitRecorder` to put the recorder back on the merged child. Same for the debris case (`!IsTrackableVessel`). The route window stays open in those degenerate cases, which is correct — there was no real undock.
 
-This path completes the route window but does NOT create an Undock branch point or split the merged child. The merged child recording continues unbroken through the undock UT in this case — its `ExplicitEndUT` advances normally as the recorder samples post-undock points, until the recording is closed by some later event (tree commit, scene exit, etc.).
+Idempotency vs follow-up events: stopping the recorder + setting `pendingSplitInProgress = true` means any follow-up `onPartUndock` from KSP early-returns at the top of `OnPartUndock` (`recorder == null` and/or `pendingSplitInProgress` guard). No double-processing.
 
 ---
 
@@ -297,29 +296,34 @@ Recorder `5b385a6f` samples ~60 trajectory points across 26.7 seconds. The route
 
 KSP fires `onPartJointBreak` for `dockingPort2` (the endpoint-side docking port, structural=T), then `onPartUndock(dockingPort2)`. The `undockedPart.vessel.persistentId = 3965530352` (KSP hasn't reparented yet).
 
-**Parsek-side timeline:**
+**Parsek-side timeline (post-fix):**
 
 1. `OnPartUndock` entry. `newPid = 3965530352 == recorder.RecordingVesselId` → transient state.
-2. **NEW (post-2026-05-18 fix):** `TryScheduleDeferredRouteWindowCompletionOnUndock` schedules `DeferredCompleteRouteWindowOnUndock("5b385a6f", undockUT=144.76)`.
-3. `OnPartUndock` returns. **Critically, the structural-event snapshot for the undock is NOT written here** (see §5.4 gap).
+2. Writes the `Undock` structural event snapshot to the merged child recording's active section (the `dockingPort2` part as `undockInvolved`, plus the survivor `Vessel` via `FlightGlobals.Vessels` lookup if available).
+3. Stops the recorder synchronously (`StopRecordingForChainBoundary`).
+4. Sets `pendingSplitInProgress = true`, `pendingSplitRecorder = recorder`, schedules `DeferredHandleTransientUndock(undockedPartPid=895685739)`.
 
 Next frame:
 
-4. `DeferredCompleteRouteWindowOnUndock` runs. KSP has now split the vessels: vessel A keeps pid `3965530352` (the survivor with the empty tank, `LiquidFuel = 0/400`); vessel B gets new pid `3077499886` (the full tank, `LiquidFuel = 400/400`).
-5. Coroutine walks `FlightGlobals.Vessels` and identifies:
-   - Vessel pid 3077499886 has parts matching `TransportPartPersistentIds` → transport half.
-   - Vessel pid 3965530352 has parts matching `EndpointPartPersistentIds` → endpoint half.
-   - Neither vessel has parts from both sets → KSP has cleanly split.
-6. Snapshots both halves.
-7. Calls `TryCompleteLatestRouteConnectionWindow(rec=5b385a6f, undockUT=144.76, transportSnapshot, endpointSnapshot)`.
-8. Window completes: `UndockUT = 144.76`, `UndockTransportResources[LiquidFuel] = 400/400`, `UndockEndpointResources[LiquidFuel] = 0/400`.
+5. `DeferredHandleTransientUndock` runs. KSP has now split the vessels: vessel A keeps pid `3965530352` (the survivor with the empty tank); vessel B gets new pid `3077499886` (the full tank).
+6. Coroutine walks `FlightGlobals.Vessels` for a vessel whose pid is not the recorder's RecordingVesselId AND whose parts include pid `895685739` (the docking port). Finds vessel pid `3077499886` (the transport-side half).
+7. Verifies it's trackable (passes `IsTrackableVessel`), passes branch dedup, then calls `CreateSplitBranch(BranchPointType.Undock, activeVessel=mergedChild side, newVessel=3077499886, branchUT=144.76, stoppedRecorder)`.
+8. `CreateSplitBranch` runs the normal Undock pipeline:
+   - Closes `5b385a6f`'s `ExplicitEndUT = 144.76` and sets `ChildBranchPointId`.
+   - Creates Undock `BranchPoint` (type=3) with parent `5b385a6f`, children = two new recordings.
+   - Snapshots both halves.
+   - Creates new active-side recording (continues on survivor pid 3965530352) and background-side recording (transport pid 3077499886).
+   - Calls `RouteProofCapture.TryCompleteLatestRouteConnectionWindow(parentRec=5b385a6f, ...)` → writes `UndockUT = 144.76`, `UndockTransportResources[LiquidFuel] = 400/400`, `UndockEndpointResources[LiquidFuel] = 0/400`.
 
-Tree state after undock (in this transient-only case, with NO chain split):
+Tree state after undock (with the new fix):
 - `430d3a0d` (parent, terminal Docked)
 - `BP(40c3ad0d)`, Type Dock
-- `5b385a6f` (still active recording, RouteConnectionWindow now COMPLETE, ExplicitEndUT not yet written)
+- `5b385a6f` (merged child, ExplicitEndUT=144.76, ChildBranchPointId=BP', RouteConnectionWindow COMPLETE)
+- `BP'`, Type Undock, parent=`5b385a6f`
+- `R_new_survivor` (continues on pid 3965530352)
+- `R_new_transport` (background, pid 3077499886)
 
-No Undock branch point is created in this path. The merged child recording continues recording on the survivor vessel (pid 3965530352) until the tree is committed or scene exits.
+The recording tree now reflects the undock split correctly. Both halves have continuous recording coverage post-undock.
 
 ### 7.4 At commit (UT 154.56)
 
@@ -372,7 +376,7 @@ When modifying any code in this area, do not violate:
 3. **Route window completion is idempotent.** Both the chain-split path and the deferred coroutine path may run for the same undock. `TryCompleteLatestRouteConnectionWindow` checks `IsComplete` and returns false if the window is already closed — never double-write.
 4. **Route window part-PID sets must be partner-scoped, not merged-scoped.** Endpoint-side resource extraction must use a snapshot that contains only endpoint parts. If the snapshot is the merged vessel and the part-PID set includes transport parts (e.g. from a `CollectPartPersistentIds(mergedSnapshot)` shortcut), the dock-side baseline inflates.
 5. **Structural event snapshots are `TrajectoryPoint`s, not vessel snapshots.** They flag boundaries for the optimizer and ghost playback. Resources/inventory are captured separately by the route window.
-6. **The transient-only undock path skips the structural event snapshot.** This is a gap (see §5.4) — ghost playback across the unbroken merged-child recording may interpolate across the undock UT without a flagged boundary. Not blocking for logistics, but worth fixing when revisiting ghost continuity.
+6. **The transient-state undock branch writes the same structural snapshot and dispatches the same `CreateSplitBranch` call as the normal path.** The transient state and the normal state differ only in HOW the un-decoupled half is discovered (next-frame `FlightGlobals.Vessels` walk by `undockedPartPid` vs. immediate `data.from.vessel.persistentId` from the second `onPartUndock` fire). The downstream tree-shape / snapshot / route-window contracts are identical.
 
 ---
 
@@ -380,7 +384,7 @@ When modifying any code in this area, do not violate:
 
 | Path | Role |
 |---|---|
-| `Source/Parsek/ParsekFlight.cs` | `OnPartCouple`, `OnPartUndock`, `CreateMergeBranch`, `CreateSplitBranch`, `HandleTreeDockMerge`, `DeferredUndockBranch`, `TryScheduleDeferredRouteWindowCompletionOnUndock`, `DeferredCompleteRouteWindowOnUndock`, `pendingDockPartnerSnapshot` field |
+| `Source/Parsek/ParsekFlight.cs` | `OnPartCouple`, `OnPartUndock`, `CreateMergeBranch`, `CreateSplitBranch`, `HandleTreeDockMerge`, `DeferredUndockBranch`, `DeferredHandleTransientUndock`, `pendingDockPartnerSnapshot` field |
 | `Source/Parsek/RouteProofCapture.cs` | `BuildDockRouteConnectionWindow`, `TryCompleteLatestRouteConnectionWindow`, `CompleteRouteConnectionWindowAtUndock`, `TryVerifyRoutePartSetsSeparated` |
 | `Source/Parsek/RouteProofMetadata.cs` | `RouteConnectionWindow` data type, `IsComplete` predicate |
 | `Source/Parsek/BranchPoint.cs` | `BranchPoint` + `BranchPointType` enum (Dock, Undock, Board, Breakup, EVA, ...) |

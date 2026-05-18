@@ -5774,164 +5774,107 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Schedules <see cref="DeferredCompleteRouteWindowOnUndock"/> when the active
-        /// recording carries an incomplete <see cref="RouteConnectionWindow"/>. Called
-        /// from <c>OnPartUndock</c>'s transient-state early-return branch
-        /// (<c>newPid == recorder.RecordingVesselId</c>) so the route window's
-        /// <c>UndockUT</c> still gets written even when KSP fires onPartUndock only
-        /// once and the chain-split path never runs.
-        /// </summary>
-        private void TryScheduleDeferredRouteWindowCompletionOnUndock()
-        {
-            if (activeTree == null) return;
-            string recId = activeTree.ActiveRecordingId;
-            if (string.IsNullOrEmpty(recId)) return;
-            if (!activeTree.Recordings.TryGetValue(recId, out Recording rec) || rec == null) return;
-            if (rec.RouteConnectionWindows == null || rec.RouteConnectionWindows.Count == 0) return;
-
-            bool hasIncomplete = false;
-            for (int i = 0; i < rec.RouteConnectionWindows.Count; i++)
-            {
-                RouteConnectionWindow w = rec.RouteConnectionWindows[i];
-                if (w != null && !w.IsComplete)
-                {
-                    hasIncomplete = true;
-                    break;
-                }
-            }
-            if (!hasIncomplete) return;
-
-            double undockUT = Planetarium.GetUniversalTime();
-            ParsekLog.Verbose("Flight",
-                $"OnPartUndock (transient): scheduling deferred route-window completion " +
-                $"recId={recId} ut={undockUT.ToString("R", CultureInfo.InvariantCulture)}");
-            StartCoroutine(DeferredCompleteRouteWindowOnUndock(recId, undockUT));
-        }
-
-        /// <summary>
-        /// Deferred coroutine that completes an incomplete <see cref="RouteConnectionWindow"/>
-        /// after KSP has finished the post-undock vessel split. Waits one frame, finds
-        /// the two halves by part-PID membership against the window's transport /
-        /// endpoint PID sets, snapshots each, and calls
+        /// Deferred handler for the transient-state OnPartUndock case (the playtest
+        /// scenario where KSP fires onPartUndock exactly once with
+        /// <c>undockedPart.vessel.persistentId == recorder.RecordingVesselId</c>).
+        /// Waits one frame for KSP to finish the vessel split, walks
+        /// <see cref="FlightGlobals.Vessels"/> to discover the un-decoupled half by
+        /// PID (any vessel whose pid differs from the stopped recorder's
+        /// RecordingVesselId AND whose root part matches the undockedPart we saw at
+        /// event time), then dispatches through the same <see cref="CreateSplitBranch"/>
+        /// path the normal undock uses. That path creates the Undock branch point,
+        /// per-half recordings, AND completes any open route window via
         /// <see cref="RouteProofCapture.TryCompleteLatestRouteConnectionWindow"/>.
-        /// Idempotent — re-checks <c>IsComplete</c> in case the chain-split path
-        /// completed the window first.
+        ///
+        /// Falls back to <see cref="ResumeSplitRecorder"/> when the new vessel is
+        /// debris (not trackable) or can't be found, mirroring
+        /// <see cref="DeferredUndockBranch"/>'s behavior.
         /// </summary>
-        IEnumerator DeferredCompleteRouteWindowOnUndock(string recordingId, double undockUT)
+        IEnumerator DeferredHandleTransientUndock(uint undockedPartPid)
         {
-            yield return null; // defer one frame for KSP to finish the vessel split
+            yield return null; // defer one frame for KSP to finalize the split
 
-            if (activeTree == null) yield break;
-            if (!activeTree.Recordings.TryGetValue(recordingId, out Recording rec) || rec == null)
+            try
             {
-                ParsekLog.Verbose("Flight",
-                    $"DeferredCompleteRouteWindowOnUndock: recording {recordingId} no longer present — skipping");
-                yield break;
-            }
-            if (rec.RouteConnectionWindows == null || rec.RouteConnectionWindows.Count == 0)
-                yield break;
-
-            // Find the latest still-incomplete window. The chain-split path may have
-            // completed it already on the second OnPartUndock; in that case we no-op.
-            RouteConnectionWindow window = null;
-            for (int i = rec.RouteConnectionWindows.Count - 1; i >= 0; i--)
-            {
-                RouteConnectionWindow w = rec.RouteConnectionWindows[i];
-                if (w != null && !w.IsComplete)
+                if (pendingSplitRecorder == null || FlightGlobals.ActiveVessel == null)
                 {
-                    window = w;
-                    break;
+                    ParsekLog.Warn("Flight",
+                        "DeferredHandleTransientUndock: invalid state after deferral — aborting");
+                    FallbackCommitSplitRecorder(pendingSplitRecorder);
+                    yield break;
                 }
-            }
-            if (window == null)
-            {
-                ParsekLog.Verbose("Flight",
-                    $"DeferredCompleteRouteWindowOnUndock: no incomplete window on recording={recordingId} — chain-split path likely completed it");
-                yield break;
-            }
 
-            // Find the two vessels: one whose parts include any of the transport PIDs,
-            // one whose parts include any of the endpoint PIDs. Reject if any single
-            // vessel still owns parts from BOTH sets (KSP hasn't split yet — give up).
-            Vessel transportVessel = null;
-            Vessel endpointVessel = null;
-            List<Vessel> vessels = FlightGlobals.Vessels;
-            if (vessels != null)
-            {
-                for (int i = 0; i < vessels.Count; i++)
+                uint recorderPid = pendingSplitRecorder.RecordingVesselId;
+
+                // Discover the un-decoupled half. Two candidates:
+                //  (a) The vessel that now owns the part with persistentId == undockedPartPid.
+                //      If KSP reparented the docking port to a new vessel, this finds it.
+                //  (b) Any vessel near the recorder whose pid differs and whose parts
+                //      were physically part of the merged vessel pre-undock.
+                Vessel newVessel = null;
+                List<Vessel> vessels = FlightGlobals.Vessels;
+                if (vessels != null && undockedPartPid != 0u)
                 {
-                    Vessel v = vessels[i];
-                    if (v == null || v.parts == null || v.parts.Count == 0) continue;
-
-                    bool hasTransport = false;
-                    bool hasEndpoint = false;
-                    for (int p = 0; p < v.parts.Count; p++)
+                    for (int i = 0; i < vessels.Count; i++)
                     {
-                        Part part = v.parts[p];
-                        if (part == null) continue;
-                        uint pid = part.persistentId;
-                        if (window.TransportPartPersistentIds != null
-                            && window.TransportPartPersistentIds.Contains(pid))
+                        Vessel v = vessels[i];
+                        if (v == null || v.parts == null || v.parts.Count == 0) continue;
+                        if (v.persistentId == recorderPid) continue;
+                        for (int p = 0; p < v.parts.Count; p++)
                         {
-                            hasTransport = true;
+                            Part part = v.parts[p];
+                            if (part != null && part.persistentId == undockedPartPid)
+                            {
+                                newVessel = v;
+                                break;
+                            }
                         }
-                        if (window.EndpointPartPersistentIds != null
-                            && window.EndpointPartPersistentIds.Contains(pid))
-                        {
-                            hasEndpoint = true;
-                        }
-                        if (hasTransport && hasEndpoint) break;
+                        if (newVessel != null) break;
                     }
-
-                    if (hasTransport && hasEndpoint)
-                    {
-                        ParsekLog.Warn("Flight",
-                            $"DeferredCompleteRouteWindowOnUndock: vessel pid={v.persistentId} still " +
-                            $"owns both transport+endpoint parts — KSP has not split yet. " +
-                            $"recording={recordingId}");
-                        yield break;
-                    }
-                    if (hasTransport && transportVessel == null) transportVessel = v;
-                    else if (hasEndpoint && endpointVessel == null) endpointVessel = v;
                 }
-            }
 
-            if (transportVessel == null || endpointVessel == null)
-            {
-                ParsekLog.Warn("Flight",
-                    $"DeferredCompleteRouteWindowOnUndock: could not locate both halves " +
-                    $"transport={(transportVessel != null ? transportVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "<none>")} " +
-                    $"endpoint={(endpointVessel != null ? endpointVessel.persistentId.ToString(CultureInfo.InvariantCulture) : "<none>")}");
-                yield break;
-            }
+                if (newVessel == null)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredHandleTransientUndock: un-decoupled half not found via " +
+                        $"undockedPartPid={undockedPartPid} recorderPid={recorderPid} — " +
+                        "resuming recording (KSP may have destroyed it or not split at all)");
+                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock new vessel not found");
+                    yield break;
+                }
 
-            ConfigNode transportSnapshot = VesselSpawner.TryBackupSnapshot(transportVessel);
-            ConfigNode endpointSnapshot = VesselSpawner.TryBackupSnapshot(endpointVessel);
-            if (transportSnapshot == null || endpointSnapshot == null)
-            {
-                ParsekLog.Warn("Flight",
-                    $"DeferredCompleteRouteWindowOnUndock: could not snapshot one or both halves " +
-                    $"transportPid={transportVessel.persistentId} endpointPid={endpointVessel.persistentId}");
-                yield break;
-            }
+                if (!IsTrackableVessel(newVessel))
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredHandleTransientUndock: un-decoupled half is debris " +
+                        $"pid={newVessel.persistentId} type={newVessel.vesselType} — resuming recording");
+                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock new vessel is debris");
+                    yield break;
+                }
 
-            bool completed = RouteProofCapture.TryCompleteLatestRouteConnectionWindow(
-                rec,
-                undockUT,
-                transportSnapshot,
-                endpointSnapshot);
-            if (completed)
-            {
+                double branchUT = Planetarium.GetUniversalTime();
+                if (!CheckBranchDeduplication(branchUT, newVessel.persistentId))
+                {
+                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock dedup skip");
+                    yield break;
+                }
+
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
                 ParsekLog.Info("Flight",
-                    $"Route proof dock window completed on undock (deferred, no-chain-split): " +
-                    $"recording={recordingId} ut={undockUT.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"transportPid={transportVessel.persistentId} endpointPid={endpointVessel.persistentId}");
+                    $"DeferredHandleTransientUndock: dispatching CreateSplitBranch " +
+                    $"activePid={activeVessel.persistentId} newPid={newVessel.persistentId} " +
+                    $"undockedPartPid={undockedPartPid} branchUT={branchUT.ToString("R", CultureInfo.InvariantCulture)}");
+                CreateSplitBranch(
+                    BranchPointType.Undock,
+                    activeVessel,
+                    newVessel,
+                    branchUT,
+                    backgroundInitialTrajectoryPoint: null);
             }
-            else
+            finally
             {
-                ParsekLog.Warn("Flight",
-                    $"DeferredCompleteRouteWindowOnUndock: TryCompleteLatestRouteConnectionWindow returned false " +
-                    $"recording={recordingId}");
+                pendingSplitInProgress = false;
+                pendingSplitRecorder = null;
             }
         }
 
@@ -10599,6 +10542,33 @@ namespace Parsek
                         RecordingStore.CommittedRecordings);
                     uint routeTargetPid = partnerKnownR ? partnerPidFromEventR : 0u;
 
+                    // Gap §5.1: also try to capture a pre-couple partner snapshot in
+                    // the retroactive path. By the time we reach this branch
+                    // OnPhysicsFrame has already stopped the recorder, so KSP may
+                    // have ALREADY reparented data.from.vessel onto data.to.vessel
+                    // and the snapshot would be the merged vessel (over-counted). We
+                    // only capture when data.from.vessel and data.to.vessel are
+                    // still distinct; if they aren't, fallbacks downstream
+                    // (TryDeriveEndpointPartPidsFromPartner) carry the accepted
+                    // baseline-inflation risk noted in §5.1.
+                    pendingDockPartnerSnapshot = null;
+                    pendingDockPartnerSnapshotPid = 0u;
+                    if (data.from?.vessel != null && data.to?.vessel != null &&
+                        data.from.vessel != data.to.vessel)
+                    {
+                        Vessel partnerR = data.from.vessel.persistentId != absorbedPid
+                            ? data.from.vessel
+                            : (data.to.vessel.persistentId != absorbedPid ? data.to.vessel : null);
+                        if (partnerR != null && partnerR.parts != null && partnerR.parts.Count > 0)
+                        {
+                            pendingDockPartnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerR);
+                            pendingDockPartnerSnapshotPid = partnerR.persistentId;
+                            ParsekLog.Verbose("Flight",
+                                $"OnPartCouple (retroactive): captured pre-couple partner snapshot " +
+                                $"partnerPid={pendingDockPartnerSnapshotPid} parts={partnerR.parts.Count}");
+                        }
+                    }
+
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve (retroactive): " +
                         $"selfPid={recorder.RecordingVesselId} mergedPid={mergedPid} " +
@@ -10684,16 +10654,47 @@ namespace Parsek
             if (newPid == recorder.RecordingVesselId)
             {
                 // Transient state: KSP fired onPartUndock before reparenting the
-                // un-decoupled part to a new vessel. Normally we wait for a follow-up
-                // OnPartUndock with the proper new PID. But in some configurations
-                // (observed in the 2026-05-18 dock-2 playtest with a docking-port-to-
-                // docking-port undock) KSP fires onPartUndock exactly once, so the
-                // chain-split path never runs and any open RouteConnectionWindow on
-                // the active recording stays with NaN UndockUT (route analysis then
-                // rejects it as MissingRouteProof). Schedule a deferred coroutine to
-                // find the separated halves on the next frame and complete the window
-                // independent of the chain-split path. Idempotent via IsComplete.
-                TryScheduleDeferredRouteWindowCompletionOnUndock();
+                // un-decoupled part to a new vessel. The 2026-05-18 dock-2 playtest
+                // showed KSP fires onPartUndock EXACTLY ONCE in some docking-port-
+                // to-docking-port configurations, so we cannot rely on a follow-up
+                // event to drive the chain-split path.
+                //
+                // Take ownership of the undock here: write the structural-event
+                // snapshot, stop the recorder, set pendingSplitInProgress so any
+                // late follow-up event no-ops, and schedule a deferred coroutine
+                // that discovers the un-decoupled half by walking
+                // FlightGlobals.Vessels next frame and calls CreateSplitBranch.
+                // That path creates the proper Undock branch + new recordings for
+                // both halves AND completes any open route window via
+                // CreateSplitBranch's existing call to
+                // TryCompleteLatestRouteConnectionWindow.
+                double transientUndockUT = Planetarium.GetUniversalTime();
+                var transientInvolved = new List<Vessel>(2) { undockedPart.vessel };
+                if (FlightGlobals.Vessels != null)
+                {
+                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
+                    {
+                        Vessel candidate = FlightGlobals.Vessels[i];
+                        if (candidate != null
+                            && candidate.persistentId == recorder.RecordingVesselId
+                            && candidate != undockedPart.vessel)
+                        {
+                            transientInvolved.Add(candidate);
+                            break;
+                        }
+                    }
+                }
+                recorder.AppendStructuralEventSnapshot(transientUndockUT, transientInvolved, "Undock");
+                backgroundRecorder?.AppendStructuralEventSnapshot(transientUndockUT, transientInvolved, "Undock");
+
+                recorder.StopRecordingForChainBoundary();
+                pendingSplitRecorder = recorder;
+                recorder = null;
+                pendingSplitInProgress = true;
+                Log("onPartUndock (transient): KSP fired with pre-reparent PID — " +
+                    "scheduling deferred undock split discovery " +
+                    $"(recorderPid={pendingSplitRecorder.RecordingVesselId})");
+                StartCoroutine(DeferredHandleTransientUndock(undockedPart.persistentId));
                 return;
             }
 
