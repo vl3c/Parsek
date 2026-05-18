@@ -98,6 +98,141 @@ namespace Parsek.Tests
             Assert.Equal("large-delta", decision.Reason);
         }
 
+        // Regression: under PR #889 trace-enabled playtest the detector fired
+        // 1296 false-positive `large-delta` events on orbital ghost playback
+        // (velocity=(0,0,0), expectedDM=0, real Kepler-propagation motion at
+        // ~1400 m/s/frame) and another 13 on floating-origin shift frames.
+        // The suppressed variant of the gate must NOT classify those as
+        // `large-delta`; it should fall through to the regular initial-window
+        // / closed reasons instead.
+        [Fact]
+        public void EvaluateGate_LargeDelta_OrbitalSuppressionReturnsClosed()
+        {
+            // Orbital playback shape: velocity is zero, dM is large (Kepler
+            // propagator moves the ghost), expectedDM is zero (orbit segment
+            // carries no per-point velocity). With the suppression flag set
+            // the detector must NOT emit a large-delta reason. Outside the
+            // initial window the row should be fully suppressed (closed).
+            var decision = GhostRenderTrace.EvaluateGateForTesting(
+                currentUT: 425.5,
+                firstSeenUT: 400.0,
+                firstSeen: false,
+                structuralWindow: false,
+                sectionChanged: false,
+                force: false,
+                resolverMissOrRetired: false,
+                reFlyWindow: false,
+                deltaMeters: 1400.0,
+                expectedDeltaMeters: 0.0,
+                largeDeltaSuppressed: true);
+
+            Assert.False(decision.Emit);
+            Assert.Equal("closed", decision.Reason);
+        }
+
+        [Fact]
+        public void EvaluateGate_LargeDelta_SuppressionLeavesUnrelatedReasonsIntact()
+        {
+            // The suppression flag must only short-circuit the `large-delta`
+            // branch — first-seen / refly-window / resolver-miss-or-retired
+            // and friends still need to emit even when the velocity signal is
+            // unreliable. This pins the gate ordering so a future refactor
+            // can't accidentally early-return on `largeDeltaSuppressed`.
+            var firstSeen = GhostRenderTrace.EvaluateGateForTesting(
+                currentUT: 100.0,
+                firstSeenUT: 100.0,
+                firstSeen: true,
+                structuralWindow: false,
+                sectionChanged: false,
+                force: false,
+                resolverMissOrRetired: false,
+                reFlyWindow: false,
+                deltaMeters: 1400.0,
+                expectedDeltaMeters: 0.0,
+                largeDeltaSuppressed: true);
+
+            Assert.True(firstSeen.Emit);
+            Assert.Equal("first-seen", firstSeen.Reason);
+
+            var retired = GhostRenderTrace.EvaluateGateForTesting(
+                currentUT: 50.0,
+                firstSeenUT: 10.0,
+                firstSeen: false,
+                structuralWindow: false,
+                sectionChanged: false,
+                force: false,
+                resolverMissOrRetired: true,
+                reFlyWindow: false,
+                deltaMeters: 1400.0,
+                expectedDeltaMeters: 0.0,
+                largeDeltaSuppressed: true);
+
+            Assert.True(retired.Emit);
+            Assert.True(retired.Important);
+            Assert.Equal("resolver-miss-or-retired", retired.Reason);
+        }
+
+        [Fact]
+        public void IsLargeDeltaSignalSuppressed_OrbitalSignatureSuppresses()
+        {
+            // Orbital ghosts come through SetInterpolated with the recording's
+            // velocity field, which is identically (0,0,0) for orbit segments
+            // (Kepler-element summaries carry no per-point velocity). That's
+            // the signal the detector trusts to skip the large-delta check.
+            Assert.True(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: Vector3.zero,
+                currentUnityFrame: 1000,
+                lastFloatingOriginShiftFrame: int.MinValue));
+        }
+
+        [Fact]
+        public void IsLargeDeltaSignalSuppressed_NonZeroVelocityDoesNotSuppress()
+        {
+            // Recordings with a real per-point velocity should keep the
+            // detector active. A 1 m/s velocity is well above the
+            // OrbitalVelocityEpsilonMetresPerSecondSquared = 1e-6 sqr-mag
+            // threshold and represents a genuine ground-fixed sample.
+            Assert.False(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: new Vector3(1f, 0f, 0f),
+                currentUnityFrame: 1000,
+                lastFloatingOriginShiftFrame: int.MinValue));
+        }
+
+        [Fact]
+        public void IsLargeDeltaSignalSuppressed_FloatingOriginShiftFrameSuppresses()
+        {
+            // Stock KSP `FloatingOrigin.setOffset` rebases world coordinates;
+            // every ghost reads a position delta equal to the rebase
+            // magnitude on the shift frame. Suppress for the exact frame and
+            // for FloatingOriginSuppressionFrameWindow frames after.
+            Assert.True(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: new Vector3(100f, 0f, 0f),
+                currentUnityFrame: 5000,
+                lastFloatingOriginShiftFrame: 5000));
+
+            Assert.True(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: new Vector3(100f, 0f, 0f),
+                currentUnityFrame: 5000 + GhostRenderTrace.FloatingOriginSuppressionFrameWindow,
+                lastFloatingOriginShiftFrame: 5000));
+        }
+
+        [Fact]
+        public void IsLargeDeltaSignalSuppressed_OutsideFloatingOriginWindowDoesNotSuppress()
+        {
+            // Frames after the suppression window should re-enable detection.
+            // A "no shift observed yet" sentinel (int.MinValue) must also not
+            // suppress.
+            Assert.False(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: new Vector3(100f, 0f, 0f),
+                currentUnityFrame: 5000 + GhostRenderTrace.FloatingOriginSuppressionFrameWindow + 1,
+                lastFloatingOriginShiftFrame: 5000));
+
+            Assert.False(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
+                lastInterpolatedVelocity: new Vector3(100f, 0f, 0f),
+                currentUnityFrame: 5000,
+                lastFloatingOriginShiftFrame: int.MinValue));
+        }
+
         [Fact]
         public void FormatTracePrefix_UsesInvariantKeyValueFields()
         {

@@ -29,6 +29,83 @@ namespace Parsek.Tests
             AssertQuaternionClose(from, TrajectoryMath.PureSlerp(from, to, 0.5f), 1e-6f);
         }
 
+        // Regression guard for the "Rotation Slerp wraparound" investigation
+        // (closed 2026-05-18 as a verified non-defect). The existing
+        // PureSlerp_UsesShortestPathForSignEquivalentEndpoint test covers the
+        // exact-antipodal case (dot = -1, q vs -q for identical orientation).
+        // This test pins the near-antipodal case (dot ≈ -0.99, ~8° physical
+        // rotation between endpoints stored with opposite sign): without the
+        // canonical `if (dot < 0) negate to` pre-step inside PureSlerp, the
+        // result at t=0.5 would land near the antipode of the expected short-
+        // path midpoint instead. If a future refactor drops the sign-
+        // correction, this test fails immediately rather than waiting for an
+        // in-game playtest to surface the regression.
+        [Fact]
+        public void PureSlerp_NearAntipodalEndpoints_TakesShortPath()
+        {
+            // Two near-antipodal quaternions representing nearly the same
+            // physical orientation (~8° apart). Compose `to` as the sign-
+            // flipped form so dot(from, to) is large-negative.
+            var from = UnitQuaternionAroundY(0f);
+            var antipode = UnitQuaternionAroundY(8f);
+            var to = new Quaternion(-antipode.x, -antipode.y, -antipode.z, -antipode.w);
+
+            float dot = from.x * to.x + from.y * to.y + from.z * to.z + from.w * to.w;
+            Assert.True(dot < -0.99f,
+                $"Test precondition: dot must be near -1 (was {dot:F4}).");
+
+            Quaternion mid = TrajectoryMath.PureSlerp(from, to, 0.5f);
+
+            // Short-path midpoint = halfway between `from` and `antipode`
+            // (the same-orientation form of `to`), i.e. ~4° rotation around Y.
+            // The long-path output would land near ~176° around Y instead,
+            // which we explicitly assert against below.
+            var shortPathMid = UnitQuaternionAroundY(4f);
+            AssertQuaternionCloseUpToSign(shortPathMid, mid, 5e-4f);
+
+            // Long-path detector: the antipodal long-arc would produce a
+            // quaternion oriented ~176° from `from`, which has a large
+            // angular delta. Compute the angle between the result and the
+            // expected short-path midpoint and assert it is small. This is
+            // independent of the component-wise check above and catches
+            // sign-correction regressions even if AssertQuaternionCloseUpToSign
+            // is loosened in the future.
+            float resultDotShort = mid.x * shortPathMid.x
+                + mid.y * shortPathMid.y
+                + mid.z * shortPathMid.z
+                + mid.w * shortPathMid.w;
+            float angleFromShortPathDegrees = (float)(2.0 * System.Math.Acos(
+                System.Math.Min(1.0f, System.Math.Abs(resultDotShort))) * 180.0 / System.Math.PI);
+            Assert.True(angleFromShortPathDegrees < 1.0f,
+                $"Slerp result is {angleFromShortPathDegrees:F2}° from short-path midpoint; sign-correction likely missing.");
+        }
+
+        // Pure helper: unit quaternion for a `degrees` rotation around the
+        // y-axis. Kept local to TrajectoryMathTests so the Slerp regression
+        // tests do not depend on UnityEngine.Quaternion.AngleAxis (which is a
+        // Unity ECall that the xUnit JIT verifier rejects).
+        private static Quaternion UnitQuaternionAroundY(float degrees)
+        {
+            float halfRad = degrees * (float)(System.Math.PI / 180.0) * 0.5f;
+            float s = (float)System.Math.Sin(halfRad);
+            float c = (float)System.Math.Cos(halfRad);
+            return new Quaternion(0f, s, 0f, c);
+        }
+
+        private static void AssertQuaternionCloseUpToSign(
+            Quaternion expected, Quaternion actual, float tolerance)
+        {
+            // Unit quaternions q and -q represent the same physical rotation;
+            // the sign-corrected Slerp may return either depending on the
+            // caller's stored endpoint hemisphere. Accept both forms.
+            float dot = expected.x * actual.x + expected.y * actual.y
+                + expected.z * actual.z + expected.w * actual.w;
+            Quaternion candidate = dot >= 0f
+                ? actual
+                : new Quaternion(-actual.x, -actual.y, -actual.z, -actual.w);
+            AssertQuaternionClose(expected, candidate, tolerance);
+        }
+
         private static void AssertQuaternionClose(Quaternion expected, Quaternion actual, float tolerance)
         {
             Assert.InRange(System.Math.Abs(expected.x - actual.x), 0, tolerance);
