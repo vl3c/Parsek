@@ -108,7 +108,7 @@ namespace Parsek
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
         private int watchCutoffConsecutiveFrames;      // consecutive frames the cached cutoff has tripped (debounce)
-        private string watchCycleCursorRecordingId;    // W-key rotation cursor; persists across cycle presses, cleared on watch exit
+        private string watchCycleCursorRecordingId;    // W-key rotation cursor; persists across cycle presses and switching ExitWatchMode, cleared on full exit
 
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
