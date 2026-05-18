@@ -5895,6 +5895,55 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>
+        /// Resolves the slot index of the chain continuation for the given
+        /// slot, or -1 if none. Used by
+        /// <see cref="ChainHandoffLogic"/> via the engine callback wired in
+        /// <see cref="ParsekPlaybackPolicy"/> to coordinate the chain-seam
+        /// handoff between a chain HEAD and its continuation.
+        ///
+        /// <para>Resolution shape mirrors <see cref="FindNextWatchTarget"/>'s
+        /// Case 1 chain-next lookup: same ChainId, ChainBranch == 0, ChainIndex
+        /// == current + 1; result is supersede-walked through
+        /// <see cref="ResolveSupersedeIndex"/> so a continuation that was
+        /// superseded by a fork resolves to the fork's index.</para>
+        ///
+        /// <para>Returns -1 on any of: invalid <paramref name="slotIndex"/>;
+        /// the slot's recording has no ChainId or is on a parallel branch
+        /// (ChainBranch &gt; 0); no candidate matches the next index;
+        /// supersede resolution lands back on the same slot (defensive,
+        /// indicates a cycle or self-supersede edge).</para>
+        /// </summary>
+        internal static int ResolveChainNextSlotIndex(
+            int slotIndex,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (committed == null || slotIndex < 0 || slotIndex >= committed.Count)
+                return -1;
+            Recording current = committed[slotIndex];
+            if (current == null
+                || string.IsNullOrEmpty(current.ChainId)
+                || current.ChainIndex < 0
+                || current.ChainBranch != 0)
+                return -1;
+            int nextChainIndex = current.ChainIndex + 1;
+            for (int j = 0; j < committed.Count; j++)
+            {
+                Recording candidate = committed[j];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ChainId, current.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != 0) continue;
+                if (candidate.ChainIndex != nextChainIndex) continue;
+                int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
+                if (resolvedIdx < 0 || resolvedIdx == slotIndex)
+                    return -1;
+                return resolvedIdx;
+            }
+            return -1;
+        }
+
         // Re-fly forks attach the canonical post-rewind continuation under a
         // tree branch point and emit a RECORDING_SUPERSEDES row pointing the
         // pre-rewind chain-next at the fork. The chain-next slot is then
