@@ -55,23 +55,29 @@ namespace Parsek.Logistics
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         // ==================================================================
-        // Manual Send-Now (v0 UI testing)
+        // Manual Send-Once (v0 UI testing)
         // ==================================================================
 
         /// <summary>
-        /// Player-driven "Send Now" — nudges a route to dispatch on the very
-        /// next <see cref="Tick"/> regardless of its scheduled
-        /// <see cref="Route.NextDispatchUT"/>. Routes the request through the
-        /// normal dispatch path (the next Tick fires `ApplyDispatch` + the
-        /// usual ERS / funds / endpoint / idempotency gates) so all
-        /// invariants hold; this helper just moves the scheduling boundary,
-        /// it does NOT bypass eligibility checks or the ledger.
+        /// Player-driven "Send Once" — arms a one-shot dispatch on a route.
+        /// Disables the auto-cycle loop (via <see cref="Route.PauseAfterCurrentCycle"/>),
+        /// brings the route's <see cref="Route.NextDispatchUT"/> down to
+        /// <paramref name="currentUT"/> so the interval-wait component of the
+        /// auto-cycle is skipped, and clears any wait-retry backoff. The
+        /// per-cycle eligibility gates (ERS, funds, resources, endpoint
+        /// resolution, and any future orbital-alignment / transfer-window
+        /// check) STILL apply: the route dispatches at the next moment those
+        /// conditions are met. After that single cycle delivers, the orchestrator
+        /// transitions the route to <see cref="RouteStatus.Paused"/> instead
+        /// of looping back to Active.
         ///
-        /// <para>Returns true when the nudge was applied. Returns false (with
-        /// an Info log) when the route is null, in a status that blocks
+        /// <para>If the route is currently Paused, "Send Once" un-pauses it
+        /// to Active first so the one-shot cycle can dispatch.</para>
+        ///
+        /// <para>Returns true when the one-shot was armed. Returns false (with
+        /// an Info log) when the route is null or in a status that blocks
         /// dispatch (`InTransit`, `MissingSourceRecording`, `SourceChanged`,
-        /// `EndpointLost`, `Paused`), or when the route is already due to
-        /// dispatch on its own schedule (no nudge needed).</para>
+        /// `EndpointLost`).</para>
         /// </summary>
         internal static bool TrySendOneCycleNow(Route route, double currentUT)
         {
@@ -81,34 +87,44 @@ namespace Parsek.Logistics
                 return false;
             }
 
-            // Status gates: only Active and resource/funds-wait routes can be
-            // nudged. Other states require user intervention (un-pause,
-            // re-record, etc.) before Send-Now is meaningful.
+            // Status gates: refuse states that aren't recoverable into a
+            // dispatchable one-shot. Paused IS accepted — Send Once un-pauses
+            // for the next cycle.
             if (route.Status != RouteStatus.Active
                 && route.Status != RouteStatus.WaitingForResources
                 && route.Status != RouteStatus.WaitingForFunds
-                && route.Status != RouteStatus.DestinationFull)
+                && route.Status != RouteStatus.DestinationFull
+                && route.Status != RouteStatus.Paused)
             {
                 ParsekLog.Info(Tag,
                     $"TrySendOneCycleNow: route={ShortIdForLog(route)} status={route.Status} — not dispatchable");
                 return false;
             }
 
-            // Already due on schedule — no nudge needed.
-            if (route.NextDispatchUT <= currentUT)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"TrySendOneCycleNow: route={ShortIdForLog(route)} already due (NextDispatchUT={route.NextDispatchUT.ToString("R", IC)} <= currentUT={currentUT.ToString("R", IC)})");
-                return true;
-            }
-
+            RouteStatus previousStatus = route.Status;
             double previousNext = route.NextDispatchUT;
-            route.NextDispatchUT = currentUT;
-            route.NextEligibilityCheckUT = null; // clear any wait-retry backoff
+
+            // Disable the auto-cycle loop. After the upcoming cycle's delivery,
+            // ApplyDelivery transitions the route to Paused instead of Active.
+            route.PauseAfterCurrentCycle = true;
+
+            // Un-pause so the dispatch evaluator can fire on the next tick.
+            if (route.Status == RouteStatus.Paused)
+                route.TransitionTo(RouteStatus.Active, "send-once-arm");
+
+            // Bring scheduling forward so the interval component of the
+            // auto-cycle wait is skipped. The per-cycle conditions (funds,
+            // resources, endpoint, alignment) are evaluated by the dispatch
+            // evaluator on the next tick and still gate the dispatch.
+            if (route.NextDispatchUT > currentUT)
+                route.NextDispatchUT = currentUT;
+            route.NextEligibilityCheckUT = null;
+
             ParsekLog.Info(Tag,
                 $"TrySendOneCycleNow: route={ShortIdForLog(route)} " +
-                $"NextDispatchUT {previousNext.ToString("R", IC)} -> {currentUT.ToString("R", IC)} " +
-                $"(next Tick will fire ApplyDispatch through the usual eligibility gates)");
+                $"prevStatus={previousStatus} prevNextDispatchUT={previousNext.ToString("R", IC)} " +
+                $"newNextDispatchUT={route.NextDispatchUT.ToString("R", IC)} " +
+                $"PauseAfterCurrentCycle=true (route will dispatch one cycle when conditions allow, then transition to Paused)");
             return true;
         }
 
@@ -721,7 +737,22 @@ namespace Parsek.Logistics
             route.NextEligibilityCheckUT = null;
 
             int inventoryActual = ctx.InventoryActualCountReader();
-            route.TransitionTo(RouteStatus.Active, plan.IsPartial ? "delivered-partial" : "delivered");
+
+            // Honor PauseAfterCurrentCycle: a route armed by "Send Once" (or a
+            // future user pause-after-cycle action) transitions to Paused
+            // after its in-flight cycle completes, instead of looping back to
+            // Active. The flag is consumed here (cleared) so a subsequent
+            // un-pause + dispatch doesn't auto-pause again.
+            if (route.PauseAfterCurrentCycle)
+            {
+                route.PauseAfterCurrentCycle = false;
+                string reason = plan.IsPartial ? "delivered-partial-then-paused" : "delivered-then-paused";
+                route.TransitionTo(RouteStatus.Paused, reason);
+            }
+            else
+            {
+                route.TransitionTo(RouteStatus.Active, plan.IsPartial ? "delivered-partial" : "delivered");
+            }
 
             ParsekLog.Info(Tag,
                 $"Delivery: route {ShortIdForLog(route)} cycle={ctx.CycleId} " +

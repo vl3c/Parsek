@@ -506,6 +506,54 @@ namespace Parsek.Tests.Logistics
             }
         }
 
+        // catches: a regression where PauseAfterCurrentCycle is set on a route
+        // but the delivery applier still transitions back to Active (auto-loop
+        // continues). The "Send Once" semantic depends on this flag being
+        // honored on delivery completion.
+        [Fact]
+        public void StatusTransition_PauseAfterCurrentCycle_TransitionsToPausedNotActive()
+        {
+            var route = BuildInTransitKscRoute(id: "route-oneshot");
+            route.PauseAfterCurrentCycle = true;
+            var plan = BuildFullFillPlan(route.Stops[0].DeliveryManifest);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0");
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            // Route transitioned to Paused (not Active) and the flag is
+            // cleared so a subsequent un-pause + dispatch doesn't auto-pause
+            // again unless re-armed.
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("InTransit→Paused") && l.Contains("delivered-then-paused"));
+        }
+
+        // catches: a regression where partial delivery + PauseAfterCurrentCycle
+        // emits the wrong status-transition reason token.
+        [Fact]
+        public void StatusTransition_PauseAfterCurrentCycle_PartialFill_EmitsPartialPausedReason()
+        {
+            var route = BuildInTransitKscRoute(id: "route-oneshot-partial");
+            route.PauseAfterCurrentCycle = true;
+            var plan = new DeliveryPlan(
+                new[] { new ResourceDeliveryLine("LiquidFuel", 100.0, 50.0) },
+                Array.Empty<InventoryDeliveryLine>(),
+                isPartial: true,
+                isZero: false);
+            var writers = new CapturingWriters();
+            var ctx = BuildContext(writers, cycleId: "cycle-0");
+
+            RouteOrchestrator.ApplyDeliveryFromPlan(route, plan, ctx);
+
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("InTransit→Paused") && l.Contains("delivered-partial-then-paused"));
+        }
+
         // catches: catch-up loop not continuing after delivery — would require
         // two ticks where one is sufficient.
         [Fact]

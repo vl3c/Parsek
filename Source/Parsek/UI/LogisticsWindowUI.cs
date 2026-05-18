@@ -199,13 +199,17 @@ namespace Parsek
             GUILayout.Label(route.Status.ToString(), GUILayout.Width(ColW_Status));
             GUI.contentColor = prevColor;
 
-            // Send Once button — disabled for non-dispatchable states. Tooltip
-            // explains the reason on hover. The route still dispatches on its
-            // own schedule when orbital-alignment / interval conditions are met;
-            // Send Once is a player override for this single cycle only.
+            // Send Once button — disables the auto-cycle loop and arms a
+            // single dispatch. The route fires at the next moment its
+            // per-cycle conditions allow (funds, resources, endpoint resolved,
+            // orbital alignment / transfer window). After the cycle delivers,
+            // the route transitions to Paused (auto-cycle off). Refused only
+            // for states the orchestrator can't recover into a one-shot
+            // (InTransit / MissingSource / SourceChanged / EndpointLost);
+            // Paused routes un-pause on click.
             bool sendable = IsSendNowEnabled(route);
             string tooltip = sendable
-                ? "Dispatch this cycle immediately (~1 game second). The route continues its normal schedule afterwards."
+                ? "Send one cycle at the next moment conditions allow (funds, resources, endpoint, orbital alignment). The route auto-pauses after that cycle delivers; click Send Once again to fire another one-shot."
                 : $"Send Once disabled: status={route.Status}";
             GUI.enabled = sendable;
             if (GUILayout.Button(new GUIContent("Send Once", tooltip), GUILayout.Width(ColW_Action)))
@@ -300,14 +304,19 @@ namespace Parsek
         }
 
         // Pure helper for test reachability — also used by the row draw to
-        // gate the button without duplicating the predicate.
+        // gate the button without duplicating the predicate. Mirrors
+        // RouteOrchestrator.TrySendOneCycleNow's status-accept set: Active,
+        // recoverable wait states, AND Paused (Send Once un-pauses for one
+        // cycle). Refused for InTransit (cycle already in flight) and the
+        // three "source/endpoint broken" states that need separate recovery.
         internal static bool IsSendNowEnabled(Route route)
         {
             if (route == null) return false;
             return route.Status == RouteStatus.Active
                 || route.Status == RouteStatus.WaitingForResources
                 || route.Status == RouteStatus.WaitingForFunds
-                || route.Status == RouteStatus.DestinationFull;
+                || route.Status == RouteStatus.DestinationFull
+                || route.Status == RouteStatus.Paused;
         }
     }
 }

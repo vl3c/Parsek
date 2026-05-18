@@ -15,7 +15,7 @@ All notable changes to Parsek are documented here.
 
 ### UI
 
-- New "Logistics" button in the main Parsek window opens a Supply Routes table (available in both Flight and Space Center scenes). Each row lists name, origin, destination (body + coords + situation), interval, transit duration, completed cycles, current status, and a "Send Once" button that immediately dispatches this single cycle (the route still continues its normal scheduled dispatch afterwards). The table-bottom footer shows the total route count. v0 surface — no editing, no per-route detail view, just enough to verify the route dispatches and delivers as intended.
+- New "Logistics" button in the main Parsek window opens a Supply Routes table (available in both Flight and Space Center scenes). Each row lists name, origin, destination (body + coords + situation), interval, transit duration, completed cycles, current status, and a "Send Once" button that arms a one-shot dispatch — the route fires a single cycle at the next moment its per-cycle conditions allow (funds, resources, endpoint resolved, orbital alignment), then transitions to Paused. Click Send Once again to fire another single cycle. The table-bottom footer shows the total route count. v0 surface — no editing, no per-route detail view, just enough to verify the route dispatches and delivers as intended.
 
 ### Defaults
 

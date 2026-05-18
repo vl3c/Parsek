@@ -570,7 +570,9 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
-        // TrySendOneCycleNow (v0 Logistics UI Send-Now button)
+        // TrySendOneCycleNow (v0 Logistics UI Send Once button) — arms a
+        // one-shot dispatch via PauseAfterCurrentCycle, skips the interval
+        // wait, but preserves per-cycle eligibility gates.
         // ==================================================================
 
         [Fact]
@@ -581,25 +583,29 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void TrySendOneCycleNow_ActiveRouteFutureDispatch_PullsScheduleForward()
+        public void TrySendOneCycleNow_ActiveRoute_ArmsOneShotAndPullsScheduleForward()
         {
             var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
             bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
             Assert.True(ok);
             Assert.Equal(100.0, route.NextDispatchUT);
             Assert.Null(route.NextEligibilityCheckUT);
+            Assert.True(route.PauseAfterCurrentCycle);
+            Assert.Equal(RouteStatus.Active, route.Status);
         }
 
         [Fact]
-        public void TrySendOneCycleNow_RouteAlreadyDue_NoOps()
+        public void TrySendOneCycleNow_AlreadyDue_StillArmsPauseAfter()
         {
             var route = BuildActiveDueKscRoute(nextDispatchUT: 50.0);
-            // Set a wait-retry to verify it stays untouched on the already-due path.
             route.NextEligibilityCheckUT = 75.0;
             bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
             Assert.True(ok);
-            Assert.Equal(50.0, route.NextDispatchUT); // unchanged
-            Assert.Equal(75.0, route.NextEligibilityCheckUT); // unchanged
+            // NextDispatchUT was already in the past — left alone, but the
+            // one-shot flag is still set and the wait-retry backoff is cleared.
+            Assert.Equal(50.0, route.NextDispatchUT);
+            Assert.Null(route.NextEligibilityCheckUT);
+            Assert.True(route.PauseAfterCurrentCycle);
         }
 
         [Fact]
@@ -610,16 +616,19 @@ namespace Parsek.Tests.Logistics
             bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
             Assert.False(ok);
             Assert.Equal(1_000_000.0, route.NextDispatchUT);
+            Assert.False(route.PauseAfterCurrentCycle);
         }
 
         [Fact]
-        public void TrySendOneCycleNow_Paused_Refuses()
+        public void TrySendOneCycleNow_Paused_UnPausesAndArmsOneShot()
         {
             var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
             route.Status = RouteStatus.Paused;
             bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
-            Assert.False(ok);
-            Assert.Equal(1_000_000.0, route.NextDispatchUT);
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Equal(100.0, route.NextDispatchUT);
+            Assert.True(route.PauseAfterCurrentCycle);
         }
 
         [Fact]
@@ -629,10 +638,11 @@ namespace Parsek.Tests.Logistics
             route.Status = RouteStatus.MissingSourceRecording;
             bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
             Assert.False(ok);
+            Assert.False(route.PauseAfterCurrentCycle);
         }
 
         [Fact]
-        public void TrySendOneCycleNow_WaitingForResources_AcceptsAndPullsForward()
+        public void TrySendOneCycleNow_WaitingForResources_ArmsOneShot()
         {
             var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
             route.Status = RouteStatus.WaitingForResources;
@@ -641,6 +651,11 @@ namespace Parsek.Tests.Logistics
             Assert.True(ok);
             Assert.Equal(100.0, route.NextDispatchUT);
             Assert.Null(route.NextEligibilityCheckUT);
+            Assert.True(route.PauseAfterCurrentCycle);
+            // Status stays WaitingForResources — the evaluator will refresh it
+            // when it next runs (it transitioned in here through the Active
+            // → WaitingForResources path; un-pausing is only for Paused).
+            Assert.Equal(RouteStatus.WaitingForResources, route.Status);
         }
     }
 }
