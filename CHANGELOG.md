@@ -22,6 +22,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Re-Fly provisional recordings now anchor their Relative track sections on the recording they continue (supersede target) instead of on whichever in-bubble vessel happens to be nearest. Fixes 178m ghost teleports and subsurface dives during watch mode when a sibling vessel from the original launch (typically the lower-stage probe) is still loaded. The recorder also pre-checks that the supersede target's authored trajectory covers the current UT before opening a Relative section, so nested re-flies whose rewind point predates the prior provisional's start record cleanly as Absolute instead of section-thrashing every frame.
+- The `relative-anchor-unresolved` diagnostic log now distinguishes `focusRecordingId=` (the recording trying to resolve its anchor) from `anchorRecordingId=` (the anchor recording the resolver failed at). Previously both fields could show the same id, making "anchor recording has no data at UT" indistinguishable in logs from "the producer wrote a self-anchor edge".
 - Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
 - Map Switch-To now opens a Merge/Discard dialog for the prior switch-segment recording before switching, instead of silently superseding it and orphaning the tree.
 - Map Switch-To to a far vessel now opens the Merge/Discard dialog for the ongoing recording before the scene reload, matching the Esc-to-Space-Center behavior.
