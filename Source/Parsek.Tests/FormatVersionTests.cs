@@ -320,14 +320,5 @@ namespace Parsek.Tests
             Assert.False(compatible);
             Assert.Equal("generation-older", reason);
         }
-
-        [Fact]
-        public void NamedConstant_ControlledChildParentAnchorSchemaGeneration_Is2()
-        {
-            // Pins the named constant used by the recorder when gating new
-            // behavior on the contract widening (avoids raw integer comparisons
-            // per project convention).
-            Assert.Equal(2, RecordingStore.ControlledChildParentAnchorSchemaGeneration);
-        }
     }
 }

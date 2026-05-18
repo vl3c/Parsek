@@ -103,19 +103,13 @@ namespace Parsek
         }
 
         public const int CurrentRecordingFormatVersion = 1;
+        // Generation 2 landed the parent-anchor contract extension to
+        // controlled-decoupled children (PR following #872 / #874). The
+        // on-disk truth table widened to admit the previously-unreachable row
+        // (IsDebris=false, DebrisParentRecordingId=non-null); pre-bump
+        // recordings are rejected with reason "generation-older" so a pre-fix
+        // loader never sees the widened shape.
         public const int CurrentRecordingSchemaGeneration = 2;
-
-        /// <summary>
-        /// Schema generation that landed the parent-anchor contract extension to
-        /// controlled-decoupled children (PR following #872 / #874). Recordings
-        /// authored before this generation are not loaded - the on-disk truth
-        /// table widened to admit the previously-unreachable row
-        /// <c>(IsDebris=false, DebrisParentRecordingId=non-null)</c>, and a pre-fix
-        /// loader would silently mis-render those rows as plain Absolute. Use
-        /// this named constant rather than the raw integer when gating new
-        /// behavior on the contract widening per project convention.
-        /// </summary>
-        public const int ControlledChildParentAnchorSchemaGeneration = 2;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
