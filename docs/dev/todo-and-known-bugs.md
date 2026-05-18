@@ -365,30 +365,17 @@ The recorded anchor-local distance (~345 m) is by itself plausible ballistic sep
 
 ---
 
-## Open - v0.10.0 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
+## Done - v0.10.0 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
 
-**Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log` lines 62710 / 62718 / 62744:
+- ~~Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log` lines 62710 / 62718 / 62744: three rapid `WARN][CameraFollow] Auto-follow target #18 has no active ghost - deferring transfer` lines in ~17 ms before the rec #18 primary ghost finally activates at 20:07:39.524 and the transfer completes at 20:07:39.526. No user-visible regression (the deferral retries succeed within one or two physics frames), but the warn-level cascade was noisy and looked like a runtime fault.~~
 
-```
-WARN][CameraFollow] Auto-follow target #18 has no active ghost - deferring transfer
-```
+**Root cause:** `ProcessWatchEndHoldTimer` / `FindNextWatchTarget` finds the chain continuation index as soon as the head segment passes its endUT, and `WatchModeController.TransferWatchToNextSegment` immediately tests `host.Engine.ghostStates` for the continuation's primary ghost. The continuation's primary spawn is driven by a separate engine pass (per-frame ghost activation) that lands one or two frames later, so the first few transfer attempts hit the no-active-ghost branch.
 
-Three retries in ~17 ms before the rec #18 primary ghost actually activates at 20:07:39.524 and the transfer completes at 20:07:39.526. No user-visible regression here (the deferral mechanism does succeed within one frame), but the warn-level cascade is noisy and indicates the watch state machine is racing the chain segment activation rather than waiting for a positive activation signal.
+**Fix:** Demoted the deferred-transfer log inside `TransferWatchToNextSegment` from `ParsekLog.Warn` to a new `internal static` helper `WatchModeController.LogAutoFollowDeferred(int nextIndex, string recordingId)` that funnels through `ParsekLog.VerboseRateLimited` with key `auto-follow-deferred-{recordingId}` (or `auto-follow-deferred-idx-{nextIndex}` when the id is null or empty, defensive only). Keying by the stable recording id rather than the committed-list slot means two distinct chain transfers cannot collide when the index is reused across deletes or supersede swaps in the same session. Each chain transfer logs at most one `Auto-follow target #N has no active ghost - deferring transfer` line at VERBOSE, distinct recordings use distinct rate-limit slots so an unrelated chain transfer is not silenced, and the 5s default window means a later transfer reusing the same recording still logs once. The polling shape itself is unchanged: the next physics tick re-evaluates `HasActiveGhost` and the transfer completes as soon as the continuation's primary activates. The event-driven `GhostActivated` variant from the original fix candidates is deferred — the cosmetic acceptance is met by the rate-limited Verbose alone.
 
-**Root cause hypothesis:** `ProcessWatchEndHoldTimer` / `FindNextWatchTarget` finds the chain continuation index as soon as the head segment passes its endUT, and `WatchModeController` immediately calls `TransferWatch`. The continuation's primary ghost spawn is driven by a separate engine pass (per-frame ghost activation), which lands one or two frames later. The transfer call walks the `HasActiveGhost` predicate, finds false, and logs the warn line; the next physics tick re-evaluates and succeeds.
+**Coverage:** `WatchModeControllerTests.LogAutoFollowDeferred_RepeatedSameTarget_EmitsVerboseOnceWithinRateLimit` captures `ParsekLog` output with the test sink, drives three rapid `LogAutoFollowDeferred(18, "rec-a")` calls under a deterministic clock override, and asserts (a) exactly one VERBOSE line emits for the burst, (b) no WARN line is emitted, (c) the same index `18` with a different recording id `rec-b` keys a fresh slot and emits independently (the bug-fix property — index reuse across distinct recordings must not silence), (d) past the 5s window the same recording re-emits. `LogAutoFollowDeferred_NullOrEmptyRecordingId_FallsBackToIndexKey` pins the defensive fallback so a null or empty id still keys per-target instead of collapsing every fallback call onto one slot. Full suite is 12204 passing.
 
-**Fix candidates:**
-
-- (Event-driven) Subscribe `WatchModeController` to a `GhostActivated` event on the continuation index, and only fire `TransferWatch` once the event arrives. Eliminates polling + warn-spam.
-- (Demote logging) Move the deferral message to `Verbose` (it is a normal transient state, not a warning). Keeps the polling but un-spams the WARN volume.
-
-**Scope:** `WatchModeController.TransferWatch` and the auto-follow polling loop. Self-contained; trivial logging-only variant is a one-line change.
-
-**Acceptance:**
-- Replaying the same save logs at most one `Auto-follow target #N has no active ghost` line at Verbose level per chain transfer, not WARN.
-- (Stronger acceptance for the event-driven variant) Zero lines, and the transfer happens on the same frame the continuation's primary spawns.
-
-**Status:** OPEN. Low priority; cosmetic. Same playtest as the entries above.
+**Status:** CLOSED 2026-05-18.
 
 ---
 
