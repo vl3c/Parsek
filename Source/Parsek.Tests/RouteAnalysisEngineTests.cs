@@ -341,5 +341,130 @@ namespace Parsek.Tests
             storedPart.AddValue("quantity", "1");
             return VesselSpawner.ComputeInventoryPayloadIdentityHash(storedPart);
         }
+
+        // ---------------------------------------------------------------
+        // CollectSourcePathRecordingIds — regression for playtest 6
+        // ---------------------------------------------------------------
+        // When the player switches vessels before committing,
+        // ParsekFlight.OnVesselSwitchComplete nulls activeTree.ActiveRecordingId
+        // (line 3029, transitioning old recorder to background). The previous
+        // leaf-to-root walk fell back to RootRecordingId and only found the
+        // root itself — a route window on a non-root branch (e.g. a dock-merged
+        // child after dock+undock) was invisible and AnalyzeTree returned
+        // MissingRouteProof even though the saved tree carried a complete
+        // RouteConnectionWindow with both DOCK_/UNDOCK_ resource manifests.
+
+        [Fact]
+        public void CollectSourcePathRecordingIds_NoActiveRecordingId_IncludesAllRecordings()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-x",
+                RootRecordingId = "root",
+                ActiveRecordingId = null
+            };
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "root", TreeId = "tree-x" });
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "merged-child", TreeId = "tree-x" });
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "post-undock", TreeId = "tree-x" });
+
+            HashSet<string> path = RouteAnalysisEngine.CollectSourcePathRecordingIds(tree);
+
+            Assert.NotNull(path);
+            Assert.Contains("root", path);
+            Assert.Contains("merged-child", path);
+            Assert.Contains("post-undock", path);
+        }
+
+        [Fact]
+        public void CollectSourcePathRecordingIds_ActiveSet_WalksLeafToRoot()
+        {
+            var tree = new RecordingTree
+            {
+                Id = "tree-x",
+                RootRecordingId = "root",
+                ActiveRecordingId = "post-undock"
+            };
+            tree.BranchPoints = new List<BranchPoint>
+            {
+                new BranchPoint
+                {
+                    Id = "bp-undock",
+                    ParentRecordingIds = new List<string> { "merged-child" }
+                },
+                new BranchPoint
+                {
+                    Id = "bp-dock",
+                    ParentRecordingIds = new List<string> { "root" }
+                }
+            };
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "root", TreeId = "tree-x" });
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "merged-child", TreeId = "tree-x", ParentBranchPointId = "bp-dock" });
+            tree.AddOrReplaceRecording(new Recording { RecordingId = "post-undock", TreeId = "tree-x", ParentBranchPointId = "bp-undock" });
+
+            HashSet<string> path = RouteAnalysisEngine.CollectSourcePathRecordingIds(tree);
+
+            Assert.NotNull(path);
+            Assert.Equal(3, path.Count);
+            Assert.Contains("root", path);
+            Assert.Contains("merged-child", path);
+            Assert.Contains("post-undock", path);
+        }
+
+        [Fact]
+        public void AnalyzeTree_DockUndockOnTreeWithoutActiveRecordingId_FindsWindowOnMergedChild()
+        {
+            // Replicate playtest 6 topology: tree has root (pre-dock) +
+            // dock-merged child (carrying complete route window) + post-undock
+            // survivor, and ActiveRecordingId is null because the player
+            // switched vessels before committing.
+            var tree = new RecordingTree
+            {
+                Id = "tree-playtest6",
+                RootRecordingId = "ef3dacb5",
+                ActiveRecordingId = null // <-- the bug condition
+            };
+            tree.BranchPoints = new List<BranchPoint>
+            {
+                new BranchPoint
+                {
+                    Id = "bp-dock",
+                    ParentRecordingIds = new List<string> { "ef3dacb5" }
+                },
+                new BranchPoint
+                {
+                    Id = "bp-undock",
+                    ParentRecordingIds = new List<string> { "daaeb89c" }
+                }
+            };
+            tree.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = "ef3dacb5",
+                TreeId = "tree-playtest6",
+                ParentBranchPointId = null
+            });
+            tree.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = "daaeb89c",
+                TreeId = "tree-playtest6",
+                ParentBranchPointId = "bp-dock",
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    BuildDeliveryWindow()
+                }
+            });
+            tree.AddOrReplaceRecording(new Recording
+            {
+                RecordingId = "31665c16",
+                TreeId = "tree-playtest6",
+                ParentBranchPointId = "bp-undock"
+            });
+
+            RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(tree);
+
+            Assert.True(result.IsEligible,
+                $"Expected route eligible, got {result.Status} — daaeb89c carries the window and must be reachable when ActiveRecordingId is null");
+            Assert.Equal(RouteAnalysisStatus.Eligible, result.Status);
+            Assert.Equal("daaeb89c", result.SourceRecording?.RecordingId);
+        }
     }
 }

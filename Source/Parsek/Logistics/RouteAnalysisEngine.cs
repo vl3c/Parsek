@@ -404,16 +404,34 @@ namespace Parsek.Logistics
                 true);
         }
 
-        private static HashSet<string> CollectSourcePathRecordingIds(RecordingTree tree)
+        internal static HashSet<string> CollectSourcePathRecordingIds(RecordingTree tree)
         {
             if (tree?.Recordings == null || tree.Recordings.Count == 0)
                 return null;
 
-            string leafId = !string.IsNullOrEmpty(tree.ActiveRecordingId)
-                ? tree.ActiveRecordingId
-                : tree.RootRecordingId;
-            if (string.IsNullOrEmpty(leafId))
-                return null;
+            // When ActiveRecordingId is empty — typical after the player
+            // switches vessels before committing, which nulls
+            // activeTree.ActiveRecordingId in ParsekFlight.OnVesselSwitchComplete
+            // (line 3029, transitioning the old recorder to background) — the
+            // leaf-to-root walk from RootRecordingId finds only the root
+            // itself, so a route window on a non-root branch (e.g. a
+            // dock-merged child) is invisible. Fall back to every recording in
+            // the tree: for v0 single-route eligibility we just need to know
+            // whether ANY recording carries a complete RouteConnectionWindow,
+            // and committed trees never carry orphaned debris that would
+            // misclassify.
+            if (string.IsNullOrEmpty(tree.ActiveRecordingId))
+            {
+                var all = new HashSet<string>();
+                foreach (string id in tree.Recordings.Keys)
+                {
+                    if (!string.IsNullOrEmpty(id))
+                        all.Add(id);
+                }
+                return all.Count > 0 ? all : null;
+            }
+
+            string leafId = tree.ActiveRecordingId;
 
             var branchPointsById = new Dictionary<string, BranchPoint>();
             if (tree.BranchPoints != null)
