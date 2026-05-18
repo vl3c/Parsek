@@ -72,6 +72,27 @@ namespace Parsek
                 ParsekLog.Verbose("ReFlySettle", message);
         }
 
+        /// <summary>
+        /// Frame counter of the most recent stock `FloatingOrigin.setOffset`
+        /// observed by the postfix patch, or `int.MinValue` if no shift has
+        /// been observed yet. Read by diagnostic-only consumers (e.g. the
+        /// `GhostRenderTrace` large-delta detector) that need to suppress
+        /// per-frame anomaly attribution on frames where the world coordinates
+        /// shifted under all ghosts simultaneously.
+        /// </summary>
+        internal static int LastFloatingOriginShiftFrame =>
+            lastFloatingOriginShiftFrame;
+
+        /// <summary>
+        /// Test seam: production reads `lastFloatingOriginShiftFrame` directly
+        /// via the property above; xUnit needs to inject a synthetic value
+        /// without going through `RecordFloatingOriginShift` (which logs).
+        /// </summary>
+        internal static void SetLastFloatingOriginShiftFrameForTesting(int frame)
+        {
+            lastFloatingOriginShiftFrame = frame;
+        }
+
         internal static bool IsHoldActiveForRecording(string recordingId, int frame)
         {
             string reason;

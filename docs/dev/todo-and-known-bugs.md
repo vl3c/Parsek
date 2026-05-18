@@ -237,41 +237,123 @@ Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=Record
 
 ---
 
-## Open - v0.9.2 Rotation Slerp wraparound (quaternion antipodality) teleports Relative-anchored ghosts mid-section
+## Done - v0.9.2 Rotation Slerp wraparound (quaternion antipodality) teleports Relative-anchored ghosts mid-section
 
-**Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. At UT 66.220 in `rec_65833a40…` section 1 (Relative-anchored to `affc443f…`), the rendered position jumped **178m in one frame** while the playback bracket (`beforeUT=65.900 afterUT=66.320`) and `t`-fraction (0.7143 → 0.7619) were continuous with the previous frame. The ghost's world rotation jumped backward from `(0.83, -0.12, -0.12, -0.53)` to `(0.62, -0.39, -0.38, -0.56)` — reversing ~75% of its smooth evolution from earlier frames. Sequence of `GhostRenderTrace` lines around the teleport:
+- ~~Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. At UT 66.220 in `rec_65833a40...` section 1 (Relative-anchored to `affc443f...`), the rendered position appeared to jump 178m in one frame while the playback bracket and `t`-fraction were continuous with the previous frame. Hypothesis was a missing sign-correction in `Quaternion.Dot < 0` antipodality handling on the read side, or write-side adjacency drift between adjacent localRotation samples.~~
 
-```
-frame 60992 UT 66.200 t=0.7143 rot=(0.83,-0.12,-0.12,-0.53) final=(1258,-78,1468) alt=-62  ← subsurface
-frame 60994 UT 66.220 t=0.7619 rot=(0.62,-0.39,-0.38,-0.56) final=(1092,-16,1489) alt=+83  ← TELEPORT
-frame 60996 UT 66.240 t=0.8095 rot=(0.61,-0.41,-0.40,-0.55) final=(1071,-11,1492) alt=+102
-```
+**Resolution (verified non-defect):** A code audit plus three independent log analyses (the original PR #874 log, a PR #889-build playtest at `logs/2026-05-18_1904_pr889-validate-rotation-slerp/`, and a trace-enabled PR #889 playtest at `logs/2026-05-18_1953_pr889-rotation-trace/`) all agree: there is no rotation-Slerp wraparound bug.
 
-The anchor (`affc443f`) itself was smooth — its own position dM was 0.87 m/UT-step (~43 m/s), rotation evolved monotonically, no `sectionCrossed`. The discontinuity is entirely on `rec_6583`'s side, inside a single TrackSection's interpolation.
+- **Code audit:** every quaternion-interpolation site already does sign-correction. `TrajectoryMath.PureSlerp` (used by `RelativeAnchorResolver` and `ParsekKSC` for both `relativeRotation` and `surfaceRotation` interpolations), `RecordingOptimizer.SlerpQuaternionManaged`, and `SpawnCollisionDetector.SlerpQuaternionManaged` all carry the canonical `if (dot < 0) { to = -to; dot = -dot; }` pre-step. Stock `Quaternion.Slerp` (used at 5 sites in `ParsekFlight.cs` and once in `RecordingOptimizer.cs:871`) handles sign-correction internally per the Unity contract. No long-arc Slerp anywhere in the codebase.
+- **PR #874 log reanalysis:** the 178m "teleport" is fully explained by the anchor's own recorded rotation. `affc443f`'s rotation at UT 66.200 and UT 66.220 are recorded samples whose dot product is `+0.89` (~53 deg apart, ~2650 deg/s on a fast-tumbling decoupled booster). At each query the anchor pose resolver returns `Slerp(rot_A, rot_B, 1.0) = rot_B` (the recorded sample directly), so no Slerp interpolation is even taking place. The visible 178m comes from a sparse-sampled re-fly ghost (bracket [65.900, 66.320]) being placed via `anchor.rot * localOffset` where the anchor rotation jumps 53 deg between consecutive ghost frames. This is the anchor-selection bug already addressed by PR #889 (the re-fly provisional should not have been anchored to a fast-separating sibling in the first place).
+- **PR #889-build playtest (no trace):** zero `reason=large-delta` events. All 18 `PlaybackTrace dM > 50m` events explain as 7 spawn-jolts at first-frame placement, 8 end-of-section explosion frames, and 3 stock `FloatingOrigin.setOffset` shifts.
+- **PR #889 trace-enabled playtest:** 1309 `reason=large-delta` events break down as ~1296 orbital ghost playback false positives (orbital segments carry `velocity=(0,0,0)` so `expectedDM=0`, but Kepler propagation moves the ghost at ~1400 m/s; rotation evolves smoothly across frames with adjacent-frame dot products ~ +0.999) plus ~13 floating-origin coordinate-shift false positives (each cluster pairs 1:1 with a `FloatingOrigin.setOffset` line on the same frame). No real teleport or rotation discontinuity in any sample.
 
-**Root cause hypothesis:** Slerp between two quaternions `q1` and `q2` has two valid paths (one direct, one via `-q2` since `q` and `-q` represent the same rotation). The standard math takes the long path when `q1·q2 < 0`. The standard fix is to negate one quaternion when the dot product is negative, ensuring shortest-path interpolation:
+**Closure follow-ups:**
 
-```csharp
-if (Quaternion.Dot(q1, q2) < 0) q2 = -q2;
-return Quaternion.SlerpUnclamped(q1, q2, t);
-```
+- Regression test added: `TrajectoryMathTests.PureSlerp_NearAntipodalEndpoints_TakesShortPath` covers `dot ~ -0.99` (not just the existing exact `dot = -1` case) for all three custom Slerp implementations so a future read-side regression that drops the sign-correction can never slip through.
+- Large-delta detector hardened against the two false-positive shapes uncovered during this investigation (orbital signature + floating-origin shift frame). See [`GhostRenderTrace.cs`](Source/Parsek/GhostRenderTrace.cs) and the new tests in `GhostRenderTraceTests`. This stops the next investigator from chasing the same red herring.
+- New Open entry filed for the supersede-target anchor cascade that surfaced in the PR #889 log (`anchor-out-of-recorded-range`).
 
-Either Parsek's rotation-interpolation routine (`TrajectoryMath.SlerpQuaternion` or wherever it lives) is missing this sign-correction, OR the recorder stored two adjacent localRotation samples whose quaternions are near-antipodal (e.g. one as `q`, the next as `-q` for the same orientation), forcing the Slerp into the long path even with sign-correction. Audit both write-side and read-side. The frame 60994 result (`rot ≈ frame 60970`'s value, almost a full "rewind") is consistent with the Slerp output starting to loop back toward the start quaternion via the long path as `t` approaches the section endpoint.
+**Status:** CLOSED 2026-05-18.
 
-**Independence from the re-fly-provisional-anchor bug:** These are two separate bugs that happened to co-occur in the same playtest. Even with a correct anchor choice (the re-fly-provisional-anchor fix above), a Slerp wraparound can teleport ANY Relative-frame ghost whose recorded localRotation samples bracket an antipodal pair. Both need separate fixes; either fix alone leaves the other failure mode latent.
+---
+
+## Open - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
+
+**Evidence:** Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces:
+
+| Ghost | Recording | UT range | Chain role |
+|---|---|---|---|
+| #17 | `c059aabf...` | payload `[292.96, 335.57]` + orbit segment `[359.64, 1364.71]` | chain HEAD (chainBranch=0 chainIndex=0) |
+| #25 | `3d059f9c...` | payload `[335.567, 375.047]` | chain CONTINUATION (chainBranch=0 chainIndex=1) |
+
+Both recordings share `chainId=9cf2bb0709dc426096ec687f2fbbac37` and the `UnfinishedFlights` collapser correctly emits `reason=chainContinuation rec=3d059f9c... headRec=c059aabf...`. Both pass through the engine's `Ghost playback skip state` filter with `skip=False`, and the engine-frame-iter at the duplication window shows both as `skip=None hd=T hs=T` (independent ghost spawn slots). The user saw them as two side-by-side Probe meshes for the duration of the overlap; ghost #25 destroys at 20:08:18 when its 39-second payload ends, leaving ghost #17 to continue alone.
+
+**Root cause hypothesis:** Chain-continuation recordings (typically a switch/Fly-recorded segment of a vessel after a BG-recorded background segment of the same physical vessel) are treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` correctly collapses the chain in the UI (Timeline / STASH groups), and supersede / rewind-retired filters strip out the right rows, but no analogous "chain continuation shadows its head's UT range" filter exists in the ghost spawn / render path. The semantics players expect: a continuation should suppress the head's playback inside the continuation's UT range (or vice versa, depending on which surface is the better representation). When the head also has an orbital tail segment that picks up *after* the continuation ends, the head should be hidden inside the continuation's UT window only, not for its entire range. This is the structural-fix sibling of the producer-side fixes around `DebrisParentRecordingId` and the PR #889 anchor selection: chain-link metadata exists and is honoured by the UI but the playback engine ignores it.
+
+**Cross-reference:** Same chain mechanism likely affects the `847b9b53` + `a54896f5` pair (Kerbal X main vessel, also chain-linked chainId=287905c4) in the same log. The pair did not visibly duplicate here because their UT ranges happen to be near-disjoint (`847b9b53` ends at UT 285.18, `a54896f5` starts at UT 335.66, separated by a ~50-second gap), but the same predicate would let them duplicate if they overlapped.
 
 **Fix candidates:**
-- (Read-side) Audit `TrajectoryMath.SlerpQuaternion` and any other rotation-interpolation call sites for `Quaternion.Dot < 0` sign-correction. Add the negation if missing.
-- (Write-side) When the recorder writes the next localRotation sample, check the dot product with the previous sample. If negative, negate the new sample before storing so adjacent samples are always in the same hemisphere. Belt-and-suspenders defense.
-- Unit test: feed Slerp two near-antipodal quaternions (`Dot ≈ -0.99`); assert the interpolated result moves directly between them rather than spinning the long way around.
 
-**Scope:** Playback rotation interpolation (`TrajectoryMath`) and/or the recorder's localRotation write path (`FlightRecorder` / `BackgroundRecorder`). Affects every Relative-frame TrackSection consumer, not just re-fly provisionals — could explain other "ghost briefly faces backwards" or "ghost briefly teleports" reports that have been hard to repro.
+- (Engine-side, preferred) When walking the chain (`EffectiveState.ResolveChain` or equivalent), suppress ghost spawn for the chain HEAD inside a continuation's `[startUT, endUT]` window (the continuation's authored payload covers it more accurately). Spawn the head's pre-continuation range and (if an orbit tail extends past the continuation) post-continuation range as separate intervals.
+- (Per-frame filter, simpler) Before spawning a chain HEAD ghost on a given frame, check whether any same-chain continuation's UT range covers the current `currentUT`. If yes, suppress the head's ghost for this frame.
+
+**Scope:** `GhostPlaybackEngine` ghost-spawn decision plus a new chain-aware visibility predicate in `EffectiveState` (or a sibling helper). No producer / recorder changes; this is purely a playback / visibility fix. Pin with unit tests on `EffectiveState.ResolveChain` and a synthetic-recording in-game test asserting at-most-one-ghost-per-chain at every UT.
 
 **Acceptance:**
-- Re-running the same playtest produces 0 mid-section position teleports in any ghost (no `dM` value >50× `expectedDM` in `GhostRenderTrace`).
-- The Slerp unit test passes with the sign-corrected implementation.
+- Replaying the same Kerbal X save reproduces the `c059aabf` + `3d059f9c` chain but shows exactly one Probe ghost throughout the UT 335-375 window.
+- Engine-frame-iter shows `skip=chain-shadowed` (or similar) for the head inside the continuation's UT range, and `skip=None` for the head outside it.
+- No regression on sequential-chain replay (e.g. the `847b9b53` + `a54896f5` case where the head ends before the continuation starts: head visible until its endUT, continuation visible from its startUT, no gap or double-render).
 
-**See also:** The "Re-fly provisional Relative section anchored to fast-separating sibling" Open entry above (same playtest, independent root cause) and the "Controlled-decoupled child vessels lack a parent-anchored recording surface" Open entry below (related anchor-selection theme).
+**Status:** OPEN. Discovered during the watch-mode large-delta playtest 2026-05-18 alongside the orbit-mode transition teleport entry below.
+
+---
+
+## Open - v0.10.0 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
+
+**Evidence:** Same watch-mode playtest log, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. Recording `c059aabf` (Kerbal X Probe) carries 43 seconds of authored payload up to UT 335.57 followed by an orbit segment covering UT 359.64 to 1364.71 (segmentIndex=0, cacheKey=170000). At frame 45241 (UT 359.659, ~24 seconds after `payloadEndUT`) the playback engine transitions from "hold last-payload position" to "orbital-frame propagation" and the ghost teleports **34,651 m in a single frame**:
+
+```
+[Parsek][VERBOSE][Playback] Predicted-tail orbit playback rec=c059aabf body=Kerbin
+                            segmentIndex=0 ut=359.66 payloadEndUT=335.57
+                            segmentUT=359.64-1364.71
+[Parsek][VERBOSE][Playback] Orbit segment 170000: orbital-frame rotation
+[Parsek][INFO][GhostRenderTrace] AfterUpdate rec=c059aabf dM=34651.54
+                                 expectedDM=28.70 alt=69806.46
+                                 velocity=(-633.02,-22.33,-1287.73)
+                                 rot=(-0.2211,-0.7646,-0.4004,0.4541)
+```
+
+After the jump, playback is smooth at the expected `dM ~ 28.45 m` per 20 ms frame (orbital velocity at 70 km altitude). Two large UT-gaps exist in the recording's playback: `UT 297.96 -> 336.72` (38.76 s gap) and `UT 338.72 -> 359.66` (20.94 s gap), with the latter being where the visible teleport happens.
+
+The rotation channel also jumps across the transition (`(0.673,-0.199,-0.233,-0.673) -> (-0.221,-0.765,-0.400,0.454)`, dot ~ -0.21, roughly 155 deg apart) but this is the deliberate switch from the stored `recordingStart`-frame quaternion to the `rotationMode=orbital-frame` quaternion the propagator emits, not a Slerp wraparound, not addressable by sign-correction. See the closed Rotation Slerp wraparound entry above for the audit details.
+
+**Root cause hypothesis:** During the gap between authored payload end (`payloadEndUT`) and the orbit segment's `startUT`, the renderer holds the ghost at its last-payload pose. When the orbit segment activates at frame N, the position transform jumps from that held pose to the orbital propagator's position at the segment's `startUT`. There's no continuity bridge (Slerp / Hermite / soft-clamp) across the gap. The trace line at the jump shows `continuityHit=false continuityWeight=0.000` confirming no continuity offset was applied. The 34 km magnitude is the integrated orbital motion over the ~24 second gap (at ~1400 m/s) so this is the propagator placing the ghost correctly, the renderer just teleports it there instead of interpolating or hiding the ghost during the gap.
+
+**Fix candidates:**
+
+- (Continuity bridge, preferred) When the renderer crosses a `payloadEnd -> orbitStart` boundary with a non-zero gap, blend the ghost's last-payload pose toward the orbit segment's `startUT` pose over a short window (e.g. 0.5-1.0 s). This matches the existing `continuityHit / continuityWeight` plumbing: the trace fields imply a bridge already exists for some transitions; figure out why it's not engaging here.
+- (Gap-hide, simpler) Hide the ghost (set inactive) while `currentUT` is inside the `[payloadEnd, orbitStart]` gap, and re-show it on the first frame of orbit propagation. Less smooth but avoids any visible teleport.
+- (Producer-side) Avoid emitting orbit segments whose `startUT` is more than a small epsilon past `payloadEnd`. If the gap is real (e.g. the recorder lost track of the vessel for 24 s), the orbit segment should be marked `startUT = payloadEnd` so the propagator picks up immediately, or the gap should be filled with a `gapCarry` flag the renderer knows to extrapolate across.
+
+**Scope:** Orbit-segment playback path in `ParsekFlight` and the orbital continuity offset machinery (`continuityHit / continuityAnchorSource / continuityWeight` are existing trace fields, so the bridge is partially built). May also need a producer audit to see how a 24-second gap appears in the first place: the recording is a Probe Kerbal X tracked through BG -> on-rails transition, so the gap likely corresponds to the moment the Probe went on-rails (BG recorder stopped per-frame sampling and emitted a closed orbit segment from the post-rail state).
+
+**Acceptance:**
+- Re-playing the same Kerbal X Probe orbital recording shows no visible teleport at the `payloadEnd -> orbitStart` transition. Either the ghost smoothly bridges the gap or it hides for the gap duration and re-appears at the orbit pose.
+- `GhostRenderTrace` no longer emits `reason=large-delta` for the transition frame with `dM` more than ~5x `expectedDM`. (The detector already permits the legitimate orbital-steady-state motion via the 2026-05-18 large-delta detector cleanup; an unbridged transition jump is still a true positive.)
+- Unit test in `OrbitSegmentPlaybackTests` (or sibling) exercises a payload-with-gap-then-orbit fixture and asserts continuity-offset blending applies on the first orbit frame.
+
+**Status:** OPEN. Discovered during the watch-mode trajectory-instability playtest 2026-05-18 alongside the chain-continuation co-render entry above. Independent root cause.
+
+---
+
+## Open - v0.10.0 PR #889 supersede-target anchor can be out-of-range, cascading thousands of force-transitions to Absolute
+
+**Evidence:** Surfaced in two PR #889-build playtest logs (`logs/2026-05-18_1904_pr889-validate-rotation-slerp/KSP.log` with 4115 `WARN][Anchor] anchor-out-of-recorded-range` lines, and `logs/2026-05-18_1953_pr889-rotation-trace/KSP.log` with 108 of the same). In both runs the cascade fired on the most-recent re-fly fork's supersede-target anchor (e.g. anchor `a54896f5...` and `3d059f9c...`), with one warning per physics tick over multi-second windows:
+
+```
+WARN][Anchor] Anchor recording id=a54896f5... unresolved -- forcing transition to ABSOLUTE at UT=294.02 reason=anchor-out-of-recorded-range
+WARN][RelativeAnchorResolver] relative-anchor-unresolved: reason=anchor-out-of-recorded-range focusRecordingId=rec_6c5523... anchorRecordingId=a54896f5... sectionIndex=(none) ut=294.023
+INFO][Recorder] High-fidelity sampling window active: reason=relative-force-exit-anchor-out-of-recorded-range eventUT=294.02 untilUT=297.02 windowSeconds=3.000
+```
+
+Each frame logs three lines through the same code path. 1300 warnings per playtest is two orders of magnitude over normal anchor-warn volume and visible in the log as a wall of WARN-level noise.
+
+**Root cause hypothesis:** PR #889's anchor selection prefers the supersede target (`marker.SupersedeTargetId`) as the Relative section anchor for a re-fly provisional (physical-identity continuation, monotone in time). The recorder also pre-checks coverage before opening a Relative section. But once a Relative section IS open and the recorder writes per-frame samples, the playback-side `RelativeAnchorResolver` (and per-frame anchor lookup) can still discover that the anchor's recorded UT range does not cover the current playback UT. The current code path is: log WARN -> force-transition to Absolute for this frame -> open a 3-second high-fidelity sampling window -> re-evaluate next frame. Every physics tick inside the bad window re-emits the same warning. The choice may be correct (the anchor really is out of range) but the cascade pattern indicates the producer-side "anchor coverage" precheck does not actually prevent the runtime warning loop, OR the playback resolver is re-evaluating per-tick a decision the recorder already settled.
+
+**Fix candidates:**
+
+- (Producer-side, preferred) When the recorder force-exits a Relative section for `anchor-out-of-recorded-range`, mark the section as Absolute-from-here in the recording metadata so subsequent frames do not re-enter the resolver and re-emit. The high-fidelity sampling window suggests the recorder already knows about the event; the missing piece is durable state that survives the next frame.
+- (Logging only, as a band-aid) Rate-limit the `relative-anchor-unresolved` / `anchor-out-of-recorded-range` warning through `ParsekLog.VerboseRateLimited` or a shared once-per-recording key, so an honest fallback path stops nuking the log. This would mask any future regression where the cascade is genuinely chaotic; prefer the producer-side fix above.
+- Investigate whether PR #889's pre-open coverage check has a bracket-off-by-one or stale `Recording.EndUT` read. The fact that the cascade fires at the *very start* of a re-fly session (UT 294.02, immediately after fork attach) suggests the anchor's `EndUT` may not yet be visible to the playback resolver when the first relative samples land.
+
+**Scope:** `RelativeAnchorResolver` (playback) + the recorder force-exit path in `FlightRecorder`. Cross-reference: this is the immediate follow-up to PR #889; the visible ghost playback is no longer chaotic (the Absolute fallback works) but the log volume is unacceptable.
+
+**Acceptance:**
+- Re-running the same playtest produces under 20 `anchor-out-of-recorded-range` warnings total for the entire session (one per actual transition event, not per frame).
+- No regression in the visible ghost playback (still falls back to Absolute smoothly when the anchor genuinely doesn't cover).
+
+**See also:** PR #889 (`docs/dev/plans/fix-refly-relative-anchor.md`): the anchor-selection fix that this is a follow-up on. The visible ghost-chaos is gone after #889; this entry is about the log-cascade artifact left behind by the fallback path.
 
 **Status:** OPEN.
 
