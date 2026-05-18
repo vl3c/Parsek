@@ -1046,6 +1046,25 @@ namespace Parsek
                 // playback inside its UT range, so the head's render here is
                 // redundant. Bridge bookkeeping for the gap-case lives below
                 // in the stale-past-end cleanup. ===
+                //
+                // Note (flag/part events): the shadow path short-circuits
+                // before RenderInRangeGhost, which also means
+                // ApplyFlagEvents and per-frame part-event playback do not
+                // run for the shadowed head this frame. Authored flags are
+                // world-permanent and the same FlagEvent payload typically
+                // exists on the continuation recording (chain splits clone
+                // the events to both sides), so the continuation's render
+                // path plants them. Part events on the head past the
+                // continuation's startUT are intentionally skipped — the
+                // continuation's authored events are the authoritative
+                // surface during the overlap.
+                //
+                // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
+                // pastEffectiveEnd uses f.chainEndUT.
+                // RecordingStore.GetChainEndUT returns Max(rec.EndUT, ...)
+                // over branch-0 chain peers, so chainEndUT >= EndUT and
+                // inRange implies !pastEffectiveEnd. Shadow firing here
+                // therefore cannot collide with the past-end branch below.
                 int chainNextIndex = ResolveChainNextIndex != null
                     ? ResolveChainNextIndex(i)
                     : -1;
@@ -1142,6 +1161,13 @@ namespace Parsek
                                 + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
                                     "F1", CultureInfo.InvariantCulture),
                             5.0);
+                        // Mirror the shadow path's trace emit so a "why
+                        // wasn't this ghost destroyed at past-end?"
+                        // investigation can correlate against the same
+                        // anomaly-window stream the rest of the engine
+                        // writes into.
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "chain-bridge-held");
                     }
                     else
                     {

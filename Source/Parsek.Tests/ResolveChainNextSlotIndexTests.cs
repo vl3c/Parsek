@@ -7,12 +7,18 @@ namespace Parsek.Tests
     /// Pure-logic tests for
     /// <see cref="GhostPlaybackLogic.ResolveChainNextSlotIndex"/> — the
     /// chain-next lookup that the engine consults to coordinate the
-    /// chain-seam handoff with <see cref="ChainHandoffLogic"/>. No log
-    /// capture, no shared state. The live adapter
-    /// <c>ParsekPlaybackPolicy.ResolveChainNextSlotIndex</c> is a thin
-    /// wrapper that reads the live committed list and supersede graph and
-    /// delegates here; its behaviour is fully covered by these fixtures.
+    /// chain-seam handoff with <see cref="ChainHandoffLogic"/>. The live
+    /// adapter <c>ParsekPlaybackPolicy.ResolveChainNextSlotIndex</c> is a
+    /// thin wrapper that reads the live committed list and supersede graph
+    /// and delegates here; its behaviour is fully covered by these
+    /// fixtures.
+    ///
+    /// <para>Marked <c>Sequential</c> because the
+    /// <c>DuplicateChainSuccessor_PicksFirstAndWarnsOnce</c> test captures
+    /// <see cref="ParsekLog"/> output via the shared static
+    /// <c>TestSinkForTesting</c> hook.</para>
     /// </summary>
+    [Collection("Sequential")]
     public class ResolveChainNextSlotIndexTests
     {
         private static Recording MakeRec(
@@ -264,6 +270,69 @@ namespace Parsek.Tests
             };
             Assert.Equal(-1, GhostPlaybackLogic.ResolveChainNextSlotIndex(
                 slotIndex: 0, committed: recs, supersedes: supersedes));
+        }
+
+        // -------------------- Cascade (multi-segment chain) --------------------
+
+        [Fact]
+        public void ThreeSegmentChain_EachSlotResolvesToItsImmediateSuccessor()
+        {
+            // Three-segment chain: head r0 -> mid r1 -> tip r2. Pins the
+            // "immediate next" contract: at each slot the resolver returns
+            // the chainIndex+1 successor (cascade shadow in the engine
+            // operates pairwise, not by tip-skip). Tip itself has no
+            // successor and returns -1.
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+                MakeRec("r2", chainId: "c1", chainIndex: 2),
+            };
+            Assert.Equal(1, GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex: 0, committed: recs, supersedes: null));
+            Assert.Equal(2, GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex: 1, committed: recs, supersedes: null));
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex: 2, committed: recs, supersedes: null));
+        }
+
+        // -------------------- Duplicate-match anomaly --------------------
+
+        [Fact]
+        public void DuplicateChainSuccessor_PicksFirstAndWarnsOnce()
+        {
+            // Data anomaly: two branch-0 recordings share the same
+            // (ChainId, ChainIndex). The resolver picks the first match
+            // deterministically (so engine behaviour is reproducible) and
+            // emits a Warn so the recorder bug or merge conflict that
+            // produced the duplicate leaves a breadcrumb in KSP.log.
+            // Rate-limited so the steady-state cost is bounded.
+            var logLines = new System.Collections.Generic.List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.SuppressLogging = false;
+            try
+            {
+                var recs = new List<Recording>
+                {
+                    MakeRec("r0", chainId: "c1", chainIndex: 0),
+                    MakeRec("r1a", chainId: "c1", chainIndex: 1), // first match
+                    MakeRec("r1b", chainId: "c1", chainIndex: 1), // duplicate
+                };
+                int resolved = GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                    slotIndex: 0, committed: recs, supersedes: null);
+                Assert.Equal(1, resolved); // first match (r1a at index 1)
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Parsek][WARN][ChainHandoff]")
+                    && l.Contains("duplicate branch-0 successor")
+                    && l.Contains("chainId=c1")
+                    && l.Contains("chainIndex=1")
+                    && l.Contains("firstMatch=1")
+                    && l.Contains("duplicateMatch=2"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
         }
     }
 }

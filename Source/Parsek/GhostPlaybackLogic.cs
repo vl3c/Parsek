@@ -5928,6 +5928,13 @@ namespace Parsek
                 || current.ChainBranch != 0)
                 return -1;
             int nextChainIndex = current.ChainIndex + 1;
+            // Ordinal string compare here is deliberately stricter than
+            // FindNextWatchTarget's plain `==` operator (same effect for
+            // System.String today, but Ordinal is unambiguous about the
+            // contract — chain ids are opaque guid-like tokens, never
+            // locale-sensitive). Same convention as
+            // EffectiveState.ResolveChainTerminalRecording.
+            int firstMatchIdx = -1;
             for (int j = 0; j < committed.Count; j++)
             {
                 Recording candidate = committed[j];
@@ -5936,12 +5943,33 @@ namespace Parsek
                     continue;
                 if (candidate.ChainBranch != 0) continue;
                 if (candidate.ChainIndex != nextChainIndex) continue;
-                int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
-                if (resolvedIdx < 0 || resolvedIdx == slotIndex)
-                    return -1;
-                return resolvedIdx;
+                if (firstMatchIdx < 0)
+                {
+                    firstMatchIdx = j;
+                    continue;
+                }
+                // Two committed recordings sharing (ChainId, ChainBranch=0,
+                // ChainIndex+1) is a data anomaly — chain coordinates are
+                // supposed to be a 1:1 identifier within a tree. Warn the
+                // first time it shows up per (chain, index) so the recorder
+                // bug or merge conflict that produced the duplicate gets a
+                // breadcrumb in KSP.log without spamming on every frame.
+                ParsekLog.WarnRateLimited(
+                    "ChainHandoff",
+                    "duplicate-chain-next-" + current.ChainId + "-" + nextChainIndex.ToString(CultureInfo.InvariantCulture),
+                    "ResolveChainNextSlotIndex: duplicate branch-0 successor at chainId=" + current.ChainId
+                        + " chainIndex=" + nextChainIndex.ToString(CultureInfo.InvariantCulture)
+                        + " firstMatch=" + firstMatchIdx.ToString(CultureInfo.InvariantCulture)
+                        + " duplicateMatch=" + j.ToString(CultureInfo.InvariantCulture)
+                        + " — picking firstMatch; recorder produced a chain-index collision",
+                    30.0);
+                break;
             }
-            return -1;
+            if (firstMatchIdx < 0) return -1;
+            int resolvedIdx = ResolveSupersedeIndex(firstMatchIdx, committed, supersedes);
+            if (resolvedIdx < 0 || resolvedIdx == slotIndex)
+                return -1;
+            return resolvedIdx;
         }
 
         // Re-fly forks attach the canonical post-rewind continuation under a
@@ -6430,11 +6458,17 @@ namespace Parsek
     internal static class ChainHandoffLogic
     {
         /// <summary>
-        /// Default bridge window in real-time seconds. Bounded conservatively
-        /// so a continuation that genuinely never spawns (recorder bug, spawn
-        /// throttle stall, etc.) still tears down the head within roughly a
-        /// frame budget. Tunable for tests via the explicit
-        /// <see cref="DecideBridgeHold"/> overload parameter.
+        /// Default bridge window in playback UT-seconds (the same clock the
+        /// engine's <c>ctx.currentUT</c> advances on). Under time warp the
+        /// budget elapses faster than wall-clock; under physics pause it
+        /// does not elapse. This is intentional: the continuation's
+        /// activation is keyed to UT, not real time, so the bridge needs to
+        /// hold for "long enough in UT for the continuation to spawn" —
+        /// roughly a few engine ticks at 1x warp. Bounded conservatively
+        /// (1.0 s) so a continuation that genuinely never spawns (recorder
+        /// bug, spawn throttle stall, etc.) still tears down the head
+        /// within a single second of UT progression. Tunable for tests via
+        /// the explicit <see cref="DecideBridgeHold"/> overload parameter.
         /// </summary>
         internal const double DefaultBridgeMaxSeconds = 1.0;
 
