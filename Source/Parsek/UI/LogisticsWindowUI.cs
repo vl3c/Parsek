@@ -8,7 +8,10 @@ namespace Parsek
 {
     /// <summary>
     /// v0 Logistics window — single Supply Routes tab listing every committed
-    /// route with a "Send Now" button to immediately nudge a one-time dispatch.
+    /// route with a "Send Once" button to immediately nudge a one-time dispatch
+    /// (the orchestrator still dispatches automatically when the route's
+    /// scheduling / orbital-alignment conditions are met; Send Once is a
+    /// player override for the current cycle only).
     /// Available in both FLIGHT and SPACECENTER (the main UI toggles it from
     /// either scene). Mirrors the minimal-window pattern from
     /// <see cref="SpawnControlUI"/>: ClickThruBlocker window, resize handle,
@@ -196,18 +199,20 @@ namespace Parsek
             GUILayout.Label(route.Status.ToString(), GUILayout.Width(ColW_Status));
             GUI.contentColor = prevColor;
 
-            // Send Now button — disabled for non-dispatchable states. Tooltip
-            // explains the reason on hover.
+            // Send Once button — disabled for non-dispatchable states. Tooltip
+            // explains the reason on hover. The route still dispatches on its
+            // own schedule when orbital-alignment / interval conditions are met;
+            // Send Once is a player override for this single cycle only.
             bool sendable = IsSendNowEnabled(route);
             string tooltip = sendable
-                ? "Nudge this route to dispatch on the next orchestrator tick (~1 game second)."
-                : $"Send Now disabled: status={route.Status}";
+                ? "Dispatch this cycle immediately (~1 game second). The route continues its normal schedule afterwards."
+                : $"Send Once disabled: status={route.Status}";
             GUI.enabled = sendable;
-            if (GUILayout.Button(new GUIContent("Send Now", tooltip), GUILayout.Width(ColW_Action)))
+            if (GUILayout.Button(new GUIContent("Send Once", tooltip), GUILayout.Width(ColW_Action)))
             {
                 bool ok = RouteOrchestrator.TrySendOneCycleNow(route, currentUT);
                 ParsekLog.Info("UI",
-                    $"Logistics: Send Now clicked route={route.Id ?? "<none>"} name='{route.Name ?? "<none>"}' result={(ok ? "nudged" : "rejected")}");
+                    $"Logistics: Send Once clicked route={route.Id ?? "<none>"} name='{route.Name ?? "<none>"}' result={(ok ? "nudged" : "rejected")}");
             }
             GUI.enabled = true;
 

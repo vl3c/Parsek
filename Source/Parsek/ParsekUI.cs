@@ -70,7 +70,7 @@ namespace Parsek
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
 
-        // Logistics window (v0 — Supply Routes tab + Send Now button)
+        // Logistics window (v0 — Supply Routes tab + Send Once button)
         private LogisticsWindowUI logisticsUI;
 
         private static readonly string VersionLabel = "v" +
