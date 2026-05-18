@@ -812,6 +812,24 @@ namespace Parsek
                 ParsekLog.Error("Route",
                     $"RouteOrchestrator.Tick(currentUT) threw {ex.GetType().Name}: {ex.Message}");
             }
+
+            // Deferred route-creation dialog retry. When the merge dialog's
+            // Tree-Merge button commits AND triggers a scene change in the
+            // same frame, RouteCreationDialog.TryShow spawns in FLIGHT but is
+            // dismissed by the scene-change cleanup ~100 ms later (playtest 5,
+            // 2026-05-18). TryShow now sets RouteCreationDialog.pendingTreeId
+            // which is preserved across the scene-change dismiss, and this
+            // per-frame check retries the spawn in the destination scene
+            // (FLIGHT / SPACECENTER / TRACKSTATION).
+            try
+            {
+                RouteCreationDialog.TryShowDeferredIfPending();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Route",
+                    $"RouteCreationDialog.TryShowDeferredIfPending threw {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         public override void OnSave(ConfigNode node)

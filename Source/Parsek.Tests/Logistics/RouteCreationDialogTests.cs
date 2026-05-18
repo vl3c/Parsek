@@ -26,6 +26,7 @@ namespace Parsek.Tests.Logistics
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RouteStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             RouteCreationDialog.ResetForTesting();
             logLines.Clear();
         }
@@ -34,6 +35,7 @@ namespace Parsek.Tests.Logistics
         {
             RouteCreationDialog.ResetForTesting();
             RouteStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -533,6 +535,238 @@ namespace Parsek.Tests.Logistics
             {
                 MergeDialog.OnTreeCommitted -= subscriber;
             }
+        }
+
+        // -----------------------------------------------------------------
+        // Deferred-retry pending-state — playtest-5 regression
+        // -----------------------------------------------------------------
+        // The merge dialog's Tree-Merge button commits the tree AND triggers
+        // a scene change in the same frame, so RouteCreationDialog.TryShow
+        // spawns in FLIGHT but is dismissed by the scene-change cleanup
+        // ~100 ms later before the player can interact. The fix preserves
+        // pendingTreeId across a scene-change dismiss so the destination
+        // scene's Update tick can retry the spawn via
+        // TryShowDeferredIfPending.
+
+        [Fact]
+        public void TryShow_EligibleTree_SetsPendingTreeId()
+        {
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    Name = "test",
+                    DispatchIntervalSeconds = 60,
+                    OutcomeAction = "cancel" // cancel inside hook -> clears pending
+                };
+            RecordingTree tree = BuildEligibleTree(out _);
+            string expectedId = tree.Id;
+
+            // Inspect the pending-id BEFORE TryShow runs the test hook to its
+            // cancel terminal (which would clear pendingTreeId). We assert via
+            // the side-effect that even an immediate cancel produces a
+            // pending-id setting during the call window. Use a hook that
+            // asserts mid-flight.
+            string capturedPendingDuringHook = null;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                capturedPendingDuringHook = RouteCreationDialog.PendingTreeIdForTesting;
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    Name = "test",
+                    DispatchIntervalSeconds = 60,
+                    OutcomeAction = "cancel"
+                };
+            };
+
+            RouteCreationDialog.TryShow(tree);
+
+            Assert.Equal(expectedId, capturedPendingDuringHook);
+        }
+
+        [Fact]
+        public void TryShow_IneligibleTree_ClearsPendingTreeId()
+        {
+            RouteCreationDialog.TryShow(BuildIneligibleTree());
+
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
+        }
+
+        [Fact]
+        public void DismissIfOpen_SceneChange_PreservesPendingTreeId()
+        {
+            // Hook never fires terminal — leaves the dialog open after Spawn.
+            // We then DismissIfOpen("scene-change") to simulate the real
+            // OnSceneChangeRequested -> RouteCreationDialog.DismissIfOpen
+            // cleanup.
+            RecordingTree tree = BuildEligibleTree(out _);
+            string expectedId = tree.Id;
+            RouteCreationDialog.TestHookForConfirm = null; // production path with PopupDialog disabled in tests
+            // Direct internal manipulation: bypass Spawn entirely. Open the
+            // dialog state via the lower-level test-only accessors we need.
+            // (RouteCreationDialog has no public Spawn; we use TryShow with a
+            // hook that returns 'open-no-action' — but the hook always reaches
+            // a terminal. Instead, drive through TryShow's pending-set path,
+            // then exercise the dismiss reason directly.)
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            RouteCreationDialog.TryShow(tree);
+            // After cancel terminal, pendingTreeId is cleared by DismissIfOpen.
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
+
+            // Now re-show and immediately invoke the scene-change dismiss.
+            // To do this without spawning a real Spawn, we simulate the open
+            // state by calling TryShow with no terminal hook (the production
+            // path would have called Spawn which would call SpawnPopupDialog,
+            // not viable in tests). Use a sentinel hook that delays returning
+            // by reading the state we want, then exits via cancel — but use
+            // DismissIfOpen("scene-change") BEFORE OnCancel runs.
+            //
+            // The simplest seam: just write pendingTreeId via the
+            // intermediate state by calling TryShow with a confirm-then-recall
+            // pattern. Since DismissIfOpen is invoked from inside the
+            // production code path, the dialog must have been open. Bypass by
+            // using ResetForTesting + manually invoking the production
+            // DismissIfOpen with no open dialog: it should be a no-op AND
+            // leave pendingTreeId alone (because there is no open dialog).
+
+            // Simpler test: re-establish pendingTreeId via TryShow with a hook
+            // that returns nothing terminal mid-call. The hook runs inside
+            // Spawn after pendingTreeId is set; if the hook calls
+            // DismissIfOpen("scene-change") directly, that exercises the
+            // preserve path.
+            RouteCreationDialog.ResetForTesting();
+            string capturedAfterSceneChange = null;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                // Inside the hook, dialogOpen=true, pendingTreeId is set.
+                // Call DismissIfOpen("scene-change") mid-hook to exercise the
+                // preserve path, then assert pendingTreeId is still set.
+                RouteCreationDialog.DismissIfOpen("scene-change");
+                capturedAfterSceneChange = RouteCreationDialog.PendingTreeIdForTesting;
+                // Return cancel so the outer TryShow doesn't crash on the
+                // already-dismissed dialog.
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+            RouteCreationDialog.TryShow(tree);
+
+            Assert.Equal(expectedId, capturedAfterSceneChange);
+        }
+
+        [Fact]
+        public void DismissIfOpen_UserCanceled_ClearsPendingTreeId()
+        {
+            RouteCreationDialog.TestHookForConfirm = () =>
+                new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            RouteCreationDialog.TryShow(BuildEligibleTree(out _));
+
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
+        }
+
+        [Fact]
+        public void TryShowDeferredIfPending_NullPending_NoOp()
+        {
+            // pendingTreeId is null after ResetForTesting in the constructor.
+            RouteCreationDialog.TryShowDeferredIfPendingForScene(GameScenes.SPACECENTER);
+
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
+            Assert.False(RouteCreationDialog.DialogOpenForTesting);
+        }
+
+        [Fact]
+        public void TryShowDeferredIfPending_WrongScene_DoesNotRetry()
+        {
+            // Set up pending via a TryShow that cancels but on a hook that
+            // preserves pendingTreeId via scene-change semantics.
+            RecordingTree tree = BuildEligibleTree(out _);
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                RouteCreationDialog.DismissIfOpen("scene-change");
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel" // cancel after the scene-change dismiss is a no-op (dialogOpen=false)
+                };
+            };
+            RouteCreationDialog.TryShow(tree);
+            Assert.Equal(tree.Id, RouteCreationDialog.PendingTreeIdForTesting);
+
+            // MAIN_MENU is not in the allowed-scene set.
+            RouteCreationDialog.TryShowDeferredIfPendingForScene(GameScenes.MAINMENU);
+
+            // Pending still set, dialog not opened.
+            Assert.Equal(tree.Id, RouteCreationDialog.PendingTreeIdForTesting);
+            Assert.False(RouteCreationDialog.DialogOpenForTesting);
+        }
+
+        [Fact]
+        public void TryShowDeferredIfPending_TreeNotInCommittedTrees_ClearsPending()
+        {
+            // Set pending via the scene-change dismiss path
+            RecordingTree tree = BuildEligibleTree(out _);
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                RouteCreationDialog.DismissIfOpen("scene-change");
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+            RouteCreationDialog.TryShow(tree);
+            Assert.Equal(tree.Id, RouteCreationDialog.PendingTreeIdForTesting);
+
+            // CommittedTrees is empty (no Add). Retry should clear pending.
+            RouteCreationDialog.TryShowDeferredIfPendingForScene(GameScenes.SPACECENTER);
+
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
+        }
+
+        [Fact]
+        public void TryShowDeferredIfPending_TreeStillCommitted_ReSpawns()
+        {
+            // Set pending via the scene-change dismiss path
+            RecordingTree tree = BuildEligibleTree(out _);
+
+            // First hook: trigger scene-change-style dismiss mid-call to leave
+            // pendingTreeId set.
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                RouteCreationDialog.DismissIfOpen("scene-change");
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+            RouteCreationDialog.TryShow(tree);
+            Assert.Equal(tree.Id, RouteCreationDialog.PendingTreeIdForTesting);
+
+            // Place the tree in CommittedTrees so the deferred retry can find it.
+            RecordingStore.CommittedTrees.Add(tree);
+
+            // Second hook for the retry: confirm OR cancel terminally so we
+            // can assert the retry actually re-spawned (pendingTreeId cleared).
+            bool retryHookFired = false;
+            RouteCreationDialog.TestHookForConfirm = () =>
+            {
+                retryHookFired = true;
+                return new RouteCreationDialog.RouteCreationInputsForTesting
+                {
+                    OutcomeAction = "cancel"
+                };
+            };
+
+            RouteCreationDialog.TryShowDeferredIfPendingForScene(GameScenes.SPACECENTER);
+
+            Assert.True(retryHookFired,
+                "TryShowDeferredIfPending should re-spawn via TryShow → hook when tree is still committed");
+            Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
         }
     }
 }

@@ -59,6 +59,21 @@ namespace Parsek
         private static bool dialogOpen;
 
         /// <summary>
+        /// ID of the committed tree that wants a route-creation dialog, preserved
+        /// across scene transitions. Set by <see cref="TryShow"/>; cleared by
+        /// <see cref="DismissIfOpen"/> only on terminal outcomes (confirmed /
+        /// user-canceled / source-no-longer-eligible / etc.) — explicitly NOT
+        /// cleared on <c>reason="scene-change"</c>, so the destination scene's
+        /// Update tick can retry <see cref="TryShowDeferredIfPending"/> and
+        /// re-spawn the dialog there. Fixes the playtest-5 case where the merge
+        /// dialog's Tree Merge button triggered both the commit AND a scene
+        /// change in the same frame; the route dialog spawned in FLIGHT but
+        /// was dismissed by scene-change ~124 ms later before the player could
+        /// interact with it.
+        /// </summary>
+        private static string pendingTreeId;
+
+        /// <summary>
         /// Entry point from the post-commit hook. Analyses the tree and
         /// spawns the dialog when eligible. No-ops with an Info log on null
         /// inputs or non-eligible analysis.
@@ -71,11 +86,18 @@ namespace Parsek
                 return;
             }
 
+            // Remember the tree id BEFORE analysis so the deferred-retry path can
+            // re-resolve the tree from RecordingStore.CommittedTrees if the
+            // immediate Spawn gets killed by a same-frame scene change. Cleared
+            // by DismissIfOpen on terminal outcomes; preserved on scene-change.
+            pendingTreeId = committedTree.Id;
+
             RouteAnalysisResult result = RouteAnalysisEngine.AnalyzeTree(committedTree);
             if (result == null)
             {
                 ParsekLog.Info(Tag,
                     $"TryShow skipped: analysis=null tree={committedTree.Id ?? "<none>"}");
+                pendingTreeId = null;
                 return;
             }
 
@@ -87,10 +109,79 @@ namespace Parsek
             {
                 ParsekLog.Info(Tag,
                     $"TryShow: route not eligible tree={committedTree.Id ?? "<none>"} status={result.Status} — not spawning dialog");
+                pendingTreeId = null;
+                return;
+            }
+
+            if (dialogOpen)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TryShow: dialog already open for {cachedTree?.Id ?? "<none>"} — skipping re-spawn");
                 return;
             }
 
             Spawn(result, committedTree);
+        }
+
+        /// <summary>
+        /// Re-entry point for the deferred-retry path. Called from
+        /// <see cref="ParsekScenario.Update"/> every frame; cheap no-op when
+        /// <see cref="pendingTreeId"/> is null or a dialog is already open.
+        /// When a pending tree id is set, looks it up in
+        /// <see cref="RecordingStore.CommittedTrees"/> and dispatches through
+        /// <see cref="TryShow"/>. If the tree has been retired (revert, discard,
+        /// etc.) the pending id is cleared. Restricted to scenes where the
+        /// dialog can sensibly appear (FLIGHT / SPACECENTER / TRACKSTATION).
+        /// </summary>
+        internal static void TryShowDeferredIfPending()
+        {
+            TryShowDeferredIfPendingForScene(HighLogic.LoadedScene);
+        }
+
+        /// <summary>
+        /// Scene-parameterized variant for unit-test reachability. Production
+        /// callers go through <see cref="TryShowDeferredIfPending"/> which
+        /// passes <see cref="HighLogic.LoadedScene"/>; tests pass an explicit
+        /// scene without needing live KSP state.
+        /// </summary>
+        internal static void TryShowDeferredIfPendingForScene(GameScenes scene)
+        {
+            if (pendingTreeId == null) return;
+            if (dialogOpen) return;
+
+            if (scene != GameScenes.FLIGHT
+                && scene != GameScenes.SPACECENTER
+                && scene != GameScenes.TRACKSTATION)
+            {
+                return;
+            }
+
+            RecordingTree tree = FindCommittedTreeById(pendingTreeId);
+            if (tree == null)
+            {
+                ParsekLog.Info(Tag,
+                    $"TryShowDeferredIfPending: tree {pendingTreeId} no longer in CommittedTrees — clearing pending");
+                pendingTreeId = null;
+                return;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"TryShowDeferredIfPending: retrying TryShow for tree={pendingTreeId} in scene={scene}");
+            TryShow(tree);
+        }
+
+        private static RecordingTree FindCommittedTreeById(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId)) return null;
+            var trees = RecordingStore.CommittedTrees;
+            if (trees == null) return null;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                RecordingTree t = trees[i];
+                if (t != null && string.Equals(t.Id, treeId, StringComparison.Ordinal))
+                    return t;
+            }
+            return null;
         }
 
         private static void Spawn(RouteAnalysisResult result, RecordingTree tree)
@@ -311,8 +402,24 @@ namespace Parsek
             cachedResult = null;
             cachedTree = null;
             dialogOpen = false;
-            ParsekLog.Info(Tag, $"dialog dismissed: reason={reason ?? "<none>"}");
+
+            // Preserve pendingTreeId across a same-frame scene-change dismiss so
+            // TryShowDeferredIfPending can re-spawn the dialog in the destination
+            // scene. Clear on every other terminal reason (confirmed, canceled,
+            // tree retired, build rejected, exception, etc.) so we don't retry
+            // forever.
+            if (!string.Equals(reason, "scene-change", StringComparison.Ordinal))
+            {
+                pendingTreeId = null;
+            }
+
+            ParsekLog.Info(Tag,
+                $"dialog dismissed: reason={reason ?? "<none>"} " +
+                $"pendingTreeId={pendingTreeId ?? "<cleared>"}");
         }
+
+        /// <summary>Test-only read access to <see cref="pendingTreeId"/>.</summary>
+        internal static string PendingTreeIdForTesting => pendingTreeId;
 
         /// <summary>Test seam: reset all static state (and the test hook).</summary>
         internal static void ResetForTesting()
@@ -320,6 +427,7 @@ namespace Parsek
             cachedResult = null;
             cachedTree = null;
             dialogOpen = false;
+            pendingTreeId = null;
             TestHookForConfirm = null;
             // Defensive: release any lingering input lock from a previous test
             // run. Mirrors the production DismissIfOpen cleanup path so test
