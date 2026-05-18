@@ -638,13 +638,17 @@ namespace Parsek
                     float holdMaxRealTime = holdUntilRealTime;
                     string holdDetail = null;
                     double pendingContinuationUT = double.NaN;
+                    var scenarioForActivation = ParsekScenario.Instance;
+                    var supersedesForActivation = object.ReferenceEquals(null, scenarioForActivation)
+                        ? null : scenarioForActivation.RecordingSupersedes;
                     if (evt.Index >= 0 && evt.Index < committed.Count
                         && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
                             committed[evt.Index],
                             committed,
                             RecordingStore.CommittedTrees,
                             engine.HasActiveGhost,
-                            out pendingContinuationUT))
+                            out pendingContinuationUT,
+                            supersedesForActivation))
                     {
                         GhostPlaybackLogic.ComputePendingWatchHoldWindow(
                             holdSeconds,

@@ -5895,21 +5895,57 @@ namespace Parsek
             return -1;
         }
 
+        // Re-fly forks attach the canonical post-rewind continuation under a
+        // tree branch point and emit a RECORDING_SUPERSEDES row pointing the
+        // pre-rewind chain-next at the fork. The chain-next slot is then
+        // skipped from playback (skip=superseded-by-relation) while the fork
+        // (which is NOT a chain member of the rewind origin) carries the live
+        // ghost. Watch-target search has to follow that supersede edge or it
+        // sees only the inactive chain slot and returns -1.
+        private static int ResolveSupersedeIndex(
+            int candidateIdx,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (committed == null || candidateIdx < 0 || candidateIdx >= committed.Count)
+                return candidateIdx;
+            if (supersedes == null || supersedes.Count == 0)
+                return candidateIdx;
+            Recording rec = committed[candidateIdx];
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return candidateIdx;
+            string effectiveId = EffectiveState.EffectiveRecordingId(rec.RecordingId, supersedes);
+            if (string.IsNullOrEmpty(effectiveId)
+                || string.Equals(effectiveId, rec.RecordingId, StringComparison.Ordinal))
+            {
+                return candidateIdx;
+            }
+            int resolvedIdx = FindRecordingIndexById(committed, effectiveId);
+            return resolvedIdx >= 0 ? resolvedIdx : candidateIdx;
+        }
+
         /// <summary>
         /// Searches committed recordings for the next watch target after the current
         /// recording completes. Handles chain continuation (same chainId, next index)
         /// and tree branching (childBranchPointId → child with same vessel PID).
+        /// When <paramref name="supersedes"/> is non-null, each chain-next / tree-child
+        /// candidate is resolved through the supersede graph before the activity check,
+        /// so a re-fly fork still produces a watch target after the original chain
+        /// slot was superseded out of playback.
         /// </summary>
         /// <param name="currentRec">The recording that just completed.</param>
         /// <param name="committed">All committed recordings.</param>
         /// <param name="trees">All committed trees (for branch point lookup).</param>
         /// <param name="isGhostActive">Predicate: is there an active ghost at index j?</param>
+        /// <param name="supersedes">RecordingSupersede relations (nullable; live callers pass <c>ParsekScenario.RecordingSupersedes</c>).</param>
+        /// <param name="depth">Internal recursion depth.</param>
         /// <returns>Index into committed, or -1 if no target found.</returns>
         internal static int FindNextWatchTarget(
             Recording currentRec,
             IReadOnlyList<Recording> committed,
             IReadOnlyList<RecordingTree> trees,
             Func<int, bool> isGhostActive,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             int depth = 0)
         {
             const int MaxRecursionDepth = 10;
@@ -5925,10 +5961,11 @@ namespace Parsek
                     var candidate = committed[j];
                     if (candidate.ChainId == currentRec.ChainId
                         && candidate.ChainBranch == 0
-                        && candidate.ChainIndex == nextChainIndex
-                        && isGhostActive(j))
+                        && candidate.ChainIndex == nextChainIndex)
                     {
-                        return j;
+                        int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
+                        if (resolvedIdx >= 0 && isGhostActive(resolvedIdx))
+                            return resolvedIdx;
                     }
                 }
             }
@@ -5967,23 +6004,29 @@ namespace Parsek
                         {
                             if (committed[j].RecordingId != childId) continue;
 
-                            bool isPidMatch = committed[j].VesselPersistentId == currentRec.VesselPersistentId;
+                            int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
+                            if (resolvedIdx < 0 || resolvedIdx >= committed.Count)
+                                continue;
+                            Recording resolved = committed[resolvedIdx];
+                            if (resolved == null) continue;
 
-                            if (isGhostActive(j))
+                            bool isPidMatch = resolved.VesselPersistentId == currentRec.VesselPersistentId;
+
+                            if (isGhostActive(resolvedIdx))
                             {
                                 // Prefer child with same vessel PID (same vessel continues)
                                 if (isPidMatch)
-                                    return j;
+                                    return resolvedIdx;
 
                                 // Bug #321: breakup/crash watch recovery should stay with
                                 // the preserved live vessel context unless the same vessel
                                 // actually continues. Non-breakup branches may still fall
                                 // back to the first active non-debris child.
                                 if (allowDifferentPidFallback
-                                    && !committed[j].IsDebris
+                                    && !resolved.IsDebris
                                     && fallbackIdx < 0)
                                 {
-                                    fallbackIdx = j;
+                                    fallbackIdx = resolvedIdx;
                                 }
                                 else if (!allowDifferentPidFallback)
                                 {
@@ -5997,7 +6040,7 @@ namespace Parsek
                                 // children to find a deeper target with an active ghost.
                                 pidMatchFound = true;
                                 int deeper = FindNextWatchTarget(
-                                    committed[j], committed, trees, isGhostActive, depth + 1);
+                                    resolved, committed, trees, isGhostActive, supersedes, depth + 1);
                                 if (deeper >= 0)
                                     return deeper;
                             }
@@ -6027,7 +6070,10 @@ namespace Parsek
         /// Returns the earliest UT at which a preferred watch continuation could become
         /// ghost-active, even if it is not active yet. This is used to extend the
         /// watch-end hold timer for quickload-resumed branches whose continuation data
-        /// starts later than the parent branch boundary.
+        /// starts later than the parent branch boundary. When <paramref name="supersedes"/>
+        /// is non-null, candidates are resolved through the supersede graph before the
+        /// activity / activation-UT check so re-fly forks extend the hold timer until
+        /// the canonical fork ghost becomes active.
         /// </summary>
         internal static bool TryGetPendingWatchActivationUT(
             Recording currentRec,
@@ -6035,6 +6081,7 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             Func<int, bool> isGhostActive,
             out double activationUT,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             int depth = 0)
         {
             activationUT = double.NaN;
@@ -6058,10 +6105,17 @@ namespace Parsek
                         continue;
                     }
 
-                    if (isGhostActive != null && isGhostActive(j))
+                    int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
+                    if (resolvedIdx < 0 || resolvedIdx >= committed.Count)
+                        continue;
+                    Recording resolved = committed[resolvedIdx];
+                    if (resolved == null)
+                        continue;
+
+                    if (isGhostActive != null && isGhostActive(resolvedIdx))
                         return false;
 
-                    return candidate.TryGetGhostActivationStartUT(out activationUT);
+                    return resolved.TryGetGhostActivationStartUT(out activationUT);
                 }
             }
 
@@ -6102,11 +6156,18 @@ namespace Parsek
                         string childId = bp.ChildRecordingIds[c];
                         for (int j = 0; j < committed.Count; j++)
                         {
-                            var candidate = committed[j];
-                            if (candidate.RecordingId != childId)
+                            var raw = committed[j];
+                            if (raw.RecordingId != childId)
                             {
                                 continue;
                             }
+
+                            int resolvedIdx = ResolveSupersedeIndex(j, committed, supersedes);
+                            if (resolvedIdx < 0 || resolvedIdx >= committed.Count)
+                                continue;
+                            Recording candidate = committed[resolvedIdx];
+                            if (candidate == null)
+                                continue;
 
                             bool isPidMatch = candidate.VesselPersistentId == currentRec.VesselPersistentId;
                             bool isAllowedFallback = allowDifferentPidFallback && !candidate.IsDebris;
@@ -6117,21 +6178,21 @@ namespace Parsek
                             {
                                 sawSamePidContinuation = true;
 
-                                if (isGhostActive != null && isGhostActive(j))
+                                if (isGhostActive != null && isGhostActive(resolvedIdx))
                                     return false;
 
                                 if (candidate.TryGetGhostActivationStartUT(out double candidateActivationUT))
                                     samePidActivationUT = MinPendingActivationUT(samePidActivationUT, candidateActivationUT);
 
                                 if (TryGetPendingWatchActivationUT(
-                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, depth + 1))
+                                        candidate, committed, trees, isGhostActive, out double deeperActivationUT, supersedes, depth + 1))
                                 {
                                     samePidActivationUT = MinPendingActivationUT(samePidActivationUT, deeperActivationUT);
                                 }
                                 continue;
                             }
 
-                            if (isGhostActive != null && isGhostActive(j))
+                            if (isGhostActive != null && isGhostActive(resolvedIdx))
                             {
                                 sawActiveFallback = true;
                                 continue;
