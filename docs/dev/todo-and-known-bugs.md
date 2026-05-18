@@ -289,6 +289,110 @@ Both recordings share `chainId=9cf2bb0709dc426096ec687f2fbbac37` and the `Unfini
 
 ---
 
+## Open - v0.10.0 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
+
+**Evidence:** Same watch-mode playtest, `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. After Kerbal X separated 6 radial booster debris pieces at UT 285.18 (pids 3027027466, 2130796824, 2057942744, 1009856088, 3271565278, 633147235; root part `radialDecoupler1-2`), each debris recording was itself chain-continued at UT ~336.7 (same boundary the main vessel's chain continues at). When the watch transferred from rec #10 -> rec #18 around real-time 20:07:39.527, every one of the six debris ghosts was destroyed and re-spawned as a brand-new ghost slot:
+
+| pid | Section 1 slot | Destroyed | Section 2 slot | Spawned | Invisible gap |
+|---|---|---|---|---|---|
+| 3027027466 | #11 | 20:07:40.520 | #19 | 20:07:40.651 | 131 ms |
+| 2130796824 | #12 | 20:07:39.564 | #20 | 20:07:39.814 | 250 ms |
+| 2057942744 | #13 | 20:07:40.520 | #21 | 20:07:40.653 | 133 ms |
+| 1009856088 | #14 | 20:07:39.565 | #22 | 20:07:39.743 | 178 ms |
+| 3271565278 | #15 | 20:07:40.046 | #23 | 20:07:40.167 | 121 ms |
+|  633147235 | #16 | 20:07:40.046 | #24 | 20:07:40.226 | 180 ms |
+
+Every destroy line reads `[Engine] Ghost #N "Kerbal X Debris" destroyed (stale past-end ghost (no longer held))`. The section UT itself has a small hole: section 1 ends at `336.65/336.71`, section 2 starts at `336.77` (a 0.06-0.12 s UT discontinuity that maps to ~70-150 m of spatial step at 1.2-1.5 km/s ballistic speed). User-visible result: six boosters all flicker off and reappear slightly displaced in the same one-second window the watch crosses the chain seam.
+
+**Root cause hypothesis:** Same chain-continuation mechanism as the duplicated-ghost entry above, but inverted symptom. The playback engine treats each chain segment's recording as an independent ghost source: section 1 ghost passes its endUT and is killed by the `stale past-end ghost (no longer held)` rule; section 2 ghost is spawned fresh in a brand-new slot one or two frames later. There is no slot-handoff between segments and no continuity bridge across the seam, so each of the six debris pids is invisible for 100-200 ms and reappears with the small UT-gap step. The fix candidates listed under the chain-continuation co-render entry only address the overlap case; they do not bridge a non-overlap gap. The duplicated-ghost entry's "engine-side, preferred" fix would still need to add same-slot handoff (or freeze-the-old until the new activates) to cover this gap case symmetrically.
+
+**Cross-reference:** Chain-continuation co-render entry above is the overlap-direction sibling. Both surfaces of the same architectural gap: ghost slot identity is per-recording, not per-chain.
+
+**Fix candidates:**
+
+- (Same-slot chain handoff) When the engine detects a chain continuation entering its activation UT, reuse the head segment's ghost slot rather than allocating a new one. Swap the underlying `IPlaybackTrajectory` reference inside the existing `ghostState`, keep the mesh, transfer per-frame state across the boundary, and emit a `[Engine] Ghost #N chain-segment-handoff prev=rec_A next=rec_B atUT=...` log line. Eliminates both the overlap-double-render and the gap-flicker symptoms in one place.
+- (Hold-head-until-continuation-active) Cheaper variant: do not destroy the head's ghost when its sectionUT ends if a chain continuation exists. Hold the last-frame pose visible until the continuation's first frame renders, then destroy the head. Avoids slot identity changes but keeps two slots alive briefly.
+- (Producer-side) Optimize the seam authoring so section 1 ends at exactly section 2's startUT (no 0.12 s UT hole). Does not fix the slot churn, only the spatial step.
+
+**Scope:** `GhostPlaybackEngine` slot lifecycle and the `stale past-end ghost (no longer held)` predicate. Same call sites as the chain-continuation co-render entry above; the fix likely lands as one unified change.
+
+**Acceptance:**
+- Replaying the same save shows each of the six debris boosters as a single uninterrupted ghost across the UT 336.65 -> 336.77 seam, with at most one slot-id per pid for the whole window.
+- No `[Engine] Ghost #N ... destroyed (stale past-end ghost (no longer held))` line for a pid that has an active chain continuation about to spawn within the next ~1 second.
+- Synthetic recording / xUnit fixture: two chain-linked debris recordings, head ends at UT T, continuation starts at UT T + 0.1; assert exactly one ghost slot is observed for the pid across the seam.
+
+**Status:** OPEN. Same playtest as the chain-continuation co-render entry above; same root mechanism, complementary symptom.
+
+---
+
+## Open - v0.10.0 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
+
+**Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. Before the watch transfer (frame 36484 / real-time 20:06:49.066), the six radial booster debris pieces render cleanly anchored to rec #10 ("Kerbal X", `parentRecId=847b9b53...`):
+
+```
+[Trace-Sep] PLAY [PositionDebris] ut=285.20 ... parentGhostFound=True
+            parentGhostWorld=(-103280.21,-2002.85,-71512.29)
+            renderedParentDist=15.272 recordedAnchorLocalDist=15.265
+```
+
+After the watch transfers to rec #18 at 20:07:39.527 (which destroys rec #10's primary ghost #10 via `[Engine] Ghost #10 "Kerbal X" destroyed (auto-followed during hold)`), the re-spawned section-2 debris try to anchor against the same `parentRecId=847b9b53...` and the resolver returns unresolved:
+
+```
+[Trace-Sep] PLAY [PositionDebris] ut=335.88 ... parentGhostFound=False
+            parentGhostWorld=<unresolved>  renderedParentDist=NaN
+            recordedAnchorLocalDist=345.662  recordedBodyFixedDist=NaN
+```
+
+The recorded anchor-local distance (~345 m) is by itself plausible ballistic separation over the elapsed UT, but with no live anchor pose to multiply against, the renderer falls back to bracket-LLA `body.GetWorldSurfacePosition` interpolation. That places each debris piece at a sane world coordinate per-frame (predictedVsActual delta ~ 0.006 m) but loses the relative-formation coherence the recorded RELATIVE surface was meant to provide. Combined with the 100-200 ms slot churn (entry above), the user sees the boosters jump slightly between frames during and immediately after the seam.
+
+**Root cause hypothesis:** Debris recordings hard-code their RELATIVE-frame anchor as the parent recording's id at recording time (here `847b9b53...` = rec #10). When the watch transfers off rec #10 to its chain continuation rec #18, `[Engine]` destroys rec #10's primary ghost, and the debris anchor lookup now has nothing to resolve against. The chain-continuation-aware version of this anchor lookup would need to walk to the live chain continuation's primary ghost (rec #18's) and resolve against that instead - rec #18 IS the same physical vessel as rec #10, just a later chain segment. The recorded anchor id is durably written into `TrackSection.anchorRecordingId` and cannot be hot-patched, so the fix lives in the resolver.
+
+**Cross-reference:** The PR #889 entry below is about the supersede-target version of this same shape ("anchor's recorded UT range doesn't cover current UT"). This entry is about the chain-continuation version ("anchor's live ghost was torn down because the watch moved to its chain successor"). Both could share a unified "resolve anchor by walking chain + supersede graph" helper.
+
+**Fix candidates:**
+
+- (Resolver-side) `RelativeAnchorResolver.TryResolveRecordingPose` and `ParsekFlight.TryResolveRelativeOffsetWorldPosition` consult the chain graph (`EffectiveState.ResolveChain` / `EffectiveRecordingId` / `EffectiveTipRecordingId`) when the literal `anchorRecordingId` has no live primary ghost. Walk to the live chain head/tip; resolve against whichever segment currently has an active primary ghost. Log a one-shot `anchor chain-redirect: from=rec_A to=rec_B reason=primary-not-live` per anchor identity.
+- (Engine-side) When destroying a primary ghost at a watch transfer, before tearing it down, hand off "anchor-only" responsibility to the chain continuation's primary ghost. The destroyed ghost releases its mesh but the continuation's ghost adopts its trajectory bracket so dependent debris can resolve continuously.
+- (Producer-side) Author debris with `anchorRecordingId = chain root` rather than the specific recording id, so chain continuations transparently inherit anchor responsibility without a resolver-side walk. Schema impact: needs a way to express "first recording on this chain" at recorder time.
+
+**Scope:** `RelativeAnchorResolver`, `ParsekFlight.TryResolveRelativeOffsetWorldPosition`, possibly `EffectiveState`. Cross-references the chain-continuation co-render fix - both pivot on the same chain-graph awareness in playback paths.
+
+**Acceptance:**
+- Replaying the same save, the post-transfer Trace-Sep lines for the six debris pids show `parentGhostFound=True` with the rec #18 primary ghost as the resolved parent.
+- No `parentGhostFound=False parentGhostWorld=<unresolved>` for a debris whose recorded `anchorRecordingId` has a live chain continuation primary.
+- Unit test on the resolver with a two-segment chain fixture, parent ghost destroyed at boundary, asserts the resolver redirects to the continuation's primary.
+
+**Status:** OPEN. Same playtest as the two entries above.
+
+---
+
+## Open - v0.10.0 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
+
+**Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log` lines 62710 / 62718 / 62744:
+
+```
+WARN][CameraFollow] Auto-follow target #18 has no active ghost - deferring transfer
+```
+
+Three retries in ~17 ms before the rec #18 primary ghost actually activates at 20:07:39.524 and the transfer completes at 20:07:39.526. No user-visible regression here (the deferral mechanism does succeed within one frame), but the warn-level cascade is noisy and indicates the watch state machine is racing the chain segment activation rather than waiting for a positive activation signal.
+
+**Root cause hypothesis:** `ProcessWatchEndHoldTimer` / `FindNextWatchTarget` finds the chain continuation index as soon as the head segment passes its endUT, and `WatchModeController` immediately calls `TransferWatch`. The continuation's primary ghost spawn is driven by a separate engine pass (per-frame ghost activation), which lands one or two frames later. The transfer call walks the `HasActiveGhost` predicate, finds false, and logs the warn line; the next physics tick re-evaluates and succeeds.
+
+**Fix candidates:**
+
+- (Event-driven) Subscribe `WatchModeController` to a `GhostActivated` event on the continuation index, and only fire `TransferWatch` once the event arrives. Eliminates polling + warn-spam.
+- (Demote logging) Move the deferral message to `Verbose` (it is a normal transient state, not a warning). Keeps the polling but un-spams the WARN volume.
+
+**Scope:** `WatchModeController.TransferWatch` and the auto-follow polling loop. Self-contained; trivial logging-only variant is a one-line change.
+
+**Acceptance:**
+- Replaying the same save logs at most one `Auto-follow target #N has no active ghost` line at Verbose level per chain transfer, not WARN.
+- (Stronger acceptance for the event-driven variant) Zero lines, and the transfer happens on the same frame the continuation's primary spawns.
+
+**Status:** OPEN. Low priority; cosmetic. Same playtest as the entries above.
+
+---
+
 ## Open - v0.10.0 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
 
 **Evidence:** Same watch-mode playtest log, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. Recording `c059aabf` (Kerbal X Probe) carries 43 seconds of authored payload up to UT 335.57 followed by an orbit segment covering UT 359.64 to 1364.71 (segmentIndex=0, cacheKey=170000). At frame 45241 (UT 359.659, ~24 seconds after `payloadEndUT`) the playback engine transitions from "hold last-payload position" to "orbital-frame propagation" and the ghost teleports **34,651 m in a single frame**:
