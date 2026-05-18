@@ -2624,6 +2624,14 @@ namespace Parsek
             return result;
         }
 
+        internal static void LogAutoFollowDeferred(int nextIndex)
+        {
+            ParsekLog.VerboseRateLimited(
+                "CameraFollow",
+                $"auto-follow-deferred-{nextIndex}",
+                $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+        }
+
         /// <summary>
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
@@ -2640,13 +2648,14 @@ namespace Parsek
             ParsekLog.Info("CameraFollow",
                 $"Auto-following: #{watchedRecordingIndex} \"{oldName}\" -> #{nextIndex} \"{newName}\"");
 
-            // Verify the target ghost exists before transferring
+            // The continuation ghost spawn lags the chain-end detection by
+            // one or two physics frames, so this deferral path is the normal
+            // transient state, not a fault — log at rate-limited Verbose.
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState gs;
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
-                ParsekLog.Warn("CameraFollow",
-                    $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+                LogAutoFollowDeferred(nextIndex);
                 return false;
             }
 

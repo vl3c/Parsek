@@ -1217,6 +1217,56 @@ namespace Parsek.Tests
                 eventCycleIndex: 4, watchedCycleIndex: -2));
         }
 
+        [Fact]
+        public void LogAutoFollowDeferred_RepeatedSameTarget_EmitsVerboseOnceWithinRateLimit()
+        {
+            var logLines = new List<string>();
+            double logClock = 0.0;
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            ParsekLog.ClockOverrideForTesting = () => logClock;
+            ParsekLog.VerboseOverrideForTesting = true;
+            try
+            {
+                // Three rapid calls for the same target index (the in-engine repro:
+                // ProcessWatchEndHoldTimer polls every frame while the continuation
+                // ghost finishes spawning, calling TransferWatchToNextSegment which
+                // funnels the no-active-ghost branch through this helper).
+                WatchModeController.LogAutoFollowDeferred(18);
+                logClock = 0.008;
+                WatchModeController.LogAutoFollowDeferred(18);
+                logClock = 0.017;
+                WatchModeController.LogAutoFollowDeferred(18);
+
+                var deferredLines = logLines.FindAll(l =>
+                    l.Contains("Auto-follow target #18 has no active ghost"));
+                Assert.Single(deferredLines);
+                Assert.Contains("[VERBOSE]", deferredLines[0]);
+                Assert.Contains("[CameraFollow]", deferredLines[0]);
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[WARN]")
+                    && l.Contains("Auto-follow target")
+                    && l.Contains("no active ghost"));
+
+                // A different target index keys a fresh rate-limit slot so a
+                // distinct chain transfer is not silenced by an unrelated one.
+                WatchModeController.LogAutoFollowDeferred(19);
+                Assert.Single(logLines.FindAll(l =>
+                    l.Contains("Auto-follow target #19 has no active ghost")));
+
+                // Past the 5s default rate-limit window, the same target re-emits
+                // (a later chain transfer reusing the same nextIndex still logs once).
+                logClock = 6.0;
+                WatchModeController.LogAutoFollowDeferred(18);
+                Assert.Equal(2, logLines.FindAll(l =>
+                    l.Contains("Auto-follow target #18 has no active ghost")).Count);
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
+
         private static WatchModeController MakeUninitializedWatchModeController()
         {
             var host = (ParsekFlight)FormatterServices.GetUninitializedObject(typeof(ParsekFlight));
