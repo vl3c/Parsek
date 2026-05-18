@@ -173,5 +173,54 @@ namespace Parsek.Tests
             Assert.False(child.IsDebris);
             Assert.Equal("parent", child.DebrisParentRecordingId);
         }
+
+        // ===== D. KEEP-debris-only policy guards =====
+        //
+        // These tests pin the inline-commented policy decisions: controlled
+        // children do NOT inherit the debris-aware sample cap (their post-window
+        // Absolute tail is unbounded and would multiply storage) and do NOT
+        // inherit the tail-normalize policy (their post-window Absolute tail
+        // must not be truncated to the Relative section's authored coverage).
+
+        [Fact]
+        public void IsDebrisAwareSampleCapEligible_ControlledChildWithParentAnchor_False()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "controlled-child",
+                IsDebris = false,
+                DebrisParentRecordingId = "parent"
+            };
+
+            Assert.False(BackgroundRecorder.IsDebrisAwareSampleCapEligible(rec));
+        }
+
+        [Fact]
+        public void ShouldNormalizeParentAnchoredDebris_ControlledChildWithParentAnchor_False()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "controlled-child",
+                IsDebris = false,
+                DebrisParentRecordingId = "parent"
+            };
+
+            Assert.False(DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(rec));
+        }
+
+        [Fact]
+        public void ShouldNormalizeParentAnchoredDebris_GenuineDebrisWithParentAnchor_True()
+        {
+            // Regression: genuine debris stays in the tail-normalize policy.
+            var rec = new Recording
+            {
+                RecordingId = "debris",
+                IsDebris = true,
+                DebrisParentRecordingId = "parent",
+                LoopAnchorVesselId = 0u
+            };
+
+            Assert.True(DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(rec));
+        }
     }
 }
