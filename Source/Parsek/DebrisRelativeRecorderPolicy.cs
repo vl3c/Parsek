@@ -21,6 +21,13 @@ namespace Parsek
             internal double ShadowTailUT;
         }
 
+        // KEEP debris-only: the `IsDebris` conjunct here is semantic, not a proxy.
+        // Tail-normalization truncates a parent-anchored Relative section's tail to
+        // its recorder-persistable authored coverage when the recording ends; debris
+        // recordings finish at the proximity-window exit (or earlier on crash) and
+        // their entire payload is parent-anchored. Controlled-decoupled children
+        // (extension of the parent-anchor contract) record post-window Absolute
+        // tails that must NOT be tail-truncated, so they correctly fail this gate.
         internal static bool ShouldNormalizeParentAnchoredDebris(Recording rec)
         {
             return rec != null

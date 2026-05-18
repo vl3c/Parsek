@@ -4817,6 +4817,11 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
+                // KEEP debris-only: this is a fast-skip for non-debris (they don't
+                // need a loop-sync parent index). Controlled-decoupled children
+                // (extension of the parent-anchor contract) carry IsDebris=false
+                // and correctly fall into this skip; they are not loop-synced to
+                // a non-debris parent.
                 if (!rec.IsDebris || string.IsNullOrEmpty(rec.TreeId))
                 {
                     rec.LoopSyncParentIdx = -1;

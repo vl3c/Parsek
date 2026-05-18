@@ -167,11 +167,16 @@ namespace Parsek
             }
         }
 
+        // Post-controlled-child-extension: this predicate is semantically "does the
+        // focus carry a parent-anchor surface" - true for both genuine debris and
+        // controlled-decoupled children. Method name keeps the historical
+        // "IsDebrisFocusRecording" because the rename is sibling-plan scope; the
+        // body checks DebrisParentRecordingId, not IsDebris.
         private static bool IsDebrisFocusRecording(RelativeAnchorResolverContext context)
         {
             return TryGetFocusRecording(context, out Recording focus)
                 && focus != null
-                && focus.IsDebris;
+                && !string.IsNullOrEmpty(focus.DebrisParentRecordingId);
         }
 
         private static bool TryGetFocusRecording(
