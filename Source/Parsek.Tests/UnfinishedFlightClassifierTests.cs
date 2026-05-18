@@ -235,6 +235,182 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void OptimizerSplitChainContinuation_OnlyChainHeadQualifiesAsUnfinishedFlight()
+        {
+            // Reproduces the bug from logs/2026-05-18_1853_stash-4-recordings:
+            // RecordingOptimizer phase-change split creates a chain HEAD
+            // (with BPs matching the rewind point) and a chain TIP (no BPs)
+            // sharing the same ChainId. The low-level
+            // UnfinishedFlightClassifier predicate stays permissive — both
+            // chain members pass TryQualify so RewindPointReaper can route
+            // the chain TIP through Qualifies and decide to keep the rewind
+            // point alive (covered by RewindPointReaperTests). But the
+            // consumer-facing EffectiveState.IsUnfinishedFlight predicate
+            // (STASH membership, regular-tree filter, timeline marker,
+            // group-picker drop-target, legacy R-button suppression) must
+            // emit one row per logical flight. With both halves admitted,
+            // the stash showed 4 entries for a 2-slot RP; post-fix only
+            // the chain head admits and the stash shows 2.
+            const string treeId = "tree_phase_split";
+            const string bpId = "bp_slot_anchor";
+            const string chainId = "chain_kerbal_x";
+            var head = Rec(
+                "rec_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                childBranchPointId: bpId);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+            var tip = Rec(
+                "rec_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_slot_anchor", bpId, 0, "rec_head", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // Low-level classifier stays permissive: both chain members
+            // pass TryQualify when the reaper passes them directly with a
+            // chosen slot. Pinned so a regression here would be caught
+            // before RewindPointReaperTests' more elaborate fixture trips.
+            Assert.True(UnfinishedFlightClassifier.Qualifies(
+                head, rp.ChildSlots[0], rp, considerSealed: true));
+            Assert.True(UnfinishedFlightClassifier.Qualifies(
+                tip, rp.ChildSlots[0], rp, considerSealed: true));
+
+            // Consumer-facing predicate suppresses the chain continuation.
+            // Head admits; tip is filtered with reason=chainContinuation.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.False(EffectiveState.IsUnfinishedFlight(tip));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_tip")
+                && l.Contains("reason=chainContinuation")
+                && l.Contains("chainBranch=0")
+                && l.Contains("headRec=rec_head"));
+
+            // The STASH UI group falls out of the predicate, so it lists
+            // one row per logical flight without doing its own dedupe.
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_head", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void OptimizerSplitChainContinuation_MultiSegmentChainCollapsesToHead()
+        {
+            // Three-member chain (Atmospheric -> ExoBallistic -> ...) —
+            // confirms only the lowest-ChainIndex member surfaces, not a
+            // mid-chain segment that happens to be enumerated first.
+            const string treeId = "tree_multi";
+            const string bpId = "bp_multi_anchor";
+            const string chainId = "chain_multi";
+            var head = Rec("rec_head", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, childBranchPointId: bpId);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+            var mid = Rec("rec_mid", MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            mid.ChainId = chainId;
+            mid.ChainIndex = 1;
+            var tail = Rec("rec_tail", MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            tail.ChainId = chainId;
+            tail.ChainIndex = 2;
+            InstallTree(treeId, head, mid, tail);
+            var rp = RpWithFocus("rp_multi", bpId, 0, "rec_head", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.False(EffectiveState.IsUnfinishedFlight(mid));
+            Assert.False(EffectiveState.IsUnfinishedFlight(tail));
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_head", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void ChainContinuationWhoseHeadFailsRaw_StillSurfacesAsUnfinishedFlight()
+        {
+            // Asymmetric chain shape: the chain HEAD is the launch-row
+            // (no parent/child BP linkage, no BP match), and only the
+            // chain TIP carries the BP-linked qualifier. Pre-fix this
+            // shape worked because the dedupe didn't exist; the new
+            // dedupe must NOT suppress the TIP here -- the HEAD doesn't
+            // pass Raw, so the "lower-index peer also qualifies" gate
+            // fails and the TIP correctly surfaces. Pinned alongside the
+            // optimizer-split tests so the asymmetry is documented in
+            // one place.
+            const string treeId = "tree_launch_chain";
+            const string bpId = "bp_launch_split";
+            const string chainId = "chain_launch";
+            var head = Rec(
+                "rec_launch_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Landed);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+            var tip = Rec(
+                "rec_launch_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_launch", bpId, 0, "rec_launch_tip", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // HEAD has no BP linkage and is not the slot origin -> Raw
+            // rejects it -> consumer-facing predicate rejects it.
+            Assert.False(EffectiveState.IsUnfinishedFlight(head));
+
+            // TIP carries the BP-linked qualifier. The dedupe's lower-
+            // index-peer check looks at HEAD, finds Raw(HEAD)=false, and
+            // does NOT suppress TIP. TIP surfaces.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(EffectiveState.IsUnfinishedFlight(tip));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_launch_tip")
+                && l.Contains("reason=chainContinuation"));
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_launch_tip", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void NonChainRecording_AdmitsWithoutChainDedupe()
+        {
+            // The chain-dedupe branch must not interfere with the legacy
+            // single-recording flow: a recording with null ChainId admits
+            // directly when the classifier qualifies it.
+            const string treeId = "tree_solo";
+            const string bpId = "bp_solo_anchor";
+            var solo = Rec(
+                "rec_solo",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                childBranchPointId: bpId);
+            // ChainId left null — non-chain recording.
+            InstallTree(treeId, solo);
+            var rp = RpWithFocus("rp_solo", bpId, 0, "rec_solo", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(solo));
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_solo", members[0].RecordingId);
+        }
+
+        [Fact]
         public void OriginOnlyFallback_WithMultipleMatchingRps_ResolvesLatest()
         {
             const string treeId = "tree_multi_rp";
