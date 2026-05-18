@@ -1683,6 +1683,221 @@ namespace Parsek.Tests
 
             Assert.Equal(-1, result);
         }
+
+        // --- Supersede walk (re-fly fork rewriting the chain-next slot) ---
+
+        // Models the playtest at logs/2026-05-18_1953_watch-cam-stuck-upper-stage/:
+        // after a Rewind-to-Separation, the chain-next of the watched rewind-origin
+        // is rewritten by a supersede row to point at the canon fork (the
+        // post-rewind continuation attached under a tree branch point). The chain
+        // slot itself is skipped from playback (skip=superseded-by-relation) so
+        // its ghost is inactive; the fork carries the live ghost.
+        [Fact]
+        public void ChainContinuation_NextSlotSupersededByActiveFork_ReturnsForkIndex()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),     // watched (rewind origin)
+                MakeRec("r1", chainId: "c1", chainIndex: 1),     // chain-next, superseded
+                MakeRec("fork", chainId: null, chainIndex: -1),  // canon fork (tree-attached, no chain)
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "r1", NewRecordingId = "fork" }
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(),
+                idx => idx == 2, // chain slot inactive, fork active
+                supersedes);
+
+            Assert.Equal(2, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_SupersedesNull_BehavesAsBefore()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(),
+                idx => idx == 1,
+                supersedes: null);
+            Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_SupersedeChainTransitive_ReturnsTerminalIndex()
+        {
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+                MakeRec("midfork", chainId: null, chainIndex: -1),
+                MakeRec("finalfork", chainId: null, chainIndex: -1),
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "r1", NewRecordingId = "midfork" },
+                new RecordingSupersedeRelation { OldRecordingId = "midfork", NewRecordingId = "finalfork" },
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(),
+                idx => idx == 3, // only finalfork active
+                supersedes);
+
+            Assert.Equal(3, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_SupersedeTargetMissingFromCommitted_FallsBackToOriginalIndex()
+        {
+            // Supersede row points at an id that isn't in the committed list (e.g.
+            // a stale row written before save reconciliation). The walker must not
+            // return -1 from the lookup; it falls back to the original index, and
+            // the activity check then determines the watch target.
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                MakeRec("r1", chainId: "c1", chainIndex: 1),
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "r1", NewRecordingId = "phantom-id" }
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree>(),
+                idx => idx == 1,
+                supersedes);
+
+            Assert.Equal(1, result);
+        }
+
+        [Fact]
+        public void TreeBranch_SamePidChildSupersededByActiveFork_ReturnsForkIndex()
+        {
+            var bp = new BranchPoint
+            {
+                Id = "bp1",
+                Type = BranchPointType.Undock,
+                ChildRecordingIds = new List<string> { "child-superseded" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-superseded", vesselPid: 100, treeId: "t1"),
+                MakeRec("fork", vesselPid: 100, treeId: "t1"),
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "child-superseded", NewRecordingId = "fork" }
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree },
+                idx => idx == 2, // fork active, original inactive
+                supersedes);
+
+            Assert.Equal(2, result);
+        }
+
+        [Fact]
+        public void ChainContinuation_PendingActivation_UsesForkActivationUT_WhenForkStartsEarlier()
+        {
+            // Pin the direction of TryGetPendingWatchActivationUT's read-through-
+            // supersede. In the playtest the fork's activation is *later* than
+            // the superseded chain slot's, which makes the hold extend; here we
+            // assert the inverse case (fork earlier than chain slot) so the
+            // returned UT comes from the fork's payload and the hold contracts
+            // toward the actual activation time. The per-frame retry in
+            // ProcessWatchEndHoldTimer then picks up the fork as soon as its
+            // ghost is active.
+            var chainNext = MakeRec("r1", chainId: "c1", chainIndex: 1);
+            chainNext.ExplicitStartUT = 500.0;
+
+            var fork = MakeRec("fork", chainId: null, chainIndex: -1);
+            fork.ExplicitStartUT = 410.0;
+            fork.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 420.0 },
+                new TrajectoryPoint { ut = 430.0 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                chainNext,
+                fork,
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "r1", NewRecordingId = "fork" }
+            };
+
+            bool found = GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                recs[0], recs, new List<RecordingTree>(), idx => false,
+                out double activationUT,
+                supersedes);
+
+            Assert.True(found);
+            Assert.Equal(420.0, activationUT);
+        }
+
+        [Fact]
+        public void TreeBranch_PidMatchFromSupersedeTarget_RecursesIntoForkChildren()
+        {
+            // Even when the supersede target's own ghost is not yet active, the
+            // recursion (#158 path) should descend through ITS children to find
+            // a deeper active target — using the fork's children, not the
+            // original superseded recording's.
+            var bp1 = new BranchPoint
+            {
+                Id = "bp1",
+                ChildRecordingIds = new List<string> { "child-superseded" }
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp2",
+                ChildRecordingIds = new List<string> { "grandchild" }
+            };
+            var tree = new RecordingTree
+            {
+                Id = "t1",
+                TreeName = "Test",
+                BranchPoints = new List<BranchPoint> { bp1, bp2 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("root", vesselPid: 100, treeId: "t1", childBpId: "bp1"),
+                MakeRec("child-superseded", vesselPid: 100, treeId: "t1"),
+                MakeRec("fork", vesselPid: 100, treeId: "t1", childBpId: "bp2"),
+                MakeRec("grandchild", vesselPid: 100, treeId: "t1"),
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "child-superseded", NewRecordingId = "fork" }
+            };
+
+            int result = GhostPlaybackLogic.FindNextWatchTarget(
+                recs[0], recs, new List<RecordingTree> { tree },
+                idx => idx == 3, // only grandchild active
+                supersedes);
+
+            Assert.Equal(3, result);
+        }
     }
 
     #endregion
