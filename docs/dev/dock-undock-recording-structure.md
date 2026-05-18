@@ -267,7 +267,7 @@ KSP fires `onPartCouple` with `data.from.vessel.pid=2167625385`, `data.to.vessel
 
 **Parsek-side timeline:**
 
-1. `OnPartCouple` runs. Resolves `partnerPidFromEvent=3965530352`, validates `partnerKnown=True` via the cross-tree fix.
+1. `OnPartCouple` runs. Resolves `partnerPidFromEvent=3965530352`. Eligibility passes via `partnerSnapshotCaptured=True` (the pre-couple partner snapshot worked) and/or `partnerKnown=True` (the partner has a recording in `activeTree.Recordings`/`CommittedRecordings`).
 2. Pre-couple partner snapshot captured: `pendingDockPartnerSnapshot` = snapshot of vessel A (pid `3965530352`) with its 28 parts and `LiquidFuel = 200/400`.
 3. Structural event snapshot appended to recording `430d3a0d` at UT 118.06 (Dock).
 4. `recorder.StopRecordingForChainBoundary()`. `430d3a0d` gets `ExplicitEndUT = 118.06`, `TerminalStateValue = Docked`.

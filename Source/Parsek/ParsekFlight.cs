@@ -10489,24 +10489,41 @@ namespace Parsek
                     // Resolve the route-partner PID from the couple event directly.
                     // BackgroundMap is intra-tree only, so a partner with a committed
                     // recording from a prior tree is invisible to FindAbsorbedDockPartnerPid.
-                    // Validate via IsKnownDockPartnerForRoute so truly foreign vessels do
-                    // not produce route-eligible windows.
+                    //
+                    // Accept the partner as route-eligible when EITHER:
+                    //  (a) the pre-couple partner snapshot was captured successfully
+                    //      (the partner is a real KSP vessel with parts that was
+                    //      distinct from the recorder at couple time — third-playtest
+                    //      scenario where the destination is loaded from save state
+                    //      but has no prior Parsek recording), OR
+                    //  (b) the partner has a known Parsek recording in the active tree
+                    //      or in committed recordings (yesterday's cross-tree case).
+                    // Both paths trust real evidence; the stricter "must have prior
+                    // recording" gate from the first iteration was over-conservative
+                    // for the destination-loaded-from-save workflow.
                     uint fromPid = data.from?.vessel != null ? data.from.vessel.persistentId : 0u;
                     uint toPid = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
                     uint partnerPidFromEvent = ResolveDockPartnerPidFromEvent(
                         fromPid, toPid, recorder.RecordingVesselId);
+                    bool partnerSnapshotCaptured = pendingDockPartnerSnapshot != null
+                        && pendingDockPartnerSnapshotPid == partnerPidFromEvent
+                        && partnerPidFromEvent != 0u;
                     bool partnerKnown = IsKnownDockPartnerForRoute(
                         partnerPidFromEvent,
                         recorder.RecordingVesselId,
                         activeTree?.Recordings?.Values,
                         RecordingStore.CommittedRecordings);
-                    uint routeTargetPid = partnerKnown ? partnerPidFromEvent : 0u;
+                    bool partnerEligible = partnerPidFromEvent != 0u
+                        && partnerPidFromEvent != recorder.RecordingVesselId
+                        && (partnerSnapshotCaptured || partnerKnown);
+                    uint routeTargetPid = partnerEligible ? partnerPidFromEvent : 0u;
 
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve: selfPid={recorder.RecordingVesselId} " +
                         $"mergedPid={mergedPid} isTarget={isTarget} absorbedPid={absorbedPid} " +
-                        $"partnerPidFromEvent={partnerPidFromEvent} partnerKnown={partnerKnown} " +
-                        $"routeTargetPid={routeTargetPid}");
+                        $"partnerPidFromEvent={partnerPidFromEvent} " +
+                        $"partnerSnapshotCaptured={partnerSnapshotCaptured} partnerKnown={partnerKnown} " +
+                        $"partnerEligible={partnerEligible} routeTargetPid={routeTargetPid}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
@@ -10551,12 +10568,6 @@ namespace Parsek
                     uint toPidR = data.to?.vessel != null ? data.to.vessel.persistentId : 0u;
                     uint partnerPidFromEventR = ResolveDockPartnerPidFromEvent(
                         fromPidR, toPidR, recorder.RecordingVesselId);
-                    bool partnerKnownR = IsKnownDockPartnerForRoute(
-                        partnerPidFromEventR,
-                        recorder.RecordingVesselId,
-                        activeTree?.Recordings?.Values,
-                        RecordingStore.CommittedRecordings);
-                    uint routeTargetPid = partnerKnownR ? partnerPidFromEventR : 0u;
 
                     // Gap §5.1: also try to capture a pre-couple partner snapshot in
                     // the retroactive path. By the time we reach this branch
@@ -10566,7 +10577,8 @@ namespace Parsek
                     // only capture when data.from.vessel and data.to.vessel are
                     // still distinct; if they aren't, fallbacks downstream
                     // (TryDeriveEndpointPartPidsFromPartner) carry the accepted
-                    // baseline-inflation risk noted in §5.1.
+                    // baseline-inflation risk noted in §5.1. Captured BEFORE the
+                    // eligibility check so partnerSnapshotCaptured can vote yes.
                     pendingDockPartnerSnapshot = null;
                     pendingDockPartnerSnapshotPid = 0u;
                     if (data.from?.vessel != null && data.to?.vessel != null &&
@@ -10585,11 +10597,28 @@ namespace Parsek
                         }
                     }
 
+                    // Eligibility: same dual-evidence test as the live-recording path.
+                    // Accept the partner when EITHER the pre-couple snapshot was
+                    // captured (real KSP vessel) OR it has a known Parsek recording.
+                    bool partnerSnapshotCapturedR = pendingDockPartnerSnapshot != null
+                        && pendingDockPartnerSnapshotPid == partnerPidFromEventR
+                        && partnerPidFromEventR != 0u;
+                    bool partnerKnownR = IsKnownDockPartnerForRoute(
+                        partnerPidFromEventR,
+                        recorder.RecordingVesselId,
+                        activeTree?.Recordings?.Values,
+                        RecordingStore.CommittedRecordings);
+                    bool partnerEligibleR = partnerPidFromEventR != 0u
+                        && partnerPidFromEventR != recorder.RecordingVesselId
+                        && (partnerSnapshotCapturedR || partnerKnownR);
+                    uint routeTargetPid = partnerEligibleR ? partnerPidFromEventR : 0u;
+
                     ParsekLog.Verbose("Flight",
                         $"OnPartCouple route-partner resolve (retroactive): " +
                         $"selfPid={recorder.RecordingVesselId} mergedPid={mergedPid} " +
                         $"absorbedPid={absorbedPid} partnerPidFromEvent={partnerPidFromEventR} " +
-                        $"partnerKnown={partnerKnownR} routeTargetPid={routeTargetPid}");
+                        $"partnerSnapshotCaptured={partnerSnapshotCapturedR} partnerKnown={partnerKnownR} " +
+                        $"partnerEligible={partnerEligibleR} routeTargetPid={routeTargetPid}");
 
                     CapturePendingDockRouteEndpointProof(data, routeTargetPid);
 
