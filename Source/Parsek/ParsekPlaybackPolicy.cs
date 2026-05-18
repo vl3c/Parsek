@@ -78,6 +78,13 @@ namespace Parsek
             engine.IsGhostHeld = idx =>
                 heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
 
+            // Tell the engine how to resolve the chain continuation for a
+            // given slot. Used by ChainHandoffLogic to shadow the head when
+            // the continuation is rendering (overlap case) and bridge-hold
+            // the head when the continuation has not yet activated (gap
+            // case). Returns -1 when no continuation exists.
+            engine.ResolveChainNextIndex = idx => ResolveChainNextSlotIndex(idx);
+
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
 
@@ -1832,6 +1839,51 @@ namespace Parsek
             stateVectorCachedIndices.Clear();
             terminalMapRetentionLoggedIds.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
+        }
+
+        /// <summary>
+        /// Resolves the slot index of the chain continuation for the given
+        /// slot, or -1 if none. Mirrors
+        /// <see cref="GhostPlaybackLogic.FindNextWatchTarget"/>'s Case 1
+        /// (chain-next lookup by ChainId + ChainBranch=0 + ChainIndex+1)
+        /// but without the watched-only ghost-active filter — the
+        /// chain-handoff coordinator inside the engine needs the index
+        /// regardless of watched state. Supersede graph is walked through
+        /// <see cref="GhostPlaybackLogic.ResolveSupersedeIndex"/> so a
+        /// continuation that was superseded by a fork resolves to the
+        /// fork's index. Returns -1 on invalid slot index, missing chain
+        /// metadata, branch &gt; 0, no matching successor, or supersede
+        /// resolution failure.
+        /// </summary>
+        internal int ResolveChainNextSlotIndex(int slotIndex)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || slotIndex < 0 || slotIndex >= committed.Count)
+                return -1;
+            Recording current = committed[slotIndex];
+            if (current == null
+                || string.IsNullOrEmpty(current.ChainId)
+                || current.ChainIndex < 0
+                || current.ChainBranch != 0)
+                return -1;
+            int nextChainIndex = current.ChainIndex + 1;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                ParsekScenario.Instance?.RecordingSupersedes;
+            for (int j = 0; j < committed.Count; j++)
+            {
+                Recording candidate = committed[j];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ChainId, current.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != 0) continue;
+                if (candidate.ChainIndex != nextChainIndex) continue;
+                int resolvedIdx = GhostPlaybackLogic.ResolveSupersedeIndex(
+                    j, committed, supersedes);
+                if (resolvedIdx < 0 || resolvedIdx == slotIndex)
+                    return -1;
+                return resolvedIdx;
+            }
+            return -1;
         }
     }
 
