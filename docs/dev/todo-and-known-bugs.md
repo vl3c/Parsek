@@ -223,15 +223,15 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Open - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
+## Done - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
 
-**Evidence:** `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.
+- ~~`logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.~~
 
-**Root cause:** `VesselSpawner.TryBackupSnapshot` calls `vessel.BackupVessel()` then `pv.Save(node)`. KSP keeps the live `Vessel.vesselName` as the raw `#autoLOC_...` localization key until UI display time (the UI resolves it on render), so the ProtoVessel inherits the unresolved key into the snapshot's `name` field. Recording metadata is fine because Parsek wraps with `Recording.ResolveLocalizedName` at construction; the snapshot path never touches that helper.
+**Root cause:** `VesselSpawner.TryBackupSnapshot` calls `vessel.BackupVessel()` then `pv.Save(node)`. KSP keeps the live `Vessel.vesselName` as the raw `#autoLOC_...` localization key until UI display time (the UI resolves it on render), so the ProtoVessel inherits the unresolved key into the snapshot's `name` field. The recording-metadata fix in PR #887 wrapped `Recording.VesselName` and `RecordingTree.TreeName` with `Recording.ResolveLocalizedName` at construction, but the snapshot path never touched that helper.
 
-**Possible fix:** `VesselSpawner.NormalizeBackedUpSnapshotFromLiveVessel` (or a sibling normalizer) could rewrite the snapshot root `name` value to `Recording.ResolveLocalizedName(node.GetValue("name"))` before persistence. Needs verification that ProtoVessel.Load round-tripping is happy with a non-token name (it should be — the field is just a string), and that nothing downstream keys off the raw token. The respawned vessel's `Vessel.vesselName` after `ProtoVessel.Load` would then carry the readable name immediately, including for tracking-station rows, CommNet labels, and any code that displays the live vessel name without going through the UI resolver.
+**Fix:** New `VesselSpawner.ResolveLocalizedVesselNameInSnapshot` static helper, called from `NormalizeBackedUpSnapshotFromLiveVessel` so every `TryBackupSnapshot` caller is immune (all production call sites share the chokepoint). The wrap is a no-op for null / empty / non-`#`-prefix values, and silent when the Localizer is unavailable (returns the input unchanged). Six unit tests in `SnapshotVesselNameLocalizationTests` cover the null / missing-name / empty / regular-name / non-locKey-with-`#` / autoLOC-token-with-Localizer-unavailable branches; one in-game test `ResolveLocalizedVesselNameInSnapshot_AutoLocToken_RewritesUnderLiveKsp` (Category=LocalizedName) pins the live-Localizer resolution. The respawned vessel's `Vessel.vesselName` after `ProtoVessel.Load` now carries the readable name immediately, including for tracking-station rows, CommNet labels, and any code that displays the live vessel name without going through the UI resolver.
 
-**Status:** OPEN. Low priority — only affects display of the re-spawned ghost / restored-vessel name (the recording table itself is now correct after PR #887).
+**Status:** CLOSED 2026-05-18.
 
 ---
 

@@ -294,6 +294,8 @@ namespace Parsek
             if (snapshot == null || vessel == null)
                 return;
 
+            ResolveLocalizedVesselNameInSnapshot(snapshot);
+
             TerminalState liveState = ResolveLiveSnapshotTerminalState(vessel);
             CelestialBody surfaceBody = vessel.situation == Vessel.Situations.LANDED
                 || vessel.situation == Vessel.Situations.SPLASHED
@@ -304,6 +306,25 @@ namespace Parsek
                 liveState,
                 surfaceBody,
                 $"TryBackupSnapshot pid={vessel.persistentId} vessel='{vessel.vesselName ?? "(unknown)"}'");
+        }
+
+        // KSP keeps Vessel.vesselName as a raw "#autoLOC_..." token until UI display time,
+        // and ProtoVessel.Save inherits that token into VESSEL.name. Without this wrap the
+        // _vessel.craft sidecar ships the token and any consumer that respawns the vessel
+        // via ProtoVessel.Load (ghost map presence, restored vessels, tracking-station rows)
+        // sees the raw token as the live vesselName. Wrap once here so every TryBackupSnapshot
+        // caller is immune.
+        internal static void ResolveLocalizedVesselNameInSnapshot(ConfigNode snapshot)
+        {
+            if (snapshot == null)
+                return;
+            string raw = snapshot.GetValue("name");
+            if (string.IsNullOrEmpty(raw) || raw[0] != '#')
+                return;
+            string resolved = Recording.ResolveLocalizedName(raw);
+            if (string.IsNullOrEmpty(resolved) || resolved == raw)
+                return;
+            snapshot.SetValue("name", resolved, true);
         }
 
         private static TerminalState ResolveLiveSnapshotTerminalState(Vessel vessel)
