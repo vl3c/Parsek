@@ -12,6 +12,21 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Watch-mode shortcuts fire while typing into a text field
+
+- ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter — typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~
+
+**Fix scope:**
+- New `InputFocusGuard.IsTextFieldFocused()` static helper checks both `GUIUtility.keyboardControl != 0` (covers IMGUI / ClickThroughFix text fields) and `EventSystem.current?.currentSelectedGameObject != null` (covers uGUI / new-input-system selection). The Unity statics are isolated in their own private methods so the JIT only resolves `UnityEngine.EventSystems` when the production path runs.
+- Two `Func<>` test seams (`KeyboardControlProviderForTesting`, `EventSystemFocusedProviderForTesting`) let xUnit drive every branch without loading UnityEngine.UI. Standard `ResetTestOverrides()` pattern.
+- `ParsekFlight.HandleInput` now reads each shortcut keypress into a local once, then short-circuits with a `ParsekLog.Verbose("Input", ...)` log line when any of the four keys would fire AND a text field is focused. Logging only fires on actual presses so the rate is bounded by user input, not per-frame.
+- Six new unit tests in `InputFocusGuardTests` cover neither-focused / IMGUI-only / EventSystem-only / both-focused / short-circuit-when-IMGUI-already-true / `ResetTestOverrides`-clears-both.
+- Audit: `Input.GetKeyDown` in `InGameTests/TestRunnerShortcut.cs` is a deliberate global chord (Ctrl+Shift+T, documented to "work in any scene") so the modifier requirement is the focus guard; not changed.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
 ## Done - v0.10.0 W key cycles watch mode through watchable ghosts
 
 - ~~Watching a ghost via the group W button required leaving the watch overlay, scrolling through the recordings table, and pressing another group W to switch targets. There was no keyboard affordance to advance the camera to the next visible ghost without leaving watch mode. Stock W (pitch-down) was also still bleeding through to the unattended active vessel.~~
