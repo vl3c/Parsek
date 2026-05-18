@@ -12,6 +12,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 W key cycles watch mode through watchable ghosts
+
+- ~~Watching a ghost via the group W button required leaving the watch overlay, scrolling through the recordings table, and pressing another group W to switch targets. There was no keyboard affordance to advance the camera to the next visible ghost without leaving watch mode. Stock W (pitch-down) was also still bleeding through to the unattended active vessel.~~
+
+**Feature:** While in watch mode, pressing W advances the FlightCamera to the next watchable ghost using the same eligibility predicate as the group W button (not debris, active ghost, same body, within visual range). The rotation is sorted by `StartUT` with `RecordingId` ordinal as the tiebreaker, persists a cursor across presses for predictable round-robin order, and silently no-ops when only the current target is eligible (player exits explicitly with `[` or `]`).
+
+**Fix scope:**
+- `WatchModeController.WatchModeLockMask` now also locks `ControlTypes.PITCH` so the stock pitch-axis keys (W and S) cannot drive the unattended active vessel during watch. The input lock is axis-granular, not key-granular, so blocking S as well is intentional (pitch-up on an unattended vessel is the same flight hazard the rest of the mask already mitigates). Raw `Input.GetKeyDown(KeyCode.W)` still fires for the cycle handler because Unity input polling bypasses the InputLockManager.
+- New `WatchModeController.CycleToNextWatchable` instance method composes the live eligibility predicate (delegating to existing `HasActiveGhost` / `IsGhostOnSameBody` / `IsGhostWithinVisualRange`) and dispatches through the new pure-static `WatchModeController.ResolveCycleTarget` helper, which reuses `GhostPlaybackLogic.AdvanceGroupWatchCursor` over a descendants set covering every committed index.
+- Cursor (`watchCycleCursorRecordingId`) is set BEFORE `EnterWatchMode` is invoked. The cursor is a rotation hint, not a "currently watched" claim, so advancing it on every press (success or failure) keeps the cycle moving forward through stuck targets (visuals refused to load, target slipped out of entry range between resolve and entry) instead of looping on a single bad pick. `ResetWatchState` no longer clears the cursor; `ExitWatchMode` clears it only on full exits (`skipCameraRestore=false`), so the switching exit `EnterWatchMode` runs internally when handing off between ghosts preserves an in-flight cycle.
+- `ParsekFlight.HandleInput` reads the W keypress in the same path that already binds `[` / `]` exit and `V` camera-mode toggle.
+- `WatchModeController.DrawWatchModeOverlay` hint reads `[ ] return  |  V camera  |  W cycle`.
+- New unit tests in `WatchCycleResolutionTests` cover empty / all-ineligible / toggle-off / two-entry / three-entry-in-StartUT-order / debris-filter-via-predicate / out-of-range-watched-index / negative-watched-index / null-RecordingId-filtered / global-scope-spans-every-tree, plus a sanity check pinning `ControlTypes.PITCH` in `WatchModeLockMask`.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
 ## Open - v0.10.0 Watch camera froze on rewind-origin end-frame instead of following the canon re-fly fork
 
 - Playtest 2026-05-18 (`logs/2026-05-18_1953_watch-cam-stuck-upper-stage/`). User did a Rewind-to-Separation on a two-stage launch at UT≈387.84 and entered watch mode on the new rewind-origin recording `3ab1661a` (#26, chainId `8d8370c0...`, chainIndex 0). When playback reached the user's stage-separation point at UT 414.55 (end of #26), the watch camera held on the frozen end-frame of the rewound recording until manual exit ~29s later (`Exiting watch mode for recording #26 ... — returning to #autoLOC_501224`). Expected: the camera transitions to the currently-rendering upper-stage continuation `rec_923e04` (#36, "Kerbal X", Immutable canon fork, UT 414.92 → 477.47, same `VesselPersistentId=2708531065` as #26).

@@ -20,6 +20,7 @@ All notable changes to Parsek are documented here.
 ### UI
 
 - Settings window > Diagnostics now has a "Use co-bubble peer blending" toggle so the rendering pipeline can be flipped between standalone-absolute and co-bubble-blended at runtime.
+- Watch mode now cycles to the next watchable ghost on W. Stock pitch input (W and S) is locked out on the unattended active vessel while watching, and the watch overlay hint reads `[ ] return  |  V camera  |  W cycle`.
 
 ### Bug Fixes
 
