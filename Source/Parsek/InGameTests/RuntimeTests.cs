@@ -405,6 +405,31 @@ namespace Parsek.InGameTests
                 $"Builder shipped raw token '{token}' instead of resolved name");
         }
 
+        [InGameTest(Category = "LocalizedName",
+            Description = "VesselSpawner snapshot normalizer rewrites VESSEL.name when it's a raw #autoLOC token")]
+        public void ResolveLocalizedVesselNameInSnapshot_AutoLocToken_RewritesUnderLiveKsp()
+        {
+            // The Localizer-unavailable branch is covered by xUnit. This is the
+            // live-KSP guard for the snapshot wrap: pv.Save's VESSEL.name field
+            // carries the raw "#autoLOC_..." token until UI display time, and
+            // _vessel.craft sidecars persist it verbatim. The wrap inside
+            // NormalizeBackedUpSnapshotFromLiveVessel must resolve it before
+            // persistence so any ProtoVessel.Load consumer (ghost map presence,
+            // restored vessel) sees a readable Vessel.vesselName.
+            const string token = "#autoLOC_501224";
+            string expected = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsTrue(expected != token,
+                $"Test prerequisite: Localizer must resolve '{token}' (got '{expected}')");
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", token);
+            bool changed = VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
+            InGameAssert.IsTrue(changed, "Expected wrap to report a change");
+            InGameAssert.AreEqual(expected, snapshot.GetValue("name"));
+            InGameAssert.IsTrue(snapshot.GetValue("name") != token,
+                $"Snapshot retained raw token '{token}'");
+        }
+
         #endregion
 
         #region TrajectoryMath
