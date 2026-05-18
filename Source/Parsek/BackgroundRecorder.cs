@@ -5320,6 +5320,29 @@ namespace Parsek
             if (state == null || treeRec == null) return;
             if (string.IsNullOrEmpty(reflyAnchorRecordingId)) return;
 
+            string previousAnchorRecordingId = state.currentAnchorRecordingId;
+            bool wasRelative = state.isRelativeMode;
+            bool sectionIsRelative = state.trackSectionActive
+                && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative;
+            bool anchorChanged = !wasRelative
+                || !string.Equals(
+                    previousAnchorRecordingId,
+                    reflyAnchorRecordingId,
+                    StringComparison.Ordinal);
+
+            // Stable-anchor early-return symmetry with
+            // FlightRecorder.ApplyReFlyProvisionalAnchorToActiveRecording:
+            // once the bypass is engaged on the correct anchor and the
+            // section is already Relative, subsequent BG ticks just rewrite
+            // the anchor id (idempotent) without running the pre-check
+            // resolver walk. Recordings are append-only and UT is
+            // monotonic, so coverage that held at entry-time still holds.
+            if (!anchorChanged && sectionIsRelative)
+            {
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                return;
+            }
+
             // Pre-check: the supersede target's authored trajectory must
             // cover the current ut. For nested Re-Flies where the rewind
             // point predates the supersede target's startUT, the anchor
@@ -5330,25 +5353,21 @@ namespace Parsek
             // recorder stays in its current state; the caller's return
             // path skips the generic nearest-search too, so a
             // fast-separating sibling cannot reclaim the anchor.
-            // Symmetric with FlightRecorder.ApplyReFlyProvisionalAnchorToActiveRecording.
-            var reflyCandidate = new RecordingAnchorCandidate(
-                reflyAnchorRecordingId,
-                worldPos: Vector3d.zero,
-                worldRotation: Quaternion.identity,
-                source: AnchorCandidateSource.ReFlyProvisionalSupersede,
-                diagnosticPid: 0u,
-                ghostIndex: -1,
-                isSealed: false,
-                isSameReplayPoint: false,
-                isSameVesselLineage: false);
-            if (!TryResolveAnchorPoseForCandidateAtUT(
-                    reflyCandidate, ut, out RelativeAnchorResolveFailure preCheck))
+            if (!TryResolveBackgroundRecordedAnchorPose(
+                    reflyAnchorRecordingId,
+                    ut,
+                    out AnchorPose _,
+                    out RelativeAnchorResolveFailure preCheck))
             {
                 string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
                     preCheck, "anchor-pose-unresolved");
+                // Per-vessel rate-limit key so two BG vessels failing on
+                // the same anchor don't dedupe each other's diagnostics.
+                string rateLimitKey = "refly-bypass-anchor-uncovered|"
+                    + state.vesselPid.ToString(CultureInfo.InvariantCulture);
                 ParsekLog.VerboseRateLimited(
                     "BgRecorder",
-                    "refly-bypass-anchor-uncovered",
+                    rateLimitKey,
                     "re-fly bypass deferred (BG): anchor recording has no data at ut=" +
                         ut.ToString("F2", CultureInfo.InvariantCulture) +
                         " pid=" + state.vesselPid +
@@ -5361,14 +5380,6 @@ namespace Parsek
                 return;
             }
 
-            string previousAnchorRecordingId = state.currentAnchorRecordingId;
-            bool wasRelative = state.isRelativeMode;
-            bool anchorChanged = !wasRelative
-                || !string.Equals(
-                    previousAnchorRecordingId,
-                    reflyAnchorRecordingId,
-                    StringComparison.Ordinal);
-
             // Pin the recording id. The synthetic candidate carries
             // AnchorCandidateSource.ReFlyProvisionalSupersede so downstream
             // BG log sites surface the bypass identity instead of defaulting
@@ -5376,13 +5387,22 @@ namespace Parsek
             // flows through the recorded-anchor path exactly as for the
             // station-rendezvous contract; pos/rot fields here are
             // placeholder (never consumed at playback).
+            var reflyCandidate = new RecordingAnchorCandidate(
+                reflyAnchorRecordingId,
+                worldPos: Vector3d.zero,
+                worldRotation: Quaternion.identity,
+                source: AnchorCandidateSource.ReFlyProvisionalSupersede,
+                diagnosticPid: 0u,
+                ghostIndex: -1,
+                isSealed: false,
+                isSameReplayPoint: false,
+                isSameVesselLineage: false);
             state.isRelativeMode = true;
             state.currentAnchorRecordingId = reflyAnchorRecordingId;
             state.currentAnchorCandidate = reflyCandidate;
             state.hasCurrentAnchorCandidate = true;
 
-            bool needsSectionFlip = state.trackSectionActive
-                && state.currentTrackSection.referenceFrame != ReferenceFrame.Relative;
+            bool needsSectionFlip = state.trackSectionActive && !sectionIsRelative;
             if (needsSectionFlip || anchorChanged)
             {
                 SegmentEnvironment env = state.environmentHysteresis != null
@@ -5408,26 +5428,6 @@ namespace Parsek
             {
                 ApplyBackgroundCurrentAnchorToTrackSection(state);
             }
-        }
-
-        // Pre-check helper for the BG re-fly bypass: routes through the
-        // existing recorded-anchor resolver to confirm the anchor recording
-        // has authored data at the given UT. Returns false when the
-        // resolver can't find a track section covering ut (the
-        // anchor-out-of-recorded-range case that produced the thrash before
-        // this pre-check landed). The candidate's pos/rot fields are
-        // unused; the resolver walks the anchor recording's TrackSections.
-        private bool TryResolveAnchorPoseForCandidateAtUT(
-            RecordingAnchorCandidate candidate,
-            double ut,
-            out RelativeAnchorResolveFailure failure)
-        {
-            failure = default;
-            return TryResolveBackgroundRecordedAnchorPose(
-                candidate.RecordingId,
-                ut,
-                out AnchorPose _,
-                out failure);
         }
 
         private static void ForceNextBackgroundTrajectorySample(
