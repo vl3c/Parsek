@@ -5,10 +5,9 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for InputFocusGuard.IsTextFieldFocused, the guard that suppresses
-    /// raw Input.GetKeyDown shortcuts (watch mode `[`, `]`, V, W) while a UI
-    /// text field has keyboard focus. Drives the two stubbable seams
-    /// (IMGUI GUIUtility.keyboardControl, uGUI EventSystem) without touching
-    /// real Unity statics.
+    /// raw Input.GetKeyDown shortcuts (watch mode `[`, `]`, V, W) while an IMGUI
+    /// text field has keyboard focus. Drives the stubbable seam without
+    /// touching real Unity statics.
     /// </summary>
     [Collection("Sequential")]
     public class InputFocusGuardTests : IDisposable
@@ -24,10 +23,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsTextFieldFocused_NeitherSeamFocused_ReturnsFalse()
+        public void IsTextFieldFocused_KeyboardControlZero_ReturnsFalse()
         {
             InputFocusGuard.KeyboardControlProviderForTesting = () => 0;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () => false;
 
             Assert.False(InputFocusGuard.IsTextFieldFocused());
         }
@@ -38,57 +36,28 @@ namespace Parsek.Tests
             // IMGUI assigns a non-zero control ID to the currently-focused
             // TextField. Any non-zero value should trigger the guard.
             InputFocusGuard.KeyboardControlProviderForTesting = () => 42;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () => false;
 
             Assert.True(InputFocusGuard.IsTextFieldFocused());
         }
 
         [Fact]
-        public void IsTextFieldFocused_EventSystemFocused_ReturnsTrue()
+        public void IsTextFieldFocused_KeyboardControlNegative_ReturnsTrue()
         {
-            InputFocusGuard.KeyboardControlProviderForTesting = () => 0;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () => true;
+            // GUIUtility.keyboardControl is an int; document that the guard
+            // treats "any non-zero" as focused, not just positive values.
+            InputFocusGuard.KeyboardControlProviderForTesting = () => -1;
 
             Assert.True(InputFocusGuard.IsTextFieldFocused());
         }
 
         [Fact]
-        public void IsTextFieldFocused_BothSeamsFocused_ReturnsTrue()
-        {
-            InputFocusGuard.KeyboardControlProviderForTesting = () => 99;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () => true;
-
-            Assert.True(InputFocusGuard.IsTextFieldFocused());
-        }
-
-        [Fact]
-        public void IsTextFieldFocused_KeyboardControlShortCircuits_DoesNotCallEventSystemProvider()
-        {
-            // The IMGUI check runs first; once it returns true, the uGUI seam
-            // must not be invoked. Verifies the short-circuit so a future
-            // refactor cannot accidentally evaluate both seams unconditionally.
-            bool eventSystemProviderCalled = false;
-            InputFocusGuard.KeyboardControlProviderForTesting = () => 1;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () =>
-            {
-                eventSystemProviderCalled = true;
-                return false;
-            };
-
-            Assert.True(InputFocusGuard.IsTextFieldFocused());
-            Assert.False(eventSystemProviderCalled);
-        }
-
-        [Fact]
-        public void ResetTestOverrides_ClearsBothProviders()
+        public void ResetTestOverrides_ClearsProvider()
         {
             InputFocusGuard.KeyboardControlProviderForTesting = () => 1;
-            InputFocusGuard.EventSystemFocusedProviderForTesting = () => true;
 
             InputFocusGuard.ResetTestOverrides();
 
             Assert.Null(InputFocusGuard.KeyboardControlProviderForTesting);
-            Assert.Null(InputFocusGuard.EventSystemFocusedProviderForTesting);
         }
     }
 }

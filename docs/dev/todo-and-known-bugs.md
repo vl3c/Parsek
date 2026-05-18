@@ -14,13 +14,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ## Done - v0.10.0 Watch-mode shortcuts fire while typing into a text field
 
-- ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter — typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~
+- ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter, so typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~
 
 **Fix scope:**
-- New `InputFocusGuard.IsTextFieldFocused()` static helper checks both `GUIUtility.keyboardControl != 0` (covers IMGUI / ClickThroughFix text fields) and `EventSystem.current?.currentSelectedGameObject != null` (covers uGUI / new-input-system selection). The Unity statics are isolated in their own private methods so the JIT only resolves `UnityEngine.EventSystems` when the production path runs.
-- Two `Func<>` test seams (`KeyboardControlProviderForTesting`, `EventSystemFocusedProviderForTesting`) let xUnit drive every branch without loading UnityEngine.UI. Standard `ResetTestOverrides()` pattern.
+- New `InputFocusGuard.IsTextFieldFocused()` static helper checks `GUIUtility.keyboardControl != 0`. Parsek's UI is IMGUI throughout (GUILayout/GUI through ClickThroughFix), so the IMGUI seam covers every Parsek-authored text field. A uGUI `EventSystem.current.currentSelectedGameObject` seam was considered and dropped: that predicate is satisfied by any stock-KSP uGUI Button click (e.g. the ApplicationLauncher toolbar that surfaces the Parsek window), which would silently suppress watch-mode shortcuts in flight after the click.
+- One `Func<int>` test seam (`KeyboardControlProviderForTesting`) lets xUnit drive the guard without a live `GUIUtility`. Standard `ResetTestOverrides()` pattern.
 - `ParsekFlight.HandleInput` now reads each shortcut keypress into a local once, then short-circuits with a `ParsekLog.Verbose("Input", ...)` log line when any of the four keys would fire AND a text field is focused. Logging only fires on actual presses so the rate is bounded by user input, not per-frame.
-- Six new unit tests in `InputFocusGuardTests` cover neither-focused / IMGUI-only / EventSystem-only / both-focused / short-circuit-when-IMGUI-already-true / `ResetTestOverrides`-clears-both.
+- Four new unit tests in `InputFocusGuardTests` cover zero / positive / negative `keyboardControl` and `ResetTestOverrides`-clears-the-provider.
 - Audit: `Input.GetKeyDown` in `InGameTests/TestRunnerShortcut.cs` is a deliberate global chord (Ctrl+Shift+T, documented to "work in any scene") so the modifier requirement is the focus guard; not changed.
 
 **Status:** CLOSED 2026-05-18.
