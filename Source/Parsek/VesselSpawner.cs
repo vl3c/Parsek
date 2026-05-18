@@ -314,18 +314,17 @@ namespace Parsek
         // via ProtoVessel.Load (ghost map presence, restored vessels, tracking-station rows)
         // sees the raw token as the live vesselName. Wrap once here so every TryBackupSnapshot
         // caller is immune.
-        internal static bool ResolveLocalizedVesselNameInSnapshot(ConfigNode snapshot)
+        internal static void ResolveLocalizedVesselNameInSnapshot(ConfigNode snapshot)
         {
             if (snapshot == null)
-                return false;
+                return;
             string raw = snapshot.GetValue("name");
             if (string.IsNullOrEmpty(raw) || raw[0] != '#')
-                return false;
+                return;
             string resolved = Recording.ResolveLocalizedName(raw);
             if (string.IsNullOrEmpty(resolved) || resolved == raw)
-                return false;
+                return;
             snapshot.SetValue("name", resolved, true);
-            return true;
         }
 
         private static TerminalState ResolveLiveSnapshotTerminalState(Vessel vessel)

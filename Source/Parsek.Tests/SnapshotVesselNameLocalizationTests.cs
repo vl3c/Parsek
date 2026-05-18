@@ -10,6 +10,7 @@ namespace Parsek.Tests
     /// The end-to-end "Localizer actually resolves the token" path needs live KSP;
     /// see the LocalizedName-category in-game test for that.
     /// </summary>
+    [Collection("Sequential")]
     public class SnapshotVesselNameLocalizationTests : IDisposable
     {
         public SnapshotVesselNameLocalizationTests()
@@ -23,56 +24,56 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NullSnapshot_ReturnsFalse()
+        public void NullSnapshot_DoesNotThrow()
         {
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(null));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(null);
         }
 
         [Fact]
-        public void MissingNameValue_ReturnsFalse()
+        public void MissingNameValue_LeavesSnapshotUnchanged()
         {
             var snapshot = new ConfigNode("VESSEL");
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             Assert.Null(snapshot.GetValue("name"));
         }
 
         [Fact]
-        public void EmptyNameValue_ReturnsFalseAndLeavesEmpty()
+        public void EmptyNameValue_LeavesEmpty()
         {
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", "");
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             Assert.Equal("", snapshot.GetValue("name"));
         }
 
         [Fact]
-        public void RegularName_ReturnsFalseAndLeavesUnchanged()
+        public void RegularName_LeavesUnchanged()
         {
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", "My Rocket");
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             Assert.Equal("My Rocket", snapshot.GetValue("name"));
         }
 
         [Fact]
-        public void NonLocKeyHashPrefix_ReturnsFalseAndLeavesUnchanged()
+        public void NonLocKeyHashPrefix_LeavesUnchanged()
         {
             // A user-authored vessel called literally "#foobar" must not be mangled.
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", "#foobar");
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             Assert.Equal("#foobar", snapshot.GetValue("name"));
         }
 
         [Fact]
-        public void AutoLocToken_LocalizerUnavailable_ReturnsFalseAndLeavesToken()
+        public void AutoLocToken_LocalizerUnavailable_LeavesToken()
         {
             // Under xUnit the KSP Localizer is not initialized, so ResolveLocalizedName
-            // returns the input unchanged. The wrap must report "no change" and not
-            // mutate the snapshot in that case.
+            // returns the input unchanged. The wrap must not mutate the snapshot in
+            // that case.
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", "#autoLOC_501224");
-            Assert.False(VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot));
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             Assert.Equal("#autoLOC_501224", snapshot.GetValue("name"));
         }
     }

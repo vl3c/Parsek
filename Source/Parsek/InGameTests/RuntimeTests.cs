@@ -423,8 +423,7 @@ namespace Parsek.InGameTests
 
             var snapshot = new ConfigNode("VESSEL");
             snapshot.AddValue("name", token);
-            bool changed = VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
-            InGameAssert.IsTrue(changed, "Expected wrap to report a change");
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
             InGameAssert.AreEqual(expected, snapshot.GetValue("name"));
             InGameAssert.IsTrue(snapshot.GetValue("name") != token,
                 $"Snapshot retained raw token '{token}'");
