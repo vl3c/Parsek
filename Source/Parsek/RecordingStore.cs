@@ -103,7 +103,13 @@ namespace Parsek
         }
 
         public const int CurrentRecordingFormatVersion = 1;
-        public const int CurrentRecordingSchemaGeneration = 1;
+        // Generation 2 landed the parent-anchor contract extension to
+        // controlled-decoupled children (PR following #872 / #874). The
+        // on-disk truth table widened to admit the previously-unreachable row
+        // (IsDebris=false, DebrisParentRecordingId=non-null); pre-bump
+        // recordings are rejected with reason "generation-older" so a pre-fix
+        // loader never sees the widened shape.
+        public const int CurrentRecordingSchemaGeneration = 2;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -4817,6 +4823,11 @@ namespace Parsek
             for (int i = 0; i < recordings.Count; i++)
             {
                 var rec = recordings[i];
+                // KEEP debris-only: this is a fast-skip for non-debris (they don't
+                // need a loop-sync parent index). Controlled-decoupled children
+                // (extension of the parent-anchor contract) carry IsDebris=false
+                // and correctly fall into this skip; they are not loop-synced to
+                // a non-debris parent.
                 if (!rec.IsDebris || string.IsNullOrEmpty(rec.TreeId))
                 {
                     rec.LoopSyncParentIdx = -1;

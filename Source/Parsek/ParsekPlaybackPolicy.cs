@@ -638,13 +638,17 @@ namespace Parsek
                     float holdMaxRealTime = holdUntilRealTime;
                     string holdDetail = null;
                     double pendingContinuationUT = double.NaN;
+                    var scenarioForActivation = ParsekScenario.Instance;
+                    var supersedesForActivation = object.ReferenceEquals(null, scenarioForActivation)
+                        ? null : scenarioForActivation.RecordingSupersedes;
                     if (evt.Index >= 0 && evt.Index < committed.Count
                         && GhostPlaybackLogic.TryGetPendingWatchActivationUT(
                             committed[evt.Index],
                             committed,
                             RecordingStore.CommittedTrees,
                             engine.HasActiveGhost,
-                            out pendingContinuationUT))
+                            out pendingContinuationUT,
+                            supersedesForActivation))
                     {
                         GhostPlaybackLogic.ComputePendingWatchHoldWindow(
                             holdSeconds,
@@ -979,11 +983,16 @@ namespace Parsek
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
+            // KEEP debris-only: this is the policy decision to NOT give debris
+            // recordings their own tracking-station map presence / orbit lines.
+            // Controlled-decoupled children (extension of the parent-anchor
+            // contract) carry IsDebris=false and correctly pass this gate so
+            // they continue to receive map presence as today.
             if (evt.Trajectory == null || evt.Trajectory.IsDebris)
             {
                 if (evt.Trajectory?.IsDebris == true)
                     ParsekLog.Verbose("Policy",
-                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" — debris");
+                        $"Skipped ghost map for #{evt.Index} \"{evt.Trajectory?.VesselName}\" - debris");
                 return;
             }
 
@@ -1114,6 +1123,10 @@ namespace Parsek
             if (hasFutureSegment || rec == null)
                 return false;
 
+            // KEEP debris-only: `rec.IsDebris` here is one of several semantic
+            // gates that exclude debris from terminal-real-spawn map presence
+            // retention. Controlled-decoupled children (extension of the parent-
+            // anchor contract) carry IsDebris=false and correctly pass this gate.
             if (rec.VesselSpawned
                 || rec.SpawnAbandoned
                 || rec.VesselSnapshot == null

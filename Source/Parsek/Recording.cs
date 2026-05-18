@@ -1040,17 +1040,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Stamps the debris parent-anchor contract on <paramref name="child"/>:
-        /// when the child is debris, sets <see cref="DebrisParentRecordingId"/> to the
-        /// supplied parent's recording id; otherwise no-op. Idempotent on non-debris
-        /// recordings so callers can invoke unconditionally adjacent to their existing
-        /// `IsDebris = …` assignments. Per plan §3b §"Helper".
+        /// Stamps the parent-anchor contract on <paramref name="child"/>:
+        /// sets <see cref="DebrisParentRecordingId"/> to the supplied parent's
+        /// recording id when a parent is provided. The helper is caller-decides:
+        /// the caller is responsible for not stamping populations that do not
+        /// want the contract (e.g. top-level launch recordings). Both genuine
+        /// debris (IsDebris=true) and controlled-decoupled children (IsDebris=false)
+        /// use this helper.
         /// </summary>
         internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
         {
             if (child == null) return;
-            if (!child.IsDebris) return;
-            child.DebrisParentRecordingId = parent?.RecordingId;
+            if (parent == null) return;
+            if (string.IsNullOrEmpty(parent.RecordingId)) return;
+            child.DebrisParentRecordingId = parent.RecordingId;
         }
 
         /// <summary>
@@ -1061,7 +1064,7 @@ namespace Parsek
         internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
         {
             if (child == null) return;
-            if (!child.IsDebris) return;
+            if (string.IsNullOrEmpty(parentRecordingId)) return;
             child.DebrisParentRecordingId = parentRecordingId;
         }
 

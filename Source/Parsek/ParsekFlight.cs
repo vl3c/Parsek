@@ -6643,16 +6643,20 @@ namespace Parsek
                 // already carries TerminalStateValue=Destroyed in that path).
                 Controllers = ControllerInfo.CaptureFromVessel(vessel)
             };
-            // PR 3b: stamp the v13 debris parent-anchor contract on the new child
-            // Recording. The breakup branch point's ParentRecordingIds list can have
-            // multiple parents in chain-merge cases, so passing parentRecordingId
-            // explicitly avoids ambiguity — the focused recording is the right anchor.
+            // Stamp the parent-anchor contract on the new child Recording. The breakup
+            // branch point's ParentRecordingIds list can have multiple parents in
+            // chain-merge cases, so passing parentRecordingId explicitly avoids
+            // ambiguity; the focused recording is the right anchor. Caller-decides
+            // helper: both debris (IsDebris=true) and controlled-decoupled children
+            // (IsDebris=false) receive the contract here.
             Recording.ApplyDebrisAnchorContract(childRec, parentRecordingId);
-            if (childRec.IsDebris)
+            if (!string.IsNullOrEmpty(childRec.DebrisParentRecordingId))
             {
+                string population = childRec.IsDebris ? "debris" : "controlled-child";
                 ParsekLog.Verbose("Coalescer",
-                    $"Debris contract applied at breakup: childRecId={childRecId} " +
-                    $"childPid={pid} parentRecId={parentRecordingId ?? "(none)"}");
+                    $"Parent-anchor contract applied at breakup: childRecId={childRecId} " +
+                    $"childPid={pid} population={population} " +
+                    $"parentRecId={parentRecordingId ?? "(none)"}");
             }
 
             // Bug #419 — invariant-enforcement: before any seed-point or snapshot code
@@ -7054,10 +7058,22 @@ namespace Parsek
                         ctrlSnap, initialPoint, parentGeneration: activeRec.Generation,
                         parentRecordingId: activeRec.RecordingId);
 
-                    // Add to BackgroundRecorder for trajectory sampling (no TTL — records indefinitely)
+                    // Add to BackgroundRecorder for trajectory sampling (no TTL - records indefinitely)
                     if (childVessel != null && backgroundRecorder != null)
                     {
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
+                        // Parent-anchored controlled-decoupled children carry the same
+                        // structural-event parent-anchor seed as debris siblings so the
+                        // first BG sample after split lands on the deterministic split-
+                        // moment parent pose rather than relying on a post-split live
+                        // resolve. The debris loop below queues the same seed at line 6470.
+                        if (focusedParentSeedAnchorPoint.HasValue)
+                        {
+                            backgroundRecorder.QueueDebrisSeedParentAnchorPoint(
+                                pid,
+                                activeRecId,
+                                focusedParentSeedAnchorPoint.Value);
+                        }
                         backgroundRecorder.OnVesselBackgrounded(
                             pid,
                             breakupEngineState,

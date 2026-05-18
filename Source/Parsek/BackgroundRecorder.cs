@@ -1180,17 +1180,22 @@ namespace Parsek
             {
                 var child = childRecordings[i];
 
-                // PR 3b: stamp IsDebris + DebrisParentRecordingId BEFORE the tree write
-                // and the OnVesselBackgrounded dispatch so InitializeLoadedState can read
-                // the contract and open the first track section as Relative-to-parent.
+                // Stamp IsDebris + DebrisParentRecordingId BEFORE the tree write and the
+                // OnVesselBackgrounded dispatch so InitializeLoadedState can read the contract
+                // and open the first track section as Relative-to-parent. The helper is
+                // caller-decides since the controlled-child extension: both debris
+                // (IsDebris=true) and controlled-decoupled children (IsDebris=false) receive
+                // the same parent-anchor surface while close to the parent.
                 bool hasController = newVesselInfos[i].hasController;
                 child.IsDebris = !hasController;
                 Recording.ApplyDebrisAnchorContract(child, parentRecordingId);
-                if (child.IsDebris)
+                if (!string.IsNullOrEmpty(child.DebrisParentRecordingId))
                 {
+                    string population = child.IsDebris ? "debris" : "controlled-child";
                     ParsekLog.Verbose("BgRecorder",
-                        $"Debris contract applied at split: childRecId={child.RecordingId} " +
-                        $"childPid={child.VesselPersistentId} parentRecId={parentRecordingId ?? "(none)"}");
+                        $"Parent-anchor contract applied at split: childRecId={child.RecordingId} " +
+                        $"childPid={child.VesselPersistentId} population={population} " +
+                        $"parentRecId={parentRecordingId ?? "(none)"}");
                 }
 
                 // Capture snapshot for ghost building — the vessel is still loaded at this point
@@ -6040,9 +6045,18 @@ namespace Parsek
                     proximityDistanceMeters);
         }
 
-        // Predicate gate for the v13 debris parent-anchored sampling caps below.
+        // Predicate gate for the debris parent-anchored sampling caps below.
         // Both the proximity-tier (min) cap and the configured-max backstop cap
         // share this gate so they always engage or disengage together.
+        //
+        // KEEP debris-only: the dual conjunct `IsDebris && DebrisParentRecordingId != null`
+        // is intentional - the cap was sized for short-lived debris orbiting a parent
+        // for tens of seconds. Controlled-decoupled children (extension of the parent-anchor
+        // contract) also carry DebrisParentRecordingId but record indefinitely, so admitting
+        // them here would multiply long-loiter sample storage 6-16x against an MIN-floor
+        // / MAX-backstop tuning that was never meant for their lifetime profile. If a
+        // future fidelity regression is reported for radial-breakup controlled children,
+        // file a separate follow-up rather than collapsing this gate.
         internal static bool IsDebrisAwareSampleCapEligible(Recording treeRec)
         {
             return treeRec != null
