@@ -1180,17 +1180,22 @@ namespace Parsek
             {
                 var child = childRecordings[i];
 
-                // PR 3b: stamp IsDebris + DebrisParentRecordingId BEFORE the tree write
-                // and the OnVesselBackgrounded dispatch so InitializeLoadedState can read
-                // the contract and open the first track section as Relative-to-parent.
+                // Stamp IsDebris + DebrisParentRecordingId BEFORE the tree write and the
+                // OnVesselBackgrounded dispatch so InitializeLoadedState can read the contract
+                // and open the first track section as Relative-to-parent. The helper is
+                // caller-decides since the controlled-child extension: both debris
+                // (IsDebris=true) and controlled-decoupled children (IsDebris=false) receive
+                // the same parent-anchor surface while close to the parent.
                 bool hasController = newVesselInfos[i].hasController;
                 child.IsDebris = !hasController;
                 Recording.ApplyDebrisAnchorContract(child, parentRecordingId);
-                if (child.IsDebris)
+                if (!string.IsNullOrEmpty(child.DebrisParentRecordingId))
                 {
+                    string population = child.IsDebris ? "debris" : "controlled-child";
                     ParsekLog.Verbose("BgRecorder",
-                        $"Debris contract applied at split: childRecId={child.RecordingId} " +
-                        $"childPid={child.VesselPersistentId} parentRecId={parentRecordingId ?? "(none)"}");
+                        $"Parent-anchor contract applied at split: childRecId={child.RecordingId} " +
+                        $"childPid={child.VesselPersistentId} population={population} " +
+                        $"parentRecId={parentRecordingId ?? "(none)"}");
                 }
 
                 // Capture snapshot for ghost building — the vessel is still loaded at this point
