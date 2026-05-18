@@ -5689,6 +5689,23 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Re-fly provisional anchor bypass: while a ReFlySessionMarker
+                // is live and the active recording is the provisional, pin the
+                // Relative anchor to the supersede target (or
+                // OriginChildRecordingId fallback) instead of letting the
+                // nearest-search pick a fast-separating sibling that the
+                // original launch's lower stage produced. See
+                // docs/dev/plans/fix-refly-relative-anchor-selection.md.
+                if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
+                        ActiveTree,
+                        ActiveTree?.ActiveRecordingId,
+                        out string reflyAnchor,
+                        out string reflySource))
+                {
+                    ApplyReFlyProvisionalAnchorToActiveRecording(v, reflyAnchor, reflySource);
+                    return;
+                }
+
                 double detectionUT = Planetarium.GetUniversalTime();
                 var candidates = BuildRecordingAnchorCandidateList(
                     v,
@@ -5796,6 +5813,124 @@ namespace Parsek
                             RecordingVesselId));
                 }
             }
+        }
+
+        // Re-fly provisional Relative anchor bypass for the active-vessel
+        // recorder. Pins the anchor to the supersede target (or
+        // OriginChildRecordingId fallback) resolved by ReFlyAnchorSelection.
+        // The synthetic RecordingAnchorCandidate carries DiagnosticPid=0
+        // because no live vessel pid backs the anchor; pose resolution at
+        // playback time flows through RelativeAnchorResolver against the
+        // anchor recording exactly as for the station-rendezvous contract.
+        private void ApplyReFlyProvisionalAnchorToActiveRecording(
+            Vessel v,
+            string reflyAnchorRecordingId,
+            string reflySource)
+        {
+            if (v == null || string.IsNullOrEmpty(reflyAnchorRecordingId))
+                return;
+
+            // Check anchor sealed-ness from the active tree first, then the
+            // committed list. The flag flows into RecordingAnchorCandidate
+            // for diagnostic logging only.
+            Recording anchorRec = null;
+            ActiveTree?.Recordings?.TryGetValue(reflyAnchorRecordingId, out anchorRec);
+            if (anchorRec == null)
+                anchorRec = RecordingStore.TryFindCommittedRecordingById(reflyAnchorRecordingId);
+            bool isSealed = AnchorDetector.IsSealedRecordingAnchor(anchorRec);
+
+            var candidate = new RecordingAnchorCandidate(
+                reflyAnchorRecordingId,
+                worldPos: Vector3d.zero,
+                worldRotation: Quaternion.identity,
+                source: AnchorCandidateSource.ReFlyProvisionalSupersede,
+                diagnosticPid: 0u,
+                ghostIndex: -1,
+                isSealed: isSealed,
+                isSameReplayPoint: false,
+                isSameVesselLineage: false);
+
+            bool anchorChanged = !isRelativeMode
+                || !string.Equals(
+                    currentAnchorRecordingId,
+                    reflyAnchorRecordingId,
+                    StringComparison.Ordinal);
+
+            if (!anchorChanged)
+            {
+                SetCurrentRecordingAnchor(candidate, double.NaN);
+                ApplyCurrentRecordingAnchorToCurrentTrackSection();
+                return;
+            }
+
+            double boundaryUT = Planetarium.GetUniversalTime();
+
+            // Pre-check: the supersede target's authored trajectory must
+            // cover boundaryUT. For nested Re-Flies where the rewind point
+            // predates the supersede target's startUT (e.g. the user rewinds
+            // PAST a prior Re-Fly attempt's start), the anchor recording has
+            // no data at the current playback UT and SeedRelativeBoundaryPoint
+            // would fail. Without this check the bypass thrashed every frame
+            // between Relative (open) -> seed-fail -> ForceExitRelativeToAbsolute,
+            // producing thousands of zero-frame TrackSections that the
+            // recorder safeguard discarded but emitting matching INFO log
+            // spam on each iteration. Decline the bypass here so the
+            // recorder stays in its current Absolute state; the caller's
+            // return path skips the generic nearest-search too, so a
+            // fast-separating sibling cannot reclaim the anchor.
+            if (!TryResolveAnchorPoseForCandidate(
+                    candidate, boundaryUT, out _, out RelativeAnchorResolveFailure preCheck))
+            {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    preCheck, "anchor-pose-unresolved");
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "refly-bypass-anchor-uncovered",
+                    "re-fly bypass deferred: anchor recording has no data at boundary ut=" +
+                        boundaryUT.ToString("F2", CultureInfo.InvariantCulture) +
+                        " anchorRecordingId=" + reflyAnchorRecordingId +
+                        " source=" + reflySource +
+                        " reason=" + reason +
+                        " -> recording as Absolute until anchor coverage extends",
+                    5.0);
+                return;
+            }
+
+            SamplePosition(v);
+            string oldAnchorRecordingId = currentAnchorRecordingId;
+            uint oldAnchorPid = currentAnchorPid;
+            isRelativeMode = true;
+            SetCurrentRecordingAnchor(candidate, double.NaN);
+            CloseCurrentTrackSection(boundaryUT);
+            var env = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.Atmospheric;
+            StartNewTrackSection(env, ReferenceFrame.Relative, boundaryUT);
+            ApplyCurrentRecordingAnchorToCurrentTrackSection();
+            ActivateHighFidelitySampling(boundaryUT, "refly-relative-enter");
+
+            bool seeded = SeedRelativeBoundaryPoint(v, candidate, boundaryUT);
+            if (!seeded)
+            {
+                // Defense-in-depth: the pre-check above should have caught
+                // this case, but a race between pre-check and seed (anchor
+                // recording mutated mid-frame) could theoretically slip
+                // through. Fall back to Absolute rather than persist a
+                // Relative section with no recorded boundary point.
+                ForceExitRelativeToAbsolute(
+                    boundaryUT,
+                    "refly-relative-boundary-seed-failed");
+                return;
+            }
+
+            string transition = oldAnchorRecordingId == null ? "entered" : "switched";
+            ParsekLog.Info("Anchor",
+                $"re-fly anchor {transition}: anchorRecordingId={currentAnchorRecordingId} " +
+                $"source={reflySource} candidateSource={candidate.Source} " +
+                $"sealed={candidate.IsSealed} " +
+                $"previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
+                $"previousDiagnosticPid={oldAnchorPid} " +
+                $"vesselPid={RecordingVesselId}");
         }
 
         #endregion
