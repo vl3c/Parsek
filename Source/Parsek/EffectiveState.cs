@@ -603,7 +603,92 @@ namespace Parsek
             return TryResolveUnfinishedFlight(rec, out rp, out slotListIndex);
         }
 
+        /// <summary>
+        /// Consumer-facing wrapper used by every site that asks "is this
+        /// recording the row that represents an unfinished flight in the
+        /// UI?" — the STASH group (<see cref="UnfinishedFlightsGroup.ComputeMembers"/>),
+        /// the regular-tree filter
+        /// (<c>RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree</c>),
+        /// the legacy-rewind R-button suppression, the timeline separation
+        /// marker (<see cref="Parsek.Timeline.TimelineBuilder"/>), the
+        /// group-picker drop-target gate, the hide-checkbox refusal, and
+        /// the timeline-watch L-button gate.
+        /// <para>
+        /// Chain dedupe: <c>RecordingOptimizer.SplitAtSection</c> can split
+        /// a single live recording at environment-class boundaries (e.g.
+        /// Atmospheric → ExoBallistic at the karman line) into a chain
+        /// HEAD plus one or more continuation members sharing the same
+        /// <see cref="Recording.ChainId"/> / <see cref="Recording.ChainBranch"/>.
+        /// Every chain member passes the underlying
+        /// <see cref="UnfinishedFlightClassifier.TryQualify"/> predicate
+        /// because <see cref="ResolveRewindPointSlotIndexForRecording"/>
+        /// hops chain-then-supersede by design — that lookup is load-bearing
+        /// for <see cref="RewindPointReaper.IsReapEligible"/>, which calls
+        /// <see cref="UnfinishedFlightClassifier.Qualifies"/> directly with
+        /// a slot's chain-tip recording and must keep getting <c>true</c> so
+        /// the rewind point stays alive (pinned by
+        /// <c>RewindPointReaperTests.Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive</c>).
+        /// The consumer-facing predicate has the opposite need: it should
+        /// emit one row per logical flight, not one row per chain member.
+        /// We collapse to the chain HEAD (lowest <see cref="Recording.ChainIndex"/>
+        /// among ERS-visible peers) here so every UI site automatically
+        /// renders just the slot anchor that owns the Fly / Seal buttons,
+        /// and the continuation halves stay visible as ordinary continuation
+        /// recordings under the regular mission tree.
+        /// </para>
+        /// </summary>
         internal static bool TryResolveUnfinishedFlight(
+            Recording rec,
+            out RewindPoint rp,
+            out int slotListIndex)
+        {
+            if (!TryResolveUnfinishedFlightRaw(rec, out rp, out slotListIndex))
+                return false;
+
+            // Chain head dedupe: among ERS-visible peers sharing the same
+            // (ChainId, ChainBranch), only the recording with the lowest
+            // ChainIndex surfaces here. Recordings without a chain
+            // (null/empty ChainId) bypass the bucket and admit directly.
+            if (string.IsNullOrEmpty(rec.ChainId))
+                return true;
+
+            var ers = ComputeERS();
+            if (ers == null)
+                return true;
+
+            for (int i = 0; i < ers.Count; i++)
+            {
+                var candidate = ers[i];
+                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
+                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
+                if (candidate.ChainBranch != rec.ChainBranch) continue;
+                if (candidate.ChainIndex >= rec.ChainIndex) continue;
+
+                // A lower-index peer exists. If it also passes the raw
+                // qualifier, it's the chain head (or a closer-to-head
+                // qualifying member) and rec is a continuation — suppress.
+                // Using the Raw path here is deliberate: this guard must not
+                // recurse back through the wrapper.
+                RewindPoint peerRp;
+                int peerSlot;
+                if (TryResolveUnfinishedFlightRaw(candidate, out peerRp, out peerSlot))
+                {
+                    ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                        $"chainContinuation-{rec.RecordingId ?? "<no-id>"}",
+                        $"IsUnfinishedFlight=false rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"reason=chainContinuation chainId={rec.ChainId} " +
+                        $"chainIndex={rec.ChainIndex} headRec={candidate.RecordingId ?? "<no-id>"} " +
+                        $"headChainIndex={candidate.ChainIndex}");
+                    rp = null;
+                    slotListIndex = -1;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryResolveUnfinishedFlightRaw(
             Recording rec,
             out RewindPoint rp,
             out int slotListIndex)
