@@ -6010,6 +6010,14 @@ namespace Parsek
                             Recording resolved = committed[resolvedIdx];
                             if (resolved == null) continue;
 
+                            // PID-match keys off the *resolved* recording so we
+                            // ask "does the fork represent the same vessel as
+                            // currentRec?" rather than "did the now-stale
+                            // chain slot start with the same vessel?". In-place
+                            // re-fly continuations inherit the origin's PID;
+                            // the new-recording re-fly path may carry a different
+                            // PID, and only the resolved id reflects what is
+                            // actually rendering.
                             bool isPidMatch = resolved.VesselPersistentId == currentRec.VesselPersistentId;
 
                             if (isGhostActive(resolvedIdx))

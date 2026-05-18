@@ -1814,6 +1814,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ChainContinuation_PendingActivation_UsesForkActivationUT_WhenForkStartsEarlier()
+        {
+            // Pin the direction of TryGetPendingWatchActivationUT's read-through-
+            // supersede. In the playtest the fork's activation is *later* than
+            // the superseded chain slot's, which makes the hold extend; here we
+            // assert the inverse case (fork earlier than chain slot) so the
+            // returned UT comes from the fork's payload and the hold contracts
+            // toward the actual activation time. The per-frame retry in
+            // ProcessWatchEndHoldTimer then picks up the fork as soon as its
+            // ghost is active.
+            var chainNext = MakeRec("r1", chainId: "c1", chainIndex: 1);
+            chainNext.ExplicitStartUT = 500.0;
+
+            var fork = MakeRec("fork", chainId: null, chainIndex: -1);
+            fork.ExplicitStartUT = 410.0;
+            fork.Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 420.0 },
+                new TrajectoryPoint { ut = 430.0 }
+            };
+
+            var recs = new List<Recording>
+            {
+                MakeRec("r0", chainId: "c1", chainIndex: 0),
+                chainNext,
+                fork,
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                new RecordingSupersedeRelation { OldRecordingId = "r1", NewRecordingId = "fork" }
+            };
+
+            bool found = GhostPlaybackLogic.TryGetPendingWatchActivationUT(
+                recs[0], recs, new List<RecordingTree>(), idx => false,
+                out double activationUT,
+                supersedes);
+
+            Assert.True(found);
+            Assert.Equal(420.0, activationUT);
+        }
+
+        [Fact]
         public void TreeBranch_PidMatchFromSupersedeTarget_RecursesIntoForkChildren()
         {
             // Even when the supersede target's own ghost is not yet active, the
