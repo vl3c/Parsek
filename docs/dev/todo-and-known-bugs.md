@@ -12,6 +12,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 W key cycles watch mode through watchable ghosts
+
+- ~~Watching a ghost via the group W button required leaving the watch overlay, scrolling through the recordings table, and pressing another group W to switch targets. There was no keyboard affordance to advance the camera to the next visible ghost without leaving watch mode. Stock W (pitch-down) was also still bleeding through to the unattended active vessel.~~
+
+**Feature:** While in watch mode, pressing W advances the FlightCamera to the next watchable ghost using the same eligibility predicate as the group W button (not debris, active ghost, same body, within visual range). The rotation is sorted by `StartUT` with `RecordingId` ordinal as the tiebreaker, persists a cursor across presses for predictable round-robin order, and silently no-ops when only the current target is eligible (player exits explicitly with `[` or `]`).
+
+**Fix scope:**
+- `WatchModeController.WatchModeLockMask` now also locks `ControlTypes.PITCH` so the stock pitch-axis keys (W/S) cannot drive the unattended active vessel during watch. Raw `Input.GetKeyDown(KeyCode.W)` still fires for the cycle handler because Unity input polling bypasses the InputLockManager.
+- New `WatchModeController.CycleToNextWatchable` instance method composes the live eligibility predicate (delegating to existing `HasActiveGhost` / `IsGhostOnSameBody` / `IsGhostWithinVisualRange`) and dispatches through the new pure-static `WatchModeController.ResolveCycleTarget` helper, which reuses `GhostPlaybackLogic.AdvanceGroupWatchCursor` over a descendants set covering every committed index. Cursor (`watchCycleCursorRecordingId`) is set after `EnterWatchMode` succeeds so it survives the internal `ExitWatchMode` that EnterWatchMode runs when switching targets; it is cleared by `ResetWatchState` on full watch exit.
+- `ParsekFlight.HandleInput` reads the W keypress in the same path that already binds `[` / `]` exit and `V` camera-mode toggle.
+- `WatchModeController.DrawWatchModeOverlay` hint reads `[ ] return  |  V camera  |  W cycle`.
+- New unit tests in `WatchCycleResolutionTests` cover empty / all-ineligible / toggle-off / two-entry / three-entry-in-StartUT-order / debris-filter-via-predicate / out-of-range-watched-index, plus a sanity check pinning `ControlTypes.PITCH` in `WatchModeLockMask`.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
 ## Done - v0.10.0 STASH listed every chain half from the optimizer's phase-change split, doubling each Re-Fly slot
 
 - ~~Playtest 2026-05-18 (`logs/2026-05-18_1853_stash-4-recordings/`): a two-stage launch crashed both stages and surfaced 4 STASH rows for a 2-slot rewind point. The user expected one row per controllable PID (upper / lower stage). The four rows were `847b9b53` Kerbal X + `a54896` Kerbal X (origin-only) for slot 0, and `c059aabfd4` Kerbal X Probe + `3d059f9c` Kerbal X Probe (origin-only) for slot 1, with both pairs sharing a ChainId.~~

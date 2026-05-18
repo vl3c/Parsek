@@ -11533,6 +11533,14 @@ namespace Parsek
                 watchMode.ToggleCameraMode();
             }
 
+            // W — Cycle through watchable ghosts. Stock pitch-down (W) is blocked
+            // by PITCH in WatchModeLockMask so the unattended active vessel does
+            // not receive the keypress. The raw Unity Input poll here is
+            // unaffected by the input lock.
+            if (watchMode.IsWatchingGhost && Input.GetKeyDown(KeyCode.W))
+            {
+                watchMode.CycleToNextWatchable();
+            }
         }
 
         #endregion

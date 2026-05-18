@@ -1,0 +1,225 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    /// <summary>
+    /// Tests for <see cref="WatchModeController.ResolveCycleTarget"/>, the pure
+    /// resolver that backs the W-key watch-cycle keypress. Exercises descendants
+    /// construction, watched-id resolution, and the HasTarget gate that the
+    /// keypress handler reads to decide whether to call EnterWatchMode.
+    /// </summary>
+    [Collection("Sequential")]
+    public class WatchCycleResolutionTests : IDisposable
+    {
+        public WatchCycleResolutionTests()
+        {
+            RecordingStore.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+            RecordingStore.ResetForTesting();
+        }
+
+        private static Recording MakeRec(double startUT, string recordingId, string vesselName = "test", bool debris = false)
+        {
+            var r = new Recording { VesselName = vesselName, RecordingId = recordingId };
+            r.Points.Add(new TrajectoryPoint { ut = startUT });
+            r.IsDebris = debris;
+            return r;
+        }
+
+        private static Func<int, bool> AllEligible => _ => true;
+
+        // ── Empty / guard cases ──
+
+        [Fact]
+        public void NullCommitted_ReturnsEmpty()
+        {
+            var result = WatchModeController.ResolveCycleTarget(
+                null, AllEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+            Assert.False(result.HasTarget);
+            Assert.Equal(-1, result.NextIndex);
+            Assert.Null(result.NextRecordingId);
+            Assert.Equal(0, result.TotalEligible);
+        }
+
+        [Fact]
+        public void EmptyCommitted_ReturnsEmpty()
+        {
+            var result = WatchModeController.ResolveCycleTarget(
+                new List<Recording>(), AllEligible, currentWatchedIndex: -1, cursorRecordingId: null);
+            Assert.False(result.HasTarget);
+            Assert.Equal(0, result.TotalEligible);
+        }
+
+        [Fact]
+        public void NullPredicate_ReturnsEmpty()
+        {
+            var committed = new List<Recording> { MakeRec(100, "a") };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, null, currentWatchedIndex: 0, cursorRecordingId: null);
+            Assert.False(result.HasTarget);
+        }
+
+        [Fact]
+        public void AllIneligible_ReturnsEmpty()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),
+                MakeRec(200, "b"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, _ => false, currentWatchedIndex: 0, cursorRecordingId: null);
+            Assert.False(result.HasTarget);
+            Assert.Equal(0, result.TotalEligible);
+        }
+
+        // ── Toggle-off (single eligible == watched) ──
+
+        [Fact]
+        public void OnlyWatchedIsEligible_ReturnsToggleOffWithoutTarget()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "watched"),
+                MakeRec(200, "other"),
+            };
+            // Only index 0 ("watched") passes the predicate.
+            Func<int, bool> isEligible = idx => idx == 0;
+
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, isEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+
+            Assert.True(result.IsToggleOff);
+            Assert.False(result.HasTarget);
+            Assert.Equal("watched", result.NextRecordingId);
+            Assert.Equal(1, result.TotalEligible);
+        }
+
+        // ── Normal cycle paths ──
+
+        [Fact]
+        public void TwoEligibleCursorNull_AdvancesPastWatched()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),    // watched
+                MakeRec(200, "b"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal(1, result.NextIndex);
+            Assert.Equal("b", result.NextRecordingId);
+            Assert.Equal(2, result.TotalEligible);
+            Assert.False(result.IsToggleOff);
+        }
+
+        [Fact]
+        public void CursorOnWatched_WrapsToNonWatched()
+        {
+            // Cycle progression: watching "b", cursor was last set to "b" by a
+            // prior advance. Next press should wrap forward to "a".
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),
+                MakeRec(200, "b"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 1, cursorRecordingId: "b");
+
+            Assert.True(result.HasTarget);
+            Assert.Equal(0, result.NextIndex);
+            Assert.Equal("a", result.NextRecordingId);
+            Assert.True(result.IsWrap);
+        }
+
+        [Fact]
+        public void ThreeEligibleAdvancesInStartUtOrder()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(300, "c"),
+                MakeRec(100, "a"),    // watched
+                MakeRec(200, "b"),
+            };
+            // Watching "a" at index 1; cursor null → next is "b" by StartUT order.
+            var r1 = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 1, cursorRecordingId: null);
+            Assert.True(r1.HasTarget);
+            Assert.Equal("b", r1.NextRecordingId);
+            Assert.Equal(2, r1.NextIndex);
+
+            // After we enter watch on "b" (index 2), cursor was set to "b".
+            // Next W press advances to "c".
+            var r2 = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 2, cursorRecordingId: "b");
+            Assert.True(r2.HasTarget);
+            Assert.Equal("c", r2.NextRecordingId);
+            Assert.Equal(0, r2.NextIndex);
+        }
+
+        // ── Predicate plumbing ──
+
+        [Fact]
+        public void DebrisFilteredOutByPredicate()
+        {
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),
+                MakeRec(200, "junk", debris: true),
+                MakeRec(300, "b"),
+            };
+            // Caller's predicate excludes debris (mirrors the CycleToNextWatchable
+            // composition).
+            Func<int, bool> isEligible = idx => committed[idx] != null && !committed[idx].IsDebris;
+
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, isEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal("b", result.NextRecordingId);
+            Assert.Equal(2, result.TotalEligible);
+        }
+
+        [Fact]
+        public void WatchedIndexOutOfRange_TreatedAsNoWatchedId()
+        {
+            // currentWatchedIndex out of bounds means watchedId resolves to null;
+            // AdvanceGroupWatchCursor then returns the first eligible entry.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),
+                MakeRec(200, "b"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 99, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal("a", result.NextRecordingId);
+            Assert.Equal(2, result.TotalEligible);
+        }
+
+        // ── Lock mask sanity ──
+
+        [Fact]
+        public void WatchModeLockMaskIncludesPitch()
+        {
+            // W (and S) are KSP's stock PITCH-axis keys; they must be locked out
+            // of the active vessel while the player watches a ghost so the W
+            // keypress can be repurposed for cycling without bleeding pitch
+            // input through to the unattended vessel.
+            Assert.True((WatchModeController.WatchModeLockMask & ControlTypes.PITCH) == ControlTypes.PITCH);
+        }
+    }
+}
