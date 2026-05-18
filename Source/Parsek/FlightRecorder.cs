@@ -5853,12 +5853,44 @@ namespace Parsek
                 return;
             }
 
+            double boundaryUT = Planetarium.GetUniversalTime();
+
+            // Pre-check: the supersede target's authored trajectory must
+            // cover boundaryUT. For nested Re-Flies where the rewind point
+            // predates the supersede target's startUT (e.g. the user rewinds
+            // PAST a prior Re-Fly attempt's start), the anchor recording has
+            // no data at the current playback UT and SeedRelativeBoundaryPoint
+            // would fail. Without this check the bypass thrashed every frame
+            // between Relative (open) -> seed-fail -> ForceExitRelativeToAbsolute,
+            // producing thousands of zero-frame TrackSections that the
+            // recorder safeguard discarded but emitting matching INFO log
+            // spam on each iteration. Decline the bypass here so the
+            // recorder stays in its current Absolute state; the caller's
+            // return path skips the generic nearest-search too, so a
+            // fast-separating sibling cannot reclaim the anchor.
+            if (!TryResolveAnchorPoseForCandidate(
+                    candidate, boundaryUT, out _, out RelativeAnchorResolveFailure preCheck))
+            {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    preCheck, "anchor-pose-unresolved");
+                ParsekLog.VerboseRateLimited(
+                    "Anchor",
+                    "refly-bypass-anchor-uncovered",
+                    "re-fly bypass deferred: anchor recording has no data at boundary ut=" +
+                        boundaryUT.ToString("F2", CultureInfo.InvariantCulture) +
+                        " anchorRecordingId=" + reflyAnchorRecordingId +
+                        " source=" + reflySource +
+                        " reason=" + reason +
+                        " -> recording as Absolute until anchor coverage extends",
+                    5.0);
+                return;
+            }
+
             SamplePosition(v);
             string oldAnchorRecordingId = currentAnchorRecordingId;
             uint oldAnchorPid = currentAnchorPid;
             isRelativeMode = true;
             SetCurrentRecordingAnchor(candidate, double.NaN);
-            double boundaryUT = Planetarium.GetUniversalTime();
             CloseCurrentTrackSection(boundaryUT);
             var env = environmentHysteresis != null
                 ? environmentHysteresis.CurrentEnvironment
@@ -5870,10 +5902,11 @@ namespace Parsek
             bool seeded = SeedRelativeBoundaryPoint(v, candidate, boundaryUT);
             if (!seeded)
             {
-                // Boundary-seed failed (typically because the anchor
-                // recording has no section at boundaryUT). Fall back to
-                // Absolute rather than persist a Relative section with no
-                // recorded boundary point.
+                // Defense-in-depth: the pre-check above should have caught
+                // this case, but a race between pre-check and seed (anchor
+                // recording mutated mid-frame) could theoretically slip
+                // through. Fall back to Absolute rather than persist a
+                // Relative section with no recorded boundary point.
                 ForceExitRelativeToAbsolute(
                     boundaryUT,
                     "refly-relative-boundary-seed-failed");
