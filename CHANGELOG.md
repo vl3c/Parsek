@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 ### Defaults
 
 - Co-bubble peer blending now defaults OFF. Each ghost renders its own standalone absolute trajectory with no peer-blend. Opt in via the new Settings window > Diagnostics > "Use co-bubble peer blending" toggle.
+- Supply route endpoint surface-proximity fallback radius tightened from 2000 m to 500 m. The radius governs the fallback that fires when a route delivery cannot resolve its destination vessel by `persistentId` (e.g. across a save / reload that rebinds PIDs). 500 m is tight enough that a depot the player intentionally drove away from its dock spot loses the route (correct), while still tolerating drift from terrain settling, autostrut adjustments, and floating-origin shifts after warp / scene-load. Tuned down on direct playtest feedback.
 
 ### Logistics
 

@@ -36,9 +36,14 @@ namespace Parsek.Logistics
         /// Surface proximity radius (metres) for endpoint resolution fallback. When
         /// the saved <see cref="RouteEndpoint.VesselPersistentId"/> no longer
         /// resolves but the endpoint is surface-typed, the resolver searches for
-        /// the closest matching surface vessel within this radius.
+        /// the closest matching surface vessel within this radius. 500 m is tight
+        /// enough that a depot the player intentionally drove away from its dock
+        /// spot loses the route (correct behaviour), while still tolerating the
+        /// small drift from terrain settling, autostrut adjustments, and
+        /// floating-origin shifts after warp / scene-load. Tuned down from 2000 m
+        /// after the v0 playtests on the user's feedback.
         /// </summary>
-        internal const double SurfaceProximityRadiusMeters = 2000.0;
+        internal const double SurfaceProximityRadiusMeters = 500.0;
 
         /// <summary>
         /// Canonical <see cref="ParsekLog"/> subsystem tag for every route-subsystem

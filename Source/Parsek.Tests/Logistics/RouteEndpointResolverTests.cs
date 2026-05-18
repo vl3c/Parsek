@@ -107,7 +107,7 @@ namespace Parsek.Tests.Logistics
                 out _, out uint pickedPid, out string reason);
 
             Assert.True(ok, reason);
-            // Ghost was at distance 100; the real candidate at 500 is within 2000m radius.
+            // Ghost was at distance 100; the real candidate at 500 is within the 500 m radius (boundary-inclusive).
             Assert.Equal(realPid, pickedPid);
         }
 
