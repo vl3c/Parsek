@@ -23,30 +23,46 @@ namespace Parsek
 
         // The expected-delta-vs-actual-delta detector assumes the recording
         // carries a per-point velocity field that approximates the ghost's
-        // motion between frames. Two playback paths violate that assumption:
+        // motion between frames. Two classes of frame violate that assumption:
         //
-        // 1. Orbital playback (`mode=Orbit` in `EmitPhase("UpdatePath", ...)`).
-        //    Orbit segments are Kepler-element summaries with no per-point
-        //    velocity sample, so `lastInterpolatedVelocity` is zero while
-        //    Kepler propagation moves the ghost at ~1400 m/s per frame.
-        //    Every frame would otherwise log `reason=large-delta` with
-        //    `expectedDM=0`, drowning real anomalies in a flood of false
-        //    positives. Detected here by `velocity.sqrMagnitude < epsilon`.
+        // 1. Frames with a zero rendering velocity. The detector computes
+        //    `expectedDM = lastInterpolatedVelocity.magnitude * dt`, so a zero
+        //    velocity forces `expectedDM = 0` and every non-trivial position
+        //    delta trips `reason=large-delta`. Several legitimate playback
+        //    paths leave `GhostPlaybackState.lastInterpolatedVelocity` at zero
+        //    (default(Vector3)) on purpose:
+        //      - Orbital playback (`mode=Orbit` in the UpdatePath emit). Orbit
+        //        segments are Kepler-element summaries with no per-point
+        //        velocity sample; Kepler propagation still moves the ghost at
+        //        orbital speed (~1400 m/s for low Kerbin orbit).
+        //      - Surface-held / landed positioning paths in `ParsekFlight`
+        //        and the loop-pause / endpoint / fallback branches in
+        //        `GhostPlaybackEngine` that build `InterpolationResult` with
+        //        `Vector3.zero` velocity by construction.
+        //    On those paths the detector's expected-vs-actual comparison has
+        //    no signal to work with, so suppress it. Note this is broader
+        //    than orbital playback alone: a genuine teleport on a stationary
+        //    landed ghost (rare, but e.g. a terrain-clamp re-snap) will be
+        //    swallowed too. The detector is diagnostic only; if a real
+        //    surface-hold teleport needs investigating in the future, prefer
+        //    plumbing a positive `playback-path` token through here over
+        //    re-tightening this heuristic.
         // 2. Floating-origin shift frames. When stock KSP rebases world
         //    coordinates via `FloatingOrigin.setOffset`, every ghost in the
         //    scene shifts by the same magnitude on the same frame. The
         //    detector reads pre-shift and post-shift positions in adjacent
-        //    `EmitPostUpdate` passes and counts the rebase as ~`magnitude`
-        //    metres of motion. Detected here by comparing the current
-        //    Unity `Time.frameCount` against the most recent
+        //    `EmitPostUpdate` passes and counts the rebase as the FO
+        //    magnitude in metres of motion. Detected by comparing the
+        //    current Unity `Time.frameCount` against the most recent
         //    `ReFlySettleStabilityTracker.LastFloatingOriginShiftFrame`.
         //
         // Both shapes appear in `logs/2026-05-18_1953_pr889-rotation-trace/`
         // (1296 orbital false positives + 13 FO false positives across 1309
-        // total `reason=large-delta` events, zero genuine anomalies). The
-        // suppression below filters those without affecting non-orbital
-        // off-shift-frame detections.
-        internal const float OrbitalVelocityEpsilonMetresPerSecondSquared = 1e-6f;
+        // total `reason=large-delta` events, zero genuine anomalies). True
+        // teleports with non-zero velocity off the FO frame still flag
+        // correctly, confirmed by the 34km orbit-mode transition jump in
+        // `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/`.
+        internal const float ZeroPlaybackVelocityEpsilonSqrMetresPerSecond = 1e-6f;
         internal const int FloatingOriginSuppressionFrameWindow = 1;
 
         private struct TraceState
@@ -793,24 +809,27 @@ namespace Parsek
         /// <summary>
         /// Returns true when the expected-delta-vs-actual-delta signal cannot
         /// be trusted on the current frame, so the caller should NOT raise a
-        /// `large-delta` anomaly. Two cases trigger suppression:
-        /// orbital playback (per-point velocity field empty) and frames where
-        /// stock KSP rebased world coordinates via `FloatingOrigin.setOffset`.
-        /// See the comment block above
-        /// <see cref="OrbitalVelocityEpsilonMetresPerSecondSquared"/> for the
-        /// detailed rationale and log evidence. Pure helper for testability.
+        /// `large-delta` anomaly. Two cases trigger suppression: any playback
+        /// path that signals a zero rendering velocity (orbital propagation,
+        /// surface-held / landed positioning, loop-pause / endpoint / fallback
+        /// branches in the engine), and frames where stock KSP rebased world
+        /// coordinates via `FloatingOrigin.setOffset`. See the comment block
+        /// above <see cref="ZeroPlaybackVelocityEpsilonSqrMetresPerSecond"/>
+        /// for the detailed rationale, the enumerated zero-velocity paths,
+        /// and the log evidence. Pure helper for testability.
         /// </summary>
         internal static bool IsLargeDeltaSignalSuppressed(
             Vector3 lastInterpolatedVelocity,
             int currentUnityFrame,
             int lastFloatingOriginShiftFrame)
         {
-            // Orbital signature: orbit segments don't carry per-point velocity,
-            // so `lastInterpolatedVelocity` is left at default (zero) by
-            // `GhostPlaybackState.SetInterpolated`. Recordings with a real
-            // velocity field never hit exact zero magnitude.
+            // Zero-rendering-velocity signature: orbit segments, surface
+            // holds, and the engine's endpoint / fallback paths leave
+            // `lastInterpolatedVelocity` at default(Vector3) on purpose.
+            // expectedDM = 0 on those frames provides no signal for the
+            // detector, so suppress.
             if (lastInterpolatedVelocity.sqrMagnitude
-                < OrbitalVelocityEpsilonMetresPerSecondSquared)
+                < ZeroPlaybackVelocityEpsilonSqrMetresPerSecond)
                 return true;
 
             // Floating-origin shift frame: every ghost in the scene shifts on

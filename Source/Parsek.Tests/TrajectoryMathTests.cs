@@ -33,7 +33,7 @@ namespace Parsek.Tests
         // (closed 2026-05-18 as a verified non-defect). The existing
         // PureSlerp_UsesShortestPathForSignEquivalentEndpoint test covers the
         // exact-antipodal case (dot = -1, q vs -q for identical orientation).
-        // This test pins the near-antipodal case (dot ≈ -0.99, ~8° physical
+        // This test pins the near-antipodal case (dot ~ -0.99, ~8 deg physical
         // rotation between endpoints stored with opposite sign): without the
         // canonical `if (dot < 0) negate to` pre-step inside PureSlerp, the
         // result at t=0.5 would land near the antipode of the expected short-
@@ -44,7 +44,7 @@ namespace Parsek.Tests
         public void PureSlerp_NearAntipodalEndpoints_TakesShortPath()
         {
             // Two near-antipodal quaternions representing nearly the same
-            // physical orientation (~8° apart). Compose `to` as the sign-
+            // physical orientation (~8 deg apart). Compose `to` as the sign-
             // flipped form so dot(from, to) is large-negative.
             var from = UnitQuaternionAroundY(0f);
             var antipode = UnitQuaternionAroundY(8f);
@@ -57,14 +57,14 @@ namespace Parsek.Tests
             Quaternion mid = TrajectoryMath.PureSlerp(from, to, 0.5f);
 
             // Short-path midpoint = halfway between `from` and `antipode`
-            // (the same-orientation form of `to`), i.e. ~4° rotation around Y.
-            // The long-path output would land near ~176° around Y instead,
+            // (the same-orientation form of `to`), i.e. ~4 deg rotation around Y.
+            // The long-path output would land near ~176 deg around Y instead,
             // which we explicitly assert against below.
             var shortPathMid = UnitQuaternionAroundY(4f);
             AssertQuaternionCloseUpToSign(shortPathMid, mid, 5e-4f);
 
             // Long-path detector: the antipodal long-arc would produce a
-            // quaternion oriented ~176° from `from`, which has a large
+            // quaternion oriented ~176 deg from `from`, which has a large
             // angular delta. Compute the angle between the result and the
             // expected short-path midpoint and assert it is small. This is
             // independent of the component-wise check above and catches
@@ -77,7 +77,7 @@ namespace Parsek.Tests
             float angleFromShortPathDegrees = (float)(2.0 * System.Math.Acos(
                 System.Math.Min(1.0f, System.Math.Abs(resultDotShort))) * 180.0 / System.Math.PI);
             Assert.True(angleFromShortPathDegrees < 1.0f,
-                $"Slerp result is {angleFromShortPathDegrees:F2}° from short-path midpoint; sign-correction likely missing.");
+                $"Slerp result is {angleFromShortPathDegrees:F2} deg from short-path midpoint; sign-correction likely missing.");
         }
 
         // Pure helper: unit quaternion for a `degrees` rotation around the

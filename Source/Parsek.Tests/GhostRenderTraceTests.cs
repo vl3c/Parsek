@@ -106,13 +106,13 @@ namespace Parsek.Tests
         // `large-delta`; it should fall through to the regular initial-window
         // / closed reasons instead.
         [Fact]
-        public void EvaluateGate_LargeDelta_OrbitalSuppressionReturnsClosed()
+        public void EvaluateGate_LargeDelta_SuppressedRowReturnsClosed()
         {
-            // Orbital playback shape: velocity is zero, dM is large (Kepler
-            // propagator moves the ghost), expectedDM is zero (orbit segment
-            // carries no per-point velocity). With the suppression flag set
-            // the detector must NOT emit a large-delta reason. Outside the
-            // initial window the row should be fully suppressed (closed).
+            // Zero-velocity playback shape: velocity is zero, dM is large
+            // (Kepler propagator or any path that does not carry a velocity
+            // field). With the suppression flag set the detector must NOT
+            // emit a large-delta reason. Outside the initial window the row
+            // should be fully suppressed (closed).
             var decision = GhostRenderTrace.EvaluateGateForTesting(
                 currentUT: 425.5,
                 firstSeenUT: 400.0,
@@ -134,7 +134,7 @@ namespace Parsek.Tests
         public void EvaluateGate_LargeDelta_SuppressionLeavesUnrelatedReasonsIntact()
         {
             // The suppression flag must only short-circuit the `large-delta`
-            // branch — first-seen / refly-window / resolver-miss-or-retired
+            // branch: first-seen / refly-window / resolver-miss-or-retired
             // and friends still need to emit even when the velocity signal is
             // unreliable. This pins the gate ordering so a future refactor
             // can't accidentally early-return on `largeDeltaSuppressed`.
@@ -173,12 +173,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsLargeDeltaSignalSuppressed_OrbitalSignatureSuppresses()
+        public void IsLargeDeltaSignalSuppressed_ZeroPlaybackVelocitySuppresses()
         {
-            // Orbital ghosts come through SetInterpolated with the recording's
-            // velocity field, which is identically (0,0,0) for orbit segments
-            // (Kepler-element summaries carry no per-point velocity). That's
-            // the signal the detector trusts to skip the large-delta check.
+            // Multiple legitimate playback paths leave lastInterpolatedVelocity
+            // at default(Vector3): orbital propagation (orbit segments carry no
+            // per-point velocity), surface holds, loop-pause / endpoint /
+            // fallback branches in GhostPlaybackEngine. Any of those frames
+            // give expectedDM = 0 by construction, so the detector has no
+            // signal and must suppress.
             Assert.True(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
                 lastInterpolatedVelocity: Vector3.zero,
                 currentUnityFrame: 1000,
@@ -190,7 +192,7 @@ namespace Parsek.Tests
         {
             // Recordings with a real per-point velocity should keep the
             // detector active. A 1 m/s velocity is well above the
-            // OrbitalVelocityEpsilonMetresPerSecondSquared = 1e-6 sqr-mag
+            // ZeroPlaybackVelocityEpsilonSqrMetresPerSecond = 1e-6 sqr-mag
             // threshold and represents a genuine ground-fixed sample.
             Assert.False(GhostRenderTrace.IsLargeDeltaSignalSuppressed(
                 lastInterpolatedVelocity: new Vector3(1f, 0f, 0f),
