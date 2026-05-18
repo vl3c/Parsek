@@ -619,7 +619,8 @@ namespace Parsek
         /// Atmospheric → ExoBallistic at the karman line) into a chain
         /// HEAD plus one or more continuation members sharing the same
         /// <see cref="Recording.ChainId"/> / <see cref="Recording.ChainBranch"/>.
-        /// Every chain member passes the underlying
+        /// In that shape every chain member that maps to the same slot
+        /// origin passes the underlying
         /// <see cref="UnfinishedFlightClassifier.TryQualify"/> predicate
         /// because <see cref="ResolveRewindPointSlotIndexForRecording"/>
         /// hops chain-then-supersede by design — that lookup is load-bearing
@@ -630,11 +631,28 @@ namespace Parsek
         /// <c>RewindPointReaperTests.Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive</c>).
         /// The consumer-facing predicate has the opposite need: it should
         /// emit one row per logical flight, not one row per chain member.
-        /// We collapse to the chain HEAD (lowest <see cref="Recording.ChainIndex"/>
-        /// among ERS-visible peers) here so every UI site automatically
-        /// renders just the slot anchor that owns the Fly / Seal buttons,
-        /// and the continuation halves stay visible as ordinary continuation
-        /// recordings under the regular mission tree.
+        /// We collapse to the lowest-<see cref="Recording.ChainIndex"/>
+        /// ERS-visible peer that itself passes the raw classifier here so
+        /// every UI site automatically renders just the slot anchor that
+        /// owns the Fly / Seal buttons, and the continuation halves stay
+        /// visible as ordinary continuation rows under the regular mission
+        /// tree. Other chain shapes (e.g. launch-row HEAD with no BP linkage
+        /// whose only qualifying member is the BP-linked TIP — pinned by
+        /// <c>RewindTreeLookupTests</c>) are unaffected: the dedupe only
+        /// suppresses <paramref name="rec"/> when a lower-index peer
+        /// independently passes Raw, so a continuation that qualifies under
+        /// a non-qualifying HEAD still surfaces.
+        /// </para>
+        /// <para>
+        /// Perf TODO: the wrapper does an O(ERS) scan inside every call,
+        /// and <see cref="IsChainMemberOfUnfinishedFlight"/> calls this
+        /// wrapper inside its own O(ERS) scan, so chain-aware UI rendering
+        /// is O(N²) per row, O(N³) per frame in the worst case. Acceptable
+        /// at expected save sizes (≤ a few hundred committed recordings,
+        /// chains length 2-3); memoize on
+        /// (<see cref="RecordingStore.StateVersion"/>,
+        /// <see cref="ParsekScenario.SupersedeStateVersion"/>) if it ever
+        /// shows up in a profile.
         /// </para>
         /// </summary>
         internal static bool TryResolveUnfinishedFlight(
@@ -647,8 +665,9 @@ namespace Parsek
 
             // Chain head dedupe: among ERS-visible peers sharing the same
             // (ChainId, ChainBranch), only the recording with the lowest
-            // ChainIndex surfaces here. Recordings without a chain
-            // (null/empty ChainId) bypass the bucket and admit directly.
+            // ChainIndex that itself passes Raw surfaces here. Recordings
+            // without a chain (null/empty ChainId) bypass the bucket and
+            // admit directly.
             if (string.IsNullOrEmpty(rec.ChainId))
                 return true;
 
@@ -677,7 +696,8 @@ namespace Parsek
                         $"chainContinuation-{rec.RecordingId ?? "<no-id>"}",
                         $"IsUnfinishedFlight=false rec={rec.RecordingId ?? "<no-id>"} " +
                         $"reason=chainContinuation chainId={rec.ChainId} " +
-                        $"chainIndex={rec.ChainIndex} headRec={candidate.RecordingId ?? "<no-id>"} " +
+                        $"chainBranch={rec.ChainBranch} chainIndex={rec.ChainIndex} " +
+                        $"headRec={candidate.RecordingId ?? "<no-id>"} " +
                         $"headChainIndex={candidate.ChainIndex}");
                     rp = null;
                     slotListIndex = -1;

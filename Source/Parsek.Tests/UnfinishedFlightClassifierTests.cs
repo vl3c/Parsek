@@ -290,6 +290,7 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_tip")
                 && l.Contains("reason=chainContinuation")
+                && l.Contains("chainBranch=0")
                 && l.Contains("headRec=rec_head"));
 
             // The STASH UI group falls out of the predicate, so it lists
@@ -331,6 +332,58 @@ namespace Parsek.Tests
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Single(members);
             Assert.Equal("rec_head", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void ChainContinuationWhoseHeadFailsRaw_StillSurfacesAsUnfinishedFlight()
+        {
+            // Asymmetric chain shape: the chain HEAD is the launch-row
+            // (no parent/child BP linkage, no BP match), and only the
+            // chain TIP carries the BP-linked qualifier. Pre-fix this
+            // shape worked because the dedupe didn't exist; the new
+            // dedupe must NOT suppress the TIP here -- the HEAD doesn't
+            // pass Raw, so the "lower-index peer also qualifies" gate
+            // fails and the TIP correctly surfaces. Pinned alongside the
+            // optimizer-split tests so the asymmetry is documented in
+            // one place.
+            const string treeId = "tree_launch_chain";
+            const string bpId = "bp_launch_split";
+            const string chainId = "chain_launch";
+            var head = Rec(
+                "rec_launch_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Landed);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+            var tip = Rec(
+                "rec_launch_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_launch", bpId, 0, "rec_launch_tip", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // HEAD has no BP linkage and is not the slot origin -> Raw
+            // rejects it -> consumer-facing predicate rejects it.
+            Assert.False(EffectiveState.IsUnfinishedFlight(head));
+
+            // TIP carries the BP-linked qualifier. The dedupe's lower-
+            // index-peer check looks at HEAD, finds Raw(HEAD)=false, and
+            // does NOT suppress TIP. TIP surfaces.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(EffectiveState.IsUnfinishedFlight(tip));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_launch_tip")
+                && l.Contains("reason=chainContinuation"));
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_launch_tip", members[0].RecordingId);
         }
 
         [Fact]
