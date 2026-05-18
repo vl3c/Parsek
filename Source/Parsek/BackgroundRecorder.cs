@@ -4848,6 +4848,32 @@ namespace Parsek
                 return;
             }
 
+            // Re-fly provisional anchor bypass: while a ReFlySessionMarker is
+            // live and the focus recording is the provisional, pin the Relative
+            // anchor to the supersede target (or OriginChildRecordingId
+            // fallback) instead of letting the generic nearest-search pick a
+            // fast-separating sibling that happens to be in-bubble. See
+            // docs/dev/plans/fix-refly-relative-anchor-selection.md.
+            //
+            // Placement: AFTER the on-surface check, not immediately after the
+            // debris-parent bypass as the plan's section 4.3 text suggested.
+            // Surface vessels exit Relative mode unconditionally (the existing
+            // RELATIVE-is-for-orbital-approaches rule applies to re-fly
+            // provisionals too — we do not want to author Relative offsets on
+            // the launch pad). This placement is symmetric with the
+            // FlightRecorder bypass at `UpdateAnchorDetection`'s
+            // `else if (!onSurface)` branch.
+            if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
+                    tree,
+                    treeRec.RecordingId,
+                    out string reflyAnchor,
+                    out string reflySource))
+            {
+                ApplyReFlyProvisionalAnchorToState(
+                    state, treeRec, bgVessel, ut, reflyAnchor, reflySource);
+                return;
+            }
+
             var candidates = BuildBackgroundRecordingAnchorCandidates(
                 state,
                 bgVessel,
@@ -5280,6 +5306,133 @@ namespace Parsek
                 state,
                 ut,
                 "debris-parent-relative-enter");
+        }
+
+        // Re-fly provisional Relative anchor bypass for the BG recorder. Pins
+        // the anchor to the supersede target (or OriginChildRecordingId
+        // fallback) resolved by ReFlyAnchorSelection so the provisional's
+        // anchor-local offsets are recorded against a stable physical-identity
+        // continuation rather than against a fast-separating sibling that the
+        // generic nearest-search would otherwise pick.
+        private void ApplyReFlyProvisionalAnchorToState(
+            BackgroundVesselState state,
+            Recording treeRec,
+            Vessel bgVessel,
+            double ut,
+            string reflyAnchorRecordingId,
+            string reflySource)
+        {
+            if (state == null || treeRec == null) return;
+            if (string.IsNullOrEmpty(reflyAnchorRecordingId)) return;
+
+            string previousAnchorRecordingId = state.currentAnchorRecordingId;
+            bool wasRelative = state.isRelativeMode;
+            bool sectionIsRelative = state.trackSectionActive
+                && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative;
+            bool anchorChanged = !wasRelative
+                || !string.Equals(
+                    previousAnchorRecordingId,
+                    reflyAnchorRecordingId,
+                    StringComparison.Ordinal);
+
+            // Stable-anchor early-return symmetry with
+            // FlightRecorder.ApplyReFlyProvisionalAnchorToActiveRecording:
+            // once the bypass is engaged on the correct anchor and the
+            // section is already Relative, subsequent BG ticks just rewrite
+            // the anchor id (idempotent) without running the pre-check
+            // resolver walk. Recordings are append-only and UT is
+            // monotonic, so coverage that held at entry-time still holds.
+            if (!anchorChanged && sectionIsRelative)
+            {
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                return;
+            }
+
+            // Pre-check: the supersede target's authored trajectory must
+            // cover the current ut. For nested Re-Flies where the rewind
+            // point predates the supersede target's startUT, the anchor
+            // recording has no data here and the BG sampler would
+            // immediately ForceBackgroundRelativeToAbsolute. Without this
+            // check the bypass thrashes every BG tick (section flip ->
+            // sample -> resolver-fail -> exit -> repeat). Decline so the
+            // recorder stays in its current state; the caller's return
+            // path skips the generic nearest-search too, so a
+            // fast-separating sibling cannot reclaim the anchor.
+            if (!TryResolveBackgroundRecordedAnchorPose(
+                    reflyAnchorRecordingId,
+                    ut,
+                    out AnchorPose _,
+                    out RelativeAnchorResolveFailure preCheck))
+            {
+                string reason = RelativeAnchorResolveFailure.ReasonOrFallback(
+                    preCheck, "anchor-pose-unresolved");
+                // Per-vessel rate-limit key so two BG vessels failing on
+                // the same anchor don't dedupe each other's diagnostics.
+                string rateLimitKey = "refly-bypass-anchor-uncovered|"
+                    + state.vesselPid.ToString(CultureInfo.InvariantCulture);
+                ParsekLog.VerboseRateLimited(
+                    "BgRecorder",
+                    rateLimitKey,
+                    "re-fly bypass deferred (BG): anchor recording has no data at ut=" +
+                        ut.ToString("F2", CultureInfo.InvariantCulture) +
+                        " pid=" + state.vesselPid +
+                        " recordingId=" + treeRec.RecordingId +
+                        " anchorRecordingId=" + reflyAnchorRecordingId +
+                        " source=" + reflySource +
+                        " reason=" + reason +
+                        " -> recording as Absolute until anchor coverage extends",
+                    5.0);
+                return;
+            }
+
+            // Pin the recording id. The synthetic candidate carries
+            // AnchorCandidateSource.ReFlyProvisionalSupersede so downstream
+            // BG log sites surface the bypass identity instead of defaulting
+            // to source=Live diagnosticPid=0. Pose resolution at playback
+            // flows through the recorded-anchor path exactly as for the
+            // station-rendezvous contract; pos/rot fields here are
+            // placeholder (never consumed at playback).
+            var reflyCandidate = new RecordingAnchorCandidate(
+                reflyAnchorRecordingId,
+                worldPos: Vector3d.zero,
+                worldRotation: Quaternion.identity,
+                source: AnchorCandidateSource.ReFlyProvisionalSupersede,
+                diagnosticPid: 0u,
+                ghostIndex: -1,
+                isSealed: false,
+                isSameReplayPoint: false,
+                isSameVesselLineage: false);
+            state.isRelativeMode = true;
+            state.currentAnchorRecordingId = reflyAnchorRecordingId;
+            state.currentAnchorCandidate = reflyCandidate;
+            state.hasCurrentAnchorCandidate = true;
+
+            bool needsSectionFlip = state.trackSectionActive && !sectionIsRelative;
+            if (needsSectionFlip || anchorChanged)
+            {
+                SegmentEnvironment env = state.environmentHysteresis != null
+                    ? state.environmentHysteresis.CurrentEnvironment
+                    : SegmentEnvironment.Atmospheric;
+                if (state.trackSectionActive)
+                    CloseBackgroundTrackSection(state, ut);
+                StartBackgroundTrackSection(state, env, ReferenceFrame.Relative, ut);
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+                ForceNextBackgroundTrajectorySample(state, ut, "refly-relative-enter");
+                if (anchorChanged)
+                {
+                    string transition = previousAnchorRecordingId == null ? "entered" : "switched";
+                    ParsekLog.Info("BgRecorder",
+                        $"re-fly anchor {transition} (BG): pid={state.vesselPid} " +
+                        $"recordingId={treeRec.RecordingId} " +
+                        $"anchorRecordingId={reflyAnchorRecordingId} source={reflySource} " +
+                        $"previousAnchorRecordingId={previousAnchorRecordingId ?? "(none)"} " +
+                        $"ut={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+                }
+            }
+            else
+            {
+                ApplyBackgroundCurrentAnchorToTrackSection(state);
+            }
         }
 
         private static void ForceNextBackgroundTrajectorySample(

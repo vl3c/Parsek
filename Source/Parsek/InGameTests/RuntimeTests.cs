@@ -140,6 +140,88 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", $"CommittedRecordings count: {recordings.Count}");
         }
 
+        [InGameTest(Category = "ReFlyAnchorContract",
+            Description = "ReFlyAnchorSelection bypass resolves to marker.SupersedeTargetId when a marker is live")]
+        public void ReFlyProvisional_AnchorsOnSupersedeTarget()
+        {
+            // Verifies the production bypass wired into both recorders in
+            // Phases 1-2. Synthesizes a marker + provisional + supersede
+            // target, attaches the marker to ParsekScenario.Instance, calls
+            // the production helper, and asserts the bypass returns the
+            // supersede target id (the recording the provisional continues)
+            // rather than letting the recorder fall through to the generic
+            // nearest-search that previously picked fast-separating siblings.
+            //
+            // The full PR #874 playtest pattern (nested re-flies with a
+            // sibling probe in-bubble + watch mode + GhostRenderTrace
+            // large-delta assertion) requires the manual playtest acceptance
+            // pass documented in
+            // docs/dev/plans/fix-refly-relative-anchor-selection.md section 10.
+            var scenario = ParsekScenario.Instance;
+            if (scenario == null)
+            {
+                InGameAssert.Skip("ParsekScenario.Instance not available (scene not Flight or scenario not loaded yet)");
+                return;
+            }
+            // Skip when CoBubble blending is on: PR #884 made the relevant
+            // path the standalone-absolute Relative-anchor path (default
+            // false in v0.10). Don't override the player's setting; just
+            // skip so the user can re-run with the toggle off.
+            if (ParsekSettings.Current != null && ParsekSettings.Current.useCoBubbleBlend)
+            {
+                InGameAssert.Skip(
+                    "useCoBubbleBlend is enabled; this test exercises the recorded-anchor "
+                    + "path that's only the primary playback contract when CoBubble is off "
+                    + "(v0.10 default after PR #884)");
+                return;
+            }
+
+            ReFlySessionMarker priorMarker = scenario.ActiveReFlySessionMarker;
+            try
+            {
+                var marker = new ReFlySessionMarker
+                {
+                    SessionId = "ingame_reflyanchor_session",
+                    TreeId = "ingame_reflyanchor_tree",
+                    ActiveReFlyRecordingId = "ingame_provisional_rec",
+                    OriginChildRecordingId = "ingame_origin_rec",
+                    SupersedeTargetId = "ingame_supersede_target",
+                    InvokedUT = Planetarium.GetUniversalTime(),
+                    InPlaceContinuation = true,
+                };
+                scenario.ActiveReFlySessionMarker = marker;
+
+                // Pure helper overload — drive every branch with an injected
+                // resolver so the test does not depend on the active tree or
+                // committed list state in the running game.
+                var target = new Recording
+                {
+                    RecordingId = "ingame_supersede_target",
+                    MergeState = MergeState.Immutable,
+                };
+                bool ok = ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
+                    marker,
+                    "ingame_provisional_rec",
+                    id => string.Equals(id, target.RecordingId, System.StringComparison.Ordinal) ? target : null,
+                    out string anchor,
+                    out string source);
+
+                InGameAssert.IsTrue(ok,
+                    "TryResolveReFlyProvisionalAnchor should fire when a marker is live and the provisional id matches");
+                InGameAssert.AreEqual("ingame_supersede_target", anchor,
+                    "Bypass should return marker.SupersedeTargetId");
+                InGameAssert.AreEqual(ReFlyAnchorSelection.SourceSupersedeTarget, source,
+                    "Bypass source label should report supersede-target on a non-null SupersedeTargetId");
+
+                ParsekLog.Info("TestRunner",
+                    $"ReFlyProvisional_AnchorsOnSupersedeTarget: anchor={anchor} source={source}");
+            }
+            finally
+            {
+                scenario.ActiveReFlySessionMarker = priorMarker;
+            }
+        }
+
         [InGameTest(Category = "RecordingStore", Description = "All committed recordings have valid IDs and non-empty Points")]
         public void CommittedRecordingsHaveValidData()
         {

@@ -470,6 +470,16 @@ namespace Parsek
         /// <see cref="EffectiveState.ComputeSessionSuppressedSubtree"/>
         /// during the active re-fly session, and only the supersede
         /// write-set is filtered at commit time.</para>
+        ///
+        /// <para>The carve-out filter walks <c>ChainIndex</c>,
+        /// <c>RecordingSupersedeRelation</c>s, and debris parent
+        /// relationships only. It does NOT read <c>TrackSection</c> fields,
+        /// so the re-fly provisional anchor edge introduced by
+        /// <c>ReFlyAnchorSelection</c> (which writes
+        /// <c>TrackSection.anchorRecordingId</c> on the provisional's
+        /// Relative sections) is invisible to this filter and cannot
+        /// reclassify the provisional's parent recording. Covered by
+        /// <c>SupersedeCommitTests.IsPreRewindCarveOut_ProvisionalAnchoredOnSupersedeTarget_DoesNotCarveOutParent</c>.</para>
         /// </summary>
         internal static bool IsPreRewindCarveOut(
             Recording rec, ReFlySessionMarker marker,

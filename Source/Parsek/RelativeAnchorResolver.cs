@@ -239,7 +239,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.AnchorOutOfScope,
                     "loop-anchor-out-of-scope",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     recording.RecordingId,
                     ut);
                 return false;
@@ -298,7 +298,7 @@ namespace Parsek
                     failure = WarnUnresolved(
                         RelativeAnchorResolveOutcome.NoSectionAtUT,
                         "anchor-out-of-recorded-range",
-                        recording.RecordingId,
+                        context.FocusRecordingId,
                         recording.RecordingId,
                         ut,
                         rangeStartUT: rangeStartUT,
@@ -341,7 +341,7 @@ namespace Parsek
                         failure = WarnUnresolved(
                             RelativeAnchorResolveOutcome.Other,
                             "anchor-section-frame-unknown",
-                            recording.RecordingId,
+                            context.FocusRecordingId,
                             recording.RecordingId,
                             ut,
                             sectionIndex);
@@ -352,7 +352,7 @@ namespace Parsek
             failure = WarnUnresolved(
                 RelativeAnchorResolveOutcome.TrackSectionsMissing,
                 "anchor-track-sections-missing",
-                recording.RecordingId,
+                context.FocusRecordingId,
                 recording.RecordingId,
                 ut);
             return false;
@@ -387,7 +387,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.AnchorCycleDetected,
                     "anchor-cycle-detected",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     continuationId,
                     ut);
                 return false;
@@ -406,7 +406,7 @@ namespace Parsek
                     failure = WarnUnresolved(
                         RelativeAnchorResolveOutcome.AnchorOutOfScope,
                         "active-provisional-out-of-scope",
-                        recording.RecordingId,
+                        context.FocusRecordingId,
                         continuationId,
                         ut);
                     return false;
@@ -707,7 +707,7 @@ namespace Parsek
                     failure = WarnUnresolved(
                         RelativeAnchorResolveOutcome.Other,
                         "anchor-section-frame-unknown",
-                        recording.RecordingId,
+                        context.FocusRecordingId,
                         recording.RecordingId,
                         clampedUT,
                         sectionIndex);
@@ -1320,7 +1320,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
-                    resolvedRecordingId,
+                    context.FocusRecordingId,
                     resolvedRecordingId,
                     before.ut + (after.ut - before.ut) * t,
                     resolvedSectionIndex);
@@ -1345,7 +1345,7 @@ namespace Parsek
             failure = WarnUnresolved(
                 RelativeAnchorResolveOutcome.PoseNonFinite,
                 "absolute-pose-nonfinite",
-                resolvedRecordingId,
+                context.FocusRecordingId,
                 resolvedRecordingId,
                 before.ut + (after.ut - before.ut) * t,
                 resolvedSectionIndex);
@@ -1427,8 +1427,8 @@ namespace Parsek
                         failure = WarnUnresolved(
                             RelativeAnchorResolveOutcome.AnchorOutOfScope,
                             "loop-live-anchor-unresolved",
+                            context.FocusRecordingId,
                             recording.RecordingId,
-                            null,
                             ut,
                             sectionIndex);
                         return false;
@@ -1439,8 +1439,8 @@ namespace Parsek
                     failure = WarnUnresolved(
                         RelativeAnchorResolveOutcome.Other,
                         "anchor-recording-id-missing",
+                        context.FocusRecordingId,
                         recording.RecordingId,
-                        null,
                         ut,
                         sectionIndex);
                     return false;
@@ -1470,7 +1470,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     anchorRecordingId,
                     ut,
                     sectionIndex,
@@ -1495,7 +1495,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.PoseNonFinite,
                     "relative-pose-nonfinite",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     anchorRecordingId,
                     ut,
                     sectionIndex);
@@ -1522,7 +1522,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.Other,
                     "orbital-pose-resolver-missing",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     recording.RecordingId,
                     ut,
                     sectionIndex);
@@ -1539,7 +1539,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.Other,
                     "orbital-pose-unresolved",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     recording.RecordingId,
                     ut,
                     sectionIndex);
@@ -1551,7 +1551,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.PoseNonFinite,
                     "orbital-pose-nonfinite",
-                    recording.RecordingId,
+                    context.FocusRecordingId,
                     recording.RecordingId,
                     ut,
                     sectionIndex);
@@ -1586,7 +1586,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
-                    resolvedRecordingId,
+                    context.FocusRecordingId,
                     resolvedRecordingId,
                     ut,
                     resolvedSectionIndex,
@@ -1623,7 +1623,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.OutOfSectionRange,
                     "anchor-out-of-recorded-range",
-                    resolvedRecordingId,
+                    context.FocusRecordingId,
                     resolvedRecordingId,
                     ut,
                     resolvedSectionIndex,
@@ -1638,7 +1638,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
-                    resolvedRecordingId,
+                    context.FocusRecordingId,
                     resolvedRecordingId,
                     ut,
                     resolvedSectionIndex);
@@ -1660,7 +1660,7 @@ namespace Parsek
             failure = WarnUnresolved(
                 RelativeAnchorResolveOutcome.PoseNonFinite,
                 "absolute-pose-nonfinite",
-                resolvedRecordingId,
+                context.FocusRecordingId,
                 resolvedRecordingId,
                 ut,
                 resolvedSectionIndex);
@@ -1683,7 +1683,7 @@ namespace Parsek
                 failure = WarnUnresolved(
                     RelativeAnchorResolveOutcome.Other,
                     "absolute-position-unresolved",
-                    resolvedRecordingId,
+                    context.FocusRecordingId,
                     resolvedRecordingId,
                     requestedUT,
                     resolvedSectionIndex);
@@ -1701,7 +1701,7 @@ namespace Parsek
             failure = WarnUnresolved(
                 RelativeAnchorResolveOutcome.PoseNonFinite,
                 "absolute-pose-nonfinite",
-                resolvedRecordingId,
+                context.FocusRecordingId,
                 resolvedRecordingId,
                 requestedUT,
                 resolvedSectionIndex);
@@ -2057,7 +2057,7 @@ namespace Parsek
         private static RelativeAnchorResolveFailure WarnUnresolved(
             RelativeAnchorResolveOutcome outcome,
             string reason,
-            string recordingId,
+            string focusRecordingId,
             string anchorRecordingId,
             double ut,
             int sectionIndex = -1,
@@ -2065,15 +2065,15 @@ namespace Parsek
             double rangeEndUT = double.NaN)
         {
             var ic = CultureInfo.InvariantCulture;
-            string rec = string.IsNullOrEmpty(recordingId) ? "(none)" : recordingId;
+            string focus = string.IsNullOrEmpty(focusRecordingId) ? "(none)" : focusRecordingId;
             string anchor = string.IsNullOrEmpty(anchorRecordingId) ? "(none)" : anchorRecordingId;
             string section = sectionIndex >= 0 ? sectionIndex.ToString(ic) : "(none)";
-            string key = "relative-anchor-resolver|" + rec + "|" + anchor + "|" + reason + "|" + section;
+            string key = "relative-anchor-resolver|" + focus + "|" + anchor + "|" + reason + "|" + section;
             ParsekLog.WarnRateLimited(
                 "RelativeAnchorResolver",
                 key,
                 "relative-anchor-unresolved: reason=" + reason +
-                " recordingId=" + rec +
+                " focusRecordingId=" + focus +
                 " anchorRecordingId=" + anchor +
                 " sectionIndex=" + section +
                 " ut=" + ut.ToString("R", ic),
@@ -2081,7 +2081,7 @@ namespace Parsek
             return RelativeAnchorResolveFailure.Create(
                 outcome,
                 reason,
-                recordingId,
+                focusRecordingId,
                 anchorRecordingId,
                 ut,
                 sectionIndex,

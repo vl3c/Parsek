@@ -59,6 +59,15 @@ namespace Parsek
         /// Returns a fresh read-only list each call. The underlying ERS
         /// source is cached by <see cref="EffectiveState"/>, so repeated
         /// calls within a frame are cheap.
+        /// <para>
+        /// Chain dedupe (the one-row-per-logical-flight contract for the
+        /// optimizer's phase-change splits) is enforced by
+        /// <see cref="EffectiveState.IsUnfinishedFlight"/> itself, so every
+        /// caller of that predicate — STASH membership here, regular-tree
+        /// filtering in <c>RecordingsTableUI</c>, timeline separation
+        /// markers, the legacy R-button suppression, and the group-picker
+        /// drop-target gate — collapses to the same chain head.
+        /// </para>
         /// </summary>
         public static IReadOnlyList<Recording> ComputeMembers()
         {
