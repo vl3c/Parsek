@@ -1536,6 +1536,18 @@ namespace Parsek
             foreach (var cand in recById.Values)
             {
                 if (cand == null) continue;
+                // KEEP debris-only: this walker is the supersede-closure expansion
+                // for breakup-debris children. Controlled-decoupled children
+                // (extension of the parent-anchor contract) also carry
+                // DebrisParentRecordingId, but admitting them here would silently
+                // change ERS / ELS closure shapes for re-fly. The BP-type-Breakup
+                // gate at the bp.Type check below already fences out the BG-split
+                // anchor double-duty case; the `!cand.IsDebris` skip is a stricter
+                // filter that also excludes controlled-decoupled children. If a
+                // future feature needs controlled children in closure expansion,
+                // it is a separate design decision (which BP types qualify, how
+                // to fence the anchor double-duty, etc.) - do not collapse this
+                // gate as a side effect.
                 if (!cand.IsDebris) continue;
                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
                 if (string.IsNullOrEmpty(cand.DebrisParentRecordingId)) continue;

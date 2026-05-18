@@ -527,6 +527,13 @@ namespace Parsek
             // unconditionally fails — see the
             // `IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut`
             // regression test in `SupersedeCommitTests.cs`.
+            // KEEP both conjuncts (`rec.IsDebris` and `DebrisParentRecordingId != null`):
+            // this branch is intentionally scoped to genuine debris. Controlled-decoupled
+            // children (extension of the parent-anchor contract) carry
+            // DebrisParentRecordingId but have IsDebris=false and must NOT be carved
+            // out via this branch - they would lose their re-fly visibility. They go
+            // through the chain-head carve-out branch below (which gates on
+            // `!rec.IsDebris`) instead.
             double debrisCutoff = ComputePreRewindCutoff(marker);
             if (!double.IsNaN(debrisCutoff)
                 && rec.IsDebris

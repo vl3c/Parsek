@@ -40,7 +40,7 @@ namespace Parsek.Tests
             // updating this pin, or rolls it back without restoring the
             // pre-bump enum / migration semantics.
             Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(1, RecordingStore.CurrentRecordingSchemaGeneration);
+            Assert.Equal(2, RecordingStore.CurrentRecordingSchemaGeneration);
         }
 
         [Fact]
@@ -95,8 +95,9 @@ namespace Parsek.Tests
         [Theory]
         [InlineData(0, 0, "generation-missing")]
         [InlineData(0, -1, "generation-older")]
-        [InlineData(0, 2, "generation-newer")]
-        [InlineData(13, 1, "format-version-mismatch")]
+        [InlineData(0, 1, "generation-older")]
+        [InlineData(0, 3, "generation-newer")]
+        [InlineData(13, 2, "format-version-mismatch")]
         public void IsRecordingSchemaCompatible_RejectsNonCurrentSchema(
             int formatVersion,
             int schemaGeneration,
@@ -292,7 +293,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "future-generation");
             node.AddValue("recordingFormatVersion", "0");
-            node.AddValue("recordingSchemaGeneration", "2");
+            node.AddValue("recordingSchemaGeneration", "3");
 
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(node, rec);
@@ -301,6 +302,23 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[Codec]") &&
                 l.Contains("reason=generation-newer"));
+        }
+
+        [Fact]
+        public void IsRecordingSchemaCompatible_LegacyGeneration1_IsRejected()
+        {
+            // Pre-controlled-child-extension recordings (generation 1) are no
+            // longer loaded - they pre-date the on-disk truth-table widening for
+            // (IsDebris, DebrisParentRecordingId) and would silently mis-render
+            // the newly-valid (IsDebris=false, DebrisParentRecordingId=non-null)
+            // row if loaded.
+            bool compatible = RecordingStore.IsRecordingSchemaCompatible(
+                RecordingStore.CurrentRecordingFormatVersion,
+                1,
+                out string reason);
+
+            Assert.False(compatible);
+            Assert.Equal("generation-older", reason);
         }
     }
 }

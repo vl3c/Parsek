@@ -224,6 +224,13 @@ namespace Parsek
                     || traj.SurfacePos.HasValue);
         }
 
+        // KEEP debris-only: the `!traj.IsDebris` gate here is intentional. This
+        // predicate scopes a Re-Fly render carve-out specifically to PRE-REWIND
+        // sibling debris of the re-fly origin (parent-id == marker.OriginChildRecordingId,
+        // StartUT < marker.RewindPointUT). Controlled-decoupled children of the
+        // origin must NOT be hidden during re-fly playback - they are not
+        // "companion debris of the origin"; widening this gate to all parent-
+        // anchored children would land a visible regression.
         internal static bool ShouldRenderSuppressedCompanionDebris(
             IPlaybackTrajectory traj,
             ReFlySessionMarker marker,
@@ -2917,10 +2924,15 @@ namespace Parsek
             out bool usedBodyFixedPrimary)
         {
             usedBodyFixedPrimary = false;
-            bool parentAnchoredDebris = traj != null
-                && traj.IsDebris
+            // Parent-anchored gate is now `DebrisParentRecordingId != null` alone.
+            // Both genuine debris (IsDebris=true) and controlled-decoupled children
+            // (IsDebris=false) take this path while inside a Relative section against
+            // their parent. Post-window Absolute sections bypass this method entirely
+            // through TryGetRelativeSectionAtUT returning false for non-Relative
+            // sections (see plan section 7).
+            bool parentAnchored = traj != null
                 && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
-            bool loopAnchoredDebrisChain = parentAnchoredDebris
+            bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
             if (!loopAnchoredDebrisChain
@@ -2942,7 +2954,7 @@ namespace Parsek
             if (!TryGetRelativeSectionAtUT(traj, playbackUT, out RelativeSectionPlaybackTarget target))
                 return false;
 
-            if (parentAnchoredDebris
+            if (parentAnchored
                 && !loopAnchoredDebrisChain
                 && TryPositionBodyFixedPrimary(
                     index,
@@ -2954,7 +2966,7 @@ namespace Parsek
                 usedBodyFixedPrimary = true;
                 return true;
             }
-            if (parentAnchoredDebris && !loopAnchoredDebrisChain)
+            if (parentAnchored && !loopAnchoredDebrisChain)
             {
                 diagnostic.Reason = "body-fixed-primary-position-failed";
                 MarkParentAnchoredDebrisCoverageRetired(
@@ -2969,7 +2981,7 @@ namespace Parsek
 
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
-            if (parentAnchoredDebris
+            if (parentAnchored
                 && loopAnchoredDebrisChain
                 && state != null
                 && state.anchorRetiredThisFrame
@@ -3046,6 +3058,10 @@ namespace Parsek
             return true;
         }
 
+        // KEEP debris-only: the `IsDebris` conjunct here is semantic. Loop-anchored
+        // chains are debris-of-a-looped-vessel; controlled-decoupled children do
+        // not participate in loop-anchored chains today (no design support for
+        // re-attaching a controlled vessel as a loop anchor's payload).
         internal static bool ShouldUseLoopAnchoredDebrisChain(
             IPlaybackTrajectory traj,
             double playbackUT)
