@@ -568,5 +568,79 @@ namespace Parsek.Tests.Logistics
 
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("Wait: route") && l.Contains("MonoPropellant"));
         }
+
+        // ==================================================================
+        // TrySendOneCycleNow (v0 Logistics UI Send-Now button)
+        // ==================================================================
+
+        [Fact]
+        public void TrySendOneCycleNow_NullRoute_ReturnsFalse()
+        {
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(null, 100.0);
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_ActiveRouteFutureDispatch_PullsScheduleForward()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.True(ok);
+            Assert.Equal(100.0, route.NextDispatchUT);
+            Assert.Null(route.NextEligibilityCheckUT);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_RouteAlreadyDue_NoOps()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 50.0);
+            // Set a wait-retry to verify it stays untouched on the already-due path.
+            route.NextEligibilityCheckUT = 75.0;
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.True(ok);
+            Assert.Equal(50.0, route.NextDispatchUT); // unchanged
+            Assert.Equal(75.0, route.NextEligibilityCheckUT); // unchanged
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_InTransit_Refuses()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            route.Status = RouteStatus.InTransit;
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.False(ok);
+            Assert.Equal(1_000_000.0, route.NextDispatchUT);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_Paused_Refuses()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            route.Status = RouteStatus.Paused;
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.False(ok);
+            Assert.Equal(1_000_000.0, route.NextDispatchUT);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_MissingSourceRecording_Refuses()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            route.Status = RouteStatus.MissingSourceRecording;
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void TrySendOneCycleNow_WaitingForResources_AcceptsAndPullsForward()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 1_000_000.0);
+            route.Status = RouteStatus.WaitingForResources;
+            route.NextEligibilityCheckUT = 999_999.0;
+            bool ok = RouteOrchestrator.TrySendOneCycleNow(route, 100.0);
+            Assert.True(ok);
+            Assert.Equal(100.0, route.NextDispatchUT);
+            Assert.Null(route.NextEligibilityCheckUT);
+        }
     }
 }

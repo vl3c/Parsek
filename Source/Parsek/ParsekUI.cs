@@ -70,6 +70,9 @@ namespace Parsek
         // Gloops Flight Recorder window (extracted to GloopsRecorderUI)
         private GloopsRecorderUI gloopsUI;
 
+        // Logistics window (v0 — Supply Routes tab + Send Now button)
+        private LogisticsWindowUI logisticsUI;
+
         private static readonly string VersionLabel = "v" +
             System.Reflection.Assembly.GetExecutingAssembly().GetName().Version.ToString(3);
 
@@ -113,6 +116,7 @@ namespace Parsek
             this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            this.logisticsUI = new LogisticsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -128,6 +132,7 @@ namespace Parsek
             this.careerStateUI = new CareerStateWindowUI(this);
             this.testRunnerUI = new TestRunnerUI(this);
             this.settingsUI = new SettingsWindowUI(this);
+            this.logisticsUI = new LogisticsWindowUI(this);
             LedgerOrchestrator.OnTimelineDataChanged += OnTimelineDataChanged;
         }
 
@@ -230,6 +235,15 @@ namespace Parsek
                         $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
                 }
                 GUILayout.Space(SpacingLarge);
+            }
+
+            // --- Logistics (v0 — available in both Flight and KSC) ---
+            int routeCount = Logistics.RouteStore.CommittedRoutes?.Count ?? 0;
+            if (GUILayout.Button($"Logistics ({routeCount})"))
+            {
+                logisticsUI.IsOpen = !logisticsUI.IsOpen;
+                ParsekLog.Verbose("UI",
+                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Settings ---
@@ -337,6 +351,11 @@ namespace Parsek
         public void DrawCareerStateWindowIfOpen(Rect mainWindowRect)
         {
             careerStateUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawLogisticsWindowIfOpen(Rect mainWindowRect)
+        {
+            logisticsUI.DrawIfOpen(mainWindowRect);
         }
 
         // ════════════════════════════════════════════════════════════════

@@ -55,6 +55,64 @@ namespace Parsek.Logistics
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
         // ==================================================================
+        // Manual Send-Now (v0 UI testing)
+        // ==================================================================
+
+        /// <summary>
+        /// Player-driven "Send Now" — nudges a route to dispatch on the very
+        /// next <see cref="Tick"/> regardless of its scheduled
+        /// <see cref="Route.NextDispatchUT"/>. Routes the request through the
+        /// normal dispatch path (the next Tick fires `ApplyDispatch` + the
+        /// usual ERS / funds / endpoint / idempotency gates) so all
+        /// invariants hold; this helper just moves the scheduling boundary,
+        /// it does NOT bypass eligibility checks or the ledger.
+        ///
+        /// <para>Returns true when the nudge was applied. Returns false (with
+        /// an Info log) when the route is null, in a status that blocks
+        /// dispatch (`InTransit`, `MissingSourceRecording`, `SourceChanged`,
+        /// `EndpointLost`, `Paused`), or when the route is already due to
+        /// dispatch on its own schedule (no nudge needed).</para>
+        /// </summary>
+        internal static bool TrySendOneCycleNow(Route route, double currentUT)
+        {
+            if (route == null)
+            {
+                ParsekLog.Info(Tag, "TrySendOneCycleNow: route=null");
+                return false;
+            }
+
+            // Status gates: only Active and resource/funds-wait routes can be
+            // nudged. Other states require user intervention (un-pause,
+            // re-record, etc.) before Send-Now is meaningful.
+            if (route.Status != RouteStatus.Active
+                && route.Status != RouteStatus.WaitingForResources
+                && route.Status != RouteStatus.WaitingForFunds
+                && route.Status != RouteStatus.DestinationFull)
+            {
+                ParsekLog.Info(Tag,
+                    $"TrySendOneCycleNow: route={ShortIdForLog(route)} status={route.Status} — not dispatchable");
+                return false;
+            }
+
+            // Already due on schedule — no nudge needed.
+            if (route.NextDispatchUT <= currentUT)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"TrySendOneCycleNow: route={ShortIdForLog(route)} already due (NextDispatchUT={route.NextDispatchUT.ToString("R", IC)} <= currentUT={currentUT.ToString("R", IC)})");
+                return true;
+            }
+
+            double previousNext = route.NextDispatchUT;
+            route.NextDispatchUT = currentUT;
+            route.NextEligibilityCheckUT = null; // clear any wait-retry backoff
+            ParsekLog.Info(Tag,
+                $"TrySendOneCycleNow: route={ShortIdForLog(route)} " +
+                $"NextDispatchUT {previousNext.ToString("R", IC)} -> {currentUT.ToString("R", IC)} " +
+                $"(next Tick will fire ApplyDispatch through the usual eligibility gates)");
+            return true;
+        }
+
+        // ==================================================================
         // Tick entry points
         // ==================================================================
 

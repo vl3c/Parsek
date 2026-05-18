@@ -312,6 +312,7 @@ namespace Parsek
             ui.DrawTimelineWindowIfOpen(windowRect);
             ui.DrawKerbalsWindowIfOpen(windowRect);
             ui.DrawCareerStateWindowIfOpen(windowRect);
+            ui.DrawLogisticsWindowIfOpen(windowRect);
             ui.DrawSettingsWindowIfOpen(windowRect);
             ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }

@@ -13,6 +13,10 @@ All notable changes to Parsek are documented here.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
 
+### UI
+
+- New "Logistics" button in the main Parsek window opens a Supply Routes table (available in both Flight and Space Center scenes). Each row lists name, origin, destination (body + coords + situation), interval, transit duration, completed cycles, current status, and a "Send Now" button that nudges the route to dispatch on the next orchestrator tick. v0 surface — no editing, no per-route detail view, just enough to verify the route dispatches and delivers as intended.
+
 ### Defaults
 
 - Co-bubble peer blending now defaults OFF. Each ghost renders its own standalone absolute trajectory with no peer-blend. Opt in via the new Settings window > Diagnostics > "Use co-bubble peer blending" toggle.
