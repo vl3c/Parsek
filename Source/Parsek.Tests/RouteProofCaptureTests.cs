@@ -193,6 +193,121 @@ namespace Parsek.Tests
             Assert.Equal("evaJetpack", window.UndockEndpointInventory[0].PartName);
         }
 
+        // Regression for the 2026-05-18 dock-2 playtest: the dock-side endpoint
+        // baseline was inflated to LF=400/800 because the endpoint snapshot fell
+        // back to the post-couple merged vessel, which contains transport parts
+        // too. With endpointPreCoupleSnapshot set, the endpoint baseline must
+        // reflect ONLY the partner's pre-dock parts.
+        [Fact]
+        public void BuildDockRouteConnectionWindow_EndpointPreCoupleSnapshotOverride_ScopesEndpointBaselineToPartner()
+        {
+            // Merged snapshot (post-couple): transport tank 80/100 + endpoint tank 200/200
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(
+                    100,
+                    "transportTank",
+                    MakeResource("LiquidFuel", 80.0, 100.0)),
+                MakePart(
+                    200,
+                    "endpointTank",
+                    MakeResource("LiquidFuel", 200.0, 200.0)));
+
+            // Pre-couple endpoint snapshot: only the endpoint tank, 200/200.
+            ConfigNode endpointPreCouple = MakeVessel(
+                MakePart(
+                    200,
+                    "endpointTank",
+                    MakeResource("LiquidFuel", 200.0, 200.0)));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0,
+                9001,
+                RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1,
+                endpointPreCoupleSnapshot: endpointPreCouple);
+
+            Assert.NotNull(window);
+            Assert.Equal(80.0, window.DockTransportResources["LiquidFuel"].amount);
+            // Endpoint baseline must come from the pre-couple snapshot: 200/200, not 280/300.
+            Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].maxAmount);
+        }
+
+        // Catches the regression where the endpointPreCoupleSnapshot parameter is
+        // silently ignored and the merged snapshot is used as the endpoint baseline
+        // source.
+        [Fact]
+        public void BuildDockRouteConnectionWindow_EndpointPreCoupleSnapshotOverride_DoesNotIncludeTransportContribution()
+        {
+            // If the merged snapshot is used by mistake, both tanks contribute and
+            // the endpoint baseline shows 280/300 (=80/100 + 200/200) instead of 200/200.
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(
+                    100,
+                    "transportTank",
+                    MakeResource("LiquidFuel", 80.0, 100.0)),
+                MakePart(
+                    200,
+                    "endpointTank",
+                    MakeResource("LiquidFuel", 200.0, 200.0)));
+            ConfigNode endpointPreCouple = MakeVessel(
+                MakePart(
+                    200,
+                    "endpointTank",
+                    MakeResource("LiquidFuel", 200.0, 200.0)));
+
+            // With endpointPids = both 100 and 200 (the buggy scenario where the
+            // endpoint-PID set came from the merged vessel's snapshot), the
+            // pre-couple snapshot still scopes the resource extraction to its own
+            // parts only — pid 100 isn't in endpointPreCouple, so it contributes
+            // nothing.
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0,
+                9001,
+                RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 100, 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1,
+                endpointPreCoupleSnapshot: endpointPreCouple);
+
+            Assert.NotNull(window);
+            // Endpoint baseline must NOT roll in pid 100's contribution because the
+            // pre-couple snapshot doesn't have it.
+            Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].maxAmount);
+        }
+
+        // Baseline behavior (no override): when endpointPreCoupleSnapshot is null,
+        // BuildDockRouteConnectionWindow falls back to dockedSnapshot for the endpoint
+        // baseline — preserving the existing public contract.
+        [Fact]
+        public void BuildDockRouteConnectionWindow_NoEndpointOverride_UsesMergedSnapshotForEndpointBaseline()
+        {
+            ConfigNode dockedMergedSnapshot = MakeVessel(
+                MakePart(100, "transportTank", MakeResource("LiquidFuel", 80.0, 100.0)),
+                MakePart(200, "endpointTank", MakeResource("LiquidFuel", 200.0, 200.0)));
+
+            RouteConnectionWindow window = RouteProofCapture.BuildDockRouteConnectionWindow(
+                100.0,
+                9001,
+                RouteConnectionKind.DockingPort,
+                dockedMergedSnapshot,
+                new List<uint> { 100 },
+                new List<uint> { 200 },
+                endpointAtDock: null,
+                transferEndpointSituation: -1);
+
+            Assert.NotNull(window);
+            Assert.Equal(80.0, window.DockTransportResources["LiquidFuel"].amount);
+            Assert.Equal(200.0, window.DockEndpointResources["LiquidFuel"].amount);
+        }
+
         [Fact]
         public void CompleteRouteConnectionWindowAtUndock_MissingEndpointPart_DoesNotMarkComplete()
         {

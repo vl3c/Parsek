@@ -277,7 +277,8 @@ namespace Parsek
             ICollection<uint> transportPartPersistentIds,
             ICollection<uint> endpointPartPersistentIds,
             RouteEndpoint? endpointAtDock,
-            int transferEndpointSituation)
+            int transferEndpointSituation,
+            ConfigNode endpointPreCoupleSnapshot = null)
         {
             if (transferTargetVesselPid == 0 || dockedSnapshot == null)
                 return null;
@@ -303,6 +304,15 @@ namespace Parsek
                 return null;
             }
 
+            // When the caller provides a pre-couple endpoint snapshot, prefer it for the
+            // endpoint baseline. Falling back to the merged-vessel snapshot would inflate
+            // DOCK_ENDPOINT_RESOURCES with the transport's contribution because the
+            // endpoint-part-PID set may include transport parts after a post-couple
+            // FindVesselByPid lookup returned the merged vessel.
+            ConfigNode endpointSnapshotForBaseline = endpointPreCoupleSnapshot != null
+                ? endpointPreCoupleSnapshot
+                : dockedSnapshot;
+
             var window = new RouteConnectionWindow
             {
                 WindowId = BuildWindowId(dockUT, transferTargetVesselPid),
@@ -316,11 +326,11 @@ namespace Parsek
                 DockTransportResources =
                     VesselSpawner.ExtractResourceManifest(dockedSnapshot, transportPids),
                 DockEndpointResources =
-                    VesselSpawner.ExtractResourceManifest(dockedSnapshot, endpointPids),
+                    VesselSpawner.ExtractResourceManifest(endpointSnapshotForBaseline, endpointPids),
                 DockTransportInventory =
                     VesselSpawner.ExtractInventoryPayloadItems(dockedSnapshot, transportPids),
                 DockEndpointInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(dockedSnapshot, endpointPids),
+                    VesselSpawner.ExtractInventoryPayloadItems(endpointSnapshotForBaseline, endpointPids),
                 EndpointAtDock = endpointAtDock,
                 TransferEndpointSituation = transferEndpointSituation
             };
