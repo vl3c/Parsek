@@ -403,6 +403,20 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        // Rate-limit key is the recording id so two distinct chain transfers
+        // do not collide when the committed-list index slot is reused (the
+        // index can shift across deletes / supersede swaps in the same session).
+        internal static void LogAutoFollowDeferred(int nextIndex, string recordingId)
+        {
+            string key = string.IsNullOrEmpty(recordingId)
+                ? $"auto-follow-deferred-idx-{nextIndex}"
+                : $"auto-follow-deferred-{recordingId}";
+            ParsekLog.VerboseRateLimited(
+                "CameraFollow",
+                key,
+                $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+        }
+
         internal static bool IsWithinWatchEntryRange(double distanceMeters)
         {
             return IsFiniteWatchDistance(distanceMeters)
@@ -2624,14 +2638,6 @@ namespace Parsek
             return result;
         }
 
-        internal static void LogAutoFollowDeferred(int nextIndex)
-        {
-            ParsekLog.VerboseRateLimited(
-                "CameraFollow",
-                $"auto-follow-deferred-{nextIndex}",
-                $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
-        }
-
         /// <summary>
         /// Transfers watch mode from the current recording to the next segment.
         /// Preserves camera state (no restore to player vessel) since we're switching between ghosts.
@@ -2655,7 +2661,7 @@ namespace Parsek
             GhostPlaybackState gs;
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
-                LogAutoFollowDeferred(nextIndex);
+                LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId);
                 return false;
             }
 
