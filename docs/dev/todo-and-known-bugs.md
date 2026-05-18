@@ -258,70 +258,36 @@ Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=Record
 
 ---
 
-## Open - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
+## Done - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
 
-**Evidence:** Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces:
+- ~~Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces (ghost #17 = chain HEAD `c059aabf...`, ghost #25 = chain CONTINUATION `3d059f9c...`, shared `chainId=9cf2bb0709dc426096ec687f2fbbac37`). Both passed the engine's skip-state filter with `skip=False` and the engine-frame-iter showed them as independent ghost spawn slots.~~
 
-| Ghost | Recording | UT range | Chain role |
-|---|---|---|---|
-| #17 | `c059aabf...` | payload `[292.96, 335.57]` + orbit segment `[359.64, 1364.71]` | chain HEAD (chainBranch=0 chainIndex=0) |
-| #25 | `3d059f9c...` | payload `[335.567, 375.047]` | chain CONTINUATION (chainBranch=0 chainIndex=1) |
+**Root cause:** Chain-continuation recordings were treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` collapsed the chain in the UI (Timeline / STASH groups) and supersede / rewind-retired filters stripped out the right rows, but no analogous "chain continuation shadows its head's UT range" filter existed in the ghost spawn / render path. `GhostPlaybackEngine` allocated one slot per committed recording without coordinating slots that belonged to the same chain.
 
-Both recordings share `chainId=9cf2bb0709dc426096ec687f2fbbac37` and the `UnfinishedFlights` collapser correctly emits `reason=chainContinuation rec=3d059f9c... headRec=c059aabf...`. Both pass through the engine's `Ghost playback skip state` filter with `skip=False`, and the engine-frame-iter at the duplication window shows both as `skip=None hd=T hs=T` (independent ghost spawn slots). The user saw them as two side-by-side Probe meshes for the duration of the overlap; ghost #25 destroys at 20:08:18 when its 39-second payload ends, leaving ghost #17 to continue alone.
+**Fix:** New `ChainHandoffLogic` pure decision helper (`GhostPlaybackLogic.cs`) plus a `ResolveChainNextIndex` callback on `GhostPlaybackEngine` injected by `ParsekPlaybackPolicy`. Two engine wire-points:
 
-**Root cause hypothesis:** Chain-continuation recordings (typically a switch/Fly-recorded segment of a vessel after a BG-recorded background segment of the same physical vessel) are treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` correctly collapses the chain in the UI (Timeline / STASH groups), and supersede / rewind-retired filters strip out the right rows, but no analogous "chain continuation shadows its head's UT range" filter exists in the ghost spawn / render path. The semantics players expect: a continuation should suppress the head's playback inside the continuation's UT range (or vice versa, depending on which surface is the better representation). When the head also has an orbital tail segment that picks up *after* the continuation ends, the head should be hidden inside the continuation's UT window only, not for its entire range. This is the structural-fix sibling of the producer-side fixes around `DebrisParentRecordingId` and the PR #889 anchor selection: chain-link metadata exists and is honoured by the UI but the playback engine ignores it.
+- **Shadow (overlap case):** in the in-range render branch (`GhostPlaybackEngine.UpdatePlayback`), before `RenderInRangeGhost`, the engine consults `ChainHandoffLogic.DecideShadow(chainNextIndex, HasActiveGhost(chainNextIndex))`. When the continuation slot has loaded visuals, the engine hides the head ghost (`state.ghost.SetActive(false)`), clears any overlap ghosts, removes the slot from `chainBridgeOpenedUT`, counts the new `GhostPlaybackSkipReason.ChainShadowed` skip, and emits `[Engine][VerboseRateLimited] chain-shadow-N: Ghost #N "..." chain-shadowed by continuation slot #M at UT=...`. The continuation continues to render as it would normally; the head ghost is back-on next frame if the continuation deactivates.
+- **Bridge-hold (gap case, sibling per-debris flicker entry below):** in the stale-past-end cleanup, before `DestroyGhost`, the engine consults `ChainHandoffLogic.DecideBridgeHold(chainNextIndex, continuationHasActiveGhost, currentUT, bridgeOpenedUT, ChainHandoffLogic.DefaultBridgeMaxSeconds)`. When the continuation exists but has not yet activated, the engine records `chainBridgeOpenedUT[i] = currentUT` on the first frame and skips destroy on subsequent frames within the 1.0s real-time window; emits `[Engine][VerboseRateLimited] chain-bridge-hold-N: ... waiting for continuation slot #M ... openedUT=... maxSeconds=1.0`. After the window expires (or as soon as the continuation activates), the head destroys normally via the existing stale-past-end path and emits a one-shot `chain-bridge-expired` log line tied to the bound so a continuation that genuinely never spawns still tears down.
 
-**Cross-reference:** Same chain mechanism likely affects the `847b9b53` + `a54896f5` pair (Kerbal X main vessel, also chain-linked chainId=287905c4) in the same log. The pair did not visibly duplicate here because their UT ranges happen to be near-disjoint (`847b9b53` ends at UT 285.18, `a54896f5` starts at UT 335.66, separated by a ~50-second gap), but the same predicate would let them duplicate if they overlapped.
+The engine stays Recording-agnostic: the chain-next lookup callback is injected by the policy. `GhostPlaybackLogic.ResolveChainNextSlotIndex` is a pure static helper that mirrors `FindNextWatchTarget`'s Case 1 lookup (same ChainId, ChainBranch=0, ChainIndex+1, walk supersede edges through `ResolveSupersedeIndex`) and returns -1 on any miss. `ParsekPlaybackPolicy.ResolveChainNextSlotIndex` is a thin live-state wrapper. Two new `GhostPlaybackSkipReason` values (`ChainShadowed = 16`, `ChainBridgeHeld = 17`), matching frame counters plumbed through `BuildCurrentFrameCounters` / `BuildFrameSummaryMessage`, and slot-state cleanup hooked into `DestroyGhost`, `DestroyAllGhosts`, and `ReindexAfterDelete` so the bridge dictionary never leaks across deletes or scene loads.
 
-**Fix candidates:**
+**Coverage:** Twelve `ChainHandoffLogicTests` cases pin `DecideShadow` (no continuation / continuation pending / continuation active) and `DecideBridgeHold` (no continuation / continuation active / bridge not opened / within window / edge / expired / zero-window / negative-window) plus the production `DefaultBridgeMaxSeconds = 1.0` constant. Fifteen `ResolveChainNextSlotIndexTests` cases pin the resolver against the no-continuation paths (null committed, negative/out-of-bounds slot, null recording, missing/empty chain id, negative chain index, parallel branch slot, no successor, different chain, branch successor) and the positive paths (direct chain successor, branch-skip, immediate-next preference for multi-segment chains, supersede edge walk to a re-fly fork, defensive cycle guard).
 
-- (Engine-side, preferred) When walking the chain (`EffectiveState.ResolveChain` or equivalent), suppress ghost spawn for the chain HEAD inside a continuation's `[startUT, endUT]` window (the continuation's authored payload covers it more accurately). Spawn the head's pre-continuation range and (if an orbit tail extends past the continuation) post-continuation range as separate intervals.
-- (Per-frame filter, simpler) Before spawning a chain HEAD ghost on a given frame, check whether any same-chain continuation's UT range covers the current `currentUT`. If yes, suppress the head's ghost for this frame.
-
-**Scope:** `GhostPlaybackEngine` ghost-spawn decision plus a new chain-aware visibility predicate in `EffectiveState` (or a sibling helper). No producer / recorder changes; this is purely a playback / visibility fix. Pin with unit tests on `EffectiveState.ResolveChain` and a synthetic-recording in-game test asserting at-most-one-ghost-per-chain at every UT.
-
-**Acceptance:**
-- Replaying the same Kerbal X save reproduces the `c059aabf` + `3d059f9c` chain but shows exactly one Probe ghost throughout the UT 335-375 window.
-- Engine-frame-iter shows `skip=chain-shadowed` (or similar) for the head inside the continuation's UT range, and `skip=None` for the head outside it.
-- No regression on sequential-chain replay (e.g. the `847b9b53` + `a54896f5` case where the head ends before the continuation starts: head visible until its endUT, continuation visible from its startUT, no gap or double-render).
-
-**Status:** OPEN. Discovered during the watch-mode large-delta playtest 2026-05-18 alongside the orbit-mode transition teleport entry below.
+**Status:** CLOSED 2026-05-18.
 
 ---
 
-## Open - v0.10.0 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
+## Done - v0.10.0 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
 
-**Evidence:** Same watch-mode playtest, `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. After Kerbal X separated 6 radial booster debris pieces at UT 285.18 (pids 3027027466, 2130796824, 2057942744, 1009856088, 3271565278, 633147235; root part `radialDecoupler1-2`), each debris recording was itself chain-continued at UT ~336.7 (same boundary the main vessel's chain continues at). When the watch transferred from rec #10 -> rec #18 around real-time 20:07:39.527, every one of the six debris ghosts was destroyed and re-spawned as a brand-new ghost slot:
+- ~~Same watch-mode playtest, `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. After Kerbal X separated 6 radial booster debris pieces at UT 285.18 (pids 3027027466, 2130796824, 2057942744, 1009856088, 3271565278, 633147235; root part `radialDecoupler1-2`), each debris recording was itself chain-continued at UT ~336.7. When the watch transferred from rec #10 -> rec #18 around real-time 20:07:39.527, every one of the six debris ghosts was destroyed (`stale past-end ghost (no longer held)`) and re-spawned as a brand-new ghost slot 100-200 ms later. Section 1 ended at `336.65/336.71` and section 2 started at `336.77` (a 0.06-0.12 s UT discontinuity, ~70-150 m of spatial step at 1.2-1.5 km/s). User-visible result: six boosters all flickered off and reappeared slightly displaced in the same one-second window the watch crossed the chain seam.~~
 
-| pid | Section 1 slot | Destroyed | Section 2 slot | Spawned | Invisible gap |
-|---|---|---|---|---|---|
-| 3027027466 | #11 | 20:07:40.520 | #19 | 20:07:40.651 | 131 ms |
-| 2130796824 | #12 | 20:07:39.564 | #20 | 20:07:39.814 | 250 ms |
-| 2057942744 | #13 | 20:07:40.520 | #21 | 20:07:40.653 | 133 ms |
-| 1009856088 | #14 | 20:07:39.565 | #22 | 20:07:39.743 | 178 ms |
-| 3271565278 | #15 | 20:07:40.046 | #23 | 20:07:40.167 | 121 ms |
-|  633147235 | #16 | 20:07:40.046 | #24 | 20:07:40.226 | 180 ms |
+**Root cause:** Inverted symptom of the duplicated-ghost entry above, same chain-continuation mechanism. The playback engine treated each chain segment's recording as an independent ghost source: section 1 ghost passed its endUT and was killed by the `stale past-end ghost (no longer held)` rule; section 2 ghost was spawned fresh in a brand-new slot one or two frames later. There was no slot-handoff between segments and no continuity bridge across the seam.
 
-Every destroy line reads `[Engine] Ghost #N "Kerbal X Debris" destroyed (stale past-end ghost (no longer held))`. The section UT itself has a small hole: section 1 ends at `336.65/336.71`, section 2 starts at `336.77` (a 0.06-0.12 s UT discontinuity that maps to ~70-150 m of spatial step at 1.2-1.5 km/s ballistic speed). User-visible result: six boosters all flicker off and reappear slightly displaced in the same one-second window the watch crosses the chain seam.
+**Fix:** Covered by the `ChainHandoffLogic` bridge-hold pass shipped with the duplicated-ghost entry above. In the stale-past-end cleanup branch (`GhostPlaybackEngine.UpdatePlayback`), the engine now consults `ChainHandoffLogic.DecideBridgeHold` before destroying a head whose chain continuation exists but has not yet activated. When the bridge fires, the head ghost stays alive and the engine records `chainBridgeOpenedUT[i] = currentUT` to bound the hold to `ChainHandoffLogic.DefaultBridgeMaxSeconds = 1.0` real-time seconds. Once the continuation activates (visuals loaded for the chain-next slot), the shadow path in the in-range branch hides the head and the next stale-past-end pass destroys the head normally; or, if the continuation never activates within the window, the head destroys with a one-shot `chain-bridge-expired` log line so a misauthored chain still tears down. Each pid renders as a single uninterrupted ghost across the section-1 -> section-2 seam.
 
-**Root cause hypothesis:** Same chain-continuation mechanism as the duplicated-ghost entry above, but inverted symptom. The playback engine treats each chain segment's recording as an independent ghost source: section 1 ghost passes its endUT and is killed by the `stale past-end ghost (no longer held)` rule; section 2 ghost is spawned fresh in a brand-new slot one or two frames later. There is no slot-handoff between segments and no continuity bridge across the seam, so each of the six debris pids is invisible for 100-200 ms and reappears with the small UT-gap step. The fix candidates listed under the chain-continuation co-render entry only address the overlap case; they do not bridge a non-overlap gap. The duplicated-ghost entry's "engine-side, preferred" fix would still need to add same-slot handoff (or freeze-the-old until the new activates) to cover this gap case symmetrically.
+**Coverage:** Twelve `ChainHandoffLogicTests` cases exercise the bridge state machine (no continuation / continuation active / bridge not opened / within window / edge / expired / zero-window / negative-window) plus the production `DefaultBridgeMaxSeconds = 1.0` constant. Fifteen `ResolveChainNextSlotIndexTests` cases cover the resolver shape including the supersede-edge walk a re-fly fork relies on.
 
-**Cross-reference:** Chain-continuation co-render entry above is the overlap-direction sibling. Both surfaces of the same architectural gap: ghost slot identity is per-recording, not per-chain.
-
-**Fix candidates:**
-
-- (Same-slot chain handoff) When the engine detects a chain continuation entering its activation UT, reuse the head segment's ghost slot rather than allocating a new one. Swap the underlying `IPlaybackTrajectory` reference inside the existing `ghostState`, keep the mesh, transfer per-frame state across the boundary, and emit a `[Engine] Ghost #N chain-segment-handoff prev=rec_A next=rec_B atUT=...` log line. Eliminates both the overlap-double-render and the gap-flicker symptoms in one place.
-- (Hold-head-until-continuation-active) Cheaper variant: do not destroy the head's ghost when its sectionUT ends if a chain continuation exists. Hold the last-frame pose visible until the continuation's first frame renders, then destroy the head. Avoids slot identity changes but keeps two slots alive briefly.
-- (Producer-side) Optimize the seam authoring so section 1 ends at exactly section 2's startUT (no 0.12 s UT hole). Does not fix the slot churn, only the spatial step.
-
-**Scope:** `GhostPlaybackEngine` slot lifecycle and the `stale past-end ghost (no longer held)` predicate. Same call sites as the chain-continuation co-render entry above; the fix likely lands as one unified change.
-
-**Acceptance:**
-- Replaying the same save shows each of the six debris boosters as a single uninterrupted ghost across the UT 336.65 -> 336.77 seam, with at most one slot-id per pid for the whole window.
-- No `[Engine] Ghost #N ... destroyed (stale past-end ghost (no longer held))` line for a pid that has an active chain continuation about to spawn within the next ~1 second.
-- Synthetic recording / xUnit fixture: two chain-linked debris recordings, head ends at UT T, continuation starts at UT T + 0.1; assert exactly one ghost slot is observed for the pid across the seam.
-
-**Status:** OPEN. Same playtest as the chain-continuation co-render entry above; same root mechanism, complementary symptom.
+**Status:** CLOSED 2026-05-18.
 
 ---
 
