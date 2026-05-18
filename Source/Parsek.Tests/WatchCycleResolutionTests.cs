@@ -210,6 +210,72 @@ namespace Parsek.Tests
             Assert.Equal(2, result.TotalEligible);
         }
 
+        [Fact]
+        public void WatchedIndexNegative_TreatedAsNoWatchedId()
+        {
+            // Defensive: -1 (not currently watching) maps to null watchedId.
+            // CycleToNextWatchable already guards on IsWatchingGhost before
+            // calling the resolver, but the resolver itself must stay coherent.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),
+                MakeRec(200, "b"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: -1, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal("a", result.NextRecordingId);
+            Assert.False(result.IsToggleOff);
+        }
+
+        [Fact]
+        public void NullRecordingIdInCommitted_FilteredOutOfRotation()
+        {
+            // AdvanceGroupWatchCursor rejects rows with null/empty RecordingId.
+            // Pin the behavior at this composition surface so a regression in
+            // the lower helper (or an accidental allow-empty change here) is
+            // caught locally instead of as a spooky cycle-skip in playtests.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, null),         // filtered: null RecordingId
+                MakeRec(200, "watched"),
+                MakeRec(300, "other"),
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 1, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal("other", result.NextRecordingId);
+            Assert.Equal(2, result.TotalEligible);
+        }
+
+        [Fact]
+        public void GlobalScope_IncludesEveryCommittedIndex()
+        {
+            // The W keypress cycle is global, not group-scoped: a recording
+            // anywhere in CommittedRecordings is eligible if the predicate
+            // accepts it. Pin that the resolver does not silently restrict to
+            // a subrange or to the watched recording's neighbourhood.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "first",  vesselName: "tree-A-root"),    // watched
+                MakeRec(200, "middle", vesselName: "tree-B-root"),    // different tree
+                MakeRec(300, "last",   vesselName: "tree-C-root"),    // different tree
+            };
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+            Assert.True(result.HasTarget);
+            Assert.Equal(3, result.TotalEligible);
+            Assert.Equal("middle", result.NextRecordingId);
+
+            // After advancing to "middle" the next press reaches the third tree.
+            var r2 = WatchModeController.ResolveCycleTarget(
+                committed, AllEligible, currentWatchedIndex: 1, cursorRecordingId: "middle");
+            Assert.True(r2.HasTarget);
+            Assert.Equal("last", r2.NextRecordingId);
+        }
+
         // ── Lock mask sanity ──
 
         [Fact]

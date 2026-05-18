@@ -54,10 +54,13 @@ namespace Parsek
         private readonly ParsekFlight host;
 
         internal const string WatchModeLockId = "ParsekWatch";
-        // PITCH is in the mask so W (and S, the stock pitch-down/up keys) cannot
-        // act on the unattended active vessel while the player is observing a
+        // PITCH is in the mask so W (and S, the stock pitch-up key) cannot act
+        // on the unattended active vessel while the player is observing a
         // ghost. W is repurposed to cycle through watchable ghosts; reading the
         // raw keypress via `Input.GetKeyDown` is unaffected by the lock.
+        // Blocking S as well is intentional: the input lock is axis-granular,
+        // not key-granular, and pitch-up on an unattended vessel is the same
+        // unattended-flight hazard the rest of the mask already mitigates.
         internal const ControlTypes WatchModeLockMask =
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
@@ -1847,7 +1850,11 @@ namespace Parsek
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             watchCutoffConsecutiveFrames = 0;
-            watchCycleCursorRecordingId = null;
+            // watchCycleCursorRecordingId is NOT cleared here: a switching
+            // ExitWatchMode (skipCameraRestore=true) called from inside
+            // EnterWatchMode while the W-cycle is in flight must preserve the
+            // cursor so the next press advances correctly. Full exits clear
+            // the cursor explicitly in ExitWatchMode below.
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
             suppressAutoModeAfterChainTransfer = false;
@@ -1973,6 +1980,11 @@ namespace Parsek
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" removed");
 
             ResetWatchState(preserveLineageProtection, destroyOverlapAnchor: true);
+            // Full exits drop the W-cycle cursor. Switching exits (called from
+            // inside EnterWatchMode with skipCameraRestore=true) intentionally
+            // do not, so a cycle in flight survives the internal switch.
+            if (!skipCameraRestore)
+                watchCycleCursorRecordingId = null;
         }
 
         /// <summary>
@@ -2110,11 +2122,19 @@ namespace Parsek
                 $"to #{resolution.NextIndex} \"{nextName}\" " +
                 $"(pos={resolution.Position}/{resolution.TotalEligible}, wrap={resolution.IsWrap})");
 
-            // EnterWatchMode internally calls ExitWatchMode (which runs
-            // ResetWatchState and clears watchCycleCursorRecordingId), so set the
-            // cursor AFTER the entry succeeds so it survives the internal exit.
-            EnterWatchMode(resolution.NextIndex);
+            // Advance the cursor BEFORE invoking EnterWatchMode. The cursor is a
+            // rotation hint, not a "currently watched" claim: advancing it on
+            // every press (success or failure) keeps the cycle moving forward
+            // through stuck targets (visuals refused to load, target slipped out
+            // of entry range between resolve and entry, etc.) instead of looping
+            // on a single bad pick.
+            //
+            // ResetWatchState no longer clears the cursor, and ExitWatchMode
+            // only clears it on full exits (not the switching skip-camera path
+            // EnterWatchMode runs when handing off between ghosts), so the
+            // cursor survives the internal switching ExitWatchMode here.
             watchCycleCursorRecordingId = resolution.NextRecordingId;
+            EnterWatchMode(resolution.NextIndex);
         }
 
         /// <summary>
