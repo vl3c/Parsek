@@ -2606,14 +2606,17 @@ namespace Parsek
         /// </summary>
         internal int FindNextWatchTarget(int currentIndex, Recording currentRec)
         {
+            var scenario = ParsekScenario.Instance;
+            var supersedes = object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes;
             ParsekLog.VerboseRateLimited("Watch", "findNextWatch",
-                $"FindNextWatchTarget: currentIndex={currentIndex}, chainId={currentRec.ChainId ?? "null"}, chainIndex={currentRec.ChainIndex}, treeId={currentRec.TreeId ?? "null"}, childBpId={currentRec.ChildBranchPointId ?? "null"}");
+                $"FindNextWatchTarget: currentIndex={currentIndex}, chainId={currentRec.ChainId ?? "null"}, chainIndex={currentRec.ChainIndex}, treeId={currentRec.TreeId ?? "null"}, childBpId={currentRec.ChildBranchPointId ?? "null"}, supersedes={(supersedes != null ? supersedes.Count : 0)}");
 
             int result = GhostPlaybackLogic.FindNextWatchTarget(
                 currentRec,
                 RecordingStore.CommittedRecordings,
                 RecordingStore.CommittedTrees,
-                HasActiveGhost);
+                HasActiveGhost,
+                supersedes);
 
             if (result >= 0)
                 ParsekLog.Info("Watch", $"FindNextWatchTarget: found target at index {result}");

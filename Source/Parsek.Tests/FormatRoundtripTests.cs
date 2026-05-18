@@ -42,13 +42,15 @@ namespace Parsek.Tests
         {
             // Format bumped 0 -> 1 with the VesselSwitchContinuation branch
             // type (Phase A.1, segment-scoped-switch-fly-autorecord plan).
-            // Generation unchanged at 1 — additive enum value, no semantic
-            // shift to existing v0 fields.
+            // Generation 2 after the controlled-child parent-anchor contract
+            // extension. The on-disk truth table for
+            // (IsDebris, DebrisParentRecordingId) widened so a pre-bump loader
+            // would silently mis-render the newly-valid (false, non-null) row.
             // Fails if: format version is bumped (then this pin and the docs
             // bump together) or if TrajectorySidecarBinary.CurrentBinaryVersion
             // drifts from RecordingStore.CurrentRecordingFormatVersion.
             Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(1, RecordingStore.CurrentRecordingSchemaGeneration);
+            Assert.Equal(2, RecordingStore.CurrentRecordingSchemaGeneration);
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);

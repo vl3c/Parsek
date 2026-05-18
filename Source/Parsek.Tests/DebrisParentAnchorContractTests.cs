@@ -51,14 +51,17 @@ namespace Parsek.Tests
         // ===== A. Helper =====
 
         [Fact]
-        public void ApplyDebrisAnchorContract_NonDebrisChild_DoesNothing()
+        public void ApplyDebrisAnchorContract_NonDebrisChild_StampsParentRecordingId()
         {
+            // Post-controlled-child-extension: helper is caller-decides. Controlled-
+            // decoupled children (IsDebris=false) now also carry the parent-anchor
+            // contract when a parent is supplied at their split-time creation site.
             var parent = new Recording { RecordingId = "parent-1" };
             var child = new Recording { RecordingId = "child-1", IsDebris = false };
 
             Recording.ApplyDebrisAnchorContract(child, parent);
 
-            Assert.Null(child.DebrisParentRecordingId);
+            Assert.Equal("parent-1", child.DebrisParentRecordingId);
         }
 
         [Fact]
@@ -93,11 +96,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_StringOverload_NonDebrisChild_NoOp()
+        public void ApplyDebrisAnchorContract_StringOverload_NonDebrisChild_StampsId()
         {
+            // Post-controlled-child-extension: string overload is also caller-decides.
             var child = new Recording { RecordingId = "child-5", IsDebris = false };
 
             Recording.ApplyDebrisAnchorContract(child, "parent-id-string");
+
+            Assert.Equal("parent-id-string", child.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void ApplyDebrisAnchorContract_NullParentString_LeavesFieldNull()
+        {
+            // Empty / null parent id is the new "do not apply" sentinel (replaces
+            // the pre-extension `!child.IsDebris` early-return).
+            var child = new Recording { RecordingId = "child-5b", IsDebris = true };
+
+            Recording.ApplyDebrisAnchorContract(child, (string)null);
+            Recording.ApplyDebrisAnchorContract(child, string.Empty);
+
+            Assert.Null(child.DebrisParentRecordingId);
+        }
+
+        [Fact]
+        public void ApplyDebrisAnchorContract_ParentWithEmptyRecordingId_LeavesFieldNull()
+        {
+            // Defensive: a Recording wrapper around an empty id is still a no-op.
+            var parent = new Recording { RecordingId = string.Empty };
+            var child = new Recording { RecordingId = "child-5c", IsDebris = true };
+
+            Recording.ApplyDebrisAnchorContract(child, parent);
 
             Assert.Null(child.DebrisParentRecordingId);
         }
@@ -107,7 +136,7 @@ namespace Parsek.Tests
         {
             // Defensive: helper guard. Both overloads should be safe to call with
             // a null child (guarantees the helper can wrap an in-progress null check).
-            Recording.ApplyDebrisAnchorContract((Recording)null, new Recording());
+            Recording.ApplyDebrisAnchorContract((Recording)null, new Recording { RecordingId = "p" });
             Recording.ApplyDebrisAnchorContract((Recording)null, "parent");
         }
 
@@ -131,8 +160,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildBackgroundSplitBranchData_ControlledChild_DoesNotStampField()
+        public void BuildBackgroundSplitBranchData_ControlledChild_StampsParentRecordingId()
         {
+            // Post-controlled-child-extension: controlled children also receive the
+            // parent-anchor contract. IsDebris stays false; DebrisParentRecordingId
+            // gets the parent id.
             var newVessels = new List<(uint pid, string name, bool hasController)>
             {
                 (300u, "Probe Ship", true)
@@ -144,12 +176,14 @@ namespace Parsek.Tests
 
             Assert.Single(children);
             Assert.False(children[0].IsDebris);
-            Assert.Null(children[0].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[0].DebrisParentRecordingId);
         }
 
         [Fact]
-        public void BuildBackgroundSplitBranchData_MixedChildren_OnlyDebrisGetField()
+        public void BuildBackgroundSplitBranchData_MixedChildren_AllReceiveParentAnchor()
         {
+            // Post-controlled-child-extension: both controlled and debris children
+            // get DebrisParentRecordingId; only IsDebris differs by population.
             var newVessels = new List<(uint pid, string name, bool hasController)>
             {
                 (300u, "Probe Ship", true),
@@ -163,7 +197,7 @@ namespace Parsek.Tests
 
             Assert.Equal(3, children.Count);
             Assert.False(children[0].IsDebris);
-            Assert.Null(children[0].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[0].DebrisParentRecordingId);
             Assert.True(children[1].IsDebris);
             Assert.Equal("parent_rec_42", children[1].DebrisParentRecordingId);
             Assert.True(children[2].IsDebris);

@@ -506,10 +506,11 @@ namespace Parsek.Tests
                 newRec.RecordingFormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingSchemaGeneration,
                 newRec.RecordingSchemaGeneration);
-            // Concrete current values (A.1 bumped these to 1) — also pin the
-            // numeric value so the test re-trips if anyone moves them.
+            // Concrete current values (format version 1; schema generation 2
+            // after the controlled-child parent-anchor contract extension). Pin
+            // numeric values so the test re-trips if anyone moves them.
             Assert.Equal(1, newRec.RecordingFormatVersion);
-            Assert.Equal(1, newRec.RecordingSchemaGeneration);
+            Assert.Equal(2, newRec.RecordingSchemaGeneration);
         }
 
         // Fails if: a null tree is silently dereferenced (NullReferenceException)
