@@ -11534,21 +11534,48 @@ namespace Parsek
 
         void HandleInput()
         {
+            bool leftBracket = Input.GetKeyDown(KeyCode.LeftBracket);
+            bool rightBracket = Input.GetKeyDown(KeyCode.RightBracket);
+            bool vKey = Input.GetKeyDown(KeyCode.V);
+            bool wKey = Input.GetKeyDown(KeyCode.W);
+
+            // Suppress watch-mode shortcuts while a text field (recording rename,
+            // settings text fields, etc.) holds keyboard focus. W is the load-bearing
+            // case - it's a common letter in vessel names, so without this guard
+            // typing "Kerbal X Probe" into the rename field would cycle the watch
+            // camera between every keystroke. Raw Input polling bypasses
+            // InputLockManager, so the focus check has to happen here.
+            if ((leftBracket || rightBracket || vKey || wKey)
+                && InputFocusGuard.IsTextFieldFocused())
+            {
+                ParsekLog.Verbose("Input",
+                    $"Watch-mode shortcut suppressed - text field focused " +
+                    $"(L={leftBracket} R={rightBracket} V={vKey} W={wKey})");
+                return;
+            }
+
             // [ or ] — Exit watch mode (return to vessel)
             // Avoids Backspace which is KSP's Abort action group key
-            if (watchMode.IsWatchingGhost
-                && (Input.GetKeyDown(KeyCode.LeftBracket) || Input.GetKeyDown(KeyCode.RightBracket)))
+            if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
             {
                 watchMode.ExitWatchMode();
             }
 
             // V — Toggle watch camera mode (Free / Horizon-Locked)
             // Stock V (camera mode switch) is blocked by CAMERAMODES control lock during watch
-            if (watchMode.IsWatchingGhost && Input.GetKeyDown(KeyCode.V))
+            if (watchMode.IsWatchingGhost && vKey)
             {
                 watchMode.ToggleCameraMode();
             }
 
+            // W — Cycle through watchable ghosts. Stock pitch-down (W) is blocked
+            // by PITCH in WatchModeLockMask so the unattended active vessel does
+            // not receive the keypress. The raw Unity Input poll here is
+            // unaffected by the input lock.
+            if (watchMode.IsWatchingGhost && wKey)
+            {
+                watchMode.CycleToNextWatchable();
+            }
         }
 
         #endregion
