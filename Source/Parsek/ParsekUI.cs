@@ -238,8 +238,7 @@ namespace Parsek
             }
 
             // --- Logistics (v0 — available in both Flight and KSC) ---
-            int routeCount = Logistics.RouteStore.CommittedRoutes?.Count ?? 0;
-            if (GUILayout.Button($"Logistics ({routeCount})"))
+            if (GUILayout.Button("Logistics"))
             {
                 logisticsUI.IsOpen = !logisticsUI.IsOpen;
                 ParsekLog.Verbose("UI",
