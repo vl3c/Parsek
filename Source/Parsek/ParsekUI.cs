@@ -223,6 +223,14 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
             }
 
+            // --- Logistics (v0 — available in both Flight and KSC) ---
+            if (GUILayout.Button("Logistics"))
+            {
+                logisticsUI.IsOpen = !logisticsUI.IsOpen;
+                ParsekLog.Verbose("UI",
+                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
+            }
+
             GUILayout.Space(SpacingLarge);
 
             // --- Gloops Flight Recorder (InFlight-only; trailing separator before Settings) ---
@@ -235,14 +243,6 @@ namespace Parsek
                         $"Gloops Flight Recorder window toggled: {(gloopsUI.IsOpen ? "open" : "closed")}");
                 }
                 GUILayout.Space(SpacingLarge);
-            }
-
-            // --- Logistics (v0 — available in both Flight and KSC) ---
-            if (GUILayout.Button("Logistics"))
-            {
-                logisticsUI.IsOpen = !logisticsUI.IsOpen;
-                ParsekLog.Verbose("UI",
-                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
             }
 
             // --- Settings ---
