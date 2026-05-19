@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+
+- Experimental setting `forceAbsoluteForReFlyProvisional` (off by default) added under Settings ▸ Diagnostics. When on, re-fly provisional recordings skip Relative-anchored authoring at three sites (`FlightRecorder.UpdateAnchorDetection`, `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`, `BackgroundRecorder.UpdateBackgroundAnchorDetection`) and stay in Absolute mode. Lets a developer A/B compare the current Relative-against-superseded-origin path against the simpler debris-style Absolute path.
+- Parent-anchored re-fly provisionals (controlled-decoupled child being re-flown — `RewindInvoker.cs:247` propagates `DebrisParentRecordingId`) are explicitly excluded via `ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional`'s third parameter. Their parent-anchored Relative contract uses a LIVE parent vessel as anchor — exactly the case Relative was designed for — and is orthogonal to this experiment.
+- Known regressions when the setting is ON: (1) re-fly that starts mid-docking-approach loses Relative-against-real-station precision (narrow case, the gate skips the nearest-search wholesale; a future refinement could narrow to "skip only when the candidate is the supersede target itself"); (2) loop-anchored re-fly fork loses Relative-against-live-loop-anchor precision if reachable — verify post-implementation. Both narrow; setting OFF preserves current behavior.
+- The setting does NOT participate in `.pann` ConfigurationHash (affects `.prec` authoring only, not pannotation generation). Flipping does not invalidate cached sidecars.
+- See `docs/dev/plans/force-absolute-refly-provisional.md`.
+
+---
+
 ## Done - v0.10.0 Watch-mode shortcuts fire while typing into a text field
 
 - ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter, so typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~

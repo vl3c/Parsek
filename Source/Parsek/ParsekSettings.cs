@@ -208,6 +208,52 @@ namespace Parsek
         private bool _useCoBubbleBlend = false;
 
         /// <summary>
+        /// Experimental A/B toggle (off by default). When on, the recorder
+        /// skips Relative-anchored authoring for re-fly provisional
+        /// recordings — both the
+        /// <c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>
+        /// bypass and the fallback nearest-search are skipped, plus a
+        /// Relative→Absolute downgrade fires in
+        /// <c>FlightRecorder.RestoreTrackSectionAfterFalseAlarm</c>. Lets a
+        /// developer A/B compare the current
+        /// Relative-against-superseded-origin path against the simpler
+        /// debris-style Absolute path on the re-fly scenario.
+        ///
+        /// <para>Off (default) preserves the current
+        /// <see cref="ReFlyAnchorSelection"/> behavior. The setting does
+        /// NOT participate in <c>.pann</c> ConfigurationHash because it
+        /// only affects <c>.prec</c> authoring, not pannotation block
+        /// generation — flipping it must not invalidate cached
+        /// <c>.pann</c> sidecars. See
+        /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c>.</para>
+        ///
+        /// <para>Parent-anchored re-fly provisionals (controlled-decoupled
+        /// children being re-flown — <c>RewindInvoker.cs:247</c>
+        /// propagates <c>DebrisParentRecordingId</c>) are explicitly
+        /// excluded from this gate via
+        /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string, string)"/>.
+        /// Their parent-anchored Relative contract uses a LIVE parent
+        /// vessel as anchor, which is exactly the case Relative was
+        /// designed for and is orthogonal to this experiment.</para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Force Absolute for re-fly provisional (experimental)",
+            toolTip = "Experimental. When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode. Off (default) preserves the current behavior. Useful for A/B testing simplified Absolute rendering vs. the Relative-against-superseded-origin path. Flipping mid-recording produces a section boundary in the active recording.")]
+        public bool forceAbsoluteForReFlyProvisional
+        {
+            get { return _forceAbsoluteForReFlyProvisional; }
+            set
+            {
+                if (_forceAbsoluteForReFlyProvisional == value) return;
+                bool prev = _forceAbsoluteForReFlyProvisional;
+                _forceAbsoluteForReFlyProvisional = value;
+                NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
+                if (ParsekSettingsPersistence.IsReconciled)
+                    ParsekSettingsPersistence.RecordForceAbsoluteForReFlyProvisional(value);
+            }
+        }
+        private bool _forceAbsoluteForReFlyProvisional = false;
+
+        /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
         /// §14, §18 Phase 8). When true, kraken-event single-frame
         /// teleports are rejected before the smoothing spline is fit so the
@@ -561,6 +607,18 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Outlier", $"useOutlierRejection: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Anchor log line when
+        /// <see cref="forceAbsoluteForReFlyProvisional"/> flips. Lets a
+        /// developer attribute a visual artifact to the toggle moment in
+        /// KSP.log when A/B testing the experiment.
+        /// </summary>
+        internal static void NotifyForceAbsoluteForReFlyProvisionalChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Anchor", $"forceAbsoluteForReFlyProvisional: {oldValue}->{newValue}");
         }
     }
 }

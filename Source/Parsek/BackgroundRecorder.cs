@@ -4863,6 +4863,30 @@ namespace Parsek
             // the launch pad). This placement is symmetric with the
             // FlightRecorder bypass at `UpdateAnchorDetection`'s
             // `else if (!onSurface)` branch.
+            // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+            // Mirror of FlightRecorder.UpdateAnchorDetection's gate. When the
+            // setting is on and the active recording is a non-parent-
+            // anchored re-fly provisional, skip BOTH the bypass below and
+            // the fallback nearest-search so the recorder stays in
+            // Absolute. Parent-anchored re-fly provisionals are excluded
+            // by the predicate.
+            if (ParsekSettings.Current != null
+                && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
+                && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree))
+            {
+                if (state.isRelativeMode)
+                {
+                    ExitBackgroundRelativeMode(state, bgVessel, ut, "force-absolute-refly-setting");
+                }
+                ParsekLog.VerboseOnChange(
+                    "BgRecorder",
+                    "force-absolute-refly-bg|" + treeRec.RecordingId,
+                    "skipped",
+                    $"force-absolute-refly: bypass + nearest-search skipped pid={state.vesselPid} " +
+                        $"recordingId={treeRec.RecordingId}");
+                return;
+            }
+
             if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
                     tree,
                     treeRec.RecordingId,

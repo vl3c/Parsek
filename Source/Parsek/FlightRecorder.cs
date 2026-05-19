@@ -5679,6 +5679,38 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+                // When the setting is on and the active recording is a non-
+                // parent-anchored re-fly provisional, skip BOTH the bypass
+                // below and the fallback nearest-search so the recorder
+                // stays in Absolute. Parent-anchored re-fly provisionals
+                // are excluded by the predicate (their Relative contract
+                // uses a LIVE parent vessel as anchor, orthogonal to this
+                // experiment).
+                if (ParsekSettings.Current != null
+                    && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
+                    && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ActiveTree))
+                {
+                    if (isRelativeMode)
+                    {
+                        double boundaryUT = Planetarium.GetUniversalTime();
+                        ForceExitRelativeToAbsolute(boundaryUT, "force-absolute-refly-setting");
+                        ParsekLog.Info("Anchor",
+                            "force-absolute-refly: closed Relative section and continued Absolute " +
+                            $"vesselPid={RecordingVesselId} ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseOnChange(
+                            "Anchor",
+                            "force-absolute-refly|" + (ActiveTree?.ActiveRecordingId ?? "(none)"),
+                            "skipped",
+                            "force-absolute-refly: bypass and nearest-search skipped " +
+                                $"vesselPid={RecordingVesselId}");
+                    }
+                    return;
+                }
+
                 // Re-fly provisional anchor bypass: while a ReFlySessionMarker
                 // is live and the active recording is the provisional, pin the
                 // Relative anchor to the supersede target (or
@@ -7244,6 +7276,28 @@ namespace Parsek
             TrackSectionSource resumeSource = resumeSection.HasValue
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
+
+            // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+            // The anchor-detection gate at UpdateAnchorDetection's !onSurface
+            // branch cannot reach this resume path — RestoreTrackSectionAfterFalseAlarm
+            // inherits resumeRef from the saved section's referenceFrame
+            // (Relative if the prior section was Relative), so a re-fly
+            // provisional that hit a false-alarm stop would re-open Relative
+            // bypassing the gate. Mirror the existing Relative-resume-failed
+            // downgrade pattern at the rejected-anchor blocks below to keep
+            // the new section Absolute.
+            if (resumeRef == ReferenceFrame.Relative
+                && ParsekSettings.Current != null
+                && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
+                && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ActiveTree))
+            {
+                ParsekLog.Info("Anchor",
+                    "force-absolute-refly: RELATIVE resume downgraded to ABSOLUTE " +
+                    $"vesselPid={RecordingVesselId} ut={ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                resumeRef = ReferenceFrame.Absolute;
+                isRelativeMode = false;
+                ClearCurrentRecordingAnchor();
+            }
 
             string resumeAnchorRecordingId = null;
             uint resumeAnchorDiagnosticPid = 0u;
