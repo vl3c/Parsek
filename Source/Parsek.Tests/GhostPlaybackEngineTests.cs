@@ -5284,6 +5284,54 @@ namespace Parsek.Tests
                 traj, state, 100.21));
         }
 
+        // Parametrized by lifecycle ordinal because xUnit InlineData on an internal enum
+        // would force this test method to be internal (less-accessible-parameter rule), and
+        // xUnit only discovers public methods.
+        [Theory]
+        [InlineData(true, (int)PendingSpawnLifecycle.StandardEnter, true)]
+        [InlineData(true, (int)PendingSpawnLifecycle.LoopEnter, false)]
+        [InlineData(true, (int)PendingSpawnLifecycle.OverlapPrimaryEnter, false)]
+        [InlineData(true, (int)PendingSpawnLifecycle.None, false)]
+        [InlineData(false, (int)PendingSpawnLifecycle.StandardEnter, false)]
+        [InlineData(false, (int)PendingSpawnLifecycle.LoopEnter, false)]
+        public void ShouldMarkSpawnedAtChainSeam_OnlyStandardEnterWithSeamFlagQualifies(
+            bool isChainSeamSuccessor,
+            int lifecycleOrdinal,
+            bool expected)
+        {
+            // Pins that the chain-seam fast-path applies ONLY to StandardEnter spawns. Loop
+            // reentries (LoopEnter) and overlap-primary spawns (OverlapPrimaryEnter) come from
+            // the same recording as the just-completed cycle and have a real fresh first-
+            // appearance race the activation-settle hold exists to mask — they must not take
+            // the carve-out even if the per-frame flag is still set on the recording.
+            var lifecycle = (PendingSpawnLifecycle)lifecycleOrdinal;
+            Assert.Equal(expected,
+                GhostPlaybackEngine.ShouldMarkSpawnedAtChainSeam(isChainSeamSuccessor, lifecycle));
+        }
+
+        [Fact]
+        public void ClearLoadedVisualReferences_ResetsSpawnedAtChainSeam()
+        {
+            // The seam fast-path applies to "this spawn was a seam", not "this state ever
+            // started at a seam". A long-lived state that distance-LOD unloads and re-hydrates
+            // later must NOT silently skip activation-settle on the rehydration — that rebuild
+            // has no predecessor terminal-pose continuity claim. ClearLoadedVisualReferences
+            // (invoked from UnloadGhostVisuals) must reset the flag alongside the other
+            // initial-hide state machine fields.
+            var state = new GhostPlaybackState
+            {
+                spawnedAtChainSeam = true,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 2
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.False(state.spawnedAtChainSeam);
+            Assert.False(state.initialRelativeActivationHiddenPrimed);
+            Assert.Equal(0, state.initialRelativeActivationHiddenFramesRemaining);
+        }
+
         [Fact]
         public void ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessor_SkipsActivationSettle()
         {

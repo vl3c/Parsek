@@ -148,6 +148,12 @@ namespace Parsek
             hadVisibleRenderersLastFrame = false;
             initialRelativeActivationHiddenPrimed = false;
             initialRelativeActivationHiddenFramesRemaining = 0;
+            // The chain-seam fast-path applies to "this spawn was a seam", not "this state
+            // ever started at a seam". A long-lived state that distance-LOD unloads and
+            // re-hydrates 3 minutes later must NOT silently take the activation-settle
+            // skip on the rehydration — that rebuild has no predecessor terminal-pose
+            // continuity claim. Reset alongside the other initial-hide state machine fields.
+            spawnedAtChainSeam = false;
         }
 
         public void SetInterpolated(InterpolationResult r)

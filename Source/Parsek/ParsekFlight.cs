@@ -17812,6 +17812,15 @@ namespace Parsek
 
         private bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
         {
+            // Cheap call-site early-outs for the standalone-recording majority. GetChainPredecessorIndex
+            // performs the same checks before its O(N) scan, but the function call itself is the cost
+            // we save here — this runs once per committed recording per frame inside ComputePlaybackFlags
+            // (200+ recording saves spent most of that budget on entry/exit of the helper).
+            if (rec == null) return false;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            if (rec.ChainBranch != 0) return false;
+            if (rec.ChainIndex <= 0) return false;
+
             int predIdx = RecordingStore.GetChainPredecessorIndex(rec);
             if (predIdx < 0) return false;
             var committed = RecordingStore.CommittedRecordings;

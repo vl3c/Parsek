@@ -4880,6 +4880,19 @@ namespace Parsek
                 ghostStates.Remove(index);
         }
 
+        /// <summary>
+        /// Pure-static gate for <c>GhostPlaybackState.spawnedAtChainSeam</c>: the chain-seam
+        /// carve-out applies ONLY to <see cref="PendingSpawnLifecycle.StandardEnter"/> spawns.
+        /// Loop reentries and overlap-primary spawns originate from the same recording as the
+        /// just-completed cycle, not from a chain predecessor, so they must not skip the
+        /// activation-settle hold — their fresh first-appearance race is real.
+        /// </summary>
+        internal static bool ShouldMarkSpawnedAtChainSeam(
+            bool isChainSeamSuccessor, PendingSpawnLifecycle lifecycle)
+        {
+            return isChainSeamSuccessor && lifecycle == PendingSpawnLifecycle.StandardEnter;
+        }
+
         private GhostPlaybackState CreatePendingSpawnState(
             IPlaybackTrajectory traj, double playbackUT,
             PendingSpawnLifecycle lifecycle, TrajectoryPlaybackFlags flags)
@@ -4893,8 +4906,7 @@ namespace Parsek
                 flagEventIndex = 0,
                 pendingSpawnLifecycle = lifecycle,
                 pendingSpawnFlags = flags,
-                spawnedAtChainSeam = flags.isChainSeamSuccessor
-                    && lifecycle == PendingSpawnLifecycle.StandardEnter,
+                spawnedAtChainSeam = ShouldMarkSpawnedAtChainSeam(flags.isChainSeamSuccessor, lifecycle),
                 audioPaused = ghostAudioPaused
             };
 
