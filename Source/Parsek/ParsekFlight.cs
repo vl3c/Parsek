@@ -17801,7 +17801,9 @@ namespace Parsek
         /// from the hot path (was O(n^2), now O(n)).
         /// </summary>
         private TrajectoryPlaybackFlags[] ComputePlaybackFlags(
-            IReadOnlyList<Recording> committed, double currentUT)
+            IReadOnlyList<Recording> committed,
+            double currentUT,
+            ReFlySessionMarker activeReFlyMarker)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             int frame = FlightRecorder.GetFrameCount();
@@ -17913,6 +17915,8 @@ namespace Parsek
                     vesselPersistentId = rec.VesselPersistentId,
                     sessionSuppressedRenderCarveOutEligible =
                         RecordingEligibleForSessionSuppressedRenderCarveOut(rec),
+                    sessionSuppressed = activeReFlyMarker != null
+                        && SessionSuppressionState.IsSuppressedRecordingIndex(i),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
@@ -17960,8 +17964,14 @@ namespace Parsek
 
             if (committed.Count == 0) return;
 
+            // Snapshot the active re-fly marker once per frame so the per-recording
+            // suppression bit (computed inside ComputePlaybackFlags) and the FrameContext
+            // copy below see the same value. All marker writers run outside this
+            // synchronous call chain, so a single snapshot is exact, not approximate.
+            ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
+
             // Pre-compute flags
-            cachedFlags = ComputePlaybackFlags(committed, currentUT);
+            cachedFlags = ComputePlaybackFlags(committed, currentUT, activeReFlyMarker);
             var flags = cachedFlags;
 
             // Build frame context
@@ -17979,6 +17989,7 @@ namespace Parsek
                 mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? LoopTiming.DefaultLoopIntervalSeconds,
+                activeReFlyMarker = activeReFlyMarker,
             };
 
             // Build trajectory list (Recording implements IPlaybackTrajectory)

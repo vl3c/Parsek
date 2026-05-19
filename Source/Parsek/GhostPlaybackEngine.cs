@@ -97,6 +97,8 @@ namespace Parsek
         private int frameSkipSpawnSuppressedDeadOnArrival;
         private int frameSkipAnchorRotationUnreliable;
         private int frameSkipAnchorReFlyUnstable;
+        private int frameSkipChainShadowed;
+        private int frameSkipChainBridgeHeld;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -190,6 +192,31 @@ namespace Parsek
         /// destroying ghosts that the policy is intentionally keeping alive.
         /// </summary>
         internal System.Func<int, bool> IsGhostHeld;
+
+        /// <summary>
+        /// Delegate set by the policy to resolve the slot index of the chain
+        /// continuation for a given slot. Returns -1 when the slot has no
+        /// chain continuation (no chain id, branch &gt; 0, no committed
+        /// recording at the next chainIndex, or supersede resolution failed).
+        /// Used by <see cref="ChainHandoffLogic"/> to coordinate the chain-seam
+        /// handoff: shadow the head when the continuation is rendering,
+        /// bridge-hold the head when the continuation has not yet activated.
+        /// Null is treated as "no chain continuation for any slot" — engine
+        /// behaviour falls back to the pre-handoff destroy-and-respawn shape.
+        /// </summary>
+        internal System.Func<int, int> ResolveChainNextIndex;
+
+        /// <summary>
+        /// Per-slot bookkeeping for the chain-bridge hold: the playback UT at
+        /// which the bridge first opened for a slot waiting on its chain
+        /// continuation. Bounded by
+        /// <see cref="ChainHandoffLogic.DefaultBridgeMaxSeconds"/> so a
+        /// continuation that genuinely never spawns still tears down the head.
+        /// Entries are removed on bridge close (continuation activated,
+        /// bridge expired, or slot destroyed).
+        /// </summary>
+        private readonly Dictionary<int, double> chainBridgeOpenedUT
+            = new Dictionary<int, double>();
 
         /// <summary>
         /// Optional host-supplied exact watched-state predicate. Needed so overlap cycles
@@ -507,6 +534,12 @@ namespace Parsek
                 case GhostPlaybackSkipReason.AnchorReFlyUnstable:
                     frameSkipAnchorReFlyUnstable++;
                     break;
+                case GhostPlaybackSkipReason.ChainShadowed:
+                    frameSkipChainShadowed++;
+                    break;
+                case GhostPlaybackSkipReason.ChainBridgeHeld:
+                    frameSkipChainBridgeHeld++;
+                    break;
             }
         }
 
@@ -529,7 +562,9 @@ namespace Parsek
                 || counters.rewindRetired > 0
                 || counters.spawnSuppressedDeadOnArrival > 0
                 || counters.anchorRotationUnreliable > 0
-                || counters.anchorReFlyUnstable > 0;
+                || counters.anchorReFlyUnstable > 0
+                || counters.chainShadowed > 0
+                || counters.chainBridgeHeld > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -541,7 +576,8 @@ namespace Parsek
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
-                "anchorReFlyUnstable={17}] active={18}",
+                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19}] " +
+                "active={20}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -560,6 +596,8 @@ namespace Parsek
                 counters.spawnSuppressedDeadOnArrival,
                 counters.anchorRotationUnreliable,
                 counters.anchorReFlyUnstable,
+                counters.chainShadowed,
+                counters.chainBridgeHeld,
                 counters.active);
         }
 
@@ -585,6 +623,8 @@ namespace Parsek
                 spawnSuppressedDeadOnArrival = frameSkipSpawnSuppressedDeadOnArrival,
                 anchorRotationUnreliable = frameSkipAnchorRotationUnreliable,
                 anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
+                chainShadowed = frameSkipChainShadowed,
+                chainBridgeHeld = frameSkipChainBridgeHeld,
                 active = ghostStates.Count
             };
         }
@@ -817,9 +857,16 @@ namespace Parsek
                 // replaced parent ghost. Destroy any other leftover ghost
                 // visuals first so the player doesn't see stale meshes from a
                 // recording that just got superseded mid-flight.
-                ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
-                if (activeReFlyMarker != null
-                    && SessionSuppressionState.IsSuppressedRecordingIndex(i))
+                //
+                // The marker and per-recording suppression bit are pushed in by
+                // the host through FrameContext / TrajectoryPlaybackFlags so
+                // the engine doesn't reach into SessionSuppressionState
+                // directly. Both inputs are stable across a frame: every
+                // re-fly marker writer (scenario lifecycle, merge / rewind /
+                // revert orchestration, reconciliation apply) runs outside the
+                // engine's per-frame loop.
+                ReFlySessionMarker activeReFlyMarker = ctx.activeReFlyMarker;
+                if (activeReFlyMarker != null && f.sessionSuppressed)
                 {
                     if (!ShouldRenderSuppressedCompanionDebris(
                             traj, activeReFlyMarker, f))
@@ -999,6 +1046,91 @@ namespace Parsek
                     continue;
                 }
 
+                // === Chain-seam handoff: shadow the head when the chain
+                // continuation is rendering. This collapses the section-overlap
+                // case (head + continuation both authored across a UT window)
+                // onto a single visible ghost. The continuation already covers
+                // playback inside its UT range, so the head's render here is
+                // redundant. Bridge bookkeeping for the gap-case lives below
+                // in the stale-past-end cleanup. ===
+                //
+                // Note (flag/part events): the shadow path short-circuits
+                // before RenderInRangeGhost, which also means
+                // ApplyFlagEvents and per-frame part-event playback do not
+                // run for the shadowed head this frame. Authored flags are
+                // world-permanent and the same FlagEvent payload typically
+                // exists on the continuation recording (chain splits clone
+                // the events to both sides), so the continuation's render
+                // path plants them. Part events on the head past the
+                // continuation's startUT are intentionally skipped — the
+                // continuation's authored events are the authoritative
+                // surface during the overlap.
+                //
+                // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
+                // pastEffectiveEnd uses f.chainEndUT.
+                // RecordingStore.GetChainEndUT returns Max(rec.EndUT, ...)
+                // over branch-0 chain peers, so chainEndUT >= EndUT and
+                // inRange implies !pastEffectiveEnd. Shadow firing here
+                // therefore cannot collide with the past-end branch below.
+                int chainNextIndex = ResolveChainNextIndex != null
+                    ? ResolveChainNextIndex(i)
+                    : -1;
+                bool continuationHasActiveGhost = chainNextIndex >= 0
+                    && HasActiveGhost(chainNextIndex);
+                // Defensive: never shadow the watched head. WatchModeController
+                // already coordinates the chain transition via its own destroy
+                // path (`auto-followed during hold`) and only fires after the
+                // continuation's ghost is active, so in normal flow the watch
+                // transfer wins the race and the head is destroyed before
+                // the shadow ever runs. But for chains whose head and
+                // continuation sectionUTs overlap (post-optimizer splits
+                // routinely leave a sub-second overlap), there is a 1-2 frame
+                // window where the head is still in-range AND watched AND the
+                // continuation has just activated. Without this guard the
+                // shadow would SetActive(false) on the watched ghost mesh in
+                // that window. The downstream watch transfer then destroys
+                // the head a frame or two later. Mesh hiding is visually
+                // subtle because the continuation's mesh is at an
+                // approximately overlapping world position, but the watch
+                // camera target should never be a deactivated ghost
+                // GameObject — IsGhostHeld(i) returns true only for the
+                // watched slot (or a held-pending-spawn slot), so the guard
+                // closes the race without affecting non-watched chain
+                // segments which is the primary case the shadow fixes.
+                // Bridge-hold path below is already gated by !IsGhostHeld
+                // via the surrounding stale-past-end cleanup branch.
+                if (inRange
+                    && (IsGhostHeld == null || !IsGhostHeld(i))
+                    && ChainHandoffLogic.DecideShadow(
+                        chainNextIndex, continuationHasActiveGhost))
+                {
+                    if (ghostActive && state != null && state.ghost != null
+                        && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
+                    SetOverlapGhostsActive(i, false);
+                    // Continuation is rendering, so the gap-case bridge for
+                    // this slot is no longer relevant. Clearing here keeps the
+                    // dictionary footprint bounded.
+                    chainBridgeOpenedUT.Remove(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.ChainShadowed);
+                    ParsekLog.VerboseRateLimited(
+                        "Engine",
+                        "chain-shadow-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " \"" + (traj.VesselName ?? "?")
+                            + "\" chain-shadowed by continuation slot #"
+                            + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                            + " at UT="
+                            + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                        5.0);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "chain-shadowed");
+                    continue;
+                }
+
                 // === In-range rendering ===
                 if (inRange)
                 {
@@ -1022,7 +1154,70 @@ namespace Parsek
                 if (state != null && completedEventFired.Contains(i)
                     && (IsGhostHeld == null || !IsGhostHeld(i)))
                 {
-                    DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+                    // === Chain-seam handoff: bridge-hold the head when its
+                    // chain continuation has not yet activated. Collapses the
+                    // section-gap case onto a single visible ghost by keeping
+                    // the head alive briefly while the continuation spawns.
+                    // Bounded by ChainHandoffLogic.DefaultBridgeMaxSeconds so
+                    // a continuation that genuinely never activates still
+                    // tears down. ===
+                    double bridgeOpenedUT;
+                    if (!chainBridgeOpenedUT.TryGetValue(i, out bridgeOpenedUT))
+                        bridgeOpenedUT = double.NaN;
+                    ChainBridgeAction bridge = ChainHandoffLogic.DecideBridgeHold(
+                        chainNextIndex,
+                        continuationHasActiveGhost,
+                        ctx.currentUT,
+                        bridgeOpenedUT,
+                        ChainHandoffLogic.DefaultBridgeMaxSeconds);
+                    if (bridge == ChainBridgeAction.Hold)
+                    {
+                        if (double.IsNaN(bridgeOpenedUT))
+                            chainBridgeOpenedUT[i] = ctx.currentUT;
+                        CountFrameSkip(GhostPlaybackSkipReason.ChainBridgeHeld);
+                        double openedUTForLog = double.IsNaN(bridgeOpenedUT)
+                            ? ctx.currentUT : bridgeOpenedUT;
+                        ParsekLog.VerboseRateLimited(
+                            "Engine",
+                            "chain-bridge-hold-" + i.ToString(CultureInfo.InvariantCulture),
+                            "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " \"" + (traj.VesselName ?? "?")
+                                + "\" chain-bridge-hold: waiting for continuation slot #"
+                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                                + " at UT="
+                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                                + " openedUT="
+                                + openedUTForLog.ToString("F2", CultureInfo.InvariantCulture)
+                                + " maxSeconds="
+                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                                    "F1", CultureInfo.InvariantCulture),
+                            5.0);
+                        // Mirror the shadow path's trace emit so a "why
+                        // wasn't this ghost destroyed at past-end?"
+                        // investigation can correlate against the same
+                        // anomaly-window stream the rest of the engine
+                        // writes into.
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "chain-bridge-held");
+                    }
+                    else
+                    {
+                        if (bridge == ChainBridgeAction.Expired)
+                        {
+                            ParsekLog.Verbose("Engine",
+                                "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " \"" + (traj.VesselName ?? "?")
+                                + "\" chain-bridge-expired: continuation slot #"
+                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                                + " did not activate within "
+                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                                    "F1", CultureInfo.InvariantCulture)
+                                + "s; destroying head at UT="
+                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture));
+                        }
+                        chainBridgeOpenedUT.Remove(i);
+                        DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+                    }
                 }
             }
 
@@ -1175,6 +1370,8 @@ namespace Parsek
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
             frameSkipAnchorReFlyUnstable = 0;
+            frameSkipChainShadowed = 0;
+            frameSkipChainBridgeHeld = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -4925,6 +5122,8 @@ namespace Parsek
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
             frameSkipAnchorReFlyUnstable = 0;
+            frameSkipChainShadowed = 0;
+            frameSkipChainBridgeHeld = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -6829,6 +7028,12 @@ namespace Parsek
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
             completedEventFired.Remove(index);
+            // Chain-bridge bookkeeping is tied to the slot's ghost-state
+            // lifetime; once the ghost is destroyed (for any reason — bridge
+            // expiry, in-range failure, anchor unloaded, parent-loop sync
+            // failure, etc.) the bridge entry must clear so a fresh spawn at
+            // the same index reopens its own bridge.
+            chainBridgeOpenedUT.Remove(index);
             GhostVisualBuilder.ClearMissingAudioClipWarnings(ghostRootName);
             DiagnosticsState.health.ghostDestroysThisSession++;
         }
@@ -7046,6 +7251,7 @@ namespace Parsek
             loggedReshow.Clear();
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
+            chainBridgeOpenedUT.Clear();
 
             // Drop cached structural-event UT lists and per-ghost trace
             // cursors so a re-spawned ghost computes its first delta
@@ -7066,6 +7272,7 @@ namespace Parsek
             ReindexDict(ghostStates, removedIndex);
             ReindexDict(overlapGhosts, removedIndex);
             ReindexDict(loopPhaseOffsets, removedIndex);
+            ReindexDict(chainBridgeOpenedUT, removedIndex);
             ReindexSet(loggedGhostEnter, removedIndex);
             ReindexSet(loggedReshow, removedIndex);
             ReindexSet(completedEventFired, removedIndex);
