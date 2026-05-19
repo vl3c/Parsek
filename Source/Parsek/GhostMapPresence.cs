@@ -8071,6 +8071,12 @@ namespace Parsek
 
                 // Log creation + OrbitDriver state for diagnostics (#172)
                 Vessel v = pv.vesselRef;
+                // KSP promotes a single-part root with PhysicsSignificance=1 back to
+                // FULL, and runs aero/thermal sim on it regardless. Without this pass
+                // the marker's sensorBarometer overheats and Part.explode() destroys
+                // the vessel mid-Re-Fly when the active vessel passes through low
+                // altitude / high mach (see 2026-05-19 saves/x1 logs at 18:44:50).
+                HardenMarkerPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
@@ -8155,7 +8161,11 @@ namespace Parsek
             out VesselType vtype,
             out string vesselName)
         {
-            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
+            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay).
+            // Aero/thermal tolerances are hardened post-load in HardenMarkerPartPhysics:
+            // the partNode is loaded into a real Part with prefab maxTemp=1200, which
+            // would otherwise overheat and explode the marker vessel during low-altitude
+            // playback (see BuildAndLoadGhostProtoVesselCore).
             ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
 
             // Discovery: fully visible, infinite lifetime
@@ -8186,6 +8196,36 @@ namespace Parsek
                 vesselNode.AddNode("VESSELMODULES");
 
             return vesselNode;
+        }
+
+        /// <summary>
+        /// Override aero/thermal/structural tolerances on every part of a freshly-loaded
+        /// ghost marker vessel so the marker behaves as a render-only presence rather
+        /// than a physical body. Without this, KSP's FlightIntegrator runs aerothermal
+        /// sim on the marker (single-part root parts are promoted to PhysicalSignificance.FULL
+        /// regardless of prefab settings) and the prefab maxTemp / crashTolerance values
+        /// trigger Part.explode() when the marker drops into atmosphere at orbital speed.
+        /// </summary>
+        internal static int HardenMarkerPartPhysics(Vessel v, string logContext)
+        {
+            if (v == null || v.parts == null) return 0;
+            int count = 0;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                p.maxTemp = double.PositiveInfinity;
+                p.skinMaxTemp = double.PositiveInfinity;
+                p.crashTolerance = float.PositiveInfinity;
+                p.gTolerance = double.PositiveInfinity;
+                p.breakingForce = float.PositiveInfinity;
+                p.breakingTorque = float.PositiveInfinity;
+                count++;
+            }
+            ParsekLog.Verbose(Tag, string.Format(ic,
+                "Marker parts hardened: vessel='{0}' parts={1} for {2}",
+                v.vesselName ?? "(null)", count, logContext));
+            return count;
         }
 
         private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
