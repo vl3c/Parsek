@@ -17798,16 +17798,30 @@ namespace Parsek
         /// <summary>
         /// Pure-static predicate for <c>TrajectoryPlaybackFlags.isChainSeamSuccessor</c>: the
         /// successor qualifies for chain-seam handoff treatment iff its branch-0 predecessor in
-        /// the same chain currently has a ghost state and is at or past its own <c>EndUT</c> this
-        /// frame. The <c>1e-6</c> epsilon mirrors other "at or past" comparisons in the engine
+        /// the same chain currently has a ghost state and the current UT is at or past the
+        /// successor's own seam UT — i.e. its first playable payload sample (chain handoff
+        /// moment).
+        /// <para>
+        /// The seam UT is the SUCCESSOR's activation-start UT, NOT the predecessor's
+        /// <c>Recording.EndUT</c>. The predecessor's <c>EndUT</c> is the recording's outer
+        /// semantic envelope and is widened by <c>ExplicitEndUT</c> (orbit-tail projections,
+        /// Re-Fly tail estimates), so on a chain-head with an orbit projection the predecessor
+        /// <c>EndUT</c> can sit far past the actual chain handoff (the Kerbal X playtest
+        /// 2026-05-19 had predecessor <c>EndUT</c>=1289 while the seam was at UT 123.54). The
+        /// successor's activation UT is the true seam contract because that is when the engine
+        /// first-spawns the successor.
+        /// </para>
+        /// <para>
+        /// The <c>1e-6</c> epsilon mirrors other "at or past" comparisons in the engine
         /// (e.g. early debris completion at <c>GhostPlaybackEngine.cs</c>) so floating-point
         /// dust around an exact endpoint match doesn't flip the predicate frame-to-frame.
+        /// </para>
         /// </summary>
         internal static bool IsChainSeamSuccessor(
-            double currentUT, double predecessorEndUT, bool predecessorHasGhostState)
+            double currentUT, double successorSeamUT, bool predecessorHasGhostState)
         {
             if (!predecessorHasGhostState) return false;
-            return currentUT + 1e-6 >= predecessorEndUT;
+            return currentUT + 1e-6 >= successorSeamUT;
         }
 
         private bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
@@ -17830,7 +17844,8 @@ namespace Parsek
             bool predHasGhost = engine != null
                 && engine.TryGetGhostState(predIdx, out GhostPlaybackState predState)
                 && predState != null;
-            return IsChainSeamSuccessor(currentUT, predecessor.EndUT, predHasGhost);
+            double seamUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
+            return IsChainSeamSuccessor(currentUT, seamUT, predHasGhost);
         }
 
         /// <summary>

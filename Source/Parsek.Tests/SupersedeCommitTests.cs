@@ -457,8 +457,9 @@ namespace Parsek.Tests
             // without auto-seal" because Landed only triggered the
             // stableTerminal path which auto-sealed only on
             // IsHardSafetyTerminal (Recovered/Docked/Boarded). Under the
-            // override, Landed/Splashed/Orbiting/SubOrbital on the
-            // player-chosen slot all seal.
+            // override, Landed/Splashed/Orbiting on the player-chosen
+            // slot all seal; SubOrbital does not (still in flight,
+            // falls through to stableLeafUnconcluded).
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -2098,6 +2099,48 @@ namespace Parsek.Tests
                 && l.Contains("Site B-1 slot lookup failed")
                 && l.Contains("terminal=Orbiting")
                 && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
+        [Fact]
+        public void SubOrbitalStableLeaf_SlotLookupFailure_DoesNotThrow_FallsBackToInFlight()
+        {
+            // Sibling of OrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback.
+            // SubOrbital is no longer in RequiresSlotAwareMergeClassification's
+            // set (a suborbital arc is still in flight, not a seal-triggering
+            // stable terminal), so a SubOrbital provisional whose slot lookup
+            // fails must NOT throw. The v0.9 TerminalKindClassifier fallback
+            // routes SubOrbital to InFlight kind, which lands the merge at
+            // MergeState.Immutable with AutoSealSlot=false (slot stays open).
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.SubOrbital, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            // Must not throw.
+            SupersedeCommit.CommitSupersede(
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            // v0.9 fallback (TerminalKindClassifier.Classify(SubOrbital) ==
+            // InFlight) lands at MergeState.Immutable with AutoSealSlot=false.
+            // The Immutable here is "the recording is real", NOT "the slot
+            // sealed" - slot-aware seal state cannot be set when slot lookup
+            // failed, so the slot stays open in the rewind point.
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            // The v0.9 fallback path logs that slot lookup failed but did
+            // NOT throw, falling back to the v0.9 terminalKind classifier.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("falling back to v0.9 terminalKind classifier")
+                && l.Contains("terminal=SubOrbital"));
+            // No auto-seal log line for this provisional (the fallback path
+            // never sets AutoSealSlot=true; the dedicated auto-seal log lines
+            // include autoSeal=True only when the seal actually fired).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("rec_provisional")
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
