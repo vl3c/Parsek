@@ -210,13 +210,17 @@ question that the narrowed-gate filter already handles correctly.
 
 ## Recommendation
 
-Delete the second regression line ("loop-anchored re-fly fork loses
-Relative-against-live-loop-anchor precision IF REACHABLE") from
-`docs/dev/todo-and-known-bugs.md`. The case is structurally
-impossible at the provisional level, and the loop-anchor playback
-paths for other recordings in the tree are not affected by the
-narrowed-gate filter (which only touches re-fly-provisional anchor
-candidate selection in the recorder).
+Mark the second regression line in `docs/dev/todo-and-known-bugs.md`
+as **NOT REACHABLE** with a pointer to this research note, rather
+than deleting it. The annotation preserves the historical record of
+what PR 901 hedged on, so a future reader of the PR 901 todo entry
+sees both regressions and how each was resolved (regression #1
+closed by narrowed-gate behavior, regression #2 confirmed
+structurally impossible). The case is structurally impossible at
+the provisional level, and the loop-anchor playback paths for other
+recordings in the tree are not affected by the narrowed-gate filter
+(which only touches re-fly-provisional anchor candidate selection
+in the recorder).
 
 No test or production code change required. The narrowed-gate filter
 remains correct.
