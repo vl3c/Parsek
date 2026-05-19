@@ -5693,6 +5693,36 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Build anchor candidates BEFORE any bypass / gate early-return.
+                // BuildRecordingAnchorCandidateList has a load-bearing SIDE EFFECT
+                // beyond the returned list: ConsiderReFlyTreeSamplingProximity
+                // (called from Add{Live,External}RecordingAnchorCandidates)
+                // populates reFlyTreeSamplingProximityMeters, which the next
+                // OnPhysicsFrame consults via
+                // ResolveActiveReFlyTreeSamplingCadence to choose between
+                // Full / Half / None sampling tiers (0-250m / 250-500m / 500m+,
+                // see ReFlyTree{Full,Half}FidelityProximityRangeMeters). If we
+                // return before this scan runs (because the force-Absolute
+                // gate fires or the supersede-target bypass succeeds), the
+                // proximity stays NaN, the tier resolves to None, and the
+                // recorder falls back to sparse defaults (configuredMax = 3s)
+                // even when an in-tree peer is right next to the recording
+                // vessel. That bug pre-dated the toggle: the supersede bypass
+                // at line ~5747 has the same early-return shape. The fix
+                // applies to both paths. Discarding `candidates` after a
+                // bypass return wastes one buffer scan; the cost is one
+                // vessel iteration per physics frame against a per-frame
+                // workload that already happens elsewhere in the playback
+                // engine.
+                double detectionUT = Planetarium.GetUniversalTime();
+                var candidates = BuildRecordingAnchorCandidateList(
+                    v,
+                    detectionUT,
+                    out int liveScanned,
+                    out int liveAdded,
+                    out int ghostScanned,
+                    out int ghostAdded);
+
                 // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
                 // When the setting is on and the active recording is the
                 // live re-fly provisional, skip BOTH the bypass below and
@@ -5719,11 +5749,10 @@ namespace Parsek
                 {
                     if (isRelativeMode)
                     {
-                        double boundaryUT = Planetarium.GetUniversalTime();
-                        ForceExitRelativeToAbsolute(boundaryUT, "force-absolute-refly-setting");
+                        ForceExitRelativeToAbsolute(detectionUT, "force-absolute-refly-setting");
                         ParsekLog.Info("Anchor",
                             "force-absolute-refly: closed Relative section and continued Absolute " +
-                            $"vesselPid={RecordingVesselId} ut={boundaryUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                            $"vesselPid={RecordingVesselId} ut={detectionUT.ToString("F2", CultureInfo.InvariantCulture)}");
                     }
                     else
                     {
@@ -5753,15 +5782,6 @@ namespace Parsek
                     ApplyReFlyProvisionalAnchorToActiveRecording(v, reflyAnchor, reflySource);
                     return;
                 }
-
-                double detectionUT = Planetarium.GetUniversalTime();
-                var candidates = BuildRecordingAnchorCandidateList(
-                    v,
-                    detectionUT,
-                    out int liveScanned,
-                    out int liveAdded,
-                    out int ghostScanned,
-                    out int ghostAdded);
                 Vector3d focusedWorldPosition = v.GetWorldPos3D();
                 var result = AnchorDetector.FindNearestRecordingAnchor(
                     ActiveTree?.ActiveRecordingId,
