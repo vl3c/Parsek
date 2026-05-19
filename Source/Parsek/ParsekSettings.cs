@@ -208,6 +208,68 @@ namespace Parsek
         private bool _useCoBubbleBlend = false;
 
         /// <summary>
+        /// Experimental A/B toggle (off by default). When on, the recorder
+        /// skips Relative-anchored authoring for re-fly provisional
+        /// recordings: both the
+        /// <c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>
+        /// bypass and the fallback nearest-search are skipped, plus a
+        /// Relative-to-Absolute downgrade fires in
+        /// <c>FlightRecorder.RestoreTrackSectionAfterFalseAlarm</c>. Lets a
+        /// developer A/B compare the current
+        /// Relative-against-superseded-origin path against the simpler
+        /// debris-style Absolute path on the re-fly scenario.
+        ///
+        /// <para>Off (default) preserves the current
+        /// <see cref="ReFlyAnchorSelection"/> behavior. The setting does
+        /// NOT participate in <c>.pann</c> ConfigurationHash because it
+        /// only affects <c>.prec</c> authoring, not pannotation block
+        /// generation, so flipping it must not invalidate cached
+        /// <c>.pann</c> sidecars. See
+        /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c>.</para>
+        ///
+        /// <para>The gate applies uniformly to all re-fly provisionals,
+        /// including parent-anchored ones (controlled-decoupled children
+        /// being re-flown). Runtime analysis showed that the recorder's
+        /// <see cref="ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor"/>
+        /// bypass pins to the supersede target (a ghost resolved via
+        /// Slerp) for parent-anchored provisionals too, so the
+        /// "Relative-against-superseded-origin" anti-pattern that
+        /// motivated this experiment applies to both populations.</para>
+        /// </summary>
+        [GameParameters.CustomParameterUI("Force Absolute for re-fly provisional (experimental)",
+            toolTip = "Experimental. When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode. Off (default) preserves the current behavior. Useful for A/B testing simplified Absolute rendering vs. the Relative-against-superseded-origin path. Flipping mid-recording produces a section boundary in the active recording.")]
+        public bool forceAbsoluteForReFlyProvisional
+        {
+            get { return _forceAbsoluteForReFlyProvisional; }
+            set
+            {
+                if (_forceAbsoluteForReFlyProvisional == value) return;
+                bool prev = _forceAbsoluteForReFlyProvisional;
+                _forceAbsoluteForReFlyProvisional = value;
+                // Gate BOTH the user-flip log and the persistence write on the
+                // same IsReconciled latch. KSP's GameParameters.OnLoad calls
+                // this setter to restore the field from .sfs on every scene /
+                // quicksave load (a fresh ParsekSettings.Current instance, so
+                // the backing field starts at the default `false`). That is a
+                // state restore, not a user toggle, and must NOT log a
+                // "False->True" Anchor flip line: the 2026-05-19 PR 901
+                // validation playtest emitted 14 such spurious lines across
+                // four minutes of play. The IsReconciled latch is the
+                // existing per-cycle gate (ParsekSettings.OnLoad flips it
+                // false before base.OnLoad, ApplyTo flips it true after the
+                // external store overlay completes), so a real user toggle
+                // through the UI lands in the IsReconciled==true window and
+                // logs as expected.
+                if (ParsekSettingsPersistence.IsReconciled)
+                {
+                    NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
+                    ParsekSettingsPersistence.RecordForceAbsoluteForReFlyProvisional(value);
+                }
+            }
+        }
+        private bool _forceAbsoluteForReFlyProvisional = false;
+
+        /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
         /// §14, §18 Phase 8). When true, kraken-event single-frame
         /// teleports are rejected before the smoothing spline is fit so the
@@ -561,6 +623,18 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Outlier", $"useOutlierRejection: {oldValue}->{newValue}");
+        }
+
+        /// <summary>
+        /// Emits a single Anchor log line when
+        /// <see cref="forceAbsoluteForReFlyProvisional"/> flips. Lets a
+        /// developer attribute a visual artifact to the toggle moment in
+        /// KSP.log when A/B testing the experiment.
+        /// </summary>
+        internal static void NotifyForceAbsoluteForReFlyProvisionalChanged(bool oldValue, bool newValue)
+        {
+            if (oldValue == newValue) return;
+            ParsekLog.Info("Anchor", $"forceAbsoluteForReFlyProvisional: {oldValue}->{newValue}");
         }
     }
 }

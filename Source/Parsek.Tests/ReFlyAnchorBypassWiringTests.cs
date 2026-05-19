@@ -57,7 +57,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FlightRecorder_WiresReFlyAnchorBypass_BeforeBuildCandidateList()
+        public void FlightRecorder_WiresReFlyAnchorBypass_BeforeNearestSearch()
         {
             string source = ReadSource("FlightRecorder.cs");
 
@@ -74,18 +74,102 @@ namespace Parsek.Tests
             Assert.True(reflyBypassIdx >= 0,
                 "Re-fly bypass call missing from FlightRecorder.UpdateAnchorDetection");
 
-            // The bypass must precede the nearest-search call.
-            int candidateBuildIdx = source.IndexOf(
-                "BuildRecordingAnchorCandidateList(",
+            // The bypass must precede the nearest-search call so the bypass
+            // actually intercepts the nearest-search.
+            //
+            // Note: BuildRecordingAnchorCandidateList is intentionally
+            // hoisted ABOVE the bypass (above this re-fly bypass site).
+            // Its load-bearing side effect (ConsiderReFlyTreeSamplingProximity
+            // populating reFlyTreeSamplingProximityMeters) gates the
+            // 0-250-500 proximity-tier sampling cadence on the NEXT
+            // OnPhysicsFrame. If the bypass early-returned without that
+            // scan, in-tree peers within 250m would not unlock Full-tier
+            // sampling and atmospheric re-fly sections would Lerp through
+            // sparse defaults (3 s max) instead of the dense (~0.05 s)
+            // configured-min interval. See bobbing investigation log
+            // 2026-05-19_1956_forceabsolute-refly-bobbing.
+            int findNearestIdx = source.IndexOf(
+                "AnchorDetector.FindNearestRecordingAnchor(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
-            Assert.True(candidateBuildIdx > reflyBypassIdx,
-                "Re-fly bypass must execute before BuildRecordingAnchorCandidateList so the bypass actually intercepts the nearest-search");
+            Assert.True(findNearestIdx >= 0,
+                "FindNearestRecordingAnchor call not found in UpdateAnchorDetection");
+            Assert.True(findNearestIdx > reflyBypassIdx,
+                "Re-fly bypass must execute before FindNearestRecordingAnchor so the bypass actually intercepts the nearest-search");
 
             // Verify the active-vessel apply helper is defined.
             Assert.Contains(
                 "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
                 source);
+        }
+
+        [Fact]
+        public void FlightRecorder_BuildsCandidateList_BeforeReFlyBypassEarlyReturn()
+        {
+            // Companion test to FlightRecorder_WiresReFlyAnchorBypass_BeforeNearestSearch.
+            // BuildRecordingAnchorCandidateList carries a load-bearing side
+            // effect: ConsiderReFlyTreeSamplingProximity (called from the
+            // Add{Live,External}RecordingAnchorCandidates helpers) populates
+            // reFlyTreeSamplingProximityMeters, which feeds the next
+            // OnPhysicsFrame's proximity-tier sampling cadence
+            // (Full / Half / None at 0-250m / 250-500m / 500m+ ranges,
+            // see ReFlyTree{Full,Half}FidelityProximityRangeMeters).
+            //
+            // If the call sat below the re-fly bypass early-return (the
+            // pre-2026-05-19 ordering), an active re-fly provisional that
+            // hit the bypass would skip the proximity scan, the tier would
+            // resolve to None, and the recorder would fall back to sparse
+            // sampling intervals (configuredMax = 3 s). The visible
+            // consequence was per-section sample counts of 2 in atmospheric
+            // re-fly sections, which produced multi-meter Lerp-vs-physics
+            // mismatch ("bobbing") of close-camera ghosts.
+            //
+            // Pin the hoisted ordering so this regression cannot return
+            // silently.
+            string source = ReadSource("FlightRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "private void UpdateAnchorDetection(Vessel v)",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateAnchorDetection method not found");
+
+            int candidateBuildIdx = source.IndexOf(
+                "BuildRecordingAnchorCandidateList(",
+                updateAnchorIdx,
+                StringComparison.Ordinal);
+            Assert.True(candidateBuildIdx >= 0,
+                "BuildRecordingAnchorCandidateList call missing from UpdateAnchorDetection");
+
+            int reflyBypassIdx = source.IndexOf(
+                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
+                updateAnchorIdx,
+                StringComparison.Ordinal);
+            Assert.True(reflyBypassIdx >= 0,
+                "Re-fly bypass call missing from UpdateAnchorDetection");
+
+            Assert.True(candidateBuildIdx < reflyBypassIdx,
+                "BuildRecordingAnchorCandidateList must execute BEFORE the re-fly bypass " +
+                "so the bypass's early-return does not skip the proximity-tier sampling " +
+                "side effect (ConsiderReFlyTreeSamplingProximity populating " +
+                "reFlyTreeSamplingProximityMeters).");
+
+            // The force-Absolute experimental gate has the same early-return
+            // shape as the bypass; the candidate build must come before it
+            // too so the gated path doesn't lose the proximity side effect.
+            // Anchor on the property read inside the gate (not the bare
+            // setting name) so a comment-only reorder above the gate cannot
+            // make this assertion pass while the if-block migrates back
+            // below the build.
+            int forceAbsoluteGateIdx = source.IndexOf(
+                "ParsekSettings.Current.forceAbsoluteForReFlyProvisional",
+                updateAnchorIdx,
+                StringComparison.Ordinal);
+            Assert.True(forceAbsoluteGateIdx >= 0,
+                "force-absolute-refly gate call not found in UpdateAnchorDetection");
+            Assert.True(candidateBuildIdx < forceAbsoluteGateIdx,
+                "BuildRecordingAnchorCandidateList must execute BEFORE the force-Absolute gate " +
+                "so the gated path keeps the proximity-tier sampling side effect.");
         }
 
         [Fact]
