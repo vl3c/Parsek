@@ -5071,6 +5071,63 @@ namespace Parsek
                 return;
             }
 
+            // Discard seed-only transient RELATIVE sections that were closed
+            // within one physics frame of opening. The canonical case is the
+            // force-Absolute-refly toggle's one-frame transient: env handler
+            // opens a Relative section at an env boundary (because
+            // isRelativeMode was true), then UpdateAnchorDetection's gate
+            // fires immediately after and calls ForceExitRelativeToAbsolute,
+            // closing the just-opened Relative section while it still holds
+            // only the env-boundary seed point. Persisting that 1-frame
+            // section produces a multi-meter boundaryDiscontinuityMeters
+            // against the next Absolute section (the live vessel moved 1200
+            // m/s for 0.02s = 24m, MeasureBoundaryDiscontinuity records that
+            // as the gap), and the anchor-correction system then applies a
+            // matching 24m ε offset to every rendered frame after the seam.
+            // The user-visible effect: a vessel ghost spawned ~24m away from
+            // where the live vessel sits when dropping into re-fly. Discarding
+            // the section avoids the synthetic discontinuity entirely; the
+            // env-boundary seed is replayed into the next section (which
+            // opens at the same UT) by the recorder's normal sampling on the
+            // next frame, and the previous real section's last frame stays
+            // adjacent to the next real section's first frame for a clean,
+            // physics-driven bdisc measurement. 0.05s threshold = the
+            // tightest production min sample interval (Full-tier
+            // ProximitySamplingCadence), so a section that closes faster than
+            // that can only contain the seed.
+            //
+            // Scope notes:
+            // - Restricted to Relative because the transient is always
+            //   Relative: env handler preserves frame from the prior tick's
+            //   isRelativeMode, and ForceExitRelativeToAbsolute (the only
+            //   path that closes a same-frame section here) gates on
+            //   `if (isRelativeMode)`. Absolute single-frame, zero-duration
+            //   sections are a legitimate finalization shape used by
+            //   FinalizeAllForCommit when only one sample existed at commit
+            //   time, and must persist.
+            // - isBoundarySeam-flagged sections are an intentional 1-frame,
+            //   0-duration recorder bookkeeping artifact emitted by
+            //   FlushLoadedStateForOnRailsTransition for the optimizer's
+            //   split-suppression contract (see TrackSection.isBoundarySeam +
+            //   docs/dev/plans/optimizer-persistence-split.md §5). The
+            //   Relative scope already excludes them in practice (seams are
+            //   authored Absolute), but the check is kept explicit for
+            //   future seam variants.
+            if (frameCount <= 1
+                && checkpointCount == 0
+                && sectionDuration < 0.05
+                && currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                && !currentTrackSection.isBoundarySeam)
+            {
+                trackSectionActive = false;
+                ParsekLog.Verbose("Recorder",
+                    $"TrackSection discarded (seed-only Relative transient, frames={frameCount} " +
+                    $"duration={sectionDuration.ToString("F4", CultureInfo.InvariantCulture)}s): " +
+                    $"env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
+                    $"startUT={currentTrackSection.startUT.ToString("F3", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
             TrackSections.Add(currentTrackSection);
             trackSectionActive = false;
             ParsekLog.Info("Recorder",

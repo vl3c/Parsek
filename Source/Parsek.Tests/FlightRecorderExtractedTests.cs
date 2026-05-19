@@ -358,6 +358,40 @@ namespace Parsek.Tests
                 && l.Contains("zero frames"));
         }
 
+        [Fact]
+        public void CloseCurrentTrackSection_SeedOnlyAbsoluteTransient_NotDiscarded()
+        {
+            // Counter-test for the force-Absolute-refly transient-discard path:
+            // a 1-frame, 0.02s Absolute section is NOT a transient (the gate's
+            // ForceExitRelativeToAbsolute path only fires when isRelativeMode
+            // is true, so any same-frame close-open pair authors a
+            // Relative -> Absolute transition, never an Absolute -> Absolute
+            // one). Legitimate Absolute single-frame finalizations
+            // (FinalizeAllForCommit when only one sample existed) must
+            // persist. Discarding Absolute single-frame sections would break
+            // that contract — the pre-existing
+            // FinalizeAllForCommit_MissingLoadedVessel_KeepsCacheApplicableFromLastSample
+            // test pins that. This counter-test pins the same invariant
+            // through the foreground path.
+            var recorder = new FlightRecorder();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 20.0);
+            recorder.AppendSectionStartSeamPointForTesting(
+                new TrajectoryPoint
+                {
+                    ut = 20.0,
+                    latitude = 0.0,
+                    longitude = 0.0,
+                    altitude = 0.0,
+                    bodyName = "Kerbin"
+                },
+                "env-transition");
+            recorder.CloseCurrentTrackSection(20.02);
+
+            Assert.Single(recorder.TrackSections);
+            Assert.Equal(ReferenceFrame.Absolute, recorder.TrackSections[0].referenceFrame);
+            Assert.Single(recorder.TrackSections[0].frames);
+        }
+
         #endregion
 
         #region ShouldRefreshSnapshot guard

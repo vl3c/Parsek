@@ -6949,12 +6949,48 @@ namespace Parsek
                         (float)(state.currentTrackSection.frames.Count / duration);
             }
 
-            state.trackSections.Add(state.currentTrackSection);
-            state.trackSectionActive = false;
-
             int frameCount = state.currentTrackSection.frames?.Count ?? 0;
             int checkpointCount = state.currentTrackSection.checkpoints?.Count ?? 0;
             double sectionDuration = ut - state.currentTrackSection.startUT;
+
+            // Discard seed-only transient RELATIVE sections that were closed
+            // within one physics frame of opening. Mirror of
+            // FlightRecorder.CloseCurrentTrackSection's discard (see that
+            // method for the full rationale and scope notes). The canonical
+            // BG case: ExitBackgroundRelativeMode fires from the force-Absolute
+            // gate one physics frame after an environment-boundary handler
+            // opened a Relative section with only the env-boundary seed
+            // point, producing a 1-frame 0.02s Relative section that
+            // would otherwise generate a multi-meter
+            // boundaryDiscontinuityMeters against the next Absolute section
+            // and a matching anchor-correction offset at playback. The
+            // observed user-visible symptom: vessel ghosts spawning ~24m
+            // displaced from the live re-fly vessel on entry. 0.05s threshold
+            // = the tightest production min sample interval (Full-tier
+            // ProximitySamplingCadence). Restricted to Relative to preserve
+            // legitimate Absolute single-frame finalizations used by
+            // FinalizeAllForCommit; isBoundarySeam-flagged sections are
+            // also exempted for the optimizer split-suppression contract
+            // (TrackSection.isBoundarySeam, docs/dev/plans/optimizer-persistence-split.md §5).
+            if (frameCount <= 1
+                && checkpointCount == 0
+                && sectionDuration < 0.05
+                && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                && !state.currentTrackSection.isBoundarySeam)
+            {
+                state.trackSectionActive = false;
+                ParsekLog.Verbose("BgRecorder",
+                    $"TrackSection discarded (seed-only Relative transient, frames={frameCount} " +
+                    $"duration={sectionDuration.ToString("F4", CultureInfo.InvariantCulture)}s): " +
+                    $"env={state.currentTrackSection.environment} ref={state.currentTrackSection.referenceFrame} " +
+                    $"pid={state.vesselPid} " +
+                    $"startUT={state.currentTrackSection.startUT.ToString("F3", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
+            state.trackSections.Add(state.currentTrackSection);
+            state.trackSectionActive = false;
+
             FlightRecorder.SectionGapStats gapStats =
                 FlightRecorder.ComputeSectionGapStats(state.currentTrackSection.frames);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
