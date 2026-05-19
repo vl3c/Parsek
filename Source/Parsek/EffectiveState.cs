@@ -607,49 +607,45 @@ namespace Parsek
         /// Consumer-facing wrapper used by every site that asks "is this
         /// recording the row that represents an unfinished flight in the
         /// UI?" — the STASH group (<see cref="UnfinishedFlightsGroup.ComputeMembers"/>),
-        /// the regular-tree filter
-        /// (<c>RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree</c>),
         /// the legacy-rewind R-button suppression, the timeline separation
         /// marker (<see cref="Parsek.Timeline.TimelineBuilder"/>), the
         /// group-picker drop-target gate, the hide-checkbox refusal, and
         /// the timeline-watch L-button gate.
         /// <para>
-        /// Chain dedupe: <c>RecordingOptimizer.SplitAtSection</c> can split
-        /// a single live recording at environment-class boundaries (e.g.
-        /// Atmospheric → ExoBallistic at the karman line) into a chain
-        /// HEAD plus one or more continuation members sharing the same
-        /// <see cref="Recording.ChainId"/> / <see cref="Recording.ChainBranch"/>.
-        /// In that shape every chain member that maps to the same slot
-        /// origin passes the underlying
-        /// <see cref="UnfinishedFlightClassifier.TryQualify"/> predicate
-        /// because <see cref="ResolveRewindPointSlotIndexForRecording"/>
-        /// hops chain-then-supersede by design — that lookup is load-bearing
-        /// for <see cref="RewindPointReaper.IsReapEligible"/>, which calls
-        /// <see cref="UnfinishedFlightClassifier.Qualifies"/> directly with
-        /// a slot's chain-tip recording and must keep getting <c>true</c> so
+        /// Slot-anchor dedupe: every recording that resolves to the same
+        /// (RewindPoint, slot) tuple via the chain-and-supersede walker in
+        /// <see cref="ResolveRewindPointSlotIndexForRecording"/> passes the
+        /// raw classifier — that lookup is load-bearing for
+        /// <see cref="RewindPointReaper.IsReapEligible"/>, which feeds the
+        /// classifier each chain tip and must keep getting <c>true</c> so
         /// the rewind point stays alive (pinned by
         /// <c>RewindPointReaperTests.Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive</c>).
-        /// The consumer-facing predicate has the opposite need: it should
-        /// emit one row per logical flight, not one row per chain member.
-        /// We collapse to the lowest-<see cref="Recording.ChainIndex"/>
-        /// ERS-visible peer that itself passes the raw classifier here so
-        /// every UI site automatically renders just the slot anchor that
-        /// owns the Fly / Seal buttons, and the continuation halves stay
-        /// visible as ordinary continuation rows under the regular mission
-        /// tree. Other chain shapes (e.g. launch-row HEAD with no BP linkage
-        /// whose only qualifying member is the BP-linked TIP — pinned by
-        /// <c>RewindTreeLookupTests</c>) are unaffected: the dedupe only
-        /// suppresses <paramref name="rec"/> when a lower-index peer
-        /// independently passes Raw, so a continuation that qualifies under
-        /// a non-qualifying HEAD still surfaces.
+        /// The consumer-facing predicate has the opposite need: emit one
+        /// row per logical flight, not one row per chain or supersede peer.
+        /// We pick a single anchor recording per slot — the slot's
+        /// <c>OriginChildRecordingId</c> when that recording is itself
+        /// ERS-visible, otherwise the chain-and-supersede-walked
+        /// <see cref="EffectiveTipRecordingId"/> from the origin. Every
+        /// other peer that maps to the same slot suppresses. This covers
+        /// both classical optimizer-split chain shapes (HEAD + TIP in the
+        /// same ChainId, slot.Origin == HEAD wins) and re-fly supersede
+        /// shapes where the supersede target has no ChainId (slot.Origin
+        /// still wins; the supersede target suppresses). Asymmetric chain
+        /// shapes where only the chain TIP carries BP linkage and the HEAD
+        /// fails Raw (pinned by
+        /// <c>ChainContinuationWhoseHeadFailsRaw_StillSurfacesAsUnfinishedFlight</c>)
+        /// are unaffected: when HEAD fails Raw the slot.Origin doesn't
+        /// resolve to it via the visibility check, and the walker hops
+        /// chain → TIP, so TIP becomes the anchor and surfaces.
         /// </para>
         /// <para>
-        /// Perf TODO: the wrapper does an O(ERS) scan inside every call,
-        /// and <see cref="IsChainMemberOfUnfinishedFlight"/> calls this
-        /// wrapper inside its own O(ERS) scan, so chain-aware UI rendering
-        /// is O(N²) per row, O(N³) per frame in the worst case. Acceptable
-        /// at expected save sizes (≤ a few hundred committed recordings,
-        /// chains length 2-3); memoize on
+        /// Perf TODO: the wrapper does an O(supersedes) walk per call (the
+        /// <see cref="EffectiveTipRecordingId"/> fallback), and
+        /// <see cref="IsChainMemberOfUnfinishedFlight"/> calls this wrapper
+        /// inside its own O(ERS) scan, so chain-aware UI rendering is
+        /// O(N·supersedes) per row, O(N²·supersedes) per frame in the
+        /// worst case. Acceptable at expected save sizes (≤ a few hundred
+        /// committed recordings); memoize on
         /// (<see cref="RecordingStore.StateVersion"/>,
         /// <see cref="ParsekScenario.SupersedeStateVersion"/>) if it ever
         /// shows up in a profile.
@@ -663,49 +659,57 @@ namespace Parsek
             if (!TryResolveUnfinishedFlightRaw(rec, out rp, out slotListIndex))
                 return false;
 
-            // Chain head dedupe: among ERS-visible peers sharing the same
-            // (ChainId, ChainBranch), only the recording with the lowest
-            // ChainIndex that itself passes Raw surfaces here. Recordings
-            // without a chain (null/empty ChainId) bypass the bucket and
-            // admit directly.
-            if (string.IsNullOrEmpty(rec.ChainId))
+            // Slot-anchor dedupe: choose one row per (RP, slot) regardless
+            // of how many ERS-visible recordings map to it. Anchor =
+            // slot.OriginChildRecordingId when that recording is itself
+            // ERS-visible (it IS the launch / origin row), else the
+            // chain+supersede walker tip from that origin (the visible
+            // effective head when the origin has been superseded).
+            var slot = rp != null && rp.ChildSlots != null
+                && slotListIndex >= 0 && slotListIndex < rp.ChildSlots.Count
+                ? rp.ChildSlots[slotListIndex]
+                : null;
+            string origin = slot?.OriginChildRecordingId;
+            if (string.IsNullOrEmpty(origin))
+                return true; // origin-less slot — no anchor to dedupe against
+
+            var supersedes = ParsekScenario.Instance?.RecordingSupersedes
+                ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+
+            string anchorId = IsRecordingIdErsVisible(origin, supersedes)
+                ? origin
+                : EffectiveTipRecordingId(origin, supersedes);
+
+            if (string.IsNullOrEmpty(anchorId)
+                || string.Equals(rec.RecordingId, anchorId, StringComparison.Ordinal))
                 return true;
 
-            var ers = ComputeERS();
-            if (ers == null)
-                return true;
+            ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                $"slotPeerAnchored-{rec.RecordingId ?? "<no-id>"}",
+                $"IsUnfinishedFlight=false rec={rec.RecordingId ?? "<no-id>"} " +
+                $"reason=slotPeerAnchored rp={rp?.RewindPointId ?? "<no-rp>"} " +
+                $"slot={slotListIndex} slotOrigin={origin} anchorRec={anchorId}");
+            rp = null;
+            slotListIndex = -1;
+            return false;
+        }
 
-            for (int i = 0; i < ers.Count; i++)
+        private static bool IsRecordingIdErsVisible(
+            string recordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            var source = RecordingStore.CommittedRecordings;
+            if (source == null) return false;
+            for (int i = 0; i < source.Count; i++)
             {
-                var candidate = ers[i];
-                if (candidate == null || ReferenceEquals(candidate, rec)) continue;
-                if (!string.Equals(candidate.ChainId, rec.ChainId, StringComparison.Ordinal)) continue;
-                if (candidate.ChainBranch != rec.ChainBranch) continue;
-                if (candidate.ChainIndex >= rec.ChainIndex) continue;
-
-                // A lower-index peer exists. If it also passes the raw
-                // qualifier, it's the chain head (or a closer-to-head
-                // qualifying member) and rec is a continuation — suppress.
-                // Using the Raw path here is deliberate: this guard must not
-                // recurse back through the wrapper.
-                RewindPoint peerRp;
-                int peerSlot;
-                if (TryResolveUnfinishedFlightRaw(candidate, out peerRp, out peerSlot))
-                {
-                    ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                        $"chainContinuation-{rec.RecordingId ?? "<no-id>"}",
-                        $"IsUnfinishedFlight=false rec={rec.RecordingId ?? "<no-id>"} " +
-                        $"reason=chainContinuation chainId={rec.ChainId} " +
-                        $"chainBranch={rec.ChainBranch} chainIndex={rec.ChainIndex} " +
-                        $"headRec={candidate.RecordingId ?? "<no-id>"} " +
-                        $"headChainIndex={candidate.ChainIndex}");
-                    rp = null;
-                    slotListIndex = -1;
-                    return false;
-                }
+                var candidate = source[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.RecordingId, recordingId, StringComparison.Ordinal))
+                    continue;
+                return IsVisible(candidate, supersedes);
             }
-
-            return true;
+            return false;
         }
 
         private static bool TryResolveUnfinishedFlightRaw(
