@@ -915,6 +915,27 @@ namespace Parsek.Tests
                 currentUT: 123.55, successorSeamUT: 123.54, predecessorHasGhostState: true));
         }
 
+        [Fact]
+        public void IsChainSeamSuccessor_UnwidenedRecording_StillFiresAtSeam()
+        {
+            // Happy-path sanity: on a recording WITHOUT ExplicitEndUT widening (chain head
+            // ending exactly at the successor's StartUT, no orbit-tail projection), the
+            // predicate must still fire at the seam frame. This pins that the switch from
+            // predecessor.EndUT to successorSeamUT as the comparison source did not regress
+            // the normal in-flight chain handoff — both sources would have produced the same
+            // truth value on an unwidened recording, so behavior must match.
+            //
+            // Boundary: currentUT exactly at the seam (== successor.StartUT == predecessor's
+            // actual payload end) — predicate returns true thanks to the 1us epsilon. One
+            // physics tick past the seam — still true. One physics tick before — false.
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, successorSeamUT: 100.0, predecessorHasGhostState: true));
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.02, successorSeamUT: 100.0, predecessorHasGhostState: true));
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.98, successorSeamUT: 100.0, predecessorHasGhostState: true));
+        }
+
         #endregion
 
         #region BuildExcludeCrewSet

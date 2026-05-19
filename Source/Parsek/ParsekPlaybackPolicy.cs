@@ -1112,6 +1112,27 @@ namespace Parsek
         /// new spawn's chain predecessor IS the currently watched recording. The chain-topology
         /// half stays single-sourced in <c>RecordingStore.GetChainPredecessorIndex</c>; this
         /// predicate composes that with the spawn-time signal and the watch state.
+        /// <para>
+        /// <b>Gates intentionally NOT added (Opus PR review 2026-05-19):</b>
+        /// </para>
+        /// <list type="bullet">
+        /// <item><b>Watch-hold timer active</b>: the hold timer (set by <c>HandlePlaybackCompleted</c>
+        /// when a mid-chain transfer defers and consumed by <c>ProcessWatchEndHoldTimer</c>'s
+        /// per-frame retry) IS the retry-handoff path for the same seam this predicate handles.
+        /// Auto-follow during the hold is the desired-earlier version of the per-frame retry —
+        /// gating on the hold would just add 1 frame of latency before the retry catches up to
+        /// the same transfer. <c>TransferWatchToNextSegmentFromPolicy</c> clears the hold on
+        /// success (<c>WatchModeController.cs:2738</c>).</item>
+        /// <item><b>Time warp active</b>: the existing <c>Mid-chain auto-follow</c> path
+        /// (<c>HandlePlaybackCompleted</c> mid-chain branch above) does not gate on warp either;
+        /// the warp-special branch only triggers for <c>needsSpawn &amp;&amp; PastEffectiveEnd</c>
+        /// (end-of-chain real-vessel spawn), not for mid-chain segment handoffs. Gating only the
+        /// new path would diverge from the existing path's behavior; gating both is a larger
+        /// scope decision out of scope for this PR.</item>
+        /// <item><b>Pre-switch decision dialog up</b>: MergeDialog runs from MAP / TS contexts
+        /// (rapid-switch flows, scene-exit Merge / Discard); flight-scene Watch and the dialog
+        /// path do not realistically overlap. No accessor exposes "any dialog open" today.</item>
+        /// </list>
         /// </summary>
         internal static bool ShouldAutoFollowChainSeamSpawn(
             bool spawnedAtChainSeam,
@@ -1137,6 +1158,22 @@ namespace Parsek
         /// renders correctly somewhere else (the "duplicate ghost suspended in air"
         /// symptom). The seam-spawn flag is a direct, predecessor-EndUT-independent
         /// signal that the chain handoff is happening, so we transfer on it.
+        /// <para>
+        /// <b>Engine timing contract relied on:</b> <c>QueueOrEmitGhostCreated</c>
+        /// (<c>GhostPlaybackEngine.cs</c>) defers the Created event into
+        /// <c>deferredCreatedEvents</c> whenever <c>updateStopwatch.IsRunning</c>; the deferred
+        /// pump flushes Created events BEFORE Completed events, AFTER
+        /// <c>FinalizePendingSpawnLifecycle</c> has populated <c>state.ghost</c>,
+        /// <c>state.cameraPivot</c>, and <c>state.horizonProxy</c>. By the time this method
+        /// runs, the new ghost is fully built and <c>TransferWatchToNextSegmentFromPolicy</c>
+        /// can target it. <c>TransferWatchToNextSegment</c> (<c>WatchModeController.cs:2660</c>)
+        /// independently re-checks <c>gs.ghost != null</c> and falls back to deferred-retry
+        /// if the contract is ever violated. No double-transfer risk: the new path runs first
+        /// and flips <c>WatchedRecordingIndex</c> to the successor; when <c>HandlePlaybackCompleted</c>
+        /// then fires for the predecessor (if ever — see EndUT-widening note above), the
+        /// <c>isWatched = host.WatchedRecordingIndex == evt.Index</c> test is now false so the
+        /// Mid-chain branch skips.
+        /// </para>
         /// </summary>
         private void TryAutoFollowChainSeamSpawn(GhostLifecycleEvent evt)
         {
