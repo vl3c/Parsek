@@ -3498,6 +3498,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the index in <c>committedRecordings</c> of the immediate chain predecessor of
+        /// <paramref name="rec"/> on branch 0 (the recording with the same ChainId, ChainBranch=0,
+        /// and ChainIndex = rec.ChainIndex - 1), or -1 if no such predecessor exists, if rec is
+        /// not on branch 0, if rec is a chain head (ChainIndex &lt;= 0), or if rec is not part of a
+        /// chain at all. Used by the playback flag builder to detect chain-seam first-spawns
+        /// (see <c>TrajectoryPlaybackFlags.isChainSeamSuccessor</c>).
+        /// </summary>
+        internal static int GetChainPredecessorIndex(Recording rec)
+        {
+            if (rec == null) return -1;
+            if (string.IsNullOrEmpty(rec.ChainId)) return -1;
+            if (rec.ChainBranch != 0) return -1;
+            if (rec.ChainIndex <= 0) return -1;
+            int expectedPredecessorIndex = rec.ChainIndex - 1;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var other = committedRecordings[i];
+                if (other.ChainId == rec.ChainId
+                    && other.ChainBranch == 0
+                    && other.ChainIndex == expectedPredecessorIndex)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Returns the EndUT of the last segment in this recording's chain.
         /// Returns rec.EndUT if the recording is not part of a chain.
         /// </summary>

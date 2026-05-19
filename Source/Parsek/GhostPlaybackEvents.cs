@@ -167,6 +167,19 @@ namespace Parsek
 
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;
+
+        /// <summary>
+        /// True when this recording is the immediate chain successor (same ChainId, ChainBranch=0,
+        /// ChainIndex = predecessor.ChainIndex + 1) of a recording whose ghost is currently in
+        /// <c>ghostStates</c> and at or past its own EndUT this frame. Signals that the first-spawn
+        /// StandardEnter on this trajectory replaces a chain peer that just delivered its terminal
+        /// pose. The engine uses this to (a) force immediate build of the successor so the camera
+        /// transfer can succeed on its first attempt rather than defer-retry across the build
+        /// window, and (b) skip the activation-settle fall-through clause whose race (fresh
+        /// first-appearance pose pop) cannot happen at a chain seam where the predecessor's last
+        /// pose is by construction continuous with the successor's first pose.
+        /// </summary>
+        public bool isChainSeamSuccessor;
     }
 
     /// <summary>
