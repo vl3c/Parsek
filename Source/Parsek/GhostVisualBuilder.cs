@@ -7150,6 +7150,13 @@ namespace Parsek
                     return null;
                 }
 
+                // The flag prefab is PhysicsSignificance=1 but KSP promotes single-part
+                // roots back to FULL. Without hardening, an Eve flag at the hot atmosphere
+                // bottom can overheat (prefab maxTemp=2000) and a high-speed active-vessel
+                // collision with a replay flag can exceed crashTolerance=12. Same fix
+                // shape as the GhostMapPresence map-presence markers.
+                GhostMapPresence.HardenGhostVesselPartPhysics(pv.vesselRef, "SpawnFlagVessel");
+
                 ParsekLog.Verbose("GhostVisual",
                     $"Spawned flag vessel: '{vesselName}' by '{evt.placedBy}' " +
                     $"at ({evt.latitude:F4},{evt.longitude:F4},{evt.altitude:F1}) on {evt.bodyName}");
