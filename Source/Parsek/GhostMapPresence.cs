@@ -8078,7 +8078,7 @@ namespace Parsek
                 // the vessel mid-Re-Fly whenever the active vessel passes through dense
                 // atmosphere at orbital speed (repro at logs/2026-05-19_1847_refly-
                 // booster-explosion, log line 18:44:50.128).
-                HardenMarkerPartPhysics(v, logContext);
+                HardenGhostVesselPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
@@ -8164,7 +8164,7 @@ namespace Parsek
             out string vesselName)
         {
             // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay).
-            // Aero/thermal tolerances are hardened post-load in HardenMarkerPartPhysics:
+            // Aero/thermal tolerances are hardened post-load in HardenGhostVesselPartPhysics:
             // the partNode is loaded into a real Part with prefab maxTemp=1200, which
             // would otherwise overheat and explode the marker vessel during low-altitude
             // playback (see BuildAndLoadGhostProtoVesselCore).
@@ -8202,13 +8202,14 @@ namespace Parsek
 
         /// <summary>
         /// Override aero/thermal/structural tolerances on every part of a freshly-loaded
-        /// ghost marker vessel so the marker behaves as a render-only presence rather
-        /// than a physical body. Without this, KSP's FlightIntegrator runs aerothermal
-        /// sim on the marker (single-part root parts are promoted to PhysicalSignificance.FULL
+        /// ghost-owned ProtoVessel (map-presence marker, replay flag, future single-part
+        /// ghost vessels) so the vessel behaves as a render-only presence rather than a
+        /// physical body. Without this, KSP's FlightIntegrator runs aerothermal sim on
+        /// the vessel (single-part root parts are promoted to PhysicalSignificance.FULL
         /// regardless of prefab settings) and the prefab maxTemp / crashTolerance values
-        /// trigger Part.explode() when the marker drops into atmosphere at orbital speed.
+        /// trigger Part.explode() when something hot or fast happens nearby.
         /// </summary>
-        internal static int HardenMarkerPartPhysics(Vessel v, string logContext)
+        internal static int HardenGhostVesselPartPhysics(Vessel v, string logContext)
         {
             if (v == null || v.parts == null) return 0;
             int count = 0;
@@ -8225,7 +8226,7 @@ namespace Parsek
                 count++;
             }
             ParsekLog.Verbose(Tag, string.Format(ic,
-                "Marker parts hardened: vessel='{0}' parts={1} for {2}",
+                "Ghost vessel parts hardened: vessel='{0}' parts={1} for {2}",
                 v.vesselName ?? "(null)", count, logContext));
             return count;
         }
