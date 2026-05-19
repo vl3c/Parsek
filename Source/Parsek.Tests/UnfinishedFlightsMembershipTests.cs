@@ -744,6 +744,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SubOrbitalFocusSlotUnderPostFeatureRP_IsMember()
+        {
+            // Sibling of OrbitingFocusSlotUnderPostFeatureRP_NotMember above,
+            // with the outcome flipped: SubOrbital is no longer a stable
+            // terminal that seals on the focus slot (a suborbital arc is
+            // still in flight: the vessel will crash, land, splash, or with
+            // a burn reach orbit), so the focus-slot SubOrbital row stays
+            // an Unfinished Flight member and the underlying classifier
+            // returns stableLeafUnconcluded instead of stableTerminalFocusSlot.
+            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.SubOrbital,
+                parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            InstallScenario(rps: new List<RewindPoint>
+            {
+                RpWithFocus("rp_1", "bp_1", 0, "rec_focus", "rec_probe")
+            });
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Single(members);
+            Assert.Equal("rec_focus", members[0].RecordingId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("reason=stableLeafUnconcluded")
+                && l.Contains("terminal=SubOrbital"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_focus")
+                && l.Contains("reason=stableTerminalFocusSlot"));
+        }
+
+        [Fact]
         public void StrandedEvaLegacyNoFocusSignal_IsMember()
         {
             var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,

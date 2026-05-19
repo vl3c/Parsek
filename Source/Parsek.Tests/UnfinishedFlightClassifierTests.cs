@@ -235,6 +235,102 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SubOrbitalNonFocusSlot_WithFocusOverride_FallsThroughToStableLeafUnconcluded()
+        {
+            // A suborbital arc is "still in flight" under the new seal
+            // contract (the vessel will crash, land, splash, or with a burn
+            // reach orbit). The Re-Fly merge focus override therefore must
+            // NOT seal on SubOrbital - it falls through to the
+            // stableLeafUnconcluded branch and keeps the slot open. Contrast
+            // with OrbitingNonFocusSlot_WithFocusOverride_ReturnsStableTerminalFocusSlot
+            // above, where Orbiting on the same shape DOES seal.
+            const string treeId = "tree_suborbital_probe";
+            const string bpId = "bp_suborbital_split";
+            var probe = Rec(
+                "rec_suborbital_probe",
+                MergeState.CommittedProvisional,
+                TerminalState.SubOrbital,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, probe);
+            var rp = RpWithFocus("rp_suborbital_split", bpId, 0, "rec_parent", "rec_suborbital_probe");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                probe, out RewindPoint probeRp, out int probeSlot));
+            Assert.Same(rp, probeRp);
+            Assert.Equal(1, probeSlot);
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                probe,
+                rp.ChildSlots[probeSlot],
+                rp,
+                considerSealed: false,
+                out string overrideReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: probeSlot));
+            Assert.Equal("stableLeafUnconcluded", overrideReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_suborbital_probe")
+                && l.Contains("reason=stableLeafUnconcluded")
+                && l.Contains("terminal=SubOrbital"));
+        }
+
+        [Fact]
+        public void SubOrbitalFocusSlot_StaticFocusPath_FallsThroughToStableLeafUnconcluded()
+        {
+            // Mirror of OrbitingFocusSlot_StaticFocusPathUnchangedByOverride
+            // but flipped: SubOrbital + slot == rp.FocusSlotIndex no longer
+            // returns stableTerminalFocusSlot (slot stays open). The
+            // Re-Fly override also does not fire for SubOrbital, so neither
+            // path can seal the slot on the focus index. The natural-merge
+            // (non-override) call also lands here.
+            const string treeId = "tree_focus_suborbital";
+            const string bpId = "bp_focus_suborbital_split";
+            var focus = Rec(
+                "rec_focus_suborbital",
+                MergeState.CommittedProvisional,
+                TerminalState.SubOrbital,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, focus);
+            var rp = RpWithFocus("rp_focus_suborbital_split", bpId, 0, "rec_focus_suborbital", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                focus, out RewindPoint focusRp, out int focusSlot));
+            Assert.Same(rp, focusRp);
+            Assert.Equal(0, focusSlot);
+
+            // Without the override (natural-merge / non-Re-Fly call).
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                focus,
+                rp.ChildSlots[focusSlot],
+                rp,
+                considerSealed: false,
+                out string naturalReason));
+            Assert.Equal("stableLeafUnconcluded", naturalReason);
+
+            // With the override (Re-Fly call site).
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                focus,
+                rp.ChildSlots[focusSlot],
+                rp,
+                considerSealed: false,
+                out string overrideReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: focusSlot));
+            Assert.Equal("stableLeafUnconcluded", overrideReason);
+        }
+
+        [Fact]
         public void OptimizerSplitChainContinuation_OnlyChainHeadQualifiesAsUnfinishedFlight()
         {
             // Reproduces the bug from logs/2026-05-18_1853_stash-4-recordings:
