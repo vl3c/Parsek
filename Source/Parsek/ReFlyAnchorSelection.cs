@@ -6,14 +6,24 @@ using System.Text;
 namespace Parsek
 {
     /// <summary>
-    /// Anchor-selection helper for Re-Fly provisional recordings. Reads the
-    /// active <see cref="ReFlySessionMarker"/> and returns the supersede
-    /// target recording id (with <c>OriginChildRecordingId</c> fallback) for
-    /// use as <c>TrackSection.anchorRecordingId</c>. Both recorder sites
-    /// (<c>BackgroundRecorder.UpdateBackgroundAnchorDetection</c> and
-    /// <c>FlightRecorder.UpdateAnchorDetection</c>) consult this helper at the
-    /// head of their anchor-detection logic and bypass the generic
-    /// nearest-search when the active recording is the live re-fly provisional.
+    /// Anchor-selection helpers for Re-Fly provisional recordings. The
+    /// current default path is the narrowed-gate filter
+    /// <see cref="FilterCandidatesForReFlyProvisional(ReFlySessionMarker, string, System.Collections.Generic.ICollection{string}, System.Collections.Generic.IReadOnlyList{RecordingAnchorCandidate})"/>:
+    /// while a re-fly is active, drop every nearest-search candidate whose
+    /// recording id is a member of the same <see cref="RecordingTree"/> as
+    /// the provisional, so the recorder authors Relative against real
+    /// out-of-tree anchors only (stations / bases / live loop anchors). See
+    /// <c>docs/dev/plans/narrow-refly-relative-gate.md</c>.
+    ///
+    /// <para><see cref="TryResolveReFlyProvisionalAnchor"/> and the apply
+    /// helpers in the two recorders (<c>ApplyReFlyProvisionalAnchorToActiveRecording</c>,
+    /// <c>ApplyReFlyProvisionalAnchorToState</c>) implement the older
+    /// supersede-target bypass: pin the Relative anchor to the supersede
+    /// target (with <c>OriginChildRecordingId</c> fallback). They are
+    /// orphans after the narrowed-gate change (no recorder call sites) and
+    /// retained for one release as a rollback path. Scheduled for deletion
+    /// alongside the
+    /// <see cref="ParsekSettings.forceAbsoluteForReFlyProvisional"/> toggle.</para>
     ///
     /// <para>The selector deliberately uses the marker (not a recording-level
     /// field) so no schema bump is required. The recording on disk continues

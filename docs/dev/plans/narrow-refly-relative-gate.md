@@ -55,10 +55,12 @@ Both `FlightRecorder.UpdateAnchorDetection` and `BackgroundRecorder.UpdateBackgr
 ```
 1. force-Absolute toggle gate (skip everything if toggle ON)
 2. BuildRecordingAnchorCandidateList (already hoisted in PR 901 commit 768fd6e2)
-3. nearestSearchCandidates = FilterCandidatesForReFlyProvisional(activeTree, candidates)
+3. nearestSearchCandidates = FilterCandidatesForReFlyProvisional(..., activeRecordingId, ..., candidates)
 4. FindNearestRecordingAnchor(..., nearestSearchCandidates, ...)
 5. ShouldUseRelativeFrame -> open/keep/close Relative section
 ```
+
+`activeRecordingId` is the FG-focused recording (`activeTree.ActiveRecordingId`) at the `FlightRecorder` site, and the per-BG-vessel `treeRec.RecordingId` at the `BackgroundRecorder` site. The asymmetry matches the OLD bypass scope: the OLD `TryResolveReFlyProvisionalAnchor(tree, treeRec.RecordingId, ...)` call at BG used `treeRec.RecordingId` too. Because `BackgroundRecorder.tree.ActiveRecordingId` is always the FG focus and BG recorders run only on unfocused vessels, the predicate `marker.ActiveReFlyRecordingId == treeRec.RecordingId` is never satisfied during normal operation, so the BG filter is dead code on the BG side just like the OLD BG bypass was. Preserving this dead-code scope (rather than widening to "any BG vessel in the re-fly tree") matches the OLD behavior 1:1 and is the safer choice for a step-by-step cleanup.
 
 The candidate-list hoist (PR 901) is preserved. The hoist's load-bearing side effect (`ConsiderReFlyTreeSamplingProximity` populating `reFlyTreeSamplingProximityMeters`, which gates proximity-tier sampling Full/Half/None at 0-250m/250-500m/500m+ ranges) still runs before either the toggle gate or the filter, so neither early-return can skip it.
 
@@ -80,7 +82,7 @@ A follow-up cleanup PR after one release of soak will delete all of the above.
 ## Known limitations
 
 - The narrowed gate runs every physics frame on the candidate list. For typical re-fly scenarios with 5-20 candidates, the filter walks the list once and checks a HashSet membership per candidate (O(N) work, N small). Not a perf concern.
-- The same-tree filter is a strict drop. If a future case emerges where a same-tree candidate IS the right anchor (a hypothetical "the supersede target's parent-anchored debris is itself a live persistent vessel" case), the filter would over-drop. No such case exists today; debris recordings are not live persistent vessels by construction.
+- The same-tree filter is a strict drop. Parent-anchored debris recordings (`DebrisParentRecordingId != null`, including controlled-decoupled children with `IsDebris=false`) are in-tree by construction, so the filter would drop them as anchor candidates for OTHER same-tree vessels' nearest-search. In practice the parent-anchored recordings take the parent-anchored debris bypass earlier in `UpdateBackgroundAnchorDetection` (`ApplyDebrisAnchorContractToState`) before reaching the narrowed-gate filter, so this over-drop is unreachable along the parent-anchored path. No problematic case has been observed in playtest. If a future scenario surfaces such an over-drop, the filter would need an additional "keep parent-anchored debris recordings whose parent is the focused recording" carve-out.
 - Multiple concurrent re-fly sessions are not supported by the marker (it's singular). If KSP ever allows multiple re-flies in parallel, the filter's same-tree logic would need to extend to "any active re-fly tree" rather than "the one re-fly tree."
 
 ## Validation plan

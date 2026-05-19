@@ -7402,7 +7402,7 @@ namespace Parsek
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
 
-            // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+            // Force-Absolute rollback gate (docs/dev/plans/force-absolute-refly-provisional.md).
             // The anchor-detection gate at UpdateAnchorDetection's !onSurface
             // branch cannot reach this resume path. RestoreTrackSectionAfterFalseAlarm
             // inherits resumeRef from the saved section's referenceFrame
@@ -7411,6 +7411,15 @@ namespace Parsek
             // bypassing the gate. Mirror the existing Relative-resume-failed
             // downgrade pattern at the rejected-anchor blocks below to keep
             // the new section Absolute.
+            //
+            // Note: under the narrowed-gate default
+            // (docs/dev/plans/narrow-refly-relative-gate.md), the recorder's
+            // authoring path no longer produces same-tree Relative sections
+            // for re-fly provisionals, so a legitimately-saved Relative
+            // section here can only be Relative-against-a-real-out-of-tree
+            // anchor (the case the narrowed gate preserves on purpose). This
+            // toggle's job is the rollback path: forcing fully Absolute even
+            // when the saved section was Relative-against-real-anchor.
             if (resumeRef == ReferenceFrame.Relative
                 && ParsekSettings.Current != null
                 && ParsekSettings.Current.forceAbsoluteForReFlyProvisional

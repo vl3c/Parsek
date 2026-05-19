@@ -4904,11 +4904,27 @@ namespace Parsek
             // candidates so the nearest-search picks only out-of-tree real
             // anchors. Replaces the old
             // ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor
-            // supersede-target bypass. See
+            // supersede-target bypass.
+            //
+            // We use the pure overload with treeRec.RecordingId explicitly
+            // (not the production overload's derived activeTree.ActiveRecordingId)
+            // because tree.ActiveRecordingId is the FG-focused recording, and
+            // BG recorders run only on unfocused vessels. Using the production
+            // overload here would widen the scope to "any BG vessel in the
+            // re-fly tree", whereas the OLD bypass scope was "this BG vessel
+            // IS the FG-focused provisional" (which on BG is never true, so
+            // the OLD BG bypass was dead code). Passing treeRec.RecordingId
+            // explicitly preserves that scope: the filter fires only if
+            // marker.ActiveReFlyRecordingId == treeRec.RecordingId, which is
+            // the same predicate the OLD bypass used. See
             // docs/dev/plans/narrow-refly-relative-gate.md.
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            ICollection<string> sameTreeRecordingIds = tree?.Recordings?.Keys;
             IReadOnlyList<RecordingAnchorCandidate> nearestSearchCandidates =
                 ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(
-                    tree,
+                    marker,
+                    treeRec.RecordingId,
+                    sameTreeRecordingIds,
                     candidates);
 
             var result = AnchorDetector.FindNearestRecordingAnchor(
