@@ -1077,7 +1077,31 @@ namespace Parsek
                     : -1;
                 bool continuationHasActiveGhost = chainNextIndex >= 0
                     && HasActiveGhost(chainNextIndex);
-                if (inRange && ChainHandoffLogic.DecideShadow(
+                // Defensive: never shadow the watched head. WatchModeController
+                // already coordinates the chain transition via its own destroy
+                // path (`auto-followed during hold`) and only fires after the
+                // continuation's ghost is active, so in normal flow the watch
+                // transfer wins the race and the head is destroyed before
+                // the shadow ever runs. But for chains whose head and
+                // continuation sectionUTs overlap (post-optimizer splits
+                // routinely leave a sub-second overlap), there is a 1-2 frame
+                // window where the head is still in-range AND watched AND the
+                // continuation has just activated. Without this guard the
+                // shadow would SetActive(false) on the watched ghost mesh in
+                // that window. The downstream watch transfer then destroys
+                // the head a frame or two later. Mesh hiding is visually
+                // subtle because the continuation's mesh is at an
+                // approximately overlapping world position, but the watch
+                // camera target should never be a deactivated ghost
+                // GameObject — IsGhostHeld(i) returns true only for the
+                // watched slot (or a held-pending-spawn slot), so the guard
+                // closes the race without affecting non-watched chain
+                // segments which is the primary case the shadow fixes.
+                // Bridge-hold path below is already gated by !IsGhostHeld
+                // via the surrounding stale-past-end cleanup branch.
+                if (inRange
+                    && (IsGhostHeld == null || !IsGhostHeld(i))
+                    && ChainHandoffLogic.DecideShadow(
                         chainNextIndex, continuationHasActiveGhost))
                 {
                     if (ghostActive && state != null && state.ghost != null
