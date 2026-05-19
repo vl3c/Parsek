@@ -857,9 +857,16 @@ namespace Parsek
                 // replaced parent ghost. Destroy any other leftover ghost
                 // visuals first so the player doesn't see stale meshes from a
                 // recording that just got superseded mid-flight.
-                ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
-                if (activeReFlyMarker != null
-                    && SessionSuppressionState.IsSuppressedRecordingIndex(i))
+                //
+                // The marker and per-recording suppression bit are pushed in by
+                // the host through FrameContext / TrajectoryPlaybackFlags so
+                // the engine doesn't reach into SessionSuppressionState
+                // directly. Both inputs are stable across a frame: every
+                // re-fly marker writer (scenario lifecycle, merge / rewind /
+                // revert orchestration, reconciliation apply) runs outside the
+                // engine's per-frame loop.
+                ReFlySessionMarker activeReFlyMarker = ctx.activeReFlyMarker;
+                if (activeReFlyMarker != null && f.sessionSuppressed)
                 {
                     if (!ShouldRenderSuppressedCompanionDebris(
                             traj, activeReFlyMarker, f))

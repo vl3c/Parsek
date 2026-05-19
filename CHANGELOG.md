@@ -55,6 +55,7 @@ All notable changes to Parsek are documented here.
 - Round-5 review follow-up: defensive guards in merge/discard tree-passing, Esc disabled on pre-switch dialog, shared tree resolver between SceneExit and pre-switch dialog, and assorted doc + test polish.
 - Pre-switch dialog Round-6 review follow-up: context-aware ScreenMessage and ledger reason on no-session Discard, plus minor diagnostic log hygiene.
 - Watch auto-follow no longer logs a three-line WARN cascade while waiting for the chain-continuation ghost to spawn. The deferred-transfer branch in `WatchModeController.TransferWatchToNextSegment` now routes through a target-keyed rate-limited Verbose helper (`LogAutoFollowDeferred`), so a normal one- or two-frame wait emits a single Verbose line per chain transfer instead of three WARN lines.
+- Internal refactor: `GhostPlaybackEngine` no longer reads `SessionSuppressionState` directly; the active re-fly marker and per-recording suppression bit flow in via `FrameContext` / `TrajectoryPlaybackFlags`. No behavioral change.
 
 ---
 

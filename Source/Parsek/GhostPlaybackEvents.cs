@@ -158,6 +158,13 @@ namespace Parsek
         /// <summary>Host-approved row eligibility for render-only session-suppression carve-outs.</summary>
         public bool sessionSuppressedRenderCarveOutEligible;
 
+        /// <summary>
+        /// True iff this recording is in the session-suppressed subtree of the active re-fly
+        /// session. Populated by the host before each frame so the engine doesn't query
+        /// <c>SessionSuppressionState</c> directly. False when no re-fly is in progress.
+        /// </summary>
+        public bool sessionSuppressed;
+
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;
     }
@@ -195,6 +202,15 @@ namespace Parsek
 
         /// <summary>Auto loop interval from settings (engine doesn't read ParsekSettings).</summary>
         public double autoLoopIntervalSeconds;
+
+        /// <summary>
+        /// Active re-fly session marker snapshotted once per frame by the host, or null when
+        /// no re-fly is in progress. Lets the engine consume the marker without reaching into
+        /// <c>SessionSuppressionState</c>; writers of the marker (scenario lifecycle, merge /
+        /// rewind / revert orchestration, reconciliation apply) all run outside the engine's
+        /// per-frame loop, so a single snapshot at frame start matches direct reads.
+        /// </summary>
+        public ReFlySessionMarker activeReFlyMarker;
     }
 
     /// <summary>
