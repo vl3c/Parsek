@@ -5165,6 +5165,20 @@ namespace Parsek
         {
             if (!trackSectionActive) return;
 
+            // Experimental force-Absolute toggle interaction
+            // (docs/dev/plans/force-absolute-refly-provisional.md): this
+            // OnSave-triggered helper preserves currentTrackSection.referenceFrame
+            // across the close/reopen, deliberately keeping the in-flight
+            // section's contract stable across the save seam. If
+            // forceAbsoluteForReFlyProvisional flips ON during the documented
+            // one-frame transient at FlightRecorder.UpdateAnchorDetection's
+            // gate (env-transition opens Relative before the next physics
+            // tick gates), a save fired in that single-frame window would
+            // serialize a stale Relative continuation. The next physics tick
+            // cleans it up via ForceExitRelativeToAbsolute, so the worst case
+            // is one short stale-Relative section per such save event —
+            // acceptable for a dev-only opt-in toggle, not worth a gate
+            // here.
             var currentEnv = currentTrackSection.environment;
             var currentRef = currentTrackSection.referenceFrame;
             var currentSource = currentTrackSection.source;
