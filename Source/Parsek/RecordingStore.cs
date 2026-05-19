@@ -6122,8 +6122,13 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
+            // Cascade overload: a parent-anchored debris child whose parent
+            // was retired must also refuse fast-forward; without this, the
+            // child stays interactive in the recordings table even though
+            // its trajectory belongs to a retired re-fly fork.
             if (EffectiveState.IsRewindRetired(
                     rec,
+                    CommittedRecordings,
                     object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements))
             {
                 reason = "Recording was rewound out of the active timeline";

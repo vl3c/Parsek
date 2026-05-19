@@ -553,6 +553,69 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// Cascade overload: returns the retired id set plus every recording
+        /// whose <see cref="Recording.DebrisParentRecordingId"/> resolves
+        /// (transitively) to a retired id. Fixed-point closure walks the
+        /// parent-anchor edge until no more children are added; bounded by
+        /// the recording count and acyclic by the parent-anchor contract
+        /// (a child cannot be its own ancestor).
+        ///
+        /// <para>Visibility consumers (ERS, timeline-inactive map, ghost
+        /// playback skip-state, KSC marker gate, tracking-station spawn
+        /// suppression, recordings-table inactive predicate) must use this
+        /// overload so that parent-anchored debris of a retired recording
+        /// inherits the retirement and does not render as an orphan ghost
+        /// alongside the restored recording's own debris.</para>
+        ///
+        /// <para>Retirement-writing paths
+        /// (<c>EnsureRewindRetirementsForRollback</c>) keep using the raw
+        /// per-retirement overload: their working set deduplicates rows being
+        /// written, not visibility-derived cascade ids.</para>
+        /// </summary>
+        internal static HashSet<string> ComputeRewindRetiredRecordingIds(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            var result = ComputeRewindRetiredRecordingIds(retirements);
+            int seedCount = result.Count;
+            if (seedCount == 0 || recordings == null || recordings.Count == 0)
+                return result;
+
+            int cascadeAdded;
+            do
+            {
+                cascadeAdded = 0;
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null
+                        || string.IsNullOrEmpty(rec.RecordingId)
+                        || string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                        continue;
+                    if (result.Contains(rec.RecordingId))
+                        continue;
+                    if (!result.Contains(rec.DebrisParentRecordingId))
+                        continue;
+                    result.Add(rec.RecordingId);
+                    cascadeAdded++;
+                }
+            }
+            while (cascadeAdded > 0);
+
+            int totalAdded = result.Count - seedCount;
+            if (totalAdded > 0)
+            {
+                ParsekLog.Verbose("ERS",
+                    $"Rewind-retirement cascade: seed={seedCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"cascadeAdded={totalAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"finalRetired={result.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"recordingsScanned={recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    "(parent-anchored descendants of retired recordings hidden via cascade)");
+            }
+            return result;
+        }
+
         internal static Dictionary<string, TimelineInactiveReason> ComputeTimelineInactiveRecordingIds(
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
@@ -563,7 +626,7 @@ namespace Parsek
             foreach (string id in superseded)
                 result[id] = TimelineInactiveReason.SupersededByRelation;
 
-            var retired = ComputeRewindRetiredRecordingIds(retirements);
+            var retired = ComputeRewindRetiredRecordingIds(recordings, retirements);
             foreach (string id in retired)
                 result[id] = TimelineInactiveReason.RewindRetired;
 
@@ -589,6 +652,26 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Cascade overload: true when <paramref name="rec"/> is directly
+        /// retired OR is a parent-anchored descendant of a retired recording.
+        /// Use at every visibility site that has access to the recordings
+        /// list; orphan debris of a retired re-fly fork would otherwise
+        /// render alongside the restored recording's own debris.
+        /// </summary>
+        internal static bool IsRewindRetired(
+            Recording rec,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (retirements == null || retirements.Count == 0)
+                return false;
+            var retired = ComputeRewindRetiredRecordingIds(recordings, retirements);
+            return retired.Contains(rec.RecordingId);
         }
 
         /// <summary>
@@ -947,8 +1030,8 @@ namespace Parsek
 
                 var suppressed = ComputeSubtreeClosureInternal(
                     marker, marker?.OriginChildRecordingId);
-                var retiredIds = ComputeRewindRetiredRecordingIds(retirements);
                 var source = RecordingStore.CommittedRecordings;
+                var retiredIds = ComputeRewindRetiredRecordingIds(source, retirements);
                 var result = new List<Recording>(source.Count);
                 int raw = source.Count;
                 int skippedNotCommitted = 0;
