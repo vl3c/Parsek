@@ -83,14 +83,13 @@ namespace Parsek.Tests.Rendering
             PannotationsSidecarBinary.Write(path, "rec-out", 1, 8, hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: null,
-                coBubbleTraces: null,
                 outlierFlags: entries);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.True(probe.Supported);
 
             Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
-                out var splines, out var cands, out var traces,
+                out var splines, out var cands,
                 out List<KeyValuePair<int, OutlierFlags>> readFlags,
                 out string failure));
             Assert.Null(failure);
@@ -124,12 +123,11 @@ namespace Parsek.Tests.Rendering
             PannotationsSidecarBinary.Write(path, "rec-empty", 1, 8, hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: null,
-                coBubbleTraces: null,
                 outlierFlags: null);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
-                out var splines, out var cands, out var traces,
+                out var splines, out var cands,
                 out List<KeyValuePair<int, OutlierFlags>> readFlags,
                 out string failure));
             Assert.Null(failure);
@@ -159,12 +157,11 @@ namespace Parsek.Tests.Rendering
             PannotationsSidecarBinary.Write(path, "rec-zm", 1, 8, hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: null,
-                coBubbleTraces: null,
                 outlierFlags: entries);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             Assert.True(PannotationsSidecarBinary.TryRead(path, probe,
-                out var splines, out var cands, out var traces,
+                out var splines, out var cands,
                 out List<KeyValuePair<int, OutlierFlags>> readFlags,
                 out string failure));
             Assert.Null(failure);
@@ -253,7 +250,6 @@ namespace Parsek.Tests.Rendering
             PannotationsSidecarBinary.Write(path, "rec-corrupt", 1, 8, hash,
                 splines: new List<KeyValuePair<int, SmoothingSpline>>(),
                 anchorCandidates: null,
-                coBubbleTraces: null,
                 outlierFlags: entries);
 
             // Locate the bitmap-length int32 in the file. It follows:
@@ -289,7 +285,7 @@ namespace Parsek.Tests.Rendering
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
             bool ok = PannotationsSidecarBinary.TryRead(path, probe,
-                out var splines, out var cands, out var traces,
+                out var splines, out var cands,
                 out List<KeyValuePair<int, OutlierFlags>> flags,
                 out string failure);
             Assert.False(ok);

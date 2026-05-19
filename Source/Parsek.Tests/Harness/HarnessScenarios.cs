@@ -420,7 +420,7 @@ namespace Parsek.Tests.Harness
         // (plan §3b §"Helper" + §"Per-frame anchor write"). The recorder
         // now writes Relative sections anchored to the parent recording
         // and stamps `DebrisParentRecordingId` on the child. Composition
-        // is now (parent_pos + offset) — the correct visual co-bubble.
+        // is now (parent_pos + offset) — the correct visual result.
         //
         // Topology (rewritten):
         //   parent (focused): Absolute, sweeps (100, 0, 0) → (200, 0, 0)

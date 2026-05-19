@@ -637,9 +637,9 @@ namespace Parsek.Tests.Rendering
             // refactor that called the live-position provider once per
             // sibling (instead of once per session) would re-read live
             // state during the rebuild — invisible in production until a
-            // future Phase 5 reused the same provider for the per-frame
-            // co-bubble path, where it would resurface as the naive-relative
-            // trap (design doc §3.4).
+            // future phase reused the same provider for a per-frame path,
+            // where it would resurface as the naive-relative trap (design
+            // doc §3.4).
             var rLive = MakeRecording("live", "Kerbin", 0, 100, 50, (0, 0, 70));
             var rA    = MakeRecording("a",    "Kerbin", 0, 100, 50, (1, 0, 70));
             var rB    = MakeRecording("b",    "Kerbin", 0, 100, 50, (0, 1, 70));

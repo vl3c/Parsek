@@ -36,8 +36,6 @@ namespace Parsek.Rendering
     /// Deferred sources (each emits ε = 0 and reserves the priority slot;
     /// the corresponding world-frame resolver lands in a follow-up):
     /// <list type="bullet">
-    ///   <item>§7.8 CoBubblePeer — Phase 5 territory; reserved enum value
-    ///   only.</item>
     ///   <item>§7.9 SurfaceContinuous — Phase 7 terrain raycast. Phase 6
     ///   emits the candidate marker so Phase 7 can hook the per-frame
     ///   resolver in without touching commit-time code.</item>
@@ -708,7 +706,7 @@ namespace Parsek.Rendering
         ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
         ///   <item>BubbleEntry / BubbleExit → <see cref="IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos"/></item>
-        ///   <item>SurfaceContinuous / CoBubblePeer
+        ///   <item>SurfaceContinuous
         ///         → deferred (returns false, ε stays 0).</item>
         /// </list>
         /// Returns true with a finite world-frame ε; returns false on
@@ -730,8 +728,7 @@ namespace Parsek.Rendering
             // BubbleEntry / BubbleExit are NO LONGER deferred (§7.7 ships
             // in v0.9.1) — the dispatch below handles them via the new
             // resolver method.
-            if (cand.Source == AnchorSource.CoBubblePeer
-                || cand.Source == AnchorSource.SurfaceContinuous)
+            if (cand.Source == AnchorSource.SurfaceContinuous)
             {
                 return false;
             }

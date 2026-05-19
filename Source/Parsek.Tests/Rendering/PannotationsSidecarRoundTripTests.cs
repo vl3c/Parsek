@@ -295,9 +295,9 @@ namespace Parsek.Tests.Rendering
         private static int CountOffset(string recordingId, int blockIndex)
         {
             // blockIndex: 0 = stringTableCount, 1 = splineCount, 2 = outlierCount,
-            // 3 = anchorCount, 4 = coBubbleCount. With Phase 1's empty payload,
-            // each post-block-0 count sits exactly 4 bytes after the previous
-            // one (no entries written between them).
+            // 3 = anchorCount. With Phase 1's empty payload, each post-block-0
+            // count sits exactly 4 bytes after the previous one (no entries
+            // written between them).
             int header = 52 + 1 + Encoding.UTF8.GetByteCount(recordingId);
             return header + blockIndex * 4;
         }
@@ -478,12 +478,12 @@ namespace Parsek.Tests.Rendering
             PannotationsSidecarBinary.Write(path, "recT", 1, 7, hash,
                 new List<KeyValuePair<int, SmoothingSpline>>());
 
-            // Empty Phase-1 payload has 16 bytes after the string-table
-            // count (4 each for splineCount, outlierCount, anchorCount,
-            // coBubbleCount). Set tableCount = 17 → 17 bytes of payload
-            // claimed, only 16 remain.
+            // Empty Phase-1 payload has 12 bytes after the string-table
+            // count (4 each for splineCount, outlierCount, anchorCount).
+            // Set tableCount = 13 → 13 bytes of payload claimed, only 12
+            // remain.
             byte[] bytes = File.ReadAllBytes(path);
-            WriteInt32At(bytes, CountOffset("recT", 0), 17);
+            WriteInt32At(bytes, CountOffset("recT", 0), 13);
             File.WriteAllBytes(path, bytes);
 
             Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
