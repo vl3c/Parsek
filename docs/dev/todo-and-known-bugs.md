@@ -12,6 +12,25 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.10.0 STASH duplicated each Re-Fly slot when the supersede target carried no ChainId, and stripped UF rows out of the regular tree
+
+- Playtest 2026-05-19 (`logs/2026-05-19_2055_pr901-stash-organization/`). User reported two "Kerbal X" rows in the STASH subgroup plus the natural "Kerbal X" / "Kerbal X Probe" mission folder showing no rows besides the Debris subfolder. Save state breakdown: tree had a two-recording chain `2d8a6f06... (chainIndex 0) -> 7cc628a9... (chainIndex 1)` for slot 0, and the Re-Fly merge wrote `rec_0eb2638a...` (no ChainId) superseding the chain tip `7cc628a9`, plus `rec_ca116476...` (no ChainId) for slot 1 superseding the launch row `622f2c96...`. KSP.log lines confirmed three UF members per recompute: `2d8a6f06... reason=crashed side=origin-only`, `rec_0eb2638a... reason=crashed side=child`, `rec_ca116476... reason=crashed side=child`, plus `DrawGroupTree: filtered 3 UF row(s) from regular tree 'Kerbal X'`.
+
+**Root causes (two bugs in one report):**
+
+1. The chain dedupe in `EffectiveState.TryResolveUnfinishedFlight` collapsed only peers that shared the same `ChainId`. The supersede target written by the Re-Fly merge had empty `ChainId`, so it bypassed the dedupe entirely while the launch row's chain-then-supersede-walked slot resolution still mapped it to slot 0. Both the launch row and the supersede target surfaced as separate Unfinished Flight rows for the same logical slot.
+2. `RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree` stripped every Unfinished Flight row out of its natural tree group's direct-member list, leaving the main mission folder empty when all slots had open STASH affordances. The intent was to avoid duplicate rendering after todo item 19 (v5), but the resulting behavior promoted STASH from "mirror for Fly/Seal-eligible rows" to "destination for those rows", losing the natural tree-group placement.
+
+**Fix:**
+
+- Replace the same-`ChainId` dedupe with a per-(RewindPoint, slot) anchor pick. The anchor is the slot's `OriginChildRecordingId` recording when ERS-visible, otherwise the chain-and-supersede-walked tip (`EffectiveState.EffectiveTipRecordingId`) from that origin. Every other recording resolving to the same slot suppresses with a new `reason=slotPeerAnchored` log line carrying `rp=`, `slot=`, `slotOrigin=`, and `anchorRec=`. Covers both the historical optimizer-split shape (chain HEAD wins over chain TIP, slot.Origin == HEAD) and the new re-fly supersede-target shape (launch row wins over the empty-ChainId supersede target) in one rule.
+- Delete `RecordingsTableUI.FilterUnfinishedFlightRowsForRegularTree` and its `DrawGroupTree` call site. The regular-tree direct-member list now feeds `BuildGroupDisplayBlocks` unfiltered, so Unfinished Flight rows render in their natural mission tree group AND in the nested STASH virtual subgroup that surfaces the Fly/Seal affordances. The four unit tests pinning the filter helper are deleted alongside.
+- Two new unit tests in `UnfinishedFlightClassifierTests`: `SupersedeTargetWithoutChainId_SuppressedByVisibleLaunchOriginAnchor` pins the playtest topology exactly (visible launch HEAD with ChainId + chain TIP superseded by an empty-ChainId target, all three resolve to slot 0, only HEAD admits), and `SupersedeTargetWithHiddenOrigin_BecomesAnchor` pins the slot-1 shape (origin is hidden by supersede so the visible supersede target becomes the anchor). Existing chain dedupe tests updated to expect `reason=slotPeerAnchored` and `slotOrigin=`/`anchorRec=` instead of `reason=chainContinuation`.
+
+**Status:** PR open.
+
+---
+
 ## Done - v0.10.0 Scene-exit finalizer leaves sub-orbital recordings stale when vessel solver is torn down
 
 - ~~Sub-orbital recordings whose vessel orbit solver is torn down at scene exit (the destroyed-vessel `PatchedConicSnapshotFailureReason.NullSolver` fingerprint) stayed at their recorder-stamped `terminalState = SubOrbital` even when their `termOrbit.periR` was well inside the planet — so the eventual impact never propagated to the STASH / Unfinished Flights gate. Repro: launch Kerbal X, separate the SRBs and lower-stage probe booster, end the recording. The upper stage + 6 SRB debris all kept `terminalState = SubOrbital` despite trajectories that crash; only the lower-stage probe (which had a populated `PatchedConicSnapshot` chain to reseed from) was reclassified to Destroyed. Playtest log `logs/2026-05-19_1802_pr897-chain-seam-validation/KSP.log` lines 15399-15435 walk the failure: every leaf logs `Extrapolator] Start rejected: sub-surface state … alt=-599888m`, the suppression branch fires correctly (recorded sample contradicts the live-orbit fallback), and the recording is then left with no terminal verdict update.~~
