@@ -1405,6 +1405,81 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
+            Description = "Marker ProtoVessels load with hardened aero/thermal/structural tolerances so they cannot explode mid-Re-Fly")]
+        public void GhostMarkerProtoVesselsHaveHardenedPartTolerances()
+        {
+            if (ParsekSettings.Current == null)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: ParsekSettings.Current is null, skipping");
+                return;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no committed recordings, skipping");
+                return;
+            }
+
+            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
+            try
+            {
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
+                if (markerCount == 0)
+                {
+                    ParsekLog.Info("TestRunner",
+                        "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
+                    return;
+                }
+
+                int checkedVessels = 0;
+                int checkedParts = 0;
+                foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
+                {
+                    if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
+                    checkedVessels++;
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p == null) continue;
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
+                        checkedParts++;
+                    }
+                }
+
+                InGameAssert.IsTrue(checkedVessels > 0,
+                    $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
+                InGameAssert.IsTrue(checkedParts > 0,
+                    $"Expected to inspect at least one marker part, vessels={checkedVessels}");
+
+                ParsekLog.Info("TestRunner",
+                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
+            }
+            finally
+            {
+                ParsekSettings.Current.showGhostsInTrackingStation = original;
+                if (!original)
+                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            }
+        }
+
         #endregion
 
         #region AutoRecord
