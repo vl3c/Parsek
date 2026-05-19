@@ -4889,17 +4889,6 @@ namespace Parsek
                 return;
             }
 
-            if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
-                    tree,
-                    treeRec.RecordingId,
-                    out string reflyAnchor,
-                    out string reflySource))
-            {
-                ApplyReFlyProvisionalAnchorToState(
-                    state, treeRec, bgVessel, ut, reflyAnchor, reflySource);
-                return;
-            }
-
             var candidates = BuildBackgroundRecordingAnchorCandidates(
                 state,
                 bgVessel,
@@ -4909,11 +4898,24 @@ namespace Parsek
                 out int liveAdded,
                 out int ghostScanned,
                 out int ghostAdded);
+
+            // Narrowed-gate filter for re-fly provisionals: mirror of the
+            // FlightRecorder.UpdateAnchorDetection filter. Drop same-tree
+            // candidates so the nearest-search picks only out-of-tree real
+            // anchors. Replaces the old
+            // ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor
+            // supersede-target bypass. See
+            // docs/dev/plans/narrow-refly-relative-gate.md.
+            IReadOnlyList<RecordingAnchorCandidate> nearestSearchCandidates =
+                ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(
+                    tree,
+                    candidates);
+
             var result = AnchorDetector.FindNearestRecordingAnchor(
                 treeRec.RecordingId,
                 state.vesselPid,
                 bgVessel.GetWorldPos3D(),
-                candidates,
+                nearestSearchCandidates,
                 AnchorDetector.RelativeFrameRangeLimit(state.isRelativeMode));
             bool shouldBeRelative = result.found
                 && AnchorDetector.ShouldUseRelativeFrame(result.distance, state.isRelativeMode);
