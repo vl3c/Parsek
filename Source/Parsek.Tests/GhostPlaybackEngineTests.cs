@@ -5285,6 +5285,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessor_SkipsActivationSettle()
+        {
+            // A StandardEnter spawn that replaces a same-chain predecessor whose ghost just
+            // delivered its terminal pose does not need the activation-settle window. The
+            // settle window exists to mask the fresh first-appearance pose pop (visual
+            // construction + anchor resolution racing the engine's first positioning call);
+            // at a chain seam the predecessor's last pose is by construction continuous with
+            // the successor's first pose, so there is no race to suppress. The carve-out
+            // must skip BOTH the initial activation-settle prime AND the minimum-frames
+            // counter that primes off it, mirroring the v13 carve-out structure.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0,
+                spawnedAtChainSeam = true
+            };
+
+            // First frame past the absolute-bridge UT window: would normally hit
+            // activation-settle, but the chain-seam exempt suppresses it.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string firstReason));
+            Assert.Null(firstReason);
+
+            // Subsequent frames stay visible — without the seam exempt this would emit
+            // "minimum-frames" for at least one tick after the prime.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.26, out string secondReason));
+            Assert.Null(secondReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessorWithinUtWindow_StillHidesForPhysicalReason()
+        {
+            // Regression guard: the chain-seam exempt must skip ONLY the activation-settle
+            // fall-through, not the four UT-window clauses. A successor whose first sample
+            // lands inside the relative-start UT window (e.g. a parent-anchored debris
+            // segment that opens with a Relative section) still needs the UT hide for its
+            // own physical reason — recorded anchor pose vs live parent pose. The seam
+            // exemption is about the FRESH-SPAWN race, not the section-frame race.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                // No bodyFixedFrames -- the v13 carve-out coverage gate fails so the
+                // relative-start UT window is the active hide for this trajectory.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0,
+                spawnedAtChainSeam = true
+            };
+
+            // Frame at activationStart + 0.04 s is inside the 0.080 s relative-start window.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string reason));
+            Assert.Equal("relative-start", reason);
+        }
+
+        [Fact]
         public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
         {
             // The v13 carve-out must skip BOTH initial-hide layers for parent-

@@ -1509,8 +1509,13 @@ namespace Parsek
                 state = CreatePendingSpawnState(
                     traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
                 ghostStates[i] = state;
+                // Chain seam: skip time-slicing the build so gs.ghost is set the same frame the
+                // successor enters range. The mid-chain Watch transfer then succeeds on its first
+                // attempt instead of defer-retrying for 3-5 frames while the launch ghost's
+                // terminal frame remains glued to the camera.
                 GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
                     i, traj, state, ctx.currentUT, "first spawn",
+                    forceImmediateBuild: state.spawnedAtChainSeam,
                     resetCompletedEventDedup: true);
                 if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
                 {
@@ -4888,8 +4893,19 @@ namespace Parsek
                 flagEventIndex = 0,
                 pendingSpawnLifecycle = lifecycle,
                 pendingSpawnFlags = flags,
+                spawnedAtChainSeam = flags.isChainSeamSuccessor
+                    && lifecycle == PendingSpawnLifecycle.StandardEnter,
                 audioPaused = ghostAudioPaused
             };
+
+            if (state.spawnedAtChainSeam)
+            {
+                string shortRecId = string.IsNullOrEmpty(state.recordingId)
+                    ? "(no-id)"
+                    : (state.recordingId.Length > 8 ? state.recordingId.Substring(0, 8) : state.recordingId);
+                ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                    $"Chain-seam spawn: vessel='{state.vesselName}' rec={shortRecId} UT={playbackUT:F2}: force-immediate-build + skip activation-settle (predecessor pose is continuous)"));
+            }
 
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
             {
@@ -6221,8 +6237,23 @@ namespace Parsek
             // activation-settle skip, so the two carve-outs stay in lockstep.
             bool v13ParentAnchoredDebrisExempt =
                 IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj);
+            // Chain-seam carve-out: a StandardEnter spawn that replaces a same-chain predecessor
+            // whose ghost just delivered its terminal pose this same frame does not need the
+            // activation-settle hold. The settle window exists to mask the fresh first-appearance
+            // pose pop that races visual construction + anchor resolution against the engine's
+            // first positioning call; at a chain seam the predecessor's last pose is by
+            // construction continuous with the successor's first pose (same vessel id, same chain,
+            // same body, same physics tick), so there is no first-appearance race to suppress.
+            // Skipping settle here removes the 14 ms invisible-ghost gap the camera otherwise sees
+            // immediately after a chain handoff and keeps the new ghost visually continuous with
+            // the just-departed predecessor. UT-window clauses above (debris-seed-bridge,
+            // relative-start, absolute-seed-bridge, absolute-primer-to-relative) are unaffected;
+            // chain successors that fall inside one of those windows still hide for the window's
+            // own physical reason.
+            bool chainSeamSpawnExempt = state.spawnedAtChainSeam;
             bool withinActivationSettle = !withinUtWindow
                 && !v13ParentAnchoredDebrisExempt
+                && !chainSeamSpawnExempt
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;

@@ -100,6 +100,11 @@ namespace Parsek
         public int appearanceCount;              // increments every time the ghost becomes visibly rendered again
         public bool initialRelativeActivationHiddenPrimed;
         public int initialRelativeActivationHiddenFramesRemaining;
+        // Set at CreatePendingSpawnState time from flags.isChainSeamSuccessor. Sticky for the
+        // life of the state. Read by ShouldHoldInitialActivationHiddenThisFrame to skip the
+        // activation-settle fall-through (the predecessor's continuous terminal pose removes
+        // the fresh-spawn race the settle window exists to mask).
+        public bool spawnedAtChainSeam;
 
         internal void ClearLoadedVisualReferences()
         {
