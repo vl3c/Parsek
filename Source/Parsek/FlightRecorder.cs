@@ -5694,13 +5694,14 @@ namespace Parsek
             else if (!onSurface)
             {
                 // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
-                // When the setting is on and the active recording is a non-
-                // parent-anchored re-fly provisional, skip BOTH the bypass
-                // below and the fallback nearest-search so the recorder
-                // stays in Absolute. Parent-anchored re-fly provisionals
-                // are excluded by the predicate (their Relative contract
-                // uses a LIVE parent vessel as anchor, orthogonal to this
-                // experiment).
+                // When the setting is on and the active recording is the
+                // live re-fly provisional, skip BOTH the bypass below and
+                // the fallback nearest-search so the recorder stays in
+                // Absolute. Applies uniformly to top-level and parent-
+                // anchored re-fly provisionals (the earlier
+                // DebrisParentRecordingId carve-out was removed: runtime
+                // analysis showed the bypass pins to the supersede target
+                // for parent-anchored provisionals too).
                 //
                 // Frame-ordering note: UpdateEnvironmentTracking runs
                 // BEFORE this method in the same physics frame, so if an

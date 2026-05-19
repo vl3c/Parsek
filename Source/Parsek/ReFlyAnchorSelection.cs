@@ -172,22 +172,24 @@ namespace Parsek
         /// <summary>
         /// Predicate gating the experimental
         /// <c>forceAbsoluteForReFlyProvisional</c> setting. Returns true iff
-        /// the active recording is the live re-fly provisional AND is NOT
-        /// parent-anchored (controlled-decoupled child being re-flown).
-        /// The parent-anchored carve-out exists because
-        /// <see cref="RewindInvoker"/>'s inherit-from helper propagates
-        /// <c>DebrisParentRecordingId</c> to the provisional
-        /// (RewindInvoker.cs:247), and the parent-anchored contract uses
-        /// Relative against the LIVE parent vessel, which is exactly the case
-        /// Relative was designed for. The force-Absolute setting is scoped
-        /// to the "Relative-against-superseded-origin" anti-pattern, so
-        /// parent-anchored re-fly provisionals stay on their existing
-        /// contract regardless of the setting.
+        /// the active recording is the live re-fly provisional.
+        ///
+        /// <para>Earlier versions excluded parent-anchored re-fly provisionals
+        /// (controlled-decoupled child being re-flown, with
+        /// <c>DebrisParentRecordingId</c> set on the provisional) on the
+        /// premise that their Relative contract uses the LIVE parent vessel
+        /// as anchor. Runtime analysis of an actual probe re-fly disproved
+        /// that premise: the recorder's bypass
+        /// (<see cref="TryResolveReFlyProvisionalAnchor"/>) runs first and
+        /// pins the Relative anchor to the supersede target (a ghost
+        /// resolved via Slerp), not to the live parent. Parent-anchored
+        /// re-fly provisionals fall into the exact same
+        /// "Relative-against-superseded-origin" anti-pattern as top-level
+        /// re-fly provisionals, so the gate applies to both uniformly.</para>
         /// </summary>
         internal static bool IsActiveRecordingReFlyProvisional(
             ReFlySessionMarker marker,
-            string activeRecordingId,
-            string debrisParentRecordingId)
+            string activeRecordingId)
         {
             if (marker == null) return false;
             if (string.IsNullOrEmpty(activeRecordingId)) return false;
@@ -196,41 +198,21 @@ namespace Parsek
                     activeRecordingId,
                     StringComparison.Ordinal))
                 return false;
-            if (!string.IsNullOrEmpty(debrisParentRecordingId)) return false;
             return true;
         }
 
         /// <summary>
-        /// Production wrapper. Derives marker + ids from live scenario state
-        /// and the supplied active tree. One tree lookup; no recursion.
-        ///
-        /// <para>If the active recording id is not found in
-        /// <c>activeTree.Recordings</c>, <c>debrisParentRecordingId</c>
-        /// falls through to null and the predicate returns true (the gate
-        /// fires). That is the SAFE failure mode for this experiment: a
-        /// transiently-unresolved provisional defaults to "non-parent-
-        /// anchored" rather than to "parent-anchored", because forcing
-        /// Absolute on a non-parent-anchored re-fly provisional is the
-        /// experiment's intent, while incorrectly applying the carve-out
-        /// to a non-parent-anchored provisional would silently revert to
-        /// Relative authoring and defeat the toggle.</para>
+        /// Production wrapper. Derives marker + active recording id from live
+        /// scenario state and the supplied active tree. No tree lookup needed
+        /// after the carve-out removal (the predicate no longer reads
+        /// <c>DebrisParentRecordingId</c>).
         /// </summary>
         internal static bool IsActiveRecordingReFlyProvisional(
             RecordingTree activeTree)
         {
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             string activeRecordingId = activeTree?.ActiveRecordingId;
-            string debrisParentRecordingId = null;
-            if (marker != null
-                && !string.IsNullOrEmpty(activeRecordingId)
-                && activeTree?.Recordings != null
-                && activeTree.Recordings.TryGetValue(activeRecordingId, out Recording rec)
-                && rec != null)
-            {
-                debrisParentRecordingId = rec.DebrisParentRecordingId;
-            }
-            return IsActiveRecordingReFlyProvisional(
-                marker, activeRecordingId, debrisParentRecordingId);
+            return IsActiveRecordingReFlyProvisional(marker, activeRecordingId);
         }
 
         private static bool TryWalkSupersedeChain(

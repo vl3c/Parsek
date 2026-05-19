@@ -6,7 +6,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Covers the pure overload of
-    /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string, string)"/>
+    /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string)"/>
     /// (the predicate gating the experimental
     /// <c>forceAbsoluteForReFlyProvisional</c> setting), plus the setting's
     /// default value, persistence round-trip, and notify-helper behavior.
@@ -41,8 +41,7 @@ namespace Parsek.Tests
         {
             bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
                 marker: null,
-                activeRecordingId: "rec_prov",
-                debrisParentRecordingId: null);
+                activeRecordingId: "rec_prov");
 
             Assert.False(result);
         }
@@ -58,8 +57,7 @@ namespace Parsek.Tests
 
             bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
                 marker,
-                activeRecordingId: "rec_prov",
-                debrisParentRecordingId: null);
+                activeRecordingId: "rec_prov");
 
             Assert.False(result);
         }
@@ -74,8 +72,7 @@ namespace Parsek.Tests
 
             bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
                 marker,
-                activeRecordingId: null,
-                debrisParentRecordingId: null);
+                activeRecordingId: null);
 
             Assert.False(result);
         }
@@ -90,37 +87,13 @@ namespace Parsek.Tests
 
             bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
                 marker,
-                activeRecordingId: string.Empty,
-                debrisParentRecordingId: null);
-
-            Assert.False(result);
-        }
-
-        /// <summary>
-        /// Parent-anchored carve-out: a re-fly provisional whose original was
-        /// a controlled-decoupled child (RewindInvoker.cs:247 propagates the
-        /// parent recording id) stays on the parent-anchored contract. The
-        /// predicate returns false so the force-Absolute gate never fires.
-        /// </summary>
-        [Fact]
-        public void IsActiveRecordingReFlyProvisional_ParentAnchoredCarveOut_ReturnsFalse()
-        {
-            var marker = new ReFlySessionMarker
-            {
-                ActiveReFlyRecordingId = "rec_prov_child",
-                SupersedeTargetId = "rec_target_child"
-            };
-
-            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
-                marker,
-                activeRecordingId: "rec_prov_child",
-                debrisParentRecordingId: "rec_parent");
+                activeRecordingId: string.Empty);
 
             Assert.False(result);
         }
 
         [Fact]
-        public void IsActiveRecordingReFlyProvisional_MatchingMarkerNonParentAnchored_ReturnsTrue()
+        public void IsActiveRecordingReFlyProvisional_MatchingMarker_ReturnsTrue()
         {
             var marker = new ReFlySessionMarker
             {
@@ -130,24 +103,7 @@ namespace Parsek.Tests
 
             bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
                 marker,
-                activeRecordingId: "rec_prov",
-                debrisParentRecordingId: null);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void IsActiveRecordingReFlyProvisional_EmptyDebrisParentId_ReturnsTrue()
-        {
-            var marker = new ReFlySessionMarker
-            {
-                ActiveReFlyRecordingId = "rec_prov"
-            };
-
-            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
-                marker,
-                activeRecordingId: "rec_prov",
-                debrisParentRecordingId: string.Empty);
+                activeRecordingId: "rec_prov");
 
             Assert.True(result);
         }
@@ -199,10 +155,8 @@ namespace Parsek.Tests
 
         // -----------------------------------------------------------------
         // Production-wrapper coverage: IsActiveRecordingReFlyProvisional(RecordingTree)
-        // walks ParsekScenario.Instance + activeTree to derive its inputs.
-        // The docstring claims the marker-id-not-in-tree case defaults to
-        // "non-parent-anchored" (predicate returns true) as the SAFE
-        // failure mode for the experiment. Pin that claim.
+        // reads ParsekScenario.Instance + activeTree.ActiveRecordingId.
+        // No recording-table lookup after the carve-out removal.
         // -----------------------------------------------------------------
 
         [Fact]
@@ -244,7 +198,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesNonParentAnchored_ReturnsTrue()
+        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesActiveId_ReturnsTrue()
         {
             var scenario = new ParsekScenario
             {
@@ -257,12 +211,6 @@ namespace Parsek.Tests
             try
             {
                 var tree = new RecordingTree { ActiveRecordingId = "rec_prov" };
-                tree.Recordings["rec_prov"] = new Recording
-                {
-                    RecordingId = "rec_prov",
-                    DebrisParentRecordingId = null
-                };
-
                 bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
                 Assert.True(result);
             }
@@ -272,8 +220,18 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// Pin the post-carve-out behavior: a re-fly provisional whose
+        /// origin was a controlled-decoupled child (DebrisParentRecordingId
+        /// non-null) now fires the predicate the same as a top-level
+        /// re-fly. Runtime analysis (2026-05-19 Kerbal X Probe re-fly)
+        /// showed that the recorder's TryResolveReFlyProvisionalAnchor
+        /// bypass pins to the supersede target for parent-anchored
+        /// provisionals identically to top-level ones, so the gate
+        /// applies to both populations.
+        /// </summary>
         [Fact]
-        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesParentAnchored_ReturnsFalse()
+        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesParentAnchored_ReturnsTrue()
         {
             var scenario = new ParsekScenario
             {
@@ -286,48 +244,14 @@ namespace Parsek.Tests
             try
             {
                 var tree = new RecordingTree { ActiveRecordingId = "rec_prov_child" };
+                // DebrisParentRecordingId on the recording is no longer
+                // consulted by the predicate. The recording entry itself
+                // doesn't even need to exist in tree.Recordings.
                 tree.Recordings["rec_prov_child"] = new Recording
                 {
                     RecordingId = "rec_prov_child",
                     DebrisParentRecordingId = "rec_parent"
                 };
-
-                bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
-                Assert.False(result);
-            }
-            finally
-            {
-                ParsekScenario.ResetInstanceForTesting();
-            }
-        }
-
-        /// <summary>
-        /// Safe-failure-mode pin: when the marker references an active id
-        /// that isn't present in activeTree.Recordings, the wrapper falls
-        /// through with debrisParentRecordingId=null and the predicate
-        /// returns true (the gate would fire). Documented in the wrapper's
-        /// XML doc as the intended direction: defaulting to non-parent-
-        /// anchored on a transient lookup miss matches the experiment's
-        /// goal of forcing Absolute on the re-fly provisional; defaulting
-        /// to parent-anchored would silently revert to Relative and
-        /// defeat the toggle.
-        /// </summary>
-        [Fact]
-        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerIdNotInTree_FallsThroughToTrue()
-        {
-            var scenario = new ParsekScenario
-            {
-                ActiveReFlySessionMarker = new ReFlySessionMarker
-                {
-                    ActiveReFlyRecordingId = "rec_prov"
-                }
-            };
-            ParsekScenario.SetInstanceForTesting(scenario);
-            try
-            {
-                var tree = new RecordingTree { ActiveRecordingId = "rec_prov" };
-                // Deliberately empty Recordings: id matches but lookup fails.
-                Assert.False(tree.Recordings.ContainsKey("rec_prov"));
 
                 bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
                 Assert.True(result);

@@ -16,10 +16,11 @@ namespace Parsek.InGameTests
     /// meaningless).</para>
     ///
     /// <para>This pins the production-side wiring: when the setting is
-    /// on and the predicate would return true, the recorder must have
-    /// stayed in Absolute; when the setting is off or the predicate
-    /// returns false (parent-anchored carve-out), the recorder may have
-    /// opened Relative as before.</para>
+    /// on and the predicate fires, the recorder must have stayed in
+    /// Absolute; when the setting is off, the recorder may have opened
+    /// Relative as before. The predicate now fires uniformly for top-
+    /// level and parent-anchored re-fly provisionals (the earlier
+    /// DebrisParentRecordingId carve-out was removed).</para>
     /// </summary>
     public class ForceAbsoluteReFlyProvisionalGateInGameTest
     {
@@ -60,7 +61,7 @@ namespace Parsek.InGameTests
 
             string debrisParentRecordingId = activeRec.DebrisParentRecordingId;
             bool predicateFires = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
-                marker, activeRecordingId, debrisParentRecordingId);
+                marker, activeRecordingId);
 
             ParsekLog.Info("RewindTest",
                 $"ForceAbsoluteReFlyProvisionalGate: setting={settings.forceAbsoluteForReFlyProvisional} " +
@@ -89,22 +90,17 @@ namespace Parsek.InGameTests
                 // recorded before the setting was flipped on; we only
                 // assert the tail because that's the section the current
                 // recorder branch is authoring.
+                //
+                // The gate applies uniformly to parent-anchored and top-
+                // level re-fly provisionals (the earlier
+                // DebrisParentRecordingId carve-out was removed after the
+                // 2026-05-19 Kerbal X Probe re-fly showed parent-anchored
+                // provisionals fall into the same supersede-target anchor
+                // anti-pattern as top-level ones).
                 InGameAssert.AreEqual(ReferenceFrame.Absolute, tail.referenceFrame,
                     $"force-absolute-refly setting is ON and predicate fires, but tail " +
                     $"TrackSection is {tail.referenceFrame} (expected Absolute). " +
-                    $"recordingId={activeRecordingId}");
-            }
-            else if (!string.IsNullOrEmpty(debrisParentRecordingId)
-                && string.Equals(marker.ActiveReFlyRecordingId, activeRecordingId,
-                    System.StringComparison.Ordinal))
-            {
-                // Parent-anchored carve-out: predicate returns false even
-                // when activeId matches, because DebrisParentRecordingId
-                // is set. The recorder may have opened Relative against
-                // the parent; this is intentional.
-                InGameAssert.IsFalse(predicateFires,
-                    "Parent-anchored re-fly provisional must not fire the gate predicate " +
-                    $"(activeRecId={activeRecordingId}, debrisParentRecId={debrisParentRecordingId})");
+                    $"recordingId={activeRecordingId} debrisParentRecId={debrisParentRecordingId ?? "(none)"}");
             }
 
             ParsekLog.Info("RewindTest",

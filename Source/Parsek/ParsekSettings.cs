@@ -227,14 +227,14 @@ namespace Parsek
         /// <c>.pann</c> sidecars. See
         /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c>.</para>
         ///
-        /// <para>Parent-anchored re-fly provisionals (controlled-decoupled
-        /// children being re-flown, with <c>RewindInvoker.cs:247</c>
-        /// propagating <c>DebrisParentRecordingId</c>) are explicitly
-        /// excluded from this gate via
-        /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string, string)"/>.
-        /// Their parent-anchored Relative contract uses a LIVE parent
-        /// vessel as anchor, which is exactly the case Relative was
-        /// designed for and is orthogonal to this experiment.</para>
+        /// <para>The gate applies uniformly to all re-fly provisionals,
+        /// including parent-anchored ones (controlled-decoupled children
+        /// being re-flown). Runtime analysis showed that the recorder's
+        /// <see cref="ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor"/>
+        /// bypass pins to the supersede target (a ghost resolved via
+        /// Slerp) for parent-anchored provisionals too, so the
+        /// "Relative-against-superseded-origin" anti-pattern that
+        /// motivated this experiment applies to both populations.</para>
         /// </summary>
         [GameParameters.CustomParameterUI("Force Absolute for re-fly provisional (experimental)",
             toolTip = "Experimental. When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode. Off (default) preserves the current behavior. Useful for A/B testing simplified Absolute rendering vs. the Relative-against-superseded-origin path. Flipping mid-recording produces a section boundary in the active recording.")]
