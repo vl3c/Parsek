@@ -179,7 +179,7 @@ to be recovered.
     `RecomputeDeferredCoBubbleTraces`,
     `SectionAnnotationStore.TryGetCoBubbleTraces`,
     `Pipeline-CoBubble` log assertions, or the 4-out
-    `TryRead` overload exposing `List<CoBubbleOffsetTrace>` — delete
+    `TryRead` overload exposing `List<CoBubbleOffsetTrace>`: delete
     or rewrite as no-co-bubble where the test was multi-purpose.
 - `Source/Parsek.Tests/Rendering/PannotationsSidecarRoundTripTests.cs`
   - Drop `coBubbleCount` mentions in the truncated-payload offset

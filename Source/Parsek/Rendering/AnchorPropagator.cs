@@ -228,11 +228,14 @@ namespace Parsek.Rendering
                 }
             }
 
-            // Phase 1 — emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
+            // Phase 1: emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
             // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
-            // for §7.8 / §7.9 (deferred sources — see the class docstring)
-            // the slot is reserved with ε = 0 so the §7.11 priority resolver
-            // still runs.
+            // for §7.9 (deferred source, see the class docstring) the slot is
+            // reserved with ε = 0 so the §7.11 priority resolver still runs.
+            // §7.8 (CoBubblePeer) was retired in v0.10.0 along with the
+            // co-bubble subsystem; the enum slot remains as Reserved7 to
+            // preserve the persisted AnchorCandidate type-byte layout, but no
+            // producer ever emits an AnchorSource.Reserved7 candidate.
             int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
                 resolvedLoop = 0, resolvedBubble = 0,
                 deferredNoResolver = 0, deferredNoSpline = 0;
