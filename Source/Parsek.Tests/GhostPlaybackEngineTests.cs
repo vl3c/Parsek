@@ -5284,6 +5284,130 @@ namespace Parsek.Tests
                 traj, state, 100.21));
         }
 
+        // Parametrized by lifecycle ordinal because xUnit InlineData on an internal enum
+        // would force this test method to be internal (less-accessible-parameter rule), and
+        // xUnit only discovers public methods.
+        [Theory]
+        [InlineData(true, (int)PendingSpawnLifecycle.StandardEnter, true)]
+        [InlineData(true, (int)PendingSpawnLifecycle.LoopEnter, false)]
+        [InlineData(true, (int)PendingSpawnLifecycle.OverlapPrimaryEnter, false)]
+        [InlineData(true, (int)PendingSpawnLifecycle.None, false)]
+        [InlineData(false, (int)PendingSpawnLifecycle.StandardEnter, false)]
+        [InlineData(false, (int)PendingSpawnLifecycle.LoopEnter, false)]
+        public void ShouldMarkSpawnedAtChainSeam_OnlyStandardEnterWithSeamFlagQualifies(
+            bool isChainSeamSuccessor,
+            int lifecycleOrdinal,
+            bool expected)
+        {
+            // Pins that the chain-seam fast-path applies ONLY to StandardEnter spawns. Loop
+            // reentries (LoopEnter) and overlap-primary spawns (OverlapPrimaryEnter) come from
+            // the same recording as the just-completed cycle and have a real fresh first-
+            // appearance race the activation-settle hold exists to mask — they must not take
+            // the carve-out even if the per-frame flag is still set on the recording.
+            var lifecycle = (PendingSpawnLifecycle)lifecycleOrdinal;
+            Assert.Equal(expected,
+                GhostPlaybackEngine.ShouldMarkSpawnedAtChainSeam(isChainSeamSuccessor, lifecycle));
+        }
+
+        [Fact]
+        public void ClearLoadedVisualReferences_ResetsSpawnedAtChainSeam()
+        {
+            // The seam fast-path applies to "this spawn was a seam", not "this state ever
+            // started at a seam". A long-lived state that distance-LOD unloads and re-hydrates
+            // later must NOT silently skip activation-settle on the rehydration — that rebuild
+            // has no predecessor terminal-pose continuity claim. ClearLoadedVisualReferences
+            // (invoked from UnloadGhostVisuals) must reset the flag alongside the other
+            // initial-hide state machine fields.
+            var state = new GhostPlaybackState
+            {
+                spawnedAtChainSeam = true,
+                initialRelativeActivationHiddenPrimed = true,
+                initialRelativeActivationHiddenFramesRemaining = 2
+            };
+
+            state.ClearLoadedVisualReferences();
+
+            Assert.False(state.spawnedAtChainSeam);
+            Assert.False(state.initialRelativeActivationHiddenPrimed);
+            Assert.Equal(0, state.initialRelativeActivationHiddenFramesRemaining);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessor_SkipsActivationSettle()
+        {
+            // A StandardEnter spawn that replaces a same-chain predecessor whose ghost just
+            // delivered its terminal pose does not need the activation-settle window. The
+            // settle window exists to mask the fresh first-appearance pose pop (visual
+            // construction + anchor resolution racing the engine's first positioning call);
+            // at a chain seam the predecessor's last pose is by construction continuous with
+            // the successor's first pose, so there is no race to suppress. The carve-out
+            // must skip BOTH the initial activation-settle prime AND the minimum-frames
+            // counter that primes off it, mirroring the v13 carve-out structure.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 105.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 100.52, bodyName = "Kerbin" }
+                },
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0,
+                spawnedAtChainSeam = true
+            };
+
+            // First frame past the absolute-bridge UT window: would normally hit
+            // activation-settle, but the chain-seam exempt suppresses it.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.25, out string firstReason));
+            Assert.Null(firstReason);
+
+            // Subsequent frames stay visible — without the seam exempt this would emit
+            // "minimum-frames" for at least one tick after the prime.
+            Assert.False(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.26, out string secondReason));
+            Assert.Null(secondReason);
+        }
+
+        [Fact]
+        public void ShouldHoldInitialActivationHiddenThisFrame_ChainSeamSuccessorWithinUtWindow_StillHidesForPhysicalReason()
+        {
+            // Regression guard: the chain-seam exempt must skip ONLY the activation-settle
+            // fall-through, not the four UT-window clauses. A successor whose first sample
+            // lands inside the relative-start UT window (e.g. a parent-anchored debris
+            // segment that opens with a Relative section) still needs the UT hide for its
+            // own physical reason — recorded anchor pose vs live parent pose. The seam
+            // exemption is about the FRESH-SPAWN race, not the section-frame race.
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.IsDebris = true;
+            traj.DebrisParentRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 105.0,
+                // No bodyFixedFrames -- the v13 carve-out coverage gate fails so the
+                // relative-start UT window is the active hide for this trajectory.
+            });
+            var state = new GhostPlaybackState
+            {
+                deferVisibilityUntilPlaybackSync = true,
+                appearanceCount = 0,
+                spawnedAtChainSeam = true
+            };
+
+            // Frame at activationStart + 0.04 s is inside the 0.080 s relative-start window.
+            Assert.True(GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, 100.04, out string reason));
+            Assert.Equal("relative-start", reason);
+        }
+
         [Fact]
         public void ShouldHoldInitialActivationHiddenThisFrame_V13ParentAnchoredDebrisWithBodyFixedPrimary_ReturnsFalse()
         {

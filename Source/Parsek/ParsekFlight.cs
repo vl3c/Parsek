@@ -17796,6 +17796,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure-static predicate for <c>TrajectoryPlaybackFlags.isChainSeamSuccessor</c>: the
+        /// successor qualifies for chain-seam handoff treatment iff its branch-0 predecessor in
+        /// the same chain currently has a ghost state and is at or past its own <c>EndUT</c> this
+        /// frame. The <c>1e-6</c> epsilon mirrors other "at or past" comparisons in the engine
+        /// (e.g. early debris completion at <c>GhostPlaybackEngine.cs</c>) so floating-point
+        /// dust around an exact endpoint match doesn't flip the predicate frame-to-frame.
+        /// </summary>
+        internal static bool IsChainSeamSuccessor(
+            double currentUT, double predecessorEndUT, bool predecessorHasGhostState)
+        {
+            if (!predecessorHasGhostState) return false;
+            return currentUT + 1e-6 >= predecessorEndUT;
+        }
+
+        private bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
+        {
+            // Cheap call-site early-outs for the standalone-recording majority. GetChainPredecessorIndex
+            // performs the same checks before its O(N) scan, but the function call itself is the cost
+            // we save here — this runs once per committed recording per frame inside ComputePlaybackFlags
+            // (200+ recording saves spent most of that budget on entry/exit of the helper).
+            if (rec == null) return false;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            if (rec.ChainBranch != 0) return false;
+            if (rec.ChainIndex <= 0) return false;
+
+            int predIdx = RecordingStore.GetChainPredecessorIndex(rec);
+            if (predIdx < 0) return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (predIdx >= committed.Count) return false;
+            Recording predecessor = committed[predIdx];
+            if (predecessor == null) return false;
+            bool predHasGhost = engine != null
+                && engine.TryGetGhostState(predIdx, out GhostPlaybackState predState)
+                && predState != null;
+            return IsChainSeamSuccessor(currentUT, predecessor.EndUT, predHasGhost);
+        }
+
+        /// <summary>
         /// Pre-computes policy flags for all committed recordings. Called once per frame
         /// before the engine's update loop. Eliminates per-recording RecordingStore queries
         /// from the hot path (was O(n^2), now O(n)).
@@ -17910,6 +17948,7 @@ namespace Parsek
                     needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
                     isChainLooping = chainLooping,
+                    isChainSeamSuccessor = IsChainSeamSuccessorAtFrame(rec, currentUT),
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
