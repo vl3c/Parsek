@@ -235,8 +235,13 @@ namespace Parsek
             // applicable. Recovered/Docked are excluded from the override
             // path because they fall through to the existing stableTerminal
             // close + IsHardSafetyTerminal auto-seal; Boarded / Destroyed
-            // returned earlier above. Non-Re-Fly callers pass null and
-            // follow the existing stashed / focus / orbit flow unchanged.
+            // returned earlier above. SubOrbital is also excluded: a
+            // suborbital arc is "still in flight" (the vessel will crash,
+            // land, splash, or with a burn reach orbit) and is not a
+            // conclusive outcome, so it falls through to the
+            // stableLeafUnconcluded branch below and keeps the slot open.
+            // Non-Re-Fly callers pass null and follow the existing stashed
+            // / focus / orbit flow unchanged.
             if (focusSlotOverride.HasValue && rp != null
                 && IsReFlyOverrideStableTerminal(terminal.Value))
             {
@@ -306,7 +311,17 @@ namespace Parsek
                 return false;
             }
 
-            if (slotListIndex == rp.FocusSlotIndex)
+            // Static-focus seal: only Orbiting concludes the engagement on the
+            // focus slot. SubOrbital falls through to the stableLeafUnconcluded
+            // branch below because a suborbital arc is still in flight: the
+            // vessel will crash, land, splash, or with a burn reach orbit.
+            // Sealing the slot here would close the loop before the outcome is
+            // known. Keeping the slot open for SubOrbital lines up with the
+            // Re-Fly override path above (which also excludes SubOrbital) and
+            // with TerminalKindClassifier.Classify (which routes SubOrbital to
+            // InFlight, not Landed).
+            if (slotListIndex == rp.FocusSlotIndex
+                && terminal.Value == TerminalState.Orbiting)
             {
                 reason = "stableTerminalFocusSlot";
                 LogVerdict(false, recId, reason,
@@ -341,19 +356,24 @@ namespace Parsek
 
         /// <summary>
         /// Stable terminals that the Re-Fly merge focus override seals on the
-        /// player-chosen slot. Recovered / Docked / Boarded are excluded —
-        /// they reach the slot-close path through their own existing branches
-        /// (Boarded EVA returns at the EVA branch above, Recovered / Docked
-        /// fall through to <c>stableTerminal</c> + <c>IsHardSafetyTerminal</c>
-        /// auto-seal in <see cref="SupersedeCommit"/>). Destroyed returned
-        /// earlier as <c>crashed</c>.
+        /// player-chosen slot. Recovered / Docked / Boarded are excluded
+        /// because they reach the slot-close path through their own existing
+        /// branches (Boarded EVA returns at the EVA branch above, Recovered /
+        /// Docked fall through to <c>stableTerminal</c> +
+        /// <c>IsHardSafetyTerminal</c> auto-seal in
+        /// <see cref="SupersedeCommit"/>). Destroyed returned earlier as
+        /// <c>crashed</c>. SubOrbital is also excluded: a suborbital arc is
+        /// still in flight (the vessel will crash, land, splash, or with a
+        /// burn reach orbit), so it falls through to
+        /// <c>stableLeafUnconcluded</c> and keeps the slot open. This aligns
+        /// the slot-close contract with <see cref="TerminalKindClassifier.Classify"/>,
+        /// which already routes SubOrbital to <c>InFlight</c>.
         /// </summary>
         private static bool IsReFlyOverrideStableTerminal(TerminalState terminal)
         {
             switch (terminal)
             {
                 case TerminalState.Orbiting:
-                case TerminalState.SubOrbital:
                 case TerminalState.Landed:
                 case TerminalState.Splashed:
                     return true;

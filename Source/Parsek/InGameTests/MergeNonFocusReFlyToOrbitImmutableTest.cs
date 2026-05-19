@@ -72,12 +72,16 @@ namespace Parsek.InGameTests
 
             Recording chainTip = EffectiveState.ResolveChainTerminalRecording(provisional);
             TerminalState? terminal = chainTip?.TerminalStateValue;
-            if (!terminal.HasValue
-                || (terminal.Value != TerminalState.Orbiting
-                    && terminal.Value != TerminalState.SubOrbital))
+            if (!terminal.HasValue || terminal.Value != TerminalState.Orbiting)
             {
+                // SubOrbital is excluded: under the post-fix contract a
+                // suborbital arc is still in flight and the merge lands at
+                // CommittedProvisional via stableLeafUnconcluded, not at
+                // Immutable. This test pins the Orbiting path only;
+                // the SubOrbital end-to-end behavior has its own test
+                // (MergeReFlyToSubOrbitalKeepsSlotOpenTest).
                 InGameAssert.Skip(
-                    $"chain-tip terminal is {(terminal.HasValue ? terminal.Value.ToString() : "<none>")}; this test requires Orbiting / SubOrbital.");
+                    $"chain-tip terminal is {(terminal.HasValue ? terminal.Value.ToString() : "<none>")}; this test requires Orbiting.");
                 return;
             }
 
