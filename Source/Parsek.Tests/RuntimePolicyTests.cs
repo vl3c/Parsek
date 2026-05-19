@@ -1035,6 +1035,93 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ShouldAutoFollowChainSeamSpawn
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_WatchedRecordingIsPredecessor_ReturnsTrue()
+        {
+            // Canonical happy path. Watched recording at committed index 5 is the chain
+            // predecessor of the newly-spawned successor at committed index 8. The seam-spawn
+            // flag is set on the new state. Camera should auto-follow.
+            Assert.True(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: true,
+                watchedIndex: 5,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: 5));
+        }
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_NotAChainSeamSpawn_ReturnsFalse()
+        {
+            // The seam-spawn flag gates the entire decision. A first-spawn that wasn't
+            // flagged as a chain seam (e.g. a scene-load spawn of a chain head) must not
+            // trigger a watch transfer, even if the predecessor index happens to match the
+            // watched index (a coincidence that shouldn't happen in practice but the
+            // predicate guards against it anyway).
+            Assert.False(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: false,
+                watchedIndex: 5,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: 5));
+        }
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_WatchInactive_ReturnsFalse()
+        {
+            // No active watch (watchedIndex < 0) means there is nothing to transfer FROM.
+            // The seam spawn still happens, the ghost still appears, but the camera is on
+            // the active vessel or a free-look position; the policy must not retarget it.
+            Assert.False(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: true,
+                watchedIndex: -1,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: 5));
+        }
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_WatchAlreadyOnSpawn_ReturnsFalse()
+        {
+            // Defensive: if the watch is already on the new spawn (could happen if the user
+            // clicked Watch on the successor while it was still hidden by activation-settle
+            // in the original behavior, or via a near-simultaneous direct retarget), do not
+            // re-transfer onto itself.
+            Assert.False(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: true,
+                watchedIndex: 8,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: 5));
+        }
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_WatchOnDifferentRecording_ReturnsFalse()
+        {
+            // Watch is on a recording that is NOT the chain predecessor of the new spawn
+            // (e.g. the user W-cycled onto a debris piece earlier in the session). A seam
+            // spawn on a different chain leaf must not yank the camera off the user's
+            // current target.
+            Assert.False(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: true,
+                watchedIndex: 3,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: 5));
+        }
+
+        [Fact]
+        public void ShouldAutoFollowChainSeamSpawn_SpawnHasNoPredecessor_ReturnsFalse()
+        {
+            // Defensive: a state flagged as seam-spawned should always have a resolvable
+            // chain predecessor, but if GetChainPredecessorIndex returns -1 (chain topology
+            // mutated between flag computation and the GhostCreated event), the transfer
+            // must not fire. Watching index 5 with no resolvable predecessor stays put.
+            Assert.False(ParsekPlaybackPolicy.ShouldAutoFollowChainSeamSpawn(
+                spawnedAtChainSeam: true,
+                watchedIndex: 5,
+                spawnIndex: 8,
+                predecessorIndexOfSpawn: -1));
+        }
+
+        #endregion
+
         #region RELATIVE frame guard
 
         [Fact]

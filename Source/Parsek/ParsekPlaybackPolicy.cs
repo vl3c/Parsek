@@ -990,6 +990,17 @@ namespace Parsek
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
+            // Chain-seam auto-follow: if this is a chain-seam first-spawn AND the watched
+            // recording is the same-chain predecessor, transfer the camera to the successor
+            // immediately. The standard auto-follow path (HandlePlaybackCompleted -> Mid-chain
+            // auto-follow) does NOT fire for chain-head predecessors whose Recording.EndUT is
+            // widened by ExplicitEndUT / orbit-tail projection past the actual seam UT — the
+            // engine's pastEnd check (currentUT > traj.EndUT) stays false, PlaybackCompleted
+            // never fires, the policy never transfers, and the camera stays glued to the
+            // predecessor while the successor is rendering correctly somewhere else (the
+            // "duplicate ghost suspended in air" the Kerbal X playtest 2026-05-19 reproduced).
+            TryAutoFollowChainSeamSpawn(evt);
+
             // KEEP debris-only: this is the policy decision to NOT give debris
             // recordings their own tracking-station map presence / orbit lines.
             // Controlled-decoupled children (extension of the parent-anchor
@@ -1092,6 +1103,77 @@ namespace Parsek
         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure decision predicate: should the policy auto-follow the watch camera onto a
+        /// freshly spawned chain-seam successor? True iff the spawn was flagged as a chain
+        /// seam, an active watch exists, the watch is not already on the new spawn, and the
+        /// new spawn's chain predecessor IS the currently watched recording. The chain-topology
+        /// half stays single-sourced in <c>RecordingStore.GetChainPredecessorIndex</c>; this
+        /// predicate composes that with the spawn-time signal and the watch state.
+        /// </summary>
+        internal static bool ShouldAutoFollowChainSeamSpawn(
+            bool spawnedAtChainSeam,
+            int watchedIndex,
+            int spawnIndex,
+            int predecessorIndexOfSpawn)
+        {
+            if (!spawnedAtChainSeam) return false;
+            if (watchedIndex < 0) return false;
+            if (watchedIndex == spawnIndex) return false;
+            return predecessorIndexOfSpawn == watchedIndex;
+        }
+
+        /// <summary>
+        /// At chain-seam first-spawn, transfer the watch camera from the same-chain
+        /// predecessor to this new successor. The standard <c>HandlePlaybackCompleted</c>
+        /// -&gt; <c>Mid-chain auto-follow</c> path does not fire for chain-head predecessors
+        /// whose <c>Recording.EndUT</c> is widened past the actual seam by
+        /// <c>ExplicitEndUT</c> / orbit-tail projection / Re-Fly origin-split residue.
+        /// The engine's <c>pastEnd = currentUT &gt; traj.EndUT</c> check stays false in
+        /// that case, so the policy never sees a completion event for the predecessor and
+        /// the camera stays glued to the now-frozen predecessor while the successor
+        /// renders correctly somewhere else (the "duplicate ghost suspended in air"
+        /// symptom). The seam-spawn flag is a direct, predecessor-EndUT-independent
+        /// signal that the chain handoff is happening, so we transfer on it.
+        /// </summary>
+        private void TryAutoFollowChainSeamSpawn(GhostLifecycleEvent evt)
+        {
+            if (evt == null || evt.State == null) return;
+            if (evt.Trajectory == null) return;
+
+            int watchedIndex = host.WatchedRecordingIndex;
+            var committed = RecordingStore.CommittedRecordings;
+            if (evt.Index < 0 || evt.Index >= committed.Count) return;
+            Recording successor = committed[evt.Index];
+            if (successor == null) return;
+            int predIdxForSuccessor = RecordingStore.GetChainPredecessorIndex(successor);
+
+            if (!ShouldAutoFollowChainSeamSpawn(
+                evt.State.spawnedAtChainSeam, watchedIndex, evt.Index, predIdxForSuccessor))
+            {
+                return;
+            }
+
+            if (watchedIndex >= committed.Count) return;
+            Recording watched = committed[watchedIndex];
+            if (watched == null) return;
+
+            if (host.TransferWatchToNextSegmentFromPolicy(evt.Index))
+            {
+                ParsekLog.Info("Policy",
+                    $"Chain-seam auto-follow: #{watchedIndex} \"{watched.VesselName}\" -> " +
+                    $"#{evt.Index} \"{successor.VesselName}\" " +
+                    "(seam-spawn while predecessor watched; predecessor EndUT does not gate PlaybackCompleted)");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Policy", $"chain-seam-transfer-failed-{evt.Index}",
+                    $"Chain-seam auto-follow declined: #{watchedIndex} -> #{evt.Index} " +
+                    "(TransferWatchToNextSegmentFromPolicy returned false)",
+                    1.0);
+            }
         }
 
         /// <summary>

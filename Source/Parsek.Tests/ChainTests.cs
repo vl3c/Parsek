@@ -869,14 +869,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsChainSeamSuccessor_PredecessorHasGhostAndPastEndUT_ReturnsTrue()
+        public void IsChainSeamSuccessor_PredecessorHasGhostAndAtSeamUT_ReturnsTrue()
         {
             // Predicate input that mirrors what BuildTrajectoryFlags computes: predecessor
-            // has a live ghost state and currentUT is at or past predecessor.EndUT.
+            // has a live ghost state and currentUT is at or past the successor's seam UT
+            // (the successor's first playable payload — the chain handoff moment).
             Assert.True(ParsekFlight.IsChainSeamSuccessor(
-                currentUT: 100.0, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+                currentUT: 100.0, successorSeamUT: 99.5, predecessorHasGhostState: true));
             Assert.True(ParsekFlight.IsChainSeamSuccessor(
-                currentUT: 99.5, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+                currentUT: 99.5, successorSeamUT: 99.5, predecessorHasGhostState: true));
         }
 
         [Fact]
@@ -886,18 +887,32 @@ namespace Parsek.Tests
             // with, so the seam exemption does not apply (e.g. scene-load spawn of a chain
             // where neither side has been built yet).
             Assert.False(ParsekFlight.IsChainSeamSuccessor(
-                currentUT: 100.0, predecessorEndUT: 99.5, predecessorHasGhostState: false));
+                currentUT: 100.0, successorSeamUT: 99.5, predecessorHasGhostState: false));
         }
 
         [Fact]
-        public void IsChainSeamSuccessor_BeforePredecessorEndUT_ReturnsFalse()
+        public void IsChainSeamSuccessor_BeforeSuccessorSeamUT_ReturnsFalse()
         {
-            // The successor's spawn UT is bounded below by its own activation UT, which is
-            // at or after the predecessor's EndUT in normal chains. If currentUT is strictly
-            // before predecessor.EndUT the predecessor is still actively playing, not at the
-            // seam — guard with > 1us epsilon to absorb floating-point dust.
+            // Before the successor's seam UT arrives, the engine hasn't spawned it yet —
+            // the predicate must not flag the recording as a seam successor. Guard with the
+            // 1us epsilon to absorb floating-point dust at exact-match boundaries.
             Assert.False(ParsekFlight.IsChainSeamSuccessor(
-                currentUT: 99.4, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+                currentUT: 99.4, successorSeamUT: 99.5, predecessorHasGhostState: true));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorWithWidenedEndUT_StillFiresAtSeam()
+        {
+            // Regression: the original predicate compared currentUT against the predecessor's
+            // Recording.EndUT, which is the outer semantic envelope widened by ExplicitEndUT
+            // (orbit-tail predictions, Re-Fly tail estimates). On a chain-head with an orbit
+            // projection, that envelope can be far past the actual chain handoff — e.g.
+            // Kerbal X playtest 2026-05-19 had predecessor.EndUT=1289 while the seam was at
+            // UT 123.54. The predicate must use the SUCCESSOR's seam UT (its first playable
+            // payload), not the predecessor's outer envelope, so the carve-out fires at the
+            // actual handoff frame instead of never.
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 123.55, successorSeamUT: 123.54, predecessorHasGhostState: true));
         }
 
         #endregion
