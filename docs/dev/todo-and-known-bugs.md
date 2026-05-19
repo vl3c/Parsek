@@ -223,15 +223,15 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Open - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
+## Done - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
 
-**Evidence:** `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.
+- ~~`logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.~~
 
-**Root cause:** `VesselSpawner.TryBackupSnapshot` calls `vessel.BackupVessel()` then `pv.Save(node)`. KSP keeps the live `Vessel.vesselName` as the raw `#autoLOC_...` localization key until UI display time (the UI resolves it on render), so the ProtoVessel inherits the unresolved key into the snapshot's `name` field. Recording metadata is fine because Parsek wraps with `Recording.ResolveLocalizedName` at construction; the snapshot path never touches that helper.
+**Root cause:** `VesselSpawner.TryBackupSnapshot` calls `vessel.BackupVessel()` then `pv.Save(node)`. KSP keeps the live `Vessel.vesselName` as the raw `#autoLOC_...` localization key until UI display time (the UI resolves it on render), so the ProtoVessel inherits the unresolved key into the snapshot's `name` field. The recording-metadata fix in PR #887 wrapped `Recording.VesselName` and `RecordingTree.TreeName` with `Recording.ResolveLocalizedName` at construction, but the snapshot path never touched that helper.
 
-**Possible fix:** `VesselSpawner.NormalizeBackedUpSnapshotFromLiveVessel` (or a sibling normalizer) could rewrite the snapshot root `name` value to `Recording.ResolveLocalizedName(node.GetValue("name"))` before persistence. Needs verification that ProtoVessel.Load round-tripping is happy with a non-token name (it should be — the field is just a string), and that nothing downstream keys off the raw token. The respawned vessel's `Vessel.vesselName` after `ProtoVessel.Load` would then carry the readable name immediately, including for tracking-station rows, CommNet labels, and any code that displays the live vessel name without going through the UI resolver.
+**Fix:** New `VesselSpawner.ResolveLocalizedVesselNameInSnapshot` static helper, called from `NormalizeBackedUpSnapshotFromLiveVessel` so every `TryBackupSnapshot` caller is immune (all production call sites share the chokepoint). The wrap is a no-op for null / empty / non-`#`-prefix values, and silent when the Localizer is unavailable (returns the input unchanged). Six unit tests in `SnapshotVesselNameLocalizationTests` cover the null / missing-name / empty / regular-name / non-locKey-with-`#` / autoLOC-token-with-Localizer-unavailable branches; one in-game test `ResolveLocalizedVesselNameInSnapshot_AutoLocToken_RewritesUnderLiveKsp` (Category=LocalizedName) pins the live-Localizer resolution. The respawned vessel's `Vessel.vesselName` after `ProtoVessel.Load` now carries the readable name immediately, including for tracking-station rows, CommNet labels, and any code that displays the live vessel name without going through the UI resolver.
 
-**Status:** OPEN. Low priority — only affects display of the re-spawned ghost / restored-vessel name (the recording table itself is now correct after PR #887).
+**Status:** CLOSED 2026-05-18.
 
 ---
 
@@ -291,34 +291,91 @@ Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=Record
 
 ---
 
-## Open - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
+## Done - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
 
-**Evidence:** Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces:
+- ~~Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces (ghost #17 = chain HEAD `c059aabf...`, ghost #25 = chain CONTINUATION `3d059f9c...`, shared `chainId=9cf2bb0709dc426096ec687f2fbbac37`). Both passed the engine's skip-state filter with `skip=False` and the engine-frame-iter showed them as independent ghost spawn slots.~~
 
-| Ghost | Recording | UT range | Chain role |
-|---|---|---|---|
-| #17 | `c059aabf...` | payload `[292.96, 335.57]` + orbit segment `[359.64, 1364.71]` | chain HEAD (chainBranch=0 chainIndex=0) |
-| #25 | `3d059f9c...` | payload `[335.567, 375.047]` | chain CONTINUATION (chainBranch=0 chainIndex=1) |
+**Root cause:** Chain-continuation recordings were treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` collapsed the chain in the UI (Timeline / STASH groups) and supersede / rewind-retired filters stripped out the right rows, but no analogous "chain continuation shadows its head's UT range" filter existed in the ghost spawn / render path. `GhostPlaybackEngine` allocated one slot per committed recording without coordinating slots that belonged to the same chain.
 
-Both recordings share `chainId=9cf2bb0709dc426096ec687f2fbbac37` and the `UnfinishedFlights` collapser correctly emits `reason=chainContinuation rec=3d059f9c... headRec=c059aabf...`. Both pass through the engine's `Ghost playback skip state` filter with `skip=False`, and the engine-frame-iter at the duplication window shows both as `skip=None hd=T hs=T` (independent ghost spawn slots). The user saw them as two side-by-side Probe meshes for the duration of the overlap; ghost #25 destroys at 20:08:18 when its 39-second payload ends, leaving ghost #17 to continue alone.
+**Fix:** New `ChainHandoffLogic` pure decision helper (`GhostPlaybackLogic.cs`) plus a `ResolveChainNextIndex` callback on `GhostPlaybackEngine` injected by `ParsekPlaybackPolicy`. Two engine wire-points:
 
-**Root cause hypothesis:** Chain-continuation recordings (typically a switch/Fly-recorded segment of a vessel after a BG-recorded background segment of the same physical vessel) are treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` correctly collapses the chain in the UI (Timeline / STASH groups), and supersede / rewind-retired filters strip out the right rows, but no analogous "chain continuation shadows its head's UT range" filter exists in the ghost spawn / render path. The semantics players expect: a continuation should suppress the head's playback inside the continuation's UT range (or vice versa, depending on which surface is the better representation). When the head also has an orbital tail segment that picks up *after* the continuation ends, the head should be hidden inside the continuation's UT window only, not for its entire range. This is the structural-fix sibling of the producer-side fixes around `DebrisParentRecordingId` and the PR #889 anchor selection: chain-link metadata exists and is honoured by the UI but the playback engine ignores it.
+- **Shadow (overlap case):** in the in-range render branch (`GhostPlaybackEngine.UpdatePlayback`), before `RenderInRangeGhost`, the engine consults `ChainHandoffLogic.DecideShadow(chainNextIndex, HasActiveGhost(chainNextIndex))`. When the continuation slot has loaded visuals, the engine hides the head ghost (`state.ghost.SetActive(false)`), clears any overlap ghosts, removes the slot from `chainBridgeOpenedUT`, counts the new `GhostPlaybackSkipReason.ChainShadowed` skip, and emits `[Engine][VerboseRateLimited] chain-shadow-N: Ghost #N "..." chain-shadowed by continuation slot #M at UT=...`. The continuation continues to render as it would normally; the head ghost is back-on next frame if the continuation deactivates.
+- **Bridge-hold (gap case, sibling per-debris flicker entry below):** in the stale-past-end cleanup, before `DestroyGhost`, the engine consults `ChainHandoffLogic.DecideBridgeHold(chainNextIndex, continuationHasActiveGhost, currentUT, bridgeOpenedUT, ChainHandoffLogic.DefaultBridgeMaxSeconds)`. When the continuation exists but has not yet activated, the engine records `chainBridgeOpenedUT[i] = currentUT` on the first frame and skips destroy on subsequent frames within the 1.0s real-time window; emits `[Engine][VerboseRateLimited] chain-bridge-hold-N: ... waiting for continuation slot #M ... openedUT=... maxSeconds=1.0`. After the window expires (or as soon as the continuation activates), the head destroys normally via the existing stale-past-end path and emits a one-shot `chain-bridge-expired` log line tied to the bound so a continuation that genuinely never spawns still tears down.
 
-**Cross-reference:** Same chain mechanism likely affects the `847b9b53` + `a54896f5` pair (Kerbal X main vessel, also chain-linked chainId=287905c4) in the same log. The pair did not visibly duplicate here because their UT ranges happen to be near-disjoint (`847b9b53` ends at UT 285.18, `a54896f5` starts at UT 335.66, separated by a ~50-second gap), but the same predicate would let them duplicate if they overlapped.
+The engine stays Recording-agnostic: the chain-next lookup callback is injected by the policy. `GhostPlaybackLogic.ResolveChainNextSlotIndex` is a pure static helper that mirrors `FindNextWatchTarget`'s Case 1 lookup (same ChainId, ChainBranch=0, ChainIndex+1, walk supersede edges through `ResolveSupersedeIndex`) and returns -1 on any miss. `ParsekPlaybackPolicy.ResolveChainNextSlotIndex` is a thin live-state wrapper. Two new `GhostPlaybackSkipReason` values (`ChainShadowed = 16`, `ChainBridgeHeld = 17`), matching frame counters plumbed through `BuildCurrentFrameCounters` / `BuildFrameSummaryMessage`, and slot-state cleanup hooked into `DestroyGhost`, `DestroyAllGhosts`, and `ReindexAfterDelete` so the bridge dictionary never leaks across deletes or scene loads.
+
+**Coverage:** Twelve `ChainHandoffLogicTests` cases pin `DecideShadow` (no continuation / continuation pending / continuation active) and `DecideBridgeHold` (no continuation / continuation active / bridge not opened / within window / edge / expired / zero-window / negative-window) plus the production `DefaultBridgeMaxSeconds = 1.0` constant. Fifteen `ResolveChainNextSlotIndexTests` cases pin the resolver against the no-continuation paths (null committed, negative/out-of-bounds slot, null recording, missing/empty chain id, negative chain index, parallel branch slot, no successor, different chain, branch successor) and the positive paths (direct chain successor, branch-skip, immediate-next preference for multi-segment chains, supersede edge walk to a re-fly fork, defensive cycle guard).
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
+## Done - v0.10.0 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
+
+- ~~Same watch-mode playtest, `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. After Kerbal X separated 6 radial booster debris pieces at UT 285.18 (pids 3027027466, 2130796824, 2057942744, 1009856088, 3271565278, 633147235; root part `radialDecoupler1-2`), each debris recording was itself chain-continued at UT ~336.7. When the watch transferred from rec #10 -> rec #18 around real-time 20:07:39.527, every one of the six debris ghosts was destroyed (`stale past-end ghost (no longer held)`) and re-spawned as a brand-new ghost slot 100-200 ms later. Section 1 ended at `336.65/336.71` and section 2 started at `336.77` (a 0.06-0.12 s UT discontinuity, ~70-150 m of spatial step at 1.2-1.5 km/s). User-visible result: six boosters all flickered off and reappeared slightly displaced in the same one-second window the watch crossed the chain seam.~~
+
+**Root cause:** Inverted symptom of the duplicated-ghost entry above, same chain-continuation mechanism. The playback engine treated each chain segment's recording as an independent ghost source: section 1 ghost passed its endUT and was killed by the `stale past-end ghost (no longer held)` rule; section 2 ghost was spawned fresh in a brand-new slot one or two frames later. There was no slot-handoff between segments and no continuity bridge across the seam.
+
+**Fix:** Covered by the `ChainHandoffLogic` bridge-hold pass shipped with the duplicated-ghost entry above. In the stale-past-end cleanup branch (`GhostPlaybackEngine.UpdatePlayback`), the engine now consults `ChainHandoffLogic.DecideBridgeHold` before destroying a head whose chain continuation exists but has not yet activated. When the bridge fires, the head ghost stays alive and the engine records `chainBridgeOpenedUT[i] = currentUT` to bound the hold to `ChainHandoffLogic.DefaultBridgeMaxSeconds = 1.0` real-time seconds. Once the continuation activates (visuals loaded for the chain-next slot), the shadow path in the in-range branch hides the head and the next stale-past-end pass destroys the head normally; or, if the continuation never activates within the window, the head destroys with a one-shot `chain-bridge-expired` log line so a misauthored chain still tears down. Each pid renders as a single uninterrupted ghost across the section-1 -> section-2 seam.
+
+**Coverage:** Twelve `ChainHandoffLogicTests` cases exercise the bridge state machine (no continuation / continuation active / bridge not opened / within window / edge / expired / zero-window / negative-window) plus the production `DefaultBridgeMaxSeconds = 1.0` constant. Fifteen `ResolveChainNextSlotIndexTests` cases cover the resolver shape including the supersede-edge walk a re-fly fork relies on.
+
+**Status:** CLOSED 2026-05-18.
+
+---
+
+## Open - v0.10.0 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
+
+**Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. Before the watch transfer (frame 36484 / real-time 20:06:49.066), the six radial booster debris pieces render cleanly anchored to rec #10 ("Kerbal X", `parentRecId=847b9b53...`):
+
+```
+[Trace-Sep] PLAY [PositionDebris] ut=285.20 ... parentGhostFound=True
+            parentGhostWorld=(-103280.21,-2002.85,-71512.29)
+            renderedParentDist=15.272 recordedAnchorLocalDist=15.265
+```
+
+After the watch transfers to rec #18 at 20:07:39.527 (which destroys rec #10's primary ghost #10 via `[Engine] Ghost #10 "Kerbal X" destroyed (auto-followed during hold)`), the re-spawned section-2 debris try to anchor against the same `parentRecId=847b9b53...` and the resolver returns unresolved:
+
+```
+[Trace-Sep] PLAY [PositionDebris] ut=335.88 ... parentGhostFound=False
+            parentGhostWorld=<unresolved>  renderedParentDist=NaN
+            recordedAnchorLocalDist=345.662  recordedBodyFixedDist=NaN
+```
+
+The recorded anchor-local distance (~345 m) is by itself plausible ballistic separation over the elapsed UT, but with no live anchor pose to multiply against, the renderer falls back to bracket-LLA `body.GetWorldSurfacePosition` interpolation. That places each debris piece at a sane world coordinate per-frame (predictedVsActual delta ~ 0.006 m) but loses the relative-formation coherence the recorded RELATIVE surface was meant to provide. Combined with the 100-200 ms slot churn (entry above), the user sees the boosters jump slightly between frames during and immediately after the seam.
+
+**Root cause hypothesis:** Debris recordings hard-code their RELATIVE-frame anchor as the parent recording's id at recording time (here `847b9b53...` = rec #10). When the watch transfers off rec #10 to its chain continuation rec #18, `[Engine]` destroys rec #10's primary ghost, and the debris anchor lookup now has nothing to resolve against. The chain-continuation-aware version of this anchor lookup would need to walk to the live chain continuation's primary ghost (rec #18's) and resolve against that instead - rec #18 IS the same physical vessel as rec #10, just a later chain segment. The recorded anchor id is durably written into `TrackSection.anchorRecordingId` and cannot be hot-patched, so the fix lives in the resolver.
+
+**Cross-reference:** The PR #889 entry below is about the supersede-target version of this same shape ("anchor's recorded UT range doesn't cover current UT"). This entry is about the chain-continuation version ("anchor's live ghost was torn down because the watch moved to its chain successor"). Both could share a unified "resolve anchor by walking chain + supersede graph" helper.
 
 **Fix candidates:**
 
-- (Engine-side, preferred) When walking the chain (`EffectiveState.ResolveChain` or equivalent), suppress ghost spawn for the chain HEAD inside a continuation's `[startUT, endUT]` window (the continuation's authored payload covers it more accurately). Spawn the head's pre-continuation range and (if an orbit tail extends past the continuation) post-continuation range as separate intervals.
-- (Per-frame filter, simpler) Before spawning a chain HEAD ghost on a given frame, check whether any same-chain continuation's UT range covers the current `currentUT`. If yes, suppress the head's ghost for this frame.
+- (Resolver-side) `RelativeAnchorResolver.TryResolveRecordingPose` and `ParsekFlight.TryResolveRelativeOffsetWorldPosition` consult the chain graph (`EffectiveState.ResolveChain` / `EffectiveRecordingId` / `EffectiveTipRecordingId`) when the literal `anchorRecordingId` has no live primary ghost. Walk to the live chain head/tip; resolve against whichever segment currently has an active primary ghost. Log a one-shot `anchor chain-redirect: from=rec_A to=rec_B reason=primary-not-live` per anchor identity.
+- (Engine-side) When destroying a primary ghost at a watch transfer, before tearing it down, hand off "anchor-only" responsibility to the chain continuation's primary ghost. The destroyed ghost releases its mesh but the continuation's ghost adopts its trajectory bracket so dependent debris can resolve continuously.
+- (Producer-side) Author debris with `anchorRecordingId = chain root` rather than the specific recording id, so chain continuations transparently inherit anchor responsibility without a resolver-side walk. Schema impact: needs a way to express "first recording on this chain" at recorder time.
 
-**Scope:** `GhostPlaybackEngine` ghost-spawn decision plus a new chain-aware visibility predicate in `EffectiveState` (or a sibling helper). No producer / recorder changes; this is purely a playback / visibility fix. Pin with unit tests on `EffectiveState.ResolveChain` and a synthetic-recording in-game test asserting at-most-one-ghost-per-chain at every UT.
+**Scope:** `RelativeAnchorResolver`, `ParsekFlight.TryResolveRelativeOffsetWorldPosition`, possibly `EffectiveState`. Cross-references the chain-continuation co-render fix - both pivot on the same chain-graph awareness in playback paths.
 
 **Acceptance:**
-- Replaying the same Kerbal X save reproduces the `c059aabf` + `3d059f9c` chain but shows exactly one Probe ghost throughout the UT 335-375 window.
-- Engine-frame-iter shows `skip=chain-shadowed` (or similar) for the head inside the continuation's UT range, and `skip=None` for the head outside it.
-- No regression on sequential-chain replay (e.g. the `847b9b53` + `a54896f5` case where the head ends before the continuation starts: head visible until its endUT, continuation visible from its startUT, no gap or double-render).
+- Replaying the same save, the post-transfer Trace-Sep lines for the six debris pids show `parentGhostFound=True` with the rec #18 primary ghost as the resolved parent.
+- No `parentGhostFound=False parentGhostWorld=<unresolved>` for a debris whose recorded `anchorRecordingId` has a live chain continuation primary.
+- Unit test on the resolver with a two-segment chain fixture, parent ghost destroyed at boundary, asserts the resolver redirects to the continuation's primary.
 
-**Status:** OPEN. Discovered during the watch-mode large-delta playtest 2026-05-18 alongside the orbit-mode transition teleport entry below.
+**Status:** OPEN. Same playtest as the two entries above.
+
+---
+
+## Done - v0.10.0 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
+
+- ~~Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log` lines 62710 / 62718 / 62744: three rapid `WARN][CameraFollow] Auto-follow target #18 has no active ghost - deferring transfer` lines in ~17 ms before the rec #18 primary ghost finally activates at 20:07:39.524 and the transfer completes at 20:07:39.526. No user-visible regression (the deferral retries succeed within one or two physics frames), but the warn-level cascade was noisy and looked like a runtime fault.~~
+
+**Root cause:** `ProcessWatchEndHoldTimer` / `FindNextWatchTarget` finds the chain continuation index as soon as the head segment passes its endUT, and `WatchModeController.TransferWatchToNextSegment` immediately tests `host.Engine.ghostStates` for the continuation's primary ghost. The continuation's primary spawn is driven by a separate engine pass (per-frame ghost activation) that lands one or two frames later, so the first few transfer attempts hit the no-active-ghost branch.
+
+**Fix:** Demoted the deferred-transfer log inside `TransferWatchToNextSegment` from `ParsekLog.Warn` to a new `internal static` helper `WatchModeController.LogAutoFollowDeferred(int nextIndex, string recordingId)` that funnels through `ParsekLog.VerboseRateLimited` with key `auto-follow-deferred-{recordingId}` (or `auto-follow-deferred-idx-{nextIndex}` when the id is null or empty, defensive only). Keying by the stable recording id rather than the committed-list slot means two distinct chain transfers cannot collide when the index is reused across deletes or supersede swaps in the same session. Each chain transfer logs at most one `Auto-follow target #N has no active ghost - deferring transfer` line at VERBOSE, distinct recordings use distinct rate-limit slots so an unrelated chain transfer is not silenced, and the 5s default window means a later transfer reusing the same recording still logs once. The polling shape itself is unchanged: the next physics tick re-evaluates `HasActiveGhost` and the transfer completes as soon as the continuation's primary activates. The event-driven `GhostActivated` variant from the original fix candidates is deferred — the cosmetic acceptance is met by the rate-limited Verbose alone.
+
+**Coverage:** `WatchModeControllerTests.LogAutoFollowDeferred_RepeatedSameTarget_EmitsVerboseOnceWithinRateLimit` captures `ParsekLog` output with the test sink, drives three rapid `LogAutoFollowDeferred(18, "rec-a")` calls under a deterministic clock override, and asserts (a) exactly one VERBOSE line emits for the burst, (b) no WARN line is emitted, (c) the same index `18` with a different recording id `rec-b` keys a fresh slot and emits independently (the bug-fix property — index reuse across distinct recordings must not silence), (d) past the 5s window the same recording re-emits. `LogAutoFollowDeferred_NullOrEmptyRecordingId_FallsBackToIndexKey` pins the defensive fallback so a null or empty id still keys per-target instead of collapsing every fallback call onto one slot. Full suite is 12204 passing.
+
+**Status:** CLOSED 2026-05-18.
 
 ---
 
