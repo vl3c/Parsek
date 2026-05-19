@@ -17913,6 +17913,7 @@ namespace Parsek
                     vesselPersistentId = rec.VesselPersistentId,
                     sessionSuppressedRenderCarveOutEligible =
                         RecordingEligibleForSessionSuppressedRenderCarveOut(rec),
+                    sessionSuppressed = SessionSuppressionState.IsSuppressedRecordingIndex(i),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
@@ -17979,6 +17980,7 @@ namespace Parsek
                 mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? LoopTiming.DefaultLoopIntervalSeconds,
+                activeReFlyMarker = SessionSuppressionState.ActiveMarker,
             };
 
             // Build trajectory list (Recording implements IPlaybackTrajectory)
