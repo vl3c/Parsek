@@ -8071,6 +8071,14 @@ namespace Parsek
 
                 // Log creation + OrbitDriver state for diagnostics (#172)
                 Vessel v = pv.vesselRef;
+                // KSP promotes a single-part root with PhysicsSignificance=1 back to
+                // FULL, and the thermal explode site checks temperature > maxTemp
+                // independent of physical significance. Without this pass the marker's
+                // sensorBarometer (maxTemp=1200) overheats and Part.explode() destroys
+                // the vessel mid-Re-Fly whenever the active vessel passes through dense
+                // atmosphere at orbital speed (repro at logs/2026-05-19_1847_refly-
+                // booster-explosion, log line 18:44:50.128).
+                HardenGhostVesselPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
@@ -8155,7 +8163,11 @@ namespace Parsek
             out VesselType vtype,
             out string vesselName)
         {
-            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay)
+            // Single antenna-free part (avoids CommNet conflict with GhostCommNetRelay).
+            // Aero/thermal tolerances are hardened post-load in HardenGhostVesselPartPhysics:
+            // the partNode is loaded into a real Part with prefab maxTemp=1200, which
+            // would otherwise overheat and explode the marker vessel during low-altitude
+            // playback (see BuildAndLoadGhostProtoVesselCore).
             ConfigNode partNode = ProtoVessel.CreatePartNode("sensorBarometer", 0);
 
             // Discovery: fully visible, infinite lifetime
@@ -8186,6 +8198,37 @@ namespace Parsek
                 vesselNode.AddNode("VESSELMODULES");
 
             return vesselNode;
+        }
+
+        /// <summary>
+        /// Override aero/thermal/structural tolerances on every part of a freshly-loaded
+        /// ghost-owned ProtoVessel (map-presence marker, replay flag, future single-part
+        /// ghost vessels) so the vessel behaves as a render-only presence rather than a
+        /// physical body. Without this, KSP's FlightIntegrator runs aerothermal sim on
+        /// the vessel (single-part root parts are promoted to PhysicalSignificance.FULL
+        /// regardless of prefab settings) and the prefab maxTemp / crashTolerance values
+        /// trigger Part.explode() when something hot or fast happens nearby.
+        /// </summary>
+        internal static int HardenGhostVesselPartPhysics(Vessel v, string logContext)
+        {
+            if (v == null || v.parts == null) return 0;
+            int count = 0;
+            for (int i = 0; i < v.parts.Count; i++)
+            {
+                Part p = v.parts[i];
+                if (p == null) continue;
+                p.maxTemp = double.PositiveInfinity;
+                p.skinMaxTemp = double.PositiveInfinity;
+                p.crashTolerance = float.PositiveInfinity;
+                p.gTolerance = double.PositiveInfinity;
+                p.breakingForce = float.PositiveInfinity;
+                p.breakingTorque = float.PositiveInfinity;
+                count++;
+            }
+            ParsekLog.Verbose(Tag, string.Format(ic,
+                "Ghost vessel parts hardened: vessel='{0}' parts={1} for {2}",
+                v.vesselName ?? "(null)", count, logContext));
+            return count;
         }
 
         private static void RemoveGhostProtoVessel(ProtoVessel pv, bool nullSafeFlightState)
