@@ -651,11 +651,26 @@ namespace Parsek
                     // instantaneous SubOrbital tag even though its predicted
                     // trajectory dives well below atmosphere — leaving the
                     // crash invisible to the STASH / Unfinished Flights gate.
-                    if (TryBuildRecoveryStartStateFromRecordedPoint(
+                    //
+                    // Skip recovery when the recorded point came from a
+                    // parent's EVA structural snapshot: that velocity belongs
+                    // to the parent vessel at EVA-UT, not the EVA child's
+                    // post-separation jetpack trajectory, so reseeding from
+                    // it would commit a wrong terminal on the child. The
+                    // pre-fix suppression behaviour was correct for that
+                    // population — preserve it.
+                    BallisticStateVector recoveryStartState = default(BallisticStateVector);
+                    string recoveryFailureReason = "parent-structural-eva-source";
+                    bool recoveryEligible =
+                        !IsParentEvaStructuralRecoverySource(recordedPointSource);
+                    bool recoveryBuilt = recoveryEligible
+                        && TryBuildRecoveryStartStateFromRecordedPoint(
                             recordedPoint,
                             bodies,
-                            out BallisticStateVector recoveryStartState,
-                            out string recoveryFailureReason))
+                            out recoveryStartState,
+                            out recoveryFailureReason);
+
+                    if (recoveryBuilt)
                     {
                         ExtrapolationResult recovered = extrapolate != null
                             ? extrapolate(recoveryStartState, bodies)
@@ -687,9 +702,16 @@ namespace Parsek
                             result.terminalState = recovered.terminalState;
                             result.terminalUT = recovered.terminalUT;
                             result.extrapolationFailureReason = recovered.failureReason;
+                            // Recovery replaces the sub-surface-Destroyed verdict
+                            // wholesale; clear every field the SubSurfaceStart
+                            // branch populated so the result is self-contained
+                            // against future callers reading them.
                             result.subSurfaceDestroyedBodyName = null;
                             result.subSurfaceDestroyedAltitude = 0.0;
                             result.subSurfaceDestroyedThreshold = 0.0;
+                            result.terminalPosition = null;
+                            result.terrainHeightAtEnd = null;
+                            result.terminalOrbit = null;
 
                             if (recovered.terminalState == TerminalState.Orbiting
                                 && appendedSegments.Count > 0)
@@ -703,7 +725,7 @@ namespace Parsek
                                     CultureInfo.InvariantCulture,
                                     "TryFinalizeRecording: recovered sub-surface live-orbit fallback for '{0}' " +
                                     "by extrapolating recorded surface point (pointUT={1:F3}, source={2}, " +
-                                    "recordedAlt={3:F1}) → terminal={4} terminalUT={5:F1} appendedSegments={6}",
+                                    "recordedAlt={3:F1}) -> terminal={4} terminalUT={5:F1} appendedSegments={6}",
                                     recordingId,
                                     recordedPoint.ut,
                                     recordedPointSource ?? "(unknown)",
@@ -722,18 +744,27 @@ namespace Parsek
                                 recovered.failureReason);
                         }
 
-                        ParsekLog.Verbose("Extrapolator",
+                        // Rate-limit per (recordingId, decline-category): a
+                        // recording stuck in this failure mode would otherwise
+                        // re-log every cache-refresh tick. 30s window matches
+                        // the suppression WARN that fires alongside.
+                        ParsekLog.VerboseRateLimited(
+                            "Extrapolator",
+                            "subsurface-destroyed-recovery-stillsubsurface." + recordingId,
                             string.Format(
                                 CultureInfo.InvariantCulture,
                                 "TryFinalizeRecording: recorded-point recovery for '{0}' also produced " +
                                 "SubSurfaceStart (pointUT={1:F3}, source={2}); falling through to suppression",
                                 recordingId,
                                 recordedPoint.ut,
-                                recordedPointSource ?? "(unknown)"));
+                                recordedPointSource ?? "(unknown)"),
+                            minIntervalSeconds: 30.0);
                     }
                     else
                     {
-                        ParsekLog.Verbose("Extrapolator",
+                        ParsekLog.VerboseRateLimited(
+                            "Extrapolator",
+                            "subsurface-destroyed-recovery-declined." + recordingId,
                             string.Format(
                                 CultureInfo.InvariantCulture,
                                 "TryFinalizeRecording: recorded-point recovery declined for '{0}' " +
@@ -741,7 +772,8 @@ namespace Parsek
                                 recordingId,
                                 recordedPoint.ut,
                                 recordedPointSource ?? "(unknown)",
-                                recoveryFailureReason ?? "(none)"));
+                                recoveryFailureReason ?? "(none)"),
+                            minIntervalSeconds: 30.0);
                     }
 
                     ParsekLog.WarnRateLimited(
@@ -1912,6 +1944,17 @@ namespace Parsek
                     velocity)
             };
             return true;
+        }
+
+        // Parent-EVA structural-event recovery is unsafe: the recorded point
+        // carries the PARENT vessel's velocity at EVA-UT, not the EVA child's
+        // post-separation trajectory. The decline keyword `parent-structural-eva:`
+        // is appended by `TryFindParentEvaStructuralSurfacePoint` via the
+        // `TryFindNearestRecordedSurfacePoint` sourcePrefix.
+        private static bool IsParentEvaStructuralRecoverySource(string recordedPointSource)
+        {
+            return !string.IsNullOrEmpty(recordedPointSource)
+                && recordedPointSource.StartsWith("parent-structural-eva:", StringComparison.Ordinal);
         }
 
         // Recovery start state built from a recorded above-surface trajectory

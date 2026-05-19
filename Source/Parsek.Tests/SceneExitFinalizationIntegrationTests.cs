@@ -1555,6 +1555,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_EvaChildParentStructuralPointSkipsRecovery()
+        {
+            // Defensive: when the suppression branch falls through to
+            // `TryFindParentEvaStructuralSurfacePoint`, the recorded point
+            // carries the PARENT vessel's velocity at EVA-UT, not the EVA
+            // child's post-separation jetpack/inertial trajectory. Reseeding
+            // from it would commit a wrong terminal on the child. Recovery
+            // must decline + the original suppression must still fire, even
+            // when the structural point itself has a non-zero velocity.
+            Recording parent = MakeTreeRecording("eva-parent-with-velocity");
+            parent.Points.Add(FlightRecorder.ApplyStructuralEventFlag(new TrajectoryPoint
+            {
+                ut = 500.0,
+                bodyName = "Kerbin",
+                latitude = -0.11,
+                longitude = -70.02,
+                altitude = 65.0,
+                velocity = new Vector3(2200.0f, 0.0f, 0.0f)
+            }));
+            Recording sibling = MakeTreeRecording("eva-sibling-with-velocity");
+            Recording evaChild = MakeEvaChildRecording(
+                recordingId: "eva-child-parent-structural-velocity",
+                siblingRecordingId: sibling.RecordingId,
+                parentBranchPointId: "bp-eva-with-velocity");
+            RecordingTree tree = MakeEvaBranchTree(parent, sibling, evaChild, "bp-eva-with-velocity");
+
+            // The recovery override must never run for this case — assert
+            // by tripping the test if it fires.
+            int recoveryAttempts = 0;
+            IncompleteBallisticSceneExitFinalizer.TryBuildRecoveryStartStateOverrideForTesting =
+                (_, __) =>
+                {
+                    recoveryAttempts++;
+                    return null;
+                };
+
+            bool built = TryFinalizeNullSolverWithSubSurfaceLiveState(
+                evaChild,
+                tree,
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.False(built);
+            Assert.Equal(0, recoveryAttempts);
+            Assert.Equal(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("recorded-point recovery declined")
+                && l.Contains("eva-child-parent-structural-velocity")
+                && l.Contains("reason=parent-structural-eva-source"));
+            Assert.Contains(logLines, l =>
+                l.Contains("suppressing sub-surface Destroyed")
+                && l.Contains("eva-child-parent-structural-velocity")
+                && l.Contains("source=parent-structural-eva:eva-parent-with-velocity:Points"));
+        }
+
+        [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecoveryBuilderDeclinedFallsThroughToSuppression()
         {
             // Defensive: when the recovery builder explicitly declines (e.g.
