@@ -467,6 +467,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ChainContinuationStillReportsChainMembershipOfUnfinishedFlight()
+        {
+            // After the slot-anchor dedupe, only the chain HEAD admits as
+            // IsUnfinishedFlight=true. The chain TIP itself returns false.
+            // But IsChainMemberOfUnfinishedFlight must still return true
+            // for the TIP — it scans same-ChainId peers and asks each
+            // one. The HEAD admits, so the TIP correctly reports it
+            // belongs to an unfinished flight chain. This is the contract
+            // the R-button suppression and chain-aware UI sites rely on.
+            const string treeId = "tree_chain_membership";
+            const string bpId = "bp_anchor";
+            const string chainId = "chain_x";
+
+            var head = Rec(
+                "rec_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                childBranchPointId: bpId);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+
+            var tip = Rec(
+                "rec_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_chain", bpId, 0, "rec_head", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.False(EffectiveState.IsUnfinishedFlight(tip));
+
+            // Membership query: both peers report true because the chain
+            // contains an Unfinished Flight anchor (HEAD).
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(tip));
+        }
+
+        [Fact]
         public void SupersedeTargetWithHiddenOrigin_BecomesAnchor()
         {
             // Companion to SupersedeTargetWithoutChainId_SuppressedByVisibleLaunchOriginAnchor:

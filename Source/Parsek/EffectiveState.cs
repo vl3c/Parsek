@@ -617,8 +617,9 @@ namespace Parsek
         /// <see cref="ResolveRewindPointSlotIndexForRecording"/> passes the
         /// raw classifier — that lookup is load-bearing for
         /// <see cref="RewindPointReaper.IsReapEligible"/>, which feeds the
-        /// classifier each chain tip and must keep getting <c>true</c> so
-        /// the rewind point stays alive (pinned by
+        /// classifier one slot's chain-tip recording at a time and must
+        /// keep getting <c>true</c> so the rewind point stays alive
+        /// (pinned by
         /// <c>RewindPointReaperTests.Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive</c>).
         /// The consumer-facing predicate has the opposite need: emit one
         /// row per logical flight, not one row per chain or supersede peer.
@@ -634,9 +635,20 @@ namespace Parsek
         /// shapes where only the chain TIP carries BP linkage and the HEAD
         /// fails Raw (pinned by
         /// <c>ChainContinuationWhoseHeadFailsRaw_StillSurfacesAsUnfinishedFlight</c>)
-        /// are unaffected: when HEAD fails Raw the slot.Origin doesn't
-        /// resolve to it via the visibility check, and the walker hops
-        /// chain → TIP, so TIP becomes the anchor and surfaces.
+        /// are unaffected: HEAD fails Raw and never enters this dedupe;
+        /// whichever recording the rewind point lists as <c>slot.Origin</c>
+        /// (the BP-linked TIP in the fixture) becomes the anchor directly
+        /// because it's ERS-visible.
+        /// </para>
+        /// <para>
+        /// Malformed-slot safety: if the slot's origin id points at a
+        /// recording that no longer exists in <see cref="RecordingStore"/>
+        /// (or whose effective tip walker collapses to a hidden /
+        /// NotCommitted target), the anchor cannot be resolved to a
+        /// visible recording and we admit <paramref name="rec"/> rather
+        /// than silently suppress every peer. Better to surface a
+        /// (possibly duplicate) row than to make the slot disappear
+        /// entirely from the UI.
         /// </para>
         /// <para>
         /// Perf TODO: the wrapper does an O(supersedes) walk per call (the
@@ -680,9 +692,26 @@ namespace Parsek
                 ? origin
                 : EffectiveTipRecordingId(origin, supersedes);
 
+            // Admit when rec IS the anchor, or when the anchor cannot be
+            // resolved to a visible recording at all (malformed slot —
+            // origin id has no matching recording, or the walker tip is
+            // hidden / NotCommitted). Suppressing all peers in that case
+            // would silently hide the entire slot from the UI, which is
+            // worse than showing a (possibly duplicate) row.
             if (string.IsNullOrEmpty(anchorId)
                 || string.Equals(rec.RecordingId, anchorId, StringComparison.Ordinal))
                 return true;
+
+            if (!IsRecordingIdErsVisible(anchorId, supersedes))
+            {
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"slotAnchorUnresolved-{rec.RecordingId ?? "<no-id>"}",
+                    $"IsUnfinishedFlight=true rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"reason=slotAnchorUnresolved rp={rp?.RewindPointId ?? "<no-rp>"} " +
+                    $"slot={slotListIndex} slotOrigin={origin ?? "<no-origin>"} " +
+                    $"anchorRec={anchorId} (admitted; anchor not ERS-visible)");
+                return true;
+            }
 
             ParsekLog.VerboseRateLimited("UnfinishedFlights",
                 $"slotPeerAnchored-{rec.RecordingId ?? "<no-id>"}",
