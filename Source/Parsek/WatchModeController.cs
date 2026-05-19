@@ -403,6 +403,20 @@ namespace Parsek
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
         }
 
+        // Rate-limit key is the recording id so two distinct chain transfers
+        // do not collide when the committed-list index slot is reused (the
+        // index can shift across deletes / supersede swaps in the same session).
+        internal static void LogAutoFollowDeferred(int nextIndex, string recordingId)
+        {
+            string key = string.IsNullOrEmpty(recordingId)
+                ? $"auto-follow-deferred-idx-{nextIndex}"
+                : $"auto-follow-deferred-{recordingId}";
+            ParsekLog.VerboseRateLimited(
+                "CameraFollow",
+                key,
+                $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+        }
+
         internal static bool IsWithinWatchEntryRange(double distanceMeters)
         {
             return IsFiniteWatchDistance(distanceMeters)
@@ -2640,13 +2654,14 @@ namespace Parsek
             ParsekLog.Info("CameraFollow",
                 $"Auto-following: #{watchedRecordingIndex} \"{oldName}\" -> #{nextIndex} \"{newName}\"");
 
-            // Verify the target ghost exists before transferring
+            // The continuation ghost spawn lags the chain-end detection by
+            // one or two physics frames, so this deferral path is the normal
+            // transient state, not a fault — log at rate-limited Verbose.
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState gs;
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
-                ParsekLog.Warn("CameraFollow",
-                    $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+                LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId);
                 return false;
             }
 

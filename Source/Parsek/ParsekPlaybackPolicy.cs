@@ -78,6 +78,13 @@ namespace Parsek
             engine.IsGhostHeld = idx =>
                 heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
 
+            // Tell the engine how to resolve the chain continuation for a
+            // given slot. Used by ChainHandoffLogic to shadow the head when
+            // the continuation is rendering (overlap case) and bridge-hold
+            // the head when the continuation has not yet activated (gap
+            // case). Returns -1 when no continuation exists.
+            engine.ResolveChainNextIndex = idx => ResolveChainNextSlotIndex(idx);
+
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
 
@@ -1832,6 +1839,22 @@ namespace Parsek
             stateVectorCachedIndices.Clear();
             terminalMapRetentionLoggedIds.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
+        }
+
+        /// <summary>
+        /// Live-state adapter for the pure chain-next resolver in
+        /// <see cref="GhostPlaybackLogic.ResolveChainNextSlotIndex"/>. Reads
+        /// the current <see cref="RecordingStore.CommittedRecordings"/> and
+        /// <see cref="ParsekScenario.RecordingSupersedes"/> and delegates the
+        /// lookup. Behaviour is fully covered by
+        /// <c>ResolveChainNextSlotIndexTests</c> against the pure helper.
+        /// </summary>
+        internal int ResolveChainNextSlotIndex(int slotIndex)
+        {
+            return GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex,
+                RecordingStore.CommittedRecordings,
+                ParsekScenario.Instance?.RecordingSupersedes);
         }
     }
 

@@ -28,6 +28,18 @@ namespace Parsek
         SpawnSuppressedDeadOnArrival = 13,
         AnchorRotationUnreliable = 14,
         AnchorReFlyUnstable = 15,
+        // Watch chain-seam handoff: when a chain HEAD slot would otherwise
+        // render and a chain continuation slot is already rendering, suppress
+        // the head this frame to avoid two coexisting ghosts for the same
+        // physical vessel across the section overlap window. Pairs with
+        // ChainBridgeHeld below for the gap-direction case.
+        ChainShadowed = 16,
+        // Watch chain-seam handoff: when a chain HEAD slot is past its
+        // sectionUT end but the chain continuation has not yet activated
+        // (sectionUT gap), hold the head ghost briefly instead of destroying
+        // it via the stale-past-end cleanup. Bounded by a real-time bridge
+        // window so a continuation that never spawns still tears down.
+        ChainBridgeHeld = 17,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -68,6 +80,10 @@ namespace Parsek
                     return "anchor-rotation-unreliable";
                 case GhostPlaybackSkipReason.AnchorReFlyUnstable:
                     return "anchor-refly-unstable";
+                case GhostPlaybackSkipReason.ChainShadowed:
+                    return "chain-shadowed";
+                case GhostPlaybackSkipReason.ChainBridgeHeld:
+                    return "chain-bridge-held";
                 default:
                     return "unknown";
             }
@@ -94,6 +110,8 @@ namespace Parsek
         public int spawnSuppressedDeadOnArrival;
         public int anchorRotationUnreliable;
         public int anchorReFlyUnstable;
+        public int chainShadowed;
+        public int chainBridgeHeld;
         public int active;
     }
 
