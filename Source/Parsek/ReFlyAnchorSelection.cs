@@ -169,6 +169,52 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Predicate gating the experimental
+        /// <c>forceAbsoluteForReFlyProvisional</c> setting. Returns true iff
+        /// the active recording is the live re-fly provisional.
+        ///
+        /// <para>Earlier versions excluded parent-anchored re-fly provisionals
+        /// (controlled-decoupled child being re-flown, with
+        /// <c>DebrisParentRecordingId</c> set on the provisional) on the
+        /// premise that their Relative contract uses the LIVE parent vessel
+        /// as anchor. Runtime analysis of an actual probe re-fly disproved
+        /// that premise: the recorder's bypass
+        /// (<see cref="TryResolveReFlyProvisionalAnchor"/>) runs first and
+        /// pins the Relative anchor to the supersede target (a ghost
+        /// resolved via Slerp), not to the live parent. Parent-anchored
+        /// re-fly provisionals fall into the exact same
+        /// "Relative-against-superseded-origin" anti-pattern as top-level
+        /// re-fly provisionals, so the gate applies to both uniformly.</para>
+        /// </summary>
+        internal static bool IsActiveRecordingReFlyProvisional(
+            ReFlySessionMarker marker,
+            string activeRecordingId)
+        {
+            if (marker == null) return false;
+            if (string.IsNullOrEmpty(activeRecordingId)) return false;
+            if (!string.Equals(
+                    marker.ActiveReFlyRecordingId,
+                    activeRecordingId,
+                    StringComparison.Ordinal))
+                return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Production wrapper. Derives marker + active recording id from live
+        /// scenario state and the supplied active tree. No tree lookup needed
+        /// after the carve-out removal (the predicate no longer reads
+        /// <c>DebrisParentRecordingId</c>).
+        /// </summary>
+        internal static bool IsActiveRecordingReFlyProvisional(
+            RecordingTree activeTree)
+        {
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            string activeRecordingId = activeTree?.ActiveRecordingId;
+            return IsActiveRecordingReFlyProvisional(marker, activeRecordingId);
+        }
+
         private static bool TryWalkSupersedeChain(
             string provisionalRecId,
             string startCandidate,
