@@ -591,7 +591,7 @@ namespace Parsek.Tests
             Assert.NotNull(method);
             return (TrajectoryPlaybackFlags[])method.Invoke(
                 host,
-                new object[] { committed, currentUT });
+                new object[] { committed, currentUT, null });
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

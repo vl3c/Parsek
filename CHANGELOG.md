@@ -52,7 +52,7 @@ All notable changes to Parsek are documented here.
 - Final review follow-up: deferred consume dispatch when restore is pending to avoid a race against `ResetFlightReadyState`; doc reconciliation across plan, todo, and CHANGELOG; minor logging hygiene.
 - Round-5 review follow-up: defensive guards in merge/discard tree-passing, Esc disabled on pre-switch dialog, shared tree resolver between SceneExit and pre-switch dialog, and assorted doc + test polish.
 - Pre-switch dialog Round-6 review follow-up: context-aware ScreenMessage and ledger reason on no-session Discard, plus minor diagnostic log hygiene.
-- `GhostPlaybackEngine` no longer reads `SessionSuppressionState` directly. The active re-fly marker rides through `FrameContext.activeReFlyMarker` and the per-recording suppression bit through `TrajectoryPlaybackFlags.sessionSuppressed`; the host (`ParsekFlight`) snapshots both once per frame before calling `engine.UpdatePlayback`. Pure refactor — branch semantics, log ordering, and counter increments are unchanged — but the engine is now host-state-driven for re-fly suppression, which is a prerequisite for swapping in an alternative ghost rendering implementation behind the existing construction-site seam (`ParsekFlight.cs` engine field).
+- Internal refactor: `GhostPlaybackEngine` no longer reads `SessionSuppressionState` directly; the active re-fly marker and per-recording suppression bit flow in via `FrameContext` / `TrajectoryPlaybackFlags`. No behavioral change.
 
 ---
 
