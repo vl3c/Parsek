@@ -8072,10 +8072,12 @@ namespace Parsek
                 // Log creation + OrbitDriver state for diagnostics (#172)
                 Vessel v = pv.vesselRef;
                 // KSP promotes a single-part root with PhysicsSignificance=1 back to
-                // FULL, and runs aero/thermal sim on it regardless. Without this pass
-                // the marker's sensorBarometer overheats and Part.explode() destroys
-                // the vessel mid-Re-Fly when the active vessel passes through low
-                // altitude / high mach (see 2026-05-19 saves/x1 logs at 18:44:50).
+                // FULL, and the thermal explode site checks temperature > maxTemp
+                // independent of physical significance. Without this pass the marker's
+                // sensorBarometer (maxTemp=1200) overheats and Part.explode() destroys
+                // the vessel mid-Re-Fly whenever the active vessel passes through dense
+                // atmosphere at orbital speed (repro at logs/2026-05-19_1847_refly-
+                // booster-explosion, log line 18:44:50.128).
                 HardenMarkerPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
                 string driverState = "no-orbitDriver";
