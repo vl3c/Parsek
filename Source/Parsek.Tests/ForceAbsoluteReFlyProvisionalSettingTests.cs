@@ -153,6 +153,53 @@ namespace Parsek.Tests
                 l => l.Contains("[Anchor]") && l.Contains("forceAbsoluteForReFlyProvisional:"));
         }
 
+        /// <summary>
+        /// During the per-load cycle (IsReconciled==false), KSP's
+        /// GameParameters.OnLoad calls the setter to restore the field from
+        /// the .sfs node. That is a state restore, not a user-driven flip,
+        /// so the Anchor "X->Y" Info line must NOT fire. The 2026-05-19
+        /// PR 901 validation playtest exposed 14 spurious "False->True"
+        /// lines from this exact path before the gate was added.
+        /// </summary>
+        [Fact]
+        public void ForceAbsoluteSetting_SetterDuringUnreconciledLoad_DoesNotLog()
+        {
+            // Make sure we start unreconciled (ResetForTesting did this
+            // already, but be explicit so the assertion below is meaningful).
+            ParsekSettingsPersistence.InvalidateReconciliation();
+            Assert.False(ParsekSettingsPersistence.IsReconciledForTesting);
+
+            var settings = new ParsekSettings();
+            settings.forceAbsoluteForReFlyProvisional = true;
+
+            Assert.True(settings.forceAbsoluteForReFlyProvisional);
+            Assert.DoesNotContain(logLines,
+                l => l.Contains("[Anchor]") && l.Contains("forceAbsoluteForReFlyProvisional:"));
+        }
+
+        /// <summary>
+        /// After ApplyTo flips IsReconciled true (the steady-state window
+        /// where the UI toggle runs), a real user-driven flip must log
+        /// normally. Pairs with
+        /// <see cref="ForceAbsoluteSetting_SetterDuringUnreconciledLoad_DoesNotLog"/>
+        /// to show the gate is precisely about the load-cycle window, not a
+        /// blanket Notify suppression.
+        /// </summary>
+        [Fact]
+        public void ForceAbsoluteSetting_SetterAfterReconciliation_LogsFlip()
+        {
+            ParsekSettingsPersistence.MarkReconciledForTesting();
+            Assert.True(ParsekSettingsPersistence.IsReconciledForTesting);
+
+            var settings = new ParsekSettings();
+            settings.forceAbsoluteForReFlyProvisional = true;
+
+            Assert.True(settings.forceAbsoluteForReFlyProvisional);
+            Assert.Contains(logLines, l => l.Contains("[Anchor]")
+                && l.IndexOf("false->true", StringComparison.OrdinalIgnoreCase) >= 0
+                && l.Contains("forceAbsoluteForReFlyProvisional"));
+        }
+
         // -----------------------------------------------------------------
         // Production-wrapper coverage: IsActiveRecordingReFlyProvisional(RecordingTree)
         // reads ParsekScenario.Instance + activeTree.ActiveRecordingId.

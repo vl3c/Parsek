@@ -246,9 +246,25 @@ namespace Parsek
                 if (_forceAbsoluteForReFlyProvisional == value) return;
                 bool prev = _forceAbsoluteForReFlyProvisional;
                 _forceAbsoluteForReFlyProvisional = value;
-                NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
+                // Gate BOTH the user-flip log and the persistence write on the
+                // same IsReconciled latch. KSP's GameParameters.OnLoad calls
+                // this setter to restore the field from .sfs on every scene /
+                // quicksave load (a fresh ParsekSettings.Current instance, so
+                // the backing field starts at the default `false`). That is a
+                // state restore, not a user toggle, and must NOT log a
+                // "False->True" Anchor flip line: the 2026-05-19 PR 901
+                // validation playtest emitted 14 such spurious lines across
+                // four minutes of play. The IsReconciled latch is the
+                // existing per-cycle gate (ParsekSettings.OnLoad flips it
+                // false before base.OnLoad, ApplyTo flips it true after the
+                // external store overlay completes), so a real user toggle
+                // through the UI lands in the IsReconciled==true window and
+                // logs as expected.
                 if (ParsekSettingsPersistence.IsReconciled)
+                {
+                    NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
                     ParsekSettingsPersistence.RecordForceAbsoluteForReFlyProvisional(value);
+                }
             }
         }
         private bool _forceAbsoluteForReFlyProvisional = false;
