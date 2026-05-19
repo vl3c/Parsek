@@ -146,9 +146,17 @@ public bool forceAbsoluteForReFlyProvisional
         if (_forceAbsoluteForReFlyProvisional == value) return;
         bool prev = _forceAbsoluteForReFlyProvisional;
         _forceAbsoluteForReFlyProvisional = value;
-        NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
+        // Gate BOTH Notify (Anchor flip log) and Record* (persistence
+        // write) on IsReconciled. KSP's GameParameters.OnLoad calls
+        // this setter to restore the field from .sfs on every scene /
+        // quicksave load; that is a state restore, not a user toggle,
+        // and must not emit a "False->True" Anchor flip line. See
+        // PR 901 validation playtest (commit 187b62d1).
         if (ParsekSettingsPersistence.IsReconciled)
+        {
+            NotifyForceAbsoluteForReFlyProvisionalChanged(prev, value);
             ParsekSettingsPersistence.RecordForceAbsoluteForReFlyProvisional(value);
+        }
     }
 }
 private bool _forceAbsoluteForReFlyProvisional = false;
@@ -156,9 +164,10 @@ private bool _forceAbsoluteForReFlyProvisional = false;
 
 Plus the `NotifyForceAbsoluteForReFlyProvisionalChanged` log-on-flip
 helper (same shape as `NotifyUseCoBubbleBlendChanged`). Existing
-notify-helper tests cover the on-flip log line; no new dedicated
-flip-log test is needed (the setter test asserts the notify fires once
-when the field changes).
+notify-helper tests cover the on-flip log line; the gate test
+`ForceAbsoluteSetting_SetterDuringUnreconciledLoad_DoesNotLog`
+pins the IsReconciled gate (added after the 2026-05-19 validation
+playtest exposed 14 spurious flip lines per cycle).
 
 Persistence mirror in `ParsekSettingsPersistence.cs` follows the
 existing pattern:

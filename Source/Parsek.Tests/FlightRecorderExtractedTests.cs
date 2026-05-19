@@ -369,7 +369,7 @@ namespace Parsek.Tests
             // one). Legitimate Absolute single-frame finalizations
             // (FinalizeAllForCommit when only one sample existed) must
             // persist. Discarding Absolute single-frame sections would break
-            // that contract — the pre-existing
+            // that contract: the pre-existing
             // FinalizeAllForCommit_MissingLoadedVessel_KeepsCacheApplicableFromLastSample
             // test pins that. This counter-test pins the same invariant
             // through the foreground path.

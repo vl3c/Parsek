@@ -5177,6 +5177,25 @@ namespace Parsek
             surfaceMobileClearanceSumThisSection = 0.0;
         }
 
+        /// <summary>
+        /// Updates the per-recorder running minimum distance from the focused
+        /// vessel to any other re-fly-tree recording anchor, populating
+        /// <see cref="reFlyTreeSamplingProximityMeters"/>. The value is
+        /// consumed on the next <c>OnPhysicsFrame</c> to pick a proximity-tier
+        /// sampling cadence (Full / Half / None at the
+        /// <c>ReFlyTreeFullFidelityProximityRangeMeters</c> /
+        /// <c>ReFlyTreeHalfFidelityProximityRangeMeters</c> bands).
+        ///
+        /// <para>This is a load-bearing side effect of
+        /// <c>BuildRecordingAnchorCandidateList</c> via
+        /// <c>Add{Live,External}RecordingAnchorCandidates</c>. The build site
+        /// in <see cref="UpdateAnchorDetection"/> is hoisted ABOVE the re-fly
+        /// bypass and the <c>forceAbsoluteForReFlyProvisional</c> gate so the
+        /// proximity scan still runs on a re-fly frame where the bypass / gate
+        /// would otherwise early-return. Pinned by
+        /// <c>FlightRecorder_BuildsCandidateList_BeforeReFlyBypassEarlyReturn</c>
+        /// in <c>ReFlyAnchorBypassWiringTests</c>.</para>
+        /// </summary>
         private void ConsiderReFlyTreeSamplingProximity(
             Vector3d focusedWorldPosition,
             Vector3d candidateWorldPosition,

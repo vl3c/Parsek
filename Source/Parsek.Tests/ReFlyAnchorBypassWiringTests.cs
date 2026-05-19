@@ -157,8 +157,12 @@ namespace Parsek.Tests
             // The force-Absolute experimental gate has the same early-return
             // shape as the bypass; the candidate build must come before it
             // too so the gated path doesn't lose the proximity side effect.
+            // Anchor on the property read inside the gate (not the bare
+            // setting name) so a comment-only reorder above the gate cannot
+            // make this assertion pass while the if-block migrates back
+            // below the build.
             int forceAbsoluteGateIdx = source.IndexOf(
-                "forceAbsoluteForReFlyProvisional",
+                "ParsekSettings.Current.forceAbsoluteForReFlyProvisional",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
             Assert.True(forceAbsoluteGateIdx >= 0,
