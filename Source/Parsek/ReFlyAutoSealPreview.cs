@@ -419,7 +419,7 @@ namespace Parsek
         /// <list type="number">
         ///   <item><description>Science group: TransmittedScience, RecoveredScience, EarnedScience</description></item>
         ///   <item><description>Structural group: Undocked, KerbalEva, PartBrokeOff, VesselBrokeUp</description></item>
-        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
+        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit</description></item>
         /// </list>
         /// </summary>
         private static void SortReasonsByGroup(List<ReFlyAutoSealReason> reasons)
