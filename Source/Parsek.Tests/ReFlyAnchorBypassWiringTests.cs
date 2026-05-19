@@ -5,19 +5,36 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 2 of fix-refly-relative-anchor: source-text gates that confirm
-    /// the ReFlyAnchorSelection bypass is wired into both recorder sites
-    /// (active-vessel and background).
+    /// Source-text gates for the narrowed-gate re-fly anchor selection wired
+    /// into both recorder sites (active-vessel <see cref="FlightRecorder"/>
+    /// and background <see cref="BackgroundRecorder"/>).
     ///
-    /// <para>Driving <c>UpdateAnchorDetection</c> / <c>UpdateBackgroundAnchorDetection</c>
-    /// from xUnit would require constructing a live KSP Vessel and the
-    /// private <c>BackgroundVesselState</c>; the established alternative
-    /// (see <c>ChainSaveLoadTests.ChainStateNotPersistedInScenario</c> and
+    /// <para>History: the original 2300m physics-bubble anchor rule was
+    /// extended by PR #889 with a supersede-target bypass
+    /// (<c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>) that
+    /// pinned the Relative anchor to the supersede target so the
+    /// nearest-search would not pick a fast-separating sibling. PR 901
+    /// validated that Absolute (no Relative anchor at all) is the right
+    /// contract for re-fly forks with no nearby real anchor. This PR
+    /// generalizes that finding: the bypass is replaced with a filter
+    /// (<c>ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional</c>) that
+    /// drops every candidate whose recording is in the same
+    /// <see cref="RecordingTree"/> as the provisional, so the nearest-search
+    /// sees only out-of-tree real anchors (stations, bases, live vessels
+    /// from other lineages). The result: re-fly fork with no nearby real
+    /// anchor authors Absolute, re-fly fork mid-docking-approach authors
+    /// Relative-against-real-station, loop-anchored re-fly fork authors
+    /// Relative-against-live-loop-anchor.</para>
+    ///
+    /// <para>Driving <c>UpdateAnchorDetection</c> /
+    /// <c>UpdateBackgroundAnchorDetection</c> from xUnit would require
+    /// constructing a live KSP Vessel and the private
+    /// <c>BackgroundVesselState</c>; the established alternative (see
+    /// <c>ChainSaveLoadTests.ChainStateNotPersistedInScenario</c> and
     /// <c>memory/reference_parsek_scenario_xunit.md</c>) is a source-text
-    /// gate that catches accidental wiring drift. The helper itself is
-    /// exhaustively exercised in <c>ReFlyAnchorSelectionTests</c>; the
-    /// end-to-end behavior is validated by the
-    /// <c>ReFlyAnchorContract</c> in-game test landed in Phase 4.</para>
+    /// gate that catches accidental wiring drift. The filter helper itself
+    /// is exhaustively exercised by xUnit in
+    /// <c>FilterCandidatesForReFlyProvisionalTests</c>.</para>
     /// </summary>
     public class ReFlyAnchorBypassWiringTests
     {
@@ -32,32 +49,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BackgroundRecorder_WiresReFlyAnchorBypass_AfterDebrisBypass()
+        public void BackgroundRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
             string source = ReadSource("BackgroundRecorder.cs");
 
-            int debrisBypassIdx = source.IndexOf(
-                "ApplyDebrisAnchorContractToState(state, treeRec, bgVessel, ut)",
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 StringComparison.Ordinal);
-            Assert.True(debrisBypassIdx >= 0,
-                "Existing debris-parent bypass call site not found");
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call missing from BackgroundRecorder.cs");
 
-            int reflyBypassIdx = source.IndexOf(
-                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
+            int findNearestIdx = source.IndexOf(
+                "AnchorDetector.FindNearestRecordingAnchor(",
                 StringComparison.Ordinal);
-            Assert.True(reflyBypassIdx >= 0,
-                "ReFlyAnchorSelection bypass call site missing from BackgroundRecorder.cs");
-            Assert.True(reflyBypassIdx > debrisBypassIdx,
-                "Re-fly bypass must come after the debris-parent bypass so debris recordings still take precedence");
+            Assert.True(findNearestIdx >= 0,
+                "FindNearestRecordingAnchor call missing from BackgroundRecorder.cs");
 
-            // Verify the BG-specific apply helper is defined.
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToState(",
-                source);
+            Assert.True(filterIdx < findNearestIdx,
+                "Narrowed-gate filter must execute BEFORE FindNearestRecordingAnchor " +
+                "so the nearest-search only sees out-of-tree candidates");
         }
 
         [Fact]
-        public void FlightRecorder_WiresReFlyAnchorBypass_BeforeNearestSearch()
+        public void BackgroundRecorder_NoLongerCallsSupersedeTargetBypass()
+        {
+            // The supersede-target bypass call is gone from the gate site.
+            // The function itself (TryResolveReFlyProvisionalAnchor) and the
+            // ApplyReFlyProvisionalAnchorToState apply helper remain in the
+            // file for one release as a rollback path; this test confirms
+            // they are not wired into UpdateBackgroundAnchorDetection.
+            string source = ReadSource("BackgroundRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "UpdateBackgroundAnchorDetection",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateBackgroundAnchorDetection not found");
+
+            // Find the next method declaration after UpdateBackgroundAnchorDetection
+            // so the search is scoped to that method's body. The bypass call
+            // string must not appear inside that scope.
+            int nextMethodIdx = source.IndexOf(
+                "\n        private ",
+                updateAnchorIdx + 1,
+                StringComparison.Ordinal);
+            if (nextMethodIdx < 0) nextMethodIdx = source.Length;
+
+            string methodBody = source.Substring(
+                updateAnchorIdx,
+                nextMethodIdx - updateAnchorIdx);
+
+            Assert.DoesNotContain(
+                "TryResolveReFlyProvisionalAnchor(",
+                methodBody);
+        }
+
+        [Fact]
+        public void FlightRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
             string source = ReadSource("FlightRecorder.cs");
 
@@ -67,46 +115,57 @@ namespace Parsek.Tests
             Assert.True(updateAnchorIdx >= 0,
                 "UpdateAnchorDetection method not found");
 
-            int reflyBypassIdx = source.IndexOf(
-                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
-            Assert.True(reflyBypassIdx >= 0,
-                "Re-fly bypass call missing from FlightRecorder.UpdateAnchorDetection");
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call missing from FlightRecorder.UpdateAnchorDetection");
 
-            // The bypass must precede the nearest-search call so the bypass
-            // actually intercepts the nearest-search.
-            //
-            // Note: BuildRecordingAnchorCandidateList is intentionally
-            // hoisted ABOVE the bypass (above this re-fly bypass site).
-            // Its load-bearing side effect (ConsiderReFlyTreeSamplingProximity
-            // populating reFlyTreeSamplingProximityMeters) gates the
-            // 0-250-500 proximity-tier sampling cadence on the NEXT
-            // OnPhysicsFrame. If the bypass early-returned without that
-            // scan, in-tree peers within 250m would not unlock Full-tier
-            // sampling and atmospheric re-fly sections would Lerp through
-            // sparse defaults (3 s max) instead of the dense (~0.05 s)
-            // configured-min interval. See bobbing investigation log
-            // 2026-05-19_1956_forceabsolute-refly-bobbing.
             int findNearestIdx = source.IndexOf(
                 "AnchorDetector.FindNearestRecordingAnchor(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
             Assert.True(findNearestIdx >= 0,
                 "FindNearestRecordingAnchor call not found in UpdateAnchorDetection");
-            Assert.True(findNearestIdx > reflyBypassIdx,
-                "Re-fly bypass must execute before FindNearestRecordingAnchor so the bypass actually intercepts the nearest-search");
 
-            // Verify the active-vessel apply helper is defined.
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
-                source);
+            Assert.True(filterIdx < findNearestIdx,
+                "Narrowed-gate filter must execute BEFORE FindNearestRecordingAnchor " +
+                "so the nearest-search only sees out-of-tree candidates");
         }
 
         [Fact]
-        public void FlightRecorder_BuildsCandidateList_BeforeReFlyBypassEarlyReturn()
+        public void FlightRecorder_NoLongerCallsSupersedeTargetBypass()
         {
-            // Companion test to FlightRecorder_WiresReFlyAnchorBypass_BeforeNearestSearch.
+            // Symmetric counterpart to
+            // BackgroundRecorder_NoLongerCallsSupersedeTargetBypass: the
+            // bypass call is gone from UpdateAnchorDetection.
+            string source = ReadSource("FlightRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "private void UpdateAnchorDetection(Vessel v)",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateAnchorDetection method not found");
+
+            int nextMethodIdx = source.IndexOf(
+                "\n        private ",
+                updateAnchorIdx + 1,
+                StringComparison.Ordinal);
+            if (nextMethodIdx < 0) nextMethodIdx = source.Length;
+
+            string methodBody = source.Substring(
+                updateAnchorIdx,
+                nextMethodIdx - updateAnchorIdx);
+
+            Assert.DoesNotContain(
+                "TryResolveReFlyProvisionalAnchor(",
+                methodBody);
+        }
+
+        [Fact]
+        public void FlightRecorder_BuildsCandidateList_BeforeForceAbsoluteGate()
+        {
             // BuildRecordingAnchorCandidateList carries a load-bearing side
             // effect: ConsiderReFlyTreeSamplingProximity (called from the
             // Add{Live,External}RecordingAnchorCandidates helpers) populates
@@ -115,17 +174,20 @@ namespace Parsek.Tests
             // (Full / Half / None at 0-250m / 250-500m / 500m+ ranges,
             // see ReFlyTree{Full,Half}FidelityProximityRangeMeters).
             //
-            // If the call sat below the re-fly bypass early-return (the
-            // pre-2026-05-19 ordering), an active re-fly provisional that
-            // hit the bypass would skip the proximity scan, the tier would
-            // resolve to None, and the recorder would fall back to sparse
-            // sampling intervals (configuredMax = 3 s). The visible
-            // consequence was per-section sample counts of 2 in atmospheric
-            // re-fly sections, which produced multi-meter Lerp-vs-physics
-            // mismatch ("bobbing") of close-camera ghosts.
+            // The force-Absolute experimental gate (still present as a
+            // rollback path) has an early-return shape: if it sat below the
+            // candidate build, the gated path would skip the proximity scan
+            // and the recorder would fall back to sparse sampling. PR 901
+            // commit 768fd6e2 hoisted the build above the gate. This test
+            // pins the hoisted ordering so the regression cannot return.
             //
-            // Pin the hoisted ordering so this regression cannot return
-            // silently.
+            // Note: with the narrowed-gate change replacing the
+            // TryResolveReFlyProvisionalAnchor bypass with the
+            // FilterCandidatesForReFlyProvisional filter, the build must
+            // also execute before the filter (which inputs the candidates
+            // list). That ordering is structural — the filter cannot run on
+            // a list that does not exist yet — and is implicitly pinned by
+            // the syntactic flow.
             string source = ReadSource("FlightRecorder.cs");
 
             int updateAnchorIdx = source.IndexOf(
@@ -141,26 +203,12 @@ namespace Parsek.Tests
             Assert.True(candidateBuildIdx >= 0,
                 "BuildRecordingAnchorCandidateList call missing from UpdateAnchorDetection");
 
-            int reflyBypassIdx = source.IndexOf(
-                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
-                updateAnchorIdx,
-                StringComparison.Ordinal);
-            Assert.True(reflyBypassIdx >= 0,
-                "Re-fly bypass call missing from UpdateAnchorDetection");
-
-            Assert.True(candidateBuildIdx < reflyBypassIdx,
-                "BuildRecordingAnchorCandidateList must execute BEFORE the re-fly bypass " +
-                "so the bypass's early-return does not skip the proximity-tier sampling " +
-                "side effect (ConsiderReFlyTreeSamplingProximity populating " +
-                "reFlyTreeSamplingProximityMeters).");
-
-            // The force-Absolute experimental gate has the same early-return
-            // shape as the bypass; the candidate build must come before it
-            // too so the gated path doesn't lose the proximity side effect.
-            // Anchor on the property read inside the gate (not the bare
-            // setting name) so a comment-only reorder above the gate cannot
-            // make this assertion pass while the if-block migrates back
-            // below the build.
+            // The force-Absolute experimental gate has an early-return
+            // shape; the candidate build must come before it. Anchor on the
+            // property read inside the gate (not the bare setting name) so
+            // a comment-only reorder above the gate cannot make this
+            // assertion pass while the if-block migrates back below the
+            // build.
             int forceAbsoluteGateIdx = source.IndexOf(
                 "ParsekSettings.Current.forceAbsoluteForReFlyProvisional",
                 updateAnchorIdx,
@@ -173,25 +221,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReFlyAnchorBypass_UsesReFlyProvisionalSupersedeCandidateSource()
+        public void ReFlyAnchorApplyHelpers_StillDefined_PendingDeletionInFuturePR()
         {
-            // The synthetic RecordingAnchorCandidate constructed by the
-            // active-vessel apply helper must tag itself with the new
-            // diagnostic enum value so log lines and downstream
-            // affinity-ranking treat it as a distinct source.
+            // The apply helpers (ApplyReFlyProvisionalAnchorToActiveRecording
+            // / ApplyReFlyProvisionalAnchorToState) are orphans after the
+            // narrowed-gate change: nothing in the recorder calls them. They
+            // are retained for one release as a rollback path. This test
+            // pins their continued existence so a careless cleanup PR does
+            // not delete them prematurely — and conversely, makes the
+            // future deletion-PR's removal explicit (delete this test
+            // alongside the helpers).
             string flightSource = ReadSource("FlightRecorder.cs");
             Assert.Contains(
-                "AnchorCandidateSource.ReFlyProvisionalSupersede",
+                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
                 flightSource);
 
-            string anchorDetectorSource = ReadSource("AnchorDetector.cs");
+            string bgSource = ReadSource("BackgroundRecorder.cs");
             Assert.Contains(
-                "ReFlyProvisionalSupersede",
-                anchorDetectorSource);
+                "private void ApplyReFlyProvisionalAnchorToState(",
+                bgSource);
         }
 
         [Fact]
-        public void ReFlyAnchorBypass_PreChecksAnchorPoseBeforeOpeningRelativeSection()
+        public void ReFlyAnchorApplyHelpers_PreCheckAnchorPoseBeforeOpeningRelativeSection()
         {
             // PR #889 validation playtest discovered a per-frame thrash when
             // the supersede target's authored trajectory does not cover the
@@ -200,15 +252,14 @@ namespace Parsek.Tests
             // Relative section, SeedRelativeBoundaryPoint failed with
             // anchor-out-of-recorded-range, ForceExitRelativeToAbsolute
             // closed it, and the next frame's bypass call repeated the
-            // cycle. The thrash produced thousands of zero-frame
-            // TrackSections (caught by the recorder safeguard so the on-disk
-            // recordings stay clean) and thousands of matching INFO log
-            // lines.
+            // cycle.
             //
-            // Source-text gate: confirms both recorder bypass apply helpers
-            // pre-check the anchor pose with a rate-limited VerboseRateLimited
-            // log (key=refly-bypass-anchor-uncovered) before any section
-            // flip, anchor write, or HF sampling activation.
+            // The narrowed-gate change makes this code path unreachable from
+            // the recorder gate sites (the bypass call is gone), but the
+            // pre-check log + ordering remains a meaningful invariant for
+            // the apply helpers themselves: if a future PR re-wires them
+            // (e.g. via a different bypass path or a manual call site), the
+            // thrash regression must not return.
             string flightSource = ReadSource("FlightRecorder.cs");
             int flightApplyIdx = flightSource.IndexOf(
                 "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
@@ -220,8 +271,6 @@ namespace Parsek.Tests
                 System.StringComparison.Ordinal);
             Assert.True(flightPreCheckIdx >= 0,
                 "Active-vessel pre-check log (key=refly-bypass-anchor-uncovered) missing");
-            // The pre-check must run BEFORE the section flip and HF sampling
-            // calls, otherwise the thrash regression returns.
             int flightSamplePositionIdx = flightSource.IndexOf(
                 "SamplePosition(v);",
                 flightApplyIdx,

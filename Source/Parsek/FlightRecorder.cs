@@ -5842,28 +5842,31 @@ namespace Parsek
                     return;
                 }
 
-                // Re-fly provisional anchor bypass: while a ReFlySessionMarker
-                // is live and the active recording is the provisional, pin the
-                // Relative anchor to the supersede target (or
-                // OriginChildRecordingId fallback) instead of letting the
-                // nearest-search pick a fast-separating sibling that the
-                // original launch's lower stage produced. See
-                // docs/dev/plans/fix-refly-relative-anchor-selection.md.
-                if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
+                // Narrowed-gate filter for re-fly provisionals: drop every
+                // candidate whose recording id is a member of the same
+                // RecordingTree as the provisional. Real persistent vessels
+                // (stations, bases, live vessels from other lineages) are
+                // out-of-tree and pass through, so a re-fly that starts
+                // mid-docking-approach still authors
+                // Relative-against-real-station and a loop-anchored re-fly
+                // fork still authors Relative-against-live-loop-anchor. The
+                // filter replaces the old
+                // ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor
+                // bypass that pinned the anchor to the supersede target (a
+                // ghost being resolved via Slerp), which was a bug patch on
+                // top of the 2300m physics-bubble rule. See
+                // docs/dev/plans/narrow-refly-relative-gate.md.
+                IReadOnlyList<RecordingAnchorCandidate> nearestSearchCandidates =
+                    ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(
                         ActiveTree,
-                        ActiveTree?.ActiveRecordingId,
-                        out string reflyAnchor,
-                        out string reflySource))
-                {
-                    ApplyReFlyProvisionalAnchorToActiveRecording(v, reflyAnchor, reflySource);
-                    return;
-                }
+                        candidates);
+
                 Vector3d focusedWorldPosition = v.GetWorldPos3D();
                 var result = AnchorDetector.FindNearestRecordingAnchor(
                     ActiveTree?.ActiveRecordingId,
                     RecordingVesselId,
                     focusedWorldPosition,
-                    candidates,
+                    nearestSearchCandidates,
                     AnchorDetector.RelativeFrameRangeLimit(isRelativeMode));
 
                 bool shouldBeRelative = result.found
@@ -7399,7 +7402,7 @@ namespace Parsek
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
 
-            // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+            // Force-Absolute rollback gate (docs/dev/plans/force-absolute-refly-provisional.md).
             // The anchor-detection gate at UpdateAnchorDetection's !onSurface
             // branch cannot reach this resume path. RestoreTrackSectionAfterFalseAlarm
             // inherits resumeRef from the saved section's referenceFrame
@@ -7408,6 +7411,15 @@ namespace Parsek
             // bypassing the gate. Mirror the existing Relative-resume-failed
             // downgrade pattern at the rejected-anchor blocks below to keep
             // the new section Absolute.
+            //
+            // Note: under the narrowed-gate default
+            // (docs/dev/plans/narrow-refly-relative-gate.md), the recorder's
+            // authoring path no longer produces same-tree Relative sections
+            // for re-fly provisionals, so a legitimately-saved Relative
+            // section here can only be Relative-against-a-real-out-of-tree
+            // anchor (the case the narrowed gate preserves on purpose). This
+            // toggle's job is the rollback path: forcing fully Absolute even
+            // when the saved section was Relative-against-real-anchor.
             if (resumeRef == ReferenceFrame.Relative
                 && ParsekSettings.Current != null
                 && ParsekSettings.Current.forceAbsoluteForReFlyProvisional

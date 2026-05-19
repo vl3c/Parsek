@@ -4889,17 +4889,6 @@ namespace Parsek
                 return;
             }
 
-            if (ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
-                    tree,
-                    treeRec.RecordingId,
-                    out string reflyAnchor,
-                    out string reflySource))
-            {
-                ApplyReFlyProvisionalAnchorToState(
-                    state, treeRec, bgVessel, ut, reflyAnchor, reflySource);
-                return;
-            }
-
             var candidates = BuildBackgroundRecordingAnchorCandidates(
                 state,
                 bgVessel,
@@ -4909,11 +4898,40 @@ namespace Parsek
                 out int liveAdded,
                 out int ghostScanned,
                 out int ghostAdded);
+
+            // Narrowed-gate filter for re-fly provisionals: mirror of the
+            // FlightRecorder.UpdateAnchorDetection filter. Drop same-tree
+            // candidates so the nearest-search picks only out-of-tree real
+            // anchors. Replaces the old
+            // ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor
+            // supersede-target bypass.
+            //
+            // We use the pure overload with treeRec.RecordingId explicitly
+            // (not the production overload's derived activeTree.ActiveRecordingId)
+            // because tree.ActiveRecordingId is the FG-focused recording, and
+            // BG recorders run only on unfocused vessels. Using the production
+            // overload here would widen the scope to "any BG vessel in the
+            // re-fly tree", whereas the OLD bypass scope was "this BG vessel
+            // IS the FG-focused provisional" (which on BG is never true, so
+            // the OLD BG bypass was dead code). Passing treeRec.RecordingId
+            // explicitly preserves that scope: the filter fires only if
+            // marker.ActiveReFlyRecordingId == treeRec.RecordingId, which is
+            // the same predicate the OLD bypass used. See
+            // docs/dev/plans/narrow-refly-relative-gate.md.
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            ICollection<string> sameTreeRecordingIds = tree?.Recordings?.Keys;
+            IReadOnlyList<RecordingAnchorCandidate> nearestSearchCandidates =
+                ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(
+                    marker,
+                    treeRec.RecordingId,
+                    sameTreeRecordingIds,
+                    candidates);
+
             var result = AnchorDetector.FindNearestRecordingAnchor(
                 treeRec.RecordingId,
                 state.vesselPid,
                 bgVessel.GetWorldPos3D(),
-                candidates,
+                nearestSearchCandidates,
                 AnchorDetector.RelativeFrameRangeLimit(state.isRelativeMode));
             bool shouldBeRelative = result.found
                 && AnchorDetector.ShouldUseRelativeFrame(result.distance, state.isRelativeMode);

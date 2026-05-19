@@ -208,36 +208,38 @@ namespace Parsek
         private bool _useCoBubbleBlend = false;
 
         /// <summary>
-        /// Experimental A/B toggle (off by default). When on, the recorder
-        /// skips Relative-anchored authoring for re-fly provisional
-        /// recordings: both the
-        /// <c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>
-        /// bypass and the fallback nearest-search are skipped, plus a
-        /// Relative-to-Absolute downgrade fires in
-        /// <c>FlightRecorder.RestoreTrackSectionAfterFalseAlarm</c>. Lets a
-        /// developer A/B compare the current
-        /// Relative-against-superseded-origin path against the simpler
-        /// debris-style Absolute path on the re-fly scenario.
+        /// Rollback toggle (off by default) for the narrowed-gate re-fly
+        /// Relative anchor selection. The DEFAULT behavior is now: while a
+        /// re-fly is active, the recorder runs the nearest-search against
+        /// out-of-tree candidates only (the
+        /// <c>ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional</c>
+        /// filter drops every candidate in the same
+        /// <see cref="RecordingTree"/> as the provisional). Re-fly with no
+        /// nearby real anchor authors Absolute (PR 901's validated default);
+        /// re-fly with a nearby real station / base / live loop anchor
+        /// authors Relative-against-the-real-anchor.
         ///
-        /// <para>Off (default) preserves the current
-        /// <see cref="ReFlyAnchorSelection"/> behavior. The setting does
-        /// NOT participate in <c>.pann</c> ConfigurationHash because it
-        /// only affects <c>.prec</c> authoring, not pannotation block
-        /// generation, so flipping it must not invalidate cached
-        /// <c>.pann</c> sidecars. See
-        /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c>.</para>
-        ///
-        /// <para>The gate applies uniformly to all re-fly provisionals,
-        /// including parent-anchored ones (controlled-decoupled children
-        /// being re-flown). Runtime analysis showed that the recorder's
+        /// <para>When this toggle is ON, the recorder additionally skips
+        /// the nearest-search entirely for re-fly provisionals: even an
+        /// out-of-tree real anchor in range is ignored, and the recorder
+        /// forces Absolute. Plus a Relative-to-Absolute downgrade fires in
+        /// <c>FlightRecorder.RestoreTrackSectionAfterFalseAlarm</c>.
+        /// Provided as a strict rollback path for the narrowed-gate
+        /// change; expected to be deleted alongside the orphaned
         /// <see cref="ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor"/>
-        /// bypass pins to the supersede target (a ghost resolved via
-        /// Slerp) for parent-anchored provisionals too, so the
-        /// "Relative-against-superseded-origin" anti-pattern that
-        /// motivated this experiment applies to both populations.</para>
+        /// and its apply helpers after one release of soak time.</para>
+        ///
+        /// <para>The setting does NOT participate in <c>.pann</c>
+        /// ConfigurationHash because it only affects <c>.prec</c> authoring,
+        /// not pannotation block generation, so flipping it does not
+        /// invalidate cached <c>.pann</c> sidecars. See
+        /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c> (PR 901
+        /// experiment design) and
+        /// <c>docs/dev/plans/narrow-refly-relative-gate.md</c> (current
+        /// default behavior).</para>
         /// </summary>
-        [GameParameters.CustomParameterUI("Force Absolute for re-fly provisional (experimental)",
-            toolTip = "Experimental. When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode. Off (default) preserves the current behavior. Useful for A/B testing simplified Absolute rendering vs. the Relative-against-superseded-origin path. Flipping mid-recording produces a section boundary in the active recording.")]
+        [GameParameters.CustomParameterUI("Force Absolute for re-fly provisional (rollback)",
+            toolTip = "Rollback path for the narrowed-gate default. Default behavior already authors Absolute for re-fly forks without a real out-of-tree anchor nearby; this toggle additionally forces Absolute even when a real station / base / live loop anchor IS in range. Off (default) keeps Relative-against-real-anchor where reachable; On forces fully Absolute. Flipping mid-recording produces a section boundary.")]
         public bool forceAbsoluteForReFlyProvisional
         {
             get { return _forceAbsoluteForReFlyProvisional; }
