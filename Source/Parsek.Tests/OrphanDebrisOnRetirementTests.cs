@@ -362,6 +362,109 @@ namespace Parsek.Tests
         // pin that no extra child-side cleanup is required.
         // =====================================================================
 
+        // =====================================================================
+        // Cache: live-store calls cache the cascade across version-stable
+        // windows so per-frame consumers (ParsekKSC.Update per-rec,
+        // RecordingsTableUI per-row, GhostMapPresence) do not pay the
+        // fixed-point closure cost N times per frame AND do not re-emit the
+        // Verbose cascade log on every call.
+        // =====================================================================
+
+        [Fact]
+        public void LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump()
+        {
+            var parent = Rec("rec_parent");
+            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            RecordingStore.AddCommittedInternal(parent);
+            RecordingStore.AddCommittedInternal(child);
+
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    Retire("rec_parent"),
+                },
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            // First call: cache miss -> compute path runs -> Verbose log fires.
+            int logCountBefore = logLines.Count(l =>
+                l.Contains("[ERS]") && l.Contains("Rewind-retirement cascade"));
+            var first = EffectiveState.ComputeRewindRetiredRecordingIds(
+                RecordingStore.CommittedRecordings, scenario.RecordingRewindRetirements);
+            int logCountAfterFirst = logLines.Count(l =>
+                l.Contains("[ERS]") && l.Contains("Rewind-retirement cascade"));
+            Assert.Equal(logCountBefore + 1, logCountAfterFirst);
+            Assert.Contains("rec_child", first);
+
+            // Repeat calls with the same versions: cache hit -> identical
+            // HashSet reference returned, no new log lines.
+            for (int i = 0; i < 5; i++)
+            {
+                var hit = EffectiveState.ComputeRewindRetiredRecordingIds(
+                    RecordingStore.CommittedRecordings, scenario.RecordingRewindRetirements);
+                Assert.Same(first, hit);
+            }
+            int logCountAfterRepeats = logLines.Count(l =>
+                l.Contains("[ERS]") && l.Contains("Rewind-retirement cascade"));
+            Assert.Equal(logCountAfterFirst, logCountAfterRepeats);
+
+            // Version bump invalidates: cascade recomputes and re-logs.
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ComputeRewindRetiredRecordingIds(
+                RecordingStore.CommittedRecordings, scenario.RecordingRewindRetirements);
+            int logCountAfterBump = logLines.Count(l =>
+                l.Contains("[ERS]") && l.Contains("Rewind-retirement cascade"));
+            Assert.Equal(logCountAfterRepeats + 1, logCountAfterBump);
+        }
+
+        [Fact]
+        public void AdHocCall_DoesNotPollLiveCache()
+        {
+            // Ad-hoc test-fixture call with private lists must not stash a
+            // cascade into the live cache; otherwise a later live-store call
+            // would hit a stale entry derived from the wrong recordings.
+            var parent = Rec("rec_parent");
+            RecordingStore.AddCommittedInternal(parent);
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>(),
+                LedgerTombstones = new List<LedgerTombstone>(),
+                RewindPoints = new List<RewindPoint>(),
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            var adHocRecordings = new List<Recording>
+            {
+                Rec("rec_adhoc_parent"),
+                Rec("rec_adhoc_child", debrisParentRecordingId: "rec_adhoc_parent"),
+            };
+            var adHocRetirements = new List<RecordingRewindRetirement>
+            {
+                Retire("rec_adhoc_parent"),
+            };
+
+            var adHocResult = EffectiveState.ComputeRewindRetiredRecordingIds(
+                adHocRecordings, adHocRetirements);
+            Assert.Contains("rec_adhoc_parent", adHocResult);
+            Assert.Contains("rec_adhoc_child", adHocResult);
+
+            // Live call must not see the ad-hoc result through the cache.
+            var liveResult = EffectiveState.ComputeRewindRetiredRecordingIds(
+                RecordingStore.CommittedRecordings, scenario.RecordingRewindRetirements);
+            Assert.DoesNotContain("rec_adhoc_parent", liveResult);
+            Assert.DoesNotContain("rec_adhoc_child", liveResult);
+            Assert.Empty(liveResult);
+        }
+
         [Fact]
         public void Reversibility_RemovingRetirement_ReinstatesChild()
         {

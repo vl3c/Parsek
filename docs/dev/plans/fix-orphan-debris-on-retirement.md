@@ -159,6 +159,23 @@ rebuild noting the seed size and the cascade-added count under the
 the log when the cascade adds zero so quiet steady-state ERS rebuilds do not
 gain new noise.
 
+### Caching
+
+Per-frame consumers (`ParsekKSC.Update` per-rec, `RecordingsTableUI` per-row,
+`GhostMapPresence`) hit the cascade overload with the live store + scenario
+lists every frame. Without a cache, each per-frame loop pays the closure cost
+N times and re-emits the Verbose log on every call. The cascade overload
+fast-paths reference-equality calls against `RecordingStore.CommittedRecordings`
+and `ParsekScenario.Instance.RecordingRewindRetirements` through a HashSet
+cache keyed on `(RecordingStore.StateVersion,
+ParsekScenario.SupersedeStateVersion)` (same shape as the ERS cache). Every
+retirement-list mutation site (`EnsureRewindRetirementsForRollback`,
+`LoadTimeSweep`, `TreeDiscardPurge`) already bumps `SupersedeStateVersion`
+alongside the write, so cache invalidation falls out for free. Pure-function
+tests construct ad-hoc lists that miss reference equality and stay on the
+deterministic compute path; an `AdHocCall_DoesNotPollLiveCache` regression
+test pins the live cache's isolation from ad-hoc inputs.
+
 ## Test Plan
 
 New xUnit fixture `OrphanDebrisOnRetirementTests` in
@@ -194,6 +211,14 @@ it touches shared static state via `EffectiveState.ResetCachesForTesting`.
     behavior: removing the parent's retirement row makes the cascade
     re-include the child as visible. Documents that no extra cleanup is
     needed when the existing housekeeping paths remove a retirement.
+12. `LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump` — first call
+    fires the Verbose cascade log; five repeat calls with the same versions
+    return the cached HashSet by reference and emit zero new log lines; a
+    `BumpSupersedeStateVersion` re-runs the closure and re-logs.
+13. `AdHocCall_DoesNotPollLiveCache` — ad-hoc test-fixture inputs miss the
+    reference-equality fast-path, so the live cache stays empty and a
+    subsequent live-store call returns the live result rather than the
+    ad-hoc one.
 
 No in-game tests: the cascade is pure data over recording metadata, runs
 inside the existing ERS/timeline-inactive recomputation, and has no Unity

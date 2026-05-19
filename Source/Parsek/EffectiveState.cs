@@ -53,6 +53,20 @@ namespace Parsek
         private static string suppressionCacheRootOverride;
         private static HashSet<string> suppressionCache;
 
+        // Cache for the cascade overload of ComputeRewindRetiredRecordingIds
+        // when called with the live store + scenario lists. Per-frame
+        // consumers (RecordingsTableUI per-row, ParsekKSC.Update per-rec) hit
+        // this path with the same inputs every frame; without the cache, each
+        // call recomputes the fixed-point closure over the full recordings
+        // list and would also re-emit the Verbose cascade log on every call.
+        // Same versioning shape as the ERS cache (StateVersion +
+        // SupersedeStateVersion) because every retirement-list mutation site
+        // (EnsureRewindRetirementsForRollback, LoadTimeSweep,
+        // TreeDiscardPurge) bumps SupersedeStateVersion alongside the write.
+        private static int retiredCacheStoreVersion = int.MinValue;
+        private static int retiredCacheSupersedeVersion = int.MinValue;
+        private static HashSet<string> retiredCache;
+
         /// <summary>Resets all caches. For unit tests only.</summary>
         internal static void ResetCachesForTesting()
         {
@@ -71,6 +85,10 @@ namespace Parsek
                 suppressionCacheStoreVersion = int.MinValue;
                 suppressionCacheRootOverride = null;
                 suppressionCache = null;
+
+                retiredCacheStoreVersion = int.MinValue;
+                retiredCacheSupersedeVersion = int.MinValue;
+                retiredCache = null;
             }
 
             SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
@@ -577,6 +595,51 @@ namespace Parsek
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingRewindRetirement> retirements)
         {
+            // Per-frame consumers (RecordingsTableUI per-row,
+            // ParsekKSC.Update per-rec, GhostMapPresence) call this every
+            // frame with the live store + scenario lists. Fast-path the
+            // call so each per-frame loop pays the cascade closure cost
+            // once across the (StateVersion, SupersedeStateVersion) window
+            // instead of N times per frame. Pure-function tests (which
+            // construct ad-hoc lists) miss reference equality and run the
+            // compute path directly — keeps the testable contract honest.
+            var scenario = ParsekScenario.Instance;
+            bool isLiveStoreCall = !object.ReferenceEquals(null, scenario)
+                && ReferenceEquals(recordings, RecordingStore.CommittedRecordings)
+                && ReferenceEquals(retirements, scenario.RecordingRewindRetirements);
+            if (isLiveStoreCall)
+            {
+                int storeVersion = RecordingStore.StateVersion;
+                int supersedeVersion = scenario.SupersedeStateVersion;
+                lock (syncRoot)
+                {
+                    if (retiredCache != null
+                        && retiredCacheStoreVersion == storeVersion
+                        && retiredCacheSupersedeVersion == supersedeVersion)
+                    {
+                        return retiredCache;
+                    }
+                }
+            }
+
+            var result = ComputeRewindRetiredRecordingIdsUncached(recordings, retirements);
+
+            if (isLiveStoreCall)
+            {
+                lock (syncRoot)
+                {
+                    retiredCache = result;
+                    retiredCacheStoreVersion = RecordingStore.StateVersion;
+                    retiredCacheSupersedeVersion = scenario.SupersedeStateVersion;
+                }
+            }
+            return result;
+        }
+
+        private static HashSet<string> ComputeRewindRetiredRecordingIdsUncached(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
             var result = ComputeRewindRetiredRecordingIds(retirements);
             int seedCount = result.Count;
             if (seedCount == 0 || recordings == null || recordings.Count == 0)
@@ -606,6 +669,11 @@ namespace Parsek
             int totalAdded = result.Count - seedCount;
             if (totalAdded > 0)
             {
+                // Log fires only on cache miss for live-store callers
+                // (above) or on every call for ad-hoc/test callers; both
+                // paths naturally rate-limit because the work itself is
+                // gated on the same condition. Stable per-frame repeats
+                // never reach this site.
                 ParsekLog.Verbose("ERS",
                     $"Rewind-retirement cascade: seed={seedCount.ToString(CultureInfo.InvariantCulture)} " +
                     $"cascadeAdded={totalAdded.ToString(CultureInfo.InvariantCulture)} " +
