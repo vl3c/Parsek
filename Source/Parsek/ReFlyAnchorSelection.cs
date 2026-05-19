@@ -203,6 +203,17 @@ namespace Parsek
         /// <summary>
         /// Production wrapper. Derives marker + ids from live scenario state
         /// and the supplied active tree. One tree lookup; no recursion.
+        ///
+        /// <para>If the active recording id is not found in
+        /// <c>activeTree.Recordings</c>, <c>debrisParentRecordingId</c>
+        /// falls through to null and the predicate returns true (the gate
+        /// fires). That is the SAFE failure mode for this experiment: a
+        /// transiently-unresolved provisional defaults to "non-parent-
+        /// anchored" rather than to "parent-anchored", because forcing
+        /// Absolute on a non-parent-anchored re-fly provisional is the
+        /// experiment's intent, while incorrectly applying the carve-out
+        /// to a non-parent-anchored provisional would silently revert to
+        /// Relative authoring and defeat the toggle.</para>
         /// </summary>
         internal static bool IsActiveRecordingReFlyProvisional(
             RecordingTree activeTree)

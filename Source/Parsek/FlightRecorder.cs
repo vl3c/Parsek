@@ -5687,6 +5687,17 @@ namespace Parsek
                 // are excluded by the predicate (their Relative contract
                 // uses a LIVE parent vessel as anchor, orthogonal to this
                 // experiment).
+                //
+                // Frame-ordering note: UpdateEnvironmentTracking runs
+                // BEFORE this method in the same physics frame, so if an
+                // environment boundary fires the same frame the toggle
+                // flips ON while isRelativeMode=true, the env handler may
+                // open a fresh Relative section that this gate then
+                // immediately closes via ForceExitRelativeToAbsolute. Net
+                // effect is a one-frame transient Relative section at the
+                // flip moment. Acceptable for a dev-only experimental
+                // toggle; the next frame's env handler picks Absolute
+                // because isRelativeMode is now false.
                 if (ParsekSettings.Current != null
                     && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
                     && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ActiveTree))
