@@ -787,6 +787,121 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region GetChainPredecessorIndex
+
+        [Fact]
+        public void GetChainPredecessorIndex_TwoSegmentChain_ReturnsIndexOfPredecessor()
+        {
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "pred-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "pred-test";
+            rec1.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            Assert.Equal(0, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_ChainHead_ReturnsNegativeOne()
+        {
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "head-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_Standalone_ReturnsNegativeOne()
+        {
+            var rec = new Recording { ChainId = null, ChainIndex = 0 };
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(rec));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_NonZeroBranch_ReturnsNegativeOne()
+        {
+            // Branch > 0 segments are parallel continuations, not the primary chain; the
+            // seam carve-out targets the primary (branch 0) path only.
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "branch-test";
+            rec0.ChainIndex = 0;
+            rec0.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Branch1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "branch-test";
+            rec1.ChainIndex = 1;
+            rec1.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_GapInChainIndex_ReturnsNegativeOne()
+        {
+            // Predecessor must exist at ChainIndex - 1 exactly; a chain with a missing
+            // segment (e.g. ChainIndex 0 then jumping to 2) has no immediate predecessor.
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "gap-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Seg2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "gap-test";
+            rec2.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(rec2);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorHasGhostAndPastEndUT_ReturnsTrue()
+        {
+            // Predicate input that mirrors what BuildTrajectoryFlags computes: predecessor
+            // has a live ghost state and currentUT is at or past predecessor.EndUT.
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.5, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorMissingGhostState_ReturnsFalse()
+        {
+            // Without a live predecessor ghost there is no terminal pose to be continuous
+            // with, so the seam exemption does not apply (e.g. scene-load spawn of a chain
+            // where neither side has been built yet).
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, predecessorEndUT: 99.5, predecessorHasGhostState: false));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_BeforePredecessorEndUT_ReturnsFalse()
+        {
+            // The successor's spawn UT is bounded below by its own activation UT, which is
+            // at or after the predecessor's EndUT in normal chains. If currentUT is strictly
+            // before predecessor.EndUT the predecessor is still actively playing, not at the
+            // seam — guard with > 1us epsilon to absorb floating-point dust.
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.4, predecessorEndUT: 99.5, predecessorHasGhostState: true));
+        }
+
+        #endregion
+
         #region BuildExcludeCrewSet
 
         [Fact]

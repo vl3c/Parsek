@@ -5071,6 +5071,63 @@ namespace Parsek
                 return;
             }
 
+            // Discard seed-only transient RELATIVE sections that were closed
+            // within one physics frame of opening. The canonical case is the
+            // force-Absolute-refly toggle's one-frame transient: env handler
+            // opens a Relative section at an env boundary (because
+            // isRelativeMode was true), then UpdateAnchorDetection's gate
+            // fires immediately after and calls ForceExitRelativeToAbsolute,
+            // closing the just-opened Relative section while it still holds
+            // only the env-boundary seed point. Persisting that 1-frame
+            // section produces a multi-meter boundaryDiscontinuityMeters
+            // against the next Absolute section (the live vessel moved 1200
+            // m/s for 0.02s = 24m, MeasureBoundaryDiscontinuity records that
+            // as the gap), and the anchor-correction system then applies a
+            // matching 24m ε offset to every rendered frame after the seam.
+            // The user-visible effect: a vessel ghost spawned ~24m away from
+            // where the live vessel sits when dropping into re-fly. Discarding
+            // the section avoids the synthetic discontinuity entirely; the
+            // env-boundary seed is replayed into the next section (which
+            // opens at the same UT) by the recorder's normal sampling on the
+            // next frame, and the previous real section's last frame stays
+            // adjacent to the next real section's first frame for a clean,
+            // physics-driven bdisc measurement. 0.05s threshold = the
+            // tightest production min sample interval (Full-tier
+            // ProximitySamplingCadence), so a section that closes faster than
+            // that can only contain the seed.
+            //
+            // Scope notes:
+            // - Restricted to Relative because the transient is always
+            //   Relative: env handler preserves frame from the prior tick's
+            //   isRelativeMode, and ForceExitRelativeToAbsolute (the only
+            //   path that closes a same-frame section here) gates on
+            //   `if (isRelativeMode)`. Absolute single-frame, zero-duration
+            //   sections are a legitimate finalization shape used by
+            //   FinalizeAllForCommit when only one sample existed at commit
+            //   time, and must persist.
+            // - isBoundarySeam-flagged sections are an intentional 1-frame,
+            //   0-duration recorder bookkeeping artifact emitted by
+            //   FlushLoadedStateForOnRailsTransition for the optimizer's
+            //   split-suppression contract (see TrackSection.isBoundarySeam +
+            //   docs/dev/plans/optimizer-persistence-split.md §5). The
+            //   Relative scope already excludes them in practice (seams are
+            //   authored Absolute), but the check is kept explicit for
+            //   future seam variants.
+            if (frameCount <= 1
+                && checkpointCount == 0
+                && sectionDuration < 0.05
+                && currentTrackSection.referenceFrame == ReferenceFrame.Relative
+                && !currentTrackSection.isBoundarySeam)
+            {
+                trackSectionActive = false;
+                ParsekLog.Verbose("Recorder",
+                    $"TrackSection discarded (seed-only Relative transient, frames={frameCount} " +
+                    $"duration={sectionDuration.ToString("F4", CultureInfo.InvariantCulture)}s): " +
+                    $"env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
+                    $"startUT={currentTrackSection.startUT.ToString("F3", CultureInfo.InvariantCulture)}");
+                return;
+            }
+
             TrackSections.Add(currentTrackSection);
             trackSectionActive = false;
             ParsekLog.Info("Recorder",
@@ -5120,6 +5177,25 @@ namespace Parsek
             surfaceMobileClearanceSumThisSection = 0.0;
         }
 
+        /// <summary>
+        /// Updates the per-recorder running minimum distance from the focused
+        /// vessel to any other re-fly-tree recording anchor, populating
+        /// <see cref="reFlyTreeSamplingProximityMeters"/>. The value is
+        /// consumed on the next <c>OnPhysicsFrame</c> to pick a proximity-tier
+        /// sampling cadence (Full / Half / None at the
+        /// <c>ReFlyTreeFullFidelityProximityRangeMeters</c> /
+        /// <c>ReFlyTreeHalfFidelityProximityRangeMeters</c> bands).
+        ///
+        /// <para>This is a load-bearing side effect of
+        /// <c>BuildRecordingAnchorCandidateList</c> via
+        /// <c>Add{Live,External}RecordingAnchorCandidates</c>. The build site
+        /// in <see cref="UpdateAnchorDetection"/> is hoisted ABOVE the re-fly
+        /// bypass and the <c>forceAbsoluteForReFlyProvisional</c> gate so the
+        /// proximity scan still runs on a re-fly frame where the bypass / gate
+        /// would otherwise early-return. Pinned by
+        /// <c>FlightRecorder_BuildsCandidateList_BeforeReFlyBypassEarlyReturn</c>
+        /// in <c>ReFlyAnchorBypassWiringTests</c>.</para>
+        /// </summary>
         private void ConsiderReFlyTreeSamplingProximity(
             Vector3d focusedWorldPosition,
             Vector3d candidateWorldPosition,
@@ -5165,6 +5241,20 @@ namespace Parsek
         {
             if (!trackSectionActive) return;
 
+            // Experimental force-Absolute toggle interaction
+            // (docs/dev/plans/force-absolute-refly-provisional.md): this
+            // OnSave-triggered helper preserves currentTrackSection.referenceFrame
+            // across the close/reopen, deliberately keeping the in-flight
+            // section's contract stable across the save seam. If
+            // forceAbsoluteForReFlyProvisional flips ON during the documented
+            // one-frame transient at FlightRecorder.UpdateAnchorDetection's
+            // gate (env-transition opens Relative before the next physics
+            // tick gates), a save fired in that single-frame window would
+            // serialize a stale Relative continuation. The next physics tick
+            // cleans it up via ForceExitRelativeToAbsolute, so the worst case
+            // is one short stale-Relative section per such save event:
+            // acceptable for a dev-only opt-in toggle, not worth a gate
+            // here.
             var currentEnv = currentTrackSection.environment;
             var currentRef = currentTrackSection.referenceFrame;
             var currentSource = currentTrackSection.source;
@@ -5679,6 +5769,79 @@ namespace Parsek
             }
             else if (!onSurface)
             {
+                // Build anchor candidates BEFORE any bypass / gate early-return.
+                // BuildRecordingAnchorCandidateList has a load-bearing SIDE EFFECT
+                // beyond the returned list: ConsiderReFlyTreeSamplingProximity
+                // (called from Add{Live,External}RecordingAnchorCandidates)
+                // populates reFlyTreeSamplingProximityMeters, which the next
+                // OnPhysicsFrame consults via
+                // ResolveActiveReFlyTreeSamplingCadence to choose between
+                // Full / Half / None sampling tiers (0-250m / 250-500m / 500m+,
+                // see ReFlyTree{Full,Half}FidelityProximityRangeMeters). If we
+                // return before this scan runs (because the force-Absolute
+                // gate fires or the supersede-target bypass succeeds), the
+                // proximity stays NaN, the tier resolves to None, and the
+                // recorder falls back to sparse defaults (configuredMax = 3s)
+                // even when an in-tree peer is right next to the recording
+                // vessel. That bug pre-dated the toggle: the supersede bypass
+                // at line ~5747 has the same early-return shape. The fix
+                // applies to both paths. Discarding `candidates` after a
+                // bypass return wastes one buffer scan; the cost is one
+                // vessel iteration per physics frame against a per-frame
+                // workload that already happens elsewhere in the playback
+                // engine.
+                double detectionUT = Planetarium.GetUniversalTime();
+                var candidates = BuildRecordingAnchorCandidateList(
+                    v,
+                    detectionUT,
+                    out int liveScanned,
+                    out int liveAdded,
+                    out int ghostScanned,
+                    out int ghostAdded);
+
+                // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+                // When the setting is on and the active recording is the
+                // live re-fly provisional, skip BOTH the bypass below and
+                // the fallback nearest-search so the recorder stays in
+                // Absolute. Applies uniformly to top-level and parent-
+                // anchored re-fly provisionals (the earlier
+                // DebrisParentRecordingId carve-out was removed: runtime
+                // analysis showed the bypass pins to the supersede target
+                // for parent-anchored provisionals too).
+                //
+                // Frame-ordering note: UpdateEnvironmentTracking runs
+                // BEFORE this method in the same physics frame, so if an
+                // environment boundary fires the same frame the toggle
+                // flips ON while isRelativeMode=true, the env handler may
+                // open a fresh Relative section that this gate then
+                // immediately closes via ForceExitRelativeToAbsolute. Net
+                // effect is a one-frame transient Relative section at the
+                // flip moment. Acceptable for a dev-only experimental
+                // toggle; the next frame's env handler picks Absolute
+                // because isRelativeMode is now false.
+                if (ParsekSettings.Current != null
+                    && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
+                    && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ActiveTree))
+                {
+                    if (isRelativeMode)
+                    {
+                        ForceExitRelativeToAbsolute(detectionUT, "force-absolute-refly-setting");
+                        ParsekLog.Info("Anchor",
+                            "force-absolute-refly: closed Relative section and continued Absolute " +
+                            $"vesselPid={RecordingVesselId} ut={detectionUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseOnChange(
+                            "Anchor",
+                            "force-absolute-refly|" + (ActiveTree?.ActiveRecordingId ?? "(none)"),
+                            "skipped",
+                            "force-absolute-refly: bypass and nearest-search skipped " +
+                                $"vesselPid={RecordingVesselId}");
+                    }
+                    return;
+                }
+
                 // Re-fly provisional anchor bypass: while a ReFlySessionMarker
                 // is live and the active recording is the provisional, pin the
                 // Relative anchor to the supersede target (or
@@ -5695,15 +5858,6 @@ namespace Parsek
                     ApplyReFlyProvisionalAnchorToActiveRecording(v, reflyAnchor, reflySource);
                     return;
                 }
-
-                double detectionUT = Planetarium.GetUniversalTime();
-                var candidates = BuildRecordingAnchorCandidateList(
-                    v,
-                    detectionUT,
-                    out int liveScanned,
-                    out int liveAdded,
-                    out int ghostScanned,
-                    out int ghostAdded);
                 Vector3d focusedWorldPosition = v.GetWorldPos3D();
                 var result = AnchorDetector.FindNearestRecordingAnchor(
                     ActiveTree?.ActiveRecordingId,
@@ -7244,6 +7398,28 @@ namespace Parsek
             TrackSectionSource resumeSource = resumeSection.HasValue
                 ? resumeSection.Value.source
                 : TrackSectionSource.Active;
+
+            // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
+            // The anchor-detection gate at UpdateAnchorDetection's !onSurface
+            // branch cannot reach this resume path. RestoreTrackSectionAfterFalseAlarm
+            // inherits resumeRef from the saved section's referenceFrame
+            // (Relative if the prior section was Relative), so a re-fly
+            // provisional that hit a false-alarm stop would re-open Relative
+            // bypassing the gate. Mirror the existing Relative-resume-failed
+            // downgrade pattern at the rejected-anchor blocks below to keep
+            // the new section Absolute.
+            if (resumeRef == ReferenceFrame.Relative
+                && ParsekSettings.Current != null
+                && ParsekSettings.Current.forceAbsoluteForReFlyProvisional
+                && ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ActiveTree))
+            {
+                ParsekLog.Info("Anchor",
+                    "force-absolute-refly: RELATIVE resume downgraded to ABSOLUTE " +
+                    $"vesselPid={RecordingVesselId} ut={ut.ToString("F3", CultureInfo.InvariantCulture)}");
+                resumeRef = ReferenceFrame.Absolute;
+                isRelativeMode = false;
+                ClearCurrentRecordingAnchor();
+            }
 
             string resumeAnchorRecordingId = null;
             uint resumeAnchorDiagnosticPid = 0u;
