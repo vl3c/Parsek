@@ -607,10 +607,19 @@ namespace Parsek
             bool isLiveStoreCall = !object.ReferenceEquals(null, scenario)
                 && ReferenceEquals(recordings, RecordingStore.CommittedRecordings)
                 && ReferenceEquals(retirements, scenario.RecordingRewindRetirements);
+            int storeVersion = 0;
+            int supersedeVersion = 0;
             if (isLiveStoreCall)
             {
-                int storeVersion = RecordingStore.StateVersion;
-                int supersedeVersion = scenario.SupersedeStateVersion;
+                // Capture versions BEFORE compute and stamp the cache with
+                // those same captured values after compute, matching the
+                // ERS cache contract above. If we re-read at store time, a
+                // bump that interleaved with compute would stamp the cache
+                // with the post-bump version while the result reflects
+                // pre-bump inputs — a stale entry that would survive until
+                // the next bump.
+                storeVersion = RecordingStore.StateVersion;
+                supersedeVersion = scenario.SupersedeStateVersion;
                 lock (syncRoot)
                 {
                     if (retiredCache != null
@@ -629,8 +638,8 @@ namespace Parsek
                 lock (syncRoot)
                 {
                     retiredCache = result;
-                    retiredCacheStoreVersion = RecordingStore.StateVersion;
-                    retiredCacheSupersedeVersion = scenario.SupersedeStateVersion;
+                    retiredCacheStoreVersion = storeVersion;
+                    retiredCacheSupersedeVersion = supersedeVersion;
                 }
             }
             return result;
