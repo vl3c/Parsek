@@ -2060,8 +2060,16 @@ namespace Parsek
             Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
             TerminalState? terminal = terminalRec.TerminalStateValue;
             if (!terminal.HasValue) return false;
-            if (terminal.Value == TerminalState.Orbiting
-                || terminal.Value == TerminalState.SubOrbital)
+            // Orbiting is the only stable terminal that requires slot-aware
+            // classification: its slot-close contract reads rp.FocusSlotIndex
+            // and would silently mis-classify if slot lookup fell back to the
+            // v0.9 TerminalKindClassifier. SubOrbital used to be in this set
+            // when the seal contract treated it as stable; the contract was
+            // dropped (a suborbital arc is still in flight, not a conclusion)
+            // and SubOrbital now falls back through the v0.9 classifier
+            // (InFlight kind, no seal) cleanly when slot lookup fails, so it
+            // no longer requires the precondition.
+            if (terminal.Value == TerminalState.Orbiting)
                 return true;
             return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
                 && terminal.Value != TerminalState.Boarded;

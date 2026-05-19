@@ -39,7 +39,6 @@ namespace Parsek
         Landed,                // LANDED situation (live) or TerminalState.Landed (recorded) -> stableTerminalFocusSlot
         SplashedDown,          // SPLASHED situation (live) or TerminalState.Splashed (recorded) -> stableTerminalFocusSlot
         StableOrbit,           // ORBITING situation && PeR > atmosphere (live) or TerminalState.Orbiting (recorded) -> stableTerminalFocusSlot
-        SubOrbitalArc,         // SUB_ORBITAL situation (live) or TerminalState.SubOrbital (recorded) -> stableTerminalFocusSlot
     }
 
     /// <summary>
@@ -118,7 +117,6 @@ namespace Parsek
                 case ReFlyAutoSealReason.Landed:             return "landed";
                 case ReFlyAutoSealReason.SplashedDown:       return "splashed down";
                 case ReFlyAutoSealReason.StableOrbit:        return "reached a stable orbit";
-                case ReFlyAutoSealReason.SubOrbitalArc:      return "reached a sub-orbital arc";
                 default:                                     return reason.ToString();
             }
         }
@@ -196,10 +194,13 @@ namespace Parsek
             CollectLiveVesselReasons(reFlyVessel, reasons);
 
             // Recorded-terminal fallback. Production seals on the recording's
-            // own terminal via stableTerminalFocusSlot (Orbiting / SubOrbital
-            // / Landed / Splashed; UnfinishedFlightClassifier:241) and
-            // stableTerminal + IsHardSafetyTerminal (Recovered / Docked;
-            // SupersedeCommit:1017-1019, 1052-1062). The deferred merge
+            // own terminal via stableTerminalFocusSlot (Orbiting / Landed /
+            // Splashed; UnfinishedFlightClassifier:241) and stableTerminal +
+            // IsHardSafetyTerminal (Recovered / Docked;
+            // SupersedeCommit:1017-1019, 1052-1062). SubOrbital is excluded
+            // from the seal contract (still in flight: the arc resolves into
+            // Destroyed / Landed / Splashed / Orbiting on a follow-up Re-Fly)
+            // so it does not contribute a reason here. The deferred merge
             // fallback (ShowTreeDialog's 1-arg overload, fired in Space
             // Center / Tracking Station / re-entered flight when the
             // pre-transition dialog was missed) cannot rely on
@@ -315,9 +316,6 @@ namespace Parsek
                 case Vessel.Situations.SPLASHED:
                     AddIfMissing(reasons, ReFlyAutoSealReason.SplashedDown);
                     break;
-                case Vessel.Situations.SUB_ORBITAL:
-                    AddIfMissing(reasons, ReFlyAutoSealReason.SubOrbitalArc);
-                    break;
                 case Vessel.Situations.ORBITING:
                     // Defensive null-check (mirrors RecordingTree.cs:863):
                     // vessel.orbit and vessel.orbit.referenceBody can be null
@@ -333,11 +331,17 @@ namespace Parsek
                         body.Radius,
                         body.atmosphere,
                         body.atmosphereDepth);
-                    AddIfMissing(reasons, stable
-                        ? ReFlyAutoSealReason.StableOrbit
-                        : ReFlyAutoSealReason.SubOrbitalArc);
+                    // A bound orbit with periapsis inside the atmosphere (or
+                    // any unbound / sub-atmospheric orbit) is still in flight
+                    // under the new contract: it will decay or crash, not
+                    // conclude. Only the stable case adds a reason.
+                    if (stable)
+                        AddIfMissing(reasons, ReFlyAutoSealReason.StableOrbit);
                     break;
-                // PRELAUNCH / FLYING / ESCAPING: no stable terminal yet.
+                // PRELAUNCH / FLYING / ESCAPING / SUB_ORBITAL: no stable
+                // terminal yet. SubOrbital is excluded by design: the arc
+                // ends in crash, land, splash, or (with a burn) stable
+                // orbit, so the slot stays open until the real conclusion.
             }
         }
 
@@ -359,9 +363,11 @@ namespace Parsek
                 case TerminalState.Orbiting:
                     AddIfMissing(reasons, ReFlyAutoSealReason.StableOrbit);
                     break;
-                case TerminalState.SubOrbital:
-                    AddIfMissing(reasons, ReFlyAutoSealReason.SubOrbitalArc);
-                    break;
+                // TerminalState.SubOrbital: no seal here. A suborbital arc is
+                // still in flight under the new contract; the recording
+                // commits as CommittedProvisional and the slot stays open
+                // until the arc resolves into Destroyed / Landed / Splashed
+                // / Orbiting on a follow-up Re-Fly.
                 case TerminalState.Docked:
                     AddIfMissing(reasons, ReFlyAutoSealReason.DockedWithAnother);
                     break;
@@ -413,7 +419,7 @@ namespace Parsek
         /// <list type="number">
         ///   <item><description>Science group: TransmittedScience, RecoveredScience, EarnedScience</description></item>
         ///   <item><description>Structural group: Undocked, KerbalEva, PartBrokeOff, VesselBrokeUp</description></item>
-        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit, SubOrbitalArc</description></item>
+        ///   <item><description>Terminal group: DockedWithAnother, VesselRecovered, KerbalBoarded, Landed, SplashedDown, StableOrbit</description></item>
         /// </list>
         /// </summary>
         private static void SortReasonsByGroup(List<ReFlyAutoSealReason> reasons)
@@ -438,7 +444,6 @@ namespace Parsek
                 case ReFlyAutoSealReason.Landed:             return 310;
                 case ReFlyAutoSealReason.SplashedDown:       return 320;
                 case ReFlyAutoSealReason.StableOrbit:        return 330;
-                case ReFlyAutoSealReason.SubOrbitalArc:      return 340;
                 default:                                     return 999;
             }
         }

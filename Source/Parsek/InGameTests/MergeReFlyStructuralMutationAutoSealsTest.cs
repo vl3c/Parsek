@@ -7,17 +7,24 @@ namespace Parsek.InGameTests
     /// In-game smoke test for <see cref="SupersedeCommit.HasReFlySessionStructuralMutation"/>.
     /// Under the v0.9.1 auto-seal revision (design §4.6) the focus
     /// override path closes the slot via <c>stableTerminalFocusSlot</c>
-    /// before the structural gate runs, so the structural gate is now a
-    /// defensive backstop rather than the primary seal trigger for live
-    /// merges. This test exercises the seal outcome end-to-end on a
-    /// stashed slot Re-Fly that produced a structural BP and reached a
-    /// stable terminal — the merge succeeds (Immutable + slot.Sealed),
-    /// the user sees the row leave Unfinished Flights, and the verdict
-    /// log carries either <c>classifierReason=stableTerminalFocusSlot</c>
-    /// (override path, expected) or <c>structuralMutation:*</c>
-    /// (backstop). Helper-level coverage for the gate's mechanics —
-    /// rp.UT cutoff, <c>PreSessionBranchPointIds</c> baseline, lineage
-    /// scope — lives in xUnit (<c>SupersedeCommitTests.HasReFlySessionStructuralMutation_*</c>).
+    /// before the structural gate runs for Landed / Splashed / Orbiting
+    /// chain tips, so the structural gate is a defensive backstop for
+    /// those terminals. For <see cref="TerminalState.SubOrbital"/> chain
+    /// tips the override path no longer fires (a suborbital arc is still
+    /// in flight, not a conclusion under the post-fix contract), so the
+    /// structural gate is the PRIMARY (and only) seal trigger for that
+    /// terminal; the merge still produces Immutable + slot.Sealed via
+    /// <c>structuralMutation:*</c>. This test exercises the seal outcome
+    /// end-to-end on a stashed slot Re-Fly that produced a structural BP
+    /// and reached a stable terminal — the merge succeeds (Immutable +
+    /// slot.Sealed), the user sees the row leave Unfinished Flights, and
+    /// the verdict log carries either <c>classifierReason=stableTerminalFocusSlot</c>
+    /// (override path, fires for Landed / Splashed / Orbiting) or
+    /// <c>structuralMutation:*</c> (backstop for those terminals,
+    /// primary for SubOrbital). Helper-level coverage for the gate's
+    /// mechanics — rp.UT cutoff, <c>PreSessionBranchPointIds</c>
+    /// baseline, lineage scope — lives in xUnit
+    /// (<c>SupersedeCommitTests.HasReFlySessionStructuralMutation_*</c>).
     ///
     /// <para>
     /// Preconditions: an active Re-Fly session marker on a Stashed slot,

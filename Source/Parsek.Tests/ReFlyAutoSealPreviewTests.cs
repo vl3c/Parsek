@@ -387,8 +387,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Preview_RecordedTerminalSubOrbital_NullVessel_FlagsSubOrbitalArc()
+        public void Preview_RecordedTerminalSubOrbital_NullVessel_FlagsNoSeal()
         {
+            // SubOrbital is excluded from the seal contract: a suborbital arc
+            // is still in flight (the vessel will crash, land, splash, or
+            // with a burn reach orbit). The recorded-terminal classifier
+            // must not surface a seal reason here, and the preview's
+            // WillAutoSeal must be false.
             var rec = MakeRecording();
             rec.TerminalStateValue = TerminalState.SubOrbital;
             var marker = MakeMarker();
@@ -396,8 +401,8 @@ namespace Parsek.Tests
 
             var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
-            Assert.True(result.WillAutoSeal);
-            Assert.Contains(ReFlyAutoSealReason.SubOrbitalArc, result.Reasons);
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
         }
 
         [Fact]
@@ -539,7 +544,6 @@ namespace Parsek.Tests
                 { ReFlyAutoSealReason.Landed, "landed" },
                 { ReFlyAutoSealReason.SplashedDown, "splashed down" },
                 { ReFlyAutoSealReason.StableOrbit, "reached a stable orbit" },
-                { ReFlyAutoSealReason.SubOrbitalArc, "reached a sub-orbital arc" },
             };
             foreach (var kvp in expected)
                 Assert.Equal(kvp.Value, ReFlyAutoSealPreviewResult.PhraseFor(kvp.Key));

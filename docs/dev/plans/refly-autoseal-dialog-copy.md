@@ -1,5 +1,16 @@
 # Re-Fly merge dialog: announce auto-seal and the reason
 
+> **Partially superseded by [fix-suborbital-not-stable-terminal.md](./fix-suborbital-not-stable-terminal.md).**
+> The `SubOrbitalArc` reason, the live-vessel `SUB_ORBITAL` situation row,
+> the `ORBITING with PeR-inside-atmosphere` fallback to `SubOrbitalArc`,
+> and any "Landed / Splashed / Orbiting / SubOrbital" auto-seal set
+> mentioned below are stale: `SubOrbital` was dropped from the seal
+> contract because a suborbital arc is still in flight. The dialog copy
+> framework and the other reasons (science, structural mutations, hard
+> safety terminals, Landed / Splashed / Orbiting) described here remain
+> current. Treat any SubOrbital reference in this doc as historical
+> context, not as the active behavior.
+
 ## Problem
 
 When the player ends a Re-Fly attempt at KSC / TS / Main Menu and clicks
