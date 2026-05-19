@@ -33,7 +33,7 @@ namespace Parsek.InGameTests
             var marker = scenario.ActiveReFlySessionMarker;
             if (marker == null)
             {
-                InGameAssert.Skip("No active re-fly session — start a rewind before running this test.");
+                InGameAssert.Skip("No active re-fly session; start a rewind before running this test.");
                 return;
             }
 
@@ -43,7 +43,7 @@ namespace Parsek.InGameTests
             var host = GameObject.FindObjectOfType<ParsekFlight>();
             if (host == null)
             {
-                InGameAssert.Skip("No ParsekFlight in current scene — test is FLIGHT-only.");
+                InGameAssert.Skip("No ParsekFlight in current scene; test is FLIGHT-only.");
                 return;
             }
             var tree = host.ActiveTreeForDisplay;
@@ -86,7 +86,7 @@ namespace Parsek.InGameTests
                 // Gate must have fired: tail section authored by the gated
                 // recorder branch should be Absolute. The recorder may have
                 // emitted Absolute sections preceded by older Relative ones
-                // recorded before the setting was flipped on — we only
+                // recorded before the setting was flipped on; we only
                 // assert the tail because that's the section the current
                 // recorder branch is authoring.
                 InGameAssert.AreEqual(ReferenceFrame.Absolute, tail.referenceFrame,

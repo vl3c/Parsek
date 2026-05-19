@@ -7,8 +7,8 @@ Re-fly fork (provisional) recordings currently author `ReferenceFrame.Relative`
 recording (`Source/Parsek/ReFlyAnchorSelection.cs:96-101`,
 `Source/Parsek/FlightRecorder.cs:5689-5697`,
 `Source/Parsek/BackgroundRecorder.cs:4866-4875`). This inheritance comes
-from the general 2300m physics-bubble rule in `AnchorDetector` — every
-recording inside the bubble of an eligible anchor opens Relative — and
+from the general 2300m physics-bubble rule in `AnchorDetector` (every
+recording inside the bubble of an eligible anchor opens Relative), and
 was not chosen deliberately for re-fly. `ReFlyAnchorSelection` (PR #889)
 is a 269-LoC patch on top, pinning the anchor to the supersede target so
 the nearest-search does not pick a fast-separating sibling and produce
@@ -16,7 +16,7 @@ the nearest-search does not pick a fast-separating sibling and produce
 (`docs/dev/todo-and-known-bugs.md:280`).
 
 The sub-meter precision advantage of Relative sections requires a **live**
-anchor (real vessel, just sampled — see
+anchor (real vessel, just sampled: see
 `docs/parsek-ghost-trajectory-rendering-design.md:55-95`). The re-fly
 fork's anchor is itself a ghost being resolved from recorded data via
 Slerp (`Source/Parsek/RecordedRelativeAnchorPoseResolver.cs`); the
@@ -26,13 +26,13 @@ documents this:
 
 > RELATIVE is the right contract when both vessels in the relationship
 > are ghosts replaying together... ABSOLUTE is the right contract when
-> one vessel is real (live) and the other is a ghost — the re-fly
+> one vessel is real (live) and the other is a ghost: the re-fly
 > scenario being the canonical case.
 
 This experiment lets us **measure the actual visual delta** before
 committing to a contract flip. A new opt-in setting,
 `forceAbsoluteForReFlyProvisional`, causes the recorder to skip Relative
-authoring entirely while a re-fly provisional is the active recording —
+authoring entirely while a re-fly provisional is the active recording,
 keeping the recording in `ReferenceFrame.Absolute` so its `Points` and
 `TrackSection.frames` carry body-fixed lat/lon/alt + `srfRelRotation`,
 the same contract the debris path consumes via
@@ -41,7 +41,7 @@ the same contract the debris path consumes via
 The setting is **off by default**. Flipping it ON authors all subsequent
 re-fly provisional sections as Absolute; existing Relative sections on
 disk are untouched. Playback for both modes runs through the existing
-dispatch — no rendering changes.
+dispatch: no rendering changes.
 
 ## Goals
 
@@ -52,18 +52,18 @@ dispatch — no rendering changes.
    ConfigurationHash" below for why this differs from `useCoBubbleBlend`).
 2. Gate three sites that can open Relative for a re-fly provisional, so
    that when the setting is on **and** the active recording is a re-fly
-   provisional (and is NOT parent-anchored — see carve-out), the recorder
+   provisional (and is NOT parent-anchored: see carve-out), the recorder
    stays in Absolute:
    - `FlightRecorder.UpdateAnchorDetection` (`FlightRecorder.cs:5648`)
-     `!onSurface` branch — skip both the `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor`
+     `!onSurface` branch: skip both the `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor`
      bypass and the fallback nearest-search.
    - `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`
-     (`FlightRecorder.cs:7227`) — when resuming from a false-alarm stop,
+     (`FlightRecorder.cs:7227`): when resuming from a false-alarm stop,
      force `resumeRef = Absolute` instead of inheriting the prior
      section's `referenceFrame`, and clear `resumeAnchorRecordingId`
      before the `StartNewTrackSection` call at line 7366.
    - `BackgroundRecorder.UpdateBackgroundAnchorDetection`
-     (`BackgroundRecorder.cs:4866`) — mirror the FlightRecorder gate.
+     (`BackgroundRecorder.cs:4866`): mirror the FlightRecorder gate.
 3. Surface the gate firings in the log so playtests can confirm the
    experiment ran.
 4. Leave the playback path completely untouched. Relative sections
@@ -77,13 +77,13 @@ dispatch — no rendering changes.
 provisional from the inherit-from recording. This means a re-fly
 provisional whose original was a controlled-decoupled child (probe /
 lander / capsule that came off a parent via decoupler) carries the
-parent-anchored contract — its Relative sections open against the
+parent-anchored contract: its Relative sections open against the
 PARENT recording, not the supersede target, via a different code path
 (`BackgroundRecorder.InitializeLoadedState` at line 3791+ for BG seed
 and the in-bubble debris contract on the flight side). That path is
 orthogonal to the "Relative-against-superseded-origin" anti-pattern this
 experiment targets, and the parent-anchored Relative contract IS
-load-bearing (its anchor is the live parent vessel — exactly the
+load-bearing (its anchor is the live parent vessel: exactly the
 "live anchor" case Relative was designed for).
 
 The setting therefore **does not affect parent-anchored re-fly
@@ -115,7 +115,7 @@ trace generation, which lives inside `.pann` sidecars
 (`ParsekSettings.cs:188-191`, `PannotationsSidecarBinary.cs:282, 965`).
 The new `forceAbsoluteForReFlyProvisional` setting affects **recorder
 authoring of `.prec` files**, not pannotation block contents. `.pann`
-files do not encode `ReferenceFrame` choice — they're a separate
+files do not encode `ReferenceFrame` choice: they're a separate
 rendering-side sidecar. So **the new setting does NOT participate in
 the `.pann` ConfigurationHash**. Do not add a hash byte for it; flipping
 the setting must not invalidate cached `.pann` files for the user's
@@ -160,7 +160,7 @@ existing pattern:
 - `RecordForceAbsoluteForReFlyProvisional(bool)` method
 - Reconcile block in `ApplyTo` (`Source/Parsek/ParsekSettingsPersistence.cs:344-350` shape)
 - Two log lines (one in the reconcile diff dump, one in the
-  post-reconcile diff dump) — both mirroring the existing
+  post-reconcile diff dump): both mirroring the existing
   `useCoBubbleBlend` entries.
 
 ### Helper in `ReFlyAnchorSelection`
@@ -174,7 +174,7 @@ fixtures can pin every branch without touching `ParsekScenario`
 singleton state.
 
 ```csharp
-// Pure overload — unit-testable with synthesized markers.
+// Pure overload: unit-testable with synthesized markers.
 internal static bool IsActiveRecordingReFlyProvisional(
     ReFlySessionMarker marker,
     string activeRecordingId,
@@ -188,7 +188,7 @@ internal static bool IsActiveRecordingReFlyProvisional(
             StringComparison.Ordinal))
         return false;
     // Carve-out: parent-anchored re-fly provisionals stay on the
-    // parent-anchored contract (live-parent-vessel anchor — the case
+    // parent-anchored contract (live-parent-vessel anchor: the case
     // Relative was designed for). RewindInvoker.cs:247 propagates
     // DebrisParentRecordingId so this branch can be reached on re-fly
     // of a controlled-decoupled child.
@@ -196,7 +196,7 @@ internal static bool IsActiveRecordingReFlyProvisional(
     return true;
 }
 
-// Production wrapper — derives marker + ids from live scenario state.
+// Production wrapper: derives marker + ids from live scenario state.
 internal static bool IsActiveRecordingReFlyProvisional(
     RecordingTree activeTree)
 {
@@ -220,11 +220,11 @@ internal static bool IsActiveRecordingReFlyProvisional(
 The pure overload is fully deterministic and side-effect-free; tests pin
 every branch (null marker, id mismatch, null active id, parent-anchored
 carve-out, matching). The production wrapper does exactly one tree
-lookup. No recursion / chain walk — that's the
+lookup. No recursion / chain walk: that's the
 `TryResolveReFlyProvisionalAnchor` resolver's contract, not this
 predicate's.
 
-### Recorder gate — FlightRecorder anchor detection
+### Recorder gate: FlightRecorder anchor detection
 
 In `FlightRecorder.UpdateAnchorDetection`
 (`Source/Parsek/FlightRecorder.cs:5648`), add the gate **before** the
@@ -267,14 +267,14 @@ message)` per `ParsekLog.cs:271-274`. The composite identity
 `"force-absolute-refly|<recId>"` is the stable scope (one per
 provisional recording id). The stateKey `"skipped"` never changes, so
 the line emits once when first observed for a recording id and stays
-silent thereafter — exactly one log line per re-fly session in the
+silent thereafter: exactly one log line per re-fly session in the
 steady-state Absolute path.
 
-### Recorder gate — FlightRecorder false-alarm resume
+### Recorder gate: FlightRecorder false-alarm resume
 
 `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`
 (`Source/Parsek/FlightRecorder.cs:7227-7372`) is a second site that
-opens Relative — it inherits `resumeRef = resumeSection.Value.referenceFrame`
+opens Relative: it inherits `resumeRef = resumeSection.Value.referenceFrame`
 (line 7241-7243) from the saved prior section. If a re-fly provisional
 was in Relative mode and hit a false-alarm stop, the resume re-opens
 Relative regardless of the setting, bypassing the anchor-detection
@@ -317,10 +317,10 @@ This reuses the same `isRelativeMode = false` + `ClearCurrentRecordingAnchor`
 pattern as the existing in-method downgrades, so the
 `downgradedRelativeToAbsolute` boundary-point repair at line 7324
 fires correctly (the prior Relative section had body-fixed primary
-samples — those become the new Absolute seed via the existing
+samples: those become the new Absolute seed via the existing
 `absoluteBoundaryPoint` swap at line 7327-7347).
 
-### Recorder gate — BackgroundRecorder anchor detection
+### Recorder gate: BackgroundRecorder anchor detection
 
 `BackgroundRecorder.UpdateBackgroundAnchorDetection`
 (at the bypass site `Source/Parsek/BackgroundRecorder.cs:4866`):
@@ -373,7 +373,7 @@ if (forceAbsoluteForReFlyProvisional != s.forceAbsoluteForReFlyProvisional)
 }
 ```
 
-Place under the Diagnostics group alongside `useCoBubbleBlend` — same
+Place under the Diagnostics group alongside `useCoBubbleBlend`: same
 A/B-testing context.
 
 ## Mid-recording flip semantics
@@ -405,7 +405,7 @@ this in the UI tooltip and the validation experiment section.
   Relative section (anchor-detection or false-alarm-resume downgrade;
   rare, bounded by section boundaries).
 - `ParsekLog.VerboseOnChange` from each gate firing in steady Absolute
-  state — composite identity `"force-absolute-refly|<recId>"`,
+  state: composite identity `"force-absolute-refly|<recId>"`,
   stateKey `"skipped"`. Emits exactly once per re-fly session at each
   gate site.
 
@@ -418,15 +418,15 @@ Add `Source/Parsek.Tests/ForceAbsoluteReFlyProvisionalSettingTests.cs`
 2. `IsActiveRecordingReFlyProvisional_MismatchActiveId_ReturnsFalse`
 3. `IsActiveRecordingReFlyProvisional_NullActiveId_ReturnsFalse`
 4. `IsActiveRecordingReFlyProvisional_ParentAnchoredCarveOut_ReturnsFalse`
-   — synthesizes a marker matching the active id but with
+  : synthesizes a marker matching the active id but with
    `debrisParentRecordingId="parent-x"`, asserts false. Pins the
    parent-anchored carve-out invariant.
 5. `IsActiveRecordingReFlyProvisional_MatchingMarker_ReturnsTrue`
 6. `ForceAbsoluteSetting_Default_IsFalse`
-7. `ForceAbsoluteSetting_FlipFiresNotify` — uses
+7. `ForceAbsoluteSetting_FlipFiresNotify`: uses
    `ParsekLog.TestSinkForTesting` to assert one `[Settings]` line on
    the false→true edge. (Single test covering both edges via the
-   same flip — the notify helper itself mirrors the existing
+   same flip: the notify helper itself mirrors the existing
    `NotifyUseCoBubbleBlendChanged` pattern which is already
    indirectly covered.)
 
@@ -435,20 +435,20 @@ themselves are validated by in-game tests.
 
 In-game tests (`Source/Parsek/InGameTests/`):
 
-- **FLIGHT-side**: `ForceAbsoluteReFlyProvisionalFlightInGameTest` —
+- **FLIGHT-side**: `ForceAbsoluteReFlyProvisionalFlightInGameTest` -
   arms a synthetic re-fly marker, flips the setting on, runs a few
   recorder ticks, asserts the active recording's tail section is
   `ReferenceFrame.Absolute`. Then with the marker still active,
   flips the setting off, runs more ticks past the bypass distance
   threshold, asserts the next new section opens `ReferenceFrame.Relative`
   if the bypass would have fired. Skips if no live `ParsekScenario`.
-- **BG-side**: `ForceAbsoluteReFlyProvisionalBgInGameTest` — packs a
+- **BG-side**: `ForceAbsoluteReFlyProvisionalBgInGameTest`: packs a
   re-fly provisional vessel, flips the setting on, runs the BG
   recorder, asserts the BG-tracked recording's tail section is
   `ReferenceFrame.Absolute`. Uses the
   `StartDebrisParentRelativeTrackSectionForTesting`-style testing
   surface around `BackgroundRecorder.cs:8629` if needed.
-- **Parent-anchored carve-out**: `ForceAbsoluteReFlyProvisionalCarveOutInGameTest` —
+- **Parent-anchored carve-out**: `ForceAbsoluteReFlyProvisionalCarveOutInGameTest` -
   arms a re-fly marker for a provisional with
   `DebrisParentRecordingId` set, flips the setting on, asserts the
   recording's tail section is still `ReferenceFrame.Relative` against
@@ -461,12 +461,12 @@ After implementation:
 1. Build the mod (`cd Source/Parsek && dotnet build`).
 2. Reproduce the scenario from `logs/2026-05-17_1529_cobubble-disabled-refly`
    (booster Re-Fly to space): once with the setting OFF, once with it ON.
-   **Do not flip the setting mid-recording** — keep it stable for the
+   **Do not flip the setting mid-recording**: keep it stable for the
    duration of each run.
 3. Compare the two recordings:
    - `find saves/<save>/Parsek/Recordings -newer <timestamp>` to locate
      the per-run `.prec` sidecars.
-   - Enable `writeReadableSidecarMirrors=true` in Settings ▸ Diagnostics
+   - Enable `writeReadableSidecarMirrors=true` in Settings > Diagnostics
      and verify the readable mirror dumps `TrackSection.referenceFrame`
      and `anchorRecordingId` per section. **Pre-flight check**: grep
      `RecordingSidecarBinary.cs` for `WriteReadableMirror` and confirm
@@ -519,7 +519,7 @@ preserves current behavior for both.
 - **One caveat**: `.prec` files recorded with the setting ON contain
   Absolute sections in places that would have been Relative under the
   default. Flipping the setting OFF does not migrate those recordings
-  back to Relative — they continue playing back via the Absolute path
+  back to Relative: they continue playing back via the Absolute path
   (which is the same dispatch the engine uses for every other Absolute
   section). The setting-on `.prec` is effectively a one-way commitment
   to Absolute for that recording's covered span.
@@ -541,26 +541,26 @@ preserves current behavior for both.
 
 ## File list
 
-- `Source/Parsek/ParsekSettings.cs` — new field + getter/setter +
+- `Source/Parsek/ParsekSettings.cs`: new field + getter/setter +
   `NotifyForceAbsoluteForReFlyProvisionalChanged`.
-- `Source/Parsek/ParsekSettingsPersistence.cs` — storage field + key +
+- `Source/Parsek/ParsekSettingsPersistence.cs`: storage field + key +
   Save/Load + reconcile block + log lines.
-- `Source/Parsek/ReFlyAnchorSelection.cs` — new
+- `Source/Parsek/ReFlyAnchorSelection.cs`: new
   `IsActiveRecordingReFlyProvisional` pure + production overloads.
-- `Source/Parsek/FlightRecorder.cs` — gate at head of `!onSurface`
+- `Source/Parsek/FlightRecorder.cs`: gate at head of `!onSurface`
   branch in `UpdateAnchorDetection`, plus the
   `RestoreTrackSectionAfterFalseAlarm` downgrade.
-- `Source/Parsek/BackgroundRecorder.cs` — gate at head of the bypass
+- `Source/Parsek/BackgroundRecorder.cs`: gate at head of the bypass
   site in `UpdateBackgroundAnchorDetection`.
-- `Source/Parsek/UI/SettingsWindowUI.cs` — new toggle under Diagnostics.
-- `Source/Parsek.Tests/ForceAbsoluteReFlyProvisionalSettingTests.cs` —
+- `Source/Parsek/UI/SettingsWindowUI.cs`: new toggle under Diagnostics.
+- `Source/Parsek.Tests/ForceAbsoluteReFlyProvisionalSettingTests.cs` -
   new xUnit suite.
-- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalFlightInGameTest.cs` —
+- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalFlightInGameTest.cs` -
   FLIGHT-side gate test.
-- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalBgInGameTest.cs` —
+- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalBgInGameTest.cs` -
   BG-side gate test.
-- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalCarveOutInGameTest.cs` —
+- `Source/Parsek/InGameTests/ForceAbsoluteReFlyProvisionalCarveOutInGameTest.cs` -
   parent-anchored carve-out test.
-- `CHANGELOG.md` — Internals entry under the in-progress version.
-- `docs/dev/todo-and-known-bugs.md` — entry noting the experiment is
+- `CHANGELOG.md`: Internals entry under the in-progress version.
+- `docs/dev/todo-and-known-bugs.md`: entry noting the experiment is
   live behind the setting + the two known regressions.

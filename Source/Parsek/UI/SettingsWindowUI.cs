@@ -456,7 +456,7 @@ namespace Parsek
                     "When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode (debris-style). "
                     + "Off (default) preserves the current ReFlyAnchorSelection behavior. "
                     + "Useful for A/B testing whether simplified Absolute rendering is visually equivalent to the current Relative-against-superseded-origin path. "
-                    + "Keep the setting stable across a full recording run for clean A/B comparison — flipping mid-recording produces a section boundary."));
+                    + "Keep the setting stable across a full recording run for clean A/B comparison; flipping mid-recording produces a section boundary."));
             if (forceAbsoluteForReFlyProvisional != s.forceAbsoluteForReFlyProvisional)
             {
                 s.forceAbsoluteForReFlyProvisional = forceAbsoluteForReFlyProvisional;

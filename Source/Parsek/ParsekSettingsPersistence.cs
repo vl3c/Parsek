@@ -245,7 +245,7 @@ namespace Parsek
                 }
                 else
                 {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ForceAbsoluteForReFlyProvisionalKey} — using default");
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ForceAbsoluteForReFlyProvisionalKey}, using default");
                 }
 
                 ParsekLog.Info(Tag,
@@ -560,7 +560,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"RecordForceAbsoluteForReFlyProvisional: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+                    $"(likely xUnit / non-Unity context: {ex.Message}); using in-memory fallback");
             }
             if (storedForceAbsoluteForReFlyProvisional.HasValue
                 && storedForceAbsoluteForReFlyProvisional.Value == value) return;
@@ -570,7 +570,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"RecordForceAbsoluteForReFlyProvisional: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+                    $"(likely xUnit / non-Unity context: {ex.Message}); store is in-memory only");
             }
         }
 

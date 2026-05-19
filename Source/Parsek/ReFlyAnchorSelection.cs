@@ -178,7 +178,7 @@ namespace Parsek
         /// <see cref="RewindInvoker"/>'s inherit-from helper propagates
         /// <c>DebrisParentRecordingId</c> to the provisional
         /// (RewindInvoker.cs:247), and the parent-anchored contract uses
-        /// Relative against the LIVE parent vessel — exactly the case
+        /// Relative against the LIVE parent vessel, which is exactly the case
         /// Relative was designed for. The force-Absolute setting is scoped
         /// to the "Relative-against-superseded-origin" anti-pattern, so
         /// parent-anchored re-fly provisionals stay on their existing

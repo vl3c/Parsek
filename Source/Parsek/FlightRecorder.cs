@@ -5176,7 +5176,7 @@ namespace Parsek
             // tick gates), a save fired in that single-frame window would
             // serialize a stale Relative continuation. The next physics tick
             // cleans it up via ForceExitRelativeToAbsolute, so the worst case
-            // is one short stale-Relative section per such save event —
+            // is one short stale-Relative section per such save event:
             // acceptable for a dev-only opt-in toggle, not worth a gate
             // here.
             var currentEnv = currentTrackSection.environment;
@@ -7304,7 +7304,7 @@ namespace Parsek
 
             // Experimental force-Absolute gate (docs/dev/plans/force-absolute-refly-provisional.md).
             // The anchor-detection gate at UpdateAnchorDetection's !onSurface
-            // branch cannot reach this resume path — RestoreTrackSectionAfterFalseAlarm
+            // branch cannot reach this resume path. RestoreTrackSectionAfterFalseAlarm
             // inherits resumeRef from the saved section's referenceFrame
             // (Relative if the prior section was Relative), so a re-fly
             // provisional that hit a false-alarm stop would re-open Relative

@@ -7,8 +7,8 @@ namespace Parsek.Tests
     /// <summary>
     /// Covers the pure overload of
     /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string, string)"/>
-    /// — the predicate gating the experimental
-    /// <c>forceAbsoluteForReFlyProvisional</c> setting — plus the setting's
+    /// (the predicate gating the experimental
+    /// <c>forceAbsoluteForReFlyProvisional</c> setting), plus the setting's
     /// default value, persistence round-trip, and notify-helper behavior.
     /// The recorder gates themselves are validated by the in-game test.
     ///
@@ -306,7 +306,7 @@ namespace Parsek.Tests
         /// that isn't present in activeTree.Recordings, the wrapper falls
         /// through with debrisParentRecordingId=null and the predicate
         /// returns true (the gate would fire). Documented in the wrapper's
-        /// XML doc as the intended direction — defaulting to non-parent-
+        /// XML doc as the intended direction: defaulting to non-parent-
         /// anchored on a transient lookup miss matches the experiment's
         /// goal of forcing Absolute on the re-fly provisional; defaulting
         /// to parent-anchored would silently revert to Relative and
@@ -326,7 +326,7 @@ namespace Parsek.Tests
             try
             {
                 var tree = new RecordingTree { ActiveRecordingId = "rec_prov" };
-                // Deliberately empty Recordings — id matches but lookup fails.
+                // Deliberately empty Recordings: id matches but lookup fails.
                 Assert.False(tree.Recordings.ContainsKey("rec_prov"));
 
                 bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);

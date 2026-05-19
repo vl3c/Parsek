@@ -210,10 +210,10 @@ namespace Parsek
         /// <summary>
         /// Experimental A/B toggle (off by default). When on, the recorder
         /// skips Relative-anchored authoring for re-fly provisional
-        /// recordings — both the
+        /// recordings: both the
         /// <c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>
         /// bypass and the fallback nearest-search are skipped, plus a
-        /// Relative→Absolute downgrade fires in
+        /// Relative-to-Absolute downgrade fires in
         /// <c>FlightRecorder.RestoreTrackSectionAfterFalseAlarm</c>. Lets a
         /// developer A/B compare the current
         /// Relative-against-superseded-origin path against the simpler
@@ -223,13 +223,13 @@ namespace Parsek
         /// <see cref="ReFlyAnchorSelection"/> behavior. The setting does
         /// NOT participate in <c>.pann</c> ConfigurationHash because it
         /// only affects <c>.prec</c> authoring, not pannotation block
-        /// generation — flipping it must not invalidate cached
+        /// generation, so flipping it must not invalidate cached
         /// <c>.pann</c> sidecars. See
         /// <c>docs/dev/plans/force-absolute-refly-provisional.md</c>.</para>
         ///
         /// <para>Parent-anchored re-fly provisionals (controlled-decoupled
-        /// children being re-flown — <c>RewindInvoker.cs:247</c>
-        /// propagates <c>DebrisParentRecordingId</c>) are explicitly
+        /// children being re-flown, with <c>RewindInvoker.cs:247</c>
+        /// propagating <c>DebrisParentRecordingId</c>) are explicitly
         /// excluded from this gate via
         /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string, string)"/>.
         /// Their parent-anchored Relative contract uses a LIVE parent
