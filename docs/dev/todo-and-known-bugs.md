@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Scene-exit finalizer leaves sub-orbital recordings stale when vessel solver is torn down
+
+- ~~Sub-orbital recordings whose vessel orbit solver is torn down at scene exit (the destroyed-vessel `PatchedConicSnapshotFailureReason.NullSolver` fingerprint) stayed at their recorder-stamped `terminalState = SubOrbital` even when their `termOrbit.periR` was well inside the planet — so the eventual impact never propagated to the STASH / Unfinished Flights gate. Repro: launch Kerbal X, separate the SRBs and lower-stage probe booster, end the recording. The upper stage + 6 SRB debris all kept `terminalState = SubOrbital` despite trajectories that crash; only the lower-stage probe (which had a populated `PatchedConicSnapshot` chain to reseed from) was reclassified to Destroyed. Playtest log `logs/2026-05-19_1802_pr897-chain-seam-validation/KSP.log` lines 15399-15435 walk the failure: every leaf logs `Extrapolator] Start rejected: sub-surface state … alt=-599888m`, the suppression branch fires correctly (recorded sample contradicts the live-orbit fallback), and the recording is then left with no terminal verdict update.~~
+
+**Fix scope:**
+- `IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshot` now reseeds an orbit from the recorded surface point's recorded velocity when the suppression branch detects a fresh above-ground point. The new `TryBuildRecoveryStartStateFromRecordedPoint` helper uses `OrbitReseed.FromLatLonAltAndRecordedVelocity` to compute orbit elements in the same body-relative frame the extrapolator's `TryBuildStartStateFromSegment` produces, then re-runs `BallisticExtrapolator.Extrapolate` from the recovered start state. On any non-`SubSurfaceStart` outcome the recovery commits, the recording adopts the recovered terminal (typically Destroyed-at-impact), and the original suppression WARN does not fire.
+- Fall-throughs preserved: zero-velocity recorded points (sentinel / EVA structural-event samples) decline with `velocity-zero`, non-finite samples decline with `position-non-finite` / `velocity-non-finite`, unresolved bodies decline with `body-unresolved`. A pathological recorded velocity that itself extrapolates sub-surface also falls through. In every decline case the original suppression `WARN` still fires and the recording's pre-existing terminal verdict is preserved.
+- New `TryBuildRecoveryStartStateOverrideForTesting` seam (cleared by `ResetForTesting`) lets xUnit exercise the recovery branch without a Unity FlightGlobals runtime.
+- Three new tests in `SceneExitFinalizationIntegrationTests`: recovery succeeds and reclassifies to Destroyed; recovery extrapolation also sub-surface falls through to suppression; recovery builder declined falls through to suppression. The existing `…FreshRecordedPointSuppressesSubSurfaceDestroyed` test now additionally asserts the `recorded-point recovery declined … reason=velocity-zero` breadcrumb so the suppression fall-through stays documented.
+
+**Status:** CLOSED 2026-05-19.
+
+---
+
 ## Done - v0.10.0 Watch-mode shortcuts fire while typing into a text field
 
 - ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter, so typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~

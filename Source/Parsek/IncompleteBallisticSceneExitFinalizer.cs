@@ -75,6 +75,12 @@ namespace Parsek
 
         internal static TryFinalizeDelegate TryFinalizeHook;
         internal static TryFinalizeDelegate TryFinalizeOverrideForTesting;
+        // Override seam so xUnit can exercise the sub-surface-suppression
+        // recovery path without a Unity FlightGlobals runtime. Real callers
+        // route through TryBuildRecoveryStartStateFromRecordedPoint which
+        // resolves the body via FlightGlobals + OrbitReseed.
+        internal static Func<TrajectoryPoint, IReadOnlyDictionary<string, ExtrapolationBody>, BallisticStateVector?>
+            TryBuildRecoveryStartStateOverrideForTesting;
         private static readonly HashSet<string> subSurfaceDestroyedClassificationLogs =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -84,6 +90,7 @@ namespace Parsek
             FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
+            TryBuildRecoveryStartStateOverrideForTesting = null;
             ResetLifecycleDiagnostics();
         }
 
@@ -632,6 +639,111 @@ namespace Parsek
                     out double recordedPointDeltaUT,
                     out double recordingStartUT))
                 {
+                    // Before falling through to suppression, try to extrapolate
+                    // forward from the recorded point itself. The recorded
+                    // sample is body-fixed and above ground (the suppression
+                    // check filtered for that), and when it carries a recorded
+                    // velocity we can reseed an orbit + propagate it through
+                    // the same downstream extrapolator path that the working
+                    // PatchedConicSnapshot branch uses. Without this recovery,
+                    // a sub-orbital recording whose vessel solver was torn down
+                    // (NullSolver fingerprint) stays at the recorder's
+                    // instantaneous SubOrbital tag even though its predicted
+                    // trajectory dives well below atmosphere — leaving the
+                    // crash invisible to the STASH / Unfinished Flights gate.
+                    if (TryBuildRecoveryStartStateFromRecordedPoint(
+                            recordedPoint,
+                            bodies,
+                            out BallisticStateVector recoveryStartState,
+                            out string recoveryFailureReason))
+                    {
+                        ExtrapolationResult recovered = extrapolate != null
+                            ? extrapolate(recoveryStartState, bodies)
+                            : BallisticExtrapolator.Extrapolate(recoveryStartState, bodies);
+
+                        // Only adopt the recovery if it produced something
+                        // strictly better than the sub-surface verdict it was
+                        // meant to replace. Anything still SubSurfaceStart means
+                        // the reseeded orbit also collapses underground (a
+                        // pathological recorded velocity); fall through to the
+                        // existing suppression in that case.
+                        if (recovered.failureReason != ExtrapolationFailureReason.SubSurfaceStart)
+                        {
+                            appendedSegments.Clear();
+                            if (recovered.segments != null)
+                            {
+                                for (int i = 0; i < recovered.segments.Count; i++)
+                                {
+                                    OrbitSegment seg = recovered.segments[i];
+                                    if (seg.endUT > seg.startUT)
+                                        appendedSegments.Add(seg);
+                                }
+                            }
+
+                            result.appendedOrbitSegments = appendedSegments.Count > 0 ? appendedSegments : null;
+                            result.extrapolatedSegmentCount = recovered.segments != null
+                                ? recovered.segments.Count
+                                : 0;
+                            result.terminalState = recovered.terminalState;
+                            result.terminalUT = recovered.terminalUT;
+                            result.extrapolationFailureReason = recovered.failureReason;
+                            result.subSurfaceDestroyedBodyName = null;
+                            result.subSurfaceDestroyedAltitude = 0.0;
+                            result.subSurfaceDestroyedThreshold = 0.0;
+
+                            if (recovered.terminalState == TerminalState.Orbiting
+                                && appendedSegments.Count > 0)
+                            {
+                                result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
+                                    appendedSegments[appendedSegments.Count - 1]);
+                            }
+
+                            ParsekLog.Info("Extrapolator",
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "TryFinalizeRecording: recovered sub-surface live-orbit fallback for '{0}' " +
+                                    "by extrapolating recorded surface point (pointUT={1:F3}, source={2}, " +
+                                    "recordedAlt={3:F1}) → terminal={4} terminalUT={5:F1} appendedSegments={6}",
+                                    recordingId,
+                                    recordedPoint.ut,
+                                    recordedPointSource ?? "(unknown)",
+                                    recordedPoint.altitude,
+                                    recovered.terminalState,
+                                    recovered.terminalUT,
+                                    appendedSegments.Count));
+
+                            double recordingEndUTForRecovery = recording == null
+                                ? double.NaN
+                                : recording.EndUT;
+                            return ShouldApplyExtrapolatorResult(
+                                appendedSegments.Count,
+                                result.terminalUT,
+                                recordingEndUTForRecovery,
+                                recovered.failureReason);
+                        }
+
+                        ParsekLog.Verbose("Extrapolator",
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "TryFinalizeRecording: recorded-point recovery for '{0}' also produced " +
+                                "SubSurfaceStart (pointUT={1:F3}, source={2}); falling through to suppression",
+                                recordingId,
+                                recordedPoint.ut,
+                                recordedPointSource ?? "(unknown)"));
+                    }
+                    else
+                    {
+                        ParsekLog.Verbose("Extrapolator",
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "TryFinalizeRecording: recorded-point recovery declined for '{0}' " +
+                                "(pointUT={1:F3}, source={2}, reason={3}); falling through to suppression",
+                                recordingId,
+                                recordedPoint.ut,
+                                recordedPointSource ?? "(unknown)",
+                                recoveryFailureReason ?? "(none)"));
+                    }
+
                     ParsekLog.WarnRateLimited(
                         "Extrapolator",
                         "subsurface-destroyed-recorded-start-contradiction." + recordingId,
@@ -1800,6 +1912,133 @@ namespace Parsek
                     velocity)
             };
             return true;
+        }
+
+        // Recovery start state built from a recorded above-surface trajectory
+        // point. Routed through when the live-orbit fallback would otherwise
+        // poison the extrapolator with origin-collapsed coordinates (the
+        // destroyed-vessel `NullSolver` fingerprint) but the recording itself
+        // still carries a fresh body-fixed sample with a real recorded
+        // velocity. The recorder stores `TrajectoryPoint.velocity` in Y-up
+        // body-relative inertial axes (see OrbitReseed docstring), so the
+        // resulting reseeded orbit + propagated start state lives in the same
+        // frame the extrapolator's working path (`TryBuildStartStateFromSegment`)
+        // produces — letting the same downstream extrapolation loop integrate
+        // it through atmosphere / terrain instead of mis-classifying as
+        // sub-surface and bailing into the recording's stale `SubOrbital`
+        // verdict.
+        private static bool TryBuildRecoveryStartStateFromRecordedPoint(
+            TrajectoryPoint point,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            out BallisticStateVector startState,
+            out string failureReason)
+        {
+            startState = default(BallisticStateVector);
+            failureReason = null;
+
+            if (TryBuildRecoveryStartStateOverrideForTesting != null)
+            {
+                BallisticStateVector? overrideResult =
+                    TryBuildRecoveryStartStateOverrideForTesting(point, bodies);
+                if (overrideResult.HasValue)
+                {
+                    startState = overrideResult.Value;
+                    return true;
+                }
+                failureReason = "override-declined";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(point.bodyName))
+            {
+                failureReason = "body-missing";
+                return false;
+            }
+            if (!IsFinite(point.ut)
+                || !IsFinite(point.latitude)
+                || !IsFinite(point.longitude)
+                || !IsFinite(point.altitude))
+            {
+                failureReason = "position-non-finite";
+                return false;
+            }
+
+            Vector3d recordedVel = new Vector3d(
+                point.velocity.x,
+                point.velocity.y,
+                point.velocity.z);
+            if (!IsFinite(recordedVel))
+            {
+                failureReason = "velocity-non-finite";
+                return false;
+            }
+            // TwoBodyOrbit.TryCreate rejects a zero-speed state; an orbit
+            // cannot be derived from a single position with no motion. Bail
+            // explicitly so the caller falls through to the existing
+            // suppression path (sentinel / zero-velocity recorded points keep
+            // their current behaviour).
+            double speedSquared = recordedVel.x * recordedVel.x
+                + recordedVel.y * recordedVel.y
+                + recordedVel.z * recordedVel.z;
+            if (speedSquared <= 1e-8)
+            {
+                failureReason = "velocity-zero";
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.name == point.bodyName);
+            if (body == null)
+            {
+                failureReason = "body-unresolved";
+                return false;
+            }
+
+            try
+            {
+                Orbit reseededOrbit = new Orbit();
+                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    reseededOrbit,
+                    body,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    recordedVel,
+                    point.ut);
+
+                OrbitSegment segment = new OrbitSegment
+                {
+                    startUT = point.ut,
+                    endUT = point.ut,
+                    inclination = reseededOrbit.inclination,
+                    eccentricity = reseededOrbit.eccentricity,
+                    semiMajorAxis = reseededOrbit.semiMajorAxis,
+                    longitudeOfAscendingNode = reseededOrbit.LAN,
+                    argumentOfPeriapsis = reseededOrbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = reseededOrbit.meanAnomalyAtEpoch,
+                    epoch = reseededOrbit.epoch,
+                    bodyName = body.name,
+                    isPredicted = true
+                };
+
+                if (!IsFiniteOrbitElements(segment))
+                {
+                    failureReason = "orbit-elements-non-finite";
+                    return false;
+                }
+
+                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
+                {
+                    failureReason = "segment-propagation-failed";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.GetType().Name;
+                return false;
+            }
         }
 
         private static double GetBallisticCutoffAltitude(CelestialBody body)
