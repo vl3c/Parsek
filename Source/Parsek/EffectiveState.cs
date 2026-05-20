@@ -573,11 +573,22 @@ namespace Parsek
 
         /// <summary>
         /// Cascade overload: returns the retired id set plus every recording
-        /// whose <see cref="Recording.ParentAnchorRecordingId"/> resolves
-        /// (transitively) to a retired id. Fixed-point closure walks the
-        /// parent-anchor edge until no more children are added; bounded by
-        /// the recording count and acyclic by the parent-anchor contract
-        /// (a child cannot be its own ancestor).
+        /// reachable by two edges. (1) Parent-anchor: any recording whose
+        /// <see cref="Recording.ParentAnchorRecordingId"/> resolves
+        /// (transitively) to a retired id. (2) Rolled-back-fork chain
+        /// continuation: a rolled-back Re-Fly retires only its fork's chain
+        /// HEAD (the dropped supersede relation's <c>NewRecordingId</c>), so a
+        /// higher-<see cref="Recording.ChainIndex"/> member sharing the head's
+        /// <see cref="Recording.ChainId"/> AND
+        /// <see cref="Recording.ProvisionalForRpId"/> is part of the same
+        /// rolled-back fork and is retired too (otherwise it survives and renders
+        /// as a duplicate ghost alongside the restored original). The
+        /// ProvisionalForRpId match scopes the chain edge so a legitimate
+        /// committed chain that merely shares a ChainId is never over-retired.
+        /// Fixed-point closure walks both edges until no more are added; bounded
+        /// by the recording count and acyclic by the parent-anchor contract
+        /// (a child cannot be its own ancestor) and the strictly-increasing
+        /// ChainIndex direction of the chain edge.
         ///
         /// <para>Visibility consumers (ERS, timeline-inactive map, ghost
         /// playback skip-state, KSC marker gate, tracking-station spawn
@@ -663,6 +674,36 @@ namespace Parsek
             if (seedCount == 0 || recordings == null || recordings.Count == 0)
                 return result;
 
+            // Dropped-fork chain lookup. A rolled-back Re-Fly drops the fork's
+            // supersede relation and retires only the relation's NewRecordingId,
+            // which names the fork CHAIN HEAD. The head's chain continuations
+            // (the post-seam tail that carries the predicted orbit / later
+            // segments) are never named, so without this they survive and render
+            // as a duplicate ghost alongside the restored original. Key the seed
+            // dropped-fork heads by (ChainId, ProvisionalForRpId) -> minimum
+            // ChainIndex; a higher-index member sharing that key is part of the
+            // same rolled-back provisional fork. The ProvisionalForRpId match is
+            // the load-bearing guard: it scopes the cascade to recordings that
+            // are provisional-for-the-same-rolled-back-RP, so a legitimate
+            // committed chain that merely shares a ChainId (or a kept origin-split
+            // HEAD) is never over-retired.
+            var seedForkChains = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null
+                    || string.IsNullOrEmpty(rec.RecordingId)
+                    || !result.Contains(rec.RecordingId)
+                    || string.IsNullOrEmpty(rec.ChainId)
+                    || string.IsNullOrEmpty(rec.ProvisionalForRpId))
+                    continue;
+                string key = rec.ChainId + "|" + rec.ProvisionalForRpId;
+                if (!seedForkChains.TryGetValue(key, out int minIndex) || rec.ChainIndex < minIndex)
+                    seedForkChains[key] = rec.ChainIndex;
+            }
+
+            int parentAnchorAdded = 0;
+            int chainContinuationAdded = 0;
             int cascadeAdded;
             do
             {
@@ -670,16 +711,34 @@ namespace Parsek
                 for (int i = 0; i < recordings.Count; i++)
                 {
                     var rec = recordings[i];
-                    if (rec == null
-                        || string.IsNullOrEmpty(rec.RecordingId)
-                        || string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
+                    if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
                         continue;
                     if (result.Contains(rec.RecordingId))
                         continue;
-                    if (!result.Contains(rec.ParentAnchorRecordingId))
+
+                    // Parent-anchor edge: debris of a retired recording inherits
+                    // the retirement.
+                    if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
+                        && result.Contains(rec.ParentAnchorRecordingId))
+                    {
+                        result.Add(rec.RecordingId);
+                        cascadeAdded++;
+                        parentAnchorAdded++;
                         continue;
-                    result.Add(rec.RecordingId);
-                    cascadeAdded++;
+                    }
+
+                    // Chain-continuation edge: a higher-index continuation of a
+                    // rolled-back re-fly fork head, sharing the fork's RP.
+                    if (!string.IsNullOrEmpty(rec.ChainId)
+                        && !string.IsNullOrEmpty(rec.ProvisionalForRpId)
+                        && seedForkChains.TryGetValue(
+                            rec.ChainId + "|" + rec.ProvisionalForRpId, out int seedIndex)
+                        && rec.ChainIndex > seedIndex)
+                    {
+                        result.Add(rec.RecordingId);
+                        cascadeAdded++;
+                        chainContinuationAdded++;
+                    }
                 }
             }
             while (cascadeAdded > 0);
@@ -694,10 +753,11 @@ namespace Parsek
                 // never reach this site.
                 ParsekLog.Verbose("ERS",
                     $"Rewind-retirement cascade: seed={seedCount.ToString(CultureInfo.InvariantCulture)} " +
-                    $"cascadeAdded={totalAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"parentAnchorAdded={parentAnchorAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"chainContinuationAdded={chainContinuationAdded.ToString(CultureInfo.InvariantCulture)} " +
                     $"finalRetired={result.Count.ToString(CultureInfo.InvariantCulture)} " +
                     $"recordingsScanned={recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
-                    "(parent-anchored descendants of retired recordings hidden via cascade)");
+                    "(parent-anchored descendants and rolled-back-fork chain continuations hidden via cascade)");
             }
             return result;
         }

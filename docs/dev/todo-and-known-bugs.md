@@ -69,6 +69,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Rolled-back re-fly fork chain continuation rendered as a duplicate ghost
+
+- ~~Playtest 2026-05-20 (`logs/2026-05-20_2046_refly-watch-underground`). After a Rewind-to-Separation re-fly was itself rewound back out of existence, the same physical "Kerbal X Probe" (`vesselPersistentId=1418997309`) rendered as TWO ghosts over the same post-152s window: the restored original `49538b60` (chain `59a82c8e`) AND `982d6dee` (chain `2856611e`, idx 1, carrying its own predicted orbit tail). The fork chain `2856611e` is `rec_e0f42b57` (idx 0, HEAD) -> `982d6dee` (idx 1, TIP); `rec_e0f42b57` was correctly `rewind-retired` but `982d6dee` was not.~~
+
+**Root cause:** the rolled-back supersede relation (`rsr_44663a18`, `reason=rewound-out-supersede-fork`) is dropped and only its `NewRecordingId` (the fork chain HEAD `rec_e0f42b57`) is written to the retirement set. The rewind-retirement cascade (`EffectiveState.ComputeRewindRetiredRecordingIdsUncached`, the PR #911 parent-anchor cascade) propagates only along the `DebrisParentRecordingId` edge; both fork members anchor to the sibling capsule `ca3ce923` (not retired), so no edge linked the retired head to its chain continuation `982d6dee`. With the supersede table empty post-rollback, `ComputeERS`'s `IsVisible` short-circuits true for `982d6dee` and it renders.
+
+**Fix:** extend the existing rewind-retirement cascade with a second edge (chain continuation). Keyed by the SEED (dropped-relation) retired recordings, build a `(ChainId, ProvisionalForRpId) -> min ChainIndex` lookup; in the same fixed-point loop, retire any recording sharing a seed fork's `ChainId` AND `ProvisionalForRpId` with a strictly higher `ChainIndex`. The `ProvisionalForRpId` co-membership is the load-bearing guard: it scopes the cascade to recordings provisional-for-the-same-rolled-back-RP, so a legitimate committed chain that merely shares a `ChainId` (or a kept origin-split HEAD) is never over-retired. Pure read-side change in the visibility closure, so it self-heals already-broken saves on the next ERS rebuild with no data migration. The cascade Verbose log now reports `parentAnchorAdded` and `chainContinuationAdded` separately.
+- 7 new tests in `OrphanDebrisOnRetirementTests`: fork head retires its continuation (restored original on a different chain stays visible); independent committed chain member sharing a ChainId stays visible; continuation provisional for a different RP stays visible; lower-index member is not dragged in (directionality); debris anchored to a chain-retired continuation also retires via the parent-anchor edge in the same closure; the `chainContinuationAdded=1` log fires; and the exact playtest-save id shape.
+- No serialization/schema change (`ChainId`/`ChainIndex`/`ProvisionalForRpId` already persist).
+
+---
+
 ## Done - v0.10.0 Schema reset to generation 3 (clean-slate, no backwards compat)
 
 - `RecordingStore.CurrentRecordingSchemaGeneration` bumped 2 -> 3. `IsRecordingSchemaCompatible` now rejects generation 2 and older with reason `generation-older`; the threshold is read symbolically by every downstream gate, so no gate change was needed. `CurrentRecordingFormatVersion` stays 1.
@@ -170,6 +182,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 - New `TryBuildRecoveryStartStateOverrideForTesting` seam (cleared by `ResetForTesting`) lets xUnit exercise the recovery branch without a Unity FlightGlobals runtime.
 - Decline breadcrumbs are rate-limited (`VerboseRateLimited`, 30s window, keyed by recordingId) to match the suppression `WARN` they sit alongside — a recording stuck in the decline mode would otherwise re-log every cache-refresh tick.
 - Four new tests in `SceneExitFinalizationIntegrationTests`: recovery succeeds and reclassifies to Destroyed; recovery extrapolation also sub-surface falls through to suppression; recovery builder declined falls through to suppression; EVA child with parent-structural sample skips recovery (decline reason `parent-structural-eva-source`). The existing `…FreshRecordedPointSuppressesSubSurfaceDestroyed` test now additionally asserts the `recorded-point recovery declined … reason=velocity-zero` breadcrumb so the suppression fall-through stays documented.
+
+---
+
+## Done - v0.10.0 Predicted sub-orbital orbit tail runs underground on playback (atmospheric body)
+
+- ~~A re-flown vessel whose flight ends above the atmosphere on a sub-orbital arc (e.g. the Kerbal X capsule captured at the 70 km Karman line, ascending) gets a predicted orbit tail that playback flies straight through the planet. The vessel "hits the ground but is not destroyed and continues underground on a weird trajectory." Repro: re-fly Kerbal X, watch the upper stage past its recorded points. Readable trajectory `5248d7f0...prec.txt` shows the predicted `ORBIT_SEGMENT`s carrying `sma=350210.76 ecc=0.99519589` (periapsis radius ~1683 m, ~598 km below Kerbin's surface; apoapsis ~98.7 km), `endUT` running to 866 then 1024 s, far past the descent's ground crossing. Same defect produced an underground tail on the probe fork `982d6dee` (`tOrbSma=343148 ecc=0.9953`).~~
+
+**Root cause:** KSP's patched-conic chain for an off-scene / on-rails vessel carries no atmosphere or IMPACT transition, so `PatchedConicSnapshot` copies the CLOSED ellipse verbatim. `IncompleteBallisticSceneExitFinalizer.TryShortCircuitSolverPredictedImpact` only clips sub-surface-periapsis orbits for airless bodies (`if (body.HasAtmosphere) return false`); for atmospheric bodies the finalizer built the ballistic start state from the LAST predicted segment's `endUT` (deep underground), so `BallisticExtrapolator.Extrapolate`'s sub-surface guard fired immediately and the descent-crossing logic never ran, leaving the closed underground segments on the recording.
+
+**Fix scope:**
+- New `BallisticExtrapolator.TryFindAtmosphericReentryClip` iterates the captured predicted segments and, for an atmospheric body whose segment periapsis is below the atmosphere top (`Radius + AtmosphereDepth`), returns the UT of the first descending crossing of that boundary (reusing the existing private `TryFindDescendingRadiusCrossingUT` + `TwoBodyOrbit.TryCreateFromSegment`). Airless bodies and genuine above-atmosphere coasts return false.
+- `IncompleteBallisticSceneExitFinalizer.TryFinalizeRecording` calls the clip before the ballistic hand-off: it truncates the straddling segment's `endUT` to the atmosphere-entry UT, drops later (underground) segments, and builds the ballistic start state at that boundary via the new `TryBuildStartStateFromSegment(segment, bodies, atUT, out startState)` overload. `BallisticExtrapolator` then propagates the atmospheric descent to the real terrain impact (terminal Destroyed). The airless solver-impact short-circuit is unchanged.
+- Tests: five pure-logic `BallisticExtrapolatorTests` (sub-orbital re-entry clips at atmosphere entry; genuine orbital coast does not clip; periapsis grazing just above atmosphere does not clip; airless body does not clip; multi-segment clips the later re-entering segment) and one `SceneExitFinalizationIntegrationTests` integration test via the existing `TryCompleteFinalizationFromPatchedSnapshotForTesting` seam (asserts the start state handed to the extrapolator is at the atmosphere boundary, the underground period is dropped, the surviving segment is clipped, terminal is Destroyed, and the clip log fires). No serialization/schema change (`OrbitSegment` values only).
 
 **Status:** CLOSED 2026-05-19.
 
