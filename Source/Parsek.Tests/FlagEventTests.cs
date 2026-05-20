@@ -330,6 +330,126 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResolveBackgroundFlagOwnerPid_MatchingCrew_ReturnsPid()
+        {
+            var crewByPid = new Dictionary<uint, List<ProtoCrewMember>>
+            {
+                { 100u, CreateCrewList("Bob Kerman") },
+                { 200u, CreateCrewList("Valentina Kerman") },
+            };
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(100u, "recBob"),
+                new KeyValuePair<uint, string>(200u, "recVal"),
+            };
+
+            uint pid = ParsekFlight.ResolveBackgroundFlagOwnerPid(
+                "Valentina Kerman", map, p => crewByPid.TryGetValue(p, out var c) ? c : null);
+
+            Assert.Equal(200u, pid);
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_NoMatch_ReturnsZero()
+        {
+            var crewByPid = new Dictionary<uint, List<ProtoCrewMember>>
+            {
+                { 100u, CreateCrewList("Bob Kerman") },
+            };
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(100u, "recBob"),
+            };
+
+            uint pid = ParsekFlight.ResolveBackgroundFlagOwnerPid(
+                "Valentina Kerman", map, p => crewByPid.TryGetValue(p, out var c) ? c : null);
+
+            Assert.Equal(0u, pid);
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_NullOrEmptyPlacedBy_ReturnsZero()
+        {
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(100u, "rec"),
+            };
+            Func<uint, List<ProtoCrewMember>> lookup = p => CreateCrewList("Valentina Kerman");
+
+            Assert.Equal(0u, ParsekFlight.ResolveBackgroundFlagOwnerPid(null, map, lookup));
+            Assert.Equal(0u, ParsekFlight.ResolveBackgroundFlagOwnerPid("", map, lookup));
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_NullArgs_ReturnsZero()
+        {
+            Func<uint, List<ProtoCrewMember>> lookup = p => CreateCrewList("Valentina Kerman");
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(100u, "rec"),
+            };
+
+            Assert.Equal(0u, ParsekFlight.ResolveBackgroundFlagOwnerPid("Valentina Kerman", null, lookup));
+            Assert.Equal(0u, ParsekFlight.ResolveBackgroundFlagOwnerPid("Valentina Kerman", map, null));
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_ZeroPidEntry_Skipped()
+        {
+            // pid 0 is not a real vessel and must be skipped before any crew lookup.
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(0u, "recZero"),
+                new KeyValuePair<uint, string>(200u, "recVal"),
+            };
+            var crewByPid = new Dictionary<uint, List<ProtoCrewMember>>
+            {
+                { 0u, CreateCrewList("Valentina Kerman") },
+                { 200u, CreateCrewList("Valentina Kerman") },
+            };
+
+            uint pid = ParsekFlight.ResolveBackgroundFlagOwnerPid(
+                "Valentina Kerman", map, p => crewByPid.TryGetValue(p, out var c) ? c : null);
+
+            Assert.Equal(200u, pid);
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_FirstMatchWins()
+        {
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(300u, "recA"),
+                new KeyValuePair<uint, string>(400u, "recB"),
+            };
+            // Both vessels report the kerbal as crew; the first enumerated entry wins.
+            Func<uint, List<ProtoCrewMember>> lookup = p => CreateCrewList("Valentina Kerman");
+
+            uint pid = ParsekFlight.ResolveBackgroundFlagOwnerPid("Valentina Kerman", map, lookup);
+
+            Assert.Equal(300u, pid);
+        }
+
+        [Fact]
+        public void ResolveBackgroundFlagOwnerPid_NullCrewFromLookup_Skipped()
+        {
+            var map = new List<KeyValuePair<uint, string>>
+            {
+                new KeyValuePair<uint, string>(100u, "recNull"),
+                new KeyValuePair<uint, string>(200u, "recVal"),
+            };
+            var crewByPid = new Dictionary<uint, List<ProtoCrewMember>>
+            {
+                { 200u, CreateCrewList("Valentina Kerman") },
+            };
+
+            uint pid = ParsekFlight.ResolveBackgroundFlagOwnerPid(
+                "Valentina Kerman", map, p => crewByPid.TryGetValue(p, out var c) ? c : null);
+
+            Assert.Equal(200u, pid);
+        }
+
+        [Fact]
         public void FormatPlaqueWithDate_AppendsDateToText()
         {
             string result = ParsekFlight.FormatPlaqueWithDate("First landing!", "Year 1, Day 12, 3:45:30");

@@ -9903,17 +9903,13 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Flag planted: '{flagSite.vessel.vesselName}' by '{flagSite.placedBy}' — date stamped");
 
-            // Recording-specific: capture FlagEvent
-            if (recorder == null || !recorder.IsRecording) return;
-
+            // Recording-specific: capture FlagEvent. The planting kerbal may be the
+            // foreground recorder's vessel OR a background-tracked tree member: an EVA
+            // kerbal re-controlled after a vessel switch stays in the tree's
+            // BackgroundMap with the foreground recorder idle, yet can still plant a
+            // flag. Capture into whichever recording owns the planting vessel so the
+            // flag persists to the sidecar and replays during watch/playback.
             string placedBy = flagSite.placedBy ?? "";
-            Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
-            if (!ShouldRecordFlagEvent(placedBy, recordedVessel))
-            {
-                ParsekLog.Verbose("Flight",
-                    $"Flag planted by '{placedBy}' but recorded vessel is '{recordedVessel?.vesselName}' — skipping");
-                return;
-            }
 
             Vessel flagVessel = flagSite.vessel;
             CelestialBody body = flagVessel.mainBody;
@@ -9938,10 +9934,42 @@ namespace Parsek
                 rotW = surfRot.w,
                 bodyName = body.name
             };
-            recorder.FlagEvents.Add(fe);
 
-            Log($"Flag event captured: '{fe.flagSiteName}' by '{fe.placedBy}' at " +
-                $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+            // 1) Foreground recorder owns the planting vessel.
+            if (recorder != null && recorder.IsRecording
+                && ShouldRecordFlagEvent(placedBy,
+                    FlightRecorder.FindVesselByPid(recorder.RecordingVesselId)))
+            {
+                recorder.FlagEvents.Add(fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (foreground recorder pid={recorder.RecordingVesselId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            // 2) A background-tracked tree member owns the planting vessel.
+            uint bgOwnerPid = ResolveBackgroundFlagOwnerPid(
+                placedBy,
+                activeTree?.BackgroundMap,
+                pid => FlightRecorder.FindVesselByPid(pid)?.GetVesselCrew());
+            if (bgOwnerPid != 0
+                && activeTree.BackgroundMap.TryGetValue(bgOwnerPid, out string bgRecId)
+                && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
+                && bgRec != null)
+            {
+                bgRec.FlagEvents.Add(fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (background tree member pid={bgOwnerPid} rec={bgRecId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"Flag planted by '{placedBy}' but no foreground or background recording owns " +
+                $"the planting vessel - skipping (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
+                $"hasTree={activeTree != null})");
         }
 
         /// <summary>
@@ -9981,6 +10009,32 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Finds the background-tracked vessel pid whose live crew contains the flag
+        /// planter, so a flag planted by a background tree member (e.g. an EVA kerbal
+        /// re-controlled after a vessel switch) can be captured into its recording.
+        /// Returns 0 when no background vessel matches. Pure decision helper (crew
+        /// lookup injected) so it is unit-testable without a live tree.
+        /// </summary>
+        internal static uint ResolveBackgroundFlagOwnerPid(
+            string placedBy,
+            IEnumerable<KeyValuePair<uint, string>> backgroundMap,
+            Func<uint, List<ProtoCrewMember>> crewLookup)
+        {
+            if (string.IsNullOrEmpty(placedBy) || backgroundMap == null || crewLookup == null)
+                return 0;
+
+            foreach (var entry in backgroundMap)
+            {
+                if (entry.Key == 0)
+                    continue;
+                if (CrewContainsKerbalNamed(crewLookup(entry.Key), placedBy))
+                    return entry.Key;
+            }
+
+            return 0;
         }
 
         /// <summary>
