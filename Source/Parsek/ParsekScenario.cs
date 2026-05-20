@@ -1973,7 +1973,7 @@ namespace Parsek
                     // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
                     // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
                     // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
-                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
+                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad", out double revertLaunchUT);
                     bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — revertKind={revertKind}, " +
@@ -2242,7 +2242,7 @@ namespace Parsek
                         // (inclusive).
                         bool pruneInclusive;
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
-                            revertKind, loadedUT, RevertDetector.PendingLaunchUT, out pruneInclusive);
+                            revertKind, loadedUT, revertLaunchUT, out pruneInclusive);
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",

@@ -485,5 +485,21 @@ namespace Parsek.Tests
             RevertDetector.ResetForTesting();
             Assert.True(double.IsNaN(RevertDetector.PendingLaunchUT));
         }
+
+        [Fact]
+        public void RevertDetector_ConsumeOut_ReturnsLaunchUT_AndClearsIt()
+        {
+            // The kind and its captured launch UT are consumed atomically: the out value carries
+            // the launch UT and PendingLaunchUT is reset, so a later stray read can't pick up a
+            // stale value from this revert.
+            RevertDetector.SetPendingForTesting(RevertKind.Prelaunch);
+            RevertDetector.SetPendingLaunchUTForTesting(12.0);
+
+            var kind = RevertDetector.Consume("test", out double launchUT);
+
+            Assert.Equal(RevertKind.Prelaunch, kind);
+            Assert.Equal(12.0, launchUT);
+            Assert.True(double.IsNaN(RevertDetector.PendingLaunchUT));
+        }
     }
 }

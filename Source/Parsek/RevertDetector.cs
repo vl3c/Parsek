@@ -111,13 +111,28 @@ namespace Parsek
         /// </summary>
         internal static RevertKind Consume(string site)
         {
+            return Consume(site, out _);
+        }
+
+        /// <summary>
+        /// As <see cref="Consume(string)"/>, but also hands back the captured launch UT
+        /// (<see cref="PendingLaunchUT"/>) and resets it in the same step, so the kind and its
+        /// launch UT are consumed atomically. Callers must use this value rather than reading
+        /// <see cref="PendingLaunchUT"/> later, since this resets the field to NaN.
+        /// </summary>
+        internal static RevertKind Consume(string site, out double launchUT)
+        {
+            launchUT = pendingLaunchUT;
+            pendingLaunchUT = double.NaN;
+
             if (pending == RevertKind.None)
                 return RevertKind.None;
 
             var kind = pending;
             pending = RevertKind.None;
             ParsekLog.Info("RevertDetector",
-                $"Consumed pending revert ({kind}) at {site ?? "(no site)"}");
+                $"Consumed pending revert ({kind}) at {site ?? "(no site)"} " +
+                $"(launchUT={launchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
             return kind;
         }
 
