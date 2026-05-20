@@ -1768,70 +1768,9 @@ namespace Parsek
             }
             else
             {
-                bool effectiveSkipPartEvents = zoneResult.skipPartEvents;
-                bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                string initialActivationHiddenReason;
-                bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
-                    traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
-                bool hasGhostTransform = state?.ghost != null;
-                Vector3 ghostPosition = hasGhostTransform
-                    ? state.ghost.transform.position
-                    : Vector3.zero;
-                GhostRenderTrace.EmitActivationDecision(
-                    trajectory: traj,
-                    ghostIndex: i,
-                    currentUT: ctx.currentUT,
-                    rawPlaybackUT: ctx.currentUT,
-                    visiblePlaybackUT: visiblePlaybackUT,
-                    activationStartUT: ResolveGhostActivationStartUT(traj),
-                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
-                    hidden: initialActivationHidden,
-                    hideReason: initialActivationHidden
-                        ? (initialActivationHiddenReason ?? "unknown")
-                        : null,
-                    callSite: "RenderInRangeGhost",
-                    currentPosition: ghostPosition,
-                    hasCurrentPosition: hasGhostTransform);
-                if (initialActivationHidden)
-                {
-                    if (state.ghost != null && state.ghost.activeSelf)
-                        state.ghost.SetActive(false);
-                    ghostActive = false;
-                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        effectiveSkipPartEvents, suppressVisualFx: true,
-                        allowTransientEffects: false);
-                    ResetGhostAppearanceTracking(state);
-                    ParsekLog.VerboseRateLimited(
-                        "Engine",
-                        "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
-                        + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
-                        + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
-                        + " activationStart="
-                        + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
-                        + " relativeWindow="
-                        + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s absoluteBridgeMax="
-                        + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s debrisSeedBridgeMax="
-                        + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s minFrames="
-                        + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
-                        5.0);
-                }
-                else
-                {
-                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        effectiveSkipPartEvents, effectiveSuppressVisualFx);
-                    if (ShouldRestoreDeferredRuntimeFxState(
-                            activatedDeferredState,
-                            effectiveSuppressVisualFx))
-                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                    TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
-                        reason: "playback", requestedPlaybackUT: ctx.currentUT);
-                }
+                ApplyNonRetiredPostPosition(
+                    i, traj, ctx, state, visiblePlaybackUT, suppressVisualFx, zoneResult,
+                    ref ghostActive);
             }
 
             // Targeted post-separation observability: emits one
@@ -1871,6 +1810,86 @@ namespace Parsek
                     $"early-completion suppressed: anchor retired ghost #{i} \"{traj.VesselName}\"");
 
             return true;
+        }
+
+        /// <summary>
+        /// R10 non-retired post-position arm of RenderInRangeGhost: resolve the effective
+        /// skip-part-events / suppress-visual-fx flags, decide the initial-activation-hidden
+        /// hold, emit the activation-decision trace, and run the two-way hide-vs-activate
+        /// split. Extracted verbatim (straight-line, no control-flow exits — both inner arms
+        /// fall out the bottom). <paramref name="ghostActive"/> is by ref because the hidden
+        /// arm sets it to false; the FrameContext / ZoneRenderingResult structs pass by value
+        /// (no boxing). The state?.ghost null-checks keep their exact short-circuit form.
+        /// </summary>
+        private void ApplyNonRetiredPostPosition(
+            int i, IPlaybackTrajectory traj, FrameContext ctx, GhostPlaybackState state,
+            double visiblePlaybackUT, bool suppressVisualFx, ZoneRenderingResult zoneResult,
+            ref bool ghostActive)
+        {
+            bool effectiveSkipPartEvents = zoneResult.skipPartEvents;
+            bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+            string initialActivationHiddenReason;
+            bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+            bool hasGhostTransform = state?.ghost != null;
+            Vector3 ghostPosition = hasGhostTransform
+                ? state.ghost.transform.position
+                : Vector3.zero;
+            GhostRenderTrace.EmitActivationDecision(
+                trajectory: traj,
+                ghostIndex: i,
+                currentUT: ctx.currentUT,
+                rawPlaybackUT: ctx.currentUT,
+                visiblePlaybackUT: visiblePlaybackUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj),
+                framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                hidden: initialActivationHidden,
+                hideReason: initialActivationHidden
+                    ? (initialActivationHiddenReason ?? "unknown")
+                    : null,
+                callSite: "RenderInRangeGhost",
+                currentPosition: ghostPosition,
+                hasCurrentPosition: hasGhostTransform);
+            if (initialActivationHidden)
+            {
+                if (state.ghost != null && state.ghost.activeSelf)
+                    state.ghost.SetActive(false);
+                ghostActive = false;
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    effectiveSkipPartEvents, suppressVisualFx: true,
+                    allowTransientEffects: false);
+                ResetGhostAppearanceTracking(state);
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
+                    + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
+                    + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
+                    + " activationStart="
+                    + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
+                    + " relativeWindow="
+                    + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s absoluteBridgeMax="
+                    + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s debrisSeedBridgeMax="
+                    + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s minFrames="
+                    + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
+                    5.0);
+            }
+            else
+            {
+                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    effectiveSkipPartEvents, effectiveSuppressVisualFx);
+                if (ShouldRestoreDeferredRuntimeFxState(
+                        activatedDeferredState,
+                        effectiveSuppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                    reason: "playback", requestedPlaybackUT: ctx.currentUT);
+            }
         }
 
         private bool TryHandleEarlyDestroyedDebrisCompletion(
