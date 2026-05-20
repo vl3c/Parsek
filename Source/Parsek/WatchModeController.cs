@@ -941,6 +941,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when the ghost at index was retired by the playback engine on
+        /// its most recent render frame because the playback UT fell outside the
+        /// recording's authored parent-anchored coverage. A retired ghost is hidden
+        /// and has no renderable position, so EnsureGhostVisualsLoadedForWatch ->
+        /// TryStartWatchSession would fail. Out-of-coverage parent-anchored ghosts are
+        /// retired on every frame, so the flag is stable across the input frame.
+        /// </summary>
+        internal bool IsGhostCoverageRetired(int index)
+        {
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState s;
+            return ghostStates.TryGetValue(index, out s)
+                && s != null
+                && s.anchorRetiredThisFrame;
+        }
+
+        /// <summary>
         /// Returns true if the ghost at index is within the watch camera range.
         /// Active watches use the wider exit cutoff; idle watch affordances use
         /// the entry cutoff.
@@ -1568,7 +1585,26 @@ namespace Parsek
             }
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
+            {
+                // #895 regression guard. When switching, the block above already
+                // ran ExitWatchMode(skipCameraRestore: true), so FlightCamera is
+                // still pointed at the PREVIOUS ghost's transform. If that ghost
+                // is destroyed this frame (e.g. it reached end-of-playback, or the
+                // new target is an out-of-coverage parent-anchored child that can
+                // never load), the camera target becomes a destroyed Unity object
+                // and stock per-frame systems (FlightGlobals.UpdateInformation,
+                // Sun, AmbienceControl, CrewHatchController, UIPartActionController)
+                // throw an NRE every frame, flooding the log and freezing the game.
+                // Restore the camera to the anchor vessel before bailing so it
+                // never references a dead ghost. Fresh entry (!switching) tore
+                // nothing down, so the camera is still on the player vessel.
+                if (switching)
+                    RestoreCameraToAnchorVessel(
+                        preservedCameraVessel, preservedCameraDistance,
+                        preservedCameraPitch, preservedCameraHeading,
+                        context: $"failed-switch rec=#{index} id={rec.RecordingId ?? "null"}");
                 return;
+            }
 
             // Lift the #573 active/source rewind spawn-suppression only after the
             // watch session has actually started. Clearing it earlier would leave
@@ -1922,6 +1958,47 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Points FlightCamera back at the anchor (player) vessel, falling back to
+        /// the current active vessel when the preferred vessel is gone. Used by the
+        /// failed-switch recovery in <see cref="EnterWatchMode"/>: a switch tears
+        /// down the previous session with skipCameraRestore=true (camera still bound
+        /// to the previous ghost), and if the new session fails to start the camera
+        /// would otherwise reference a ghost transform that may be destroyed the same
+        /// frame, triggering a stock per-frame NRE storm and freezing the game.
+        /// </summary>
+        private void RestoreCameraToAnchorVessel(
+            Vessel preferredVessel,
+            float distance,
+            float pitchDegrees,
+            float headingDegrees,
+            string context)
+        {
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            if (flightCamera == null)
+                return;
+
+            Vessel target = (preferredVessel != null && preferredVessel.gameObject != null)
+                ? preferredVessel
+                : GetActiveVesselSafe();
+            if (target == null || target.gameObject == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch camera anchor restore ({context}): no live vessel to target; camera left as-is");
+                return;
+            }
+
+            flightCamera.SetTargetVessel(target);
+            if (distance > 0f)
+                flightCamera.SetDistance(distance);
+            // Stored pitch/hdg are degrees (see TryCaptureCurrentFlightCameraState); KSP wants radians.
+            flightCamera.camPitch = pitchDegrees * Mathf.Deg2Rad;
+            flightCamera.camHdg = headingDegrees * Mathf.Deg2Rad;
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera anchor restore ({context}): target={target.vesselName} " +
+                $"distance={distance.ToString("F1", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
         /// Resets the loop phase offset so a beyond-range looping ghost restarts from
         /// the beginning of the recording when the player enters watch mode.
         /// </summary>
@@ -2105,6 +2182,12 @@ namespace Parsek
                 var r = committed[idx];
                 if (r == null || r.IsDebris) return false;
                 if (!HasActiveGhost(idx)) return false;
+                // A controlled-decoupled child (IsDebris=false, DebrisParentRecordingId!=null)
+                // passes the IsDebris filter but may be out of authored coverage at the
+                // current UT, in which case the engine retired it and watch entry would
+                // fail. Skip it so the cycle never steers the camera onto a target it
+                // cannot enter (#895 regression).
+                if (IsGhostCoverageRetired(idx)) return false;
                 if (!IsGhostOnSameBody(idx)) return false;
                 if (!IsGhostWithinVisualRange(idx)) return false;
                 return true;

@@ -1661,13 +1661,9 @@ namespace Parsek
             // unconditionally re-show the ghost the same frame we hid it.
             // Skip TrackGhostAppearance -- logging a root=(0,0,0) appearance
             // for a retired ghost was the original misleading symptom.
-            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                state.anchorRetiredThisFrame);
-            GhostRenderTrace.EmitPostUpdate(
-                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired,
-                ResolveRenderSurface(usedBodyFixedPrimary, retired),
-                rawPlaybackUT: ctx.currentUT,
-                activationStartUT: ResolveGhostActivationStartUT(traj));
+            bool retired = EmitPostPositionUpdate(
+                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop",
+                usedBodyFixedPrimary, rawPlaybackUT: ctx.currentUT);
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -2520,13 +2516,9 @@ namespace Parsek
                         bool overlapPrimaryUsedBodyFixed = PositionLoopAtPlaybackUT(
                             index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx,
                             "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
-                        bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                            primaryState.anchorRetiredThisFrame);
-                        GhostRenderTrace.EmitPostUpdate(
-                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired,
-                            ResolveRenderSurface(overlapPrimaryUsedBodyFixed, primaryRetired),
-                            rawPlaybackUT: primaryLoopUT,
-                            activationStartUT: ResolveGhostActivationStartUT(traj));
+                        bool primaryRetired = EmitPostPositionUpdate(
+                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary",
+                            overlapPrimaryUsedBodyFixed, rawPlaybackUT: primaryLoopUT);
                         if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
@@ -2704,15 +2696,10 @@ namespace Parsek
                     index, traj, ovState, loopUT,
                     effectiveSuppressVisualFx,
                     "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps");
-                bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                    ovState.anchorRetiredThisFrame);
-                GhostRenderTrace.EmitPostUpdate(
+                bool overlapRetired = EmitPostPositionUpdate(
                     traj, index, ctx.currentUT, loopUT, ovState,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
-                    overlapRetired,
-                    ResolveRenderSurface(overlapLoopUsedBodyFixed, overlapRetired),
-                    rawPlaybackUT: loopUT,
-                    activationStartUT: ResolveGhostActivationStartUT(traj));
+                    overlapLoopUsedBodyFixed, rawPlaybackUT: loopUT);
                 if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
@@ -3680,6 +3667,35 @@ namespace Parsek
             if (retired)
                 return GhostRenderTrace.RenderSurface.Hidden;
             return GhostRenderTrace.RenderSurface.Legacy;
+        }
+
+        /// <summary>
+        /// Computes the post-position retired flag and emits the post-update
+        /// render trace for one positioned ghost. Shared by the non-loop,
+        /// overlap-primary, and loop-overlap per-frame paths, which differ only
+        /// in the ghost index, playback UT, state, path label, body-fixed flag,
+        /// and rawPlaybackUT. Returns retired so callers can gate their divergent
+        /// post-position bodies. Hot per-frame path: all arguments are primitives
+        /// or reference copies, no allocations.
+        /// </summary>
+        private static bool EmitPostPositionUpdate(
+            IPlaybackTrajectory traj,
+            int ghostIndex,
+            double currentUT,
+            double playbackUT,
+            GhostPlaybackState state,
+            string path,
+            bool usedBodyFixedPrimary,
+            double rawPlaybackUT)
+        {
+            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, ghostIndex, currentUT, playbackUT, state, path, retired,
+                ResolveRenderSurface(usedBodyFixedPrimary, retired),
+                rawPlaybackUT: rawPlaybackUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
+            return retired;
         }
 
         #endregion

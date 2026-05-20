@@ -793,6 +793,7 @@ namespace Parsek
         private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
         private WatchModeController watchMode;
+        internal WatchModeController WatchMode => watchMode;
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
