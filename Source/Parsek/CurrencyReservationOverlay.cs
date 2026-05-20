@@ -27,15 +27,6 @@ namespace Parsek
         internal const string OverlayName = "Parsek_CurrencyTooltip";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        // Reserved amounts below these thresholds are rounding noise; hide the tooltip.
-        private const double FundsEpsilon = 0.5;
-        private const double ScienceEpsilon = 0.05;
-
-        // TEMPORARY testing affordance: when true the tooltip renders on hover even when
-        // nothing is reserved (Reserved shows 0), so the hover area / raycast can be verified
-        // in game. Flip back to false to restore the production "only when reserved" behavior.
-        internal static bool AlwaysShowForTesting = true;
-
         private bool active;
 
         private void Start()
@@ -96,13 +87,8 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Science widget");
             }
 
-            ReputationWidget reputation = UnityEngine.Object.FindObjectOfType<ReputationWidget>();
-            if (reputation != null && EnsureTooltip(reputation.transform, GetReputationTooltip))
-            {
-                attached++;
-                ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Reputation widget");
-            }
-
+            // Reputation is intentionally NOT decorated: it is never reserved, so its tooltip
+            // would always read "Reserved: 0". See reputation-reservation-not-warranted.md.
             return attached;
         }
 
@@ -116,8 +102,6 @@ namespace Parsek
             stripped += StripTooltip(funds != null ? funds.transform : null);
             ScienceWidget science = UnityEngine.Object.FindObjectOfType<ScienceWidget>();
             stripped += StripTooltip(science != null ? science.transform : null);
-            ReputationWidget reputation = UnityEngine.Object.FindObjectOfType<ReputationWidget>();
-            stripped += StripTooltip(reputation != null ? reputation.transform : null);
 
             if (stripped > 0)
                 ParsekLog.Verbose(Tag,
@@ -202,19 +186,15 @@ namespace Parsek
         // ================================================================
 
         /// <summary>
-        /// Builds the "Total / Reserved" tooltip body, or null when the reserved amount is
-        /// at or below <paramref name="epsilon"/> (nothing committed - no tooltip).
-        /// No header line: the hovered widget makes the currency obvious.
-        /// <paramref name="available"/> is the value shown on the bar, so by construction
-        /// the bar equals <paramref name="available"/> = Total - Reserved.
+        /// Builds the "Total / Reserved" tooltip body. Always renders (even at Reserved 0) so
+        /// the breakdown is discoverable - a hidden tooltip would leave the player wondering
+        /// how much, if anything, is reserved. No header line: the hovered widget makes the
+        /// currency obvious. <paramref name="available"/> is the value shown on the bar, so by
+        /// construction the bar equals <paramref name="available"/> = Total - Reserved.
         /// </summary>
-        internal static string BuildReservationTooltip(
-            double total, double available, string format, double epsilon,
-            bool alwaysShow = false)
+        internal static string BuildReservationTooltip(double total, double available, string format)
         {
             double reserved = total - available;
-            if (reserved <= epsilon && !alwaysShow)
-                return null;
             if (reserved < 0.0)
                 reserved = 0.0;
 
@@ -238,7 +218,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = Funding.Instance.Funds;
-            return BuildReservationTooltip(displayed + reserved, displayed, "N0", FundsEpsilon, AlwaysShowForTesting);
+            return BuildReservationTooltip(displayed + reserved, displayed, "N0");
         }
 
         internal static string GetScienceTooltip()
@@ -250,19 +230,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = ResearchAndDevelopment.Instance.Science;
-            return BuildReservationTooltip(displayed + reserved, displayed, "F1", ScienceEpsilon, AlwaysShowForTesting);
-        }
-
-        // Reputation is NOT escrowed (KspStatePatcher.PatchReputation writes the true running
-        // value and ReputationModule has no reservation concept), so Reserved is always 0 and
-        // the tooltip renders only under the testing flag. See
-        // docs/dev/research/reputation-reservation-not-warranted.md.
-        internal static string GetReputationTooltip()
-        {
-            if (Reputation.Instance == null)
-                return null;
-            double displayed = Reputation.Instance.reputation;
-            return BuildReservationTooltip(displayed, displayed, "F0", 0.5, AlwaysShowForTesting);
+            return BuildReservationTooltip(displayed + reserved, displayed, "F1");
         }
     }
 
@@ -270,8 +238,8 @@ namespace Parsek
     /// Draws a dynamically-computed tooltip near the cursor when the widget is hovered. The
     /// component lives on the widget ROOT; the widget's graphics are made raycast targets so a
     /// pointer-enter on any visible part bubbles up to it. The tooltip text is recomputed on
-    /// every display (reservation drifts as the timeline advances); a null/empty result
-    /// suppresses the box, which is how "show only when reserved" is realised.
+    /// every display (reservation drifts as the timeline advances). It always renders for a
+    /// career currency (even at Reserved 0); a null result only occurs with no career data.
     ///
     /// No self-destruct-on-reparent guard is needed (unlike <see cref="OverlayBadge"/>): the
     /// stock currency widgets are instantiated once and are not list-virtualised / recycled,

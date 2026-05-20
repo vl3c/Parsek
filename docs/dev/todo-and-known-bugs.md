@@ -1613,8 +1613,12 @@ committed-future drawdown (`GetProjectionCurrentBalance() - GetAvailable*()`, of
 the bar) with `Total = displayed + Reserved`, so `Total - Reserved` equals the
 on-screen number exactly. Anchoring on the live value (rather than `GetAvailable*()`)
 keeps it exact even during the brief science pending-tech-unlock catch-up window
-where `KspStatePatcher` holds the bar below ledger-available. It appears only when
-reserved > 0 and is gated behind `showCommittedFutureOverlays`.
+where `KspStatePatcher` holds the bar below ledger-available. It always renders on
+hover (reading `Reserved 0` when nothing is committed, so the breakdown is
+discoverable rather than a silently-absent tooltip) and is gated behind
+`showCommittedFutureOverlays`. The hover handler lives on the widget root with the
+widget's own graphics made raycast targets, so funds (tumblers) and science (text)
+both respond regardless of root-rect geometry.
 
 **Reputation is deliberately excluded** and stays that way: `PatchReputation`
 patches the true `GetRunningRep()`, reputation has no reservation/escrow concept,
