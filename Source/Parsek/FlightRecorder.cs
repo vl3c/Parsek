@@ -2310,6 +2310,28 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Pure keyword classifier for an aero-surface event: marks an event as deploy when its
+        /// lowercased name or gui name contains deploy/extend/open/brake/enable, and as retract
+        /// when it contains retract/close/stow/disable. Both outputs can be set independently
+        /// (an event matching neither set leaves both false). Inputs are expected lowercased.
+        /// </summary>
+        internal static void ClassifyAeroEventName(
+            string evtName, string guiName, out bool isDeploy, out bool isRetract)
+        {
+            isDeploy =
+                evtName.Contains("deploy") || guiName.Contains("deploy") ||
+                evtName.Contains("extend") || guiName.Contains("extend") ||
+                evtName.Contains("open") || guiName.Contains("open") ||
+                evtName.Contains("brake") || guiName.Contains("brake") ||
+                evtName.Contains("enable") || guiName.Contains("enable");
+            isRetract =
+                evtName.Contains("retract") || guiName.Contains("retract") ||
+                evtName.Contains("close") || guiName.Contains("close") ||
+                evtName.Contains("stow") || guiName.Contains("stow") ||
+                evtName.Contains("disable") || guiName.Contains("disable");
+        }
+
         internal static bool TryClassifyAeroSurfaceState(
             PartModule aeroSurfaceModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2332,17 +2354,8 @@ namespace Parsek
                     string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
                     string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
 
-                    bool isDeployEvent =
-                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
-                        evtName.Contains("extend") || guiName.Contains("extend") ||
-                        evtName.Contains("open") || guiName.Contains("open") ||
-                        evtName.Contains("brake") || guiName.Contains("brake") ||
-                        evtName.Contains("enable") || guiName.Contains("enable");
-                    bool isRetractEvent =
-                        evtName.Contains("retract") || guiName.Contains("retract") ||
-                        evtName.Contains("close") || guiName.Contains("close") ||
-                        evtName.Contains("stow") || guiName.Contains("stow") ||
-                        evtName.Contains("disable") || guiName.Contains("disable");
+                    ClassifyAeroEventName(evtName, guiName,
+                        out bool isDeployEvent, out bool isRetractEvent);
 
                     if (isDeployEvent)
                     {
