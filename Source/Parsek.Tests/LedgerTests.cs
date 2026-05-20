@@ -1573,6 +1573,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneOrphanActionsAfterUT_MixedBatch_RemovesOnlyUntaggedOrphans()
+        {
+            // Reverse-iteration removal must drop every untagged post-cutoff orphan while leaving
+            // seeds, tagged rows, and at/below-cutoff rows intact in a single mixed ledger.
+            Ledger.AddAction(new GameAction { UT = 0.0, Type = GameActionType.ScienceInitial });            // seed: keep
+            Ledger.AddAction(new GameAction { UT = 7.34, Type = GameActionType.FundsSpending });            // at cutoff: keep
+            Ledger.AddAction(new GameAction { UT = 20.0, Type = GameActionType.ScienceEarning });           // orphan: drop
+            Ledger.AddAction(new GameAction { UT = 25.0, Type = GameActionType.MilestoneAchievement });     // orphan: drop
+            Ledger.AddAction(new GameAction { UT = 30.0, Type = GameActionType.FundsEarning, RecordingId = "rec_live" }); // tagged: keep
+            Ledger.AddAction(new GameAction { UT = 40.0, Type = GameActionType.ScienceEarning });           // orphan: drop
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(3, removed);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsSpending && a.UT == 7.34);
+            Assert.Contains(Ledger.Actions, a => a.RecordingId == "rec_live");
+            Assert.DoesNotContain(Ledger.Actions, a => string.IsNullOrEmpty(a.RecordingId) && a.UT > 7.34
+                && !(a.Type == GameActionType.ScienceInitial));
+        }
+
+        [Fact]
         public void PruneOrphanActionsAfterUT_NoMatches_ReturnsZero()
         {
             Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });
