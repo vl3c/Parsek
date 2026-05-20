@@ -9,6 +9,7 @@ All notable changes to Parsek are documented here.
 ### Breaking Changes
 
 - Recording schema reset to generation 3, retiring the last pre-reset compatibility seams. Pre-reset recordings (generation 2 and older) are now rejected on load with reason `generation-older`.
+- Renamed the internal DebrisParentRecordingId recording field to ParentAnchorRecordingId for clarity; recording schema generation bumped to 4, so saves from older versions are not loaded.
 - Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
