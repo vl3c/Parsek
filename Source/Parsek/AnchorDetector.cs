@@ -5,19 +5,12 @@ using UnityEngine;
 
 namespace Parsek
 {
+    // In-memory diagnostic enum only, never serialized. The rendering-side
+    // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
     internal enum AnchorCandidateSource
     {
         Live,
-        Ghost,
-        // Re-fly provisional anchored on its supersede target (or
-        // OriginChildRecordingId fallback) via ReFlyAnchorSelection. The
-        // recorder skips the nearest-search and pins the anchor to the
-        // recording the provisional continues, so the offset is recorded
-        // against a stable physical-identity continuation instead of a
-        // fast-separating sibling that happens to be in-bubble.
-        // In-memory diagnostic only — never serialized; the rendering-side
-        // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
-        ReFlyProvisionalSupersede
+        Ghost
     }
 
     internal readonly struct RecordingAnchorCandidate

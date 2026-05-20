@@ -440,18 +440,6 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: writeReadableSidecarMirrors={s.writeReadableSidecarMirrors}");
             }
 
-            bool forceAbsoluteForReFlyProvisional = GUILayout.Toggle(s.forceAbsoluteForReFlyProvisional,
-                new GUIContent(" Force Absolute for re-fly provisional (experimental)",
-                    "When on, re-fly provisional recordings skip Relative-anchored authoring and stay in Absolute mode (debris-style). "
-                    + "Off (default) preserves the current ReFlyAnchorSelection behavior. "
-                    + "Useful for A/B testing whether simplified Absolute rendering is visually equivalent to the current Relative-against-superseded-origin path. "
-                    + "Keep the setting stable across a full recording run for clean A/B comparison; flipping mid-recording produces a section boundary."));
-            if (forceAbsoluteForReFlyProvisional != s.forceAbsoluteForReFlyProvisional)
-            {
-                s.forceAbsoluteForReFlyProvisional = forceAbsoluteForReFlyProvisional;
-                ParsekLog.Info("UI", $"Setting changed: forceAbsoluteForReFlyProvisional={s.forceAbsoluteForReFlyProvisional}");
-            }
-
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
                 "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
             {

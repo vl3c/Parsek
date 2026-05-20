@@ -48,7 +48,6 @@ namespace Parsek
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
         private const string UseOutlierRejectionKey = "useOutlierRejection";
-        private const string ForceAbsoluteForReFlyProvisionalKey = "forceAbsoluteForReFlyProvisional";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
@@ -61,7 +60,6 @@ namespace Parsek
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
         private static bool? storedUseOutlierRejection;
-        private static bool? storedForceAbsoluteForReFlyProvisional;
         private static bool loaded;
 
         /// <summary>
@@ -224,17 +222,6 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
                 }
 
-                string forceAbsoluteReFlyStr = root.GetValue(ForceAbsoluteForReFlyProvisionalKey);
-                if (!string.IsNullOrEmpty(forceAbsoluteReFlyStr)
-                    && bool.TryParse(forceAbsoluteReFlyStr, out bool forceAbsoluteReFly))
-                {
-                    storedForceAbsoluteForReFlyProvisional = forceAbsoluteReFly;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ForceAbsoluteForReFlyProvisionalKey}, using default");
-                }
-
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
@@ -245,8 +232,7 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}" +
-                    $" forceAbsoluteForReFlyProvisional={(storedForceAbsoluteForReFlyProvisional.HasValue ? storedForceAbsoluteForReFlyProvisional.Value.ToString() : "<default>")}");
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -348,16 +334,6 @@ namespace Parsek
                 settings.useOutlierRejection = storedUseOutlierRejection.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useOutlierRejection {prev} -> {storedUseOutlierRejection.Value} from persistent store");
-            }
-
-            if (storedForceAbsoluteForReFlyProvisional.HasValue
-                && storedForceAbsoluteForReFlyProvisional.Value != settings.forceAbsoluteForReFlyProvisional)
-            {
-                bool prev = settings.forceAbsoluteForReFlyProvisional;
-                // Property setter emits Notify on change.
-                settings.forceAbsoluteForReFlyProvisional = storedForceAbsoluteForReFlyProvisional.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored forceAbsoluteForReFlyProvisional {prev} -> {storedForceAbsoluteForReFlyProvisional.Value} from persistent store");
             }
 
             // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
@@ -509,27 +485,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordForceAbsoluteForReFlyProvisional(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordForceAbsoluteForReFlyProvisional: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}); using in-memory fallback");
-            }
-            if (storedForceAbsoluteForReFlyProvisional.HasValue
-                && storedForceAbsoluteForReFlyProvisional.Value == value) return;
-            storedForceAbsoluteForReFlyProvisional = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordForceAbsoluteForReFlyProvisional: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}); store is in-memory only");
-            }
-        }
-
         /// <summary>
         /// Resolve the effective <c>showGhostsInTrackingStation</c> value. Precedence:
         /// <list type="number">
@@ -640,8 +595,6 @@ namespace Parsek
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
                 if (storedUseOutlierRejection.HasValue)
                     root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
-                if (storedForceAbsoluteForReFlyProvisional.HasValue)
-                    root.AddValue(ForceAbsoluteForReFlyProvisionalKey, storedForceAbsoluteForReFlyProvisional.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
@@ -653,8 +606,7 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}" +
-                    $" forceAbsoluteForReFlyProvisional={(storedForceAbsoluteForReFlyProvisional.HasValue ? storedForceAbsoluteForReFlyProvisional.Value.ToString() : "<null>")}");
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -679,7 +631,6 @@ namespace Parsek
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
             storedUseOutlierRejection = null;
-            storedForceAbsoluteForReFlyProvisional = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -749,8 +700,6 @@ namespace Parsek
 
         internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
-        internal static bool? GetStoredForceAbsoluteForReFlyProvisional() => storedForceAbsoluteForReFlyProvisional;
-
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -806,12 +755,6 @@ namespace Parsek
         internal static void SetStoredUseOutlierRejectionForTesting(bool? value)
         {
             storedUseOutlierRejection = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredForceAbsoluteForReFlyProvisionalForTesting(bool? value)
-        {
-            storedForceAbsoluteForReFlyProvisional = value;
             loaded = true;
         }
     }
