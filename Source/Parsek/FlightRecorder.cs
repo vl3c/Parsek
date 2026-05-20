@@ -5757,13 +5757,8 @@ namespace Parsek
                 uint oldAnchorPid = currentAnchorPid;
                 isRelativeMode = false;
                 ClearCurrentRecordingAnchor();
-                CloseCurrentTrackSection(boundaryUT);
-                var env = environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.Atmospheric;
-                StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
-                ActivateHighFidelitySampling(boundaryUT, "relative-exit-landing");
-                AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-landing");
+                RotateToNewTrackSection(v, boundaryUT, ReferenceFrame.Absolute,
+                    "relative-exit-landing", "relative-exit-landing");
                 ParsekLog.Info("Anchor",
                     $"RELATIVE mode exited on landing: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
                     $"diagnosticPid={oldAnchorPid} " +
@@ -5889,13 +5884,8 @@ namespace Parsek
                     }
                     isRelativeMode = false;
                     ClearCurrentRecordingAnchor();
-                    CloseCurrentTrackSection(boundaryUT);
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
-                    ActivateHighFidelitySampling(boundaryUT, "relative-exit");
-                    AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
+                    RotateToNewTrackSection(v, boundaryUT, ReferenceFrame.Absolute,
+                        "relative-exit", "relative-exit-distance");
                     ParsekLog.Info("Anchor",
                         BuildRelativeModeExitedLogMessage(
                             oldAnchorRecordingId,
@@ -5905,6 +5895,26 @@ namespace Parsek
                             RecordingVesselId));
                 }
             }
+        }
+
+        /// <summary>
+        /// Closes the current track section and opens a new one at the boundary UT, resolving
+        /// the environment from the hysteresis (defaulting to Atmospheric when absent), then
+        /// activates high-fidelity sampling and appends a section-start seam point. Shared tail
+        /// of the two RELATIVE-exit cases in <see cref="UpdateAnchorDetection"/> (landing and
+        /// distance), which differ only in the activation / seam reason strings.
+        /// </summary>
+        private void RotateToNewTrackSection(
+            Vessel v, double boundaryUT, ReferenceFrame frame,
+            string activationReason, string seamReason)
+        {
+            CloseCurrentTrackSection(boundaryUT);
+            var env = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.Atmospheric;
+            StartNewTrackSection(env, frame, boundaryUT);
+            ActivateHighFidelitySampling(boundaryUT, activationReason);
+            AppendSectionStartSeamPoint(v, boundaryUT, seamReason);
         }
 
         #endregion
