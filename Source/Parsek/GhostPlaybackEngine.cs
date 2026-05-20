@@ -1496,6 +1496,24 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #688 follow-up: chain-segment dead-on-arrival spawn-suppression predicate. A chain
+        /// successor whose section is already past its effective end at first-spawn time, and
+        /// which is not held by the policy, should never build its mesh (it would flash for a
+        /// few frames then be torn down by the stale-past-end cleanup). True => suppress the
+        /// first spawn. Pure; the <paramref name="ghostHeld"/> bool is resolved from the
+        /// IsGhostHeld delegate at the call site (no delegate-as-parameter). The original
+        /// condition was `(currentUT > endUT || currentUT > chainEndUT) && (IsGhostHeld == null
+        /// || !IsGhostHeld(i))`; with ghostHeld = `IsGhostHeld != null &amp;&amp; IsGhostHeld(i)`,
+        /// `!ghostHeld` is the exact De Morgan equivalent of the held-not clause.
+        /// </summary>
+        internal static bool IsSpawnSuppressedDeadOnArrival(
+            double currentUT, double endUT, double chainEndUT, bool ghostHeld)
+        {
+            bool deadOnArrivalPastEnd = currentUT > endUT || currentUT > chainEndUT;
+            return deadOnArrivalPastEnd && !ghostHeld;
+        }
+
+        /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
         /// </summary>
@@ -1546,10 +1564,8 @@ namespace Parsek
                 // traj is non-null per the loop's earlier guard at the
                 // entry to UpdatePlayback's per-trajectory iteration; the
                 // surface area below uses it directly.
-                bool deadOnArrivalPastEnd = ctx.currentUT > traj.EndUT
-                    || ctx.currentUT > f.chainEndUT;
-                bool deadOnArrivalNotHeld = IsGhostHeld == null || !IsGhostHeld(i);
-                if (deadOnArrivalPastEnd && deadOnArrivalNotHeld)
+                bool ghostHeld = IsGhostHeld != null && IsGhostHeld(i);
+                if (IsSpawnSuppressedDeadOnArrival(ctx.currentUT, traj.EndUT, f.chainEndUT, ghostHeld))
                 {
                     CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
                     ParsekLog.VerboseRateLimited(
