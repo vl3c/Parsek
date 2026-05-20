@@ -2182,7 +2182,7 @@ namespace Parsek
                 var r = committed[idx];
                 if (r == null || r.IsDebris) return false;
                 if (!HasActiveGhost(idx)) return false;
-                // A controlled-decoupled child (IsDebris=false, DebrisParentRecordingId!=null)
+                // A controlled-decoupled child (IsDebris=false, ParentAnchorRecordingId!=null)
                 // passes the IsDebris filter but may be out of authored coverage at the
                 // current UT, in which case the engine retired it and watch entry would
                 // fail. Skip it so the cycle never steers the camera onto a target it

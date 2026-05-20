@@ -355,7 +355,7 @@ namespace Parsek
                             $"AppendRelations: skip pre-rewind {carveOutReason} old={oldId} new={newRecordingId} " +
                             $"(startUT={rec.StartUT.ToString("R", ic)} endUT={rec.EndUT.ToString("R", ic)} " +
                             $"rewindUT={marker.RewindPointUT.ToString("R", ic)} " +
-                            $"debrisParent={rec.DebrisParentRecordingId ?? "<null>"})");
+                            $"debrisParent={rec.ParentAnchorRecordingId ?? "<null>"})");
                         continue;
                     }
 
@@ -435,7 +435,7 @@ namespace Parsek
         /// Such debris physically separated before the rewind point and
         /// represents an independent vessel history the re-fly does not
         /// redo. Requires a non-null
-        /// <see cref="Recording.DebrisParentRecordingId"/>: legacy v11
+        /// <see cref="Recording.ParentAnchorRecordingId"/>: legacy v11
         /// debris loaded without the v12 ownership link follows the
         /// unfiltered legacy path.
         /// </description></item>
@@ -527,17 +527,17 @@ namespace Parsek
             // unconditionally fails — see the
             // `IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut`
             // regression test in `SupersedeCommitTests.cs`.
-            // KEEP both conjuncts (`rec.IsDebris` and `DebrisParentRecordingId != null`):
+            // KEEP both conjuncts (`rec.IsDebris` and `ParentAnchorRecordingId != null`):
             // this branch is intentionally scoped to genuine debris. Controlled-decoupled
             // children (extension of the parent-anchor contract) carry
-            // DebrisParentRecordingId but have IsDebris=false and must NOT be carved
+            // ParentAnchorRecordingId but have IsDebris=false and must NOT be carved
             // out via this branch - they would lose their re-fly visibility. They go
             // through the chain-head carve-out branch below (which gates on
             // `!rec.IsDebris`) instead.
             double debrisCutoff = ComputePreRewindCutoff(marker);
             if (!double.IsNaN(debrisCutoff)
                 && rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 && rec.TryGetActualTrajectoryBounds(out double recActualStart, out _)
                 && recActualStart < debrisCutoff)
             {

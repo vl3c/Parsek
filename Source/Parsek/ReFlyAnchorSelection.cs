@@ -32,9 +32,9 @@ namespace Parsek
         /// drop same-tree anchor candidates.
         ///
         /// <para>Parent-anchored re-fly provisionals (controlled-decoupled
-        /// child being re-flown, with <c>DebrisParentRecordingId</c> set on the
+        /// child being re-flown, with <c>ParentAnchorRecordingId</c> set on the
         /// provisional) are treated the same as top-level re-fly provisionals:
-        /// the predicate does not read <c>DebrisParentRecordingId</c>.</para>
+        /// the predicate does not read <c>ParentAnchorRecordingId</c>.</para>
         /// </summary>
         internal static bool IsActiveRecordingReFlyProvisional(
             ReFlySessionMarker marker,

@@ -3620,10 +3620,10 @@ namespace Parsek
             {
                 if (rec == null)
                     continue;
-                if (!string.IsNullOrEmpty(rec.DebrisParentRecordingId)
-                    && rejectedIds.Contains(rec.DebrisParentRecordingId))
+                if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
+                    && rejectedIds.Contains(rec.ParentAnchorRecordingId))
                 {
-                    rec.DebrisParentRecordingId = null;
+                    rec.ParentAnchorRecordingId = null;
                 }
             }
 

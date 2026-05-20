@@ -573,7 +573,7 @@ namespace Parsek
 
         /// <summary>
         /// Cascade overload: returns the retired id set plus every recording
-        /// whose <see cref="Recording.DebrisParentRecordingId"/> resolves
+        /// whose <see cref="Recording.ParentAnchorRecordingId"/> resolves
         /// (transitively) to a retired id. Fixed-point closure walks the
         /// parent-anchor edge until no more children are added; bounded by
         /// the recording count and acyclic by the parent-anchor contract
@@ -672,11 +672,11 @@ namespace Parsek
                     var rec = recordings[i];
                     if (rec == null
                         || string.IsNullOrEmpty(rec.RecordingId)
-                        || string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                        || string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
                         continue;
                     if (result.Contains(rec.RecordingId))
                         continue;
-                    if (!result.Contains(rec.DebrisParentRecordingId))
+                    if (!result.Contains(rec.ParentAnchorRecordingId))
                         continue;
                     result.Add(rec.RecordingId);
                     cascadeAdded++;
@@ -1403,7 +1403,7 @@ namespace Parsek
                     EnqueuePidPeerSiblings(
                         currentRec, recById, queue, result, marker, ref pidPeersAdded);
 
-                    // Debris-children expansion (v12 `Recording.DebrisParentRecordingId`):
+                    // Debris-children expansion (v12 `Recording.ParentAnchorRecordingId`):
                     // Breakup BPs do not register a back-pointer through
                     // `Recording.ChildBranchPointId` on the parent (that field
                     // is single-slot and a destroyed parent commonly has many
@@ -1413,7 +1413,7 @@ namespace Parsek
                     // direct ownership link to admit debris children whose
                     // ParentBranchPointId resolves to a Breakup BP that this
                     // recording owns — the topology side of the dual-purpose
-                    // DebrisParentRecordingId field. Anchor-only matches
+                    // ParentAnchorRecordingId field. Anchor-only matches
                     // (background splits where the field is re-pointed to the
                     // parent continuation as a sampling anchor) are gated out
                     // here and left to the existing same-PID side-off filter.
@@ -1692,12 +1692,12 @@ namespace Parsek
             }
         }
 
-        // Debris-children expansion via the v12 `Recording.DebrisParentRecordingId`
+        // Debris-children expansion via the v12 `Recording.ParentAnchorRecordingId`
         // direct ownership link. Bypasses both the missing-back-pointer gap on
         // destroyed parents (multi-breakup parents cannot fit N BPs into the
         // single-slot `Recording.ChildBranchPointId`) and the same-PID side-off
         // filter (debris is always a fresh KSP-assigned VesselPersistentId by
-        // construction). Legacy v11 debris with no `DebrisParentRecordingId`
+        // construction). Legacy v11 debris with no `ParentAnchorRecordingId`
         // are not reachable through this edge — accepted under the project's
         // pre-1.0 no-backward-compat-for-old-recordings policy.
         //
@@ -1707,7 +1707,7 @@ namespace Parsek
         // link and we refuse to cross tree boundaries silently — matching
         // the contract of EnqueueChainSiblings / EnqueuePidPeerSiblings.
         //
-        // Topology gate: `DebrisParentRecordingId` does double duty. The
+        // Topology gate: `ParentAnchorRecordingId` does double duty. The
         // focused-vessel breakup path (`ParsekFlight.CreateBreakupChildRecording`)
         // sets it to the actual breakup parent — a topology edge — while the
         // background-split path (`BackgroundRecorder.RegisterChildRecordingsFromSplit`,
@@ -1741,7 +1741,7 @@ namespace Parsek
                 // KEEP debris-only: this walker is the supersede-closure expansion
                 // for breakup-debris children. Controlled-decoupled children
                 // (extension of the parent-anchor contract) also carry
-                // DebrisParentRecordingId, but admitting them here would silently
+                // ParentAnchorRecordingId, but admitting them here would silently
                 // change ERS / ELS closure shapes for re-fly. The BP-type-Breakup
                 // gate at the bp.Type check below already fences out the BG-split
                 // anchor double-duty case; the `!cand.IsDebris` skip is a stricter
@@ -1752,8 +1752,8 @@ namespace Parsek
                 // gate as a side effect.
                 if (!cand.IsDebris) continue;
                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
-                if (string.IsNullOrEmpty(cand.DebrisParentRecordingId)) continue;
-                if (!string.Equals(cand.DebrisParentRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
+                if (string.IsNullOrEmpty(cand.ParentAnchorRecordingId)) continue;
+                if (!string.Equals(cand.ParentAnchorRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
                 if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
                 if (result.Contains(cand.RecordingId)) continue;
 
