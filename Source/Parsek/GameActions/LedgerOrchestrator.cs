@@ -2238,13 +2238,6 @@ namespace Parsek
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
 
-            // Phase A migration: pre-existing committed trees whose save data still
-            // carries legacy resource residual fields get those residuals injected as
-            // synthetic ledger actions tagged with the tree's RootRecordingId. This
-            // runs AFTER Reconcile and BEFORE RecalculateAndPatch so the synthesized
-            // actions enter the same walk that patches KSP state.
-            MigrateLegacyTreeResources();
-
             // #401/#396 one-shot save recovery now runs here, after committed recordings
             // (and any cold-start pending active tree) have been loaded. That gives the
             // post-epoch visibility filter an authoritative recording-id scope and keeps
@@ -2357,15 +2350,6 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"MigrateKerbalAssignments: repaired {repairedRecordings} recording(s) " +
                     $"(oldRows={oldRows}, newRows={newRows})");
-        }
-
-        // ================================================================
-        // Phase A: legacy tree-resource residual migration (zero-coverage scope)
-        // ================================================================
-
-        internal static void MigrateLegacyTreeResources()
-        {
-            LedgerLoadMigration.MigrateLegacyTreeResources();
         }
 
         internal static bool IsResourceImpactingAction(GameActionType t)

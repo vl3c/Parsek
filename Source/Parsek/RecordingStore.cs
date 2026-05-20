@@ -103,13 +103,26 @@ namespace Parsek
         }
 
         public const int CurrentRecordingFormatVersion = 1;
+        // Schema generation discriminator. Bumped on every clean-slate schema
+        // reset; recordings/sidecars carrying a different generation are rejected
+        // on load (reasons "generation-older" / "generation-newer") so a loader
+        // never sees a shape it was not built for. Pre-1.0 dev: backwards
+        // compatibility is explicitly NOT a goal, so each bump deletes the
+        // tolerance seams that only existed to read the prior generation.
+        //
         // Generation 2 landed the parent-anchor contract extension to
-        // controlled-decoupled children (PR following #872 / #874). The
-        // on-disk truth table widened to admit the previously-unreachable row
-        // (IsDebris=false, DebrisParentRecordingId=non-null); pre-bump
-        // recordings are rejected with reason "generation-older" so a pre-fix
-        // loader never sees the widened shape.
-        public const int CurrentRecordingSchemaGeneration = 2;
+        // controlled-decoupled children (the on-disk truth table widened to
+        // admit the previously-unreachable row IsDebris=false,
+        // DebrisParentRecordingId=non-null).
+        //
+        // Generation 3 is the clean-slate reset that retired the last batch of
+        // pre-reset compatibility seams: the legacy v5 world-offset RELATIVE
+        // contract, the committed-bool to MergeState migration, the Phase-F
+        // tree-resource residual seam, the legacy rewind-suppression marker
+        // normalizer, and the no-op format-version contract-upgrade helpers.
+        // Generation 2 and older recordings are rejected with reason
+        // "generation-older".
+        public const int CurrentRecordingSchemaGeneration = 3;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -131,16 +144,6 @@ namespace Parsek
         // v0 reset: current post-redesign private-development schema. A separate
         // RecordingSchemaGeneration discriminator rejects old internal saves that
         // also defaulted to recordingFormatVersion=0.
-
-        internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
-        {
-            return true;
-        }
-
-        internal static string DescribeRelativeFrameContract(int recordingFormatVersion)
-        {
-            return "anchor-local";
-        }
 
         internal static bool IsRecordingSchemaCompatible(
             int recordingFormatVersion,
@@ -180,41 +183,6 @@ namespace Parsek
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
         internal static Func<double> CurrentUniversalTimeForRewindRetirementOverrideForTesting;
 
-        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
-        // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
-        // that promotes a legacy `committed = True/False` bool to MergeState tri-state
-        // bumps this counter; the scenario load emits a single Info line with the total.
-        internal static int LegacyMergeStateMigrationCount;
-        // Flag: one-shot log has been emitted for the current session. Flipped on first
-        // emission; reset by ResetForTesting and by EmitLegacyMergeStateMigrationLogOnce.
-        private static bool legacyMergeStateMigrationLogEmitted;
-
-        internal static void BumpLegacyMergeStateMigrationCounterForTesting()
-        {
-            LegacyMergeStateMigrationCount++;
-        }
-
-        /// <summary>
-        /// Emits the one-shot <c>[Recording] Legacy migration:</c> Info log summarising
-        /// how many recordings were promoted from the binary <c>committed</c> bool to
-        /// the <see cref="Parsek.MergeState"/> tri-state this session. Idempotent: a
-        /// second call is a no-op. Counter is NOT reset so repeated loads within a
-        /// session (e.g. tests asserting idempotence) do not double-count.
-        /// </summary>
-        internal static void EmitLegacyMergeStateMigrationLogOnce()
-        {
-            if (legacyMergeStateMigrationLogEmitted) return;
-            if (LegacyMergeStateMigrationCount <= 0) return;
-            ParsekLog.Info("Recording",
-                $"Legacy migration: {LegacyMergeStateMigrationCount} recordings mapped from committed-bool to MergeState tri-state");
-            legacyMergeStateMigrationLogEmitted = true;
-        }
-
-        internal static void ResetLegacyMergeStateMigrationForTesting()
-        {
-            LegacyMergeStateMigrationCount = 0;
-            legacyMergeStateMigrationLogEmitted = false;
-        }
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
         // this, the existing real vessel is the player's reverted/active vessel, not
@@ -5121,7 +5089,6 @@ namespace Parsek
             suppressNextTreeSceneExitCommitReason = null;
             suppressNextActiveTreeRestore = false;
             suppressNextActiveTreeRestoreReason = null;
-            ResetLegacyMergeStateMigrationForTesting();
         }
 
         /// <summary>

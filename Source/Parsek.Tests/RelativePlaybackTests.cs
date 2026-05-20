@@ -11,67 +11,7 @@ namespace Parsek.Tests
     /// </summary>
     public class RelativePlaybackTests
     {
-        #region ApplyRelativeOffset -- basic math
-
-        [Fact]
-        public void ApplyRelativeOffset_ZeroOffset_ReturnsAnchorPosition()
-        {
-            var anchor = new Vector3d(1000, 2000, 3000);
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, 0, 0, 0);
-
-            Assert.Equal(1000.0, result.x, 10);
-            Assert.Equal(2000.0, result.y, 10);
-            Assert.Equal(3000.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ApplyRelativeOffset_PositiveOffset_CorrectAddition()
-        {
-            var anchor = new Vector3d(100, 200, 300);
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, 10, 20, 30);
-
-            Assert.Equal(110.0, result.x, 10);
-            Assert.Equal(220.0, result.y, 10);
-            Assert.Equal(330.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ApplyRelativeOffset_NegativeOffset_CorrectSubtraction()
-        {
-            var anchor = new Vector3d(100, 200, 300);
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, -50, -100, -150);
-
-            Assert.Equal(50.0, result.x, 10);
-            Assert.Equal(100.0, result.y, 10);
-            Assert.Equal(150.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ApplyRelativeOffset_LargeValues_NoPrecisionLoss()
-        {
-            // Simulates KSP world-space coordinates (600km range)
-            var anchor = new Vector3d(600000.123456789, -50.987654321, 600000.111111111);
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, 5.5, -2.3, 0.001);
-
-            Assert.Equal(600005.623456789, result.x, 5);
-            Assert.Equal(-53.287654321, result.y, 5);
-            Assert.Equal(600000.112111111, result.z, 5);
-        }
-
-        [Fact]
-        public void ApplyRelativeOffset_RoundTrip_WithComputeRelativeOffset()
-        {
-            // Apply + Compute should be inverse operations
-            var anchor = new Vector3d(600000, 50, 600000);
-            var focus = new Vector3d(600100, 75, 600050);
-
-            var offset = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-            var reconstructed = TrajectoryMath.ApplyRelativeOffset(anchor, offset.x, offset.y, offset.z);
-
-            Assert.Equal(focus.x, reconstructed.x, 10);
-            Assert.Equal(focus.y, reconstructed.y, 10);
-            Assert.Equal(focus.z, reconstructed.z, 10);
-        }
+        #region RELATIVE anchor-local offset / rotation -- basic math
 
         [Fact]
         public void ApplyRelativeLocalOffset_RoundTrip_WithComputeRelativeLocalOffset()
@@ -280,13 +220,15 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Integration: ApplyRelativeOffset + interpolation
+        #region Integration: anchor-local offset + interpolation
 
         [Fact]
         public void InterpolatedOffset_AppliedToAnchor_CorrectPosition()
         {
-            // Simulate two RELATIVE frames and interpolation
+            // Simulate two RELATIVE frames and interpolation through the
+            // anchor-local offset resolver.
             var anchor = new Vector3d(600000, 0, 600000);
+            Quaternion anchorRotation = Quaternion.identity;
 
             // Frame 1: offset (10, 5, -3)
             // Frame 2: offset (20, 10, -6)
@@ -295,7 +237,7 @@ namespace Parsek.Tests
             double dy = 5.0 + (10.0 - 5.0) * 0.5;
             double dz = -3.0 + (-6.0 - (-3.0)) * 0.5;
 
-            var result = TrajectoryMath.ApplyRelativeOffset(anchor, dx, dy, dz);
+            var result = TrajectoryMath.ApplyRelativeLocalOffset(anchor, anchorRotation, dx, dy, dz);
 
             Assert.Equal(600015.0, result.x, 10);
             Assert.Equal(7.5, result.y, 10);

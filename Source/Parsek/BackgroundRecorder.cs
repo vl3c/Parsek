@@ -574,8 +574,7 @@ namespace Parsek
                     ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
                         joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
-                if (parentBoundaryPoint.HasValue
-                    && FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
+                if (parentBoundaryPoint.HasValue)
                     parentBoundaryPoint = FlightRecorder.ApplyStructuralEventFlag(parentBoundaryPoint.Value);
                 pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
@@ -5573,7 +5572,7 @@ namespace Parsek
                         string parentDriftField = FormatParentDriftLogField(parentDrift);
 
                         return $"RELATIVE sample: pid={state.vesselPid} " +
-                               $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                               $"contract=anchor-local " +
                                $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
                                $"anchorRecordingId={anchorRecordingId} source={effectiveSource} " +
                                $"frameContract={frameContract} " +
@@ -7785,12 +7784,6 @@ namespace Parsek
                 if (!tree.Recordings.TryGetValue(recordingId, out treeRec))
                     continue;
                 recordingMatches++;
-
-                if (!FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
-                {
-                    legacySkipped++;
-                    continue;
-                }
 
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity

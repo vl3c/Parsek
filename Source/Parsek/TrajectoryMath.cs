@@ -1654,29 +1654,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes the position offset from an anchor vessel to the focused vessel
-        /// in world-space coordinates for legacy v5-and-older RELATIVE sections.
-        ///
-        /// The returned (dx, dy, dz) vector is stored in the TrajectoryPoint's
-        /// latitude/longitude/altitude fields when recording in RELATIVE frame.
-        /// Pure static method for testability.
-        /// </summary>
-        internal static Vector3d ComputeRelativeOffset(Vector3d focusedPosition, Vector3d anchorPosition)
-        {
-            return focusedPosition - anchorPosition;
-        }
-
-        /// <summary>
-        /// Computes world position from anchor position and a legacy world-space
-        /// relative offset. Pure static for testability.
-        /// </summary>
-        internal static Vector3d ApplyRelativeOffset(Vector3d anchorWorldPos, double dx, double dy, double dz)
-        {
-            return new Vector3d(anchorWorldPos.x + dx, anchorWorldPos.y + dy, anchorWorldPos.z + dz);
-        }
-
-        /// <summary>
-        /// Computes the anchor-local offset used by format-v6 RELATIVE sections.
+        /// Computes the anchor-local offset used by RELATIVE sections.
         /// Pure static method for testability.
         /// </summary>
         internal static Vector3d ComputeRelativeLocalOffset(
@@ -1744,9 +1722,7 @@ namespace Parsek
             double dz,
             int recordingFormatVersion)
         {
-            return RecordingStore.UsesRelativeLocalFrameContract(recordingFormatVersion)
-                ? ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz)
-                : ApplyRelativeOffset(anchorWorldPos, dx, dy, dz);
+            return ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz);
         }
 
         /// <summary>

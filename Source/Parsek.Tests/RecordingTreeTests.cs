@@ -19,13 +19,6 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
-        private static RecordingTree.LegacyResourceResidual ConsumeLegacyResidualOrThrow(RecordingTree tree)
-        {
-            var residual = tree.ConsumeLegacyResidual();
-            Assert.NotNull(residual);
-            return residual;
-        }
-
         // --- SurfacePosition round-trip ---
 
         [Fact]
@@ -216,7 +209,6 @@ namespace Parsek.Tests
             Assert.Equal("rec001", restored.RootRecordingId);
             Assert.Equal("rec001", restored.ActiveRecordingId);
             Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
-            Assert.Null(restored.ConsumeLegacyResidual());
 
             Assert.Single(restored.Recordings);
             Assert.True(restored.Recordings.ContainsKey("rec001"));
@@ -940,14 +932,6 @@ namespace Parsek.Tests
                 TreeName = "Resource Test",
                 RootRecordingId = "rec_r"
             };
-            tree.SetLegacyResidualForTesting(
-                deltaFunds: -5000.123,
-                deltaScience: 150.5,
-                deltaReputation: -10.25f,
-                resourcesApplied: true,
-                preTreeFunds: 123456.789,
-                preTreeScience: 987.654,
-                preTreeReputation: 42.5f);
 
             var rec = new Recording
             {
@@ -976,7 +960,6 @@ namespace Parsek.Tests
             var restored = RecordingTree.Load(node);
 
             Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
-            Assert.Null(restored.ConsumeLegacyResidual());
         }
 
         // --- SurfacePos (background landed recording) ---
@@ -1089,15 +1072,6 @@ namespace Parsek.Tests
             Assert.Equal(500.0, rec.EndUT);
         }
 
-        // --- Legacy residual seam ---
-
-        [Fact]
-        public void ConsumeLegacyResidual_DefaultsNull()
-        {
-            var tree = new RecordingTree();
-            Assert.Null(tree.ConsumeLegacyResidual());
-        }
-
         [Fact]
         public void TreeFormatVersion_SaveWritesCurrentVersion()
         {
@@ -1127,7 +1101,6 @@ namespace Parsek.Tests
             var restored = RecordingTree.Load(node);
 
             Assert.Equal(RecordingTree.CurrentTreeFormatVersion, restored.TreeFormatVersion);
-            Assert.Null(restored.ConsumeLegacyResidual());
         }
 
         [Fact]
@@ -1143,44 +1116,6 @@ namespace Parsek.Tests
             var tree = RecordingTree.Load(node);
 
             Assert.Equal(0, tree.TreeFormatVersion);
-            Assert.Null(tree.ConsumeLegacyResidual());
-        }
-
-        [Fact]
-        public void LegacyResourceFields_LoadHydratesFromPreFSaveFormat()
-        {
-            // Phase A relies on Load still understanding the legacy field keys so
-            // it can hydrate residuals from pre-Phase-F .sfs files. We simulate
-            // that here by hand-crafting a ConfigNode with the legacy keys.
-            var node = new ConfigNode("RECORDING_TREE");
-            node.AddValue("id", "legacy");
-            node.AddValue("treeName", "Legacy");
-            node.AddValue("rootRecordingId", "legacy-root");
-            node.AddValue("treeFormatVersion",
-                RecordingTree.CurrentTreeFormatVersion.ToString(CultureInfo.InvariantCulture));
-            node.AddValue("recordingSchemaGeneration",
-                RecordingStore.CurrentRecordingSchemaGeneration.ToString(CultureInfo.InvariantCulture));
-            node.AddValue("preTreeFunds", "60000");
-            node.AddValue("preTreeScience", "200");
-            node.AddValue("preTreeRep", "30");
-            node.AddValue("deltaFunds", "-1500.5");
-            node.AddValue("deltaScience", "12.5");
-            node.AddValue("deltaRep", "-2.5");
-            node.AddValue("resourcesApplied", "False");
-
-            var tree = RecordingTree.Load(node);
-            var residual = ConsumeLegacyResidualOrThrow(tree);
-
-            Assert.Equal(0, tree.TreeFormatVersion);
-            Assert.Equal(60000, residual.PreTreeFunds);
-            Assert.Equal(200, residual.PreTreeScience);
-            Assert.Equal(30f, residual.PreTreeReputation);
-            Assert.Equal(-1500.5, residual.DeltaFunds);
-            Assert.Equal(12.5, residual.DeltaScience);
-            Assert.Equal(-2.5f, residual.DeltaReputation);
-            Assert.False(residual.ResourcesApplied);
-            Assert.True(residual.ResourcesAppliedFieldPresent);
-            Assert.Null(tree.ConsumeLegacyResidual());
         }
 
         // --- Edge cases ---
@@ -1397,21 +1332,13 @@ namespace Parsek.Tests
             recNode.AddValue("pointCount", "0");
 
             var tree = RecordingTree.Load(node);
-            var residual = ConsumeLegacyResidualOrThrow(tree);
 
-            // Standard fields loaded correctly
+            // Standard fields loaded correctly; unknown fields (including the
+            // retired legacy resource-residual keys) are silently ignored.
             Assert.Equal("tree_fwd", tree.Id);
             Assert.Equal("Forward Compat", tree.TreeName);
             Assert.Equal("rec_fwd", tree.RootRecordingId);
             Assert.Equal(0, tree.TreeFormatVersion);
-            Assert.Equal(50000, residual.PreTreeFunds);
-            Assert.Equal(100, residual.PreTreeScience);
-            Assert.Equal(50f, residual.PreTreeReputation);
-            Assert.Equal(-2000, residual.DeltaFunds);
-            Assert.Equal(10, residual.DeltaScience);
-            Assert.Equal(-3f, residual.DeltaReputation);
-            Assert.False(residual.ResourcesApplied);
-            Assert.True(residual.ResourcesAppliedFieldPresent);
 
             // Recording loaded correctly despite unknown fields on parent
             Assert.Single(tree.Recordings);

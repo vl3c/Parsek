@@ -19327,7 +19327,7 @@ namespace Parsek
                 ParsekLog.Info("Playback",
                     $"RELATIVE playback started: recording #{index} \"{traj.VesselName}\" " +
                     $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
+                    $"contract=anchor-local " +
                     $"version={traj.RecordingFormatVersion} sectionUT={sectionUt}");
             }
 
@@ -24336,7 +24336,7 @@ namespace Parsek
             uint anchorVesselId,
             bool anchorFromRecordedTrajectory)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId} " +
                 $"source={(anchorFromRecordedTrajectory ? "recorded" : "live")}";
@@ -24349,7 +24349,7 @@ namespace Parsek
             double dz,
             string anchorRecordingId)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
                 $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
@@ -24493,7 +24493,7 @@ namespace Parsek
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
                             $"\"{rec.VesselName}\" anchorPid={anchorVesselId} " +
-                            $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                            $"contract=anchor-local " +
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
