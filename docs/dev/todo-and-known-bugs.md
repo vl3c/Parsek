@@ -22,6 +22,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
+
+- Investigation 2026-05-20 (`logs/2026-05-20_1833_timeline-investigation/`). The Details tab listed 50 rows for a short two-launch career, dominated by noise: a VAB build burst at one UT produced ~20 rows. Two distinct causes.
+- **Cause 1 (duplication):** the timeline merges ledger game-actions and the legacy milestone-store events, but the legacy de-dup (`TimelineBuilder.GetLegacyDuplicateKey`) only covered `MilestoneAchievement` / `StrategyActivate` / `StrategyDeactivate`. `PartPurchased`, `TechResearched`, and the contract lifecycle events exist in BOTH stores and were rendered twice (once as a ledger row, once as a legacy row).
+- **Cause 2 (no-op rows):** under the stock `BypassEntryPurchaseAfterResearch` setting, researching a tech node auto-unlocks its parts for free; stock KSP still fires `OnPartPurchased` per part, so `ConvertPartPurchased` records a `FundsSpending(Other, 0)` ledger action per part. That zero-funds action is an intentional ledger audit record (also synthesized by `TryRecoverBrokenLedgerOnLoad` / `RepairLegacyPartPurchaseActionsOnLoad`, pinned by tests), so it is NOT dropped at the converter; it is purely a display problem.
+- **Fix (display-only, ledger contract untouched):** (1) `GetLegacyDuplicateKey` now also de-dups `TechResearched` (NodeId), `PartPurchased` (DedupKey, source==Other only), and `ContractAccepted/Completed/Failed/Cancelled` (ContractId) against their ledger twins. (2) `CollectGameActionEntries` skips `FundsSpending` actions with `FundsSpent <= 0` (no-op spends). (3) `CollectLegacyEntries` skips `PartPurchased` legacy events whose charged cost is 0 (their ledger twin is filtered, so de-dup can't catch them). (4) Surviving (non-zero) part-purchase rows now render `Part: {name} -{cost}` via the part name in `DedupKey`, instead of the generic `Expense -0`. Charged-cost parsing is shared via `GameStateEventConverter.ParsePartPurchaseChargedCost`.
+- **Tests:** four `TimelineBuilderTests` (no-op spend filtered, part-name relabel, free legacy part skipped, Tech/Contract/Part legacy de-dup end-to-end) plus four `GameStateEventConverterTests` for the shared cost parser.
+- **Status:** CLOSED 2026-05-20.
+
+---
+
 ## Done - v0.10.0 Live Re-Fly fork floated at the recordings-table root instead of nesting in its mission folder
 
 - Playtest 2026-05-20 (`logs/2026-05-20_1737_refly-orphan-recording/`). During an in-place Rewind-to-Separation on "Kerbal X" (tree `e7ca34dc...`), the in-flight fork `rec_77dbe31a...` showed in the recordings list as a row outside any mission folder; it vanished when the user discarded the re-fly attempt.
@@ -47,11 +58,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+## Done - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+
+> Experiment concluded. The narrowed-gate filter (next section) is the validated default; the `forceAbsoluteForReFlyProvisional` toggle and the supersede-target bypass it gated were deleted in Parsek-remove-refly-bypass. The notes below are kept for historical context.
 
 - Experimental setting `forceAbsoluteForReFlyProvisional` (off by default) added under Settings > Diagnostics. When on, re-fly provisional recordings skip Relative-anchored authoring at three sites (`FlightRecorder.UpdateAnchorDetection`, `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`, `BackgroundRecorder.UpdateBackgroundAnchorDetection`) and stay in Absolute mode. Lets a developer A/B compare the current Relative-against-superseded-origin path against the simpler debris-style Absolute path.
 - The setting does NOT participate in `.pann` ConfigurationHash (affects `.prec` authoring only, not pannotation generation). Flipping does not invalidate cached sidecars.
-- See `docs/dev/plans/force-absolute-refly-provisional.md`.
+- See `docs/dev/done/force-absolute-refly-provisional.md`.
 
 **Issues discovered during validation and fixed in the same PR:**
 
@@ -74,11 +87,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - PR 901's `forceAbsoluteForReFlyProvisional` toggle validated that Absolute is the right contract for re-fly forks with no nearby real anchor, but the toggle's all-or-nothing shape lost Relative-against-real-station precision in two narrow cases (docking-mid-rewind, loop-anchored re-fly fork). The user's clarification on the second case: orbital looped ghosts cannot replay correctly against absolute body-fixed positions because body rotation has continued for `N * loop_period` between recording and playback; the loop must anchor to a real persistent vessel via `Recording.LoopAnchorVesselId` so the timing skew cancels. That implies the "500m Relative-against-real-anchor" recorder behavior is load-bearing for orbital loops and must be preserved across re-fly too.
 - Fix: replace the `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor` supersede-target bypass at both recorder gate sites with a narrowed-gate filter `ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional`. While a re-fly session is active and the active recording is the provisional, the filter drops every nearest-search candidate whose recording id is a member of the same `RecordingTree.Recordings` keyset as the provisional. Real persistent vessels / stations / bases live in other trees (or no tree at all), so they pass through and remain eligible. The supersede target, supersede-chain ancestors, and parent-anchored debris from the original launch are all in-tree by construction; the filter drops them, and the nearest-search either finds a real out-of-tree anchor (-> Relative-against-real-anchor) or finds nothing (-> Absolute). Single rule covers both regression cases.
-- The `forceAbsoluteForReFlyProvisional` toggle, the `TryResolveReFlyProvisionalAnchor` function, and the two `ApplyReFlyProvisionalAnchor*` apply helpers are orphans after this change but retained for one release as a rollback path. Scheduled for deletion in a follow-up PR after one release of soak time.
-- Test coverage: 13 pure xUnit tests for the filter (null/empty inputs, no-marker pass-through, in-tree drops, out-of-tree keeps, supersede-target-specifically drops, drop-count log emission, no-drop log silence). Rewritten source-text gates in `ReFlyAnchorBypassWiringTests` confirm the filter is wired at both recorder sites BEFORE the nearest-search, the bypass call is gone, and the orphaned apply helpers still exist (so a careless cleanup PR cannot delete them prematurely). Existing in-game test `ForceAbsoluteReFlyProvisionalGateInGameTest` covers the toggle-ON force-Absolute path unchanged.
+- ~~The `forceAbsoluteForReFlyProvisional` toggle, the `TryResolveReFlyProvisionalAnchor` function, and the two `ApplyReFlyProvisionalAnchor*` apply helpers are orphans after this change but retained for one release as a rollback path. Scheduled for deletion in a follow-up PR after one release of soak time.~~ **DONE (Parsek-remove-refly-bypass)**: the toggle (field, UI, persistence, both force-Absolute gate blocks), the bypass function + its private walk/resolver helpers, the two apply helpers, and the `AnchorCandidateSource.ReFlyProvisionalSupersede` enum value are all deleted. `IsActiveRecordingReFlyProvisional` + `FilterCandidatesForReFlyProvisional` are the only surviving members of `ReFlyAnchorSelection`. No schema bump.
+- Test coverage: pure xUnit tests for the filter (null/empty inputs, no-marker pass-through, in-tree drops, out-of-tree keeps, supersede-target-specifically drops, drop-count log emission, no-drop log silence). Source-text gates in `ReFlyAnchorBypassWiringTests` confirm the filter is wired at both recorder sites BEFORE the nearest-search and the bypass call is absent. After the cleanup PR, the `IsActiveRecordingReFlyProvisional` predicate tests (pure + production-wrapper overloads) moved into `FilterCandidatesForReFlyProvisionalTests`; the bypass-only `ReFlyAnchorSelectionTests`, the `ForceAbsoluteReFlyProvisionalSettingTests` toggle tests, and `ForceAbsoluteReFlyProvisionalGateInGameTest` were deleted with the code they covered.
 - See `docs/dev/plans/narrow-refly-relative-gate.md`.
 
-**Status:** PR open.
+**Status:** Narrowed-gate filter merged; bypass + toggle deletion follow-up (Parsek-remove-refly-bypass) open.
 
 ---
 
