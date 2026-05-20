@@ -175,6 +175,21 @@ namespace Parsek
             CompletedThisCall = 3
         }
 
+        // Outcome of the first-spawn block (R3) extracted from RenderInRangeGhost.
+        // The helper owns the block body; the caller maps the outcome to the
+        // corresponding return / fall-through so no return is buried in the helper.
+        private enum FirstSpawnOutcome : byte
+        {
+            // Spawn produced a ready state — fall through to the defensive
+            // null-check and the zone-rendering pipeline (original fall-out-of-block).
+            Proceed = 0,
+            // Caller should `return true;` (original Pending path).
+            ReturnTrue = 1,
+            // Caller should `return false;` (original dead-on-arrival / throttle /
+            // visual-load-Failed paths).
+            ReturnFalse = 2
+        }
+
         #endregion
 
         #region Lifecycle events
@@ -1527,6 +1542,88 @@ namespace Parsek
         }
 
         /// <summary>
+        /// First-spawn block (R3) of RenderInRangeGhost, run only when state == null:
+        /// #688 dead-on-arrival suppression, the #414 first-spawn slot throttle, pending-state
+        /// creation + store, and EnsureGhostVisualsLoaded with Failed/Pending handling.
+        /// Returns an outcome enum so every original `return` stays at the caller's statement
+        /// level (item 4: no buried return). <paramref name="state"/> and
+        /// <paramref name="ghostActive"/> are by ref because this assigns state =
+        /// CreatePendingSpawnState(...), writes ghostStates[i] = state, and sets ghostActive
+        /// = false on the Failed/Pending paths. Verbatim extraction; the dead-on-arrival
+        /// VerboseRateLimited message and the Failed-path ghostStates.Remove(i) are preserved.
+        /// </summary>
+        private FirstSpawnOutcome TryFirstSpawn(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            // #688 follow-up: chain-segment dead-on-arrival suppression.
+            // A chain successor whose section is already past its
+            // effective end at the moment of first-spawn would build
+            // its mesh at the recorded-start coords, render for a few
+            // frames at a position discontinuous from the previous
+            // chain segment's last frame, then be destroyed by the
+            // stale-past-end cleanup at the bottom of the loop.
+            // Players see this as a one-frame Probe ghost flash on
+            // the booster's destruction segment. Mirror the same
+            // predicate the cleanup uses so the spawn is skipped
+            // entirely; the fall-through past-end handler below this
+            // branch still fires the PlaybackCompleted event so
+            // consumers (camera transfer, debris spawn, milestone
+            // logging) see the lifecycle they expect.
+            // traj is non-null per the loop's earlier guard at the
+            // entry to UpdatePlayback's per-trajectory iteration; the
+            // surface area below uses it directly.
+            bool ghostHeld = IsGhostHeld != null && IsGhostHeld(i);
+            if (IsSpawnSuppressedDeadOnArrival(ctx.currentUT, traj.EndUT, f.chainEndUT, ghostHeld))
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj.VesselName ?? "?")
+                    + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
+                    + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " chainEndUT=" + f.chainEndUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " (past-end handler will still fire completion)",
+                    5.0);
+                return FirstSpawnOutcome.ReturnFalse;
+            }
+
+            // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
+            // land every eligible ghost's visual build on a single frame.
+            if (!TryReserveSpawnSlot(i, "first-spawn"))
+                return FirstSpawnOutcome.ReturnFalse;
+
+            state = CreatePendingSpawnState(
+                traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
+            ghostStates[i] = state;
+            // Chain seam: skip time-slicing the build so gs.ghost is set the same frame the
+            // successor enters range. The mid-chain Watch transfer then succeeds on its first
+            // attempt instead of defer-retrying for 3-5 frames while the launch ghost's
+            // terminal frame remains glued to the camera.
+            GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
+                i, traj, state, ctx.currentUT, "first spawn",
+                forceImmediateBuild: state.spawnedAtChainSeam,
+                resetCompletedEventDedup: true);
+            if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                ghostStates.Remove(i);
+                ghostActive = false;
+                return FirstSpawnOutcome.ReturnFalse;
+            }
+            if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
+            {
+                ghostActive = false;
+                return FirstSpawnOutcome.ReturnTrue;
+            }
+
+            return FirstSpawnOutcome.Proceed;
+        }
+
+        /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
         /// </summary>
@@ -1560,68 +1657,12 @@ namespace Parsek
 
             if (state == null)
             {
-                // #688 follow-up: chain-segment dead-on-arrival suppression.
-                // A chain successor whose section is already past its
-                // effective end at the moment of first-spawn would build
-                // its mesh at the recorded-start coords, render for a few
-                // frames at a position discontinuous from the previous
-                // chain segment's last frame, then be destroyed by the
-                // stale-past-end cleanup at the bottom of the loop.
-                // Players see this as a one-frame Probe ghost flash on
-                // the booster's destruction segment. Mirror the same
-                // predicate the cleanup uses so the spawn is skipped
-                // entirely; the fall-through past-end handler below this
-                // branch still fires the PlaybackCompleted event so
-                // consumers (camera transfer, debris spawn, milestone
-                // logging) see the lifecycle they expect.
-                // traj is non-null per the loop's earlier guard at the
-                // entry to UpdatePlayback's per-trajectory iteration; the
-                // surface area below uses it directly.
-                bool ghostHeld = IsGhostHeld != null && IsGhostHeld(i);
-                if (IsSpawnSuppressedDeadOnArrival(ctx.currentUT, traj.EndUT, f.chainEndUT, ghostHeld))
+                switch (TryFirstSpawn(i, traj, f, ctx, ref state, ref ghostActive))
                 {
-                    CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
-                    ParsekLog.VerboseRateLimited(
-                        "Engine",
-                        "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj.VesselName ?? "?")
-                        + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
-                        + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " chainEndUT=" + f.chainEndUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " (past-end handler will still fire completion)",
-                        5.0);
-                    return false;
-                }
-
-                // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
-                // land every eligible ghost's visual build on a single frame.
-                if (!TryReserveSpawnSlot(i, "first-spawn"))
-                    return false;
-
-                state = CreatePendingSpawnState(
-                    traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
-                ghostStates[i] = state;
-                // Chain seam: skip time-slicing the build so gs.ghost is set the same frame the
-                // successor enters range. The mid-chain Watch transfer then succeeds on its first
-                // attempt instead of defer-retrying for 3-5 frames while the launch ghost's
-                // terminal frame remains glued to the camera.
-                GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
-                    i, traj, state, ctx.currentUT, "first spawn",
-                    forceImmediateBuild: state.spawnedAtChainSeam,
-                    resetCompletedEventDedup: true);
-                if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
-                {
-                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                    ghostStates.Remove(i);
-                    ghostActive = false;
-                    return false;
-                }
-                if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
-                {
-                    ghostActive = false;
-                    return true;
+                    case FirstSpawnOutcome.ReturnTrue: return true;
+                    case FirstSpawnOutcome.ReturnFalse: return false;
+                    // FirstSpawnOutcome.Proceed: fall through to the defensive
+                    // null-check below and the zone-rendering pipeline.
                 }
             }
 
