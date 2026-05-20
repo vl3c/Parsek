@@ -250,6 +250,22 @@ namespace Parsek
         {
             s_instance = null;
             CurrentTimelineUTProviderForTesting = null;
+            currentFlightLaunchUT = double.NaN;
+        }
+
+        internal static void SetCurrentFlightLaunchUTForTesting(double ut)
+        {
+            currentFlightLaunchUT = ut;
+        }
+
+        /// <summary>
+        /// Resolves the editor-revert prune boundary: the captured fresh-launch UT when available
+        /// (site/mode independent), else the VesselRollout action UT (career fallback), else NaN
+        /// (handled by <see cref="ResolveRevertPruneCutoff"/>'s loadedUT fallback). Pure for testing.
+        /// </summary>
+        internal static double ResolveEditorRevertBoundaryUT(double capturedLaunchUT, double rolloutUT)
+        {
+            return !double.IsNaN(capturedLaunchUT) ? capturedLaunchUT : rolloutUT;
         }
 
         internal static Func<double> CurrentTimelineUTProviderForTesting;
@@ -331,6 +347,18 @@ namespace Parsek
         /// Bug A (2026-04-09 playtest).
         /// </summary>
         private static double lastSceneChangeRequestedUT = -1.0;
+
+        /// <summary>
+        /// UT at which the current flight launched, captured when OnLoad enters a FLIGHT scene
+        /// via a fresh launch (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) where <c>loadedUT</c> is the
+        /// launch instant. This is the launch-boundary the editor-revert orphan prune uses,
+        /// independent of launch site (KSC pad/runway, Making History Desert/Woomerang) and game
+        /// mode, unlike the vessel's <c>launchTime</c>/<c>missionTime</c> (KSP churns them during
+        /// PRELAUNCH) or a VesselRollout ledger action (not recorded at Making History alt sites).
+        /// Cleared to NaN on a non-fresh flight load (quickload-resume) so a stale value can't
+        /// over-prune. <c>NaN</c> = not captured this session.
+        /// </summary>
+        private static double currentFlightLaunchUT = double.NaN;
 
         /// <summary>
         /// Epsilon for the UT-backwards quickload signal. A single physics
@@ -463,20 +491,21 @@ namespace Parsek
         /// (the vessel stays on the pad), hence <paramref name="inclusive"/>=false. Revert to
         /// the editor (VAB/SPH, <see cref="RevertKind.Prelaunch"/>) does NOT rewind the clock, so
         /// <paramref name="loadedUT"/> is the revert-moment UT (after the in-flight actions) and
-        /// is useless as a launch boundary. The rollout-spend UT (<paramref name="rolloutBoundaryUT"/>,
-        /// from <see cref="Ledger.GetLatestUntaggedVesselBuildUT"/>) is the real pad-placement UT,
-        /// and the rollout is dropped too (KSP refunds it), hence <paramref name="inclusive"/>=true.
-        /// When there is no rollout to anchor on (NaN, e.g. a free / science-mode vessel) the
-        /// editor case falls back to <paramref name="loadedUT"/>, which prunes nothing harmful
-        /// rather than risking a wrong cutoff.</para>
+        /// is useless as a launch boundary. <paramref name="editorBoundaryUT"/> (the captured
+        /// fresh-launch UT, else the VesselRollout-spend UT, via
+        /// <see cref="ResolveEditorRevertBoundaryUT"/>) is the real launch UT, and the rollout is
+        /// dropped too (KSP refunds it), hence <paramref name="inclusive"/>=true. When neither is
+        /// available (NaN, e.g. a quickload-resumed free / science-mode vessel) the editor case
+        /// falls back to <paramref name="loadedUT"/>, which prunes nothing harmful rather than
+        /// risking a wrong cutoff.</para>
         /// </summary>
         internal static double ResolveRevertPruneCutoff(
-            RevertKind revertKind, double loadedUT, double rolloutBoundaryUT, out bool inclusive)
+            RevertKind revertKind, double loadedUT, double editorBoundaryUT, out bool inclusive)
         {
             if (revertKind == RevertKind.Prelaunch)
             {
                 inclusive = true;
-                return double.IsNaN(rolloutBoundaryUT) ? loadedUT : rolloutBoundaryUT;
+                return double.IsNaN(editorBoundaryUT) ? loadedUT : editorBoundaryUT;
             }
 
             inclusive = false;
@@ -1985,6 +2014,32 @@ namespace Parsek
                         $"activeTreeRestoredFromSave={activeTreeRestoredFromSave}, " +
                         $"pendingTreeRestoredFromSave={pendingTreeRestoredFromSave}, " +
                         $"hasOrphanedLimboTree={hasOrphanedLimboTree}");
+
+                    // Capture the launch UT for the editor-revert orphan-prune boundary. A fresh
+                    // launch from the editor (NEW_FROM_FILE / NEW_FROM_CRAFT_NODE) enters FLIGHT
+                    // with loadedUT == the launch instant, regardless of launch site (KSC
+                    // pad/runway, Making History Desert/Woomerang) or game mode. A non-fresh
+                    // flight load (quickload-resume) clears the static so a stale value can't
+                    // over-prune a later editor revert. Revert loads (isRevert) and non-flight
+                    // loads leave the static untouched so the captured launch UT survives until
+                    // the matching Revert-to-editor reads it.
+                    if (HighLogic.LoadedScene == GameScenes.FLIGHT && !isRevert && !isVesselSwitch)
+                    {
+                        if (ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviour))
+                        {
+                            currentFlightLaunchUT = loadedUT;
+                            ParsekLog.Info("Scenario",
+                                $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                                "for the Revert-to-editor orphan-prune boundary");
+                        }
+                        else if (!double.IsNaN(currentFlightLaunchUT))
+                        {
+                            currentFlightLaunchUT = double.NaN;
+                            ParsekLog.Verbose("Scenario",
+                                "Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)");
+                        }
+                    }
+
                     // Discard stashed-this-transition recordings on quickload (Bug A).
                     // Must run BEFORE the isRevert branch at line ~580, because the
                     // revert branch consumes PendingStashedThisTransition for its own
@@ -2241,10 +2296,13 @@ namespace Parsek
                         // cutoff is the launch UT (see ResolveRevertPruneCutoff): Revert-to-Launch
                         // uses loadedUT (the rewound clock == launch UT) and keeps the rollout on
                         // the pad (exclusive); Revert-to-editor does not rewind, so it anchors on
-                        // the rollout-spend UT and refunds it (inclusive).
+                        // the captured fresh-launch UT (site/mode independent), falling back to the
+                        // VesselRollout-spend UT, and refunds the rollout (inclusive).
                         bool pruneInclusive;
+                        double editorBoundaryUT = ResolveEditorRevertBoundaryUT(
+                            currentFlightLaunchUT, Ledger.GetLatestUntaggedVesselBuildUT());
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
-                            revertKind, loadedUT, Ledger.GetLatestUntaggedVesselBuildUT(), out pruneInclusive);
+                            revertKind, loadedUT, editorBoundaryUT, out pruneInclusive);
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
