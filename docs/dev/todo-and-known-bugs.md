@@ -239,6 +239,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Watch W-cycle onto an out-of-coverage controlled-child froze the game (regression from PR #895)
+
+- ~~Playtest 2026-05-20 (`logs/2026-05-20_2005_watch-freeze/`). Cycling the in-flight watch camera (W) onto ghost #14 "Kerbal X Probe" semi-froze the game for ~22 s. KSP.log shows ~9,700 stock NullReferenceExceptions (8,819 `FlightGlobals.UpdateInformation` throws alone) starting at 19:55:13.243 in active-vessel-bound stock systems (`FlightGlobals.UpdateInformation`, `Sun.LateUpdate`, `AmbienceControl.Update`, `CrewHatchController.LateUpdate`, `UIPartActionController.UpdateFlight`). The storm survived a Revert to Launch and only ended when the player force-quit.~~
+
+**Root cause (two layers):**
+- Latent since April (commits `e35bbd576` / `15669a938`): `WatchModeController.EnterWatchMode`'s switch path runs `ExitWatchMode(skipCameraRestore: true)` (camera still bound to the previous ghost's pivot) and then early-returns if `TryStartWatchSession` fails, never restoring the camera to the anchor. Rarely reachable before W-cycle because switches came from auto-follow to positionable chain successors.
+- Trigger from PR #895 (`ee1cc2a2`, 2026-05-18): the new `CycleToNextWatchable` eligibility predicate excluded only `r.IsDebris`, so it let the camera cycle onto a controlled-decoupled child (`IsDebris=false`, `DebrisParentRecordingId != null`) whose parent-anchored Relative coverage was exhausted. The engine had already retired that ghost (`recorded-relative-retired: parent-anchored-debris-outside-relative-coverage`), so `EnsureGhostVisualsLoadedForWatch` -> `TryStartWatchSession` failed, hitting the latent early-return. The previous ghost was destroyed the same frame, leaving `FlightCamera.Target` a destroyed Unity transform that stock per-frame systems dereferenced every frame.
+
+**Fix scope:**
+- `WatchModeController.EnterWatchMode`: on a failed switch (`switching == true` and `TryStartWatchSession` returned false), call the new `RestoreCameraToAnchorVessel(preservedCameraVessel, ...)` before returning, so the camera is returned to the player vessel (or the current active vessel) instead of staying on the torn-down ghost. Fresh-entry failures (`!switching`) tore nothing down and need no restore.
+- `WatchModeController.CycleToNextWatchable`: eligibility predicate now also excludes `IsGhostCoverageRetired(idx)` (new helper reading the live `GhostPlaybackState.anchorRetiredThisFrame` set by `MarkParentAnchoredDebrisCoverageRetired`), so the cycle skips ghosts that cannot currently be entered. An out-of-coverage parent-anchored ghost is retired every frame, so the flag is stable across the input frame.
+- `ParsekFlight` exposes `internal WatchModeController WatchMode => watchMode` (mirrors `Engine`) for runtime test access.
+- Tests: `WatchCycleResolutionTests` gains `CoverageRetiredChild_SkippedByPredicate` and `CoverageRetiredChild_AsOnlyOtherCandidate_ReportsNoAdvance` (pure resolver contract). New in-game test `WatchCoverageRetiredEligibilityRuntimeTest` pins the live `IsGhostCoverageRetired` read. The camera-restore on failed switch is runtime-only and validated by the `Watch camera anchor restore (...)` Info log.
+
+**Status:** CLOSED 2026-05-20.
+
+---
+
 ## Open - v0.10.0 Watch camera froze on rewind-origin end-frame instead of following the canon re-fly fork
 
 - Playtest 2026-05-18 (`logs/2026-05-18_1953_watch-cam-stuck-upper-stage/`). User did a Rewind-to-Separation on a two-stage launch at UT≈387.84 and entered watch mode on the new rewind-origin recording `3ab1661a` (#26, chainId `8d8370c0...`, chainIndex 0). When playback reached the user's stage-separation point at UT 414.55 (end of #26), the watch camera held on the frozen end-frame of the rewound recording until manual exit ~29s later (`Exiting watch mode for recording #26 ... — returning to #autoLOC_501224`). Expected: the camera transitions to the currently-rendering upper-stage continuation `rec_923e04` (#36, "Kerbal X", Immutable canon fork, UT 414.92 → 477.47, same `VesselPersistentId=2708531065` as #26).

@@ -193,6 +193,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CoverageRetiredChild_SkippedByPredicate()
+        {
+            // #895 regression: a controlled-decoupled child (IsDebris=false) whose
+            // authored coverage is exhausted at the current UT is retired by the
+            // engine and cannot be entered. CycleToNextWatchable's predicate now
+            // excludes it (IsGhostCoverageRetired). Pin that the resolver advances
+            // past the excluded child to the next genuinely-watchable ghost rather
+            // than steering the camera onto a target that would fail watch entry.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "a"),               // watched
+                MakeRec(200, "retired-child"),   // non-debris, but coverage-retired
+                MakeRec(300, "b"),
+            };
+            // Mirror the live composition: not debris AND not coverage-retired.
+            // Index 1 is the retired child -> excluded despite being non-debris.
+            Func<int, bool> isEligible = idx =>
+                committed[idx] != null && !committed[idx].IsDebris && idx != 1;
+
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, isEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+
+            Assert.True(result.HasTarget);
+            Assert.Equal("b", result.NextRecordingId);
+            Assert.Equal(2, result.NextIndex);
+            Assert.Equal(2, result.TotalEligible);
+        }
+
+        [Fact]
+        public void CoverageRetiredChild_AsOnlyOtherCandidate_ReportsNoAdvance()
+        {
+            // #895 regression, freeze guard: when the retired child is the ONLY
+            // non-watched candidate, the cycle must report toggle-off / no-target
+            // so EnterWatchMode is never invoked for it. The keypress handler reads
+            // HasTarget==false and leaves the camera on the current ghost, so it is
+            // never torn down for a target that cannot be entered.
+            var committed = new List<Recording>
+            {
+                MakeRec(100, "watched"),
+                MakeRec(200, "retired-child"),   // non-debris, coverage-retired
+            };
+            Func<int, bool> isEligible = idx =>
+                committed[idx] != null && !committed[idx].IsDebris && idx != 1;
+
+            var result = WatchModeController.ResolveCycleTarget(
+                committed, isEligible, currentWatchedIndex: 0, cursorRecordingId: null);
+
+            Assert.False(result.HasTarget);
+            Assert.True(result.IsToggleOff);
+            Assert.Equal(1, result.TotalEligible);
+        }
+
+        [Fact]
         public void WatchedIndexOutOfRange_TreatedAsNoWatchedId()
         {
             // currentWatchedIndex out of bounds means watchedId resolves to null;
