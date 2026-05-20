@@ -529,8 +529,8 @@ namespace Parsek
 
             string sessionId = "sess_" + Guid.NewGuid().ToString("N");
             ParsekLog.Info(InvokeTag,
-                $"StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
-                $"slot={selected.SlotIndex}");
+                $"Re-Fly (Rewind-to-Separation) StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
+                $"slot={selected.SlotIndex}. Re-fly from a RewindPoint, NOT a plain Rewind-to-Launch");
 
             // Step 1: capture reconciliation bundle (synchronous, no yield).
             ReconciliationBundle bundle;
