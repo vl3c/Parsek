@@ -582,7 +582,45 @@ namespace Parsek
             }
 
             BallisticStateVector startState;
-            if (appendedSegments.Count > 0)
+            if (appendedSegments.Count > 0
+                && BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                    (IReadOnlyList<OrbitSegment>)appendedSegments,
+                    bodies,
+                    out int reentryClipIndex,
+                    out double atmosphereEntryUT))
+            {
+                // The captured patched-conic tail re-enters an atmospheric body:
+                // its periapsis is below the atmosphere top, so KSP's transition-less
+                // closed ellipse would run underground on playback. Clip the
+                // predicted segments at the descending atmosphere-entry crossing and
+                // hand the atmospheric descent to the ballistic extrapolator, which
+                // terminates at the real terrain impact instead of looping the
+                // sub-surface ellipse.
+                OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
+                for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
+                    appendedSegments.RemoveAt(i);
+                clipSegment.endUT = atmosphereEntryUT;
+                appendedSegments[reentryClipIndex] = clipSegment;
+                result.patchedSegmentCount = appendedSegments.Count;
+
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: clipped re-entering predicted orbit for '{0}' at atmosphere-entry " +
+                        "UT={1:F1} (kept {2} predicted segment(s)); handing atmospheric descent to ballistic extrapolator",
+                        recordingId ?? "(null)",
+                        atmosphereEntryUT,
+                        appendedSegments.Count));
+
+                if (!TryBuildStartStateFromSegment(clipSegment, bodies, atmosphereEntryUT, out startState))
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: failed to propagate clipped re-entry segment for '{recordingId}' " +
+                        $"(body={clipSegment.bodyName ?? "(null)"}, atmosphereEntryUT={atmosphereEntryUT:F1})");
+                    return false;
+                }
+            }
+            else if (appendedSegments.Count > 0)
             {
                 OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
                 if (!TryBuildStartStateFromSegment(lastSegment, bodies, out startState))
@@ -1787,13 +1825,22 @@ namespace Parsek
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             out BallisticStateVector startState)
         {
+            return TryBuildStartStateFromSegment(segment, bodies, segment.endUT, out startState);
+        }
+
+        internal static bool TryBuildStartStateFromSegment(
+            OrbitSegment segment,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double atUT,
+            out BallisticStateVector startState)
+        {
             startState = default(BallisticStateVector);
             if (string.IsNullOrEmpty(segment.bodyName)
                 || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
                 || !BallisticExtrapolator.TryPropagate(
                     segment,
                     body.GravitationalParameter,
-                    segment.endUT,
+                    atUT,
                     out Vector3d position,
                     out Vector3d velocity)
                 || !IsFinite(position)
@@ -1802,7 +1849,7 @@ namespace Parsek
 
             startState = new BallisticStateVector
             {
-                ut = segment.endUT,
+                ut = atUT,
                 bodyName = segment.bodyName,
                 position = position,
                 velocity = velocity,

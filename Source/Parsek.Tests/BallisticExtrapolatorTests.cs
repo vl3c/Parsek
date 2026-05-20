@@ -228,6 +228,173 @@ namespace Parsek.Tests
             Assert.Equal(ExtrapolationFailureReason.None, result.failureReason);
         }
 
+        // ---- TryFindAtmosphericReentryClip: clip a re-entering predicted orbit
+        // tail (sub-orbital impact arc captured as a closed ellipse) at the
+        // descending atmosphere-entry crossing, so playback hands the descent to
+        // the ballistic extrapolator instead of flying the ellipse underground.
+
+        // Real "Kerbal X" capsule geometry: apoapsis ~98.7 km above Kerbin,
+        // periapsis ~598 km below the surface.
+        private const double SuborbitalImpactSma = 350210.756;
+        private const double SuborbitalImpactEcc = 0.99519589;
+
+        private static OrbitSegment MakeOrbitSegment(
+            string bodyName,
+            double startUT,
+            double endUT,
+            double semiMajorAxis,
+            double eccentricity,
+            double meanAnomalyAtEpoch,
+            double epoch)
+        {
+            return new OrbitSegment
+            {
+                bodyName = bodyName,
+                startUT = startUT,
+                endUT = endUT,
+                semiMajorAxis = semiMajorAxis,
+                eccentricity = eccentricity,
+                meanAnomalyAtEpoch = meanAnomalyAtEpoch,
+                epoch = epoch,
+                isPredicted = true
+            };
+        }
+
+        [Fact]
+        public void TryFindAtmosphericReentryClip_SuborbitalReentry_ClipsAtAtmosphereEntry()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+            // Epoch at apoapsis (mean anomaly = PI) so the segment starts well
+            // above the atmosphere and descends through the boundary.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 0.0, endUT: 693.0,
+                    SuborbitalImpactSma, SuborbitalImpactEcc,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 0.0)
+            };
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out int clipIndex, out double entryUT);
+
+            Assert.True(clipped);
+            Assert.Equal(0, clipIndex);
+            Assert.InRange(entryUT, 0.0, 693.0);
+
+            // The crossing must sit exactly at the atmosphere top.
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[0], KerbinGravParameter, entryUT, out Vector3d pos, out _));
+            double altitude = Altitude(pos, KerbinRadius);
+            Assert.InRange(altitude, KerbinAtmosphereDepth - 50.0, KerbinAtmosphereDepth + 50.0);
+        }
+
+        [Fact]
+        public void TryFindAtmosphericReentryClip_GenuineOrbitalCoast_DoesNotClip()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+            // Periapsis 686 km (above the 670 km atmosphere top): a real orbit.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 0.0, endUT: 5000.0,
+                    semiMajorAxis: 700000.0, eccentricity: 0.02,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 0.0)
+            };
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out int clipIndex, out _);
+
+            Assert.False(clipped);
+            Assert.Equal(-1, clipIndex);
+        }
+
+        [Fact]
+        public void TryFindAtmosphericReentryClip_PeriapsisJustAboveAtmosphere_DoesNotClip()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+            // Periapsis 673.2 km, grazing just above the 670 km boundary.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 0.0, endUT: 5000.0,
+                    semiMajorAxis: 680000.0, eccentricity: 0.01,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 0.0)
+            };
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out _, out _);
+
+            Assert.False(clipped);
+        }
+
+        [Fact]
+        public void TryFindAtmosphericReentryClip_AirlessBody_DoesNotClip()
+        {
+            // Sub-surface periapsis on an airless body is handled by the
+            // solver-impact short-circuit, not this atmospheric clip.
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Mun"] = MakeBody("Mun", MunGravParameter, MunRadius, atmosphereDepth: 0.0)
+            };
+            // Apoapsis 270 km above Mun, periapsis 90 km below its surface.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Mun", startUT: 0.0, endUT: 5000.0,
+                    semiMajorAxis: 180000.0, eccentricity: 0.5,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 0.0)
+            };
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out int clipIndex, out _);
+
+            Assert.False(clipped);
+            Assert.Equal(-1, clipIndex);
+        }
+
+        [Fact]
+        public void TryFindAtmosphericReentryClip_SecondSegmentReenters_ClipsLaterSegment()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+            // Segment 0: a genuine coast (periapsis above atmosphere). Segment 1:
+            // the sub-orbital re-entry. The clip must skip the coast and fire on
+            // segment 1.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 0.0, endUT: 100.0,
+                    semiMajorAxis: 700000.0, eccentricity: 0.02,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 0.0),
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 100.0, endUT: 793.0,
+                    SuborbitalImpactSma, SuborbitalImpactEcc,
+                    meanAnomalyAtEpoch: Math.PI, epoch: 100.0)
+            };
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out int clipIndex, out double entryUT);
+
+            Assert.True(clipped);
+            Assert.Equal(1, clipIndex);
+            Assert.InRange(entryUT, 100.0, 793.0);
+        }
+
         [Fact]
         public void Extrapolate_InAtmoPlaneArc_TerminatesAtGround()
         {
