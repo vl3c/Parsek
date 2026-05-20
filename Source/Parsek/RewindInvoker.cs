@@ -1285,16 +1285,6 @@ namespace Parsek
                 {
                     addedToPendingTree = true;
                 }
-                // Nest the live fork under its tree's existing mission folder so
-                // the recordings table renders it inside the group during the
-                // active Re-Fly session instead of floating at the table root.
-                // Resolve the tree from the eager in-place handle when present,
-                // else look it up by the fork's TreeId (covers the placeholder
-                // branch that defers tree attach to RestoreActiveTreeFromPending).
-                // No-op when the tree has no auto-generated folder.
-                RecordingGroupStore.AssignTreeMemberToExistingAutoGroup(
-                    pendingTreeForFork ?? FindTreeForReFlyFork(provisional.TreeId),
-                    provisional);
                 CheckpointHookForTesting?.Invoke("CheckpointA:AfterProvisional");
 
                 marker = new ReFlySessionMarker
@@ -1351,6 +1341,21 @@ namespace Parsek
                 catch { /* idempotent rollback; swallow secondary failure */ }
                 throw;
             }
+
+            // Nest the live fork under its tree's existing mission folder so the
+            // recordings table renders it inside the group during the active
+            // Re-Fly session instead of floating at the table root. Resolve the
+            // tree from the eager in-place handle when present, else look it up
+            // by the fork's TreeId (covers the placeholder branch that defers
+            // tree attach to RestoreActiveTreeFromPending). No-op when the tree
+            // has no auto-generated folder. Deliberately OUTSIDE the atomic
+            // try/catch above: grouping is cosmetic, not part of the
+            // provisional+marker critical section, so a thrown marker write
+            // rolls back the provisional without leaking a created debris/crew
+            // subgroup mapping.
+            RecordingGroupStore.AssignTreeMemberToExistingAutoGroup(
+                pendingTreeForFork ?? FindTreeForReFlyFork(provisional.TreeId),
+                provisional);
 
             // The quickload-resume context can be armed before this method runs
             // on async FLIGHT loads. Refresh after the marker exists so recorder
