@@ -326,6 +326,12 @@ namespace Parsek
         public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
         public double MaxDistanceFromLaunch;     // Peak distance reached during recording
         public bool VesselSpawned;              // True after deferred RespawnVessel has fired
+        // Transient (not serialized): negative cache for spawn-time snapshot
+        // re-hydration. Set once when the _vessel.craft sidecar is confirmed
+        // absent/unusable so the per-frame spawn gate stops re-probing disk.
+        // A null in-memory snapshot with no sidecar cannot gain one later, so
+        // caching the failure is safe; reset implicitly each session (default false).
+        public bool VesselSnapshotHydrationFailed;
 
         public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
         public string TerminalSpawnSupersededByRecordingId; // Later continuation owns the real terminal spawn

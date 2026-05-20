@@ -526,8 +526,19 @@ namespace Parsek
         {
             if (rec == null) return false;
             if (rec.VesselSnapshot != null) return true;
-            if (string.IsNullOrEmpty(vesselPath) || !File.Exists(vesselPath))
+            // Negative cache: a prior call already confirmed no usable sidecar.
+            // The spawn gate calls this per-frame, so without this a spawnable
+            // leaf with a missing/unusable sidecar would stat disk every frame.
+            if (rec.VesselSnapshotHydrationFailed) return false;
+            // Empty path means the save context was unresolvable (e.g. mid scene
+            // transition, or outside KSP in tests). That can be transient, so do
+            // NOT poison the cache; let a later call retry once context exists.
+            if (string.IsNullOrEmpty(vesselPath)) return false;
+            if (!File.Exists(vesselPath))
+            {
+                rec.VesselSnapshotHydrationFailed = true;
                 return false;
+            }
 
             SnapshotSidecarProbe probe;
             bool loadOk = RecordingStore.TryLoadSnapshotSidecar(vesselPath, out ConfigNode node, out probe);
@@ -541,6 +552,9 @@ namespace Parsek
                 return true;
             }
 
+            // Present but unusable (unsupported generation / invalid): cache the
+            // failure too, since re-reading the same bad file every frame is pointless.
+            rec.VesselSnapshotHydrationFailed = true;
             if (!RecordingStore.SuppressLogging)
                 ParsekLog.Warn("RecordingStore",
                     $"Re-hydrate vessel snapshot failed: sidecar present but unusable " +

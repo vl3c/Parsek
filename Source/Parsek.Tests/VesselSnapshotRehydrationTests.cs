@@ -134,6 +134,39 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(null, "x"));
         }
 
+        [Fact]
+        public void Hydrate_AfterMissingSidecar_NegativeCache_SkipsLaterProbe()
+        {
+            string path = Path.Combine(tempDir, "late_vessel.craft");
+            var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
+
+            // First probe: file absent -> fails and poisons the negative cache.
+            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            Assert.True(rec.VesselSnapshotHydrationFailed);
+
+            // The sidecar appears later, but the cached failure short-circuits the
+            // per-frame probe so we do not re-read disk (gate stays cheap).
+            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            Assert.Null(rec.VesselSnapshot);
+        }
+
+        [Fact]
+        public void Hydrate_EmptyPath_DoesNotPoisonNegativeCache()
+        {
+            var rec = new Recording { RecordingId = "rec-1", VesselSnapshot = null };
+
+            // An unresolvable (empty) path can be transient, so it must not cache.
+            Assert.False(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, ""));
+            Assert.False(rec.VesselSnapshotHydrationFailed);
+
+            // A subsequent call with a real sidecar still succeeds.
+            string path = Path.Combine(tempDir, Guid.NewGuid().ToString("N") + "_vessel.craft");
+            RecordingStore.WriteSnapshotSidecarForTesting(path, MakeVesselNode());
+            Assert.True(RecordingStore.TryHydrateVesselSnapshotFromPath(rec, path));
+            Assert.NotNull(rec.VesselSnapshot);
+        }
+
         // ---- Gate integration: ShouldSpawnAtRecordingEnd ----
 
         [Fact]
