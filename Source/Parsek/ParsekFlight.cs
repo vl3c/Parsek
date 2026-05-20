@@ -9954,6 +9954,7 @@ namespace Parsek
                 activeTree?.BackgroundMap,
                 pid => FlightRecorder.FindVesselByPid(pid)?.GetVesselCrew());
             if (bgOwnerPid != 0
+                && activeTree != null
                 && activeTree.BackgroundMap.TryGetValue(bgOwnerPid, out string bgRecId)
                 && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
                 && bgRec != null)
