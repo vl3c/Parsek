@@ -697,7 +697,7 @@ namespace Parsek
                     || string.IsNullOrEmpty(rec.ChainId)
                     || string.IsNullOrEmpty(rec.ProvisionalForRpId))
                     continue;
-                string key = rec.ChainId + " " + rec.ProvisionalForRpId;
+                string key = rec.ChainId + "|" + rec.ProvisionalForRpId;
                 if (!seedForkChains.TryGetValue(key, out int minIndex) || rec.ChainIndex < minIndex)
                     seedForkChains[key] = rec.ChainIndex;
             }
@@ -732,7 +732,7 @@ namespace Parsek
                     if (!string.IsNullOrEmpty(rec.ChainId)
                         && !string.IsNullOrEmpty(rec.ProvisionalForRpId)
                         && seedForkChains.TryGetValue(
-                            rec.ChainId + " " + rec.ProvisionalForRpId, out int seedIndex)
+                            rec.ChainId + "|" + rec.ProvisionalForRpId, out int seedIndex)
                         && rec.ChainIndex > seedIndex)
                     {
                         result.Add(rec.RecordingId);
