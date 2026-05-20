@@ -14590,8 +14590,8 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
-            Description = "Currency reservation tooltip: EnsureTooltipsAttached attaches exactly one Parsek_CurrencyTooltip hover area to the funds and science widgets, idempotently.")]
-        public IEnumerator CurrencyTooltipAttachesToFundsAndScienceWidgets()
+            Description = "Currency reservation tooltip: the funds and science widgets resolve a non-degenerate on-screen rectangle (the hover zone the OnGUI tooltip tests against).")]
+        public IEnumerator CurrencyTooltipResolvesWidgetScreenRects()
         {
             yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
 
@@ -14621,58 +14621,25 @@ namespace Parsek.InGameTests
                 yield break;
             }
 
-            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
-            try
+            // The tooltip detects hover by a screen-rect test (UGUI raycasting fails on the
+            // funds widget's rotating 3D Tumbler), so the contract to pin is that each widget
+            // resolves a sane on-screen rectangle.
+            if (funds != null)
             {
-                CurrencyReservationOverlay.StripAllTooltips();
-                CurrencyReservationOverlay.EnsureTooltipsAttached();
-
-                if (funds != null)
-                {
-                    InGameAssert.IsNotNull(funds.transform.Find(CurrencyReservationOverlay.OverlayName),
-                        "Funds widget should carry a Parsek_CurrencyTooltip hover area after EnsureTooltipsAttached");
-                }
-                if (science != null)
-                {
-                    InGameAssert.IsNotNull(science.transform.Find(CurrencyReservationOverlay.OverlayName),
-                        "Science widget should carry a Parsek_CurrencyTooltip hover area after EnsureTooltipsAttached");
-                }
-
-                // A second pass must not stack a duplicate overlay.
-                CurrencyReservationOverlay.EnsureTooltipsAttached();
-                if (funds != null)
-                {
-                    InGameAssert.AreEqual(1, CountDirectChildrenNamed(funds.transform, CurrencyReservationOverlay.OverlayName),
-                        "EnsureTooltipsAttached must be idempotent on the funds widget");
-                }
-
-                // Disabling the feature must strip the hover areas.
-                CurrencyReservationOverlay.StripAllTooltips();
-                if (funds != null)
-                {
-                    InGameAssert.IsNull(funds.transform.Find(CurrencyReservationOverlay.OverlayName),
-                        "StripAllTooltips should remove the funds widget hover area");
-                }
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(funds.transform as RectTransform, out Rect fundsRect),
+                    "Funds widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(fundsRect.width, 1.0, "Funds widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(fundsRect.height, 1.0, "Funds widget screen rect height should be > 1px");
             }
-            finally
+            if (science != null)
             {
-                CurrencyReservationOverlay.StripAllTooltips();
-                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(science.transform as RectTransform, out Rect sciRect),
+                    "Science widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(sciRect.width, 1.0, "Science widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(sciRect.height, 1.0, "Science widget screen rect height should be > 1px");
             }
-        }
-
-        private static int CountDirectChildrenNamed(Transform parent, string childName)
-        {
-            if (parent == null)
-                return 0;
-            int count = 0;
-            for (int i = 0; i < parent.childCount; i++)
-            {
-                Transform child = parent.GetChild(i);
-                if (child != null && string.Equals(child.gameObject.name, childName, System.StringComparison.Ordinal))
-                    count++;
-            }
-            return count;
         }
 
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,

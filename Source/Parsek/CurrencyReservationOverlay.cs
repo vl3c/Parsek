@@ -2,47 +2,52 @@ using System;
 using System.Collections;
 using System.Globalization;
 using UnityEngine;
-using UnityEngine.EventSystems;
-using UnityEngine.UI;
 
 namespace Parsek
 {
     /// <summary>
-    /// Adds a hover tooltip to the stock funds and science currency widgets explaining
-    /// how Parsek's committed-future reservation produces the displayed value.
+    /// Adds a hover tooltip to the stock funds and science currency widgets explaining how
+    /// Parsek's committed-future reservation produces the displayed value: the bar already
+    /// shows Available = Total - Reserved, and the tooltip surfaces the Total and Reserved
+    /// components.
     ///
-    /// The stock funds / science bars are patched by <see cref="KspStatePatcher"/> to the
-    /// ledger's AVAILABLE value (current balance minus committed-future spend), so the
-    /// number on screen is already Total - Reserved. The tooltip surfaces the Total and
-    /// Reserved components so the player understands where the displayed number comes from.
+    /// Hover is detected by a screen-space rectangle test in <see cref="OnGUI"/> against each
+    /// widget's world rect, NOT via UGUI pointer handlers. The stock funds widget renders its
+    /// digits through a rotating 3D <c>KSP.UI.Screens.Tumbler</c> (an odometer reel whose
+    /// transform is rotated about X), which tilts the digit RectTransforms out of the screen
+    /// plane and breaks UGUI raycasting there - a raycast-target overlay never received pointer
+    /// events on funds while flat science text worked. A screen-rect test sidesteps canvas mode,
+    /// sorting, masks, CanvasGroups, and the tumbler rotation entirely.
     ///
-    /// Reputation is intentionally NOT decorated: <see cref="KspStatePatcher.PatchReputation"/>
-    /// writes the running value, not an available value, so the reputation bar shows the
-    /// true current reputation and a "Total - Reserved" framing would be false.
+    /// Reputation is intentionally NOT decorated: it is never reserved
+    /// (<c>KspStatePatcher.PatchReputation</c> writes the true running value), so its tooltip
+    /// would always read "Reserved: 0". See docs/dev/research/reputation-reservation-not-warranted.md.
     /// </summary>
     [KSPAddon(KSPAddon.Startup.EveryScene, false)]
     internal sealed class CurrencyReservationOverlay : MonoBehaviour
     {
         private const string Tag = "CurrencyOverlay";
-        internal const string OverlayName = "Parsek_CurrencyTooltip";
+        private const float TooltipWidth = 147f; // 2/3 of the original 220px width
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
+        private static readonly Vector3[] CornerBuf = new Vector3[4];
 
         private bool active;
+        private RectTransform fundsRect;
+        private RectTransform scienceRect;
+        private GUIStyle style;
 
         private void Start()
         {
             GameScenes scene = HighLogic.LoadedScene;
             if (scene != GameScenes.SPACECENTER && scene != GameScenes.FLIGHT)
             {
-                ParsekLog.Verbose(Tag,
-                    $"CurrencyOverlay: scene={scene} has no currency bar - controller idle");
+                ParsekLog.Verbose(Tag, $"CurrencyOverlay: scene={scene} has no currency bar - controller idle");
                 return;
             }
 
             active = true;
-            ParsekLog.Info(Tag,
-                $"CurrencyOverlay: initialised for scene={scene} - starting attach loop");
-            StartCoroutine(AttachLoop());
+            ParsekLog.Info(Tag, $"CurrencyOverlay: initialised for scene={scene} - starting widget refresh loop");
+            StartCoroutine(RefreshLoop());
         }
 
         private void OnDestroy()
@@ -50,160 +55,106 @@ namespace Parsek
             active = false;
         }
 
-        // The currency app shows/hides dynamically and its widgets are instantiated a few
-        // frames after scene load, so re-check on a slow heartbeat for the scene lifetime.
-        private IEnumerator AttachLoop()
+        // The currency app instantiates its widgets a few frames after scene load; re-find on a
+        // slow heartbeat for the scene lifetime. References are cached between ticks (cheap).
+        private IEnumerator RefreshLoop()
         {
             var wait = new WaitForSeconds(1f);
             while (active)
             {
-                if (StockUiOverlayController.ShouldApplyOverlays())
-                    EnsureTooltipsAttached();
-                else
-                    StripAllTooltips();
+                if (fundsRect == null)
+                {
+                    var w = UnityEngine.Object.FindObjectOfType<FundsWidget>();
+                    if (w != null)
+                    {
+                        fundsRect = w.transform as RectTransform;
+                        ParsekLog.Verbose(Tag, "CurrencyOverlay: located Funds widget");
+                    }
+                }
+                if (scienceRect == null)
+                {
+                    var w = UnityEngine.Object.FindObjectOfType<ScienceWidget>();
+                    if (w != null)
+                    {
+                        scienceRect = w.transform as RectTransform;
+                        ParsekLog.Verbose(Tag, "CurrencyOverlay: located Science widget");
+                    }
+                }
                 yield return wait;
             }
         }
 
-        /// <summary>
-        /// Finds the active funds / science / reputation widgets and attaches a hover tooltip
-        /// to each if not already present. Returns the number of widgets newly decorated.
-        /// </summary>
-        internal static int EnsureTooltipsAttached()
+        private void OnGUI()
         {
-            int attached = 0;
+            if (!active || !StockUiOverlayController.ShouldApplyOverlays())
+                return;
 
-            FundsWidget funds = UnityEngine.Object.FindObjectOfType<FundsWidget>();
-            if (funds != null && EnsureTooltip(funds.transform, GetFundsTooltip))
-            {
-                attached++;
-                ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Funds widget");
-            }
-
-            ScienceWidget science = UnityEngine.Object.FindObjectOfType<ScienceWidget>();
-            if (science != null && EnsureTooltip(science.transform, GetScienceTooltip))
-            {
-                attached++;
-                ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Science widget");
-            }
-
-            // Reputation is intentionally NOT decorated: it is never reserved, so its tooltip
-            // would always read "Reserved: 0". See reputation-reservation-not-warranted.md.
-            return attached;
+            Vector2 mouse = Input.mousePosition;
+            DrawTooltipIfHover(fundsRect, GetFundsTooltip, "funds", mouse);
+            DrawTooltipIfHover(scienceRect, GetScienceTooltip, "science", mouse);
         }
 
-        /// <summary>
-        /// Removes any attached currency tooltips. Returns the number stripped.
-        /// </summary>
-        internal static int StripAllTooltips()
+        private void DrawTooltipIfHover(RectTransform rt, Func<string> provider, string key, Vector2 mouse)
         {
-            int stripped = 0;
-            FundsWidget funds = UnityEngine.Object.FindObjectOfType<FundsWidget>();
-            stripped += StripTooltip(funds != null ? funds.transform : null);
-            ScienceWidget science = UnityEngine.Object.FindObjectOfType<ScienceWidget>();
-            stripped += StripTooltip(science != null ? science.transform : null);
+            if (rt == null)
+                return;
+            if (!TryGetWidgetScreenRect(rt, out Rect screenRect))
+                return;
+            if (!screenRect.Contains(mouse))
+                return;
 
-            if (stripped > 0)
-                ParsekLog.Verbose(Tag,
-                    $"CurrencyOverlay: feature disabled - stripped overlayCount={stripped}");
-            return stripped;
-        }
+            string text = provider();
+            if (string.IsNullOrEmpty(text))
+                return;
 
-        // Attaches the hover tooltip to the widget. The handler lives on the widget ROOT and the
-        // widget's own Graphics are made raycast targets so a pointer-enter on any visible part
-        // bubbles up to it. A transparent full-rect child is the attach marker / primary hit
-        // area, and it carries a CanvasGroup with ignoreParentGroups=true so it stays hittable
-        // even when an ancestor CanvasGroup has blocksRaycasts=false - the funds Tumbler (and
-        // potentially other animated widgets) sit under such a group, which silently blocks
-        // raycasts to the whole subtree (science has no blocking group, which is why it worked
-        // and funds did not). Returns true when newly attached, false when already present.
-        internal static bool EnsureTooltip(Transform widget, Func<string> provider)
-        {
-            if (widget == null)
-                return false;
-            var widgetGo = widget.gameObject;
-            if (widgetGo.GetComponent<CurrencyReservationTooltip>() != null)
-                return false;
+            ParsekLog.VerboseRateLimited(Tag, "hover-" + key,
+                $"CurrencyOverlay: hover over {key} - tooltip={text.Replace("\n", " | ")}", 3.0);
 
-            // Make the widget's existing graphics hittable so pointer-enter bubbles to our
-            // root handler. Harmless for these passive display widgets (no click behavior).
-            var graphics = widgetGo.GetComponentsInChildren<Graphic>(true);
-            int raycastEnabled = 0;
-            for (int i = 0; i < graphics.Length; i++)
+            if (style == null)
             {
-                if (graphics[i] != null && !graphics[i].raycastTarget)
+                style = new GUIStyle(GUI.skin.box)
                 {
-                    graphics[i].raycastTarget = true;
-                    raycastEnabled++;
-                }
+                    alignment = TextAnchor.MiddleLeft,
+                    wordWrap = false,
+                    padding = new RectOffset(10, 10, 8, 8)
+                };
             }
 
-            // Transparent full-rect hit area + attach marker.
-            var go = new GameObject(OverlayName);
-            go.transform.SetParent(widget, false);
-            var rect = go.AddComponent<RectTransform>();
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
-            var image = go.AddComponent<RawImage>();
-            image.color = new Color(0f, 0f, 0f, 0f);
-            image.raycastTarget = true;
-
-            // Escape any ancestor CanvasGroup that blocks raycasts (e.g. the funds Tumbler).
-            var cg = go.AddComponent<CanvasGroup>();
-            cg.blocksRaycasts = true;
-            cg.interactable = true;
-            cg.ignoreParentGroups = true;
-
-            var tip = widgetGo.AddComponent<CurrencyReservationTooltip>();
-            tip.Configure(provider);
-
-            var wr = widget as RectTransform;
-            string rootSize = wr != null
-                ? wr.rect.width.ToString("F0", IC) + "x" + wr.rect.height.ToString("F0", IC)
-                : "n/a";
-            ParsekLog.Verbose(Tag,
-                $"CurrencyOverlay: attach '{widgetGo.name}' rootRect={rootSize} childGraphics={graphics.Length} " +
-                $"raycastEnabled={raycastEnabled} blockingAncestorGroup={HasBlockingAncestorCanvasGroup(widget)}");
-            return true;
+            var content = new GUIContent(text);
+            float height = style.CalcHeight(content, TooltipWidth);
+            float x = Mathf.Min(mouse.x + 16f, Screen.width - TooltipWidth - 8f);
+            float y = Mathf.Min(Screen.height - mouse.y + 16f, Screen.height - height - 8f);
+            GUI.Box(new Rect(x, y, TooltipWidth, height), content, style);
         }
 
-        // Diagnostic: is a raycast-blocking CanvasGroup present on the widget or an ancestor up
-        // to (and including) its Canvas? Such a group blocks hover on the whole subtree.
-        private static bool HasBlockingAncestorCanvasGroup(Transform widget)
+        /// <summary>
+        /// Computes the widget's screen-space rectangle (bottom-left origin, matching
+        /// <see cref="Input.mousePosition"/>). Returns false when the rect is degenerate.
+        /// </summary>
+        internal static bool TryGetWidgetScreenRect(RectTransform rt, out Rect screenRect)
         {
-            Transform t = widget;
-            while (t != null)
-            {
-                var grp = t.GetComponent<CanvasGroup>();
-                if (grp != null && !grp.blocksRaycasts)
-                    return true;
-                if (t.GetComponent<Canvas>() != null)
-                    break;
-                t = t.parent;
-            }
-            return false;
-        }
+            screenRect = default(Rect);
+            if (rt == null)
+                return false;
 
-        private static int StripTooltip(Transform widget)
-        {
-            if (widget == null)
-                return 0;
-            int removed = 0;
-            var tip = widget.GetComponent<CurrencyReservationTooltip>();
-            if (tip != null)
+            Canvas canvas = rt.GetComponentInParent<Canvas>();
+            Camera cam = (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                ? canvas.worldCamera
+                : null;
+
+            rt.GetWorldCorners(CornerBuf);
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            for (int i = 0; i < 4; i++)
             {
-                UnityEngine.Object.Destroy(tip);
-                removed++;
+                Vector2 sp = RectTransformUtility.WorldToScreenPoint(cam, CornerBuf[i]);
+                if (sp.x < minX) minX = sp.x;
+                if (sp.y < minY) minY = sp.y;
+                if (sp.x > maxX) maxX = sp.x;
+                if (sp.y > maxY) maxY = sp.y;
             }
-            Transform existing = widget.Find(OverlayName);
-            if (existing != null)
-            {
-                UnityEngine.Object.Destroy(existing.gameObject);
-                removed++;
-            }
-            return removed > 0 ? 1 : 0;
+
+            screenRect = Rect.MinMaxRect(minX, minY, maxX, maxY);
+            return screenRect.width > 1f && screenRect.height > 1f;
         }
 
         // ================================================================
@@ -256,75 +207,6 @@ namespace Parsek
                 reserved = 0.0;
             double displayed = ResearchAndDevelopment.Instance.Science;
             return BuildReservationTooltip(displayed + reserved, displayed, "F1");
-        }
-    }
-
-    /// <summary>
-    /// Draws a dynamically-computed tooltip near the cursor when the widget is hovered. The
-    /// component lives on the widget ROOT; the widget's graphics are made raycast targets so a
-    /// pointer-enter on any visible part bubbles up to it. The tooltip text is recomputed on
-    /// every display (reservation drifts as the timeline advances). It always renders for a
-    /// career currency (even at Reserved 0); a null result only occurs with no career data.
-    ///
-    /// No self-destruct-on-reparent guard is needed (unlike <see cref="OverlayBadge"/>): the
-    /// stock currency widgets are instantiated once and are not list-virtualised / recycled,
-    /// so the widget is stable for the scene lifetime and Unity destroys this component with it.
-    /// </summary>
-    internal sealed class CurrencyReservationTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
-    {
-        // 2/3 of the original 220px width; padding/font are otherwise at their original values.
-        private const float TooltipWidth = 147f;
-
-        private Func<string> provider;
-        private bool hovered;
-        private GUIStyle style;
-
-        internal void Configure(Func<string> tooltipProvider)
-        {
-            provider = tooltipProvider;
-        }
-
-        public void OnPointerEnter(PointerEventData eventData)
-        {
-            hovered = true;
-
-            // Log on hover-enter (fires once per hover) so the KSP.log confirms the raycast /
-            // pointer plumbing works and records what the tooltip computed at that instant.
-            string text = provider != null ? provider() : null;
-            string flat = string.IsNullOrEmpty(text) ? "<null>" : text.Replace("\n", " | ");
-            ParsekLog.Verbose("CurrencyOverlay", $"hover enter on '{name}' - tooltip={flat}");
-        }
-
-        public void OnPointerExit(PointerEventData eventData)
-        {
-            hovered = false;
-        }
-
-        private void OnGUI()
-        {
-            if (!hovered || provider == null)
-                return;
-
-            string text = provider();
-            if (string.IsNullOrEmpty(text))
-                return;
-
-            if (style == null)
-            {
-                style = new GUIStyle(GUI.skin.box)
-                {
-                    alignment = TextAnchor.MiddleLeft,
-                    wordWrap = false,
-                    padding = new RectOffset(10, 10, 8, 8)
-                };
-            }
-
-            var content = new GUIContent(text);
-            float height = style.CalcHeight(content, TooltipWidth);
-            Vector3 mouse = Input.mousePosition;
-            float x = Mathf.Min(mouse.x + 16f, Screen.width - TooltipWidth - 8f);
-            float y = Mathf.Min(Screen.height - mouse.y + 16f, Screen.height - height - 8f);
-            GUI.Box(new Rect(x, y, TooltipWidth, height), content, style);
         }
     }
 }

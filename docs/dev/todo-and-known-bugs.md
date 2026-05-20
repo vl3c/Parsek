@@ -1616,9 +1616,12 @@ keeps it exact even during the brief science pending-tech-unlock catch-up window
 where `KspStatePatcher` holds the bar below ledger-available. It always renders on
 hover (reading `Reserved 0` when nothing is committed, so the breakdown is
 discoverable rather than a silently-absent tooltip) and is gated behind
-`showCommittedFutureOverlays`. The hover handler lives on the widget root with the
-widget's own graphics made raycast targets, so funds (tumblers) and science (text)
-both respond regardless of root-rect geometry.
+`showCommittedFutureOverlays`. Hover is detected by a screen-space rectangle test in
+the controller's `OnGUI` (`TryGetWidgetScreenRect`), NOT UGUI pointer handlers: the
+stock funds widget renders its digits through a rotating 3D `Tumbler` (transform
+rotated about X) which tilts the digit rects out of the screen plane and breaks UGUI
+raycasting there, so a raycast-target overlay only ever fired on the flat science
+text. The screen-rect test sidesteps canvas mode / sorting / masks / rotation.
 
 **Reputation is deliberately excluded** and stays that way: `PatchReputation`
 patches the true `GetRunningRep()`, reputation has no reservation/escrow concept,
