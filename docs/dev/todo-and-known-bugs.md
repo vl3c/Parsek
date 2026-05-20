@@ -1503,6 +1503,26 @@ if a stock or modded UI exposes a clickable affordance, the overlay candidate
 set and the click-block predicate must share the same `MilestoneStore` source
 helper, with any UI-only suppression kept outside the click-block predicate.
 
+## 641. Funds / Science reservation tooltip on the stock top bar (shipped)
+
+`CurrencyReservationOverlay` attaches a hover tooltip to the stock funds and
+science widgets showing a `Total / Reserved` breakdown. The bar value is the
+ledger `GetAvailable*()` (Total minus committed-future spend), so the tooltip
+reads `Total = GetProjectionCurrentBalance()` and `Reserved = Total - Available`
+straight off `LedgerOrchestrator.Funds` / `.Science` to stay exactly consistent
+with the displayed number; it appears only when reserved > 0 and is gated behind
+`showCommittedFutureOverlays`.
+
+**Reputation is deliberately excluded.** `KspStatePatcher.PatchReputation`
+writes `ReputationModule.GetRunningRep()` (the true current value), not an
+available value, and `ReputationModule` has no reservation concept. Stock
+currency-converter strategies divert a percentage of contract-reward income
+(already captured post-transform), so they are not a wallet-reputation spend, and
+a `Total - Reserved` framing would be false for reputation. If a reputation
+reservation/escrow system is added later (separate work item), `PatchReputation`
+must switch to an available value and this overlay should then be extended to the
+reputation widget.
+
 ## Phase 5 known gaps (deferred to later phases)
 
 - The Phase 5 commit-time detector runs against `RecordingStore.CommittedRecordings` only — recordings persisted as part of the same commit batch but not yet appended to the live store at the time of `PersistAfterCommit` are added to the snapshot list explicitly. Multi-recording commit batches that span more than one persistence call still rely on the next `PersistAfterCommit` (or load-time lazy recompute, both of which now also persist peer-side `.pann` files symmetrically per review-pass-3 P3-1) to populate the missing-side trace.

@@ -14658,6 +14658,92 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
+            Description = "Currency reservation tooltip: EnsureTooltipsAttached attaches exactly one Parsek_CurrencyTooltip hover area to the funds and science widgets, idempotently.")]
+        public IEnumerator CurrencyTooltipAttachesToFundsAndScienceWidgets()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+
+            // The stock currency app instantiates its widgets a few frames after the
+            // scene loads; poll briefly for them.
+            FundsWidget funds = null;
+            ScienceWidget science = null;
+            float deadline = Time.realtimeSinceStartup + 8f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                funds = Object.FindObjectOfType<FundsWidget>();
+                science = Object.FindObjectOfType<ScienceWidget>();
+                if (funds != null || science != null)
+                    break;
+                yield return null;
+            }
+
+            if (funds == null && science == null)
+            {
+                InGameAssert.Skip("No funds/science currency widget present (non-career or currency bar hidden)");
+                yield break;
+            }
+
+            bool settingCaptured = TryEnableCommittedOverlaySetting(out ParsekSettings settings, out bool priorSetting);
+            try
+            {
+                CurrencyReservationOverlay.StripAllTooltips();
+                CurrencyReservationOverlay.EnsureTooltipsAttached();
+
+                if (funds != null)
+                {
+                    InGameAssert.IsNotNull(funds.transform.Find(CurrencyReservationOverlay.OverlayName),
+                        "Funds widget should carry a Parsek_CurrencyTooltip hover area after EnsureTooltipsAttached");
+                }
+                if (science != null)
+                {
+                    InGameAssert.IsNotNull(science.transform.Find(CurrencyReservationOverlay.OverlayName),
+                        "Science widget should carry a Parsek_CurrencyTooltip hover area after EnsureTooltipsAttached");
+                }
+
+                // A second pass must not stack a duplicate overlay.
+                CurrencyReservationOverlay.EnsureTooltipsAttached();
+                if (funds != null)
+                {
+                    InGameAssert.AreEqual(1, CountDirectChildrenNamed(funds.transform, CurrencyReservationOverlay.OverlayName),
+                        "EnsureTooltipsAttached must be idempotent on the funds widget");
+                }
+
+                // Disabling the feature must strip the hover areas.
+                CurrencyReservationOverlay.StripAllTooltips();
+                if (funds != null)
+                {
+                    InGameAssert.IsNull(funds.transform.Find(CurrencyReservationOverlay.OverlayName),
+                        "StripAllTooltips should remove the funds widget hover area");
+                }
+            }
+            finally
+            {
+                CurrencyReservationOverlay.StripAllTooltips();
+                RestoreCommittedOverlaySetting(settings, priorSetting, settingCaptured);
+            }
+        }
+
+        private static int CountDirectChildrenNamed(Transform parent, string childName)
+        {
+            if (parent == null)
+                return 0;
+            int count = 0;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform child = parent.GetChild(i);
+                if (child != null && string.Equals(child.gameObject.name, childName, System.StringComparison.Ordinal))
+                    count++;
+            }
+            return count;
+        }
+
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Game-state UI overlays §8.6 / E16: Mission Control despawn strips Parsek_ContractOverlay objects across repeated open/close cycles.")]
         public IEnumerator MissionControlOverlaysClearedOnDespawn()
