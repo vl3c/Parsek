@@ -248,7 +248,7 @@ namespace Parsek.Tests
         //            explicit Absolute TrackSection so the resolver can
         //            resolve it as the parent at any sample UT.
         //   index 1: "Booster Drop SRB" — debris child. IsDebris=true,
-        //            DebrisParentRecordingId=parent's recording id, and
+        //            ParentAnchorRecordingId=parent's recording id, and
         //            a Relative TrackSection anchored to parent. The
         //            section's frames carry anchor-local Cartesian metres
         //            (dx, dy, dz) per the v6+ contract — the SRB drifts
@@ -258,7 +258,7 @@ namespace Parsek.Tests
         // After PR 3b: the resolver's TryResolveRelativeSectionPose
         // composes parent_world_pos + (dx, dy, dz) for each frame, and
         // the SRB ghost renders trailing the parent ghost. Validates the
-        // injector's plumbing for the new DebrisParentRecordingId field
+        // injector's plumbing for the new ParentAnchorRecordingId field
         // round-trips correctly through ScenarioWriter into a save that
         // KSP can load.
         internal static RecordingBuilder[] BoosterDropDebrisPair(double baseUT = 0)
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             double baseLat = -0.0972;
             double baseLon = -74.5575;
 
-            // Stable recording ids so the debris's DebrisParentRecordingId
+            // Stable recording ids so the debris's ParentAnchorRecordingId
             // can reference the parent without a tree-build dance.
             const string parentId = "synth-booster-drop-parent";
             const string debrisId = "synth-booster-drop-debris";
@@ -319,7 +319,7 @@ namespace Parsek.Tests
             var debris = new RecordingBuilder("Booster Drop SRB");
             debris.WithRecordingId(debrisId);
             debris.AsDebris();
-            debris.WithDebrisParentRecordingId(parentId);
+            debris.WithParentAnchorRecordingId(parentId);
             debris.WithDefaultRotation(KscRotX, KscRotY, KscRotZ, KscRotW);
 
             var debrisFrames = new List<TrajectoryPoint>();

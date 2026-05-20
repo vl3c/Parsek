@@ -843,7 +843,7 @@ namespace Parsek.Tests
         {
             // Two-debris anchoring is also rejected. By PR 3b construction,
             // debris-of-debris should never reach the candidate path —
-            // debris.DebrisParentRecordingId points at its own parent
+            // debris.ParentAnchorRecordingId points at its own parent
             // (a non-debris parent recording) via the contract, and
             // BackgroundRecorder.UpdateBackgroundAnchorDetection's
             // early-return short-circuits the candidate scan for debris

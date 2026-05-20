@@ -5880,8 +5880,8 @@ namespace Parsek
             // ambiguity; the focused recording is the right anchor. Caller-decides
             // helper: both debris (IsDebris=true) and controlled-decoupled children
             // (IsDebris=false) receive the contract here.
-            Recording.ApplyDebrisAnchorContract(childRec, parentRecordingId);
-            if (!string.IsNullOrEmpty(childRec.DebrisParentRecordingId))
+            Recording.ApplyParentAnchorContract(childRec, parentRecordingId);
+            if (!string.IsNullOrEmpty(childRec.ParentAnchorRecordingId))
             {
                 string population = childRec.IsDebris ? "debris" : "controlled-child";
                 ParsekLog.Verbose("Coalescer",
@@ -17562,11 +17562,11 @@ namespace Parsek
                 return false;
 
             if (rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 && TryGetReFlySettleStabilityReasonForRecording(
-                    rec.DebrisParentRecordingId, frame, out reason))
+                    rec.ParentAnchorRecordingId, frame, out reason))
             {
-                anchorRecordingId = rec.DebrisParentRecordingId;
+                anchorRecordingId = rec.ParentAnchorRecordingId;
                 return true;
             }
 
@@ -19421,7 +19421,7 @@ namespace Parsek
                 ghostWorldBefore = (Vector3d)state.ghost.transform.position;
             if (traceEnabled
                 && firstPlaybackRender && traj != null && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 TraceSeparation.OpenPlaybackWindow(
                     "first debris ghost render recId=" + (target.RecordingId ?? "<null>"));
@@ -19444,7 +19444,7 @@ namespace Parsek
             if (traceEnabled
                 && TraceSeparation.PlaybackWindowActive
                 && traj != null && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 Vector3d ghostWorld = state.ghost.transform != null
                     ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
@@ -19521,7 +19521,7 @@ namespace Parsek
                 Vector3d parentGhostWorld = Vector3d.zero;
                 bool parentGhostFound = engine != null
                     && engine.TryGetGhostWorldByRecordingId(
-                        traj.DebrisParentRecordingId, out parentGhostWorld);
+                        traj.ParentAnchorRecordingId, out parentGhostWorld);
                 double renderedParentDist = parentGhostFound
                     ? (ghostWorld - parentGhostWorld).magnitude
                     : double.NaN;
@@ -19586,12 +19586,12 @@ namespace Parsek
                 // disagree about parent-vs-debris geometry.
                 double recordedBodyFixedDist = double.NaN;
                 if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
-                    && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                    && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
                 {
                     CelestialBody body = FlightGlobals.Bodies?.Find(
                         b => b.name == beforeFrame.Value.bodyName);
                     Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
-                        traj.DebrisParentRecordingId);
+                        traj.ParentAnchorRecordingId);
                     if (body != null
                         && parentRec != null
                         && parentRec.TrackSections != null)
@@ -19627,7 +19627,7 @@ namespace Parsek
                 }
                 TraceSeparation.PlaybackLog("PositionDebris",
                     "recId=" + (target.RecordingId ?? "<null>") +
-                    " parentRecId=" + (traj.DebrisParentRecordingId ?? "<null>") +
+                    " parentRecId=" + (traj.ParentAnchorRecordingId ?? "<null>") +
                     " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     " bodyFixedCount=" + bodyFixedCount +
                     " first=" + firstPlaybackRender +

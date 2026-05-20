@@ -352,12 +352,12 @@ namespace Parsek
         {
             if (rec.IsDebris)
                 recNode.AddValue("isDebris", rec.IsDebris.ToString());
-            // Sparse on disk: only written when non-null so non-debris recordings stay
-            // byte-identical across the v11 -> v12 upgrade. Legacy v11 debris sidecars
-            // omit this key and load back with DebrisParentRecordingId = null, which
-            // PR 3c uses as the legacy-debris signal at playback time.
-            if (rec.DebrisParentRecordingId != null)
-                recNode.AddValue("debrisParentRecordingId", rec.DebrisParentRecordingId);
+            // Sparse on disk: only written when non-null so recordings without a parent
+            // anchor stay byte-identical. Recordings with no parent anchor omit this key
+            // and load back with ParentAnchorRecordingId = null, which the legacy-debris
+            // playback gate uses as its signal.
+            if (rec.ParentAnchorRecordingId != null)
+                recNode.AddValue("parentAnchorRecordingId", rec.ParentAnchorRecordingId);
             if (rec.IsGhostOnly)
                 recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
         }
@@ -777,12 +777,12 @@ namespace Parsek
 
             rec.IsDebris = ParseBoolOr(recNode, "isDebris", rec.IsDebris);
 
-            // v13 debris parent recording id (sparse on disk). Missing key on legacy
-            // v11 debris and on non-debris recordings — both default to null. PR 3c's
-            // playback gate fires when IsDebris && DebrisParentRecordingId == null.
-            string debrisParentRecordingIdStr = recNode.GetValue("debrisParentRecordingId");
-            if (debrisParentRecordingIdStr != null)
-                rec.DebrisParentRecordingId = debrisParentRecordingIdStr;
+            // Parent-anchor recording id (sparse on disk). Missing key on recordings
+            // with no parent anchor, which default to null. The legacy-debris playback
+            // gate fires when IsDebris && ParentAnchorRecordingId == null.
+            string parentAnchorRecordingIdStr = recNode.GetValue("parentAnchorRecordingId");
+            if (parentAnchorRecordingIdStr != null)
+                rec.ParentAnchorRecordingId = parentAnchorRecordingIdStr;
 
             rec.IsGhostOnly = ParseBoolOr(recNode, "isGhostOnly", rec.IsGhostOnly);
 

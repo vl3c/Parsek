@@ -113,7 +113,7 @@ namespace Parsek
         // Generation 2 landed the parent-anchor contract extension to
         // controlled-decoupled children (the on-disk truth table widened to
         // admit the previously-unreachable row IsDebris=false,
-        // DebrisParentRecordingId=non-null).
+        // ParentAnchorRecordingId=non-null).
         //
         // Generation 3 is the clean-slate reset that retired the last batch of
         // pre-reset compatibility seams: the legacy v5 world-offset RELATIVE
@@ -122,7 +122,13 @@ namespace Parsek
         // normalizer, and the no-op format-version contract-upgrade helpers.
         // Generation 2 and older recordings are rejected with reason
         // "generation-older".
-        public const int CurrentRecordingSchemaGeneration = 3;
+        //
+        // Generation 4 renamed the parent-anchor ConfigNode key from
+        // "debrisParentRecordingId" to "parentAnchorRecordingId" (the
+        // DebrisParentRecordingId field renamed to ParentAnchorRecordingId).
+        // Generation 3 and older recordings carry the old key and are rejected
+        // with reason "generation-older".
+        public const int CurrentRecordingSchemaGeneration = 4;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.

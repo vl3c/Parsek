@@ -15,7 +15,7 @@ namespace Parsek.Tests.Generators
         private readonly List<SegmentEvent> segmentEvents = new List<SegmentEvent>();
         private List<ControllerInfo> controllers;
         private bool isDebris;
-        private string debrisParentRecordingId;
+        private string parentAnchorRecordingId;
         private ConfigNode vesselSnapshot;
         private ConfigNode ghostVisualSnapshot;
         private uint spawnedPid;
@@ -519,15 +519,15 @@ namespace Parsek.Tests.Generators
         }
 
         /// <summary>
-        /// Sets the v13 debris parent-anchor contract: <see cref="Recording.DebrisParentRecordingId"/>
+        /// Sets the v13 debris parent-anchor contract: <see cref="Recording.ParentAnchorRecordingId"/>
         /// is stamped to <paramref name="parentRecordingId"/> on serialization. The caller
         /// must also call <see cref="AsDebris"/> — the field is sparsely written and only
         /// emitted to the ConfigNode when <c>isDebris == true &amp;&amp; parentRecordingId != null</c>,
-        /// matching the recorder's <c>Recording.ApplyDebrisAnchorContract</c> contract.
+        /// matching the recorder's <c>Recording.ApplyParentAnchorContract</c> contract.
         /// </summary>
-        public RecordingBuilder WithDebrisParentRecordingId(string parentRecordingId)
+        public RecordingBuilder WithParentAnchorRecordingId(string parentRecordingId)
         {
-            debrisParentRecordingId = parentRecordingId;
+            parentAnchorRecordingId = parentRecordingId;
             return this;
         }
 
@@ -666,11 +666,11 @@ namespace Parsek.Tests.Generators
             if (isDebris)
                 node.AddValue("isDebris", isDebris.ToString());
 
-            // v12: DebrisParentRecordingId — sparse, only emitted when debris AND
+            // v12: ParentAnchorRecordingId — sparse, only emitted when debris AND
             // an anchor parent id is set. Mirrors RecordingTreeRecordCodec.SaveRecordingInto's
             // "only when non-null" rule so non-debris recordings stay byte-identical.
-            if (isDebris && !string.IsNullOrEmpty(debrisParentRecordingId))
-                node.AddValue("debrisParentRecordingId", debrisParentRecordingId);
+            if (isDebris && !string.IsNullOrEmpty(parentAnchorRecordingId))
+                node.AddValue("parentAnchorRecordingId", parentAnchorRecordingId);
 
             // Resource manifests (Phase 11)
             SerializeResourceManifestInto(node);
@@ -822,11 +822,11 @@ namespace Parsek.Tests.Generators
             if (isDebris)
                 node.AddValue("isDebris", isDebris.ToString());
 
-            // v12: DebrisParentRecordingId — sparse, only emitted when debris AND
+            // v12: ParentAnchorRecordingId — sparse, only emitted when debris AND
             // an anchor parent id is set. Mirrors RecordingTreeRecordCodec.SaveRecordingInto's
             // "only when non-null" rule so non-debris recordings stay byte-identical.
-            if (isDebris && !string.IsNullOrEmpty(debrisParentRecordingId))
-                node.AddValue("debrisParentRecordingId", debrisParentRecordingId);
+            if (isDebris && !string.IsNullOrEmpty(parentAnchorRecordingId))
+                node.AddValue("parentAnchorRecordingId", parentAnchorRecordingId);
 
             // v6: Segment events and track sections (inline for v2)
             if (segmentEvents.Count > 0)
@@ -940,6 +940,6 @@ namespace Parsek.Tests.Generators
         public bool GetIsDebris() => isDebris;
 
         /// <summary>Returns the v13 debris parent-anchor recording id (may be null).</summary>
-        public string GetDebrisParentRecordingId() => debrisParentRecordingId;
+        public string GetParentAnchorRecordingId() => parentAnchorRecordingId;
     }
 }

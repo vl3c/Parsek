@@ -231,7 +231,7 @@ namespace Parsek
             //
             // Self-reference: a debris recording's own contract path
             // (`BackgroundRecorder.UpdateBackgroundAnchorDetection` early-return
-            // when `treeRec.DebrisParentRecordingId != null`) bypasses this
+            // when `treeRec.ParentAnchorRecordingId != null`) bypasses this
             // helper entirely and pins the anchor to the parent recording. Keep
             // this candidate-scan rejection as defense-in-depth for any future
             // path that accidentally offers debris as a generic live anchor.

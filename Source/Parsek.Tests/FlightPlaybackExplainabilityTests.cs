@@ -341,7 +341,7 @@ namespace Parsek.Tests
                 orphanDebris.VesselSnapshot = new ConfigNode("VESSEL");
                 orphanDebris.TerminalStateValue = TerminalState.Orbiting;
                 orphanDebris.IsDebris = true;
-                orphanDebris.DebrisParentRecordingId = "rec-retired-parent";
+                orphanDebris.ParentAnchorRecordingId = "rec-retired-parent";
 
                 var restored = MakeRecording("rec-restored", "Restored Vessel");
 

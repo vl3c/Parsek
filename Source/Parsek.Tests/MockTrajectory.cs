@@ -38,7 +38,7 @@ namespace Parsek.Tests
         public double TerrainHeightAtEnd { get; set; } = double.NaN;
         public bool PlaybackEnabled { get; set; } = true;
         public bool IsDebris { get; set; }
-        public string DebrisParentRecordingId { get; set; }
+        public string ParentAnchorRecordingId { get; set; }
         public int LoopSyncParentIdx { get; set; } = -1;
 
         // Terminal orbit properties (for map presence)

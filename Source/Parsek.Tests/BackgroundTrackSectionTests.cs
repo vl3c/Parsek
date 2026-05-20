@@ -842,7 +842,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 70340u
             };
             tree.Recordings[recId].IsDebris = true;
-            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].ParentAnchorRecordingId = anchorId;
             tree.Recordings[recId].Points.Clear();
             tree.Recordings[recId].ExplicitEndUT = double.NaN;
             var bgRecorder = new BackgroundRecorder(tree);
@@ -886,7 +886,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 70350u
             };
             tree.Recordings[recId].IsDebris = true;
-            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].ParentAnchorRecordingId = anchorId;
             tree.Recordings[recId].Points.Clear();
             tree.Recordings[recId].ExplicitEndUT = double.NaN;
             var bgRecorder = new BackgroundRecorder(tree);
@@ -932,7 +932,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 70360u
             };
             tree.Recordings[recId].IsDebris = true;
-            tree.Recordings[recId].DebrisParentRecordingId = anchorId;
+            tree.Recordings[recId].ParentAnchorRecordingId = anchorId;
             tree.Recordings[recId].Points.Clear();
             tree.Recordings[recId].ExplicitEndUT = double.NaN;
             var bgRecorder = new BackgroundRecorder(tree);
@@ -1238,7 +1238,7 @@ namespace Parsek.Tests
             var tree = MakeTree(pid, recId);
             Recording debris = tree.Recordings[recId];
             debris.IsDebris = true;
-            debris.DebrisParentRecordingId = parentId;
+            debris.ParentAnchorRecordingId = parentId;
             var bgRecorder = new BackgroundRecorder(tree);
 
             bgRecorder.InjectLoadedStateWithEnvironmentForTesting(

@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     // Unit tests for the v13 debris parent-anchored sampling caps added in
     // BackgroundRecorder. The cap is gated on
-    // (Recording.IsDebris && DebrisParentRecordingId != null) and bounds BOTH
+    // (Recording.IsDebris && ParentAnchorRecordingId != null) and bounds BOTH
     // adaptive-sampler thresholds:
     //   * ResolveDebrisAwareSampleInterval lowers the proximity-tier MIN floor
     //     to ProximityRateSelector.MidInterval (0.5 s) while preserving closer
@@ -26,7 +26,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-1",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-1"
+                ParentAnchorRecordingId = "parent-1"
             };
 
             double tierInterval = ProximityRateSelector.FarInterval; // 2.0 s
@@ -42,7 +42,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "legacy-debris",
                 IsDebris = true,
-                DebrisParentRecordingId = null
+                ParentAnchorRecordingId = null
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
@@ -58,7 +58,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "legacy-debris-empty",
                 IsDebris = true,
-                DebrisParentRecordingId = string.Empty
+                ParentAnchorRecordingId = string.Empty
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
@@ -74,7 +74,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "non-debris",
                 IsDebris = false,
-                DebrisParentRecordingId = "parent-x"
+                ParentAnchorRecordingId = "parent-x"
             };
 
             double tierInterval = ProximityRateSelector.FarInterval;
@@ -99,7 +99,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-close",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-close"
+                ParentAnchorRecordingId = "parent-close"
             };
 
             double tierInterval = ProximityRateSelector.DockingInterval; // 0.2 s
@@ -115,7 +115,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-mid",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-mid"
+                ParentAnchorRecordingId = "parent-mid"
             };
 
             double tierInterval = ProximityRateSelector.MidInterval; // 0.5 s
@@ -131,7 +131,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-far",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-far"
+                ParentAnchorRecordingId = "parent-far"
             };
 
             double tierInterval = ProximityRateSelector.OutOfRangeInterval; // double.MaxValue
@@ -180,7 +180,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-inf",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-inf"
+                ParentAnchorRecordingId = "parent-inf"
             };
 
             // Freezes the contract that any sentinel >= OutOfRangeInterval (including
@@ -196,21 +196,21 @@ namespace Parsek.Tests
         [Fact]
         public void GateEligible_DebrisWithParentId_True()
         {
-            var rec = new Recording { IsDebris = true, DebrisParentRecordingId = "p" };
+            var rec = new Recording { IsDebris = true, ParentAnchorRecordingId = "p" };
             Assert.True(BackgroundRecorder.IsDebrisAwareSampleCapEligible(rec));
         }
 
         [Fact]
         public void GateEligible_NonDebris_False()
         {
-            var rec = new Recording { IsDebris = false, DebrisParentRecordingId = "p" };
+            var rec = new Recording { IsDebris = false, ParentAnchorRecordingId = "p" };
             Assert.False(BackgroundRecorder.IsDebrisAwareSampleCapEligible(rec));
         }
 
         [Fact]
         public void GateEligible_DebrisWithoutParentId_False()
         {
-            var rec = new Recording { IsDebris = true, DebrisParentRecordingId = null };
+            var rec = new Recording { IsDebris = true, ParentAnchorRecordingId = null };
             Assert.False(BackgroundRecorder.IsDebrisAwareSampleCapEligible(rec));
         }
 
@@ -229,7 +229,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-max-medium",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-max-medium"
+                ParentAnchorRecordingId = "parent-max-medium"
             };
 
             float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium); // 3.0 s
@@ -245,7 +245,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-max-low",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-max-low"
+                ParentAnchorRecordingId = "parent-max-low"
             };
 
             float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Low); // 8.0 s
@@ -261,7 +261,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "legacy-max",
                 IsDebris = true,
-                DebrisParentRecordingId = null
+                ParentAnchorRecordingId = null
             };
 
             float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
@@ -277,7 +277,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "non-debris-max",
                 IsDebris = false,
-                DebrisParentRecordingId = "p"
+                ParentAnchorRecordingId = "p"
             };
 
             float configuredMax = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium);
@@ -293,7 +293,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-max-tight",
                 IsDebris = true,
-                DebrisParentRecordingId = "p"
+                ParentAnchorRecordingId = "p"
             };
 
             // High-density preset has max=1.0 s; we're already > MidInterval(0.5 s),
@@ -322,7 +322,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris-stable",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-stable"
+                ParentAnchorRecordingId = "parent-stable"
             };
 
             float minBeforeCap = ParsekSettings.GetMinSampleInterval(SamplingDensity.Medium); // 0.2 s
@@ -371,7 +371,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "non-debris-stable",
                 IsDebris = false,
-                DebrisParentRecordingId = "p"
+                ParentAnchorRecordingId = "p"
             };
 
             float maxBeforeCap = ParsekSettings.GetMaxSampleInterval(SamplingDensity.Medium); // 3.0 s

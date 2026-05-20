@@ -40,7 +40,7 @@ namespace Parsek.Tests
             // updating this pin, or rolls it back without restoring the
             // pre-bump enum / migration semantics.
             Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(3, RecordingStore.CurrentRecordingSchemaGeneration);
+            Assert.Equal(4, RecordingStore.CurrentRecordingSchemaGeneration);
         }
 
         [Fact]
@@ -96,8 +96,9 @@ namespace Parsek.Tests
         [InlineData(0, -1, "generation-older")]
         [InlineData(0, 1, "generation-older")]
         [InlineData(0, 2, "generation-older")]
-        [InlineData(0, 4, "generation-newer")]
-        [InlineData(13, 3, "format-version-mismatch")]
+        [InlineData(0, 3, "generation-older")]
+        [InlineData(0, 5, "generation-newer")]
+        [InlineData(13, 4, "format-version-mismatch")]
         public void IsRecordingSchemaCompatible_RejectsNonCurrentSchema(
             int formatVersion,
             int schemaGeneration,
@@ -293,7 +294,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "future-generation");
             node.AddValue("recordingFormatVersion", "0");
-            node.AddValue("recordingSchemaGeneration", "4");
+            node.AddValue("recordingSchemaGeneration", "5");
 
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(node, rec);
@@ -329,6 +330,21 @@ namespace Parsek.Tests
             bool compatible = RecordingStore.IsRecordingSchemaCompatible(
                 RecordingStore.CurrentRecordingFormatVersion,
                 2,
+                out string reason);
+
+            Assert.False(compatible);
+            Assert.Equal("generation-older", reason);
+        }
+
+        [Fact]
+        public void IsRecordingSchemaCompatible_PreRenameGeneration3_IsRejected()
+        {
+            // Generation 3 carried the old "debrisParentRecordingId" ConfigNode key.
+            // Generation 4 renamed it to "parentAnchorRecordingId", so gen-3
+            // recordings are now rejected as "generation-older" on load.
+            bool compatible = RecordingStore.IsRecordingSchemaCompatible(
+                RecordingStore.CurrentRecordingFormatVersion,
+                3,
                 out string reason);
 
             Assert.False(compatible);

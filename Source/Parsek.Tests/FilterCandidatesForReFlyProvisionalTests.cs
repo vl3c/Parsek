@@ -493,9 +493,9 @@ namespace Parsek.Tests
 
         /// <summary>
         /// A re-fly provisional whose origin was a controlled-decoupled child
-        /// (DebrisParentRecordingId non-null) fires the predicate the same as
+        /// (ParentAnchorRecordingId non-null) fires the predicate the same as
         /// a top-level re-fly: the predicate does not consult
-        /// DebrisParentRecordingId.
+        /// ParentAnchorRecordingId.
         /// </summary>
         [Fact]
         public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesParentAnchored_ReturnsTrue()
@@ -511,13 +511,13 @@ namespace Parsek.Tests
             try
             {
                 var tree = new RecordingTree { ActiveRecordingId = "rec_prov_child" };
-                // DebrisParentRecordingId on the recording is not consulted by
+                // ParentAnchorRecordingId on the recording is not consulted by
                 // the predicate. The recording entry itself doesn't even need
                 // to exist in tree.Recordings.
                 tree.Recordings["rec_prov_child"] = new Recording
                 {
                     RecordingId = "rec_prov_child",
-                    DebrisParentRecordingId = "rec_parent"
+                    ParentAnchorRecordingId = "rec_parent"
                 };
 
                 bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);

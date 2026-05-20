@@ -42,14 +42,14 @@ namespace Parsek.Tests
         {
             // Format bumped 0 -> 1 with the VesselSwitchContinuation branch
             // type (Phase A.1, segment-scoped-switch-fly-autorecord plan).
-            // Generation 3 after the clean-slate schema reset that retired the
-            // last batch of pre-reset compatibility seams. Pre-reset (generation
-            // 2 and older) recordings are rejected on load.
+            // Generation 4 after the parent-anchor ConfigNode key rename
+            // (debrisParentRecordingId -> parentAnchorRecordingId). Pre-rename
+            // (generation 3 and older) recordings are rejected on load.
             // Fails if: format version is bumped (then this pin and the docs
             // bump together) or if TrajectorySidecarBinary.CurrentBinaryVersion
             // drifts from RecordingStore.CurrentRecordingFormatVersion.
             Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(3, RecordingStore.CurrentRecordingSchemaGeneration);
+            Assert.Equal(4, RecordingStore.CurrentRecordingSchemaGeneration);
             Assert.Equal(
                 RecordingStore.CurrentRecordingFormatVersion,
                 TrajectorySidecarBinary.CurrentBinaryVersion);

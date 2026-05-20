@@ -4962,7 +4962,7 @@ namespace Parsek
         {
             string anchorRecordingId = !string.IsNullOrWhiteSpace(section.anchorRecordingId)
                 ? section.anchorRecordingId.Trim()
-                : traj?.DebrisParentRecordingId;
+                : traj?.ParentAnchorRecordingId;
             if (string.IsNullOrWhiteSpace(anchorRecordingId))
                 return 0u;
 
@@ -4981,7 +4981,7 @@ namespace Parsek
             out Recording recording)
         {
             // [ERS-exempt] Body-fixed-primary anchor pid lookup correlates a
-            // section's stored anchorRecordingId / DebrisParentRecordingId to a
+            // section's stored anchorRecordingId / ParentAnchorRecordingId to a
             // VesselPersistentId for state-vector telemetry only. The walk is
             // string-id keyed (recording-id, not chain semantics) so ERS filtering
             // by supersede/visibility would mask the very anchor recording an

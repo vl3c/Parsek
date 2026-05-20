@@ -74,7 +74,7 @@ namespace Parsek.Tests.Harness
                     "49613c44e81b0ce987485db7b2466c4b593d13ab28133c8d450b614067632bba",
                 // Reset by PR 3b: debris parent-anchor contract introduced.
                 // The recorder now anchors debris to its parent recording
-                // and stamps `Recording.DebrisParentRecordingId`. The
+                // and stamps `Recording.ParentAnchorRecordingId`. The
                 // composition is now (parent_pos + offset) for scenarios 4
                 // and 5; scenario 7 walks back through the active Re-Fly
                 // recording's frozen pre-Re-Fly snapshot. Scenario 10

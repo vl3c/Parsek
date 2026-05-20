@@ -330,7 +330,7 @@ namespace Parsek
 
         /// <summary>
         /// Clears a single recording's references to schema-rejected recordings and removed
-        /// branch points: nulls ParentRecordingId / DebrisParentRecordingId when they point at a
+        /// branch points: nulls ParentRecordingId / ParentAnchorRecordingId when they point at a
         /// rejected recording id, and nulls ParentBranchPointId / ChildBranchPointId when they
         /// point at a removed branch point. Short-circuits on a null recording and on an empty
         /// removed-branch-point set. Mutates the recording.
@@ -349,10 +349,10 @@ namespace Parsek
                 rec.ParentRecordingId = null;
             }
 
-            if (!string.IsNullOrEmpty(rec.DebrisParentRecordingId)
-                && rejectedRecordingIds.Contains(rec.DebrisParentRecordingId))
+            if (!string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
+                && rejectedRecordingIds.Contains(rec.ParentAnchorRecordingId))
             {
-                rec.DebrisParentRecordingId = null;
+                rec.ParentAnchorRecordingId = null;
             }
 
             if (removedBranchPointIds == null || removedBranchPointIds.Count == 0)

@@ -286,7 +286,7 @@ namespace Parsek
                 return false;
             }
 
-            string parentRecordingId = traj.DebrisParentRecordingId;
+            string parentRecordingId = traj.ParentAnchorRecordingId;
             string originRecordingId = marker.OriginChildRecordingId;
             if (string.IsNullOrWhiteSpace(parentRecordingId)
                 || string.IsNullOrWhiteSpace(originRecordingId)
@@ -336,7 +336,7 @@ namespace Parsek
             ReFlySessionMarker marker)
         {
             string recordingId = traj?.RecordingId;
-            string parentRecordingId = traj?.DebrisParentRecordingId;
+            string parentRecordingId = traj?.ParentAnchorRecordingId;
             double trajStartUT = traj?.StartUT ?? 0.0;
             double rewindPointUT = marker?.RewindPointUT ?? double.NaN;
             string identity = "session-suppressed-companion-debris|"
@@ -3294,14 +3294,14 @@ namespace Parsek
             out bool usedBodyFixedPrimary)
         {
             usedBodyFixedPrimary = false;
-            // Parent-anchored gate is now `DebrisParentRecordingId != null` alone.
+            // Parent-anchored gate is now `ParentAnchorRecordingId != null` alone.
             // Both genuine debris (IsDebris=true) and controlled-decoupled children
             // (IsDebris=false) take this path while inside a Relative section against
             // their parent. Post-window Absolute sections bypass this method entirely
             // through TryGetRelativeSectionAtUT returning false for non-Relative
             // sections (see plan section 7).
             bool parentAnchored = traj != null
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
             bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
@@ -3438,7 +3438,7 @@ namespace Parsek
         {
             if (traj == null
                 || !traj.IsDebris
-                || string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                || string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 return false;
             }
@@ -3450,7 +3450,7 @@ namespace Parsek
             }
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
-            string anchorRecordingId = traj.DebrisParentRecordingId;
+            string anchorRecordingId = traj.ParentAnchorRecordingId;
             while (!string.IsNullOrWhiteSpace(anchorRecordingId))
             {
                 if (!visited.Add(anchorRecordingId))
@@ -3759,7 +3759,7 @@ namespace Parsek
         {
             bool parentAnchoredDebris = traj != null
                 && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
             bool loopAnchoredDebrisChain = parentAnchoredDebris
                 && ShouldUseLoopAnchoredDebrisChain(traj, loopUT);
             if (!loopAnchoredDebrisChain
@@ -6193,7 +6193,7 @@ namespace Parsek
         {
             return traj != null
                 && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
         }
 
         /// <summary>

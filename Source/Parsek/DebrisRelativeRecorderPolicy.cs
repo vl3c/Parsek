@@ -32,7 +32,7 @@ namespace Parsek
         {
             return rec != null
                 && rec.IsDebris
-                && rec.DebrisParentRecordingId != null
+                && rec.ParentAnchorRecordingId != null
                 && rec.LoopAnchorVesselId == 0u;
         }
 
@@ -403,7 +403,7 @@ namespace Parsek
                     FormatUT(result.NewEndUT),
                     FormatUT(result.RelativeTailUT),
                     FormatUT(result.ShadowTailUT),
-                    rec.DebrisParentRecordingId ?? "(null)",
+                    rec.ParentAnchorRecordingId ?? "(null)",
                     result.TrimmedFlatPoints));
         }
 

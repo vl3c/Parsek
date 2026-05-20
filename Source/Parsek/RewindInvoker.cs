@@ -215,7 +215,7 @@ namespace Parsek
         /// PR 3b review follow-up §3: extracting this block lets a
         /// regression test fail fast if a future refactor touches the
         /// inheritance set without preserving every field. The
-        /// <c>DebrisParentRecordingId</c> copy is the load-bearing current-schema
+        /// <c>ParentAnchorRecordingId</c> copy is the load-bearing current-schema
         /// debris-anchor inheritance the plan flags as a critical
         /// Re-Fly safety hook (plan §"Risk analysis": "Re-Fly inheritance
         /// loses the contract — High if RewindInvoker propagation is
@@ -244,7 +244,7 @@ namespace Parsek
             // doesn't silently lose the contract on the provisional. Without this,
             // the resolver's chain-walk would not have a parent recording id to
             // chase through supersede successors.
-            provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
+            provisional.ParentAnchorRecordingId = inheritFrom.ParentAnchorRecordingId;
             provisional.Generation = inheritFrom.Generation;
             // SegmentPhase / SegmentBodyName are intentionally NOT copied. Those fields
             // describe the most-recent segment of THIS recording — for the parent that
