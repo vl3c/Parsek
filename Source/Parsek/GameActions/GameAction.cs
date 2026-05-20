@@ -55,7 +55,14 @@ namespace Parsek
         /// default branch. The on-load injector that once emitted this tag was removed
         /// with the schema generation 3 reset.
         /// </summary>
-        LegacyMigration  = 5
+        LegacyMigration  = 5,
+        /// <summary>
+        /// Funds credited by a stock strategy currency exchange (Bail-Out Grant's
+        /// <c>CurrencyExchanger</c> output, <c>TransactionReasons.StrategyOutput</c>).
+        /// Captured directly from the <c>FundsChanged</c> event because the exchange
+        /// is separate from the strategy's (zero) <c>InitialCost*</c> setup cost.
+        /// </summary>
+        Strategy         = 6
     }
 
     /// <summary>Where funds were spent.</summary>

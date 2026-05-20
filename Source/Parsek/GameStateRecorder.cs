@@ -1045,6 +1045,17 @@ namespace Parsek
 
             if (reason == TransactionReasons.VesselRecovery && !IsReplayingActions)
                 LedgerOrchestrator.OnRecoveryFundsEventRecorded(fundsEvt);
+
+            // Bail-Out Grant (stock CurrencyExchanger) credits funds directly under
+            // TransactionReasons.StrategyOutput with no recording owner and no other
+            // capture channel. Forward it straight to the ledger so the recalc preserves
+            // the grant instead of clobbering it. ShouldForwardDirectLedgerEvent skips the
+            // write when a live recorder owns the event (it then flows through the
+            // commit-time ConvertEvents path). See
+            // fix-bailout-grant-currency-exchange-capture.md.
+            if (reason == TransactionReasons.StrategyOutput &&
+                ShouldForwardDirectLedgerEvent(fundsEvt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(fundsEvt);
         }
 
         internal static string BuildVesselRecoveryFundsDetail(double ut)
@@ -1139,6 +1150,16 @@ namespace Parsek
             };
             Emit(ref repEvt, "ReputationChanged");
             ParsekLog.Info("GameStateRecorder", $"Game state: ReputationChanged {delta:+0.0;-0.0} ({reason}) → {newReputation:F1}");
+
+            // Bail-Out Grant (stock CurrencyExchanger) subtracts reputation directly under
+            // TransactionReasons.StrategyInput with no recording owner and no other capture
+            // channel. Forward it straight to the ledger so the recalc preserves the spent
+            // reputation instead of refunding it. ShouldForwardDirectLedgerEvent skips the
+            // write when a live recorder owns the event. See
+            // fix-bailout-grant-currency-exchange-capture.md.
+            if (reason == TransactionReasons.StrategyInput &&
+                ShouldForwardDirectLedgerEvent(repEvt.recordingId, HasLiveRecorder()))
+                LedgerOrchestrator.OnKscSpending(repEvt);
         }
 
         internal static bool IsReputationDeltaBelowThreshold(float delta)

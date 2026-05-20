@@ -309,6 +309,78 @@ namespace Parsek.Tests
         }
 
         // ================================================================
+        // CurrencyExchanger strategy capture (Bail-Out Grant)
+        // ================================================================
+
+        [Fact]
+        public void ConvertEvent_FundsChanged_StrategyOutput_ReturnsFundsEarningStrategy()
+        {
+            // Bail-Out Grant credits funds under TransactionReasons.StrategyOutput.
+            var evt = MakeEvent(GameStateEventType.FundsChanged, 4242.0,
+                key: GameStateEventConverter.StrategyOutputReasonKey,
+                valBefore: 1000.0, valAfter: 51000.0, recordingId: "");
+            var action = GameStateEventConverter.ConvertEvent(evt, null);
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.FundsEarning, action.Type);
+            Assert.Equal(FundsEarningSource.Strategy, action.FundsSource);
+            Assert.Equal(50000f, action.FundsAwarded);
+            Assert.Equal(4242.0, action.UT);
+        }
+
+        [Fact]
+        public void ConvertEvent_FundsChanged_StrategyOutput_NonPositive_ReturnsNull()
+        {
+            var evt = MakeEvent(GameStateEventType.FundsChanged, 4242.0,
+                key: GameStateEventConverter.StrategyOutputReasonKey,
+                valBefore: 1000.0, valAfter: 1000.0);
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, null));
+        }
+
+        [Fact]
+        public void ConvertEvent_FundsChanged_NonStrategyReason_StillReturnsNull()
+        {
+            // Every other FundsChanged reason flows through its own channel (or is dropped).
+            var evt = MakeEvent(GameStateEventType.FundsChanged, 100.0,
+                key: "ContractReward", valBefore: 0, valAfter: 5000.0, recordingId: "rec");
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, "rec"));
+        }
+
+        [Fact]
+        public void ConvertEvent_ReputationChanged_StrategyInput_ReturnsReputationPenaltyStrategy()
+        {
+            // Bail-Out Grant subtracts reputation (already post-curve) under StrategyInput.
+            var evt = MakeEvent(GameStateEventType.ReputationChanged, 4242.0,
+                key: GameStateEventConverter.StrategyInputReasonKey,
+                valBefore: 50.0, valAfter: -250.0, recordingId: "");
+            var action = GameStateEventConverter.ConvertEvent(evt, null);
+
+            Assert.NotNull(action);
+            Assert.Equal(GameActionType.ReputationPenalty, action.Type);
+            Assert.Equal(ReputationPenaltySource.Strategy, action.RepPenaltySource);
+            // valAfter - valBefore = -300; NominalPenalty is the positive magnitude.
+            Assert.Equal(300f, action.NominalPenalty);
+            Assert.Equal(4242.0, action.UT);
+        }
+
+        [Fact]
+        public void ConvertEvent_ReputationChanged_StrategyInput_NonNegative_ReturnsNull()
+        {
+            var evt = MakeEvent(GameStateEventType.ReputationChanged, 4242.0,
+                key: GameStateEventConverter.StrategyInputReasonKey,
+                valBefore: 0.0, valAfter: 5.0);
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, null));
+        }
+
+        [Fact]
+        public void ConvertEvent_ReputationChanged_NonStrategyReason_StillReturnsNull()
+        {
+            var evt = MakeEvent(GameStateEventType.ReputationChanged, 100.0,
+                key: "ContractReward", valBefore: 0, valAfter: 20.0, recordingId: "rec");
+            Assert.Null(GameStateEventConverter.ConvertEvent(evt, "rec"));
+        }
+
+        // ================================================================
         // ConvertEvents — batch with UT range filtering
         // ================================================================
 
