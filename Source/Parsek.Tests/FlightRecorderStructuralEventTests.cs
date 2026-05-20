@@ -174,35 +174,6 @@ namespace Parsek.Tests
             }
         }
 
-        // ----- ShouldEmitStructuralEventSnapshot — schema-gate fall-through -----
-
-        [Fact]
-        public void ShouldEmitStructuralEventSnapshot_PostResetV0_ReturnsTrue()
-        {
-            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.CurrentRecordingFormatVersion));
-        }
-
-        [Fact]
-        public void ShouldEmitStructuralEventSnapshot_V10AndAbove_ReturnsTrue()
-        {
-            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.CurrentRecordingFormatVersion));
-            Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(
-                RecordingStore.CurrentRecordingFormatVersion + 1));
-        }
-
-        [Fact]
-        public void ShouldEmitStructuralEventSnapshot_IgnoresPreResetVersionNumbers()
-        {
-            // Pre-reset version numbers are no longer used as behavior gates; old
-            // recordings are rejected by the schema loader instead.
-            for (int v = -1; v <= 13; v++)
-            {
-                Assert.True(FlightRecorder.ShouldEmitStructuralEventSnapshot(v));
-            }
-        }
-
         [Fact]
         public void AppendStructuralEventSnapshot_CurrentRecordingWithNoInvolvedVessels_NoAppend()
         {

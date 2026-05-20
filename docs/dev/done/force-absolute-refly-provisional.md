@@ -1,5 +1,13 @@
 # Force-Absolute for Re-Fly Provisional Recordings (experiment)
 
+> SUPERSEDED / removed. The experiment concluded: the narrowed-gate filter
+> (`docs/dev/plans/narrow-refly-relative-gate.md`) is the validated default.
+> The `forceAbsoluteForReFlyProvisional` rollback toggle, the
+> `TryResolveReFlyProvisionalAnchor` supersede-target bypass, the two recorder
+> apply helpers, and the `AnchorCandidateSource.ReFlyProvisionalSupersede`
+> diagnostic enum value were all deleted once the default soaked. This document
+> is kept for historical context only.
+
 ## Motivation
 
 Re-fly fork (provisional) recordings currently author `ReferenceFrame.Relative`

@@ -339,6 +339,16 @@ namespace Parsek
 
                 case GameActionType.FundsSpending:
                 {
+                    // Part purchases (source==Other) carry the part name in DedupKey.
+                    // Render it inline so the row is self-describing: the legacy
+                    // PartPurchased twin that used to supply the name is now de-duped
+                    // away in TimelineBuilder.
+                    if (action.FundsSpendingSource == FundsSpendingSource.Other)
+                    {
+                        string part = string.IsNullOrEmpty(action.DedupKey) ? "part" : action.DedupKey;
+                        return string.Format(IC, "Part: {0} -{1:0}", part, action.FundsSpent);
+                    }
+
                     string source;
                     switch (action.FundsSpendingSource)
                     {

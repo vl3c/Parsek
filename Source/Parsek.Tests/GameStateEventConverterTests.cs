@@ -1163,5 +1163,36 @@ namespace Parsek.Tests
             Assert.Equal(100.0, action.UT);
             Assert.Equal("rec-wf", action.RecordingId);
         }
+
+        // ================================================================
+        // ParsePartPurchaseChargedCost — shared by the converter and the
+        // Timeline legacy-collector free-part skip.
+        // ================================================================
+
+        [Fact]
+        public void ParsePartPurchaseChargedCost_PrefersCostTokenOverEntryCost()
+        {
+            // Stock-default bypass shape: charged cost is 0 even though entryCost is set.
+            Assert.Equal(0f, GameStateEventConverter.ParsePartPurchaseChargedCost("cost=0;entryCost=800"));
+        }
+
+        [Fact]
+        public void ParsePartPurchaseChargedCost_UsesCostWhenPositive()
+        {
+            Assert.Equal(1200f, GameStateEventConverter.ParsePartPurchaseChargedCost("cost=1200;entryCost=1200"));
+        }
+
+        [Fact]
+        public void ParsePartPurchaseChargedCost_FallsBackToEntryCost_WhenCostAbsent()
+        {
+            Assert.Equal(600f, GameStateEventConverter.ParsePartPurchaseChargedCost("entryCost=600"));
+        }
+
+        [Fact]
+        public void ParsePartPurchaseChargedCost_NoTokens_ReturnsZero()
+        {
+            Assert.Equal(0f, GameStateEventConverter.ParsePartPurchaseChargedCost(null));
+            Assert.Equal(0f, GameStateEventConverter.ParsePartPurchaseChargedCost(""));
+        }
     }
 }

@@ -844,16 +844,12 @@ namespace Parsek
                     rec.DockTargetVesselPid = dockTargetPid;
             }
 
-            // Rewind-to-Staging (design section 5.5 + 9). Legacy saves without `mergeState`
-            // default to Immutable. Saves that carried the old binary `committed` bool map
-            // to the tri-state via RecordingStore's batch migration helper (idempotent,
-            // one-shot logged). Stray transient SupersedeTargetId on committed recordings
-            // is logged Warn and treated as cleared.
+            // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
+            // default to Immutable. Stray transient SupersedeTargetId on committed
+            // recordings is logged Warn and treated as cleared.
             string mergeStateStr = recNode.GetValue("mergeState");
-            bool mergeStateWasExplicit = false;
             if (mergeStateStr != null)
             {
-                mergeStateWasExplicit = true;
                 MergeState parsed;
                 if (Enum.TryParse(mergeStateStr, out parsed))
                     rec.MergeState = parsed;
@@ -864,23 +860,6 @@ namespace Parsek
             else
             {
                 rec.MergeState = MergeState.Immutable;
-            }
-
-            // Legacy migration: binary `committed` bool -> MergeState tri-state. The field
-            // was never shipped in a release but design section 9 defines the mapping for
-            // forward safety. Counter incremented in RecordingStore for a one-shot Info log.
-            if (!mergeStateWasExplicit)
-            {
-                string committedStr = recNode.GetValue("committed");
-                if (committedStr != null)
-                {
-                    bool committed;
-                    if (bool.TryParse(committedStr, out committed))
-                    {
-                        rec.MergeState = committed ? MergeState.Immutable : MergeState.NotCommitted;
-                        RecordingStore.BumpLegacyMergeStateMigrationCounterForTesting();
-                    }
-                }
             }
 
             rec.CreatingSessionId = recNode.GetValue("creatingSessionId");

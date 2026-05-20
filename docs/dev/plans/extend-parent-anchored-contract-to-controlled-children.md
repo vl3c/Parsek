@@ -1,6 +1,6 @@
 # Extend the parent-anchored contract to controlled-decoupled children
 
-**Status:** plan, not yet implemented.
+**Status:** SHIPPED (v0.10.0), partially superseded. The recorder-side fix landed; see the "## Done - v0.10.0 Controlled-decoupled child vessels lack a parent-anchored recording surface" entry in `docs/dev/todo-and-known-bugs.md`. Two parts of this plan are now stale: (1) the proposed `RecordingStore.ControlledChildParentAnchorSchemaGeneration = 2` named constant and the gen 1 -> 2 bump were superseded by the PR #916 schema reset (`CurrentRecordingSchemaGeneration = 3`, no per-cell named constant); (2) the CoBubble references throughout describe the now-retired co-bubble subsystem (removed in PR #912). The body below is preserved as the historical implementation plan; treat the parent-anchored contract as the live mechanism and ignore the co-bubble framing.
 
 **Scope:** narrow recorder-side fix that closes the CoBubble debris-anchor snap bug class for controlled-decoupled child vessels (probes, landers, capsules that come off a parent through a decoupler). The fix gives those recordings a parent-anchored Relative surface (`bodyFixedFrames` primary, `frames` secondary) anchored on the focused parent at split time, so playback resolves the child through the existing parent-anchored body-fixed primary path instead of needing CoBubble peer-blend with an opportunistic sibling.
 

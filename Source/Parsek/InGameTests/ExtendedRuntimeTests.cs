@@ -892,8 +892,7 @@ namespace Parsek.InGameTests
                     kerbin.bodyTransform.rotation,
                     15,
                     25,
-                    35,
-                    rec.RecordingFormatVersion);
+                    35);
                 Vector3d actual = probe.transform.position;
                 double error = (actual - expected).magnitude;
                 InGameAssert.IsTrue(error < 0.25,

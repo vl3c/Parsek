@@ -1654,29 +1654,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes the position offset from an anchor vessel to the focused vessel
-        /// in world-space coordinates for legacy v5-and-older RELATIVE sections.
-        ///
-        /// The returned (dx, dy, dz) vector is stored in the TrajectoryPoint's
-        /// latitude/longitude/altitude fields when recording in RELATIVE frame.
-        /// Pure static method for testability.
-        /// </summary>
-        internal static Vector3d ComputeRelativeOffset(Vector3d focusedPosition, Vector3d anchorPosition)
-        {
-            return focusedPosition - anchorPosition;
-        }
-
-        /// <summary>
-        /// Computes world position from anchor position and a legacy world-space
-        /// relative offset. Pure static for testability.
-        /// </summary>
-        internal static Vector3d ApplyRelativeOffset(Vector3d anchorWorldPos, double dx, double dy, double dz)
-        {
-            return new Vector3d(anchorWorldPos.x + dx, anchorWorldPos.y + dy, anchorWorldPos.z + dz);
-        }
-
-        /// <summary>
-        /// Computes the anchor-local offset used by format-v6 RELATIVE sections.
+        /// Computes the anchor-local offset used by RELATIVE sections.
         /// Pure static method for testability.
         /// </summary>
         internal static Vector3d ComputeRelativeLocalOffset(
@@ -1733,29 +1711,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves a RELATIVE-frame position to world space using the version-specific
-        /// contract for the recording being played back.
+        /// Resolves a RELATIVE-frame anchor-local position offset to world space.
         /// </summary>
         internal static Vector3d ResolveRelativePlaybackPosition(
             Vector3d anchorWorldPos,
             Quaternion anchorWorldRotation,
             double dx,
             double dy,
-            double dz,
-            int recordingFormatVersion)
+            double dz)
         {
-            return RecordingStore.UsesRelativeLocalFrameContract(recordingFormatVersion)
-                ? ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz)
-                : ApplyRelativeOffset(anchorWorldPos, dx, dy, dz);
+            return ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz);
         }
 
         /// <summary>
-        /// Resolves a RELATIVE-frame rotation to world space.
-        /// Legacy v5-and-older RELATIVE sections stored <c>v.srfRelRotation</c> as the
-        /// "relative" slot; v6 RELATIVE sections store <c>Inverse(anchor) * focus</c>.
-        /// Both contracts reconstitute with the same <c>anchor * stored</c> formula —
-        /// the semantic difference lives at sample time, not playback time — so this
-        /// resolver takes no format-version parameter and is shared across v5 and v6.
+        /// Resolves a RELATIVE-frame rotation to world space. RELATIVE sections store the
+        /// anchor-local rotation <c>Inverse(anchor) * focus</c>, and this resolver
+        /// reconstitutes the focus world rotation with <c>anchor * stored</c>.
         /// </summary>
         internal static Quaternion ResolveRelativePlaybackRotation(
             Quaternion anchorWorldRotation,

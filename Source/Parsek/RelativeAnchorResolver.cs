@@ -1484,8 +1484,7 @@ namespace Parsek
                 parentPose.WorldRotation,
                 dx,
                 dy,
-                dz,
-                recording.RecordingFormatVersion);
+                dz);
             Quaternion worldRotation = TrajectoryMath.ResolveRelativePlaybackRotation(
                 parentPose.WorldRotation,
                 relativeRotation);

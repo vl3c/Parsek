@@ -461,7 +461,6 @@ namespace Parsek
             public double relDx, relDy, relDz;    // interpolated offset (meters)
             public Quaternion relativeRot;         // interpolated relative rotation
             public string relativeBodyName;        // body name for altitude computation
-            public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
             public string relativeAnchorRecordingId;
             public bool relativeLoopLiveAnchor;     // true only for loop playback's explicit live-PID contract
@@ -1591,8 +1590,7 @@ namespace Parsek
                                 anchorRotation,
                                 e.relDx,
                                 e.relDy,
-                                e.relDz,
-                                e.relativeRecordingFormatVersion);
+                                e.relDz);
                             ApplyGhostReapplyTransform(
                                 e,
                                 ghostPos,
@@ -19327,7 +19325,7 @@ namespace Parsek
                 ParsekLog.Info("Playback",
                     $"RELATIVE playback started: recording #{index} \"{traj.VesselName}\" " +
                     $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
+                    $"contract=anchor-local " +
                     $"version={traj.RecordingFormatVersion} sectionUT={sectionUt}");
             }
 
@@ -23523,8 +23521,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPose.worldPos;
             GhostRenderTrace.EmitRelativeResolver(
@@ -24336,7 +24333,7 @@ namespace Parsek
             uint anchorVesselId,
             bool anchorFromRecordedTrajectory)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId} " +
                 $"source={(anchorFromRecordedTrajectory ? "recorded" : "live")}";
@@ -24349,7 +24346,7 @@ namespace Parsek
             double dz,
             string anchorRecordingId)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
                 $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
@@ -24493,7 +24490,7 @@ namespace Parsek
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
                             $"\"{rec.VesselName}\" anchorPid={anchorVesselId} " +
-                            $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                            $"contract=anchor-local " +
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
@@ -24779,8 +24776,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
 
             if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
             {
@@ -24851,7 +24847,6 @@ namespace Parsek
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = interpolatedRot,
                 relativeBodyName = bodyName,
-                relativeRecordingFormatVersion = recordingFormatVersion,
                 bodyBefore = body,
                 latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                 relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -24988,8 +24983,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
 
             ghost.transform.position = ghostPos;
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
@@ -25038,7 +25032,6 @@ namespace Parsek
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = sanitized,
                 relativeBodyName = bodyName,
-                relativeRecordingFormatVersion = recordingFormatVersion,
                 bodyBefore = body,
                 latBefore = dx, lonBefore = dy, altBefore = dz,
                 relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -25495,8 +25488,7 @@ namespace Parsek
                     anchorPose.worldRotation,
                     dx,
                     dy,
-                    dz,
-                    recordingFormatVersion);
+                    dz);
 
                 if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
                 {
@@ -25568,7 +25560,6 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = interpolatedRot,
                     relativeBodyName = bodyName,
-                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body, // for fallback in LateUpdate
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -25648,8 +25639,7 @@ namespace Parsek
                     anchorPose.worldRotation,
                     dx,
                     dy,
-                    dz,
-                    recordingFormatVersion);
+                    dz);
 
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
@@ -25699,7 +25689,6 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = sanitized,
                     relativeBodyName = bodyName,
-                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
