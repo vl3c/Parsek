@@ -1581,12 +1581,15 @@ helper, with any UI-only suppression kept outside the click-block predicate.
 ## 641. Funds / Science reservation tooltip on the stock top bar (shipped)
 
 `CurrencyReservationOverlay` attaches a hover tooltip to the stock funds and
-science widgets showing a `Total / Reserved` breakdown. The bar value is the
-ledger `GetAvailable*()` (Total minus committed-future spend), so the tooltip
-reads `Total = GetProjectionCurrentBalance()` and `Reserved = Total - Available`
-straight off `LedgerOrchestrator.Funds` / `.Science` to stay exactly consistent
-with the displayed number; it appears only when reserved > 0 and is gated behind
-`showCommittedFutureOverlays`.
+science widgets showing a `Total / Reserved` breakdown. `Reserved` is the ledger's
+committed-future drawdown (`GetProjectionCurrentBalance() - GetAvailable*()`, off
+`LedgerOrchestrator.Funds` / `.Science`); the shown value is anchored on the live
+`Funding.Instance.Funds` / `ResearchAndDevelopment.Instance.Science` (the number on
+the bar) with `Total = displayed + Reserved`, so `Total - Reserved` equals the
+on-screen number exactly. Anchoring on the live value (rather than `GetAvailable*()`)
+keeps it exact even during the brief science pending-tech-unlock catch-up window
+where `KspStatePatcher` holds the bar below ledger-available. It appears only when
+reserved > 0 and is gated behind `showCommittedFutureOverlays`.
 
 **Reputation is deliberately excluded** and stays that way: `PatchReputation`
 patches the true `GetRunningRep()`, reputation has no reservation/escrow concept,

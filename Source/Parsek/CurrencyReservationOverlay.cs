@@ -156,7 +156,8 @@ namespace Parsek
         /// <summary>
         /// Builds the "Total / Reserved" tooltip body, or null when the reserved amount is
         /// at or below <paramref name="epsilon"/> (nothing committed - no tooltip).
-        /// The displayed bar already equals <paramref name="available"/> = Total - Reserved.
+        /// <paramref name="available"/> is the value shown on the bar, so by construction
+        /// the bar equals <paramref name="available"/> = Total - Reserved.
         /// </summary>
         internal static string BuildReservationTooltip(
             string label, double total, double available, string format, double epsilon)
@@ -170,22 +171,35 @@ namespace Parsek
                 + "Reserved: " + reserved.ToString(format, IC);
         }
 
+        // "Available" is anchored on the LIVE singleton (Funding.Instance.Funds /
+        // ResearchAndDevelopment.Instance.Science), which IS the number drawn on the bar.
+        // Reserved is the ledger's committed-future drawdown (current balance minus the
+        // ledger available), and Total = displayed + Reserved. Anchoring on the live value
+        // rather than GetAvailable*() keeps Total - Reserved exactly equal to the on-screen
+        // number even when KspStatePatcher applies an extra hold-back to the bar (science
+        // pending-tech-unlock catch-up window) that GetAvailable*() does not reflect.
         internal static string GetFundsTooltip()
         {
             var funds = LedgerOrchestrator.Funds;
-            if (funds == null)
+            if (funds == null || Funding.Instance == null)
                 return null;
-            return BuildReservationTooltip("Funds",
-                funds.GetProjectionCurrentBalance(), funds.GetAvailableFunds(), "N0", FundsEpsilon);
+            double reserved = funds.GetProjectionCurrentBalance() - funds.GetAvailableFunds();
+            if (reserved < 0.0)
+                reserved = 0.0;
+            double displayed = Funding.Instance.Funds;
+            return BuildReservationTooltip("Funds", displayed + reserved, displayed, "N0", FundsEpsilon);
         }
 
         internal static string GetScienceTooltip()
         {
             var science = LedgerOrchestrator.Science;
-            if (science == null)
+            if (science == null || ResearchAndDevelopment.Instance == null)
                 return null;
-            return BuildReservationTooltip("Science",
-                science.GetProjectionCurrentBalance(), science.GetAvailableScience(), "F1", ScienceEpsilon);
+            double reserved = science.GetProjectionCurrentBalance() - science.GetAvailableScience();
+            if (reserved < 0.0)
+                reserved = 0.0;
+            double displayed = ResearchAndDevelopment.Instance.Science;
+            return BuildReservationTooltip("Science", displayed + reserved, displayed, "F1", ScienceEpsilon);
         }
     }
 
@@ -194,6 +208,10 @@ namespace Parsek
     /// text is recomputed on every display (reservation drifts as the timeline advances);
     /// a null/empty result suppresses the box, which is how "show only when reserved" is
     /// realised without attaching / detaching the overlay.
+    ///
+    /// Unlike <see cref="OverlayBadge"/> this has no self-destruct-on-reparent guard: the
+    /// stock currency widgets are instantiated once and are not list-virtualised / recycled,
+    /// so the parent is stable for the scene lifetime and Unity destroys this child with it.
     /// </summary>
     internal sealed class CurrencyReservationTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
