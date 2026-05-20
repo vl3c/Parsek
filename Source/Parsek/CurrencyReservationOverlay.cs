@@ -75,8 +75,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Finds the active funds / science widgets and attaches a hover tooltip to each
-        /// if not already present. Returns the number of widgets newly decorated.
+        /// Finds the active funds / science / reputation widgets and attaches a hover tooltip
+        /// to each if not already present. Returns the number of widgets newly decorated.
         /// </summary>
         internal static int EnsureTooltipsAttached()
         {
@@ -96,6 +96,13 @@ namespace Parsek
                 ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Science widget");
             }
 
+            ReputationWidget reputation = UnityEngine.Object.FindObjectOfType<ReputationWidget>();
+            if (reputation != null && EnsureTooltip(reputation.transform, GetReputationTooltip))
+            {
+                attached++;
+                ParsekLog.Verbose(Tag, "CurrencyOverlay: attached tooltip to Reputation widget");
+            }
+
             return attached;
         }
 
@@ -109,6 +116,8 @@ namespace Parsek
             stripped += StripTooltip(funds != null ? funds.transform : null);
             ScienceWidget science = UnityEngine.Object.FindObjectOfType<ScienceWidget>();
             stripped += StripTooltip(science != null ? science.transform : null);
+            ReputationWidget reputation = UnityEngine.Object.FindObjectOfType<ReputationWidget>();
+            stripped += StripTooltip(reputation != null ? reputation.transform : null);
 
             if (stripped > 0)
                 ParsekLog.Verbose(Tag,
@@ -116,30 +125,55 @@ namespace Parsek
             return stripped;
         }
 
-        // Attaches a full-rect transparent hover area + tooltip to the widget. Returns true
-        // when a new overlay was created, false when one already existed or widget was null.
+        // Attaches the hover tooltip to the widget. The handler lives on the widget ROOT and the
+        // widget's own Graphics are made raycast targets so a pointer-enter on any visible part
+        // bubbles up to it - the funds (tumblers) and reputation (gauge) widgets render in
+        // children that overflow a zero-size root rect, so a root-anchored child overlay alone
+        // would have no hit area there (only the science text fills its root). A transparent
+        // full-rect child is also added as the attach marker and a hit area for sized roots.
+        // Returns true when newly attached, false when already present or widget was null.
         internal static bool EnsureTooltip(Transform widget, Func<string> provider)
         {
             if (widget == null)
                 return false;
-            if (widget.Find(OverlayName) != null)
+            var widgetGo = widget.gameObject;
+            if (widgetGo.GetComponent<CurrencyReservationTooltip>() != null)
                 return false;
 
+            // Make the widget's existing graphics hittable so pointer-enter bubbles to our
+            // root handler. Harmless for these passive display widgets (no click behavior).
+            var graphics = widgetGo.GetComponentsInChildren<Graphic>(true);
+            int raycastEnabled = 0;
+            for (int i = 0; i < graphics.Length; i++)
+            {
+                if (graphics[i] != null && !graphics[i].raycastTarget)
+                {
+                    graphics[i].raycastTarget = true;
+                    raycastEnabled++;
+                }
+            }
+
+            // Transparent full-rect hit area + attach marker.
             var go = new GameObject(OverlayName);
             go.transform.SetParent(widget, false);
-
             var rect = go.AddComponent<RectTransform>();
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
-
             var image = go.AddComponent<RawImage>();
             image.color = new Color(0f, 0f, 0f, 0f);
             image.raycastTarget = true;
 
-            var tip = go.AddComponent<CurrencyReservationTooltip>();
+            var tip = widgetGo.AddComponent<CurrencyReservationTooltip>();
             tip.Configure(provider);
+
+            var wr = widget as RectTransform;
+            string rootSize = wr != null
+                ? wr.rect.width.ToString("F0", IC) + "x" + wr.rect.height.ToString("F0", IC)
+                : "n/a";
+            ParsekLog.Verbose(Tag,
+                $"CurrencyOverlay: attach '{widgetGo.name}' rootRect={rootSize} childGraphics={graphics.Length} raycastEnabled={raycastEnabled}");
             return true;
         }
 
@@ -147,11 +181,20 @@ namespace Parsek
         {
             if (widget == null)
                 return 0;
+            int removed = 0;
+            var tip = widget.GetComponent<CurrencyReservationTooltip>();
+            if (tip != null)
+            {
+                UnityEngine.Object.Destroy(tip);
+                removed++;
+            }
             Transform existing = widget.Find(OverlayName);
-            if (existing == null)
-                return 0;
-            UnityEngine.Object.Destroy(existing.gameObject);
-            return 1;
+            if (existing != null)
+            {
+                UnityEngine.Object.Destroy(existing.gameObject);
+                removed++;
+            }
+            return removed > 0 ? 1 : 0;
         }
 
         // ================================================================
@@ -161,11 +204,12 @@ namespace Parsek
         /// <summary>
         /// Builds the "Total / Reserved" tooltip body, or null when the reserved amount is
         /// at or below <paramref name="epsilon"/> (nothing committed - no tooltip).
+        /// No header line: the hovered widget makes the currency obvious.
         /// <paramref name="available"/> is the value shown on the bar, so by construction
         /// the bar equals <paramref name="available"/> = Total - Reserved.
         /// </summary>
         internal static string BuildReservationTooltip(
-            string label, double total, double available, string format, double epsilon,
+            double total, double available, string format, double epsilon,
             bool alwaysShow = false)
         {
             double reserved = total - available;
@@ -174,8 +218,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
 
-            return label + "\n"
-                + "Total: " + total.ToString(format, IC) + "\n"
+            return "Total: " + total.ToString(format, IC) + "\n"
                 + "Reserved: " + reserved.ToString(format, IC);
         }
 
@@ -195,7 +238,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = Funding.Instance.Funds;
-            return BuildReservationTooltip("Funds", displayed + reserved, displayed, "N0", FundsEpsilon, AlwaysShowForTesting);
+            return BuildReservationTooltip(displayed + reserved, displayed, "N0", FundsEpsilon, AlwaysShowForTesting);
         }
 
         internal static string GetScienceTooltip()
@@ -207,23 +250,36 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = ResearchAndDevelopment.Instance.Science;
-            return BuildReservationTooltip("Science", displayed + reserved, displayed, "F1", ScienceEpsilon, AlwaysShowForTesting);
+            return BuildReservationTooltip(displayed + reserved, displayed, "F1", ScienceEpsilon, AlwaysShowForTesting);
+        }
+
+        // Reputation is NOT escrowed (KspStatePatcher.PatchReputation writes the true running
+        // value and ReputationModule has no reservation concept), so Reserved is always 0 and
+        // the tooltip renders only under the testing flag. See
+        // docs/dev/research/reputation-reservation-not-warranted.md.
+        internal static string GetReputationTooltip()
+        {
+            if (Reputation.Instance == null)
+                return null;
+            double displayed = Reputation.Instance.reputation;
+            return BuildReservationTooltip(displayed, displayed, "F0", 0.5, AlwaysShowForTesting);
         }
     }
 
     /// <summary>
-    /// Hover area that draws a dynamically-computed tooltip near the cursor. The tooltip
-    /// text is recomputed on every display (reservation drifts as the timeline advances);
-    /// a null/empty result suppresses the box, which is how "show only when reserved" is
-    /// realised without attaching / detaching the overlay.
+    /// Draws a dynamically-computed tooltip near the cursor when the widget is hovered. The
+    /// component lives on the widget ROOT; the widget's graphics are made raycast targets so a
+    /// pointer-enter on any visible part bubbles up to it. The tooltip text is recomputed on
+    /// every display (reservation drifts as the timeline advances); a null/empty result
+    /// suppresses the box, which is how "show only when reserved" is realised.
     ///
-    /// Unlike <see cref="OverlayBadge"/> this has no self-destruct-on-reparent guard: the
+    /// No self-destruct-on-reparent guard is needed (unlike <see cref="OverlayBadge"/>): the
     /// stock currency widgets are instantiated once and are not list-virtualised / recycled,
-    /// so the parent is stable for the scene lifetime and Unity destroys this child with it.
+    /// so the widget is stable for the scene lifetime and Unity destroys this component with it.
     /// </summary>
     internal sealed class CurrencyReservationTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
-        private const float TooltipWidth = 220f;
+        private const float TooltipWidth = 145f;
 
         private Func<string> provider;
         private bool hovered;
@@ -265,7 +321,8 @@ namespace Parsek
                 {
                     alignment = TextAnchor.MiddleLeft,
                     wordWrap = false,
-                    padding = new RectOffset(10, 10, 8, 8)
+                    fontSize = 11,
+                    padding = new RectOffset(7, 7, 5, 5)
                 };
             }
 

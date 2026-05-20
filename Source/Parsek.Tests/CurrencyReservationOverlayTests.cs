@@ -10,25 +10,25 @@ namespace Parsek.Tests
         public void FundsTooltip_WhenReserved_ShowsTotalAndReservedWithThousandsSeparators()
         {
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Funds", total: 100000, available: 70000, format: "N0", epsilon: 0.5);
+                total: 100000, available: 70000, format: "N0", epsilon: 0.5);
 
-            Assert.Equal("Funds\nTotal: 100,000\nReserved: 30,000", text);
+            Assert.Equal("Total: 100,000\nReserved: 30,000", text);
         }
 
         [Fact]
         public void ScienceTooltip_WhenReserved_ShowsOneDecimalPlace()
         {
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Science", total: 42.5, available: 30.0, format: "F1", epsilon: 0.05);
+                total: 42.5, available: 30.0, format: "F1", epsilon: 0.05);
 
-            Assert.Equal("Science\nTotal: 42.5\nReserved: 12.5", text);
+            Assert.Equal("Total: 42.5\nReserved: 12.5", text);
         }
 
         [Fact]
         public void NothingReserved_ReturnsNull()
         {
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Funds", total: 50000, available: 50000, format: "N0", epsilon: 0.5);
+                total: 50000, available: 50000, format: "N0", epsilon: 0.5);
 
             Assert.Null(text);
         }
@@ -38,7 +38,7 @@ namespace Parsek.Tests
         {
             // 0.3 reserved is rounding noise under the 0.5 funds epsilon.
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Funds", total: 50000.3, available: 50000.0, format: "N0", epsilon: 0.5);
+                total: 50000.3, available: 50000.0, format: "N0", epsilon: 0.5);
 
             Assert.Null(text);
         }
@@ -48,7 +48,7 @@ namespace Parsek.Tests
         {
             // Defensive: negative "reserved" should never render.
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Funds", total: 10000, available: 12000, format: "N0", epsilon: 0.5);
+                total: 10000, available: 12000, format: "N0", epsilon: 0.5);
 
             Assert.Null(text);
         }
@@ -57,11 +57,11 @@ namespace Parsek.Tests
         public void AlwaysShow_RendersEvenWhenNothingReserved()
         {
             // Testing affordance: with alwaysShow the box renders at reserved=0 so the hover
-            // area can be verified in game.
+            // area can be verified in game. No header line - the hovered widget is obvious.
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Science", total: 0, available: 0, format: "F1", epsilon: 0.05, alwaysShow: true);
+                total: 0, available: 0, format: "F1", epsilon: 0.05, alwaysShow: true);
 
-            Assert.Equal("Science\nTotal: 0.0\nReserved: 0.0", text);
+            Assert.Equal("Total: 0.0\nReserved: 0.0", text);
         }
 
         [Fact]
@@ -70,9 +70,9 @@ namespace Parsek.Tests
             // When committed-future spend exceeds the balance, the bar (available) is
             // clamped to 0 and the entire current balance is reserved.
             string text = CurrencyReservationOverlay.BuildReservationTooltip(
-                "Funds", total: 50000, available: 0, format: "N0", epsilon: 0.5);
+                total: 50000, available: 0, format: "N0", epsilon: 0.5);
 
-            Assert.Equal("Funds\nTotal: 50,000\nReserved: 50,000", text);
+            Assert.Equal("Total: 50,000\nReserved: 50,000", text);
         }
     }
 }
