@@ -7284,14 +7284,14 @@ namespace Parsek
             // anchor-local Cartesian metres (NOT body-fixed surface coords).
             // Seeding it into a freshly-opened ABSOLUTE section would write
             // a meaningless metre-scale "lat/lon/alt" sample at the seam,
-            // re-introducing the corrupted-trajectory class this PR closes.
-            // The parallel v7 body-fixed primary already carries the focused
+            // re-introducing the corrupted-trajectory class this guard closes.
+            // The parallel body-fixed primary already carries the focused
             // vessel's true body-fixed position at the same UT — swap
-            // boundaryPoint to that shadow value so the new ABSOLUTE
-            // section's first sample matches its declared contract. Legacy
-            // recordings without an body-fixed primary (v5 and earlier
-            // RELATIVE) fall through with no boundary seed; the next normal
-            // sample seeds the ABSOLUTE section cleanly.
+            // boundaryPoint to that primary value so the new ABSOLUTE
+            // section's first sample matches its declared contract. A
+            // current-gen Relative section that lacks a body-fixed primary
+            // falls through with no boundary seed; the next normal sample
+            // seeds the ABSOLUTE section cleanly.
             bool downgradedRelativeToAbsolute = resumeSection.HasValue
                 && resumeSection.Value.referenceFrame == ReferenceFrame.Relative
                 && resumeRef == ReferenceFrame.Absolute;
@@ -7308,8 +7308,8 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose("Anchor",
-                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no body-fixed-primary " +
-                        $"(legacy v5/v6); skipping boundary seed to avoid mis-framed sample");
+                        $"RELATIVE->ABSOLUTE resume: prior Relative section has no body-fixed-primary; " +
+                        $"skipping boundary seed to avoid mis-framed sample");
                     boundaryPoint = null;
                 }
                 // The new section is ABSOLUTE, so absoluteBoundaryPoint will
@@ -7904,7 +7904,7 @@ namespace Parsek
             if (logSample)
             {
                 ParsekLog.VerboseRateLimited("Anchor", "relative-offset",
-                    $"RELATIVE sample: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                    $"RELATIVE sample: contract=anchor-local " +
                     $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
                     $"anchorRecordingId={anchorRecordingId} source={source} diagnosticPid={diagnosticPid} " +
                     $"|offset|={offset.magnitude:F2}m",
@@ -9235,14 +9235,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The post-reset v0 schema always carries structural-event flags.
-        /// </summary>
-        internal static bool ShouldEmitStructuralEventSnapshot(int activeFormatVersion)
-        {
-            return true;
-        }
-
-        /// <summary>
         /// Phase 9: appends one <see cref="TrajectoryPointFlags.StructuralEventSnapshot"/>-flagged
         /// point per involved vessel that matches this recorder's
         /// <see cref="RecordingVesselId"/>. Callers pass one event UT captured from the live
@@ -9397,18 +9389,6 @@ namespace Parsek
                 $"activeTree={(ActiveTree != null)} " +
                 $"activeRecordingId={ActiveTree?.ActiveRecordingId ?? "null"}",
                 5.0);
-            return RecordingStore.CurrentRecordingFormatVersion;
-        }
-
-        private void MaybeUpgradeActiveRecordingRelativeContract(string reason)
-        {
-            // Retained as a no-op test seam until the old format-version tests are removed.
-        }
-
-        internal static int ResolveRelativeContractUpgradeTarget(
-            int recordingFormatVersion,
-            bool hasRelativeTrackSections)
-        {
             return RecordingStore.CurrentRecordingFormatVersion;
         }
 

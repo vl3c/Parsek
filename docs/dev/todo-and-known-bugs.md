@@ -58,6 +58,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Schema reset to generation 3 (clean-slate, no backwards compat)
+
+- `RecordingStore.CurrentRecordingSchemaGeneration` bumped 2 -> 3. `IsRecordingSchemaCompatible` now rejects generation 2 and older with reason `generation-older`; the threshold is read symbolically by every downstream gate, so no gate change was needed. `CurrentRecordingFormatVersion` stays 1.
+- Deleted the last pre-reset compatibility seams (all dead under the no-backwards-compat policy, verified by reachability before deletion):
+  - `RecordingStore.UsesRelativeLocalFrameContract` / `DescribeRelativeFrameContract` (constant `true` / `"anchor-local"`; inlined at callers).
+  - `RecordingStore` legacy `committed`-bool -> MergeState migration counter cluster (`LegacyMergeStateMigrationCount`, `EmitLegacyMergeStateMigrationLogOnce`, `Bump*`/`Reset*ForTesting`) and the `committed`-bool read in `RecordingTreeRecordCodec` (the `committed` field never shipped).
+  - `TrajectoryMath.ComputeRelativeOffset` / `ApplyRelativeOffset` (legacy v5 world-offset overloads); `ResolveRelativePlaybackPosition` collapsed to the anchor-local path.
+  - `FlightRecorder.ShouldEmitStructuralEventSnapshot` / `ResolveRelativeContractUpgradeTarget` / `MaybeUpgradeActiveRecordingRelativeContract` (constant / no-op format-version helpers).
+  - `RecordingTree.LegacyResourceResidual` seam (`ConsumeLegacyResidual`, `SetLegacyResidualForTesting`, `LoadLegacyResidual`, the Phase-F residual diagnostic) plus the `NormalizeLegacyRewindSuppressionMarkers` / `MarkLegacyRewindSuppressionAsSource` legacy-marker normalizer.
+  - `LedgerLoadMigration.MigrateLegacyTreeResources` and its helper cluster + the `LedgerOrchestrator` wrapper and call. `IsResourceImpactingAction` is kept (still live in the general ledger machinery); the `RewindSpawnSuppressionReasonLegacyUnscoped` constant and the `FundsEarningSource.LegacyMigration` enum value are kept (both still have live writers/consumers).
+- The synthetic-recording injector survives the bump automatically: the generators stamp the generation symbolically from `RecordingStore.CurrentRecordingSchemaGeneration`, confirmed by `dotnet test --filter InjectAllRecordings` passing post-bump.
+- A follow-up commit removes the now-dead `recordingFormatVersion` parameter from `TrajectoryMath.ResolveRelativePlaybackPosition` and cascades through every caller.
+- **Status:** PR open (stacked on PR #914).
+- See `docs/dev/plans/schema-reset-v-next.md`.
+
+---
+
 ## Done - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
 
 > Experiment concluded. The narrowed-gate filter (next section) is the validated default; the `forceAbsoluteForReFlyProvisional` toggle and the supersede-target bypass it gated were deleted in Parsek-remove-refly-bypass. The notes below are kept for historical context.

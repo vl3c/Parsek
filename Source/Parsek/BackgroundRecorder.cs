@@ -574,8 +574,7 @@ namespace Parsek
                     ? (TrajectoryPoint?)CreateAbsoluteTrajectoryPointFromVessel(
                         joint.Child.vessel, branchUT, preferRootPartSurfacePose: true)
                     : null;
-                if (parentBoundaryPoint.HasValue
-                    && FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
+                if (parentBoundaryPoint.HasValue)
                     parentBoundaryPoint = FlightRecorder.ApplyStructuralEventFlag(parentBoundaryPoint.Value);
                 pendingBackgroundSplitChecks[vesselPid] = (branchUT, recordingId, parentBoundaryPoint);
 
@@ -5573,7 +5572,7 @@ namespace Parsek
                         string parentDriftField = FormatParentDriftLogField(parentDrift);
 
                         return $"RELATIVE sample: pid={state.vesselPid} " +
-                               $"contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+                               $"contract=anchor-local " +
                                $"version={recordingFormatVersion} dx={offset.x:F2} dy={offset.y:F2} dz={offset.z:F2} " +
                                $"anchorRecordingId={anchorRecordingId} source={effectiveSource} " +
                                $"frameContract={frameContract} " +
@@ -7761,7 +7760,6 @@ namespace Parsek
             int backgroundMatches = 0;
             int loadedMatches = 0;
             int recordingMatches = 0;
-            int legacySkipped = 0;
             int rejected = 0;
             int appended = 0;
 
@@ -7785,12 +7783,6 @@ namespace Parsek
                 if (!tree.Recordings.TryGetValue(recordingId, out treeRec))
                     continue;
                 recordingMatches++;
-
-                if (!FlightRecorder.ShouldEmitStructuralEventSnapshot(treeRec.RecordingFormatVersion))
-                {
-                    legacySkipped++;
-                    continue;
-                }
 
                 Vector3 velocity = v.packed
                     ? (Vector3)v.obt_velocity
@@ -7859,7 +7851,7 @@ namespace Parsek
                     string.Format(CultureInfo.InvariantCulture,
                         "BG structural event snapshot skipped: event={0} ut={1:R} considered={2} " +
                         "appended={3} backgroundMatches={4} loadedMatches={5} recordingMatches={6} " +
-                        "legacySkipped={7} rejected={8}",
+                        "rejected={7}",
                         eventType ?? "unknown",
                         eventUT,
                         considered,
@@ -7867,7 +7859,6 @@ namespace Parsek
                         backgroundMatches,
                         loadedMatches,
                         recordingMatches,
-                        legacySkipped,
                         rejected));
             }
 
