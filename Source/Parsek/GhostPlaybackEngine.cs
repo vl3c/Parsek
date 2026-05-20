@@ -979,73 +979,11 @@ namespace Parsek
                 }
 
                 // === Loop-synced debris: use parent's loop clock ===
-                if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
-                {
-                    var parent = trajectories[traj.LoopSyncParentIdx];
-                    if (ShouldLoopPlayback(parent))
-                    {
-                        double parentLoopUT;
-                        long parentCycle;
-                        bool parentPaused;
-                        if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                                out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
-                        {
-                            GhostRenderTrace.EmitGuardSkip(
-                                traj, i, ctx.currentUT, "parent-loop-sync-failed");
-                            if (ghostActive)
-                                DestroyGhost(i, traj, f, reason: "parent loop sync failed");
-                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
-                            continue;
-                        }
-
-                        bool suppressLoopSyncGhost = suppressGhosts
-                            && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
-                                ctx.warpRate, traj, parentLoopUT);
-                        if (parentPaused || suppressLoopSyncGhost)
-                        {
-                            GhostRenderTrace.EmitGuardSkip(
-                                traj, i, ctx.currentUT,
-                                parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
-                            if (state != null)
-                                DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
-                            CountFrameSkip(parentPaused
-                                ? GhostPlaybackSkipReason.ParentLoopPaused
-                                : GhostPlaybackSkipReason.WarpHidden);
-                            continue;
-                        }
-
-                        // Cycle change: rebuild ghost for clean visual state
-                        if (state != null && state.loopCycleIndex != parentCycle)
-                        {
-                            DestroyGhost(i, traj, f, reason: "parent loop cycle change");
-                            ghostActive = false;
-                            state = null;
-                            // Clear completed-event flag so the debris can play again
-                            completedEventFired.Remove(i);
-                        }
-
-                        bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
-                        if (debrisInRange)
-                        {
-                            // Override UT for positioning — use parent's loop clock
-                            var syncCtx = ctx;
-                            syncCtx.currentUT = parentLoopUT;
-                            if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
-                                    hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
-                                    allowEarlyDestroyedDebrisCompletion: false,
-                                    ref state, ref ghostActive))
-                            {
-                                if (state != null)
-                                    state.loopCycleIndex = parentCycle;
-                            }
-                        }
-                        else if (state != null)
-                        {
-                            DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
-                        }
-                        continue;
-                    }
-                }
+                if (TryUpdateLoopSyncedDebris(
+                        i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
+                        activationStartUT, hasPointData, hasInterpolatedPoints,
+                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                    continue;
 
                 // === Warp suppression: hide moving ghosts during high warp ===
                 if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
@@ -1539,6 +1477,95 @@ namespace Parsek
         {
             bool deadOnArrivalPastEnd = currentUT > endUT || currentUT > chainEndUT;
             return deadOnArrivalPastEnd && !ghostHeld;
+        }
+
+        /// <summary>
+        /// Loop-synced-debris dispatch (B10) of UpdatePlayback: when this slot is debris
+        /// synced to a looping parent, render it on the parent's loop clock. Returns true when
+        /// the caller should `continue` — i.e. the parent-loop branch was taken (every internal
+        /// `continue` in the original block, including the trailing one). Returns false in the
+        /// exactly two cases that fell through to warp-suppression in the original:
+        /// (a) LoopSyncParentIdx out of range, (b) parent not looping. <paramref name="state"/>
+        /// and <paramref name="ghostActive"/> are by ref because the cycle-change path nulls
+        /// state / clears ghostActive and the inner RenderInRangeGhost reassigns both; on a
+        /// false return the block wrote neither, so the contract matches inline either way.
+        /// Verbatim extraction; the syncCtx struct copy stays a stack local.
+        /// </summary>
+        private bool TryUpdateLoopSyncedDebris(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, bool suppressGhosts, bool suppressVisualFx,
+            double activationStartUT, bool hasPointData, bool hasInterpolatedPoints,
+            bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
+            {
+                var parent = trajectories[traj.LoopSyncParentIdx];
+                if (ShouldLoopPlayback(parent))
+                {
+                    double parentLoopUT;
+                    long parentCycle;
+                    bool parentPaused;
+                    if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                            out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "parent-loop-sync-failed");
+                        if (ghostActive)
+                            DestroyGhost(i, traj, f, reason: "parent loop sync failed");
+                        CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                        return true;
+                    }
+
+                    bool suppressLoopSyncGhost = suppressGhosts
+                        && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                            ctx.warpRate, traj, parentLoopUT);
+                    if (parentPaused || suppressLoopSyncGhost)
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT,
+                            parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
+                        if (state != null)
+                            DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
+                        CountFrameSkip(parentPaused
+                            ? GhostPlaybackSkipReason.ParentLoopPaused
+                            : GhostPlaybackSkipReason.WarpHidden);
+                        return true;
+                    }
+
+                    // Cycle change: rebuild ghost for clean visual state
+                    if (state != null && state.loopCycleIndex != parentCycle)
+                    {
+                        DestroyGhost(i, traj, f, reason: "parent loop cycle change");
+                        ghostActive = false;
+                        state = null;
+                        // Clear completed-event flag so the debris can play again
+                        completedEventFired.Remove(i);
+                    }
+
+                    bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
+                    if (debrisInRange)
+                    {
+                        // Override UT for positioning — use parent's loop clock
+                        var syncCtx = ctx;
+                        syncCtx.currentUT = parentLoopUT;
+                        if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
+                                hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                                allowEarlyDestroyedDebrisCompletion: false,
+                                ref state, ref ghostActive))
+                        {
+                            if (state != null)
+                                state.loopCycleIndex = parentCycle;
+                        }
+                    }
+                    else if (state != null)
+                    {
+                        DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
+                    }
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
