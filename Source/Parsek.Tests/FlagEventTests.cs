@@ -450,6 +450,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AppendFlagEventToTreeRecording_AddsEventAndMarksDirty()
+        {
+            var rec = new Recording();
+            Assert.False(rec.FilesDirty);
+
+            ParsekFlight.AppendFlagEventToTreeRecording(rec,
+                new FlagEvent { ut = 100, flagSiteName = "Mun Flag", placedBy = "Valentina Kerman", bodyName = "Mun" });
+
+            Assert.Single(rec.FlagEvents);
+            Assert.Equal("Mun Flag", rec.FlagEvents[0].flagSiteName);
+            // Load-bearing: without MarkFilesDirty the .prec sidecar write is skipped
+            // on the next OnSave and the flag is lost on reload.
+            Assert.True(rec.FilesDirty);
+        }
+
+        [Fact]
+        public void AppendFlagEventToTreeRecording_KeepsStableUtOrder()
+        {
+            var rec = new Recording();
+
+            // Append out of order (e.g. a recording reused across a rewind/re-fly
+            // already holds a higher-UT flag when the new lower-UT plant arrives).
+            ParsekFlight.AppendFlagEventToTreeRecording(rec,
+                new FlagEvent { ut = 300, flagSiteName = "Late" });
+            ParsekFlight.AppendFlagEventToTreeRecording(rec,
+                new FlagEvent { ut = 100, flagSiteName = "Early" });
+            ParsekFlight.AppendFlagEventToTreeRecording(rec,
+                new FlagEvent { ut = 200, flagSiteName = "Mid" });
+
+            Assert.Equal(3, rec.FlagEvents.Count);
+            Assert.Equal("Early", rec.FlagEvents[0].flagSiteName);
+            Assert.Equal("Mid", rec.FlagEvents[1].flagSiteName);
+            Assert.Equal("Late", rec.FlagEvents[2].flagSiteName);
+        }
+
+        [Fact]
+        public void AppendFlagEventToTreeRecording_NullRecording_NoThrow()
+        {
+            ParsekFlight.AppendFlagEventToTreeRecording(null, new FlagEvent { ut = 1 });
+        }
+
+        [Fact]
         public void FormatPlaqueWithDate_AppendsDateToText()
         {
             string result = ParsekFlight.FormatPlaqueWithDate("First landing!", "Year 1, Day 12, 3:45:30");

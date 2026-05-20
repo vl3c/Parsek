@@ -9958,7 +9958,7 @@ namespace Parsek
                 && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
                 && bgRec != null)
             {
-                bgRec.FlagEvents.Add(fe);
+                AppendFlagEventToTreeRecording(bgRec, fe);
                 ParsekLog.Info("Flight",
                     $"Flag event captured (background tree member pid={bgOwnerPid} rec={bgRecId}): " +
                     $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
@@ -10035,6 +10035,33 @@ namespace Parsek
             }
 
             return 0;
+        }
+
+        /// <summary>
+        /// Appends a captured flag to a tree recording's FlagEvents, keeping the list
+        /// in stable UT order and marking the recording's sidecar dirty so the new
+        /// event persists. Used for background-tracked tree members whose FlagEvents
+        /// are written straight to the recording; the foreground recorder sorts and
+        /// marks dirty at flush time instead. The MarkFilesDirty call is load-bearing:
+        /// without it the .prec sidecar is skipped on the next OnSave and the flag is
+        /// lost on scene reload (see Recording.MarkFilesDirty).
+        /// </summary>
+        internal static void AppendFlagEventToTreeRecording(Recording rec, FlagEvent fe)
+        {
+            if (rec == null)
+                return;
+
+            rec.FlagEvents.Add(fe);
+
+            // Stable UT order: ApplyFlagEvents/SpawnFlagVesselsUpToUT cursor-walk the
+            // list and break on the first future-UT event, so a recording reused
+            // across rewind/re-fly that already holds a higher-UT flag would otherwise
+            // shadow the new one. Mirrors the foreground flush sort (#287).
+            var sorted = FlightRecorder.StableSortByUT(rec.FlagEvents, e => e.ut);
+            rec.FlagEvents.Clear();
+            rec.FlagEvents.AddRange(sorted);
+
+            rec.MarkFilesDirty();
         }
 
         /// <summary>
