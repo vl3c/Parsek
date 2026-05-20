@@ -11,99 +11,6 @@ namespace Parsek.Tests
     /// </summary>
     public class RelativeRecordingTests
     {
-        #region ComputeRelativeOffset -- basic math
-
-        [Fact]
-        public void ComputeRelativeOffset_IdenticalPositions_ReturnsZero()
-        {
-            var pos = new Vector3d(1000, 2000, 3000);
-            var result = TrajectoryMath.ComputeRelativeOffset(pos, pos);
-
-            Assert.Equal(0.0, result.x, 10);
-            Assert.Equal(0.0, result.y, 10);
-            Assert.Equal(0.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ComputeRelativeOffset_FocusAhead_PositiveOffset()
-        {
-            var focus = new Vector3d(100, 200, 300);
-            var anchor = new Vector3d(0, 0, 0);
-            var result = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-
-            Assert.Equal(100.0, result.x, 10);
-            Assert.Equal(200.0, result.y, 10);
-            Assert.Equal(300.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ComputeRelativeOffset_FocusBehind_NegativeOffset()
-        {
-            var focus = new Vector3d(-50, -100, -150);
-            var anchor = new Vector3d(0, 0, 0);
-            var result = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-
-            Assert.Equal(-50.0, result.x, 10);
-            Assert.Equal(-100.0, result.y, 10);
-            Assert.Equal(-150.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ComputeRelativeOffset_BothNonZero_CorrectDifference()
-        {
-            var focus = new Vector3d(1000, 2000, 3000);
-            var anchor = new Vector3d(990, 1990, 2990);
-            var result = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-
-            Assert.Equal(10.0, result.x, 10);
-            Assert.Equal(10.0, result.y, 10);
-            Assert.Equal(10.0, result.z, 10);
-        }
-
-        [Fact]
-        public void ComputeRelativeOffset_LargePositions_SmallOffset()
-        {
-            // Simulates two vessels near KSC -- large absolute coords, small offset
-            var focus = new Vector3d(600000.5, 0.3, 600000.2);
-            var anchor = new Vector3d(600000.0, 0.0, 600000.0);
-            var result = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-
-            Assert.Equal(0.5, result.x, 5);
-            Assert.Equal(0.3, result.y, 5);
-            Assert.Equal(0.2, result.z, 5);
-        }
-
-        [Fact]
-        public void ComputeRelativeOffset_OffsetMagnitude_MatchesDistance()
-        {
-            var focus = new Vector3d(3, 4, 0);
-            var anchor = new Vector3d(0, 0, 0);
-            var result = TrajectoryMath.ComputeRelativeOffset(focus, anchor);
-
-            Assert.Equal(5.0, result.magnitude, 10);
-        }
-
-        #endregion
-
-        #region ComputeRelativeOffset -- symmetry
-
-        [Fact]
-        public void ComputeRelativeOffset_Antisymmetric()
-        {
-            // offset(A, B) == -offset(B, A)
-            var a = new Vector3d(100, 200, 300);
-            var b = new Vector3d(10, 20, 30);
-
-            var ab = TrajectoryMath.ComputeRelativeOffset(a, b);
-            var ba = TrajectoryMath.ComputeRelativeOffset(b, a);
-
-            Assert.Equal(ab.x, -ba.x, 10);
-            Assert.Equal(ab.y, -ba.y, 10);
-            Assert.Equal(ab.z, -ba.z, 10);
-        }
-
-        #endregion
-
         #region TrackSection RELATIVE metadata
 
         [Fact]
@@ -140,33 +47,7 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region Offset stored in TrajectoryPoint matches computed offset
-
-        [Fact]
-        public void RelativePoint_OffsetMatchesComputedValue()
-        {
-            var focusPos = new Vector3d(600100, 50, 600200);
-            var anchorPos = new Vector3d(600000, 0, 600000);
-
-            var offset = TrajectoryMath.ComputeRelativeOffset(focusPos, anchorPos);
-
-            // Simulate storing in point
-            var point = new TrajectoryPoint
-            {
-                latitude = offset.x,
-                longitude = offset.y,
-                altitude = offset.z,
-                bodyName = "Kerbin"
-            };
-
-            Assert.Equal(100.0, point.latitude, 5);
-            Assert.Equal(50.0, point.longitude, 5);
-            Assert.Equal(200.0, point.altitude, 5);
-        }
-
-        #endregion
-
-        #region Format-v6 RELATIVE position contract — captured-log regression
+        #region RELATIVE position contract: captured-log regression
 
         // Regression: pins the format-v6 RELATIVE-frame position contract that
         // FlightRecorder.ApplyRelativeOffset implements (Source/Parsek/FlightRecorder.cs:5502-5543).
@@ -197,8 +78,8 @@ namespace Parsek.Tests
             // accidentally coincide with world axes (catches any "v6 forgets to rotate" bug).
             Quaternion anchorRot = TrajectoryMath.PureAngleAxis(37f, new Vector3(0.3f, 0.7f, 0.5f).normalized);
 
-            // Recorder side: ComputeRelativeLocalOffset is what ApplyRelativeOffset calls
-            // when UsesRelativeLocalFrameContract(version) is true (FlightRecorder.cs:5516).
+            // Recorder side: ComputeRelativeLocalOffset is the anchor-local offset that
+            // the recorder stores for a RELATIVE-frame sample.
             Vector3d offset = TrajectoryMath.ComputeRelativeLocalOffset(focusWorld, anchorWorld, anchorRot);
 
             // Stored values match the captured-log shape: small magnitude in metres.
@@ -217,16 +98,14 @@ namespace Parsek.Tests
                 bodyName = "Kerbin"
             };
 
-            // Playback side: ResolveRelativePlaybackPosition with v6 must round-trip back
-            // to the focus world position. Uses RelativeLocalFrameFormatVersion (= current
-            // format version 6) so the v6 anchor-local branch fires.
+            // Playback side: ResolveRelativePlaybackPosition must round-trip back
+            // to the focus world position via the anchor-local offset path.
             Vector3d reconstructed = TrajectoryMath.ResolveRelativePlaybackPosition(
                 anchorWorld,
                 anchorRot,
                 storedPoint.latitude,
                 storedPoint.longitude,
-                storedPoint.altitude,
-                RecordingStore.CurrentRecordingFormatVersion);
+                storedPoint.altitude);
 
             Assert.Equal(focusWorld.x, reconstructed.x, 3);
             Assert.Equal(focusWorld.y, reconstructed.y, 3);
@@ -334,12 +213,10 @@ namespace Parsek.Tests
             // TrajectoryPoint's lat/lon/alt → vesselTransform-aligned world position.
             Vector3d correctPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
-                correctOffset.x, correctOffset.y, correctOffset.z,
-                RecordingStore.CurrentRecordingFormatVersion);
+                correctOffset.x, correctOffset.y, correctOffset.z);
             Vector3d buggyPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
-                buggyOffset.x, buggyOffset.y, buggyOffset.z,
-                RecordingStore.CurrentRecordingFormatVersion);
+                buggyOffset.x, buggyOffset.y, buggyOffset.z);
 
             // Correct round-trip lands on the focus.
             Assert.Equal(focusWorld.x, correctPlayback.x, 3);

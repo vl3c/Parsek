@@ -1803,8 +1803,7 @@ namespace Parsek
                 anchor.WorldRot,
                 dx,
                 dy,
-                dz,
-                rec.RecordingFormatVersion);
+                dz);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
             {
                 ParsekLog.Warn("KSCGhost",
@@ -1819,7 +1818,7 @@ namespace Parsek
             pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorRecordingId);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-position",
                 $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
-                $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                $"contract=anchor-local " +
                 $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"anchorRec={anchorRecordingId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
                 2.0);

@@ -237,10 +237,13 @@ namespace Parsek
 
                 case GameActionType.FundsEarning:
                 case GameActionType.ScienceEarning:
-                    // Earning actions on the KSC path would be direct deposits (not seen
-                    // today -- recovery/contract/milestone flow through their own action
-                    // types). Post-walk hook reconciles the safety path (#440); strategy
-                    // payout income will land here once #439 Phase C captures it.
+                    // Earning actions on the KSC path are direct deposits
+                    // (recovery/contract/milestone flow through their own action types).
+                    // FundsEarningSource.Strategy is one such direct KSC deposit today: the
+                    // Bail-Out Grant CurrencyExchanger output, captured via OnKscSpending.
+                    // Transformed/skip is correct for it (the post-walk reconciler also
+                    // skips FundsEarningSource.Strategy), so no per-action KSC reconcile leg
+                    // is needed. Post-walk hook reconciles the remaining safety path (#440).
                     return new KscActionExpectation
                     {
                         Class = KscReconcileClass.Transformed,

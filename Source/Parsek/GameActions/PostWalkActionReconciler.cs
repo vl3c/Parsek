@@ -212,9 +212,13 @@ namespace Parsek
                         case ReputationPenaltySource.KerbalDeath:
                             key = "CrewKilled"; break;
                         case ReputationPenaltySource.Strategy:
+                            // Bail-Out Grant CurrencyExchanger input: captured directly
+                            // from the ReputationChanged(StrategyInput) event as an
+                            // already-effective literal (no curve). Intentionally not
+                            // reconciled (no paired "Other"-reason event), so skip.
                         case ReputationPenaltySource.Other:
                         default:
-                            return exp; // synthetic / no stock emitter today
+                            return exp; // not reconciled (synthetic, or directly captured)
                     }
                     exp.Reconcile = true;
                     exp.Rep = new PostWalkLeg
@@ -240,6 +244,11 @@ namespace Parsek
                     if (action.FundsSource == FundsEarningSource.ContractComplete) return exp;
                     if (action.FundsSource == FundsEarningSource.ContractAdvance) return exp;
                     if (action.FundsSource == FundsEarningSource.Milestone) return exp;
+                    // Strategy currency-exchange output (Bail-Out Grant, reason
+                    // StrategyOutput) is captured directly from the FundsChanged event,
+                    // not paired with a "Other"-reason event, so skip reconciliation to
+                    // avoid a false WARN. See fix-bailout-grant-currency-exchange-capture.md.
+                    if (action.FundsSource == FundsEarningSource.Strategy) return exp;
                     exp.Reconcile = true;
                     exp.Funds = new PostWalkLeg
                     {

@@ -580,6 +580,52 @@ namespace Parsek
                         action.UT,
                         action.StrategyId);
 
+                // ScienceSpending is the ledger form of a TechResearched legacy event
+                // (ConvertTechResearched). Match on the node id.
+                case GameActionType.ScienceSpending:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.TechResearched,
+                        action.UT,
+                        action.NodeId);
+
+                // Part purchases are the only FundsSpending source that has a legacy
+                // GameStateEvent twin (PartPurchased). VesselBuild / facility / hire
+                // spending has no PartPurchased equivalent, so leave those alone.
+                // DedupKey carries the part name set by ConvertPartPurchased.
+                case GameActionType.FundsSpending:
+                    return action.FundsSpendingSource == FundsSpendingSource.Other
+                        ? EncodeLegacyDuplicateKey(
+                            GameStateEventType.PartPurchased,
+                            action.UT,
+                            action.DedupKey)
+                        : null;
+
+                // Contract lifecycle actions duplicate their legacy GameStateEvent twins;
+                // match on the contract guid carried in ContractId / legacy event key.
+                case GameActionType.ContractAccept:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ContractAccepted,
+                        action.UT,
+                        action.ContractId);
+
+                case GameActionType.ContractComplete:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ContractCompleted,
+                        action.UT,
+                        action.ContractId);
+
+                case GameActionType.ContractFail:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ContractFailed,
+                        action.UT,
+                        action.ContractId);
+
+                case GameActionType.ContractCancel:
+                    return EncodeLegacyDuplicateKey(
+                        GameStateEventType.ContractCancelled,
+                        action.UT,
+                        action.ContractId);
+
                 default:
                     return null;
             }
@@ -609,6 +655,7 @@ namespace Parsek
             int evaReassignSkipped = 0;
             int modeSeedSkipped = 0;
             int hireCostSuffixSuppressed = 0;
+            int noopSpendSkipped = 0;
             for (int i = 0; i < ledgerActions.Count; i++)
             {
                 var action = ledgerActions[i];
@@ -616,6 +663,17 @@ namespace Parsek
                 if (!IsInitialResourceSeedVisibleInMode(action.Type, currentMode))
                 {
                     modeSeedSkipped++;
+                    continue;
+                }
+
+                // A FundsSpending action that moves no funds (e.g. a free part unlock
+                // under bypass-entry-purchase) is kept in the ledger as an audit record
+                // but carries no information in the timeline. Skip these so the Details
+                // tab isn't flooded with "Part: x -0" / "Expense -0" no-op rows. The
+                // ledger row, recovery, and load-repair contracts are unaffected.
+                if (action.Type == GameActionType.FundsSpending && action.FundsSpent <= 0f)
+                {
+                    noopSpendSkipped++;
                     continue;
                 }
 
@@ -687,6 +745,10 @@ namespace Parsek
             if (hireCostSuffixSuppressed > 0)
                 ParsekLog.Verbose("Timeline",
                     $"Filtered {hireCostSuffixSuppressed} kerbal-hire funds suffix(es) in mode {FormatModeForLog(currentMode)}");
+
+            if (noopSpendSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {noopSpendSkipped} no-op (zero-funds) spending action(s)");
 
             return count;
         }
@@ -775,6 +837,7 @@ namespace Parsek
         {
             int count = 0;
             int duplicateSkipped = 0;
+            int freePartSkipped = 0;
 
             for (int i = 0; i < milestones.Count; i++)
             {
@@ -786,6 +849,18 @@ namespace Parsek
                     var e = m.Events[j];
                     if (!isLegacyEventVisible(e)) continue;
                     if (GameStateStore.IsMilestoneFilteredEvent(e.eventType)) continue;
+
+                    // Free part unlocks (charged cost 0) move no funds and are pure noise.
+                    // Their ledger twin is filtered as a no-op spend (FundsSpent <= 0) in
+                    // CollectGameActionEntries rather than de-duped, so the de-dup set below
+                    // never holds a key for them. Skip the legacy event directly here too.
+                    if (e.eventType == GameStateEventType.PartPurchased &&
+                        GameStateEventConverter.ParsePartPurchaseChargedCost(e.detail) <= 0f)
+                    {
+                        freePartSkipped++;
+                        continue;
+                    }
+
                     if (legacyDuplicateKeys.Contains(EncodeLegacyDuplicateKey(e.eventType, e.ut, e.key)))
                     {
                         duplicateSkipped++;
@@ -811,7 +886,11 @@ namespace Parsek
 
             if (duplicateSkipped > 0)
                 ParsekLog.Verbose("Timeline",
-                    $"Filtered {duplicateSkipped} duplicate legacy milestone/strategy event(s)");
+                    $"Filtered {duplicateSkipped} duplicate legacy event(s) already shown as ledger actions");
+
+            if (freePartSkipped > 0)
+                ParsekLog.Verbose("Timeline",
+                    $"Filtered {freePartSkipped} free (zero-cost) legacy part-purchase event(s)");
 
             return count;
         }

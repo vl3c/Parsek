@@ -114,6 +114,26 @@ namespace Parsek
 
         private void ProcessRepPenalty(GameAction action)
         {
+            // Strategy currency-exchange losses (Bail-Out Grant CurrencyExchanger input,
+            // TransactionReasons.StrategyInput) are captured straight from the
+            // ReputationChanged event, so NominalPenalty already holds the ACTUAL
+            // post-curve magnitude KSP applied. Re-running ApplyReputationCurve here would
+            // double-apply the curve, so this source is treated as already-effective and
+            // bypasses the curve. See docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md.
+            if (action.RepPenaltySource == ReputationPenaltySource.Strategy)
+            {
+                float effective = -action.NominalPenalty; // already-effective (negative)
+                action.EffectiveRep = effective;
+                runningRep += effective;
+
+                ParsekLog.Verbose(Tag,
+                    $"RepPenalty (Strategy, pre-curved) at UT={action.UT.ToString("F1", IC)}: " +
+                    $"nominalPenalty={action.NominalPenalty.ToString("F2", IC)}, " +
+                    $"effective={effective.ToString("F2", IC)}, runningRep={runningRep.ToString("F2", IC)}" +
+                    $" (recording={action.RecordingId ?? "null"})");
+                return;
+            }
+
             // NominalPenalty is stored as a positive magnitude; curve expects negative input for losses
             float nominal = -action.NominalPenalty;
             var result = ApplyReputationCurve(nominal, runningRep);

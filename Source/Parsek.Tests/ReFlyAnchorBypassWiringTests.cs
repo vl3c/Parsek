@@ -15,8 +15,8 @@ namespace Parsek.Tests
     /// pinned the Relative anchor to the supersede target so the
     /// nearest-search would not pick a fast-separating sibling. PR 901
     /// validated that Absolute (no Relative anchor at all) is the right
-    /// contract for re-fly forks with no nearby real anchor. This PR
-    /// generalizes that finding: the bypass is replaced with a filter
+    /// contract for re-fly forks with no nearby real anchor. The bypass was
+    /// replaced with a filter
     /// (<c>ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional</c>) that
     /// drops every candidate whose recording is in the same
     /// <see cref="RecordingTree"/> as the provisional, so the nearest-search
@@ -24,7 +24,10 @@ namespace Parsek.Tests
     /// from other lineages). The result: re-fly fork with no nearby real
     /// anchor authors Absolute, re-fly fork mid-docking-approach authors
     /// Relative-against-real-station, loop-anchored re-fly fork authors
-    /// Relative-against-live-loop-anchor.</para>
+    /// Relative-against-live-loop-anchor. The orphaned bypass function, the
+    /// two recorder apply helpers, and the force-Absolute rollback toggle
+    /// have since been deleted; these gates now only assert the filter is
+    /// wired and the bypass call is absent.</para>
     ///
     /// <para>Driving <c>UpdateAnchorDetection</c> /
     /// <c>UpdateBackgroundAnchorDetection</c> from xUnit would require
@@ -73,11 +76,10 @@ namespace Parsek.Tests
         [Fact]
         public void BackgroundRecorder_NoLongerCallsSupersedeTargetBypass()
         {
-            // The supersede-target bypass call is gone from the gate site.
-            // The function itself (TryResolveReFlyProvisionalAnchor) and the
-            // ApplyReFlyProvisionalAnchorToState apply helper remain in the
-            // file for one release as a rollback path; this test confirms
-            // they are not wired into UpdateBackgroundAnchorDetection.
+            // The supersede-target bypass call is gone from the gate site
+            // (the bypass function and its apply helper were deleted). This
+            // test confirms the call string never returns to
+            // UpdateBackgroundAnchorDetection.
             string source = ReadSource("BackgroundRecorder.cs");
 
             int updateAnchorIdx = source.IndexOf(
@@ -164,7 +166,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void FlightRecorder_BuildsCandidateList_BeforeForceAbsoluteGate()
+        public void FlightRecorder_BuildsCandidateList_BeforeNarrowedGateFilter()
         {
             // BuildRecordingAnchorCandidateList carries a load-bearing side
             // effect: ConsiderReFlyTreeSamplingProximity (called from the
@@ -174,20 +176,11 @@ namespace Parsek.Tests
             // (Full / Half / None at 0-250m / 250-500m / 500m+ ranges,
             // see ReFlyTree{Full,Half}FidelityProximityRangeMeters).
             //
-            // The force-Absolute experimental gate (still present as a
-            // rollback path) has an early-return shape: if it sat below the
-            // candidate build, the gated path would skip the proximity scan
-            // and the recorder would fall back to sparse sampling. PR 901
-            // commit 768fd6e2 hoisted the build above the gate. This test
-            // pins the hoisted ordering so the regression cannot return.
-            //
-            // Note: with the narrowed-gate change replacing the
-            // TryResolveReFlyProvisionalAnchor bypass with the
-            // FilterCandidatesForReFlyProvisional filter, the build must
-            // also execute before the filter (which inputs the candidates
-            // list). That ordering is structural — the filter cannot run on
-            // a list that does not exist yet — and is implicitly pinned by
-            // the syntactic flow.
+            // The candidate build must execute before the narrowed-gate
+            // filter so the proximity scan side effect runs on every re-fly
+            // frame, even ones where the filter drops every same-tree
+            // candidate. The filter also consumes the candidate list, so the
+            // ordering is doubly load-bearing.
             string source = ReadSource("FlightRecorder.cs");
 
             int updateAnchorIdx = source.IndexOf(
@@ -203,98 +196,15 @@ namespace Parsek.Tests
             Assert.True(candidateBuildIdx >= 0,
                 "BuildRecordingAnchorCandidateList call missing from UpdateAnchorDetection");
 
-            // The force-Absolute experimental gate has an early-return
-            // shape; the candidate build must come before it. Anchor on the
-            // property read inside the gate (not the bare setting name) so
-            // a comment-only reorder above the gate cannot make this
-            // assertion pass while the if-block migrates back below the
-            // build.
-            int forceAbsoluteGateIdx = source.IndexOf(
-                "ParsekSettings.Current.forceAbsoluteForReFlyProvisional",
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
-            Assert.True(forceAbsoluteGateIdx >= 0,
-                "force-absolute-refly gate call not found in UpdateAnchorDetection");
-            Assert.True(candidateBuildIdx < forceAbsoluteGateIdx,
-                "BuildRecordingAnchorCandidateList must execute BEFORE the force-Absolute gate " +
-                "so the gated path keeps the proximity-tier sampling side effect.");
-        }
-
-        [Fact]
-        public void ReFlyAnchorApplyHelpers_StillDefined_PendingDeletionInFuturePR()
-        {
-            // The apply helpers (ApplyReFlyProvisionalAnchorToActiveRecording
-            // / ApplyReFlyProvisionalAnchorToState) are orphans after the
-            // narrowed-gate change: nothing in the recorder calls them. They
-            // are retained for one release as a rollback path. This test
-            // pins their continued existence so a careless cleanup PR does
-            // not delete them prematurely — and conversely, makes the
-            // future deletion-PR's removal explicit (delete this test
-            // alongside the helpers).
-            string flightSource = ReadSource("FlightRecorder.cs");
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
-                flightSource);
-
-            string bgSource = ReadSource("BackgroundRecorder.cs");
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToState(",
-                bgSource);
-        }
-
-        [Fact]
-        public void ReFlyAnchorApplyHelpers_PreCheckAnchorPoseBeforeOpeningRelativeSection()
-        {
-            // PR #889 validation playtest discovered a per-frame thrash when
-            // the supersede target's authored trajectory does not cover the
-            // current playback UT (nested re-fly where the rewind point
-            // predates the prior provisional's startUT). The bypass opened a
-            // Relative section, SeedRelativeBoundaryPoint failed with
-            // anchor-out-of-recorded-range, ForceExitRelativeToAbsolute
-            // closed it, and the next frame's bypass call repeated the
-            // cycle.
-            //
-            // The narrowed-gate change makes this code path unreachable from
-            // the recorder gate sites (the bypass call is gone), but the
-            // pre-check log + ordering remains a meaningful invariant for
-            // the apply helpers themselves: if a future PR re-wires them
-            // (e.g. via a different bypass path or a manual call site), the
-            // thrash regression must not return.
-            string flightSource = ReadSource("FlightRecorder.cs");
-            int flightApplyIdx = flightSource.IndexOf(
-                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
-                System.StringComparison.Ordinal);
-            Assert.True(flightApplyIdx >= 0, "Active-vessel apply helper not found");
-            int flightPreCheckIdx = flightSource.IndexOf(
-                "refly-bypass-anchor-uncovered",
-                flightApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(flightPreCheckIdx >= 0,
-                "Active-vessel pre-check log (key=refly-bypass-anchor-uncovered) missing");
-            int flightSamplePositionIdx = flightSource.IndexOf(
-                "SamplePosition(v);",
-                flightApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(flightSamplePositionIdx > flightPreCheckIdx,
-                "Active-vessel pre-check must come before SamplePosition / section flip");
-
-            string bgSource = ReadSource("BackgroundRecorder.cs");
-            int bgApplyIdx = bgSource.IndexOf(
-                "private void ApplyReFlyProvisionalAnchorToState(",
-                System.StringComparison.Ordinal);
-            Assert.True(bgApplyIdx >= 0, "BG apply helper not found");
-            int bgPreCheckIdx = bgSource.IndexOf(
-                "refly-bypass-anchor-uncovered",
-                bgApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(bgPreCheckIdx >= 0,
-                "BG pre-check log (key=refly-bypass-anchor-uncovered) missing");
-            int bgStartSectionIdx = bgSource.IndexOf(
-                "StartBackgroundTrackSection(state, env, ReferenceFrame.Relative",
-                bgApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(bgStartSectionIdx > bgPreCheckIdx,
-                "BG pre-check must come before StartBackgroundTrackSection / section flip");
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call not found in UpdateAnchorDetection");
+            Assert.True(candidateBuildIdx < filterIdx,
+                "BuildRecordingAnchorCandidateList must execute BEFORE the narrowed-gate filter " +
+                "so the filter has a candidate list and the proximity-tier sampling side effect runs.");
         }
     }
 }

@@ -50,12 +50,19 @@ namespace Parsek
         Milestone        = 3,
         Other            = 4,
         /// <summary>
-        /// Synthetic earning injected by <see cref="LedgerOrchestrator.MigrateLegacyTreeResources"/>
-        /// on load to reconcile a pre-Phase-F tree's persisted legacy funds residual against the
-        /// ledger. Tag-only — <see cref="FundsModule"/> treats it as a normal earning via its
-        /// default branch.
+        /// Synthetic earning tag retained for ledger rows that still carry it.
+        /// Tag-only — <see cref="FundsModule"/> treats it as a normal earning via its
+        /// default branch. The on-load injector that once emitted this tag was removed
+        /// with the schema generation 3 reset.
         /// </summary>
-        LegacyMigration  = 5
+        LegacyMigration  = 5,
+        /// <summary>
+        /// Funds credited by a stock strategy currency exchange (Bail-Out Grant's
+        /// <c>CurrencyExchanger</c> output, <c>TransactionReasons.StrategyOutput</c>).
+        /// Captured directly from the <c>FundsChanged</c> event because the exchange
+        /// is separate from the strategy's (zero) <c>InitialCost*</c> setup cost.
+        /// </summary>
+        Strategy         = 6
     }
 
     /// <summary>Where funds were spent.</summary>
