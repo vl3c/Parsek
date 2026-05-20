@@ -137,6 +137,104 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Cascade_DepthFourChain_HidesAllDescendants()
+        {
+            // P -> c1 -> c2 -> c3 (depth 4). Pins that the fixed-point
+            // closure reaches arbitrary depth, not just two levels.
+            var parent = Rec("rec_p");
+            var c1 = Rec("rec_c1", debrisParentRecordingId: "rec_p");
+            var c2 = Rec("rec_c2", debrisParentRecordingId: "rec_c1");
+            var c3 = Rec("rec_c3", debrisParentRecordingId: "rec_c2");
+            var recordings = new List<Recording> { parent, c1, c2, c3 };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_p") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Equal(4, retired.Count);
+            Assert.Contains("rec_c1", retired);
+            Assert.Contains("rec_c2", retired);
+            Assert.Contains("rec_c3", retired);
+        }
+
+        [Fact]
+        public void Cascade_ReverseListOrder_StillReachesAllDescendants()
+        {
+            // Recordings ordered descendant-first (c3, c2, c1, parent). A
+            // single-pass scan would add only c1 (whose parent is in the
+            // seed); c2 and c3 require the fixed-point loop's extra passes.
+            // Pins that the do/while closure (not a single pass) is what
+            // makes the cascade complete.
+            var c3 = Rec("rec_c3", debrisParentRecordingId: "rec_c2");
+            var c2 = Rec("rec_c2", debrisParentRecordingId: "rec_c1");
+            var c1 = Rec("rec_c1", debrisParentRecordingId: "rec_p");
+            var parent = Rec("rec_p");
+            var recordings = new List<Recording> { c3, c2, c1, parent };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_p") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Equal(4, retired.Count);
+            Assert.Contains("rec_c1", retired);
+            Assert.Contains("rec_c2", retired);
+            Assert.Contains("rec_c3", retired);
+        }
+
+        [Fact]
+        public void Cascade_SelfParentRecording_TerminatesAndStaysVisibleWhenNotRetired()
+        {
+            // Corrupt save: a recording whose DebrisParentRecordingId points
+            // at itself. The closure must terminate (it does: the recording
+            // is only added if its parent id is already in the set, and it
+            // can never seed itself) and the self-parent recording stays
+            // visible because it is not retired.
+            var selfParent = Rec("rec_self", debrisParentRecordingId: "rec_self");
+            var unrelatedRetired = Rec("rec_other");
+            var recordings = new List<Recording> { selfParent, unrelatedRetired };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_other") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_other", retired);
+            Assert.DoesNotContain("rec_self", retired);
+        }
+
+        [Fact]
+        public void Cascade_TwoNodeCycleNeitherRetired_TerminatesAndStaysVisible()
+        {
+            // Corrupt save: A.parent = B, B.parent = A, neither retired.
+            // The closure must terminate (no seed to expand from) and leave
+            // both visible. Guards against an infinite loop if a future
+            // change ever seeds from one of them by accident.
+            var a = Rec("rec_A", debrisParentRecordingId: "rec_B");
+            var b = Rec("rec_B", debrisParentRecordingId: "rec_A");
+            var recordings = new List<Recording> { a, b };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_unrelated") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.DoesNotContain("rec_A", retired);
+            Assert.DoesNotContain("rec_B", retired);
+        }
+
+        [Fact]
+        public void Cascade_TwoNodeCycleOneRetired_HidesBothAndTerminates()
+        {
+            // A.parent = B, B.parent = A, A retired. The closure adds B (its
+            // parent A is retired), then A is already in the seed so the
+            // Contains short-circuit prevents re-add and the loop terminates.
+            var a = Rec("rec_A", debrisParentRecordingId: "rec_B");
+            var b = Rec("rec_B", debrisParentRecordingId: "rec_A");
+            var recordings = new List<Recording> { a, b };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_A") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_A", retired);
+            Assert.Contains("rec_B", retired);
+            Assert.Equal(2, retired.Count);
+        }
+
+        [Fact]
         public void Cascade_UnrelatedRecording_StaysVisible()
         {
             var parent = Rec("rec_parent");

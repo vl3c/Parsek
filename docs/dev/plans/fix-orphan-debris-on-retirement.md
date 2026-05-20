@@ -219,10 +219,26 @@ it touches shared static state via `EffectiveState.ResetCachesForTesting`.
     reference-equality fast-path, so the live cache stays empty and a
     subsequent live-store call returns the live result rather than the
     ad-hoc one.
+14. `Cascade_DepthFourChain_HidesAllDescendants` — fixed-point closure reaches
+    arbitrary depth (P -> c1 -> c2 -> c3), not just two levels.
+15. `Cascade_ReverseListOrder_StillReachesAllDescendants` — recordings ordered
+    descendant-first so a single pass would add only the first-level child;
+    pins that the `do/while` loop (not a single scan) completes the cascade.
+16. `Cascade_SelfParentRecording_TerminatesAndStaysVisibleWhenNotRetired` and
+    the two-node-cycle pair
+    (`Cascade_TwoNodeCycleNeitherRetired_TerminatesAndStaysVisible`,
+    `Cascade_TwoNodeCycleOneRetired_HidesBothAndTerminates`) — corrupt-save
+    defense: cyclic `DebrisParentRecordingId` graphs terminate (no infinite
+    loop) and resolve correctly whether or not a cycle member is retired.
 
-No in-game tests: the cascade is pure data over recording metadata, runs
-inside the existing ERS/timeline-inactive recomputation, and has no Unity
-dependency.
+One flight-scene end-to-end test in `FlightPlaybackExplainabilityTests`
+(`ComputePlaybackFlags_RetiredParentCascade_SkipsOrphanDebrisChildGhostAndSpawn`)
+drives the cascade through `ParsekFlight.ComputePlaybackFlags` (the live
+per-frame skip-state computation) and asserts the orphan child resolves to
+`GhostPlaybackSkipReason.RewindRetired` with `needsSpawn=false`, closing the
+gap between the pure cascade and the user-visible flight-scene behavior. No
+Unity-dependent in-game test is needed: `ComputePlaybackFlags` runs against an
+uninitialized `ParsekFlight` host with the recordings list passed in.
 
 ## Files Touched
 
@@ -234,7 +250,8 @@ dependency.
 - `Source/Parsek/ParsekKSC.cs` (update `IsTimelineInactiveForKsc`).
 - `Source/Parsek/UI/RecordingsTableUI.cs` (update `IsInactiveForDisplay` and
   `IsEffectiveReplacementForLaunchRewindOwner`).
-- `Source/Parsek.Tests/EffectiveState/OrphanDebrisOnRetirementTests.cs` (new
-  fixture).
+- `Source/Parsek.Tests/OrphanDebrisOnRetirementTests.cs` (new fixture).
+- `Source/Parsek.Tests/FlightPlaybackExplainabilityTests.cs` (one added
+  flight-scene end-to-end test).
 - `CHANGELOG.md` v0.10.0 Bug Fixes section.
 - `docs/dev/todo-and-known-bugs.md` new Open / Done entry.

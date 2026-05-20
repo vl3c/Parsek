@@ -303,6 +303,78 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePlaybackFlags_RetiredParentCascade_SkipsOrphanDebrisChildGhostAndSpawn()
+        {
+            // End-to-end through the flight-scene flag computation:
+            // ComputePlaybackFlags -> ComputeTimelineInactiveRecordingIds
+            // (cascade) -> rewindRetired bool -> GhostPlaybackSkipReason.
+            // Pins the user-visible bug path: a parent-anchored debris child
+            // of a retired re-fly fork must skip ghost + spawn even though
+            // the child carries no retirement row of its own.
+            RecordingStore.ResetForTesting();
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new List<RecordingSupersedeRelation>(),
+                RecordingRewindRetirements = new List<RecordingRewindRetirement>
+                {
+                    new RecordingRewindRetirement
+                    {
+                        RetirementId = "rrt_parent",
+                        RecordingId = "rec-retired-parent",
+                        RestoredRecordingId = "rec-restored",
+                        Reason = RecordingRewindRetirement.DefaultReason
+                    }
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+
+                var retiredParent = MakeRecording("rec-retired-parent", "Retired Fork");
+                retiredParent.VesselSnapshot = new ConfigNode("VESSEL");
+                retiredParent.TerminalStateValue = TerminalState.Orbiting;
+
+                // Orphan debris child: no retirement of its own, only the
+                // parent-anchor link to the retired fork.
+                var orphanDebris = MakeRecording("rec-orphan-debris", "Fork Debris");
+                orphanDebris.VesselSnapshot = new ConfigNode("VESSEL");
+                orphanDebris.TerminalStateValue = TerminalState.Orbiting;
+                orphanDebris.IsDebris = true;
+                orphanDebris.DebrisParentRecordingId = "rec-retired-parent";
+
+                var restored = MakeRecording("rec-restored", "Restored Vessel");
+
+                var committed = new List<Recording> { retiredParent, orphanDebris, restored };
+
+                TrajectoryPlaybackFlags[] flags = ComputePlaybackFlagsForTesting(host, committed, 200.0);
+
+                // Parent retired directly.
+                Assert.True(flags[0].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[0].skipReason);
+                Assert.False(flags[0].needsSpawn);
+
+                // Orphan debris child cascaded to RewindRetired.
+                Assert.True(flags[1].skipGhost);
+                Assert.Equal(GhostPlaybackSkipReason.RewindRetired, flags[1].skipReason);
+                Assert.False(flags[1].needsSpawn);
+
+                // Restored sibling stays visible.
+                Assert.False(flags[2].skipGhost);
+
+                Assert.Contains(logLines, line =>
+                    line.Contains("id=rec-orphan-debris")
+                    && line.Contains("reason=rewind-retired")
+                    && line.Contains("rewindRetired=True"));
+            }
+            finally
+            {
+                ParsekScenario.SetInstanceForTesting(null);
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void ComputePlaybackFlags_RewindRetiredRelativeAnchorChain_SkipsBothBeforeAnchorResolution()
         {
             RecordingStore.ResetForTesting();
