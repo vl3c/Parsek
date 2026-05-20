@@ -151,11 +151,11 @@ namespace Parsek.Tests
                 autoRecordOnFirstModificationAfterSwitchEnabled: true,
                 isRecording: false,
                 hasNewVessel: true,
-                newVesselIsGhost: false,
-                newVesselIsEva: false);
+                newVesselIsGhost: false);
             var armDecision = ParsekFlight.EvaluatePostSwitchAutoRecordArmDecision(
                 shouldArm,
-                trackedInActiveTree: tree.BackgroundMap.ContainsKey(200));
+                trackedInActiveTree: tree.BackgroundMap.ContainsKey(200),
+                newVesselIsEva: false);
 
             Assert.Equal(
                 ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember,

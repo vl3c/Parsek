@@ -7,42 +7,48 @@ namespace Parsek.Tests
     public class PostSwitchAutoRecordTests
     {
         [Theory]
-        [InlineData(true, false, true, false, false, true)]
-        [InlineData(false, false, true, false, false, false)]
-        [InlineData(true, true, true, false, false, false)]
-        [InlineData(true, false, false, false, false, false)]
-        [InlineData(true, false, true, true, false, false)]
-        [InlineData(true, false, true, false, true, false)]
+        [InlineData(true, false, true, false, true)]
+        [InlineData(false, false, true, false, false)]
+        [InlineData(true, true, true, false, false)]
+        [InlineData(true, false, false, false, false)]
+        [InlineData(true, false, true, true, false)]
         public void ShouldArmPostSwitchAutoRecord_RequiresIdleEnabledRealVessel(
             bool enabled,
             bool isRecording,
             bool hasNewVessel,
             bool newVesselIsGhost,
-            bool newVesselIsEva,
             bool expected)
         {
             bool result = ParsekFlight.ShouldArmPostSwitchAutoRecord(
                 enabled,
                 isRecording,
                 hasNewVessel,
-                newVesselIsGhost,
-                newVesselIsEva);
+                newVesselIsGhost);
 
             Assert.Equal(expected, result);
         }
 
         [Theory]
-        [InlineData(false, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.None)]
-        [InlineData(true, true, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember)]
-        [InlineData(true, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmOutsider)]
+        // !shouldArm always yields None, regardless of tracked/EVA.
+        [InlineData(false, false, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.None)]
+        [InlineData(false, true, true, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.None)]
+        // Tracked background member arms whether or not it is EVA (the promotion fix:
+        // a re-controlled EVA kerbal must promote instead of looping the recovery).
+        [InlineData(true, true, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember)]
+        [InlineData(true, true, true, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember)]
+        // Outsider arms only for non-EVA; a fresh EVA outsider is owned by the EVA path.
+        [InlineData(true, false, false, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.ArmOutsider)]
+        [InlineData(true, false, true, (int)ParsekFlight.PostSwitchAutoRecordArmDecision.None)]
         public void EvaluatePostSwitchAutoRecordArmDecision_ReturnsExpectedAction(
             bool shouldArm,
             bool trackedInActiveTree,
+            bool newVesselIsEva,
             int expected)
         {
             var result = ParsekFlight.EvaluatePostSwitchAutoRecordArmDecision(
                 shouldArm,
-                trackedInActiveTree);
+                trackedInActiveTree,
+                newVesselIsEva);
 
             Assert.Equal((ParsekFlight.PostSwitchAutoRecordArmDecision)expected, result);
         }

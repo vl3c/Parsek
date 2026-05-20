@@ -12,6 +12,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Re-controlled EVA kerbal never promoted back to foreground recording after a vessel switch
+
+- Follow-up to the flag-capture fix (`logs/2026-05-20_2333_flag-spawn-mun/`). After EVA'ing a kerbal, switching to a nearby vessel, and switching back to the kerbal, the kerbal stayed tracked only in the tree's `BackgroundMap` with the foreground recorder idle. `HandleMissedVesselSwitchRecovery` warn-rate-limited `recorderPid=0 ... trackedInBackground=True` every frame for the whole stay and never promoted her, so her controlled actions were only recorded at background fidelity.
+- **Root cause:** the post-switch auto-record watcher (#546) is the mechanism that promotes a switched-to background member to foreground on its first real physical change. `ParsekFlight.ShouldArmPostSwitchAutoRecord` ended with `&& !newVesselIsEva`, excluding EVA kerbals from arming **entirely**. That exclusion is correct for a fresh EVA (owned by the dedicated `OnCrewOnEva` / `DeferredEvaBranch` + "Auto-record on EVA" path) but too broad: it also blocked the tracked-background-member arm path. With no arm, `ShouldRecoverMissedVesselSwitch` returns `trackedInBackground && !alreadyArmed` = true every frame, so the recovery looped forever and never promoted.
+- **Fix:** the EVA gate moved out of `ShouldArmPostSwitchAutoRecord` and into `EvaluatePostSwitchAutoRecordArmDecision`, applied only to the `ArmOutsider` branch. A tracked background member now arms (`ArmTrackedBackgroundMember`) whether or not it is EVA, so first movement (`LandedMotion` / `AttitudeChange`) promotes its existing recording via `PromoteRecordingFromBackground` and the recovery stops (the arm flips `activeVesselAlreadyArmedForPostSwitchAutoRecord` true). A fresh/untracked EVA outsider still returns `None`, keeping it owned by the dedicated EVA path. The downstream promotion pipeline (`EvaluatePostSwitchAutoRecordStartDecision` -> `PromoteRecordingFromBackground`) is already vessel-agnostic; only the arm gate changed.
+- **Relation to #534 / #546:** #546 built the post-switch arming/trigger policy; this closes the EVA carve-out gap inside it. The spawned-chain-tip restore-and-promote seam (`RestoreAndPromoteTrackedRecording`) remains gated under open #534, unchanged.
+- **Tests:** updated `PostSwitchAutoRecordTests` for the new signatures, including the load-bearing cases tracked+EVA -> `ArmTrackedBackgroundMember` and outsider+EVA -> `None`. The recovery-loop-stops-when-armed linkage is covered by the existing `ShouldRecoverMissedVesselSwitch_ArmedTrackedVessel_ReturnsFalse`. Full suite green.
+- **Status:** CLOSED 2026-05-21.
+
+---
+
 ## Done - v0.10.0 Bail-Out Grant currency exchange silently reverted by the ledger
 
 - Investigation 2026-05-20 (follow-up to the reputation-reservation study, `docs/dev/research/reputation-reservation-not-warranted.md`). Stock KSP's Bail-Out Grant is a one-shot Administration strategy whose `CurrencyExchanger` effect runs a real Reputation-to-Funds wallet swap on `Strategy.Activate()`: `Reputation.Instance.AddReputation(-(rep+1000)*share, StrategyInput)` and `Funding.Instance.AddFunds(that*rate, StrategyOutput)`. All `initialCost*` are 0.
