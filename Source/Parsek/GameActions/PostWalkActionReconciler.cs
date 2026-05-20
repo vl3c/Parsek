@@ -240,6 +240,11 @@ namespace Parsek
                     if (action.FundsSource == FundsEarningSource.ContractComplete) return exp;
                     if (action.FundsSource == FundsEarningSource.ContractAdvance) return exp;
                     if (action.FundsSource == FundsEarningSource.Milestone) return exp;
+                    // Strategy currency-exchange output (Bail-Out Grant, reason
+                    // StrategyOutput) is captured directly from the FundsChanged event,
+                    // not paired with a "Other"-reason event, so skip reconciliation to
+                    // avoid a false WARN. See fix-bailout-grant-currency-exchange-capture.md.
+                    if (action.FundsSource == FundsEarningSource.Strategy) return exp;
                     exp.Reconcile = true;
                     exp.Funds = new PostWalkLeg
                     {

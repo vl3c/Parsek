@@ -111,7 +111,12 @@ KSC actions at the current UT, never committed-future:
   `Reputation.Instance.AddReputation(-InitialCostReputation, StrategySetup)`
   (Fundraising, Unpaid Research, Aggressive Negotiations, Leadership Initiative).
 - Bail-Out Grant: a `CurrencyExchanger` one-time Rep->Funds spend on activation
-  (reason `StrategyInput`).
+  (reasons `StrategyInput` / `StrategyOutput`). NOTE: this investigation found
+  Parsek did not capture the Bail-Out Grant exchange (its `InitialCost*` are all
+  zero and the `FundsChanged` / `ReputationChanged` events were dropped), so the
+  next recalc reverted it. Fixed separately: see
+  `docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md`. This is a
+  current-UT KSC capture gap, not a reservation question.
 
 Parsek captures strategy activation from the live `Strategy.Activate()` postfix
 (`StrategyLifecyclePatch`) at `Planetarium.GetUniversalTime()`

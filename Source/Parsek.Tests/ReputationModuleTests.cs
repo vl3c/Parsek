@@ -316,6 +316,57 @@ namespace Parsek.Tests
             Assert.InRange(module.GetRunningRep(), -35f, -25f);
         }
 
+        // Strategy-source penalty (Bail-Out Grant CurrencyExchanger input) carries the
+        // ALREADY post-curve magnitude, so the module must apply it literally without a
+        // second curve pass.
+        [Fact]
+        public void ProcessAction_RepPenalty_StrategySource_BypassesCurve()
+        {
+            // Seed running rep to 500 so the loss curve would materially change a loss.
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 500f
+            });
+            Assert.Equal(500f, module.GetRunningRep());
+
+            var action = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 1000.0,
+                NominalPenalty = 100f,
+                RepPenaltySource = ReputationPenaltySource.Strategy
+            };
+            module.ProcessAction(action);
+
+            // Literal: -NominalPenalty applied directly, no curve amplification.
+            Assert.Equal(-100f, action.EffectiveRep);
+            Assert.Equal(400f, module.GetRunningRep());
+            Assert.Contains(logLines, l =>
+                l.Contains("[Reputation]") && l.Contains("Strategy, pre-curved"));
+        }
+
+        // Regression guard: a non-Strategy penalty at the same high rep DOES curve, so the
+        // effective loss exceeds its nominal magnitude. Confirms the bypass is source-scoped.
+        [Fact]
+        public void ProcessAction_RepPenalty_NonStrategySource_AppliesCurveAtHighRep()
+        {
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 500f
+            });
+
+            var action = MakeRepPenalty(100f, 1000.0); // RepPenaltySource.Other
+            module.ProcessAction(action);
+
+            Assert.True(action.EffectiveRep < -100f,
+                $"loss curve should amplify beyond -100 at high rep, got {action.EffectiveRep}");
+            Assert.True(module.GetRunningRep() < 400f);
+        }
+
         // ================================================================
         // ProcessAction — Milestone rep (Effective flag)
         // ================================================================
