@@ -408,7 +408,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint, CoBubble }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
 
         internal enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
 
@@ -486,19 +486,6 @@ namespace Parsek
             //      passed in, or both gates closed) skipped both paths.
             public string anchorRecordingId;
             public int anchorSectionIndex;
-
-            // Phase 5 P1-C: CoBubble mode fields. The Update path enqueues
-            // a GhostPosEntry whose mode == CoBubble whenever the blender
-            // returned a finite offset; LateUpdate re-evaluates the blender
-            // + standalone primary so the FloatingOrigin shift cannot snap
-            // the ghost back to its bare standalone position. Without this,
-            // LateUpdate's PointInterp branch overwrote the
-            // primary+offset composition every late frame, producing visible
-            // per-frame flicker between Update (correct) and LateUpdate
-            // (wrong). Only valid when mode == CoBubble.
-            public string coBubblePeerRecordingId;
-            public string coBubblePrimaryRecordingId;
-            public double coBubblePointUT;
 
         }
 
@@ -1621,104 +1608,6 @@ namespace Parsek
                         }
                         break;
                     }
-                    case GhostPosMode.CoBubble:
-                    {
-                        // Phase 5 P1-C: re-evaluate the blender + primary
-                        // standalone in LateUpdate so the FloatingOrigin
-                        // shift cannot snap the ghost back to the standalone
-                        // bracket position. The Update path already chose
-                        // the CoBubble mode (blender hit + primary resolved);
-                        // here we recompute peer-standalone AND the
-                        // primary+offset target, then lerp between them with
-                        // the blender's blend factor (crossfade-tail
-                        // continuity). Any failure (primary now missing,
-                        // blender mid-session miss) falls through to the
-                        // bare peer-standalone position so HR-9 holds.
-                        if (e.bodyBefore == null) break;
-                        if (e.bodyAfter == null) break;
-
-                        // Always compute peer-standalone (mirrors PointInterp's
-                        // body of work). The lerp at blend=0 lands here, so the
-                        // crossfade-tail handoff to MissCrossfadeOut is exact.
-                        Vector3d standalonePos;
-                        if (!TryComputeLateUpdateSplineWorldPosition(e, out standalonePos))
-                        {
-                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                                e.latBefore, e.lonBefore, e.altBefore);
-                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                                e.latAfter, e.lonAfter, e.altAfter);
-                            if (!allowPointHermiteInterpolation(
-                                    false,
-                                    splineApplied: false,
-                                    allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
-                                    out _))
-                            {
-                                standalonePos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                            }
-                            else
-                            {
-                                double hermiteMaxDeviationMeters =
-                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-                                if (!TrajectoryMath.TryInterpolateWorldHermite(
-                                        posBefore,
-                                        e.velocityBefore,
-                                        posAfter,
-                                        e.velocityAfter,
-                                        e.pointDeltaTimeSeconds,
-                                        e.t,
-                                        hermiteMaxDeviationMeters,
-                                        out standalonePos,
-                                        out _,
-                                        out _))
-                                {
-                                    standalonePos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                                }
-                            }
-                        }
-                        if (allowRenderAnchorCorrectionInterval(
-                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                false,
-                                out Vector3d lateEps, out _))
-                        {
-                            standalonePos += lateEps;
-                        }
-
-                        bool blendApplied = false;
-                        if (Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                                e.coBubblePeerRecordingId, e.coBubblePointUT,
-                                out Vector3d worldOffset,
-                                out double blend,
-                                out Parsek.Rendering.CoBubbleBlendStatus _,
-                                out string lateprimary)
-                            && !string.IsNullOrEmpty(lateprimary)
-                            && TryComputeStandaloneWorldPositionForRecording(
-                                lateprimary, e.coBubblePointUT, e.bodyBefore,
-                                out Vector3d primaryWorld,
-                                suppressAnchorCorrection: false))
-                        {
-                            Vector3d coBubbleTarget = primaryWorld + worldOffset;
-                            Vector3d composed = Vector3d.Lerp(standalonePos, coBubbleTarget, blend);
-                            ApplyGhostReapplyTransform(
-                                e,
-                                composed,
-                                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                                phase);
-                            blendApplied = true;
-                        }
-                        if (!blendApplied)
-                        {
-                            ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                                "cobubble-late-update-fallback",
-                                $"cobubble-late-update-fallback peer={e.coBubblePeerRecordingId} primary={e.coBubblePrimaryRecordingId}",
-                                5.0);
-                            ApplyGhostReapplyTransform(
-                                e,
-                                standalonePos,
-                                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                                phase);
-                        }
-                        break;
-                    }
                 }
 
                 TraceGhostPositionReapply(e, phase, positionBeforeReapply, e.ghost.transform.position);
@@ -1744,7 +1633,6 @@ namespace Parsek
         {
             if (!string.IsNullOrEmpty(entry.recordingId)) return entry.recordingId;
             if (!string.IsNullOrEmpty(entry.anchorRecordingId)) return entry.anchorRecordingId;
-            if (!string.IsNullOrEmpty(entry.coBubblePeerRecordingId)) return entry.coBubblePeerRecordingId;
             if (!string.IsNullOrEmpty(entry.relativeAnchorRecordingId)) return entry.relativeAnchorRecordingId;
             return null;
         }
@@ -1760,7 +1648,6 @@ namespace Parsek
             string recordingId =
                 !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
                 !string.IsNullOrEmpty(entry.anchorRecordingId) ? entry.anchorRecordingId :
-                !string.IsNullOrEmpty(entry.coBubblePeerRecordingId) ? entry.coBubblePeerRecordingId :
                 !string.IsNullOrEmpty(entry.relativeAnchorRecordingId) ? entry.relativeAnchorRecordingId :
                 null;
             double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : entry.pointUT;
@@ -1899,7 +1786,6 @@ namespace Parsek
                     string traceRecordingId =
                         !string.IsNullOrEmpty(e.recordingId) ? e.recordingId :
                         !string.IsNullOrEmpty(e.anchorRecordingId) ? e.anchorRecordingId :
-                        !string.IsNullOrEmpty(e.coBubblePeerRecordingId) ? e.coBubblePeerRecordingId :
                         !string.IsNullOrEmpty(e.relativeAnchorRecordingId) ? e.relativeAnchorRecordingId :
                         null;
                     double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : e.pointUT;
@@ -20471,49 +20357,6 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            // Phase 5 co-bubble overlap blend (design doc §6.5, §10, §18 Phase 5).
-            // When the recording is a peer of a designated primary AND a
-            // populated co-bubble offset trace covers the current playback UT,
-            // blend the peer's standalone position with primary's standalone
-            // P_render(t) + recorded offset. HR-15: the primary's P_render
-            // reads from the primary RECORDING, not live KSP state — so a
-            // live re-fly's player input does not move the peer ghost.
-            // The blender returns the UN-FADED offset plus a blend factor in
-            // [0,1]; the caller composes
-            //   peer = Lerp(peer_standalone, primary + worldOffset, blend)
-            // so the crossfade-tail handoff to MissCrossfadeOut past EndUT
-            // is continuous (blend=0 already renders at peer_standalone).
-            // Any miss (status != Hit/HitCrossfade) is a silent fall-through —
-            // standalone Stages 1+2+3+4 already produced a valid position.
-            bool coBubbleHit = false;
-            string coBubblePrimaryId = null;
-            Vector3d coBubbleOffset = Vector3d.zero;
-            double coBubbleBlend = 0.0;
-            Parsek.Rendering.CoBubbleBlendStatus blendStatus = default(Parsek.Rendering.CoBubbleBlendStatus);
-            string coBubbleReason = "not-evaluated";
-            if (allowRenderCoBubbleBlend(recordingId, targetUT, false,
-                    out coBubbleOffset, out coBubbleBlend, out string primaryRecordingId,
-                    out blendStatus, out coBubbleReason))
-            {
-                if (TryComputeStandaloneWorldPositionForRecording(
-                        primaryRecordingId, targetUT, bodyBefore,
-                        out Vector3d primaryWorld,
-                        suppressAnchorCorrection: false))
-                {
-                    Vector3d coBubbleTarget = primaryWorld + coBubbleOffset;
-                    interpolatedPos = Vector3d.Lerp(interpolatedPos, coBubbleTarget, coBubbleBlend);
-                    coBubbleHit = true;
-                    coBubblePrimaryId = primaryRecordingId;
-                    RecordCoBubbleEvalForLogging();
-                }
-                else
-                {
-                    coBubbleReason = "primary-standalone-failed";
-                    Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss(
-                        recordingId, "primary-standalone-failed");
-                }
-            }
-
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
@@ -20526,7 +20369,7 @@ namespace Parsek
                     traceCurrentUT,
                     targetUT,
                     "UpdatePath",
-                    "mode=" + (coBubbleHit ? "CoBubble" : "PointInterp")
+                    "mode=PointInterp"
                     + " pointFrameSource=" + (pointFrameSource ?? "input")
                     + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
                     + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
@@ -20546,11 +20389,6 @@ namespace Parsek
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
-                    + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
-                    + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
-                    + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
-                    + " coBubbleBlend=" + (coBubbleHit ? coBubbleBlend.ToString("F3", CultureInfo.InvariantCulture) : "<n/a>")
-                    + " coBubbleReason=" + coBubbleReason
                     + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
@@ -20565,59 +20403,24 @@ namespace Parsek
             // always-stored when (recordingId, sectionIndex) is valid; the gates
             // (settings flag, store presence) are re-checked at LateUpdate.
             bool hasLookupKey = !string.IsNullOrEmpty(recordingId) && sectionIndex >= 0;
-            // Phase 5 P1-C: when the co-bubble blender produced a finite
-            // offset, register a CoBubble-mode entry so LateUpdate re-runs
-            // the blender + primary-standalone instead of the bare
-            // PointInterp re-evaluation. PointInterp's LateUpdate branch
-            // would otherwise overwrite the primary+offset composition with
-            // the standalone bracket lerp, producing visible per-frame
-            // flicker. On any failure inside the LateUpdate CoBubble case
-            // the switch falls through to the standalone path so HR-9 holds.
-            if (coBubbleHit)
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
-                AddOrReplaceGhostPosEntry(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.CoBubble,
-                    recordingId = recordingId,
-                    bodyBefore = bodyBefore,
-                    bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
-                    t = t,
-                    pointUT = targetUT,
-                    pointDeltaTimeSeconds = after.ut - before.ut,
-                    interpolatedRot = interpolatedRot,
-                    velocityBefore = before.velocity,
-                    velocityAfter = after.velocity,
-                    anchorRecordingId = hasLookupKey ? recordingId : null,
-                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
-                    coBubblePeerRecordingId = recordingId,
-                    coBubblePrimaryRecordingId = coBubblePrimaryId,
-                    coBubblePointUT = targetUT,
-                });
-            }
-            else
-            {
-                AddOrReplaceGhostPosEntry(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.PointInterp,
-                    recordingId = recordingId,
-                    bodyBefore = bodyBefore,
-                    bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
-                    t = t,
-                    pointUT = targetUT,
-                    pointDeltaTimeSeconds = after.ut - before.ut,
-                    interpolatedRot = interpolatedRot,
-                    velocityBefore = before.velocity,
-                    velocityAfter = after.velocity,
-                    anchorRecordingId = hasLookupKey ? recordingId : null,
-                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
-                });
-            }
+                ghost = ghost,
+                mode = GhostPosMode.PointInterp,
+                recordingId = recordingId,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
+                t = t,
+                pointUT = targetUT,
+                pointDeltaTimeSeconds = after.ut - before.ut,
+                interpolatedRot = interpolatedRot,
+                velocityBefore = before.velocity,
+                velocityAfter = after.velocity,
+                anchorRecordingId = hasLookupKey ? recordingId : null,
+                anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
+            });
 
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
@@ -20801,56 +20604,6 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>
-        /// Phase 5 co-bubble blend gate (design doc §6.5 / §10 / §18 Phase 5
-        /// / HR-9 / HR-15). Returns <c>true</c> with a populated
-        /// <paramref name="worldOffset"/> and resolved
-        /// <paramref name="primaryRecordingId"/> when the recording has a
-        /// designated primary AND a populated co-bubble offset trace covers
-        /// the supplied <paramref name="targetUT"/>. Any miss is a silent
-        /// fall-through: the consumer keeps the standalone Stages 1+2+3+4
-        /// position. <paramref name="status"/> exposes the precise miss
-        /// reason for diagnostics; per-status dedup happens inside the
-        /// blender via <see cref="Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss"/>.
-        /// </summary>
-        internal static bool allowCoBubbleBlend(string recordingId, double targetUT,
-            out Vector3d worldOffset, out double blend, out string primaryRecordingId,
-            out Parsek.Rendering.CoBubbleBlendStatus status)
-        {
-            return Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                recordingId, targetUT, out worldOffset, out blend, out status, out primaryRecordingId);
-        }
-
-        internal static bool allowRenderCoBubbleBlend(
-            string recordingId,
-            double targetUT,
-            bool suppressBlend,
-            out Vector3d worldOffset,
-            out double blend,
-            out string primaryRecordingId,
-            out Parsek.Rendering.CoBubbleBlendStatus status,
-            out string reason)
-        {
-            worldOffset = Vector3d.zero;
-            blend = 0.0;
-            primaryRecordingId = null;
-            status = default(Parsek.Rendering.CoBubbleBlendStatus);
-            if (suppressBlend)
-            {
-                reason = "suppressed";
-                return false;
-            }
-
-            if (allowCoBubbleBlend(recordingId, targetUT, out worldOffset, out blend, out primaryRecordingId, out status))
-            {
-                reason = "applied";
-                return true;
-            }
-
-            reason = status.ToString();
-            return false;
-        }
-
         internal static bool allowPointHermiteInterpolation(
             bool suppressHermite,
             bool splineApplied,
@@ -20901,306 +20654,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Phase 5 helper: computes the standalone Stages 1+2+3+4 world
-        /// position for an arbitrary recording id at <paramref name="ut"/>.
-        /// Uses the recording's <see cref="Recording.Points"/>, playback-mode
-        /// gated <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline,
-        /// and <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
-        /// same composition the Update path uses for its own recording.
-        /// HR-15: never reads live <see cref="Vessel"/> state. Returns false
-        /// when the recording is missing, has no sample bracketing
-        /// <paramref name="ut"/>, or the body cannot be resolved.
-        /// </summary>
-        internal static bool TryComputeStandaloneWorldPositionForRecording(
-            string recordingId,
-            double ut,
-            CelestialBody fallbackBody,
-            out Vector3d worldPos,
-            bool suppressAnchorCorrection = false)
-        {
-            worldPos = default;
-            if (string.IsNullOrEmpty(recordingId)) return false;
-
-            Recording rec = ResolveRecordingById(recordingId);
-            if (rec == null) return false;
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                    rec,
-                    ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
-            {
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneWorldPositionForRecording",
-                    "body-fixed-primary-unavailable",
-                    retireDiagnostic);
-                return false;
-            }
-
-            // P1-D: resolve the section's referenceFrame BEFORE reading
-            // before.latitude / longitude / altitude. v6+ RELATIVE-frame
-            // sections store metre offsets (dx/dy/dz) in those fields, NOT
-            // body-fixed lat/lon/alt; calling
-            // body.GetWorldSurfacePosition(metre, metre, metre) silently
-            // produces a position deep inside the planet. The fallback path
-            // below handles ABSOLUTE sections; for RELATIVE we route through
-            // the existing instance helpers (TryUseBodyFixedPrimaryFor… for
-            // active-re-fly cases, TryResolveRelativeWorldPosition for the
-            // anchor-bound common case). Checkpoint sections aren't relevant
-            // for primary's P_render(t) — return false with a Verbose so
-            // tuning is visible.
-            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, ut);
-            TrackSection? maybeSection = null;
-            if (rec.TrackSections != null && sectionIndex >= 0 && sectionIndex < rec.TrackSections.Count)
-                maybeSection = rec.TrackSections[sectionIndex];
-
-            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-checkpoint-skip",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneWorldPositionForRecording: OrbitalCheckpoint section unsupported recording={0} ut={1}",
-                        recordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-
-            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.Relative)
-            {
-                return TryComputeStandaloneRelativeWorldPosition(rec, maybeSection.Value, ut, out worldPos);
-            }
-
-            // ABSOLUTE-frame section (or no track-section context — pre-v3
-            // recordings without explicit TrackSections fall through here
-            // via maybeSection.HasValue == false).
-            // Linear-interpolate the bracketing points and lift to body
-            // surface position (mirrors the Update path's lerp + spline
-            // composition). HR-15: this reads from rec.Points only, never
-            // from live KSP state.
-            int idx = -1;
-            for (int i = 0; i < rec.Points.Count; i++)
-            {
-                if (rec.Points[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). The pre-fix idx <= 0
-            // collapse clamped both cases to rec.Points[0] — past end
-            // produced an early-recording position, jumping the primary
-            // backwards in time when ut > rec.Points last UT.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-absolute-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
-                        recordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0)
-            {
-                before = rec.Points[0];
-                after = before;
-                t = 0f;
-            }
-            else
-            {
-                before = rec.Points[idx - 1];
-                after = rec.Points[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-
-            CelestialBody body = !object.ReferenceEquals(fallbackBody, null)
-                && string.Equals(fallbackBody.bodyName, before.bodyName, StringComparison.Ordinal)
-                ? fallbackBody
-                : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            if (object.ReferenceEquals(body, null)) return false;
-
-            double altBefore = ResolveEffectiveAltitudeWithTailLift(
-                body, before.latitude, before.longitude, before.altitude,
-                before.recordedGroundClearance, ReferenceFrame.Absolute,
-                before.ut, recordingId);
-            double altAfter = ResolveEffectiveAltitudeWithTailLift(
-                body, after.latitude, after.longitude, after.altitude,
-                after.recordedGroundClearance, ReferenceFrame.Absolute,
-                after.ut, recordingId);
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
-            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
-
-            // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
-            // through the Phase 5 blender — primaries always render
-            // standalone, design doc §6.5).
-            if (allowSplinePositioningForPlayback(
-                    suppressSpline: suppressAnchorCorrection,
-                    allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
-                    out _)
-                && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
-            {
-                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
-                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
-                {
-                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
-                        spline.FrameTag,
-                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
-                        body, ut, recordingId, sectionIndex);
-                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
-                        pos = splineWorld;
-                }
-            }
-            if (!suppressAnchorCorrection
-                && allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
-                pos += eps;
-            worldPos = pos;
-            return true;
-        }
-
-        /// <summary>
-        /// P1-D: RELATIVE-frame standalone resolver for
-        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. Post-reset
-        /// RELATIVE sections store metre offsets in <c>latitude</c>/
-        /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
-        /// would land deep inside the planet. Sections resolve through
-        /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
-        /// except ordinary parent-anchored debris, where v13 makes
-        /// <c>bodyFixedFrames</c> the primary render surface and a primary miss
-        /// fails closed instead of falling through to recorded Relative replay.
-        /// </summary>
-        private static bool TryComputeStandaloneRelativeWorldPosition(
-            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            bool ordinaryParentAnchoredDebris =
-                GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
-            if (ordinaryParentAnchoredDebris)
-            {
-                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                    rec,
-                    ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic coverageDiagnostic);
-
-                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                    return true;
-
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneRelativeWorldPosition",
-                    "body-fixed-primary-position-failed",
-                    coverageDiagnostic);
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
-            {
-                ParsekLog.WarnRateLimited("Pipeline-CoBubble",
-                    "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2}",
-                        "anchor-recording-id-missing",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                    return true;
-                return false;
-            }
-
-            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
-            bool skipRecordedRelativeResolver =
-                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                    rec,
-                    ut,
-                    out diagnostic);
-            if (skipRecordedRelativeResolver)
-            {
-                if (diagnostic.BodyFixedFramesCoverUT
-                    && TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                {
-                    return true;
-                }
-
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneRelativeWorldPosition",
-                    diagnostic.BodyFixedFramesCoverUT
-                        ? "body-fixed-primary-position-failed"
-                        : "body-fixed-primary-unavailable",
-                    diagnostic);
-                return false;
-            }
-
-            RelativeAnchorResolveFailure failure = default;
-            if (TryBuildRelativeAnchorResolverContext(
-                    rec.RecordingId,
-                    out RelativeAnchorResolverContext context)
-                && RelativeAnchorResolver.TryResolveRecordingPose(
-                    context,
-                    rec,
-                    ut,
-                    new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose pose,
-                    out failure))
-            {
-                worldPos = pose.WorldPos;
-                return true;
-            }
-
-            if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                return true;
-
-            string failureReason = RelativeAnchorResolveFailure.ReasonOrFallback(
-                failure,
-                "recorded-anchor-unresolved");
-            ParsekLog.WarnRateLimited("Pipeline-CoBubble",
-                "standalone-relative-chain-unresolved|" + (rec.RecordingId ?? "(none)") + "|" + section.anchorRecordingId,
-                string.Format(CultureInfo.InvariantCulture,
-                    "TryComputeStandaloneRelativeWorldPosition: chain resolver failed recording={0} anchorRecordingId={1} ut={2} outcome={3} reason={4}",
-                    rec.RecordingId,
-                    section.anchorRecordingId,
-                    ut.ToString("R", CultureInfo.InvariantCulture),
-                    failure.Outcome,
-                    failureReason),
-                5.0);
-            return false;
-        }
-
-        private static void LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-            Recording rec,
-            double ut,
-            string callsite,
-            string routeReason,
-            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
-        {
-            string recordingId = rec?.RecordingId ?? "(none)";
-            string key = "standalone-parent-debris-body-fixed-failed-closed|"
-                + recordingId + "|" + (callsite ?? "(unknown)");
-            ParsekLog.WarnRateLimited(
-                "Pipeline-CoBubble",
-                key,
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording={1} ut={2} routeReason={3} coverageReason={4} sectionIndex={5} sectionUT={6} relativeFrames={7} bodyFixedFrames={8} anchorRec={9}",
-                    callsite ?? "(unknown)",
-                    recordingId,
-                    ut.ToString("R", CultureInfo.InvariantCulture),
-                    routeReason ?? "(unknown)",
-                    diagnostic.Reason ?? "(unknown)",
-                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
-                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
-                    diagnostic.AnchorRecordingId ?? "(none)"),
-                5.0);
-        }
-
         private static string FormatStandaloneCoverageRange(double startUT, double endUT)
         {
             if (double.IsNaN(startUT) || double.IsNaN(endUT))
@@ -21243,199 +20696,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// P1-C static helper: resolves the active re-fly target's vessel
-        /// persistent ID by walking <see cref="RecordingStore.CommittedTrees"/>
-        /// and <see cref="RecordingStore.PendingTree"/>, then
-        /// <see cref="RecordingStore.CommittedRecordings"/>. Mirrors the
-        /// instance method <see cref="TryResolveActiveReFlyPid"/> but is
-        /// callable from the static standalone-helper path used by
-        /// <see cref="TryComputeStandaloneRelativeWorldPosition"/>.
-        /// </summary>
-        internal static bool TryResolveActiveReFlyPidStatic(
-            ReFlySessionMarker marker, out uint activeReFlyPid)
-        {
-            activeReFlyPid = 0u;
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return false;
-
-            IReadOnlyList<RecordingTree> searchTrees =
-                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (searchTrees != null)
-            {
-                for (int t = 0; t < searchTrees.Count; t++)
-                {
-                    RecordingTree tree = searchTrees[t];
-                    if (tree?.Recordings == null) continue;
-                    Recording rec;
-                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
-                        && rec != null
-                        && rec.VesselPersistentId != 0u)
-                    {
-                        activeReFlyPid = rec.VesselPersistentId;
-                        return true;
-                    }
-                }
-            }
-
-            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    Recording rec = committed[i];
-                    if (rec == null
-                        || !string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
-                        || rec.VesselPersistentId == 0u)
-                    {
-                        continue;
-                    }
-                    activeReFlyPid = rec.VesselPersistentId;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
-        /// that bypasses the live anchor by linear-interpolating
-        /// <see cref="TrackSection.bodyFixedFrames"/>. Returns false when
-        /// the body-fixed primary has no authored coverage for the target
-        /// UT or the body cannot be resolved — the caller surfaces the
-        /// failure as HR-9 visible-failure.
-        /// </summary>
-        private static bool TryComputeStandaloneBodyFixedPrimaryWorldPosition(
-            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            List<TrajectoryPoint> shadow = section.bodyFixedFrames;
-            if (!BodyFixedPrimaryCoversPlaybackUT(
-                    section, ut, out _, out _))
-            {
-                if (shadow != null
-                    && shadow.Count > 0
-                    && ut > shadow[shadow.Count - 1].ut + 1e-6)
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                        "primary-active-refly-shadow-past-end",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
-                            rec.RecordingId,
-                            ut.ToString("R", CultureInfo.InvariantCulture),
-                            shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                        5.0);
-                }
-                return false;
-            }
-
-            int idx = -1;
-            for (int i = 0; i < shadow.Count; i++)
-            {
-                if (shadow[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Past end is HR-9 visible failure: fail closed and emit a
-            // rate-limited Verbose so tuning is observable. Normal callers
-            // are pre-gated by BodyFixedPrimaryCoversPlaybackUT, so this
-            // branch only catches malformed or unsorted frame lists.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "primary-active-refly-shadow-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0)
-            {
-                before = shadow[0];
-                after = before;
-                t = 0f;
-            }
-            else
-            {
-                before = shadow[idx - 1];
-                after = shadow[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-            CelestialBody body;
-            try
-            {
-                body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            }
-            catch (TypeInitializationException) { return false; }
-            catch (System.Security.SecurityException) { return false; }
-            if (object.ReferenceEquals(body, null)) return false;
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return true;
-        }
-
-        /// <summary>
-        /// P1-D legacy fallback for v5-and-older RELATIVE-frame primaries:
-        /// lat/lon/alt-as-lat/lon/alt path matching the original (broken-
-        /// for-v6) implementation. Kept so a recording with a mixed-history
-        /// chain that happens to span legacy-v5 and v6+ doesn't suddenly
-        /// drop primary positions for its older sections.
-        /// </summary>
-        private static bool TryComputeStandaloneAbsoluteFallbackWorldPosition(
-            Recording rec, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            int idx = -1;
-            for (int i = 0; i < rec.Points.Count; i++)
-            {
-                if (rec.Points[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). See sibling comment in
-            // TryComputeStandaloneBodyFixedPrimaryWorldPosition.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-fallback-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Legacy fallback past last point: recording={0} ut={1} lastPointUT={2}",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0) { before = rec.Points[0]; after = before; t = 0f; }
-            else
-            {
-                before = rec.Points[idx - 1];
-                after = rec.Points[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            if (object.ReferenceEquals(body, null)) return false;
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return true;
-        }
-
-        /// <summary>
         /// Resolves a recording by id without driving the active scene's
         /// playback context. Walks <see cref="RecordingStore.CommittedRecordings"/>
-        /// directly — the standalone-for-primary helper needs the peer's
-        /// data even when ERS would filter it out. Phase 5 ERS-exempt path
-        /// (mirrors RenderSessionState's exemption rationale).
+        /// directly so the preview-source tail-lift resolver can locate a
+        /// recording outside the active playback scope.
         /// </summary>
         private static Recording ResolveRecordingById(string recordingId)
         {
@@ -21459,46 +20723,6 @@ namespace Parsek
                 // Mid-load mutation; treat as missing.
             }
             return null;
-        }
-
-        // -------------------------------------------------------------------
-        //  Phase 5 per-frame summary (design doc §19.2 Stage 5).
-        //  Counts every successful co-bubble offset evaluation across the
-        //  Update path and emits a single Verbose Pipeline-CoBubble line per
-        //  second with the accumulated count. Mirrors the Phase 1
-        //  RecordSplineEvalForLogging contract.
-        // -------------------------------------------------------------------
-        private static int s_coBubbleEvalCount;
-        private static long s_coBubbleEvalLogLastTicks;
-        private const long CoBubbleEvalLogIntervalTicks = TimeSpan.TicksPerSecond;
-
-        internal static void RecordCoBubbleEvalForLogging()
-        {
-            int n = ++s_coBubbleEvalCount;
-            long now = NowProviderForTesting != null
-                ? NowProviderForTesting().Ticks
-                : DateTime.UtcNow.Ticks;
-            if (s_coBubbleEvalLogLastTicks == 0)
-            {
-                s_coBubbleEvalLogLastTicks = now;
-                return;
-            }
-            if (now - s_coBubbleEvalLogLastTicks >= CoBubbleEvalLogIntervalTicks)
-            {
-                double intervalSec = (now - s_coBubbleEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
-                ParsekLog.Verbose("Pipeline-CoBubble",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "frame summary: coBubbleEvals={0} intervalSec={1:F2}", n, intervalSec));
-                s_coBubbleEvalCount = 0;
-                s_coBubbleEvalLogLastTicks = now;
-            }
-        }
-
-        /// <summary>Test-only reset of the Phase 5 per-frame summary.</summary>
-        internal static void ResetCoBubbleEvalLoggingForTesting()
-        {
-            s_coBubbleEvalCount = 0;
-            s_coBubbleEvalLogLastTicks = 0;
         }
 
         /// <summary>

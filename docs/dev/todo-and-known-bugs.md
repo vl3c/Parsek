@@ -81,6 +81,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Retire the Phase 5 co-bubble peer blending subsystem
+
+- ~~`Co-bubble peer blending default flipped to off + Diagnostics toggle added` (closed 2026-05-17, above) demoted the subsystem to a default-off rollout gate after the playtest established that standalone Absolute trajectories are visually acceptable for stage-separation re-fly. Earlier in v0.10.0 the controlled-decoupled child parent-anchor contract took over the close-formation case that PR #872 / #874 worked around with co-bubble selector tiebreakers. PR 901 (force-Absolute re-fly toggle) and PR 909 (narrowed-gate re-fly Relative anchor selection) covered the remaining re-fly anchor questions. The subsystem is now genuinely unused: setting defaults off, no production code path enters its branch when off, no public users (pre-1.0 mod).~~
+
+**Fix:**
+- Deleted `CoBubbleBlender`, `CoBubbleOverlapDetector`, `CoBubblePrimarySelector`, `CoBubbleOffsetTrace` (production), all five `CoBubble*Tests` xUnit files, the two `Pipeline_CoBubble_*` in-game tests, and the `phase5-cobubble-blend.md` design doc.
+- Removed `useCoBubbleBlend` from `ParsekSettings`, `ParsekSettingsPersistence`, and the Settings window > Diagnostics toggle.
+- `.pann` schema: dropped the `CoBubbleOffsetTraces` read/write block, removed the `useCoBubbleBlend` byte + co-bubble persisted tunables from `ConfigurationHash`'s canonical encoding (86 -> 73 bytes), shrunk the 4-out `TryRead` overload to 3-out. Existing `.pann` sidecars regenerate on next load through `config-hash-drift` (HR-10). `AlgorithmStampVersion` intentionally not bumped (the hash change already drives invalidation).
+- `.prec` schema unchanged. `RecordingStore.CurrentRecordingSchemaGeneration` stays at 2.
+- Anchor taxonomy enum slot `AnchorSource.CoBubblePeer = 7` kept as `Reserved7` so the persisted type-byte layout of `AnchorCandidate` stays stable.
+- Removed the dependent helper graph in `ParsekFlight.cs` (`TryComputeStandaloneWorldPositionForRecording`, `TryComputeStandaloneRelativeWorldPosition`, `TryComputeStandaloneBodyFixedPrimaryWorldPosition`, `TryComputeStandaloneAbsoluteFallbackWorldPosition`, `TryResolveActiveReFlyPidStatic`, `LogStandaloneParentAnchoredDebrisBodyFixedFailClosed`, the `RecordCoBubbleEvalForLogging` per-frame summary, the `GhostPosMode.CoBubble` switch arm + `GhostPosEntry` co-bubble fields). The playback-side `LogPlaybackWorldPositionParentAnchoredDebrisBodyFixedFailClosed` + `FormatStandaloneCoverageRange` stay (used from `TryResolvePlaybackWorldPosition`).
+- Removed the deferred-recompute / deferred-validation infrastructure in `SmoothingPipeline.cs` (sets, structs, sweep methods, test seams), the `treeLocalLoadSet` parameter from `LoadOrCompute` / `LoadRecordingFiles`, and the post-tree-hydration sweep invocations in `ParsekScenario.cs`.
+- Pruned the `[ERS-exempt]` allowlist entries that justified `CoBubbleBlender` and the (now obsolete) `SmoothingPipeline` co-bubble read paths.
+
+**Status:** CLOSED 2026-05-20.
+
+---
+
 ## Done - v0.10.0 Scene-exit finalizer leaves sub-orbital recordings stale when vessel solver is torn down
 
 - ~~Sub-orbital recordings whose vessel orbit solver is torn down at scene exit (the destroyed-vessel `PatchedConicSnapshotFailureReason.NullSolver` fingerprint) stayed at their recorder-stamped `terminalState = SubOrbital` even when their `termOrbit.periR` was well inside the planet — so the eventual impact never propagated to the STASH / Unfinished Flights gate. Repro: launch Kerbal X, separate the SRBs and lower-stage probe booster, end the recording. The upper stage + 6 SRB debris all kept `terminalState = SubOrbital` despite trajectories that crash; only the lower-stage probe (which had a populated `PatchedConicSnapshot` chain to reseed from) was reclassified to Destroyed. Playtest log `logs/2026-05-19_1802_pr897-chain-seam-validation/KSP.log` lines 15399-15435 walk the failure: every leaf logs `Extrapolator] Start rejected: sub-surface state … alt=-599888m`, the suppression branch fires correctly (recorded sample contradicts the live-orbit fallback), and the recording is then left with no terminal verdict update.~~

@@ -26,7 +26,10 @@ namespace Parsek.Rendering
         SoiTransition      = 4,
         BubbleEntry        = 5,
         BubbleExit         = 6,
-        CoBubblePeer       = 7,
+        // Slot 7 was AnchorSource.CoBubblePeer (retired with the co-bubble
+        // subsystem in v0.10.0). Kept reserved so the persisted type-byte
+        // layout of AnchorCandidate stays stable across the cleanup.
+        Reserved7          = 7,
         SurfaceContinuous  = 8,
         Loop               = 9
     }

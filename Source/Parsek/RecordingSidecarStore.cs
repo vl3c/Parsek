@@ -114,22 +114,6 @@ namespace Parsek
 
         internal static bool LoadRecordingFiles(Recording rec)
         {
-            return LoadRecordingFiles(rec, null);
-        }
-
-        /// <summary>
-        /// Phase 5 P1-A overload: a <paramref name="treeLocalLoadSet"/> threads
-        /// through the per-trace co-bubble peer validator so same-tree peers
-        /// being hydrated in the same OnLoad pass are visible BEFORE they
-        /// land in the committed-recordings list. Without this, every save
-        /// load drops valid same-tree traces as <c>peer-missing</c> and the
-        /// runtime falls back to standalone playback until recordings are
-        /// recommitted.
-        /// </summary>
-        internal static bool LoadRecordingFiles(
-            Recording rec,
-            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
-        {
             if (rec == null)
             {
                 RecordingStore.Log("[Parsek] WARNING: LoadRecordingFiles called with null recording");
@@ -153,7 +137,7 @@ namespace Parsek
                     RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
                 ghostPath = RecordingPaths.ResolveSaveScopedPath(
                     RecordingPaths.BuildGhostSnapshotRelativePath(rec.RecordingId));
-                return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath, treeLocalLoadSet);
+                return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
             }
             catch (Exception ex)
             {
@@ -201,12 +185,11 @@ namespace Parsek
                 throw new ArgumentNullException(nameof(rec));
 
             ClearSidecarLoadFailure(rec);
-            return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath, null);
+            return LoadRecordingFilesFromPathsInternal(rec, precPath, vesselPath, ghostPath);
         }
 
         private static bool LoadRecordingFilesFromPathsInternal(
-            Recording rec, string precPath, string vesselPath, string ghostPath,
-            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
+            Recording rec, string precPath, string vesselPath, string ghostPath)
         {
             // Load .prec trajectory file
             // ConfigNode.Save writes the node's contents (values + children),
@@ -325,7 +308,7 @@ namespace Parsek
                     // regenerable, never blocks .prec hydration).
                     try
                     {
-                        Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath, treeLocalLoadSet);
+                        Parsek.Rendering.SmoothingPipeline.LoadOrCompute(rec, pannPath);
                     }
                     catch (Exception ex)
                     {

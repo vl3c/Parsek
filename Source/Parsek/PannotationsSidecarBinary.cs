@@ -29,8 +29,8 @@ namespace Parsek
     /// Tunable configuration that affects derived <c>.pann</c> output. The
     /// SHA-256 of its canonical encoding is the cache key (design doc
     /// §17.3.1, "Configuration Cache Key"). Phase 1 only populates the
-    /// smoothing-related fields; later phases will append outlier and
-    /// co-bubble tunables to the canonical encoding without reordering.
+    /// smoothing-related fields; later phases append outlier tunables to
+    /// the canonical encoding without reordering.
     /// </summary>
     internal struct SmoothingConfiguration
     {
@@ -45,39 +45,6 @@ namespace Parsek
             Tension = 0.5f,
             MinSamplesPerSection = 4,
             MaxKnotCount = 0,
-        };
-    }
-
-    /// <summary>
-    /// Phase 5 co-bubble blend tunables (design doc §6.5 / §10 / §22 / §17.3.1
-    /// ConfigurationHash table). The two persisted values
-    /// (<see cref="ResampleHz"/>, <see cref="BlendMaxWindowSeconds"/>) participate
-    /// in the canonical encoding so changing them invalidates every cached
-    /// <c>.pann</c>'s co-bubble traces (HR-10). The crossfade duration is
-    /// purely a render-time visual decision (no stored state depends on it)
-    /// and so is intentionally NOT in the hash.
-    /// </summary>
-    internal struct CoBubbleConfiguration
-    {
-        /// <summary>Target trace resample rate (Hz). 4 Hz matches the slowest
-        /// typical active-vessel sampling cadence; oversampling burns sidecar
-        /// bytes for sub-mm fidelity gain on common-mode-cancelled offsets.</summary>
-        public float ResampleHz;
-
-        /// <summary>Per-trace duration cap (seconds). Windows longer than
-        /// this fall back to standalone via the §10.3 boundary set.</summary>
-        public double BlendMaxWindowSeconds;
-
-        /// <summary>Crossfade duration at window exit (seconds). Short enough
-        /// to be imperceptible during exit, long enough to mask sub-meter
-        /// snap. NOT persisted — a render-time visual decision only.</summary>
-        public double CrossfadeDurationSeconds;
-
-        internal static CoBubbleConfiguration Default => new CoBubbleConfiguration
-        {
-            ResampleHz = 4.0f,
-            BlendMaxWindowSeconds = 600.0,
-            CrossfadeDurationSeconds = 1.5,
         };
     }
 
@@ -111,7 +78,6 @@ namespace Parsek
         internal const int MaxKnotsPerSpline = 100_000;
         internal const int MaxOutlierFlagsEntries = 10_000;
         internal const int MaxAnchorCandidateEntries = 10_000;
-        internal const int MaxCoBubbleTraceEntries = 1_000;
 
         // Hard fallback retained for tests / future blocks that don't yet
         // have a tighter cap. Realistic blocks should always use one of the
@@ -136,174 +102,34 @@ namespace Parsek
         private const int MinBytesPerAnchorCandidateEntry = 9;
 
         internal const int PannotationsBinaryVersion = 0;
-        // Bumped to 2 in Phase 4: ExoPropulsive / ExoBallistic splines are now
-        // fitted in inertial-longitude space (FrameTag = 1) instead of body-
-        // fixed. The .pann binary schema is unchanged — frameTag was already
-        // serialized — but the algorithm output for the same input differs,
-        // so HR-10 invalidates v1 .pann files via alg-stamp-drift.
-        // Bumped to 3 in Phase 6: AnchorCandidatesList block transitions from
-        // always-empty to populated by AnchorCandidateBuilder. Existing
-        // AlgorithmStampVersion=2 .pann files lack the candidate payload and
-        // would force a runtime fallback for every consumer; the bump triggers
-        // the existing alg-stamp-drift path so stale files are discarded and
-        // recomputed on first load (HR-10).
-        // Bumped to 4 in Phase 6 follow-up (ultrareview P1-A): the
-        // ConfigurationHash canonical encoding gained the `useAnchorTaxonomy`
-        // tunable byte. A .pann written with v3 hashed without the flag, so
-        // its ConfigurationHash will compare equal to the new v4 hash for
-        // recordings whose flag happens to match the v3 default — that is a
-        // false-cache-hit risk. The alg-stamp bump forces every existing
-        // .pann to invalidate via alg-stamp-drift on first load after the
-        // upgrade, regardless of the configured flag value.
-        // Bumped to 5 in Phase 5: CoBubbleOffsetTraces transitions from
-        // always-empty (count=0) to populated by CoBubbleOverlapDetector.
-        // Existing v4 .pann files lack the populated block and would force
-        // a runtime fallback for every consumer; the bump triggers the
-        // existing alg-stamp-drift path so stale files are discarded and
-        // recomputed on first load (HR-10).
-        // Bumped to 6 in Phase 5 follow-up (P1-A fix): CoBubbleOffsetTrace
-        // gained a BodyName field so the runtime blender can resolve the
-        // body for the FrameTag=1 inertial→world rotation lower. v5 traces
-        // lack the field; without invalidation, the loader would install
-        // them with BodyName=null and the lower would silently become a
-        // no-op for inertial offsets (mirroring the production bug fixed
-        // by P1-A). Bumping the alg stamp drives every v5 .pann through
-        // alg-stamp-drift on first load so the recompute writes the new
-        // field (HR-10).
-        // Bumped to 7 in Phase 5 review-pass-2 (P1-B + P2-B fixes): the
-        // recompute path in SmoothingPipeline.LoadOrCompute now invokes
-        // CoBubbleOverlapDetector.DetectAndStore so cache-miss / config-
-        // drifted .pann files regenerate co-bubble traces (rather than
-        // rewriting an empty block), and BuildTrace clamps each trace to
-        // BlendMaxWindowSeconds so very long overlap windows no longer
-        // store EndUTs without sample coverage. v6 .pann files written
-        // before these fixes have semantically incorrect trace contents;
-        // bumping the alg stamp drives them through alg-stamp-drift on
-        // first load (HR-10). Phase 5 review-pass-3 (P1-A peer-content
-        // signature deferral, P2-1 past-end clamp, P3-1 lazy-recompute
-        // peer-pann symmetry) does NOT bump the stamp — those are
-        // correctness fixes in validation logic and runtime dispatch,
-        // not changes to persisted trace contents.
-        //
-        // Bumped to 8 in Phase 5 review-pass-5 (P1 offset-sign fix):
-        // CoBubbleOverlapDetector.DetectAndStore was emitting both
-        // stored sides of every overlap pair with reversed offsets.
-        // CloneTraceWithPeer's flip condition was exactly inverted: it
-        // kept the offset as-is when the trace's peer-id matched the
-        // intended storage-side peer (which produced "Dx = primary -
-        // owner" instead of "Dx = owner - primary"), and flipped only
-        // when rewriting the peer metadata for the OTHER storage side
-        // (also wrong). Both stored sides ended up with reversed-sign
-        // offsets — peer ghosts rendered on the opposite side of the
-        // primary at the offset's distance. The fix replaces
-        // CloneTraceWithPeer with two separate BuildTrace invocations
-        // (one per storage side, with the role parameters swapped so
-        // "Dx = peer - primary" matches "Dx = owner - primaryRef" for
-        // each side) followed by a small RebrandTraceForPrimary helper
-        // that overwrites the trace's PeerRecordingId / signature to
-        // name the primary side. v7 .pann files have wrong-sign offsets;
-        // the alg-stamp bump drives them through alg-stamp-drift on
-        // first load (HR-10).
-        //
-        // Bumped to 9 in Phase 8 (rebased onto Phase 5 review-pass-5
-        // tip): OutlierFlagsList block transitions from always-empty
-        // (writer emitted count=0; reader rejected any non-zero count)
-        // to populated by OutlierClassifier. The new ConfigurationHash
-        // also gains real outlier threshold bytes plus the
-        // `useOutlierRejection` flag at offset [85]. v8 .pann files
-        // (Phase 5 tip) lack populated OutlierFlagsList entries — they
-        // would be silently treated as "no outliers" on load and the
-        // renderer would never see the new flags. The bump triggers
-        // alg-stamp-drift on first load so v8 files are discarded and
-        // recomputed with the populated outlier block (HR-10). Phase 8
-        // pre-rebase coordination notes called out 7 → 8 (and a later
-        // amendment 7 → 9 once Phase 5 review-pass-5 landed); the v9 value
-        // reflects the actual Phase 8 rebase landing.
-        //
-        // §7.7 BubbleEntry/BubbleExit (merged in from main via the post-
-        // #643 main merge): AnchorCandidateBuilder now emits a seventh
-        // candidate type at every Active|Background ↔ Checkpoint source-
-        // class transition. The on-disk schema is unchanged (BubbleEntry/
-        // BubbleExit fit in the existing type-byte taxonomy bits 0-6),
-        // but the byte content for any recording that has those
-        // transitions changes. Mainline shipped this at v5; with the
-        // Phase 8+ stamp here, v5 mainline .pann files invalidate via
-        // alg-stamp-drift and recompute with co-bubble traces,
-        // §7.7 candidates, AND outlier flags all active (HR-10).
-        //
-        // Phase 8 review-pass-2 (P2 deferred recompute, P3
-        // PrimaryDesignation byte semantics fix) does NOT bump the
-        // stamp:
-        //   • P2 is validation-flow correctness (lazy recompute defers
-        //     when peers haven't yet hydrated and a post-tree-hydration
-        //     sweep does the work) — no change to persisted content
-        //     semantics.
-        //   • P3 swaps the two byte literals for `PrimaryDesignation`
-        //     in CoBubbleOverlapDetector.DetectAndStore so the
-        //     persisted bytes match the §17.3.1 contract (0 = self is
-        //     primary, 1 = self is peer relative to the trace's
-        //     owning recording). This DOES change one persisted byte
-        //     per trace, but the field is reserved for future selector
-        //     use and the current selector ignores it entirely. v9
-        //     files written before this commit have the inverted
-        //     designation byte; they're still functionally correct
-        //     (selector doesn't read the field), and the next
-        //     AlgStamp bump for any other reason will sweep them up.
-        //     Bumping for every PrimaryDesignation flip would be churn.
-        //
-        // Bumped to 10 in the Phase 8 outlier follow-up: BubbleRadius
-        // rejection now uses the recorded speed over the sample dt as the
-        // expected-travel envelope, with the 2.5 km cap treated as the
-        // single-tick excess-distance budget. v9 .pann files can persist
-        // false-positive OutlierFlags for sparse high-speed ascent/coast
-        // sections (for example ~6 km over ~3 s at ~2.2 km/s), which excludes
-        // legitimate samples from the spline fit. The alg-stamp bump forces
-        // those cached flags to recompute on first load (HR-10).
-        //
-        // Bumped to 11 in the PR #708 Re-Fly playtest follow-up:
-        // smoothing-spline eligibility briefly included Absolute Atmospheric
-        // sections. v10 .pann files legitimately lacked those splines, so they
-        // had to recompute before active Re-Fly atmospheric display could use
-        // the recorded-path smoothing layer.
-        //
-        // Bumped to 12 in the PR #708 spline-loop follow-up: playtesting showed
-        // sparse atmospheric ascent sections can produce large Catmull-Rom
-        // loops even after time-aware tangents, so Atmospheric eligibility is
-        // rolled back until the fitter has an explicit monotonic/shape-safe
-        // contract. v11 .pann files may contain unsafe atmospheric splines and
-        // must be discarded on first load.
+        // The .pann schema generation was reset to 0 with the format-v0
+        // recording reset; the historical 1 -> 12 bump trail is preserved
+        // in git log. Any future change to the .pann algorithm output for
+        // the same input must bump this stamp so existing files invalidate
+        // via alg-stamp-drift on first load (HR-10).
         internal const int AlgorithmStampVersion = 0;
         private const int CanonicalEncoderVersion = 0;
 
         // Configuration-hash canonical encoding length: PANC(4) + encVer(4) +
         // splineType(1) + tension(4) + minSamples(4) + maxKnots(4) +
         // outlierAccelAtm(4) + outlierAccelExoPropulsive(4) +
-        // anchorPriority(10) + coBubbleBlendMaxWindow(8) +
-        // coBubbleResampleHz(4) + useAnchorTaxonomy(1) + useCoBubbleBlend(1) +
+        // anchorPriority(10) + useAnchorTaxonomy(1) +
         // outlierAccelExoBallistic(4) + outlierAccelSurfaceMobile(4) +
         // outlierAccelSurfaceStationary(4) + outlierAccelApproach(4) +
         // outlierBubbleRadius(4) + outlierAltitudeFloor(4) +
         // outlierAltitudeCeilingMargin(4) + outlierClusterRate(4) +
-        // useOutlierRejection(1) = 86 bytes. Phase 8 promoted the previously-
-        // reserved outlier accel bytes at [21..28] to real fields backed by
-        // OutlierThresholds.Default (Atmospheric / ExoPropulsive) and
-        // appended the remaining four environment ceilings, the bubble-radius
-        // and altitude bounds, the cluster-rate threshold, and the
-        // useOutlierRejection rollout-gate byte at [85]. Any change to the
-        // outlier thresholds or to the rollout flag drifts the cache key
-        // (HR-10 freshness): the writer emits an empty OutlierFlagsList when
-        // the flag is off; flipping to on without invalidating would let a
-        // stale empty block masquerade as fresh.
-        private const int CanonicalEncodingLength = 86;
-
-        // Per-trace UT-array size cap (Phase 5). With 4 Hz resample × 600s
-        // max-window the realistic ceiling per trace is 2400 samples; the
-        // 100K cap is a defense-in-depth bound, not a tight steady-state
-        // limit. ValidateCount uses min-bytes-per-entry (8 + 12 = 20 bytes
-        // per UT row: double UT + 3×float dx/dy/dz) to gate stream-length
-        // sanity.
-        internal const int MaxCoBubbleSamplesPerTrace = 100_000;
-        private const int BytesPerCoBubbleSampleRow = 20;
+        // useOutlierRejection(1) = 73 bytes. The 13 bytes formerly occupied
+        // by the co-bubble persisted tunables (blendMaxWindow + resampleHz)
+        // and the useCoBubbleBlend rollout flag were removed in v0.10.0
+        // when the co-bubble subsystem retired. The byte-shrink drifts the
+        // cache key of every existing .pann via config-hash-drift (HR-10),
+        // and the recompute path overwrites them with the post-retirement
+        // encoding on next load. Any future change to the outlier
+        // thresholds or to the rollout flag also drifts the cache key
+        // (HR-10 freshness): the writer emits an empty OutlierFlagsList
+        // when the flag is off; flipping to on without invalidating would
+        // let a stale empty block masquerade as fresh.
+        private const int CanonicalEncodingLength = 73;
 
         /// <summary>
         /// Probes the file header. Returns <c>true</c> with
@@ -425,25 +251,7 @@ namespace Parsek
             out string failureReason)
         {
             return TryRead(path, probe, out splines, out anchorCandidates,
-                out _, out _, out failureReason);
-        }
-
-        /// <summary>
-        /// Phase 5 overload: also reads the <c>CoBubbleOffsetTraces</c>
-        /// block. Existing two-out callers (kept as the legacy overload
-        /// above) still work; new callers should use the four-out overload
-        /// (Phase 8) to access the OutlierFlagsList block as well.
-        /// </summary>
-        internal static bool TryRead(
-            string path,
-            PannotationsSidecarProbe probe,
-            out List<KeyValuePair<int, SmoothingSpline>> splines,
-            out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
-            out List<CoBubbleOffsetTrace> coBubbleTraces,
-            out string failureReason)
-        {
-            return TryRead(path, probe, out splines, out anchorCandidates,
-                out coBubbleTraces, out _, out failureReason);
+                out _, out failureReason);
         }
 
         /// <summary>
@@ -457,7 +265,6 @@ namespace Parsek
             PannotationsSidecarProbe probe,
             out List<KeyValuePair<int, SmoothingSpline>> splines,
             out List<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates,
-            out List<CoBubbleOffsetTrace> coBubbleTraces,
             out List<KeyValuePair<int, OutlierFlags>> outlierFlags,
             out string failureReason)
         {
@@ -466,7 +273,6 @@ namespace Parsek
 
             splines = new List<KeyValuePair<int, SmoothingSpline>>();
             anchorCandidates = new List<KeyValuePair<int, AnchorCandidate[]>>();
-            coBubbleTraces = new List<CoBubbleOffsetTrace>();
             outlierFlags = new List<KeyValuePair<int, OutlierFlags>>();
             failureReason = null;
 
@@ -601,77 +407,6 @@ namespace Parsek
                         }
                         anchorCandidates.Add(new KeyValuePair<int, AnchorCandidate[]>(sectionIndex, arr));
                     }
-                    // Phase 5 CoBubbleOffsetTraces block (design doc §17.3.1).
-                    // Per-entry: peerRecordingId (length-prefixed UTF-8) +
-                    // peerSourceFormatVersion (int32) + peerSidecarEpoch (int32) +
-                    // peerContentSignature (32 bytes) + startUT (double) +
-                    // endUT (double) + frameTag (byte) + sampleCount (int32) +
-                    // uts[sampleCount] (double) + dx/dy/dz[sampleCount] (float) +
-                    // primaryDesignation (byte) + bodyName (length-prefixed UTF-8,
-                    // P1-A fix; alg-stamp v6 ensures legacy v5 files cannot
-                    // reach this code path because alg-stamp-drift discards
-                    // them ahead of the read). Per-entry minimum cost is
-                    // header (1 + 4 + 4 + 32 + 8 + 8 + 1 + 4 + 1 + 1) = 64
-                    // bytes assuming empty peerRecordingId + empty bodyName;
-                    // ValidateCount uses 64 as the per-entry minimum so a
-                    // count whose payload would exceed remaining stream
-                    // bytes is rejected before allocation. The per-trace
-                    // sample-count gate uses the dedicated
-                    // MaxCoBubbleSamplesPerTrace.
-                    const int MinBytesPerCoBubbleTraceEntry = 64;
-                    int coBubbleCount = reader.ReadInt32();
-                    if (!ValidateCount(stream, coBubbleCount, MaxCoBubbleTraceEntries,
-                            MinBytesPerCoBubbleTraceEntry, "co-bubble-trace", out failureReason))
-                        return false;
-                    for (int i = 0; i < coBubbleCount; i++)
-                    {
-                        string peerRecordingId = reader.ReadString();
-                        int peerFormatVersion = reader.ReadInt32();
-                        int peerEpoch = reader.ReadInt32();
-                        byte[] peerSignature = reader.ReadBytes(32);
-                        if (peerSignature == null || peerSignature.Length != 32)
-                        {
-                            failureReason = $"co-bubble-trace[{i}] truncated peer signature";
-                            return false;
-                        }
-                        double startUT = reader.ReadDouble();
-                        double endUT = reader.ReadDouble();
-                        byte frameTag = reader.ReadByte();
-                        int sampleCount = reader.ReadInt32();
-                        if (!ValidateCount(stream, sampleCount, MaxCoBubbleSamplesPerTrace,
-                                BytesPerCoBubbleSampleRow, $"co-bubble-trace[{i}].samples", out failureReason))
-                            return false;
-                        double[] uts = new double[sampleCount];
-                        for (int u = 0; u < sampleCount; u++) uts[u] = reader.ReadDouble();
-                        float[] dx = new float[sampleCount];
-                        for (int u = 0; u < sampleCount; u++) dx[u] = reader.ReadSingle();
-                        float[] dy = new float[sampleCount];
-                        for (int u = 0; u < sampleCount; u++) dy[u] = reader.ReadSingle();
-                        float[] dz = new float[sampleCount];
-                        for (int u = 0; u < sampleCount; u++) dz[u] = reader.ReadSingle();
-                        byte primaryDesignation = reader.ReadByte();
-                        // P1-A: BodyName persisted (v6 alg-stamp). Empty
-                        // string accepted; legacy v5 files cannot land here
-                        // because alg-stamp-drift gate rejects them.
-                        string bodyName = reader.ReadString();
-
-                        coBubbleTraces.Add(new CoBubbleOffsetTrace
-                        {
-                            PeerRecordingId = peerRecordingId,
-                            PeerSourceFormatVersion = peerFormatVersion,
-                            PeerSidecarEpoch = peerEpoch,
-                            PeerContentSignature = peerSignature,
-                            StartUT = startUT,
-                            EndUT = endUT,
-                            FrameTag = frameTag,
-                            UTs = uts,
-                            Dx = dx,
-                            Dy = dy,
-                            Dz = dz,
-                            PrimaryDesignation = primaryDesignation,
-                            BodyName = string.IsNullOrEmpty(bodyName) ? null : bodyName,
-                        });
-                    }
                 }
             }
             catch (EndOfStreamException ex)
@@ -719,7 +454,6 @@ namespace Parsek
             byte[] configurationHash,
             IList<KeyValuePair<int, SmoothingSpline>> splines,
             IList<KeyValuePair<int, AnchorCandidate[]>> anchorCandidates = null,
-            IList<CoBubbleOffsetTrace> coBubbleTraces = null,
             IList<KeyValuePair<int, OutlierFlags>> outlierFlags = null)
         {
             if (configurationHash == null || configurationHash.Length != 32)
@@ -810,56 +544,6 @@ namespace Parsek
                     }
                 }
 
-                // Phase 5 CoBubbleOffsetTraces block (design doc §17.3.1).
-                // Each trace fully self-describes its peer cache key via
-                // (peerSourceFormatVersion, peerSidecarEpoch, peerContentSignature)
-                // so the per-trace validation pass in SmoothingPipeline can
-                // drop a single stale trace without invalidating the whole
-                // .pann file.
-                int coBubbleEntryCount = coBubbleTraces?.Count ?? 0;
-                writer.Write(coBubbleEntryCount);
-                if (coBubbleTraces != null)
-                {
-                    for (int i = 0; i < coBubbleTraces.Count; i++)
-                    {
-                        CoBubbleOffsetTrace t = coBubbleTraces[i];
-                        if (t == null)
-                            throw new InvalidOperationException(
-                                $"CoBubbleOffsetTraces[{i}] is null — caller must drop empty entries before write");
-                        if (t.PeerContentSignature == null || t.PeerContentSignature.Length != 32)
-                            throw new ArgumentException(
-                                $"CoBubbleOffsetTraces[{i}] has invalid PeerContentSignature (must be 32 bytes)");
-                        int sampleCount = t.UTs?.Length ?? 0;
-                        int dxCount = t.Dx?.Length ?? 0;
-                        int dyCount = t.Dy?.Length ?? 0;
-                        int dzCount = t.Dz?.Length ?? 0;
-                        if (sampleCount != dxCount || sampleCount != dyCount || sampleCount != dzCount)
-                            throw new ArgumentException(
-                                $"CoBubbleOffsetTraces[{i}] sample arrays length mismatch: " +
-                                $"uts={sampleCount} dx={dxCount} dy={dyCount} dz={dzCount}");
-
-                        writer.Write(t.PeerRecordingId ?? string.Empty);
-                        writer.Write(t.PeerSourceFormatVersion);
-                        writer.Write(t.PeerSidecarEpoch);
-                        writer.Write(t.PeerContentSignature);
-                        writer.Write(t.StartUT);
-                        writer.Write(t.EndUT);
-                        writer.Write(t.FrameTag);
-                        writer.Write(sampleCount);
-                        for (int u = 0; u < sampleCount; u++) writer.Write(t.UTs[u]);
-                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dx[u]);
-                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dy[u]);
-                        for (int u = 0; u < sampleCount; u++) writer.Write(t.Dz[u]);
-                        writer.Write(t.PrimaryDesignation);
-                        // P1-A: BodyName drives the runtime blender's body
-                        // resolution for FrameTag=1 inertial→world lower.
-                        // Empty string is acceptable on disk (length-byte 0);
-                        // the loader normalises empty back to null so the
-                        // blender's null-body branch fires consistently.
-                        writer.Write(t.BodyName ?? string.Empty);
-                    }
-                }
-
                 writer.Flush();
                 FileIOUtils.SafeWriteBytes(stream.ToArray(), path, "Pipeline-Sidecar");
             }
@@ -869,47 +553,32 @@ namespace Parsek
         /// Computes the SHA-256 cache key over a fully-pinned canonical
         /// encoding of <paramref name="cfg"/> (design doc §17.3.1
         /// "Configuration Cache Key"). The encoding is endian-fixed and
-        /// field-order-fixed: future phases append fields, never reorder, so
-        /// existing on-disk hashes remain comparable for the fields they
-        /// covered. Phase 1 fills the smoothing-related fields and pads the
-        /// reserved bytes with zero.
+        /// field-order-fixed: future phases append fields, never reorder.
+        /// Phase 1 fills the smoothing-related fields and pads the reserved
+        /// bytes with zero.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(SmoothingConfiguration cfg)
         {
             // Backward-compatible overload kept for tests wired before the
-            // Phase 5 / Phase 6 / Phase 8 rollout flags were threaded through.
-            // The flag values here are NOT the v0.10 shipped defaults (which
-            // are useCoBubbleBlend=false): they are frozen to match the
-            // pre-Phase-N hash bytes so legacy hashes don't shift under
-            // existing tests. Production callers must use the four-argument
-            // overload below so a flag flip actually invalidates cached
-            // .pann files.
+            // Phase 6 / Phase 8 rollout flags were threaded through. The
+            // flag values here match the pre-Phase-N defaults so legacy
+            // hashes stay stable under existing tests. Production callers
+            // must use the three-argument overload below so a flag flip
+            // actually invalidates cached .pann files.
             return ComputeConfigurationHash(cfg, useAnchorTaxonomy: true,
-                useCoBubbleBlend: true, useOutlierRejection: true);
+                useOutlierRejection: true);
         }
 
         /// <summary>
         /// Phase 6 follow-up: two-argument overload kept for any caller that
-        /// was wired before Phase 5. The remaining flag values are frozen at
-        /// the pre-Phase-N levels so legacy hashes stay stable; they do not
-        /// reflect the v0.10 shipped defaults.
+        /// was wired before Phase 8. The remaining flag value is frozen at
+        /// the pre-Phase-8 level so legacy hashes stay stable.
         /// </summary>
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg, bool useAnchorTaxonomy)
         {
             return ComputeConfigurationHash(cfg, useAnchorTaxonomy,
-                useCoBubbleBlend: true, useOutlierRejection: true);
-        }
-
-        /// <summary>
-        /// Phase 5 three-argument overload: defaults
-        /// <c>useOutlierRejection</c> to true.
-        /// </summary>
-        internal static byte[] ComputeConfigurationHash(
-            SmoothingConfiguration cfg, bool useAnchorTaxonomy, bool useCoBubbleBlend)
-        {
-            return ComputeConfigurationHash(cfg, useAnchorTaxonomy,
-                useCoBubbleBlend, useOutlierRejection: true);
+                useOutlierRejection: true);
         }
 
         /// <summary>
@@ -917,9 +586,9 @@ namespace Parsek
         /// thresholds and the <c>useOutlierRejection</c> rollout flag. The
         /// previously-reserved outlier accel bytes at [21..28] are promoted
         /// to <c>OutlierThresholds.Default</c>'s Atmospheric and
-        /// ExoPropulsive ceilings; bytes [53..84] add the remaining four
+        /// ExoPropulsive ceilings; bytes [40..71] add the remaining four
         /// environment ceilings, the bubble radius, the altitude floor /
-        /// ceiling margin, and the cluster-rate threshold; byte [85] holds
+        /// ceiling margin, and the cluster-rate threshold; byte [72] holds
         /// <c>useOutlierRejection</c>. Flipping the flag changes the
         /// derived <c>OutlierFlagsList</c> output (writer emits an empty
         /// block when off, populated when on), so HR-10 freshness requires
@@ -928,11 +597,10 @@ namespace Parsek
         internal static byte[] ComputeConfigurationHash(
             SmoothingConfiguration cfg,
             bool useAnchorTaxonomy,
-            bool useCoBubbleBlend,
             bool useOutlierRejection)
         {
             return ComputeConfigurationHash(cfg, OutlierThresholds.Default,
-                useAnchorTaxonomy, useCoBubbleBlend, useOutlierRejection);
+                useAnchorTaxonomy, useOutlierRejection);
         }
 
         /// <summary>
@@ -943,7 +611,6 @@ namespace Parsek
             SmoothingConfiguration cfg,
             OutlierThresholds outlier,
             bool useAnchorTaxonomy,
-            bool useCoBubbleBlend,
             bool useOutlierRejection)
         {
             byte[] buffer = new byte[CanonicalEncodingLength];
@@ -959,20 +626,17 @@ namespace Parsek
                 w.Write(outlier.AccelCeilingAtmospheric);  // [21..24] outlierAccelAtmospheric (Phase 8)
                 w.Write(outlier.AccelCeilingExoPropulsive); // [25..28] outlierAccelExoPropulsive (Phase 8)
                 for (int i = 0; i < 10; i++) w.Write((byte)0); // [29..38] anchorPriorityVector (reserved)
-                w.Write((double)CoBubbleConfiguration.Default.BlendMaxWindowSeconds); // [39..46] coBubbleBlendMaxWindow
-                w.Write((float)CoBubbleConfiguration.Default.ResampleHz);             // [47..50] coBubbleResampleHz
-                w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [51] useAnchorTaxonomy (Phase 6)
-                w.Write((byte)(useCoBubbleBlend ? 1 : 0));  // [52] useCoBubbleBlend (Phase 5)
+                w.Write((byte)(useAnchorTaxonomy ? 1 : 0)); // [39] useAnchorTaxonomy (Phase 6)
                 // Phase 8 additions
-                w.Write(outlier.AccelCeilingExoBallistic);     // [53..56]
-                w.Write(outlier.AccelCeilingSurfaceMobile);    // [57..60]
-                w.Write(outlier.AccelCeilingSurfaceStationary); // [61..64]
-                w.Write(outlier.AccelCeilingApproach);         // [65..68]
-                w.Write(outlier.MaxSingleTickPositionDeltaMeters); // [69..72]
-                w.Write(outlier.AltitudeFloorMeters);          // [73..76]
-                w.Write(outlier.AltitudeCeilingMargin);        // [77..80]
-                w.Write(outlier.ClusterRateThreshold);         // [81..84]
-                w.Write((byte)(useOutlierRejection ? 1 : 0));  // [85]
+                w.Write(outlier.AccelCeilingExoBallistic);     // [40..43]
+                w.Write(outlier.AccelCeilingSurfaceMobile);    // [44..47]
+                w.Write(outlier.AccelCeilingSurfaceStationary); // [48..51]
+                w.Write(outlier.AccelCeilingApproach);         // [52..55]
+                w.Write(outlier.MaxSingleTickPositionDeltaMeters); // [56..59]
+                w.Write(outlier.AltitudeFloorMeters);          // [60..63]
+                w.Write(outlier.AltitudeCeilingMargin);        // [64..67]
+                w.Write(outlier.ClusterRateThreshold);         // [68..71]
+                w.Write((byte)(useOutlierRejection ? 1 : 0));  // [72]
             }
 
             using (var sha = SHA256.Create())
