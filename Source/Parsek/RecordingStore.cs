@@ -6321,8 +6321,9 @@ namespace Parsek
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {owner.StartUT} " +
-                    $"(save: {owner.RewindSaveFileName})");
+                    $"Rewind-to-Launch initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName}). Plain launch rewind via parsek_rw_* quicksave; " +
+                    $"this is NOT a Re-Fly (no RewindPoint / ReFlySessionMarker / MergeJournal)");
         }
 
         /// <summary>

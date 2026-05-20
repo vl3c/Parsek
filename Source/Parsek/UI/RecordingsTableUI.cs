@@ -3609,7 +3609,7 @@ namespace Parsek
                     new DialogGUIButton("Rewind", () =>
                     {
                         ParsekLog.Info("Rewind",
-                            $"User confirmed rewind to \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT}");
+                            $"User confirmed Rewind-to-Launch for \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT} (not a Re-Fly)");
                         RecordingStore.InitiateRewind(capturedOwner);
                     }),
                     new DialogGUIButton("Cancel", () =>

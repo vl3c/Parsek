@@ -2957,9 +2957,9 @@ namespace Parsek
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
-                    newVesselIsGhost,
-                    newVessel.isEVA),
-                trackedInActiveTree);
+                    newVesselIsGhost),
+                trackedInActiveTree,
+                newVessel.isEVA);
 
             // Bug #585: in-place continuation Re-Fly suppression. When the live
             // marker pins the new active vessel as the in-place continuation
@@ -7200,25 +7200,35 @@ namespace Parsek
             bool autoRecordOnFirstModificationAfterSwitchEnabled,
             bool isRecording,
             bool hasNewVessel,
-            bool newVesselIsGhost,
-            bool newVesselIsEva)
+            bool newVesselIsGhost)
         {
             return autoRecordOnFirstModificationAfterSwitchEnabled
                 && !isRecording
                 && hasNewVessel
-                && !newVesselIsGhost
-                && !newVesselIsEva;
+                && !newVesselIsGhost;
         }
 
         internal static PostSwitchAutoRecordArmDecision EvaluatePostSwitchAutoRecordArmDecision(
             bool shouldArm,
-            bool trackedInActiveTree)
+            bool trackedInActiveTree,
+            bool newVesselIsEva)
         {
             if (!shouldArm)
                 return PostSwitchAutoRecordArmDecision.None;
 
-            return trackedInActiveTree
-                ? PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember
+            // A tracked background member is an existing tree recording: switching back
+            // to it should promote it to foreground on the first modification, whether
+            // or not it is an EVA kerbal. (An EVA kerbal re-controlled after a vessel
+            // switch lives here; without this it stays background-tracked and the
+            // missed-vessel-switch recovery loops every frame, never promoting.)
+            if (trackedInActiveTree)
+                return PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember;
+
+            // Outsider (not in any tree): a fresh EVA kerbal is owned by the dedicated
+            // OnCrewOnEva / EVA-branch + "Auto-record on EVA" path, so do not also arm
+            // an outsider standalone recording for it. Non-EVA outsiders still arm.
+            return newVesselIsEva
+                ? PostSwitchAutoRecordArmDecision.None
                 : PostSwitchAutoRecordArmDecision.ArmOutsider;
         }
 
@@ -9903,17 +9913,13 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Flag planted: '{flagSite.vessel.vesselName}' by '{flagSite.placedBy}' — date stamped");
 
-            // Recording-specific: capture FlagEvent
-            if (recorder == null || !recorder.IsRecording) return;
-
+            // Recording-specific: capture FlagEvent. The planting kerbal may be the
+            // foreground recorder's vessel OR a background-tracked tree member: an EVA
+            // kerbal re-controlled after a vessel switch stays in the tree's
+            // BackgroundMap with the foreground recorder idle, yet can still plant a
+            // flag. Capture into whichever recording owns the planting vessel so the
+            // flag persists to the sidecar and replays during watch/playback.
             string placedBy = flagSite.placedBy ?? "";
-            Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
-            if (!ShouldRecordFlagEvent(placedBy, recordedVessel))
-            {
-                ParsekLog.Verbose("Flight",
-                    $"Flag planted by '{placedBy}' but recorded vessel is '{recordedVessel?.vesselName}' — skipping");
-                return;
-            }
 
             Vessel flagVessel = flagSite.vessel;
             CelestialBody body = flagVessel.mainBody;
@@ -9938,10 +9944,43 @@ namespace Parsek
                 rotW = surfRot.w,
                 bodyName = body.name
             };
-            recorder.FlagEvents.Add(fe);
 
-            Log($"Flag event captured: '{fe.flagSiteName}' by '{fe.placedBy}' at " +
-                $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+            // 1) Foreground recorder owns the planting vessel.
+            if (recorder != null && recorder.IsRecording
+                && ShouldRecordFlagEvent(placedBy,
+                    FlightRecorder.FindVesselByPid(recorder.RecordingVesselId)))
+            {
+                recorder.FlagEvents.Add(fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (foreground recorder pid={recorder.RecordingVesselId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            // 2) A background-tracked tree member owns the planting vessel.
+            uint bgOwnerPid = ResolveBackgroundFlagOwnerPid(
+                placedBy,
+                activeTree?.BackgroundMap,
+                pid => FlightRecorder.FindVesselByPid(pid)?.GetVesselCrew());
+            if (bgOwnerPid != 0
+                && activeTree != null
+                && activeTree.BackgroundMap.TryGetValue(bgOwnerPid, out string bgRecId)
+                && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
+                && bgRec != null)
+            {
+                AppendFlagEventToTreeRecording(bgRec, fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (background tree member pid={bgOwnerPid} rec={bgRecId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"Flag planted by '{placedBy}' but no foreground or background recording owns " +
+                $"the planting vessel - skipping (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
+                $"hasTree={activeTree != null})");
         }
 
         /// <summary>
@@ -9981,6 +10020,59 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Finds the background-tracked vessel pid whose live crew contains the flag
+        /// planter, so a flag planted by a background tree member (e.g. an EVA kerbal
+        /// re-controlled after a vessel switch) can be captured into its recording.
+        /// Returns 0 when no background vessel matches. Pure decision helper (crew
+        /// lookup injected) so it is unit-testable without a live tree.
+        /// </summary>
+        internal static uint ResolveBackgroundFlagOwnerPid(
+            string placedBy,
+            IEnumerable<KeyValuePair<uint, string>> backgroundMap,
+            Func<uint, List<ProtoCrewMember>> crewLookup)
+        {
+            if (string.IsNullOrEmpty(placedBy) || backgroundMap == null || crewLookup == null)
+                return 0;
+
+            foreach (var entry in backgroundMap)
+            {
+                if (entry.Key == 0)
+                    continue;
+                if (CrewContainsKerbalNamed(crewLookup(entry.Key), placedBy))
+                    return entry.Key;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Appends a captured flag to a tree recording's FlagEvents, keeping the list
+        /// in stable UT order and marking the recording's sidecar dirty so the new
+        /// event persists. Used for background-tracked tree members whose FlagEvents
+        /// are written straight to the recording; the foreground recorder sorts and
+        /// marks dirty at flush time instead. The MarkFilesDirty call is load-bearing:
+        /// without it the .prec sidecar is skipped on the next OnSave and the flag is
+        /// lost on scene reload (see Recording.MarkFilesDirty).
+        /// </summary>
+        internal static void AppendFlagEventToTreeRecording(Recording rec, FlagEvent fe)
+        {
+            if (rec == null)
+                return;
+
+            rec.FlagEvents.Add(fe);
+
+            // Stable UT order: ApplyFlagEvents/SpawnFlagVesselsUpToUT cursor-walk the
+            // list and break on the first future-UT event, so a recording reused
+            // across rewind/re-fly that already holds a higher-UT flag would otherwise
+            // shadow the new one. Mirrors the foreground flush sort (#287).
+            var sorted = FlightRecorder.StableSortByUT(rec.FlagEvents, e => e.ut);
+            rec.FlagEvents.Clear();
+            rec.FlagEvents.AddRange(sorted);
+
+            rec.MarkFilesDirty();
         }
 
         /// <summary>
