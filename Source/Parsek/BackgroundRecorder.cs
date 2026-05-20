@@ -7760,7 +7760,6 @@ namespace Parsek
             int backgroundMatches = 0;
             int loadedMatches = 0;
             int recordingMatches = 0;
-            int legacySkipped = 0;
             int rejected = 0;
             int appended = 0;
 
@@ -7852,7 +7851,7 @@ namespace Parsek
                     string.Format(CultureInfo.InvariantCulture,
                         "BG structural event snapshot skipped: event={0} ut={1:R} considered={2} " +
                         "appended={3} backgroundMatches={4} loadedMatches={5} recordingMatches={6} " +
-                        "legacySkipped={7} rejected={8}",
+                        "rejected={7}",
                         eventType ?? "unknown",
                         eventUT,
                         considered,
@@ -7860,7 +7859,6 @@ namespace Parsek
                         backgroundMatches,
                         loadedMatches,
                         recordingMatches,
-                        legacySkipped,
                         rejected));
             }
 
