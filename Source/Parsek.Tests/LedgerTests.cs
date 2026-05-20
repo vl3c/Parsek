@@ -1596,6 +1596,37 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PruneOrphanActionsAfterUT_Inclusive_RemovesAtCutoffRollout()
+        {
+            // Revert-to-editor passes the launch UT inclusively so the at-launch rollout spend
+            // (untagged, at the launch UT) is dropped and KSP's refund stands.
+            Ledger.AddAction(new GameAction { UT = 12.0, Type = GameActionType.FundsSpending }); // rollout at launch UT
+            Ledger.AddAction(new GameAction { UT = 22.6, Type = GameActionType.ScienceEarning }); // pad science after launch
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(12.0, inclusive: true);
+
+            Assert.Equal(2, removed);
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("at/after"));
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_Inclusive_KeepsPreLaunchKscActionBelowCutoff()
+        {
+            // A KSC-scope career action done before launch sits at a UT below the launch UT
+            // (the clock advances in the Space Center / flight), so it survives an editor revert.
+            Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.FundsSpending }); // pre-launch facility upgrade
+            Ledger.AddAction(new GameAction { UT = 12.0, Type = GameActionType.FundsSpending }); // rollout at launch UT
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(12.0, inclusive: true);
+
+            Assert.Equal(1, removed);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(5.0, Ledger.Actions[0].UT);
+        }
+
+        [Fact]
         public void PruneOrphanActionsAfterUT_NoMatches_ReturnsZero()
         {
             Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });

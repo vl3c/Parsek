@@ -455,6 +455,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the launch-boundary cutoff for the revert orphan-ledger prune. Pure so the
+        /// cutoff/strictness contract is unit-testable outside the OnLoad lifecycle.
+        ///
+        /// <para>Revert-to-Launch rewinds the game clock to the launch instant, so
+        /// <paramref name="loadedUT"/> is the exact launch UT; the at-launch rollout is kept
+        /// (the vessel stays on the pad), hence <paramref name="inclusive"/>=false. Revert to
+        /// the editor (VAB/SPH, <see cref="RevertKind.Prelaunch"/>) does NOT rewind the clock, so
+        /// <paramref name="loadedUT"/> is the revert-moment UT (after the in-flight actions) and
+        /// is useless as a launch boundary; the captured launch UT is used instead and the
+        /// rollout is dropped too (KSP refunds it), hence <paramref name="inclusive"/>=true. When
+        /// no launch UT was captured (no active vessel at the revert event) the editor case falls
+        /// back to <paramref name="loadedUT"/>, which prunes nothing harmful rather than risking a
+        /// wrong cutoff.</para>
+        /// </summary>
+        internal static double ResolveRevertPruneCutoff(
+            RevertKind revertKind, double loadedUT, double capturedLaunchUT, out bool inclusive)
+        {
+            if (revertKind == RevertKind.Prelaunch)
+            {
+                inclusive = true;
+                return double.IsNaN(capturedLaunchUT) ? loadedUT : capturedLaunchUT;
+            }
+
+            inclusive = false;
+            return loadedUT;
+        }
+
+        /// <summary>
         /// Scene-load follow-up recalculation for post-rewind current-timeline
         /// case where the loaded UT is still behind future committed actions.
         /// Filters the walk to the already-captured loaded UT while preserving the
@@ -2205,18 +2233,22 @@ namespace Parsek
 
                         // Drop orphan ledger actions earned live during the reverted flight that
                         // carry no recording id (e.g. launch-pad science transmitted during the
-                        // PRELAUNCH window before auto-record starts, and their milestone rewards).
-                        // UnstashPendingTreeOnRevert only filters recording-tied actions; these
-                        // untagged ones would otherwise be re-applied by the recalc below,
-                        // overriding stock KSP's revert. loadedUT is the post-revert clock (the
-                        // launch UT for Revert-to-Launch, an earlier UT for Revert-to-Assembly),
-                        // so strict UT > loadedUT keeps the at-launch rollout spend on a
-                        // Revert-to-Launch while refunding it on a Revert-to-Assembly.
-                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(loadedUT);
+                        // PRELAUNCH window before auto-record starts, their milestone rewards, and
+                        // the vessel rollout spend). UnstashPendingTreeOnRevert only filters
+                        // recording-tied actions; these untagged ones would otherwise be
+                        // re-applied by the recalc below, overriding stock KSP's revert. The
+                        // cutoff is the launch UT (see ResolveRevertPruneCutoff): Revert-to-Launch
+                        // keeps the rollout on the pad (exclusive), Revert-to-editor refunds it
+                        // (inclusive).
+                        bool pruneInclusive;
+                        double pruneCutoffUT = ResolveRevertPruneCutoff(
+                            revertKind, loadedUT, RevertDetector.PendingLaunchUT, out pruneInclusive);
+                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",
-                                $"Revert: pruned {prunedOrphans} untagged ledger action(s) after " +
-                                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                                $"Revert ({revertKind}): pruned {prunedOrphans} untagged ledger action(s) " +
+                                $"{(pruneInclusive ? "at/after" : "after")} launchUT=" +
+                                $"{pruneCutoffUT.ToString("R", CultureInfo.InvariantCulture)} " +
                                 "(launch-pad/PRELAUNCH currency earned before auto-record)");
 
                         if (hadPendingTree)

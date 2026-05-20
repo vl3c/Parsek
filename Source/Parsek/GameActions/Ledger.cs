@@ -187,26 +187,36 @@ namespace Parsek
 
         /// <summary>
         /// Removes orphan ledger actions that were generated live during a now-discarded
-        /// flight session: those with a null/empty <see cref="GameAction.RecordingId"/> and a
-        /// UT strictly greater than <paramref name="cutoffUT"/>. Returns the number removed.
+        /// flight session: those with a null/empty <see cref="GameAction.RecordingId"/> whose UT
+        /// is past <paramref name="cutoffUT"/>. Returns the number removed. When
+        /// <paramref name="inclusive"/> is false the boundary is exclusive (UT &gt; cutoff); when
+        /// true it is inclusive (UT &gt;= cutoff).
         ///
-        /// <para>Used by the Revert-to-Launch / Revert-to-Assembly path: stock KSP rewinds the
-        /// game clock back to <paramref name="cutoffUT"/> and zeroes the currency it earned
-        /// during the reverted flight, but actions earned on the launch pad BEFORE auto-record
-        /// starts (PRELAUNCH-window science transmissions, milestone rewards, etc.) carry no
-        /// recording id, so the pending-tree unstash that filters recording-tied actions never
-        /// touches them and the next full recalc re-applies them, overriding the stock revert.
-        /// A cutoff-only walk would merely defer the re-credit until the re-fly clock passes the
-        /// orphan's UT again; removal is the correct semantics for "this flight never happened".</para>
+        /// <para>Used by the revert path. Stock KSP discards the reverted flight and zeroes the
+        /// currency it earned, but actions earned on the launch pad BEFORE auto-record starts
+        /// (PRELAUNCH-window science transmissions, milestone rewards, the vessel rollout spend)
+        /// carry no recording id, so the pending-tree unstash that filters recording-tied actions
+        /// never touches them and the next full recalc re-applies them, overriding the stock
+        /// revert. A cutoff-only recalc walk would merely defer the re-credit until the clock
+        /// passes the orphan's UT again; removal is the correct semantics for "this flight never
+        /// happened".</para>
+        ///
+        /// <para><b>Boundary:</b> <paramref name="cutoffUT"/> is the launch UT. Revert-to-Launch
+        /// keeps the vessel on the pad, so it passes <paramref name="inclusive"/>=false to keep
+        /// the at-launch rollout spend (and any pre-launch KSC action that shares the launch UT
+        /// because UT is frozen in the editor). Revert-to-editor (VAB/SPH) un-builds the vessel,
+        /// so it passes <paramref name="inclusive"/>=true to also drop the at-launch rollout
+        /// (KSP refunds it). In-flight orphans always have UT strictly greater than the launch UT
+        /// because the clock advances once in flight, so both modes drop them.</para>
         ///
         /// <para>Safe because every persisted ledger action is stamped with the clock UT at the
         /// moment it was appended and recording-tied actions carry a recording id, so a
-        /// null-recordingId action dated after the revert target can only have come from the live
+        /// null-recordingId action at/after the launch UT can only have come from the live
         /// (non-recorded) part of the discarded session. Seed actions (<see cref="GameActionType.FundsInitial"/>
         /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
         /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
         /// </summary>
-        internal static int PruneOrphanActionsAfterUT(double cutoffUT)
+        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
         {
             int removed = 0;
             for (int i = actions.Count - 1; i >= 0; i--)
@@ -218,24 +228,29 @@ namespace Parsek
                     continue;
                 if (RecalculationEngine.IsSeedType(action.Type))
                     continue;
-                if (action.UT <= cutoffUT)
+                // Keep everything before the launch boundary. Exclusive keeps the boundary UT
+                // itself (rollout retained on Revert-to-Launch); inclusive drops it (rollout
+                // refunded on Revert-to-editor).
+                bool keep = inclusive ? action.UT < cutoffUT : action.UT <= cutoffUT;
+                if (keep)
                     continue;
 
                 actions.RemoveAt(i);
                 removed++;
             }
 
+            string boundary = inclusive ? "at/after" : "after";
             if (removed > 0)
             {
                 BumpStateVersion();
                 ParsekLog.Info("Ledger",
-                    $"PruneOrphanActionsAfterUT: removed {removed} untagged action(s) after UT " +
+                    $"PruneOrphanActionsAfterUT: removed {removed} untagged action(s) {boundary} UT " +
                     $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
             }
             else
             {
                 ParsekLog.Verbose("Ledger",
-                    $"PruneOrphanActionsAfterUT: no untagged actions after UT " +
+                    $"PruneOrphanActionsAfterUT: no untagged actions {boundary} UT " +
                     $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
             }
 

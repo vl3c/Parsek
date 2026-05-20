@@ -22,7 +22,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
-- Revert to Launch and Revert to Assembly now correctly drop science, funds, and milestones earned on the launch pad before liftoff. Previously this launch-pad currency was re-credited after the revert, so transmitting an experiment on the pad and then reverting left the science points (and any milestone reward) in your career total.
+- Reverting a flight (Revert to Launch, to the VAB, or to the Spaceplane Hangar, from any launch site) now correctly drops the science, funds, and milestones earned before liftoff. Previously this pre-launch currency was re-credited after the revert, so transmitting an experiment on the pad or runway and then reverting left the science points (and any milestone reward) in your career total. Reverting to the editor now also refunds the vessel build cost as stock does.
 - Bail-Out Grant (the stock Reputation-to-Funds strategy) is no longer silently reverted. Parsek now records the strategy's funds gain and reputation cost into the ledger, so the next career recalculation keeps the granted funds and the spent reputation instead of refunding both.
 - Science total no longer briefly flickers to zero when an experiment recovery or transmission coincides with another reward event (such as the first science milestone): the pool is now held at its credited value until the matching ledger entry catches up.
 - Re-Fly: a suborbital arc no longer seals the rewind slot or shows "reached a sub-orbital arc" in the merge dialog. The slot now stays open until the vessel actually lands, splashes, crashes, or reaches a stable orbit.

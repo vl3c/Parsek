@@ -434,5 +434,56 @@ namespace Parsek.Tests
             RecordingStore.DiscardPendingTree();
             Assert.Empty(GameStateStore.Events); // purge confirmed
         }
+
+        // ================================================================
+        // ResolveRevertPruneCutoff (launch boundary for the orphan prune)
+        // ================================================================
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Launch_UsesLoadedUTExclusive()
+        {
+            // Revert-to-Launch rewinds the clock, so loadedUT is the exact launch UT and the
+            // at-launch rollout is kept (vessel stays on the pad).
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Launch, loadedUT: 7.34, capturedLaunchUT: 7.34, out bool inclusive);
+
+            Assert.Equal(7.34, cutoff);
+            Assert.False(inclusive);
+        }
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Prelaunch_UsesCapturedLaunchUTInclusive()
+        {
+            // Revert-to-editor does NOT rewind the clock: loadedUT (31.28) is the revert-moment
+            // UT, useless as a launch boundary. The captured launch UT (12.0) is used instead,
+            // inclusive so the at-launch rollout is dropped (KSP refunds it).
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Prelaunch, loadedUT: 31.28, capturedLaunchUT: 12.0, out bool inclusive);
+
+            Assert.Equal(12.0, cutoff);
+            Assert.True(inclusive);
+        }
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Prelaunch_NaNLaunchUT_FallsBackToLoadedUT()
+        {
+            // No active vessel at the revert event -> NaN capture. Fall back to loadedUT, which
+            // prunes nothing harmful rather than risking a wrong cutoff.
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Prelaunch, loadedUT: 31.28, capturedLaunchUT: double.NaN, out bool inclusive);
+
+            Assert.Equal(31.28, cutoff);
+            Assert.True(inclusive);
+        }
+
+        [Fact]
+        public void RevertDetector_PendingLaunchUT_ResetToNaN()
+        {
+            RevertDetector.SetPendingLaunchUTForTesting(42.0);
+            Assert.Equal(42.0, RevertDetector.PendingLaunchUT);
+
+            RevertDetector.ResetForTesting();
+            Assert.True(double.IsNaN(RevertDetector.PendingLaunchUT));
+        }
     }
 }
