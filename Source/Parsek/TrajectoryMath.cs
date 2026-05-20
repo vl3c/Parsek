@@ -681,25 +681,8 @@ namespace Parsek
                                     ? rec.TrackSections[sectionIdx].referenceFrame
                                     : ReferenceFrame.Absolute;
 
-                                if (frame == ReferenceFrame.Relative)
-                                {
-                                    double dx = pt.latitude - prev.latitude;
-                                    double dy = pt.longitude - prev.longitude;
-                                    double dz = pt.altitude - prev.altitude;
-                                    stats.distanceTravelled += System.Math.Sqrt(
-                                        dx * dx + dy * dy + dz * dz);
-                                }
-                                else
-                                {
-                                    double avgAlt = (prev.altitude + pt.altitude) * 0.5;
-                                    double surfaceDist = HaversineDistance(
-                                        prev.latitude, prev.longitude,
-                                        pt.latitude, pt.longitude,
-                                        bodyRadius + avgAlt);
-                                    double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
-                                    stats.distanceTravelled += System.Math.Sqrt(
-                                        surfaceDist * surfaceDist + altDiff * altDiff);
-                                }
+                                stats.distanceTravelled += ComputePairwiseTravelDistance(
+                                    prev, pt, frame, bodyRadius);
                             }
                         }
 
@@ -710,27 +693,8 @@ namespace Parsek
                             ReferenceFrame pointFrame = pointSectionIdx >= 0
                                 ? rec.TrackSections[pointSectionIdx].referenceFrame
                                 : ReferenceFrame.Absolute;
-                            double range;
-                            if (firstPointFrame == ReferenceFrame.Relative
-                                && pointFrame == ReferenceFrame.Relative)
-                            {
-                                double dx = pt.latitude - lat0;
-                                double dy = pt.longitude - lon0;
-                                double dz = pt.altitude - rec.Points[0].altitude;
-                                range = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                            }
-                            else if (pointFrame == ReferenceFrame.Relative)
-                            {
-                                range = 0.0;
-                            }
-                            else
-                            {
-                                double avgAlt = (rec.Points[0].altitude + pt.altitude) * 0.5;
-                                range = HaversineDistance(
-                                    lat0, lon0,
-                                    pt.latitude, pt.longitude,
-                                    bodyRadius + avgAlt);
-                            }
+                            double range = ComputePointRangeFromStart(
+                                rec.Points[0], pt, firstPointFrame, pointFrame, bodyRadius);
                             if (range > stats.maxRange)
                                 stats.maxRange = range;
                         }
@@ -747,6 +711,69 @@ namespace Parsek
                 $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody}");
 
             return stats;
+        }
+
+        /// <summary>
+        /// Computes the distance contributed by a single consecutive point pair, dispatching
+        /// on reference frame: Relative sections store anchor-local metre offsets in
+        /// latitude/longitude/altitude (Euclidean dx/dy/dz delta), while non-Relative sections
+        /// store body-fixed lat/lon/alt (haversine surface distance plus altitude delta).
+        /// </summary>
+        internal static double ComputePairwiseTravelDistance(
+            in TrajectoryPoint prev,
+            in TrajectoryPoint cur,
+            ReferenceFrame frame,
+            double bodyRadius)
+        {
+            if (frame == ReferenceFrame.Relative)
+            {
+                double dx = cur.latitude - prev.latitude;
+                double dy = cur.longitude - prev.longitude;
+                double dz = cur.altitude - prev.altitude;
+                return System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            double avgAlt = (prev.altitude + cur.altitude) * 0.5;
+            double surfaceDist = HaversineDistance(
+                prev.latitude, prev.longitude,
+                cur.latitude, cur.longitude,
+                bodyRadius + avgAlt);
+            double altDiff = System.Math.Abs(cur.altitude - prev.altitude);
+            return System.Math.Sqrt(surfaceDist * surfaceDist + altDiff * altDiff);
+        }
+
+        /// <summary>
+        /// Computes the range of a point from the first recorded point, dispatching on the
+        /// start-point and current-point reference frames: both Relative uses an anchor-local
+        /// Euclidean dx/dy/dz delta; current-Relative-only returns 0.0 (cannot mix frames);
+        /// otherwise uses a haversine surface range from the start point.
+        /// </summary>
+        internal static double ComputePointRangeFromStart(
+            in TrajectoryPoint start,
+            in TrajectoryPoint cur,
+            ReferenceFrame startFrame,
+            ReferenceFrame curFrame,
+            double bodyRadius)
+        {
+            if (startFrame == ReferenceFrame.Relative
+                && curFrame == ReferenceFrame.Relative)
+            {
+                double dx = cur.latitude - start.latitude;
+                double dy = cur.longitude - start.longitude;
+                double dz = cur.altitude - start.altitude;
+                return System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            if (curFrame == ReferenceFrame.Relative)
+            {
+                return 0.0;
+            }
+
+            double avgAlt = (start.altitude + cur.altitude) * 0.5;
+            return HaversineDistance(
+                start.latitude, start.longitude,
+                cur.latitude, cur.longitude,
+                bodyRadius + avgAlt);
         }
 
         private static void ApplyTrackSectionAltitudeMetadata(
