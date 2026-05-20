@@ -1248,7 +1248,7 @@ namespace Parsek.Tests
                 1000.0,
                 initialPoint: Point(1000.0));
 
-            bgRecorder.StartDebrisParentRelativeTrackSectionForTesting(
+            bgRecorder.StartParentAnchorRelativeTrackSectionForTesting(
                 pid,
                 parentId,
                 SegmentEnvironment.Atmospheric,

@@ -782,7 +782,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(
                 expected,
-                BackgroundRecorder.ShouldUseDebrisRelativeSectionForDistance(
+                BackgroundRecorder.ShouldUseParentAnchorRelativeSectionForDistance(
                     distanceMeters,
                     alreadyRelative));
         }

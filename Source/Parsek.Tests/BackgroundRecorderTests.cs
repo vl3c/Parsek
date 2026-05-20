@@ -231,9 +231,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPendingDebrisSeedParentAnchorUsable_AcceptsMatchingParentAndUT()
+        public void IsPendingParentAnchorSeedUsable_AcceptsMatchingParentAndUT()
         {
-            Assert.True(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+            Assert.True(BackgroundRecorder.IsPendingParentAnchorSeedUsable(
                 "parent-rec",
                 "parent-rec",
                 queuedUT: 42.0000004,
@@ -244,9 +244,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPendingDebrisSeedParentAnchorUsable_RejectsParentMismatch()
+        public void IsPendingParentAnchorSeedUsable_RejectsParentMismatch()
         {
-            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+            Assert.False(BackgroundRecorder.IsPendingParentAnchorSeedUsable(
                 "other-parent",
                 "parent-rec",
                 queuedUT: 42.0,
@@ -256,9 +256,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPendingDebrisSeedParentAnchorUsable_RejectsUTMismatch()
+        public void IsPendingParentAnchorSeedUsable_RejectsUTMismatch()
         {
-            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+            Assert.False(BackgroundRecorder.IsPendingParentAnchorSeedUsable(
                 "parent-rec",
                 "parent-rec",
                 queuedUT: 42.01,
@@ -269,9 +269,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPendingDebrisSeedParentAnchorUsable_RejectsInvalidTolerance()
+        public void IsPendingParentAnchorSeedUsable_RejectsInvalidTolerance()
         {
-            Assert.False(BackgroundRecorder.IsPendingDebrisSeedParentAnchorUsable(
+            Assert.False(BackgroundRecorder.IsPendingParentAnchorSeedUsable(
                 "parent-rec",
                 "parent-rec",
                 queuedUT: 42.0,
