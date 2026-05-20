@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Science total flickered to zero for a frame on the first experiment recovery/transmission
+
+- Playtest 2026-05-20 (`logs/2026-05-20_1817_game-actions-playtest/`). On the first science recovery (`PatchScience: 1.2 -> 0.0` then `0.0 -> 1.2` within ~11ms at 18:09:43), KSP's science pool was transiently clawed to zero before the next recalc restored it. Self-healing and INFO-level, but a visible flicker and a wasted patch.
+- **Root cause:** when KSP credits recovery/transmission science live, the matching `ScienceEarning` ledger action is added a few ms later by `LedgerOrchestrator.TryRecordKscScienceSubject`. A recalc triggered in that gap by a co-incident event (here the first `Kerbin/Science` milestone) ran `KspStatePatcher.PatchScience` against a ledger that did not yet contain the earning, so `science.GetAvailableScience()` returned the stale pre-credit total and the patch pulled KSP's pool down to it. `PatchScience` already had a guard for the opposite (spending) race, `AdjustSciencePatchTargetForPendingRecentTechResearch`, but none for the earning race.
+- **Fix:** symmetric guard `KspStatePatcher.AdjustSciencePatchTargetForPendingRecentScienceEarning`, backed by `LedgerOrchestrator.ComputePendingRecentKscScienceCredit` / `GetPendingRecentKscScienceCredit` (mirror of the existing tech-research debit helper). When the ledger target is below KSP's current pool and a recent un-ingested VesselRecovery/ScienceTransmission credit exists, the target is held up to KSP's current value (clamped) until the earning lands, logging `holding forward N pending science earning`. No-op once the earning is ingested, because the target then rises to at or above the current pool.
+- **Tests:** four xUnit tests. Two in `LedgerOrchestratorTests` (`ComputePendingRecentKscScienceCredit_UnmatchedCreditReturnsGap` and `_WhenLedgerCaughtUpReturnsZero`) and two in `KspStatePatcherTests` (`AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsForwardUnmatchedCredit` and `_HoldsRemainderWhenPartiallyIngested`).
+- **Status:** CLOSED 2026-05-20.
+
+---
+
 ## Done - v0.10.0 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
 
 - Investigation 2026-05-20 (`logs/2026-05-20_1833_timeline-investigation/`). The Details tab listed 50 rows for a short two-launch career, dominated by noise: a VAB build burst at one UT produced ~20 rows. Two distinct causes.
