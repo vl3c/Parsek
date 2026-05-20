@@ -3596,6 +3596,87 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure helper for the live KSC science-earning race (mirror of
+        /// <see cref="ComputePendingRecentKscTechResearchScienceDebit"/>): when KSP has
+        /// already applied a recent <c>ScienceChanged</c> credit (VesselRecovery /
+        /// ScienceTransmission) but the matching <c>ScienceEarning</c> action has not landed
+        /// in the ledger yet, this returns the un-ingested credit amount that
+        /// <see cref="KspStatePatcher.PatchScience"/> would otherwise claw back, transiently
+        /// zeroing the pool until the next recalc. Both untagged and recording-tagged
+        /// <c>ScienceEarning</c> actions inside the window count as ingested: a recovered
+        /// vessel's earning is recording-tagged once <c>PickRecoveryRecordingId</c> matches a
+        /// committed recording, so (unlike the debit helper) the committed side does NOT
+        /// filter on <c>RecordingId</c> — only the UT window gates the match.
+        /// </summary>
+        internal static double ComputePendingRecentKscScienceCredit(
+            IReadOnlyList<GameStateEvent> events,
+            IReadOnlyList<GameAction> ledgerActions,
+            double nowUt)
+        {
+            double observedCredit = 0.0;
+            if (events != null)
+            {
+                for (int i = 0; i < events.Count; i++)
+                {
+                    var evt = events[i];
+                    if (evt.eventType != GameStateEventType.ScienceChanged)
+                        continue;
+                    if (!GameStateRecorder.IsScienceSubjectReasonKey(evt.key))
+                        continue;
+                    if (evt.valueAfter <= evt.valueBefore)
+                        continue;
+                    if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    observedCredit += evt.valueAfter - evt.valueBefore;
+                }
+            }
+
+            if (observedCredit <= 0.1)
+                return 0.0;
+
+            // Both sides use the raw KSP-credited amount: observedCredit from the
+            // ScienceChanged event deltas above, committedCredit from each earning's
+            // ScienceAwarded (the immutable awarded value, not the post-cap effective
+            // science). The gap is therefore internally consistent, and the caller clamps
+            // the held target to the live KSP pool, so a subject that the cross-recording
+            // cap later trims can never inflate science above what KSP actually credited;
+            // it only briefly holds the pre-ingest value until the next recalc.
+            double committedCredit = 0.0;
+            if (ledgerActions != null)
+            {
+                for (int i = 0; i < ledgerActions.Count; i++)
+                {
+                    var action = ledgerActions[i];
+                    if (action == null)
+                        continue;
+                    if (action.Type != GameActionType.ScienceEarning)
+                        continue;
+                    if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
+                        continue;
+
+                    committedCredit += action.ScienceAwarded;
+                }
+            }
+
+            double pendingCredit = observedCredit - committedCredit;
+            return pendingCredit > 0.1 ? pendingCredit : 0.0;
+        }
+
+        /// <summary>
+        /// Live wrapper over <see cref="ComputePendingRecentKscScienceCredit"/>.
+        /// Uses the current GameStateStore / ledger state and the affordability "now UT"
+        /// seam so both production and tests evaluate the same recent-action window.
+        /// </summary>
+        internal static double GetPendingRecentKscScienceCredit()
+        {
+            return ComputePendingRecentKscScienceCredit(
+                GameStateStore.Events,
+                Ledger.Actions,
+                GetNowUT());
+        }
+
+        /// <summary>
         /// Checks whether a science spending of the given cost is affordable under the
         /// current ledger reservation. Returns true if available science >= cost.
         /// Used by TechResearchPatch to block unfunded tech unlocks.

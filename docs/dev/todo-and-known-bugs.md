@@ -12,6 +12,37 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Science total flickered to zero for a frame on the first experiment recovery/transmission
+
+- Playtest 2026-05-20 (`logs/2026-05-20_1817_game-actions-playtest/`). On the first science recovery (`PatchScience: 1.2 -> 0.0` then `0.0 -> 1.2` within ~11ms at 18:09:43), KSP's science pool was transiently clawed to zero before the next recalc restored it. Self-healing and INFO-level, but a visible flicker and a wasted patch.
+- **Root cause:** when KSP credits recovery/transmission science live, the matching `ScienceEarning` ledger action is added a few ms later by `LedgerOrchestrator.TryRecordKscScienceSubject`. A recalc triggered in that gap by a co-incident event (here the first `Kerbin/Science` milestone) ran `KspStatePatcher.PatchScience` against a ledger that did not yet contain the earning, so `science.GetAvailableScience()` returned the stale pre-credit total and the patch pulled KSP's pool down to it. `PatchScience` already had a guard for the opposite (spending) race, `AdjustSciencePatchTargetForPendingRecentTechResearch`, but none for the earning race.
+- **Fix:** symmetric guard `KspStatePatcher.AdjustSciencePatchTargetForPendingRecentScienceEarning`, backed by `LedgerOrchestrator.ComputePendingRecentKscScienceCredit` / `GetPendingRecentKscScienceCredit` (mirror of the existing tech-research debit helper). When the ledger target is below KSP's current pool and a recent un-ingested VesselRecovery/ScienceTransmission credit exists, the target is held up to KSP's current value (clamped) until the earning lands, logging `holding forward N pending science earning`. No-op once the earning is ingested, because the target then rises to at or above the current pool.
+- **Tests:** four xUnit tests. Two in `LedgerOrchestratorTests` (`ComputePendingRecentKscScienceCredit_UnmatchedCreditReturnsGap` and `_WhenLedgerCaughtUpReturnsZero`) and two in `KspStatePatcherTests` (`AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsForwardUnmatchedCredit` and `_HoldsRemainderWhenPartiallyIngested`).
+- **Status:** CLOSED 2026-05-20.
+
+---
+
+## Done - v0.10.0 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
+
+- Investigation 2026-05-20 (`logs/2026-05-20_1833_timeline-investigation/`). The Details tab listed 50 rows for a short two-launch career, dominated by noise: a VAB build burst at one UT produced ~20 rows. Two distinct causes.
+- **Cause 1 (duplication):** the timeline merges ledger game-actions and the legacy milestone-store events, but the legacy de-dup (`TimelineBuilder.GetLegacyDuplicateKey`) only covered `MilestoneAchievement` / `StrategyActivate` / `StrategyDeactivate`. `PartPurchased`, `TechResearched`, and the contract lifecycle events exist in BOTH stores and were rendered twice (once as a ledger row, once as a legacy row).
+- **Cause 2 (no-op rows):** under the stock `BypassEntryPurchaseAfterResearch` setting, researching a tech node auto-unlocks its parts for free; stock KSP still fires `OnPartPurchased` per part, so `ConvertPartPurchased` records a `FundsSpending(Other, 0)` ledger action per part. That zero-funds action is an intentional ledger audit record (also synthesized by `TryRecoverBrokenLedgerOnLoad` / `RepairLegacyPartPurchaseActionsOnLoad`, pinned by tests), so it is NOT dropped at the converter; it is purely a display problem.
+- **Fix (display-only, ledger contract untouched):** (1) `GetLegacyDuplicateKey` now also de-dups `TechResearched` (NodeId), `PartPurchased` (DedupKey, source==Other only), and `ContractAccepted/Completed/Failed/Cancelled` (ContractId) against their ledger twins. (2) `CollectGameActionEntries` skips `FundsSpending` actions with `FundsSpent <= 0` (no-op spends). (3) `CollectLegacyEntries` skips `PartPurchased` legacy events whose charged cost is 0 (their ledger twin is filtered, so de-dup can't catch them). (4) Surviving (non-zero) part-purchase rows now render `Part: {name} -{cost}` via the part name in `DedupKey`, instead of the generic `Expense -0`. Charged-cost parsing is shared via `GameStateEventConverter.ParsePartPurchaseChargedCost`.
+- **Tests:** four `TimelineBuilderTests` (no-op spend filtered, part-name relabel, free legacy part skipped, Tech/Contract/Part legacy de-dup end-to-end) plus four `GameStateEventConverterTests` for the shared cost parser.
+- **Status:** CLOSED 2026-05-20.
+
+---
+
+## Done - v0.10.0 Live Re-Fly fork floated at the recordings-table root instead of nesting in its mission folder
+
+- Playtest 2026-05-20 (`logs/2026-05-20_1737_refly-orphan-recording/`). During an in-place Rewind-to-Separation on "Kerbal X" (tree `e7ca34dc...`), the in-flight fork `rec_77dbe31a...` showed in the recordings list as a row outside any mission folder; it vanished when the user discarded the re-fly attempt.
+- **Root cause:** `RewindInvoker.BuildProvisionalRecording` creates the fork with `TreeId` set but no `RecordingGroups`. Auto-grouping (`RecordingGroupStore.AutoGroupTreeRecordings`) only runs at commit time, and the recordings table groups strictly by `Recording.RecordingGroups` (`RecordingsTableUI` draws group-less recordings at the root). So the provisional fork rendered detached from the "Kerbal X" folder its committed siblings already sit in, for the whole live session.
+- **Fix:** new `RecordingGroupStore.AssignTreeMemberToExistingAutoGroup(tree, rec)` mirrors `AutoGroupTreeRecordings`'s per-recording target selection (root / "/ Debris" / "/ Crew") and assigns the fork its tree's group only when the tree already has an `AutoGeneratedRootGroupName` (single-recording trees never got a folder, so the member stays standalone to match its sibling). `RewindInvoker.AtomicMarkerWrite` calls it right after `AddProvisional`, resolving the tree from the eager in-place handle or `FindTreeForReFlyFork(provisional.TreeId)`. Self-cleaning: the membership rides on the fork object, removed wholesale on Discard and re-affirmed by `AutoGroupTreeRecordings` on Merge.
+- **Tests:** seven unit tests in `GroupManagementTests` (root / debris / crew nesting, no-op without an auto root group, idempotency, null args, pre-existing manual group still appends the auto group) plus two call-site integration tests in `AtomicMarkerWriteTests` driving the real `AtomicMarkerWrite` path: `..._InPlaceContinuation_NestsForkUnderExistingMissionFolder` (eager in-place attach) and `..._PlaceholderPath_NestsForkViaTreeIdLookup` (non-in-place placeholder branch, fork resolved via `FindTreeForReFlyFork`).
+- **Status:** CLOSED 2026-05-20.
+
+---
+
 ## Open - v0.10.0 Orphan parent-anchored debris remained visible after re-fly fork retirement
 
 - Playtest 2026-05-19 (`logs/2026-05-19_2329_pr909-narrowed-gate-playtest/saves/x4/persistent.sfs`). User did a Rewind-to-Separation on a Kerbal X re-fly attempt; the active fork `rec_2c68978d` was retired with `reason=rewound-out-supersede-fork` (`rrt_33919eadcd674138baef970cb3e7b5b7`) and `ab1f54b0` was restored. The fork's parent-anchored debris child `3d4713df` (Kerbal X Debris, `mergeState=CommittedProvisional`, `debrisParentRecordingId = rec_2c68978d`) carried no retirement of its own and continued to render as a ghost alongside the restored recording's own debris children, producing visible duplicate upper-stage debris ghosts.
