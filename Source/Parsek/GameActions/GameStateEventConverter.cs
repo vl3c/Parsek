@@ -439,11 +439,7 @@ namespace Parsek
         /// </remarks>
         private static GameAction ConvertPartPurchased(GameStateEvent evt, string recordingId)
         {
-            float cost = 0f;
-            string costStr = ExtractDetail(evt.detail, "cost")
-                          ?? ExtractDetail(evt.detail, "entryCost");
-            if (costStr != null)
-                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            float cost = ParsePartPurchaseChargedCost(evt.detail);
 
             // DedupKey uses the part name so multiple part purchases at KSC (where
             // RecordingId is null) do not collide under GetActionKey. See #F in
@@ -458,6 +454,22 @@ namespace Parsek
                 FundsSpendingSource = FundsSpendingSource.Other,
                 DedupKey = evt.key ?? ""
             };
+        }
+
+        /// <summary>
+        /// Parses the actual charged cost from a PartPurchased event detail. `cost=` is
+        /// authoritative (0 under bypass-entry-purchase); falls back to `entryCost=` only
+        /// when `cost=` is absent (pre-#451 events). Shared by the converter guard and the
+        /// Timeline legacy-collector skip so both agree on what counts as a free unlock.
+        /// </summary>
+        internal static float ParsePartPurchaseChargedCost(string detail)
+        {
+            string costStr = ExtractDetail(detail, "cost")
+                          ?? ExtractDetail(detail, "entryCost");
+            float cost = 0f;
+            if (costStr != null)
+                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            return cost;
         }
 
         /// <summary>

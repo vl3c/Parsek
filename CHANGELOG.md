@@ -16,6 +16,7 @@ All notable changes to Parsek are documented here.
 ### UI
 
 - Watch mode now cycles to the next watchable ghost on W. Stock pitch input (W and S) is locked out on the unattended active vessel while watching, and the watch overlay hint reads `[ ] return  |  V camera  |  W cycle`.
+- Timeline Details tab is far less cluttered: part purchases, tech unlocks, and contract events that already appear as ledger rows are no longer also listed as duplicate legacy rows, and free (zero-funds) part unlocks are hidden entirely. Part-purchase rows now read "Part: {name} -{cost}" instead of "Expense -0".
 
 ### Bug Fixes
 

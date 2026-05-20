@@ -12,6 +12,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
+
+- Investigation 2026-05-20 (`logs/2026-05-20_1833_timeline-investigation/`). The Details tab listed 50 rows for a short two-launch career, dominated by noise: a VAB build burst at one UT produced ~20 rows. Two distinct causes.
+- **Cause 1 (duplication):** the timeline merges ledger game-actions and the legacy milestone-store events, but the legacy de-dup (`TimelineBuilder.GetLegacyDuplicateKey`) only covered `MilestoneAchievement` / `StrategyActivate` / `StrategyDeactivate`. `PartPurchased`, `TechResearched`, and the contract lifecycle events exist in BOTH stores and were rendered twice (once as a ledger row, once as a legacy row).
+- **Cause 2 (no-op rows):** under the stock `BypassEntryPurchaseAfterResearch` setting, researching a tech node auto-unlocks its parts for free; stock KSP still fires `OnPartPurchased` per part, so `ConvertPartPurchased` records a `FundsSpending(Other, 0)` ledger action per part. That zero-funds action is an intentional ledger audit record (also synthesized by `TryRecoverBrokenLedgerOnLoad` / `RepairLegacyPartPurchaseActionsOnLoad`, pinned by tests), so it is NOT dropped at the converter; it is purely a display problem.
+- **Fix (display-only, ledger contract untouched):** (1) `GetLegacyDuplicateKey` now also de-dups `TechResearched` (NodeId), `PartPurchased` (DedupKey, source==Other only), and `ContractAccepted/Completed/Failed/Cancelled` (ContractId) against their ledger twins. (2) `CollectGameActionEntries` skips `FundsSpending` actions with `FundsSpent <= 0` (no-op spends). (3) `CollectLegacyEntries` skips `PartPurchased` legacy events whose charged cost is 0 (their ledger twin is filtered, so de-dup can't catch them). (4) Surviving (non-zero) part-purchase rows now render `Part: {name} -{cost}` via the part name in `DedupKey`, instead of the generic `Expense -0`. Charged-cost parsing is shared via `GameStateEventConverter.ParsePartPurchaseChargedCost`.
+- **Tests:** four `TimelineBuilderTests` (no-op spend filtered, part-name relabel, free legacy part skipped, Tech/Contract/Part legacy de-dup end-to-end) plus four `GameStateEventConverterTests` for the shared cost parser.
+- **Status:** CLOSED 2026-05-20.
+
+---
+
 ## Done - v0.10.0 Live Re-Fly fork floated at the recordings-table root instead of nesting in its mission folder
 
 - Playtest 2026-05-20 (`logs/2026-05-20_1737_refly-orphan-recording/`). During an in-place Rewind-to-Separation on "Kerbal X" (tree `e7ca34dc...`), the in-flight fork `rec_77dbe31a...` showed in the recordings list as a row outside any mission folder; it vanished when the user discarded the re-fly attempt.
