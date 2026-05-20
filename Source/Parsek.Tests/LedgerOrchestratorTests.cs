@@ -1213,6 +1213,83 @@ namespace Parsek.Tests
             Assert.Equal(0.0, pending, 3);
         }
 
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_UnmatchedCreditReturnsGap()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 10.0,
+                    valueAfter = 30.0
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceEarning,
+                    ScienceAwarded = 12f
+                },
+                new GameAction
+                {
+                    UT = 1000.0,
+                    Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec-flight",
+                    ScienceAwarded = 99f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events,
+                actions,
+                nowUt: 1000.05);
+
+            Assert.Equal(8.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_WhenLedgerCaughtUpReturnsZero()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1200.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 6.0,
+                    valueAfter = 31.0
+                }
+            };
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 1200.0,
+                    Type = GameActionType.ScienceEarning,
+                    ScienceAwarded = 15f
+                },
+                new GameAction
+                {
+                    UT = 1200.04,
+                    Type = GameActionType.ScienceEarning,
+                    ScienceAwarded = 10f
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events,
+                actions,
+                nowUt: 1200.02);
+
+            Assert.Equal(0.0, pending, 3);
+        }
+
         // ================================================================
         // ExtractCrewFromRecording
         // ================================================================

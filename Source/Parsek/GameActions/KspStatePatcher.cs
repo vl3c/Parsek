@@ -94,6 +94,9 @@ namespace Parsek
             double targetScience = AdjustSciencePatchTargetForPendingRecentTechResearch(
                 science.GetAvailableScience(),
                 currentScience);
+            targetScience = AdjustSciencePatchTargetForPendingRecentScienceEarning(
+                targetScience,
+                currentScience);
             float delta = (float)(targetScience - (double)currentScience);
 
             if (Math.Abs(delta) < 0.001f)
@@ -540,6 +543,42 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"PatchScience: holding back {pendingDebit.ToString("F1", IC)} pending tech-unlock science " +
+                    $"(current={currentScience.ToString("F1", IC)}, " +
+                    $"ledgerTarget={targetScience.ToString("F1", IC)}, " +
+                    $"adjustedTarget={adjustedTarget.ToString("F1", IC)})");
+            }
+
+            return adjustedTarget;
+        }
+
+        /// <summary>
+        /// Keeps a recent stock science credit (VesselRecovery / ScienceTransmission)
+        /// authoritative while the matching <c>ScienceEarning</c> ledger action is still
+        /// catching up. Without this, a recalc triggered by a co-incident event (e.g. the
+        /// first science milestone) firing between KSP crediting the science and the ledger
+        /// ingesting it would transiently claw the pool back down to the stale pre-credit
+        /// total. Mirror of <see cref="AdjustSciencePatchTargetForPendingRecentTechResearch"/>
+        /// for the opposite (ledger-behind-KSP) direction.
+        /// </summary>
+        internal static double AdjustSciencePatchTargetForPendingRecentScienceEarning(
+            double targetScience,
+            float currentScience)
+        {
+            if (targetScience >= (double)currentScience)
+                return targetScience;
+
+            double pendingCredit = LedgerOrchestrator.GetPendingRecentKscScienceCredit();
+            if (pendingCredit <= 0.0)
+                return targetScience;
+
+            double adjustedTarget = targetScience + pendingCredit;
+            if (adjustedTarget > (double)currentScience)
+                adjustedTarget = (double)currentScience;
+
+            if (adjustedTarget > targetScience)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"PatchScience: holding forward {pendingCredit.ToString("F1", IC)} pending science earning " +
                     $"(current={currentScience.ToString("F1", IC)}, " +
                     $"ledgerTarget={targetScience.ToString("F1", IC)}, " +
                     $"adjustedTarget={adjustedTarget.ToString("F1", IC)})");

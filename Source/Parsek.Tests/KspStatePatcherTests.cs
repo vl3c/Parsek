@@ -168,6 +168,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsForwardUnmatchedCredit()
+        {
+            try
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = () => 250.0;
+
+                // KSP just credited 12 science (recovery) but the ScienceEarning action
+                // has not landed in the ledger yet, so the ledger target is still 0.
+                var evt = new GameStateEvent
+                {
+                    ut = 250.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 0.0,
+                    valueAfter = 12.0
+                };
+                GameStateStore.AddEvent(ref evt);
+
+                double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingRecentScienceEarning(
+                    targetScience: 0.0,
+                    currentScience: 12f);
+
+                // Held at KSP's current value instead of being clawed back to 0.
+                Assert.Equal(12.0, adjusted, 3);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[KspStatePatcher]") &&
+                    l.Contains("holding forward 12.0 pending science earning"));
+            }
+            finally
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void AdjustSciencePatchTargetForPendingRecentScienceEarning_HoldsRemainderWhenPartiallyIngested()
+        {
+            try
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = () => 300.0;
+
+                var evt = new GameStateEvent
+                {
+                    ut = 300.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 0.0,
+                    valueAfter = 10.0
+                };
+                GameStateStore.AddEvent(ref evt);
+                // 4 of the 10 credited science is already in the ledger.
+                Ledger.AddAction(new GameAction
+                {
+                    UT = 300.0,
+                    Type = GameActionType.ScienceEarning,
+                    ScienceAwarded = 4f
+                });
+
+                double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingRecentScienceEarning(
+                    targetScience: 4.0,
+                    currentScience: 10f);
+
+                Assert.Equal(10.0, adjusted, 3);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[KspStatePatcher]") &&
+                    l.Contains("holding forward 6.0 pending science earning"));
+            }
+            finally
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
+        }
+
+        [Fact]
         public void BuildTargetTechIdsForPatch_RewindCutoffUsesPastBaselineOnly()
         {
             var baselines = new List<GameStateBaseline>
