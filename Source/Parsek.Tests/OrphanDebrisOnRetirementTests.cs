@@ -81,6 +81,26 @@ namespace Parsek.Tests
             };
         }
 
+        private static Recording RecChain(
+            string id,
+            string chainId,
+            int chainIndex,
+            string provisionalForRpId = null,
+            string debrisParentRecordingId = null,
+            MergeState state = MergeState.CommittedProvisional)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                MergeState = state,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                ProvisionalForRpId = provisionalForRpId,
+                DebrisParentRecordingId = debrisParentRecordingId,
+            };
+        }
+
         // =====================================================================
         // ComputeRewindRetiredRecordingIds cascade overload
         // =====================================================================
@@ -308,7 +328,7 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[ERS]")
                 && l.Contains("Rewind-retirement cascade")
-                && l.Contains("cascadeAdded=1"));
+                && l.Contains("parentAnchorAdded=1"));
         }
 
         [Fact]
@@ -325,6 +345,138 @@ namespace Parsek.Tests
 
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[ERS]") && l.Contains("Rewind-retirement cascade"));
+        }
+
+        // =====================================================================
+        // Chain-continuation cascade (rolled-back Re-Fly fork)
+        // =====================================================================
+
+        [Fact]
+        public void ChainCascade_RetiredForkHead_HidesChainContinuation()
+        {
+            // A rolled-back Re-Fly retires only the fork chain HEAD; its
+            // continuation (carrying the predicted orbit tail) shares the
+            // (ChainId, ProvisionalForRpId) and a higher ChainIndex and must be
+            // retired alongside it. The restored original lives on a different
+            // chain and stays visible.
+            var forkHead = RecChain("rec_forkhead", "chain_fork", 0, provisionalForRpId: "rp_1");
+            var continuation = RecChain("rec_continuation", "chain_fork", 1, provisionalForRpId: "rp_1");
+            var restoredOriginal = RecChain("rec_original", "chain_original", 1);
+            var recordings = new List<Recording> { forkHead, continuation, restoredOriginal };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_forkhead", "rec_original") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_forkhead", retired);
+            Assert.Contains("rec_continuation", retired);
+            Assert.DoesNotContain("rec_original", retired);
+        }
+
+        [Fact]
+        public void ChainCascade_IndependentCommittedChainMember_StaysVisible()
+        {
+            // A committed chain member that merely shares a ChainId but is NOT
+            // provisional-for-the-rolled-back-RP must not be over-retired.
+            var forkHead = RecChain("rec_forkhead", "chain_shared", 0, provisionalForRpId: "rp_1");
+            var committedMember = RecChain("rec_committed", "chain_shared", 1, provisionalForRpId: null);
+            var recordings = new List<Recording> { forkHead, committedMember };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_forkhead") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_forkhead", retired);
+            Assert.DoesNotContain("rec_committed", retired);
+        }
+
+        [Fact]
+        public void ChainCascade_DifferentProvisionalRp_StaysVisible()
+        {
+            // A continuation provisional for a DIFFERENT re-fly RP is not part of
+            // this rolled-back fork and stays visible.
+            var forkHead = RecChain("rec_forkhead", "chain_shared", 0, provisionalForRpId: "rp_1");
+            var otherRpMember = RecChain("rec_otherrp", "chain_shared", 1, provisionalForRpId: "rp_2");
+            var recordings = new List<Recording> { forkHead, otherRpMember };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_forkhead") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_forkhead", retired);
+            Assert.DoesNotContain("rec_otherrp", retired);
+        }
+
+        [Fact]
+        public void ChainCascade_LowerIndexMember_StaysVisible()
+        {
+            // Retirement names a higher-index member; a lower-index member of the
+            // same fork (e.g. a kept origin-split HEAD) must not be dragged in by
+            // the chain edge, which only propagates to higher indices.
+            var lowerMember = RecChain("rec_lower", "chain_fork", 0, provisionalForRpId: "rp_1");
+            var retiredMember = RecChain("rec_higher", "chain_fork", 1, provisionalForRpId: "rp_1");
+            var recordings = new List<Recording> { lowerMember, retiredMember };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_higher") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_higher", retired);
+            Assert.DoesNotContain("rec_lower", retired);
+        }
+
+        [Fact]
+        public void ChainCascade_ContinuationDebris_AlsoHidden()
+        {
+            // Debris anchored to a chain continuation that is itself retired via
+            // the chain edge must also retire (parent-anchor cascade picks it up
+            // in the same fixed-point closure).
+            var forkHead = RecChain("rec_forkhead", "chain_fork", 0, provisionalForRpId: "rp_1");
+            var continuation = RecChain("rec_continuation", "chain_fork", 1, provisionalForRpId: "rp_1");
+            var continuationDebris = RecChain(
+                "rec_contdebris", "chain_other", 0,
+                provisionalForRpId: "rp_1", debrisParentRecordingId: "rec_continuation");
+            var recordings = new List<Recording> { forkHead, continuation, continuationDebris };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_forkhead") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_forkhead", retired);
+            Assert.Contains("rec_continuation", retired);
+            Assert.Contains("rec_contdebris", retired);
+        }
+
+        [Fact]
+        public void ChainCascade_LogsChainContinuationCount()
+        {
+            var forkHead = RecChain("rec_forkhead", "chain_fork", 0, provisionalForRpId: "rp_1");
+            var continuation = RecChain("rec_continuation", "chain_fork", 1, provisionalForRpId: "rp_1");
+            var recordings = new List<Recording> { forkHead, continuation };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_forkhead") };
+
+            EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ERS]")
+                && l.Contains("Rewind-retirement cascade")
+                && l.Contains("chainContinuationAdded=1"));
+        }
+
+        [Fact]
+        public void ChainCascade_PlaytestShape_HidesDuplicateProbeForkContinuation()
+        {
+            // Playtest 2026-05-20: "Kerbal X Probe" rendered as two ghosts after a
+            // rolled-back Re-Fly. Fork chain 2856611e = rec_e0f42b57 (idx 0, HEAD,
+            // retired) -> 982d6dee (idx 1, TIP, synthetic orbit tail). The restored
+            // original 49538b60 lives on chain 59a82c8e. Pre-fix, 982d6dee escaped
+            // retirement and rendered alongside 49538b60.
+            var forkHead = RecChain("rec_e0f42b57", "2856611e", 0, provisionalForRpId: "rp_addf577");
+            var forkTip = RecChain("982d6dee", "2856611e", 1, provisionalForRpId: "rp_addf577");
+            var restoredOriginal = RecChain("49538b60", "59a82c8e", 1);
+            var recordings = new List<Recording> { forkHead, forkTip, restoredOriginal };
+            var retirements = new List<RecordingRewindRetirement> { Retire("rec_e0f42b57", "49538b60") };
+
+            var retired = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
+
+            Assert.Contains("rec_e0f42b57", retired);
+            Assert.Contains("982d6dee", retired);
+            Assert.DoesNotContain("49538b60", retired);
         }
 
         // =====================================================================

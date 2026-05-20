@@ -69,6 +69,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Rolled-back re-fly fork chain continuation rendered as a duplicate ghost
+
+- ~~Playtest 2026-05-20 (`logs/2026-05-20_2046_refly-watch-underground`). After a Rewind-to-Separation re-fly was itself rewound back out of existence, the same physical "Kerbal X Probe" (`vesselPersistentId=1418997309`) rendered as TWO ghosts over the same post-152s window: the restored original `49538b60` (chain `59a82c8e`) AND `982d6dee` (chain `2856611e`, idx 1, carrying its own predicted orbit tail). The fork chain `2856611e` is `rec_e0f42b57` (idx 0, HEAD) -> `982d6dee` (idx 1, TIP); `rec_e0f42b57` was correctly `rewind-retired` but `982d6dee` was not.~~
+
+**Root cause:** the rolled-back supersede relation (`rsr_44663a18`, `reason=rewound-out-supersede-fork`) is dropped and only its `NewRecordingId` (the fork chain HEAD `rec_e0f42b57`) is written to the retirement set. The rewind-retirement cascade (`EffectiveState.ComputeRewindRetiredRecordingIdsUncached`, the PR #911 parent-anchor cascade) propagates only along the `DebrisParentRecordingId` edge; both fork members anchor to the sibling capsule `ca3ce923` (not retired), so no edge linked the retired head to its chain continuation `982d6dee`. With the supersede table empty post-rollback, `ComputeERS`'s `IsVisible` short-circuits true for `982d6dee` and it renders.
+
+**Fix:** extend the existing rewind-retirement cascade with a second edge (chain continuation). Keyed by the SEED (dropped-relation) retired recordings, build a `(ChainId, ProvisionalForRpId) -> min ChainIndex` lookup; in the same fixed-point loop, retire any recording sharing a seed fork's `ChainId` AND `ProvisionalForRpId` with a strictly higher `ChainIndex`. The `ProvisionalForRpId` co-membership is the load-bearing guard: it scopes the cascade to recordings provisional-for-the-same-rolled-back-RP, so a legitimate committed chain that merely shares a `ChainId` (or a kept origin-split HEAD) is never over-retired. Pure read-side change in the visibility closure, so it self-heals already-broken saves on the next ERS rebuild with no data migration. The cascade Verbose log now reports `parentAnchorAdded` and `chainContinuationAdded` separately.
+- 7 new tests in `OrphanDebrisOnRetirementTests`: fork head retires its continuation (restored original on a different chain stays visible); independent committed chain member sharing a ChainId stays visible; continuation provisional for a different RP stays visible; lower-index member is not dragged in (directionality); debris anchored to a chain-retired continuation also retires via the parent-anchor edge in the same closure; the `chainContinuationAdded=1` log fires; and the exact playtest-save id shape.
+- No serialization/schema change (`ChainId`/`ChainIndex`/`ProvisionalForRpId` already persist).
+
+---
+
 ## Done - v0.10.0 Schema reset to generation 3 (clean-slate, no backwards compat)
 
 - `RecordingStore.CurrentRecordingSchemaGeneration` bumped 2 -> 3. `IsRecordingSchemaCompatible` now rejects generation 2 and older with reason `generation-older`; the threshold is read symbolically by every downstream gate, so no gate change was needed. `CurrentRecordingFormatVersion` stays 1.
