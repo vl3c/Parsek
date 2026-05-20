@@ -1627,6 +1627,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetLatestUntaggedVesselBuildUT_PicksMaxUntaggedRollout()
+        {
+            // Untagged VesselBuild rollouts mark uncommitted-flight launches; the max UT is the
+            // current flight's launch. Tagged rollouts (committed flights) and non-VesselBuild
+            // funds spends (facility upgrades, hiring) are ignored.
+            Ledger.AddAction(new GameAction { UT = 100.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild, RecordingId = "rec_committed" }); // tagged: ignored
+            Ledger.AddAction(new GameAction { UT = 150.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.FacilityUpgrade }); // not VesselBuild: ignored
+            Ledger.AddAction(new GameAction { UT = 200.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild }); // untagged rollout
+            Ledger.AddAction(new GameAction { UT = 7.34, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild }); // earlier untagged rollout
+
+            double ut = Ledger.GetLatestUntaggedVesselBuildUT();
+
+            Assert.Equal(200.0, ut);
+        }
+
+        [Fact]
+        public void GetLatestUntaggedVesselBuildUT_NoRollout_ReturnsNaN()
+        {
+            Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });
+            Ledger.AddAction(new GameAction { UT = 6.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.KerbalHire });
+
+            Assert.True(double.IsNaN(Ledger.GetLatestUntaggedVesselBuildUT()));
+        }
+
+        [Fact]
         public void PruneOrphanActionsAfterUT_NoMatches_ReturnsZero()
         {
             Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });

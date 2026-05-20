@@ -258,6 +258,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the UT of the most recent untagged (no recording id) vessel rollout spend
+        /// (<see cref="GameActionType.FundsSpending"/> with <see cref="FundsSpendingSource.VesselBuild"/>),
+        /// or <c>double.NaN</c> when none exists. This is the pad/runway placement UT of the
+        /// current uncommitted flight, used by the editor-revert prune as the launch boundary.
+        ///
+        /// <para>Reliable because the rollout spend is recorded exactly once when the vessel is
+        /// placed (KSP's <c>VesselRollout</c> transaction), unlike the vessel's own
+        /// <c>launchTime</c>/<c>missionTime</c> which KSP keeps resetting to "now" while the
+        /// vessel sits in PRELAUNCH. Committed flights' rollouts carry a recording id and are
+        /// excluded, so the untagged set is the in-progress flight(s); the max UT is the current
+        /// launch. Returns NaN for free / science-mode vessels that have no rollout spend.</para>
+        /// </summary>
+        internal static double GetLatestUntaggedVesselBuildUT()
+        {
+            double latest = double.NaN;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null)
+                    continue;
+                if (!string.IsNullOrEmpty(a.RecordingId))
+                    continue;
+                if (a.Type != GameActionType.FundsSpending)
+                    continue;
+                if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild)
+                    continue;
+                if (double.IsNaN(latest) || a.UT > latest)
+                    latest = a.UT;
+            }
+            return latest;
+        }
+
+        /// <summary>
         /// Remaps every action tagged with <paramref name="oldRecordingId"/> to
         /// <paramref name="newRecordingId"/>. Called by the recording optimizer when a
         /// root segment is absorbed into a successor (chain coalescing) and the tree's

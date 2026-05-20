@@ -463,19 +463,20 @@ namespace Parsek
         /// (the vessel stays on the pad), hence <paramref name="inclusive"/>=false. Revert to
         /// the editor (VAB/SPH, <see cref="RevertKind.Prelaunch"/>) does NOT rewind the clock, so
         /// <paramref name="loadedUT"/> is the revert-moment UT (after the in-flight actions) and
-        /// is useless as a launch boundary; the captured launch UT is used instead and the
-        /// rollout is dropped too (KSP refunds it), hence <paramref name="inclusive"/>=true. When
-        /// no launch UT was captured (no active vessel at the revert event) the editor case falls
-        /// back to <paramref name="loadedUT"/>, which prunes nothing harmful rather than risking a
-        /// wrong cutoff.</para>
+        /// is useless as a launch boundary. The rollout-spend UT (<paramref name="rolloutBoundaryUT"/>,
+        /// from <see cref="Ledger.GetLatestUntaggedVesselBuildUT"/>) is the real pad-placement UT,
+        /// and the rollout is dropped too (KSP refunds it), hence <paramref name="inclusive"/>=true.
+        /// When there is no rollout to anchor on (NaN, e.g. a free / science-mode vessel) the
+        /// editor case falls back to <paramref name="loadedUT"/>, which prunes nothing harmful
+        /// rather than risking a wrong cutoff.</para>
         /// </summary>
         internal static double ResolveRevertPruneCutoff(
-            RevertKind revertKind, double loadedUT, double capturedLaunchUT, out bool inclusive)
+            RevertKind revertKind, double loadedUT, double rolloutBoundaryUT, out bool inclusive)
         {
             if (revertKind == RevertKind.Prelaunch)
             {
                 inclusive = true;
-                return double.IsNaN(capturedLaunchUT) ? loadedUT : capturedLaunchUT;
+                return double.IsNaN(rolloutBoundaryUT) ? loadedUT : rolloutBoundaryUT;
             }
 
             inclusive = false;
@@ -1973,7 +1974,7 @@ namespace Parsek
                     // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.
                     // We consume it here; any later OnLoad (e.g. an F9 into a pre-revert flight
                     // quicksave) sees RevertKind.None and classifies as a plain quickload resume.
-                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad", out double revertLaunchUT);
+                    var revertKind = RevertDetector.Consume("ParsekScenario.OnLoad");
                     bool isRevert = !isVesselSwitch && revertKind != RevertKind.None;
                     ParsekLog.Verbose("Scenario",
                         $"OnLoad: revert detection — revertKind={revertKind}, " +
@@ -2238,11 +2239,12 @@ namespace Parsek
                         // recording-tied actions; these untagged ones would otherwise be
                         // re-applied by the recalc below, overriding stock KSP's revert. The
                         // cutoff is the launch UT (see ResolveRevertPruneCutoff): Revert-to-Launch
-                        // keeps the rollout on the pad (exclusive), Revert-to-editor refunds it
-                        // (inclusive).
+                        // uses loadedUT (the rewound clock == launch UT) and keeps the rollout on
+                        // the pad (exclusive); Revert-to-editor does not rewind, so it anchors on
+                        // the rollout-spend UT and refunds it (inclusive).
                         bool pruneInclusive;
                         double pruneCutoffUT = ResolveRevertPruneCutoff(
-                            revertKind, loadedUT, revertLaunchUT, out pruneInclusive);
+                            revertKind, loadedUT, Ledger.GetLatestUntaggedVesselBuildUT(), out pruneInclusive);
                         int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(pruneCutoffUT, pruneInclusive);
                         if (prunedOrphans > 0)
                             ParsekLog.Info("Scenario",

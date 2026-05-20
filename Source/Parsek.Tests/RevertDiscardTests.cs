@@ -445,61 +445,35 @@ namespace Parsek.Tests
             // Revert-to-Launch rewinds the clock, so loadedUT is the exact launch UT and the
             // at-launch rollout is kept (vessel stays on the pad).
             double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
-                RevertKind.Launch, loadedUT: 7.34, capturedLaunchUT: 7.34, out bool inclusive);
+                RevertKind.Launch, loadedUT: 7.34, rolloutBoundaryUT: 7.34, out bool inclusive);
 
             Assert.Equal(7.34, cutoff);
             Assert.False(inclusive);
         }
 
         [Fact]
-        public void ResolveRevertPruneCutoff_Prelaunch_UsesCapturedLaunchUTInclusive()
+        public void ResolveRevertPruneCutoff_Prelaunch_UsesRolloutBoundaryInclusive()
         {
             // Revert-to-editor does NOT rewind the clock: loadedUT (31.28) is the revert-moment
-            // UT, useless as a launch boundary. The captured launch UT (12.0) is used instead,
-            // inclusive so the at-launch rollout is dropped (KSP refunds it).
+            // UT, useless as a launch boundary. The rollout-spend UT (3.98) is the real
+            // pad-placement UT and is used instead, inclusive so the rollout is dropped (refund).
             double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
-                RevertKind.Prelaunch, loadedUT: 31.28, capturedLaunchUT: 12.0, out bool inclusive);
+                RevertKind.Prelaunch, loadedUT: 31.28, rolloutBoundaryUT: 3.98, out bool inclusive);
 
-            Assert.Equal(12.0, cutoff);
+            Assert.Equal(3.98, cutoff);
             Assert.True(inclusive);
         }
 
         [Fact]
-        public void ResolveRevertPruneCutoff_Prelaunch_NaNLaunchUT_FallsBackToLoadedUT()
+        public void ResolveRevertPruneCutoff_Prelaunch_NaNBoundary_FallsBackToLoadedUT()
         {
-            // No active vessel at the revert event -> NaN capture. Fall back to loadedUT, which
-            // prunes nothing harmful rather than risking a wrong cutoff.
+            // No rollout to anchor on (free / science-mode vessel) -> NaN. Fall back to loadedUT,
+            // which prunes nothing harmful rather than risking a wrong cutoff.
             double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
-                RevertKind.Prelaunch, loadedUT: 31.28, capturedLaunchUT: double.NaN, out bool inclusive);
+                RevertKind.Prelaunch, loadedUT: 31.28, rolloutBoundaryUT: double.NaN, out bool inclusive);
 
             Assert.Equal(31.28, cutoff);
             Assert.True(inclusive);
-        }
-
-        [Fact]
-        public void RevertDetector_PendingLaunchUT_ResetToNaN()
-        {
-            RevertDetector.SetPendingLaunchUTForTesting(42.0);
-            Assert.Equal(42.0, RevertDetector.PendingLaunchUT);
-
-            RevertDetector.ResetForTesting();
-            Assert.True(double.IsNaN(RevertDetector.PendingLaunchUT));
-        }
-
-        [Fact]
-        public void RevertDetector_ConsumeOut_ReturnsLaunchUT_AndClearsIt()
-        {
-            // The kind and its captured launch UT are consumed atomically: the out value carries
-            // the launch UT and PendingLaunchUT is reset, so a later stray read can't pick up a
-            // stale value from this revert.
-            RevertDetector.SetPendingForTesting(RevertKind.Prelaunch);
-            RevertDetector.SetPendingLaunchUTForTesting(12.0);
-
-            var kind = RevertDetector.Consume("test", out double launchUT);
-
-            Assert.Equal(RevertKind.Prelaunch, kind);
-            Assert.Equal(12.0, launchUT);
-            Assert.True(double.IsNaN(RevertDetector.PendingLaunchUT));
         }
     }
 }

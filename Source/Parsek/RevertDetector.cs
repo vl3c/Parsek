@@ -24,33 +24,7 @@ namespace Parsek
     internal static class RevertDetector
     {
         private static RevertKind pending = RevertKind.None;
-        private static double pendingLaunchUT = double.NaN;
         private static bool subscribed = false;
-
-        /// <summary>
-        /// UT at which the about-to-be-reverted flight launched, captured from the active
-        /// vessel at the moment the revert GameEvent fired (still in the FLIGHT scene, before
-        /// the scene reload). NaN when no active vessel was available.
-        ///
-        /// <para>Revert-to-Launch rewinds the game clock to the launch instant, so the
-        /// post-reload UT equals the launch UT and this capture is redundant there. Revert to
-        /// the editor (VAB/SPH) does NOT rewind the clock (the post-reload UT is the revert
-        /// moment, after the in-flight actions), so the orphan-ledger prune needs this captured
-        /// launch UT instead of the post-reload UT to find the launch boundary.</para>
-        /// </summary>
-        internal static double PendingLaunchUT => pendingLaunchUT;
-
-        // Captured in the FLIGHT scene before HighLogic.LoadScene runs, so the active vessel is
-        // still alive. missionTime is seconds since launch, so GetUniversalTime() - missionTime
-        // is the launch UT regardless of game mode (works when a free / sandbox vessel has no
-        // VesselRollout ledger row to derive the boundary from).
-        private static double CaptureActiveVesselLaunchUT()
-        {
-            var v = FlightGlobals.ActiveVessel;
-            if (v == null || Planetarium.fetch == null)
-                return double.NaN;
-            return Planetarium.GetUniversalTime() - v.missionTime;
-        }
 
         // KSP's EventData<T>.EvtDelegate..ctor reads evt.Target.GetType().Name without a
         // null check. A delegate bound to a static method has Target == null, which NREs
@@ -62,17 +36,15 @@ namespace Parsek
             public void OnRevertToLaunch(FlightState _)
             {
                 pending = RevertKind.Launch;
-                pendingLaunchUT = CaptureActiveVesselLaunchUT();
                 ParsekLog.Info("RevertDetector",
-                    $"GameEvents.OnRevertToLaunchFlightState fired; armed RevertKind.Launch for next OnLoad (launchUT={pendingLaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+                    "GameEvents.OnRevertToLaunchFlightState fired; armed RevertKind.Launch for next OnLoad");
             }
 
             public void OnRevertToPrelaunch(FlightState _)
             {
                 pending = RevertKind.Prelaunch;
-                pendingLaunchUT = CaptureActiveVesselLaunchUT();
                 ParsekLog.Info("RevertDetector",
-                    $"GameEvents.OnRevertToPrelaunchFlightState fired; armed RevertKind.Prelaunch for next OnLoad (launchUT={pendingLaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+                    "GameEvents.OnRevertToPrelaunchFlightState fired; armed RevertKind.Prelaunch for next OnLoad");
             }
         }
 
@@ -111,28 +83,13 @@ namespace Parsek
         /// </summary>
         internal static RevertKind Consume(string site)
         {
-            return Consume(site, out _);
-        }
-
-        /// <summary>
-        /// As <see cref="Consume(string)"/>, but also hands back the captured launch UT
-        /// (<see cref="PendingLaunchUT"/>) and resets it in the same step, so the kind and its
-        /// launch UT are consumed atomically. Callers must use this value rather than reading
-        /// <see cref="PendingLaunchUT"/> later, since this resets the field to NaN.
-        /// </summary>
-        internal static RevertKind Consume(string site, out double launchUT)
-        {
-            launchUT = pendingLaunchUT;
-            pendingLaunchUT = double.NaN;
-
             if (pending == RevertKind.None)
                 return RevertKind.None;
 
             var kind = pending;
             pending = RevertKind.None;
             ParsekLog.Info("RevertDetector",
-                $"Consumed pending revert ({kind}) at {site ?? "(no site)"} " +
-                $"(launchUT={launchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)})");
+                $"Consumed pending revert ({kind}) at {site ?? "(no site)"}");
             return kind;
         }
 
@@ -145,15 +102,9 @@ namespace Parsek
             pending = kind;
         }
 
-        internal static void SetPendingLaunchUTForTesting(double launchUT)
-        {
-            pendingLaunchUT = launchUT;
-        }
-
         internal static void ResetForTesting()
         {
             pending = RevertKind.None;
-            pendingLaunchUT = double.NaN;
         }
     }
 }
