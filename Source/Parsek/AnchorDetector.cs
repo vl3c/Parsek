@@ -5,12 +5,12 @@ using UnityEngine;
 
 namespace Parsek
 {
+    // In-memory diagnostic enum only, never serialized. The rendering-side
+    // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
     internal enum AnchorCandidateSource
     {
         Live,
         Ghost
-        // In-memory diagnostic only — never serialized; the rendering-side
-        // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
     }
 
     internal readonly struct RecordingAnchorCandidate
