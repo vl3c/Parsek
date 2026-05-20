@@ -6217,6 +6217,51 @@ namespace Parsek.InGameTests
                     RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
         }
+
+        [InGameTest(Category = "Serialization",
+            Description = "Dropped vessel snapshot re-hydrates from its _vessel.craft sidecar")]
+        public void VesselSnapshotRehydratesFromSidecar()
+        {
+            // End-to-end of the spawn-time re-hydration that the orbital-payload
+            // bug needed: the in-memory snapshot is dropped in-session, but the
+            // terminal-spawn path reloads it from the durable sidecar via the
+            // KSP save-context resolver (which xUnit cannot exercise).
+            string recId = "parsektest-rehydrate-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(recId));
+            InGameAssert.IsNotNull(vesselPath, "Should resolve a save-scoped _vessel.craft path in KSP");
+            RecordingPaths.EnsureRecordingsDirectory();
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Rehydrate Probe");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+
+            try
+            {
+                RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, snapshot);
+                InGameAssert.IsTrue(System.IO.File.Exists(vesselPath),
+                    "Vessel sidecar should exist on disk after write");
+
+                // Simulate the in-session drop of the transient in-memory copy.
+                var rec = new Recording { RecordingId = recId, VesselSnapshot = null };
+
+                bool hydrated = RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+
+                InGameAssert.IsTrue(hydrated,
+                    "TryHydrateVesselSnapshotFromSidecar should succeed when the sidecar exists");
+                InGameAssert.IsNotNull(rec.VesselSnapshot,
+                    "VesselSnapshot should be restored after re-hydration");
+                InGameAssert.AreEqual("Rehydrate Probe", rec.VesselSnapshot.GetValue("name"));
+                InGameAssert.AreEqual(1, rec.VesselSnapshot.GetNodes("PART").Length,
+                    "Re-hydrated snapshot should preserve PART nodes");
+            }
+            finally
+            {
+                try { if (System.IO.File.Exists(vesselPath)) System.IO.File.Delete(vesselPath); }
+                catch { }
+            }
+        }
     }
 
     /// <summary>

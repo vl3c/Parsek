@@ -22,6 +22,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- A committed vessel left in orbit (or otherwise landed/splashed) now re-materializes as a real vessel when playback reaches the end of its recording, even after you rewound its launch back to the pad. Previously such a payload silently failed to re-spawn and its orbit marker vanished, because its vessel snapshot had been dropped from memory during the session; Parsek now reloads the snapshot from disk at spawn time.
 - Bail-Out Grant (the stock Reputation-to-Funds strategy) is no longer silently reverted. Parsek now records the strategy's funds gain and reputation cost into the ledger, so the next career recalculation keeps the granted funds and the spent reputation instead of refunding both.
 - Science total no longer briefly flickers to zero when an experiment recovery or transmission coincides with another reward event (such as the first science milestone): the pool is now held at its credited value until the matching ledger entry catches up.
 - Re-Fly: a suborbital arc no longer seals the rewind slot or shows "reached a sub-orbital arc" in the merge dialog. The slot now stays open until the vessel actually lands, splashes, crashes, or reaches a stable orbit.

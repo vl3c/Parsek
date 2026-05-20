@@ -2216,6 +2216,18 @@ namespace Parsek
                 ParsekLog.Info("KSCSpawn",
                     $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
 
+                // The in-memory snapshot is a transient cache that may have been
+                // dropped in-session; re-hydrate from the durable _vessel.craft
+                // sidecar before consuming it. No-op when already loaded.
+                if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
+                    || rec.VesselSnapshot == null)
+                {
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\": vessel snapshot " +
+                        "unavailable (in-memory copy dropped and sidecar could not be re-hydrated)");
+                    return;
+                }
+
                 // Keep a private working snapshot for the entire KSC spawn flow so route
                 // selection, fallback repairs, and aborts never mutate the stored recording.
                 ConfigNode spawnSnapshot = rec.VesselSnapshot.CreateCopy();

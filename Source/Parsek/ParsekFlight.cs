@@ -17224,6 +17224,13 @@ namespace Parsek
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
+            // Defense-in-depth: the spawn gate re-hydrates the vessel snapshot
+            // from the sidecar, but a deferred (warp-queued) spawn can execute
+            // frames later, after an intervening OnSave nulled the in-memory copy
+            // again. Re-hydrate here so the snapshot is present at the moment of
+            // spawn. No-op when already loaded.
+            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+
             // Existing source-vessel adoption is enforced by VesselSpawner. The #226
             // replay/revert path remains an explicit duplicate-spawn exception for the
             // scene-entry/current active vessel only.
