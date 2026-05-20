@@ -212,9 +212,13 @@ namespace Parsek
                         case ReputationPenaltySource.KerbalDeath:
                             key = "CrewKilled"; break;
                         case ReputationPenaltySource.Strategy:
+                            // Bail-Out Grant CurrencyExchanger input: captured directly
+                            // from the ReputationChanged(StrategyInput) event as an
+                            // already-effective literal (no curve). Intentionally not
+                            // reconciled (no paired "Other"-reason event), so skip.
                         case ReputationPenaltySource.Other:
                         default:
-                            return exp; // synthetic / no stock emitter today
+                            return exp; // not reconciled (synthetic, or directly captured)
                     }
                     exp.Reconcile = true;
                     exp.Rep = new PostWalkLeg
