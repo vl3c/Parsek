@@ -602,8 +602,12 @@ namespace Parsek
             // once across the (StateVersion, SupersedeStateVersion) window
             // instead of N times per frame. Pure-function tests (which
             // construct ad-hoc lists) miss reference equality and run the
-            // compute path directly — keeps the testable contract honest.
+            // compute path directly, which keeps the testable contract honest.
             var scenario = ParsekScenario.Instance;
+            // Prefix difference is deliberate and matches the file-wide
+            // convention (see ComputeERS): object.ReferenceEquals(null, x)
+            // for the Unity-null bypass (Object overloads ==), bare
+            // ReferenceEquals(a, b) for pure reference identity.
             bool isLiveStoreCall = !object.ReferenceEquals(null, scenario)
                 && ReferenceEquals(recordings, RecordingStore.CommittedRecordings)
                 && ReferenceEquals(retirements, scenario.RecordingRewindRetirements);
@@ -616,7 +620,7 @@ namespace Parsek
                 // ERS cache contract above. If we re-read at store time, a
                 // bump that interleaved with compute would stamp the cache
                 // with the post-bump version while the result reflects
-                // pre-bump inputs — a stale entry that would survive until
+                // pre-bump inputs, a stale entry that would survive until
                 // the next bump.
                 storeVersion = RecordingStore.StateVersion;
                 supersedeVersion = scenario.SupersedeStateVersion;
@@ -649,6 +653,11 @@ namespace Parsek
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingRewindRetirement> retirements)
         {
+            // Seed: the raw per-retirement set. This allocation is NOT
+            // memoized by the caller's cache (only the cascade-expanded
+            // result HashSet is); the seed scan is O(retirements) and runs
+            // on every cache miss, which is fine because misses only happen
+            // when StateVersion / SupersedeStateVersion actually changed.
             var result = ComputeRewindRetiredRecordingIds(retirements);
             int seedCount = result.Count;
             if (seedCount == 0 || recordings == null || recordings.Count == 0)

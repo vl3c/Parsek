@@ -182,52 +182,52 @@ New xUnit fixture `OrphanDebrisOnRetirementTests` in
 `Source/Parsek.Tests/EffectiveState/`. `[Collection("Sequential")]` because
 it touches shared static state via `EffectiveState.ResetCachesForTesting`.
 
-1. `Cascade_RetiredParent_HidesParentAnchoredChild` — retirement of recording
+1. `Cascade_RetiredParent_HidesParentAnchoredChild`: retirement of recording
    P with a parent-anchored child C marks C inactive in the cascade overload.
-2. `Cascade_MultipleChildren_HidesAllParentAnchoredChildren` — cascade adds
+2. `Cascade_MultipleChildren_HidesAllParentAnchoredChildren`: cascade adds
    every child of the retired recording.
-3. `Cascade_TransitiveChain_HidesGrandchildren` — child whose
+3. `Cascade_TransitiveChain_HidesGrandchildren`: child whose
    `DebrisParentRecordingId` resolves to another child of the retired parent
    is also marked inactive (fixed-point closure).
-4. `Cascade_UnrelatedRecording_StaysVisible` — recording with no parent-anchor
+4. `Cascade_UnrelatedRecording_StaysVisible`: recording with no parent-anchor
    link to a retired id stays visible.
-5. `Cascade_ChildOfNonRetiredParent_StaysVisible` — parent-anchored child of a
+5. `Cascade_ChildOfNonRetiredParent_StaysVisible`: parent-anchored child of a
    non-retired recording stays visible.
-6. `Cascade_NoRetirements_NoChange` — empty retirements list returns an empty
+6. `Cascade_NoRetirements_NoChange`: empty retirements list returns an empty
    retired set even when parent-anchored recordings exist.
-7. `Cascade_ParentNotRetiredButChildHasStaleDebrisParentId_StaysVisible` —
+7. `Cascade_ParentNotRetiredButChildHasStaleDebrisParentId_StaysVisible`:
    negative test for the `DebrisParentRecordingId` lookup landing on a
    non-retired recording.
-8. `ComputeERS_RetiredParentCascade_OmitsOrphanDebrisChild` — end-to-end
+8. `ComputeERS_RetiredParentCascade_OmitsOrphanDebrisChild`: end-to-end
    through `ComputeERS` using `RecordingStore`. Asserts the orphan child is
    not in the ERS list and that the cascade log line fires.
-9. `ComputeTimelineInactiveRecordingIds_RetiredParentCascade_MarksChildRewindRetired` —
+9. `ComputeTimelineInactiveRecordingIds_RetiredParentCascade_MarksChildRewindRetired`:
    the dictionary returned by the central inactive-id helper includes the
    orphan child with `TimelineInactiveReason.RewindRetired`.
-10. `Cascade_PlaytestShape_HidesOrphanKerbalXDebrisChild` — uses the playtest
+10. `Cascade_PlaytestShape_HidesOrphanKerbalXDebrisChild`: uses the playtest
     save's exact id pattern (retired parent + one parent-anchored
     `CommittedProvisional` child) to pin the user-reported case.
-11. `Reversibility_RemovingRetirement_ReinstatesChild` — pin the derived
+11. `Reversibility_RemovingRetirement_ReinstatesChild`: pin the derived
     behavior: removing the parent's retirement row makes the cascade
     re-include the child as visible. Documents that no extra cleanup is
     needed when the existing housekeeping paths remove a retirement.
-12. `LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump` — first call
+12. `LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump`: first call
     fires the Verbose cascade log; five repeat calls with the same versions
     return the cached HashSet by reference and emit zero new log lines; a
     `BumpSupersedeStateVersion` re-runs the closure and re-logs.
-13. `AdHocCall_DoesNotPollLiveCache` — ad-hoc test-fixture inputs miss the
+13. `AdHocCall_DoesNotPollLiveCache`: ad-hoc test-fixture inputs miss the
     reference-equality fast-path, so the live cache stays empty and a
     subsequent live-store call returns the live result rather than the
     ad-hoc one.
-14. `Cascade_DepthFourChain_HidesAllDescendants` — fixed-point closure reaches
+14. `Cascade_DepthFourChain_HidesAllDescendants`: fixed-point closure reaches
     arbitrary depth (P -> c1 -> c2 -> c3), not just two levels.
-15. `Cascade_ReverseListOrder_StillReachesAllDescendants` — recordings ordered
+15. `Cascade_ReverseListOrder_StillReachesAllDescendants`: recordings ordered
     descendant-first so a single pass would add only the first-level child;
     pins that the `do/while` loop (not a single scan) completes the cascade.
 16. `Cascade_SelfParentRecording_TerminatesAndStaysVisibleWhenNotRetired` and
     the two-node-cycle pair
     (`Cascade_TwoNodeCycleNeitherRetired_TerminatesAndStaysVisible`,
-    `Cascade_TwoNodeCycleOneRetired_HidesBothAndTerminates`) — corrupt-save
+    `Cascade_TwoNodeCycleOneRetired_HidesBothAndTerminates`): corrupt-save
     defense: cyclic `DebrisParentRecordingId` graphs terminate (no infinite
     loop) and resolve correctly whether or not a cycle member is retired.
 

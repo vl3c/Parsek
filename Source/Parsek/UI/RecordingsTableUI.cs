@@ -3016,8 +3016,8 @@ namespace Parsek
                 || string.IsNullOrEmpty(owner.RecordingId))
                 return false;
             // Cascade overload: parent-anchored debris of a retired recording
-            // must never be picked as a launch-rewind replacement target —
-            // the child's lineage is gone with its retired parent.
+            // must never be picked as a launch-rewind replacement target.
+            // The child's lineage is gone with its retired parent.
             if (EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements))
                 return false;
             if (supersedes == null || supersedes.Count == 0)
