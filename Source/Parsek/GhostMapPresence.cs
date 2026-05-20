@@ -5890,8 +5890,7 @@ namespace Parsek
                     anchorWorldRot,
                     point.latitude,
                     point.longitude,
-                    point.altitude,
-                    recordingFormatVersion);
+                    point.altitude);
 
                 return new StateVectorWorldFrame
                 {

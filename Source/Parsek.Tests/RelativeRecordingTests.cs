@@ -98,16 +98,14 @@ namespace Parsek.Tests
                 bodyName = "Kerbin"
             };
 
-            // Playback side: ResolveRelativePlaybackPosition with v6 must round-trip back
-            // to the focus world position. Uses RelativeLocalFrameFormatVersion (= current
-            // format version 6) so the v6 anchor-local branch fires.
+            // Playback side: ResolveRelativePlaybackPosition must round-trip back
+            // to the focus world position via the anchor-local offset path.
             Vector3d reconstructed = TrajectoryMath.ResolveRelativePlaybackPosition(
                 anchorWorld,
                 anchorRot,
                 storedPoint.latitude,
                 storedPoint.longitude,
-                storedPoint.altitude,
-                RecordingStore.CurrentRecordingFormatVersion);
+                storedPoint.altitude);
 
             Assert.Equal(focusWorld.x, reconstructed.x, 3);
             Assert.Equal(focusWorld.y, reconstructed.y, 3);
@@ -215,12 +213,10 @@ namespace Parsek.Tests
             // TrajectoryPoint's lat/lon/alt → vesselTransform-aligned world position.
             Vector3d correctPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
-                correctOffset.x, correctOffset.y, correctOffset.z,
-                RecordingStore.CurrentRecordingFormatVersion);
+                correctOffset.x, correctOffset.y, correctOffset.z);
             Vector3d buggyPlayback = TrajectoryMath.ResolveRelativePlaybackPosition(
                 parentVesselTransformWorld, anchorRot,
-                buggyOffset.x, buggyOffset.y, buggyOffset.z,
-                RecordingStore.CurrentRecordingFormatVersion);
+                buggyOffset.x, buggyOffset.y, buggyOffset.z);
 
             // Correct round-trip lands on the focus.
             Assert.Equal(focusWorld.x, correctPlayback.x, 3);

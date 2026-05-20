@@ -186,7 +186,7 @@ namespace Parsek.Tests
 
             // Cross-check against the canonical helper (reuse the same contract).
             Vector3d expected = TrajectoryMath.ResolveRelativePlaybackPosition(
-                anchorPos, anchorRot, 1.0, 0.0, 0.0, recordingFormatVersion: 6);
+                anchorPos, anchorRot, 1.0, 0.0, 0.0);
             Assert.Equal(expected.x, result.WorldPos.x, 3);
             Assert.Equal(expected.y, result.WorldPos.y, 3);
             Assert.Equal(expected.z, result.WorldPos.z, 3);

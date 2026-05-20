@@ -1803,8 +1803,7 @@ namespace Parsek
                 anchor.WorldRot,
                 dx,
                 dy,
-                dz,
-                rec.RecordingFormatVersion);
+                dz);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
             {
                 ParsekLog.Warn("KSCGhost",

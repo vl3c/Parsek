@@ -54,7 +54,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ResolveRelativePlaybackPosition_V6_UsesAnchorLocalOffsetPath()
+        public void ResolveRelativePlaybackPosition_UsesAnchorLocalOffsetPath()
         {
             var anchor = new Vector3d(100, 200, 300);
             Quaternion anchorRotation = TrajectoryMath.PureAngleAxis(180f, Vector3.up);
@@ -64,8 +64,7 @@ namespace Parsek.Tests
                 anchorRotation,
                 dx: 10,
                 dy: 0,
-                dz: 0,
-                recordingFormatVersion: RecordingStore.CurrentRecordingFormatVersion);
+                dz: 0);
 
             Assert.Equal(90.0, result.x, 5);
             Assert.Equal(200.0, result.y, 5);
