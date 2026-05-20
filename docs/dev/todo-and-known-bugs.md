@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Logs did not distinguish Rewind-to-Launch from Re-Fly
+
+- Investigation 2026-05-20 (`logs/2026-05-20_2332_kerbalx-nospawn/`). A plain Rewind-to-Launch (the root recording "Rewind to launch" button, which loads a `parsek_rw_*` quicksave) read in the log like a Re-Fly (Rewind-to-Separation / Rewind-to-Staging). The `[Scenario] OnLoad: rewind-staging load: ... marker=False journal=False` line fires on every load to describe the persisted re-fly subsystem state, even when no re-fly happened, so scanning near a rewind made the plain launch rewind look like a re-fly. Both invocation paths also log under the same `[Rewind]` tag, with no "to Launch" vs "Re-Fly" stamp.
+- **Fix (logging only, no behavior change):**
+  - `RecordingStore.BeginRewindForOwner`: "Rewind initiated to UT N (save: ...)" now reads "Rewind-to-Launch initiated to UT N (save: ...) - plain launch rewind via parsek_rw_* quicksave; this is NOT a Re-Fly (no RewindPoint / ReFlySessionMarker / MergeJournal)".
+  - `RecordingsTableUI` confirm button: "User confirmed rewind to ..." now reads "User confirmed Rewind-to-Launch for ... (not a Re-Fly)".
+  - `RewindInvoker.StartInvoke`: "StartInvoke: sess=..." now reads "Re-Fly (Rewind-to-Separation) StartInvoke: sess=... - re-fly from a RewindPoint, NOT a plain Rewind-to-Launch".
+  - `ParsekScenario` OnSave/OnLoad: the misleading "rewind-staging persist/load" labels now read "Re-Fly subsystem state persisted/loaded (... not a rewind action; reFlyInProgress={marker != null})". The internal save/load phase strings used in crash diagnostics were renamed `rewind-staging` -> `refly-state-persist` / `refly-state-load`.
+- **Tests:** none added. Pure log-string change; the only testable launch-rewind log site (`BeginRewindForOwner`) is reachable only via `InitiateRewind`, which needs KSP file I/O and cannot run under xUnit (existing `RewindLoggingTests` note this). Full suite green (12231 passed).
+- **Status:** CLOSED 2026-05-20.
+- **Related (still open):** the same log surfaced a real bug - after a Rewind-to-Launch, the orbital "Kerbal X Probe" leaf (terminal=Orbiting) does not re-materialize as a real vessel because its in-memory `Recording.VesselSnapshot` is null and the terminal-spawn gate (`GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`) never re-hydrates it from the `_vessel.craft` sidecar. Tracked separately; not addressed by this logging change.
+
+---
+
 ## Done - v0.10.0 Bail-Out Grant currency exchange silently reverted by the ledger
 
 - Investigation 2026-05-20 (follow-up to the reputation-reservation study, `docs/dev/research/reputation-reservation-not-warranted.md`). Stock KSP's Bail-Out Grant is a one-shot Administration strategy whose `CurrencyExchanger` effect runs a real Reputation-to-Funds wallet swap on `Strategy.Activate()`: `Reputation.Instance.AddReputation(-(rep+1000)*share, StrategyInput)` and `Funding.Instance.AddFunds(that*rate, StrategyOutput)`. All `initialCost*` are 0.
