@@ -1245,17 +1245,7 @@ namespace Parsek
             long elapsedTicksAtLoopEnd = updateStopwatch.ElapsedTicks;
 
             // Fire deferred events AFTER loop completes
-            int createdEventsFired = deferredCreatedEvents.Count;
-            deferredCreatedStopwatch.Start();
-            for (int i = 0; i < deferredCreatedEvents.Count; i++)
-                OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
-            deferredCreatedStopwatch.Stop();
-
-            int completedEventsFired = deferredCompletedEvents.Count;
-            deferredCompletedStopwatch.Start();
-            for (int i = 0; i < deferredCompletedEvents.Count; i++)
-                OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
-            deferredCompletedStopwatch.Stop();
+            FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired);
 
             // Observability capture is measured as a phase and is now inside the updateStopwatch
             // window — totalMicroseconds includes it, so the #414 breakdown's phase sum matches
@@ -1317,6 +1307,29 @@ namespace Parsek
             // first time a spike is seen, to localize the responsible sub-phase (bug #414).
             DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
                 totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
+        }
+
+        /// <summary>
+        /// Phase-C tail: fire the deferred OnGhostCreated then OnPlaybackCompleted events
+        /// accumulated during the per-trajectory loop, each timed by its own stopwatch for the
+        /// #414 budget breakdown. Extracted verbatim from UpdatePlayback; the index `for` loops
+        /// (NOT foreach — avoids enumerator allocation) and the capture-count-before-iterate
+        /// ordering are preserved. The two counts return via <c>out</c> because the caller feeds
+        /// them into the budget-phase struct.
+        /// </summary>
+        private void FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired)
+        {
+            createdEventsFired = deferredCreatedEvents.Count;
+            deferredCreatedStopwatch.Start();
+            for (int i = 0; i < deferredCreatedEvents.Count; i++)
+                OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
+            deferredCreatedStopwatch.Stop();
+
+            completedEventsFired = deferredCompletedEvents.Count;
+            deferredCompletedStopwatch.Start();
+            for (int i = 0; i < deferredCompletedEvents.Count; i++)
+                OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+            deferredCompletedStopwatch.Stop();
         }
 
         /// <summary>
