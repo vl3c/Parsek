@@ -1169,7 +1169,10 @@ namespace Parsek
 
             private static bool IsFinite(double value)
             {
-                return !double.IsNaN(value) && !double.IsInfinity(value);
+                // Delegates to the enclosing TrajectoryMath.IsFinite (byte-identical
+                // body); fully qualified so the call does not recurse into this
+                // nested method.
+                return TrajectoryMath.IsFinite(value);
             }
         }
 
