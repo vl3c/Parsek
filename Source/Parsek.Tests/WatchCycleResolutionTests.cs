@@ -195,12 +195,13 @@ namespace Parsek.Tests
         [Fact]
         public void CoverageRetiredChild_SkippedByPredicate()
         {
-            // #895 regression: a controlled-decoupled child (IsDebris=false) whose
-            // authored coverage is exhausted at the current UT is retired by the
-            // engine and cannot be entered. CycleToNextWatchable's predicate now
-            // excludes it (IsGhostCoverageRetired). Pin that the resolver advances
-            // past the excluded child to the next genuinely-watchable ghost rather
-            // than steering the camera onto a target that would fail watch entry.
+            // #895 regression, resolver contract. CycleToNextWatchable's live
+            // predicate excludes a coverage-retired controlled-decoupled child via
+            // IsGhostCoverageRetired (covered by the in-game test, since it reads
+            // engine state). This test pins the resolver half of that composition:
+            // given a predicate that rejects the child index, ResolveCycleTarget
+            // must advance past it to the next watchable ghost rather than steering
+            // the camera onto a target that would fail watch entry.
             var committed = new List<Recording>
             {
                 MakeRec(100, "a"),               // watched
@@ -224,11 +225,12 @@ namespace Parsek.Tests
         [Fact]
         public void CoverageRetiredChild_AsOnlyOtherCandidate_ReportsNoAdvance()
         {
-            // #895 regression, freeze guard: when the retired child is the ONLY
-            // non-watched candidate, the cycle must report toggle-off / no-target
-            // so EnterWatchMode is never invoked for it. The keypress handler reads
-            // HasTarget==false and leaves the camera on the current ghost, so it is
-            // never torn down for a target that cannot be entered.
+            // #895 regression, freeze guard (resolver half). When the retired child
+            // is the ONLY non-watched candidate, the resolver must report toggle-off
+            // / no-target so the keypress handler reads HasTarget==false, never calls
+            // EnterWatchMode, and leaves the camera on the current ghost instead of
+            // tearing it down for a target that cannot be entered. The live
+            // IsGhostCoverageRetired exclusion is covered by the in-game test.
             var committed = new List<Recording>
             {
                 MakeRec(100, "watched"),
