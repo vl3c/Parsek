@@ -73,11 +73,23 @@ The candidate-list hoist (PR 901) is preserved. The hoist's load-bearing side ef
 
 A follow-up cleanup PR after one release of soak will delete all of the above.
 
+> **Update: bypass + toggle fully deleted.** The follow-up cleanup PR ran:
+> `TryResolveReFlyProvisionalAnchor` (both overloads + its private walk/resolver
+> helpers), the two recorder apply helpers
+> (`ApplyReFlyProvisionalAnchorToActiveRecording`,
+> `ApplyReFlyProvisionalAnchorToState`), the `forceAbsoluteForReFlyProvisional`
+> setting (field, UI toggle, persistence, force-Absolute gate blocks in both
+> recorders), and the `AnchorCandidateSource.ReFlyProvisionalSupersede` enum
+> value are all gone. `IsActiveRecordingReFlyProvisional` and
+> `FilterCandidatesForReFlyProvisional` are the only surviving members of
+> `ReFlyAnchorSelection`. No schema bump (the deletion removes a recorder code
+> path + a setting, not a `.prec` / `.pann` field).
+
 ## Test coverage
 
 - 13 pure xUnit tests for `FilterCandidatesForReFlyProvisional`: every input edge (null candidates, empty candidates, null marker, mismatched provisional id, null/empty same-tree set, only out-of-tree, only in-tree, mixed, supersede target specifically, candidate with empty/null recording id) plus drop-count log emission and no-drop log silence.
-- Rewritten source-text gates in `ReFlyAnchorBypassWiringTests`: filter is wired at both recorder sites BEFORE the nearest-search, bypass call is absent from both gate-site method bodies (scoped `IndexOf` with `DoesNotContain`), apply helpers are still defined (so a careless cleanup PR cannot delete them prematurely), pre-check anchor pose still in apply helpers, candidate build still hoisted above the force-Absolute gate.
-- Existing tests preserved: `ReFlyAnchorSelectionTests` (TryResolveReFlyProvisionalAnchor branches, kept for the rollback path), `ForceAbsoluteReFlyProvisionalSettingTests` (toggle behavior), `ForceAbsoluteReFlyProvisionalGateInGameTest` (in-game force-Absolute behavior).
+- Source-text gates in `ReFlyAnchorBypassWiringTests`: filter is wired at both recorder sites BEFORE the nearest-search, bypass call is absent from both gate-site method bodies (scoped `IndexOf` with `DoesNotContain`), candidate build is hoisted above the filter call. (The cleanup PR removed the apply-helper-presence and force-Absolute-gate ordering gates once those were deleted.)
+- After the cleanup PR, the `IsActiveRecordingReFlyProvisional` predicate tests (pure + production-wrapper overloads) live in `FilterCandidatesForReFlyProvisionalTests`. The bypass-only `ReFlyAnchorSelectionTests`, the `ForceAbsoluteReFlyProvisionalSettingTests` toggle tests, and `ForceAbsoluteReFlyProvisionalGateInGameTest` were deleted with the code they covered.
 
 ## Known limitations
 

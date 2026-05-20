@@ -8,16 +8,9 @@ namespace Parsek
     internal enum AnchorCandidateSource
     {
         Live,
-        Ghost,
-        // Re-fly provisional anchored on its supersede target (or
-        // OriginChildRecordingId fallback) via ReFlyAnchorSelection. The
-        // recorder skips the nearest-search and pins the anchor to the
-        // recording the provisional continues, so the offset is recorded
-        // against a stable physical-identity continuation instead of a
-        // fast-separating sibling that happens to be in-bubble.
+        Ghost
         // In-memory diagnostic only — never serialized; the rendering-side
         // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
-        ReFlyProvisionalSupersede
     }
 
     internal readonly struct RecordingAnchorCandidate

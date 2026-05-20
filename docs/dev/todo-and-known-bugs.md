@@ -27,11 +27,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+## Done - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+
+> Experiment concluded. The narrowed-gate filter (next section) is the validated default; the `forceAbsoluteForReFlyProvisional` toggle and the supersede-target bypass it gated were deleted in Parsek-remove-refly-bypass. The notes below are kept for historical context.
 
 - Experimental setting `forceAbsoluteForReFlyProvisional` (off by default) added under Settings > Diagnostics. When on, re-fly provisional recordings skip Relative-anchored authoring at three sites (`FlightRecorder.UpdateAnchorDetection`, `FlightRecorder.RestoreTrackSectionAfterFalseAlarm`, `BackgroundRecorder.UpdateBackgroundAnchorDetection`) and stay in Absolute mode. Lets a developer A/B compare the current Relative-against-superseded-origin path against the simpler debris-style Absolute path.
 - The setting does NOT participate in `.pann` ConfigurationHash (affects `.prec` authoring only, not pannotation generation). Flipping does not invalidate cached sidecars.
-- See `docs/dev/plans/force-absolute-refly-provisional.md`.
+- See `docs/dev/done/force-absolute-refly-provisional.md`.
 
 **Issues discovered during validation and fixed in the same PR:**
 
@@ -54,11 +56,11 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 - PR 901's `forceAbsoluteForReFlyProvisional` toggle validated that Absolute is the right contract for re-fly forks with no nearby real anchor, but the toggle's all-or-nothing shape lost Relative-against-real-station precision in two narrow cases (docking-mid-rewind, loop-anchored re-fly fork). The user's clarification on the second case: orbital looped ghosts cannot replay correctly against absolute body-fixed positions because body rotation has continued for `N * loop_period` between recording and playback; the loop must anchor to a real persistent vessel via `Recording.LoopAnchorVesselId` so the timing skew cancels. That implies the "500m Relative-against-real-anchor" recorder behavior is load-bearing for orbital loops and must be preserved across re-fly too.
 - Fix: replace the `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor` supersede-target bypass at both recorder gate sites with a narrowed-gate filter `ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional`. While a re-fly session is active and the active recording is the provisional, the filter drops every nearest-search candidate whose recording id is a member of the same `RecordingTree.Recordings` keyset as the provisional. Real persistent vessels / stations / bases live in other trees (or no tree at all), so they pass through and remain eligible. The supersede target, supersede-chain ancestors, and parent-anchored debris from the original launch are all in-tree by construction; the filter drops them, and the nearest-search either finds a real out-of-tree anchor (-> Relative-against-real-anchor) or finds nothing (-> Absolute). Single rule covers both regression cases.
-- The `forceAbsoluteForReFlyProvisional` toggle, the `TryResolveReFlyProvisionalAnchor` function, and the two `ApplyReFlyProvisionalAnchor*` apply helpers are orphans after this change but retained for one release as a rollback path. Scheduled for deletion in a follow-up PR after one release of soak time.
-- Test coverage: 13 pure xUnit tests for the filter (null/empty inputs, no-marker pass-through, in-tree drops, out-of-tree keeps, supersede-target-specifically drops, drop-count log emission, no-drop log silence). Rewritten source-text gates in `ReFlyAnchorBypassWiringTests` confirm the filter is wired at both recorder sites BEFORE the nearest-search, the bypass call is gone, and the orphaned apply helpers still exist (so a careless cleanup PR cannot delete them prematurely). Existing in-game test `ForceAbsoluteReFlyProvisionalGateInGameTest` covers the toggle-ON force-Absolute path unchanged.
+- ~~The `forceAbsoluteForReFlyProvisional` toggle, the `TryResolveReFlyProvisionalAnchor` function, and the two `ApplyReFlyProvisionalAnchor*` apply helpers are orphans after this change but retained for one release as a rollback path. Scheduled for deletion in a follow-up PR after one release of soak time.~~ **DONE (Parsek-remove-refly-bypass)**: the toggle (field, UI, persistence, both force-Absolute gate blocks), the bypass function + its private walk/resolver helpers, the two apply helpers, and the `AnchorCandidateSource.ReFlyProvisionalSupersede` enum value are all deleted. `IsActiveRecordingReFlyProvisional` + `FilterCandidatesForReFlyProvisional` are the only surviving members of `ReFlyAnchorSelection`. No schema bump.
+- Test coverage: pure xUnit tests for the filter (null/empty inputs, no-marker pass-through, in-tree drops, out-of-tree keeps, supersede-target-specifically drops, drop-count log emission, no-drop log silence). Source-text gates in `ReFlyAnchorBypassWiringTests` confirm the filter is wired at both recorder sites BEFORE the nearest-search and the bypass call is absent. After the cleanup PR, the `IsActiveRecordingReFlyProvisional` predicate tests (pure + production-wrapper overloads) moved into `FilterCandidatesForReFlyProvisionalTests`; the bypass-only `ReFlyAnchorSelectionTests`, the `ForceAbsoluteReFlyProvisionalSettingTests` toggle tests, and `ForceAbsoluteReFlyProvisionalGateInGameTest` were deleted with the code they covered.
 - See `docs/dev/plans/narrow-refly-relative-gate.md`.
 
-**Status:** PR open.
+**Status:** Narrowed-gate filter merged; bypass + toggle deletion follow-up (Parsek-remove-refly-bypass) open.
 
 ---
 

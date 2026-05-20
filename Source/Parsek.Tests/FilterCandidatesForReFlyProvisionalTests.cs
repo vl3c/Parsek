@@ -8,13 +8,16 @@ namespace Parsek.Tests
     /// <summary>
     /// Covers the pure overload of
     /// <see cref="ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(ReFlySessionMarker,string,System.Collections.Generic.ICollection{string},System.Collections.Generic.IReadOnlyList{RecordingAnchorCandidate})"/>.
-    /// The filter is the narrowed-gate replacement for the
-    /// <c>TryResolveReFlyProvisionalAnchor</c> supersede-target bypass: while a
-    /// re-fly session is active and the active recording is the live
-    /// provisional, every candidate whose recording id is a member of the
-    /// same <see cref="RecordingTree"/> as the provisional drops out of the
+    /// The narrowed-gate filter is the re-fly provisional anchor-selection
+    /// default: while a re-fly session is active and the active recording is
+    /// the live provisional, every candidate whose recording id is a member of
+    /// the same <see cref="RecordingTree"/> as the provisional drops out of the
     /// nearest-search input. Out-of-tree candidates (real persistent vessels
     /// from other lineages, stations, bases) pass through.
+    ///
+    /// <para>Also covers
+    /// <see cref="ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string)"/>
+    /// (both overloads), the predicate the filter depends on.</para>
     ///
     /// Pinned to <c>[Collection("Sequential")]</c> because the rate-limited
     /// drop log uses <see cref="ParsekLog.TestSinkForTesting"/> shared static
@@ -347,5 +350,185 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("[Anchor]")
                 && l.Contains("FilterCandidatesForReFlyProvisional"));
         }
+
+        #region IsActiveRecordingReFlyProvisional predicate
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_NullMarker_ReturnsFalse()
+        {
+            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
+                marker: null,
+                activeRecordingId: "rec_prov");
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_MismatchActiveId_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_other",
+                SupersedeTargetId = "rec_target"
+            };
+
+            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
+                marker,
+                activeRecordingId: "rec_prov");
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_NullActiveId_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_prov"
+            };
+
+            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
+                marker,
+                activeRecordingId: null);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_EmptyActiveId_ReturnsFalse()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_prov"
+            };
+
+            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
+                marker,
+                activeRecordingId: string.Empty);
+
+            Assert.False(result);
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_MatchingMarker_ReturnsTrue()
+        {
+            var marker = new ReFlySessionMarker
+            {
+                ActiveReFlyRecordingId = "rec_prov",
+                SupersedeTargetId = "rec_target"
+            };
+
+            bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(
+                marker,
+                activeRecordingId: "rec_prov");
+
+            Assert.True(result);
+        }
+
+        // -----------------------------------------------------------------
+        // Production-wrapper coverage: IsActiveRecordingReFlyProvisional(RecordingTree)
+        // reads ParsekScenario.Instance + activeTree.ActiveRecordingId.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_Wrapper_NullScenario_ReturnsFalse()
+        {
+            ParsekScenario.ResetInstanceForTesting();
+            try
+            {
+                var tree = new RecordingTree { ActiveRecordingId = "rec_prov" };
+                bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
+                Assert.False(result);
+            }
+            finally
+            {
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_Wrapper_NullActiveTree_ReturnsFalse()
+        {
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    ActiveReFlyRecordingId = "rec_prov"
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(activeTree: null);
+                Assert.False(result);
+            }
+            finally
+            {
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesActiveId_ReturnsTrue()
+        {
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    ActiveReFlyRecordingId = "rec_prov"
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var tree = new RecordingTree { ActiveRecordingId = "rec_prov" };
+                bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
+                Assert.True(result);
+            }
+            finally
+            {
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        /// <summary>
+        /// A re-fly provisional whose origin was a controlled-decoupled child
+        /// (DebrisParentRecordingId non-null) fires the predicate the same as
+        /// a top-level re-fly: the predicate does not consult
+        /// DebrisParentRecordingId.
+        /// </summary>
+        [Fact]
+        public void IsActiveRecordingReFlyProvisional_Wrapper_MarkerMatchesParentAnchored_ReturnsTrue()
+        {
+            var scenario = new ParsekScenario
+            {
+                ActiveReFlySessionMarker = new ReFlySessionMarker
+                {
+                    ActiveReFlyRecordingId = "rec_prov_child"
+                }
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            try
+            {
+                var tree = new RecordingTree { ActiveRecordingId = "rec_prov_child" };
+                // DebrisParentRecordingId on the recording is not consulted by
+                // the predicate. The recording entry itself doesn't even need
+                // to exist in tree.Recordings.
+                tree.Recordings["rec_prov_child"] = new Recording
+                {
+                    RecordingId = "rec_prov_child",
+                    DebrisParentRecordingId = "rec_parent"
+                };
+
+                bool result = ReFlyAnchorSelection.IsActiveRecordingReFlyProvisional(tree);
+                Assert.True(result);
+            }
+            finally
+            {
+                ParsekScenario.ResetInstanceForTesting();
+            }
+        }
+
+        #endregion
     }
 }
