@@ -467,6 +467,51 @@ namespace Parsek
 
         #region LoadRecording Extracted Helpers
 
+        // Read-parse-assign helpers. Each reproduces the inline idiom exactly:
+        // read the key, and if it is missing OR unparseable leave the field at
+        // its current value (returned via the `current` parameter); otherwise
+        // return the parsed value. NumberStyles match the original inline calls
+        // (Integer for int/uint, Float for double/float). bool has no styles.
+        private static int ParseIntOr(ConfigNode node, string key, int current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
+                return v;
+            return current;
+        }
+
+        private static uint ParseUintOr(ConfigNode node, string key, uint current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && uint.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint v))
+                return v;
+            return current;
+        }
+
+        private static double ParseDoubleOr(ConfigNode node, string key, double current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+                return v;
+            return current;
+        }
+
+        private static float ParseFloatOr(ConfigNode node, string key, float current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float v))
+                return v;
+            return current;
+        }
+
+        private static bool ParseBoolOr(ConfigNode node, string key, bool current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && bool.TryParse(s, out bool v))
+                return v;
+            return current;
+        }
+
         /// <summary>
         /// Loads playback settings (format version, ghost geometry version, loop,
         /// playback enabled), EVA child linkage, and chain linkage from a RECORDING
@@ -474,9 +519,6 @@ namespace Parsek
         /// </summary>
         private static void LoadRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
-            var ic = CultureInfo.InvariantCulture;
-
             // Existing recording metadata. recordingFormatVersion /
             // recordingSchemaGeneration were already parsed and assigned to rec
             // by LoadRecordingFrom before the schema-compatibility gate, with
@@ -484,74 +526,24 @@ namespace Parsek
             rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
-            string sidecarEpochStr = recNode.GetValue("sidecarEpoch");
-            if (sidecarEpochStr != null)
-            {
-                int sidecarEpoch;
-                if (int.TryParse(sidecarEpochStr, NumberStyles.Integer, ic, out sidecarEpoch))
-                    rec.SidecarEpoch = sidecarEpoch;
-            }
+            rec.SidecarEpoch = ParseIntOr(recNode, "sidecarEpoch", rec.SidecarEpoch);
 
-            string loopPlaybackStr = recNode.GetValue("loopPlayback");
-            if (loopPlaybackStr != null)
-            {
-                bool loopPlayback;
-                if (bool.TryParse(loopPlaybackStr, out loopPlayback))
-                    rec.LoopPlayback = loopPlayback;
-            }
+            rec.LoopPlayback = ParseBoolOr(recNode, "loopPlayback", rec.LoopPlayback);
 
-            string loopStartUTStr = recNode.GetValue("loopStartUT");
-            if (loopStartUTStr != null)
-            {
-                double loopStartUT;
-                if (double.TryParse(loopStartUTStr, inv, ic, out loopStartUT))
-                    rec.LoopStartUT = loopStartUT;
-            }
+            rec.LoopStartUT = ParseDoubleOr(recNode, "loopStartUT", rec.LoopStartUT);
 
-            string loopEndUTStr = recNode.GetValue("loopEndUT");
-            if (loopEndUTStr != null)
-            {
-                double loopEndUT;
-                if (double.TryParse(loopEndUTStr, inv, ic, out loopEndUT))
-                    rec.LoopEndUT = loopEndUT;
-            }
+            rec.LoopEndUT = ParseDoubleOr(recNode, "loopEndUT", rec.LoopEndUT);
 
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
-            if (loopIntervalStr != null)
-            {
-                double loopIntervalSeconds;
-                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
-                {
-                    rec.LoopIntervalSeconds = loopIntervalSeconds;
-                }
-            }
+            rec.LoopIntervalSeconds = ParseDoubleOr(recNode, "loopIntervalSeconds", rec.LoopIntervalSeconds);
 
-            string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
-            if (loopAnchorPidStr != null)
-            {
-                uint loopAnchorPid;
-                if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, ic, out loopAnchorPid))
-                    rec.LoopAnchorVesselId = loopAnchorPid;
-            }
+            rec.LoopAnchorVesselId = ParseUintOr(recNode, "loopAnchorPid", rec.LoopAnchorVesselId);
 
             string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
             if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
                 rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
-            string playbackEnabledStr = recNode.GetValue("playbackEnabled");
-            if (playbackEnabledStr != null)
-            {
-                bool playbackEnabled;
-                if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
-                    rec.PlaybackEnabled = playbackEnabled;
-            }
-            string hiddenStr = recNode.GetValue("hidden");
-            if (hiddenStr != null)
-            {
-                bool hidden;
-                if (bool.TryParse(hiddenStr, out hidden))
-                    rec.Hidden = hidden;
-            }
+            rec.PlaybackEnabled = ParseBoolOr(recNode, "playbackEnabled", rec.PlaybackEnabled);
+            rec.Hidden = ParseBoolOr(recNode, "hidden", rec.Hidden);
 
             // EVA child linkage
             rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
@@ -559,20 +551,8 @@ namespace Parsek
 
             // Chain linkage
             rec.ChainId = recNode.GetValue("chainId");
-            string chainIndexStr = recNode.GetValue("chainIndex");
-            if (chainIndexStr != null)
-            {
-                int chainIndex;
-                if (int.TryParse(chainIndexStr, NumberStyles.Integer, ic, out chainIndex))
-                    rec.ChainIndex = chainIndex;
-            }
-            string chainBranchStr = recNode.GetValue("chainBranch");
-            if (chainBranchStr != null)
-            {
-                int chainBranch;
-                if (int.TryParse(chainBranchStr, NumberStyles.Integer, ic, out chainBranch))
-                    rec.ChainBranch = chainBranch;
-            }
+            rec.ChainIndex = ParseIntOr(recNode, "chainIndex", rec.ChainIndex);
+            rec.ChainBranch = ParseIntOr(recNode, "chainBranch", rec.ChainBranch);
         }
 
         /// <summary>
@@ -582,7 +562,6 @@ namespace Parsek
         /// </summary>
         internal static void LoadRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             // Atmosphere segment metadata
@@ -597,51 +576,15 @@ namespace Parsek
             rec.LaunchSiteName = recNode.GetValue("launchSiteName");
 
             // Pre-launch resources
-            string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
-            if (preLaunchFundsStr != null)
-            {
-                double preLaunchFunds;
-                if (double.TryParse(preLaunchFundsStr, inv, ic, out preLaunchFunds))
-                    rec.PreLaunchFunds = preLaunchFunds;
-            }
-            string preLaunchScienceStr = recNode.GetValue("preLaunchScience");
-            if (preLaunchScienceStr != null)
-            {
-                double preLaunchScience;
-                if (double.TryParse(preLaunchScienceStr, inv, ic, out preLaunchScience))
-                    rec.PreLaunchScience = preLaunchScience;
-            }
-            string preLaunchRepStr = recNode.GetValue("preLaunchRep");
-            if (preLaunchRepStr != null)
-            {
-                float preLaunchRep;
-                if (float.TryParse(preLaunchRepStr, inv, ic, out preLaunchRep))
-                    rec.PreLaunchReputation = preLaunchRep;
-            }
+            rec.PreLaunchFunds = ParseDoubleOr(recNode, "preLaunchFunds", rec.PreLaunchFunds);
+            rec.PreLaunchScience = ParseDoubleOr(recNode, "preLaunchScience", rec.PreLaunchScience);
+            rec.PreLaunchReputation = ParseFloatOr(recNode, "preLaunchRep", rec.PreLaunchReputation);
 
             // Rewind save metadata
             rec.RewindSaveFileName = recNode.GetValue("rewindSave");
-            string rewindFundsStr = recNode.GetValue("rewindResFunds");
-            if (rewindFundsStr != null)
-            {
-                double rewindFunds;
-                if (double.TryParse(rewindFundsStr, inv, ic, out rewindFunds))
-                    rec.RewindReservedFunds = rewindFunds;
-            }
-            string rewindSciStr = recNode.GetValue("rewindResSci");
-            if (rewindSciStr != null)
-            {
-                double rewindSci;
-                if (double.TryParse(rewindSciStr, inv, ic, out rewindSci))
-                    rec.RewindReservedScience = rewindSci;
-            }
-            string rewindRepStr = recNode.GetValue("rewindResRep");
-            if (rewindRepStr != null)
-            {
-                float rewindRep;
-                if (float.TryParse(rewindRepStr, inv, ic, out rewindRep))
-                    rec.RewindReservedRep = rewindRep;
-            }
+            rec.RewindReservedFunds = ParseDoubleOr(recNode, "rewindResFunds", rec.RewindReservedFunds);
+            rec.RewindReservedScience = ParseDoubleOr(recNode, "rewindResSci", rec.RewindReservedScience);
+            rec.RewindReservedRep = ParseFloatOr(recNode, "rewindResRep", rec.RewindReservedRep);
 
             // Mutable playback state
             string pidStr = recNode.GetValue("spawnedPid");
@@ -660,13 +603,7 @@ namespace Parsek
                     rec.VesselSpawned = spawnedPid != 0;
                 }
             }
-            string destroyedStr = recNode.GetValue("vesselDestroyed");
-            if (destroyedStr != null)
-            {
-                bool destroyed;
-                if (bool.TryParse(destroyedStr, out destroyed))
-                    rec.VesselDestroyed = destroyed;
-            }
+            rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
             // #573/#589: load scoped post-rewind suppression marker. Older saves
             // only contain the bool because the original fix marked whole trees;
@@ -692,13 +629,7 @@ namespace Parsek
                 if (string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
                     rec.SpawnSuppressedByRewindReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
             }
-            string resIdxStr = recNode.GetValue("lastResIdx");
-            if (resIdxStr != null)
-            {
-                int resIdx;
-                if (int.TryParse(resIdxStr, NumberStyles.Integer, ic, out resIdx))
-                    rec.LastAppliedResourceIndex = resIdx;
-            }
+            rec.LastAppliedResourceIndex = ParseIntOr(recNode, "lastResIdx", rec.LastAppliedResourceIndex);
             // pointCount is informational — Points list is loaded from sidecar file
 
             // UI grouping tags (multi-group membership, backward compat with single value)
@@ -743,13 +674,7 @@ namespace Parsek
                     $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
             }
 
-            string isDebrisStr = recNode.GetValue("isDebris");
-            if (isDebrisStr != null)
-            {
-                bool isDebris;
-                if (bool.TryParse(isDebrisStr, out isDebris))
-                    rec.IsDebris = isDebris;
-            }
+            rec.IsDebris = ParseBoolOr(recNode, "isDebris", rec.IsDebris);
 
             // v13 debris parent recording id (sparse on disk). Missing key on legacy
             // v11 debris and on non-debris recordings — both default to null. PR 3c's
@@ -758,40 +683,16 @@ namespace Parsek
             if (debrisParentRecordingIdStr != null)
                 rec.DebrisParentRecordingId = debrisParentRecordingIdStr;
 
-            string isGhostOnlyStr = recNode.GetValue("isGhostOnly");
-            if (isGhostOnlyStr != null)
-            {
-                bool isGhostOnly;
-                if (bool.TryParse(isGhostOnlyStr, out isGhostOnly))
-                    rec.IsGhostOnly = isGhostOnly;
-            }
+            rec.IsGhostOnly = ParseBoolOr(recNode, "isGhostOnly", rec.IsGhostOnly);
 
             // Max distance from launch (#302)
-            string maxDistStr = recNode.GetValue("maxDist");
-            if (maxDistStr != null)
-            {
-                double maxDist;
-                if (double.TryParse(maxDistStr, inv, ic, out maxDist))
-                    rec.MaxDistanceFromLaunch = maxDist;
-            }
+            rec.MaxDistanceFromLaunch = ParseDoubleOr(recNode, "maxDist", rec.MaxDistanceFromLaunch);
 
             // Cascade depth (#284). Missing key = 0 (legacy save or gen-0 recording).
-            string generationStr = recNode.GetValue("generation");
-            if (generationStr != null)
-            {
-                int generation;
-                if (int.TryParse(generationStr, NumberStyles.Integer, ic, out generation))
-                    rec.Generation = generation;
-            }
+            rec.Generation = ParseIntOr(recNode, "generation", rec.Generation);
 
             // Crew end states (kerbals module)
-            string crewEndStatesResolvedStr = recNode.GetValue("crewEndStatesResolved");
-            if (crewEndStatesResolvedStr != null)
-            {
-                bool crewEndStatesResolved;
-                if (bool.TryParse(crewEndStatesResolvedStr, out crewEndStatesResolved))
-                    rec.CrewEndStatesResolved = crewEndStatesResolved;
-            }
+            rec.CrewEndStatesResolved = ParseBoolOr(recNode, "crewEndStatesResolved", rec.CrewEndStatesResolved);
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
             if (rec.CrewEndStates != null)
                 rec.CrewEndStatesResolved = true;
@@ -801,32 +702,14 @@ namespace Parsek
 
             // Inventory manifests (Phase 11)
             RecordingStore.DeserializeInventoryManifest(recNode, rec);
-            string startInvSlotsStr = recNode.GetValue("startInvSlots");
-            if (startInvSlotsStr != null)
-            {
-                int startInvSlots;
-                if (int.TryParse(startInvSlotsStr, NumberStyles.Integer, ic, out startInvSlots))
-                    rec.StartInventorySlots = startInvSlots;
-            }
-            string endInvSlotsStr = recNode.GetValue("endInvSlots");
-            if (endInvSlotsStr != null)
-            {
-                int endInvSlots;
-                if (int.TryParse(endInvSlotsStr, NumberStyles.Integer, ic, out endInvSlots))
-                    rec.EndInventorySlots = endInvSlots;
-            }
+            rec.StartInventorySlots = ParseIntOr(recNode, "startInvSlots", rec.StartInventorySlots);
+            rec.EndInventorySlots = ParseIntOr(recNode, "endInvSlots", rec.EndInventorySlots);
 
             // Crew manifests (Phase 11)
             RecordingStore.DeserializeCrewManifest(recNode, rec);
 
             // Dock target vessel PID (Phase 11)
-            string dockTargetPidStr = recNode.GetValue("dockTargetPid");
-            if (dockTargetPidStr != null)
-            {
-                uint dockTargetPid;
-                if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, ic, out dockTargetPid))
-                    rec.DockTargetVesselPid = dockTargetPid;
-            }
+            rec.DockTargetVesselPid = ParseUintOr(recNode, "dockTargetPid", rec.DockTargetVesselPid);
 
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed
