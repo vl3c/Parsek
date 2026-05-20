@@ -611,9 +611,11 @@ namespace Parsek
         /// periapsis sits below the atmosphere top is snapshotted as a CLOSED
         /// ellipse that runs underground. This finds the first segment whose
         /// periapsis is below the atmosphere top and returns the UT of its
-        /// descending crossing of the atmosphere boundary, so the caller can clip
-        /// the predicted segments there and hand the atmospheric descent to the
-        /// ballistic extrapolator (which terminates at the real terrain impact).
+        /// descending crossing of the atmosphere boundary (or the segment start,
+        /// when the segment already begins inside the atmosphere), so the caller
+        /// can clip the predicted segments there and hand the atmospheric descent
+        /// to the ballistic extrapolator (which terminates at the real terrain
+        /// impact).
         /// Airless bodies are intentionally skipped: their patched-conic chain
         /// ends at an IMPACT patch and is handled by the solver-impact
         /// short-circuit, so they never leak a closed sub-surface ellipse here.
@@ -648,6 +650,19 @@ namespace Parsek
 
                 if (!TwoBodyOrbit.TryCreateFromSegment(segment, body.GravitationalParameter, out TwoBodyOrbit orbit))
                     continue;
+
+                // The segment may already begin at or below the atmosphere boundary
+                // (KSP can capture a patch that starts on the descending arc rather
+                // than at apoapsis). The whole segment is then a re-entry: clip at
+                // its start so the ballistic extrapolator takes the descent from
+                // there. Otherwise clip at the in-segment descending crossing.
+                double startRadius = Magnitude(orbit.GetPositionAtUT(segment.startUT));
+                if (startRadius <= boundaryRadius + OrbitEpsilon)
+                {
+                    clipSegmentIndex = i;
+                    atmosphereEntryUT = segment.startUT;
+                    return true;
+                }
 
                 if (TryFindDescendingRadiusCrossingUT(
                         orbit, segment.startUT, segment.endUT, boundaryRadius, out double crossingUT))

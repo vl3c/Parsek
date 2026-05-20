@@ -599,8 +599,20 @@ namespace Parsek
                 OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
                 for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
                     appendedSegments.RemoveAt(i);
-                clipSegment.endUT = atmosphereEntryUT;
-                appendedSegments[reentryClipIndex] = clipSegment;
+                if (atmosphereEntryUT > clipSegment.startUT + 1e-6)
+                {
+                    // Segment has an above-atmosphere arc before re-entry: keep it,
+                    // truncated to the atmosphere-entry crossing.
+                    clipSegment.endUT = atmosphereEntryUT;
+                    appendedSegments[reentryClipIndex] = clipSegment;
+                }
+                else
+                {
+                    // Segment is entirely a re-entry (started at/below the boundary):
+                    // drop it so no zero-length predicted segment is left behind; the
+                    // ballistic descent below covers it from its start.
+                    appendedSegments.RemoveAt(reentryClipIndex);
+                }
                 result.patchedSegmentCount = appendedSegments.Count;
 
                 ParsekLog.Info("Extrapolator",

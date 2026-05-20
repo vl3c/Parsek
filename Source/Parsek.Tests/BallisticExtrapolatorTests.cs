@@ -396,6 +396,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindAtmosphericReentryClip_SegmentStartsBelowAtmosphere_ClipsAtSegmentStart()
+        {
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = MakeBody(
+                    "Kerbin", KerbinGravParameter, KerbinRadius, atmosphereDepth: KerbinAtmosphereDepth)
+            };
+            // KSP can capture a patch that begins on the descending arc already
+            // inside the atmosphere (mean anomaly past the descending boundary
+            // crossing). The whole segment is a re-entry, so the clip is its start.
+            var segments = new List<OrbitSegment>
+            {
+                MakeOrbitSegment(
+                    "Kerbin", startUT: 0.0, endUT: 300.0,
+                    SuborbitalImpactSma, SuborbitalImpactEcc,
+                    meanAnomalyAtEpoch: 4.5, epoch: 0.0)
+            };
+
+            // Sanity: the segment really does start below the 670 km boundary.
+            Assert.True(BallisticExtrapolator.TryPropagate(
+                segments[0], KerbinGravParameter, 0.0, out Vector3d startPos, out _));
+            double startAltitude = Altitude(startPos, KerbinRadius);
+            Assert.True(startAltitude < KerbinAtmosphereDepth,
+                $"test fixture start altitude {startAltitude} should be below the atmosphere top");
+
+            bool clipped = BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                segments, bodies, out int clipIndex, out double entryUT);
+
+            Assert.True(clipped);
+            Assert.Equal(0, clipIndex);
+            Assert.Equal(0.0, entryUT, 6); // clipped at the segment start
+        }
+
+        [Fact]
         public void Extrapolate_InAtmoPlaneArc_TerminatesAtGround()
         {
             var bodies = new Dictionary<string, ExtrapolationBody>
