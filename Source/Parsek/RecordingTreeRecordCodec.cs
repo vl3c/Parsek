@@ -477,26 +477,10 @@ namespace Parsek
             var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
-            // Existing recording metadata
-            string formatVersionStr = recNode.GetValue("recordingFormatVersion");
-            if (formatVersionStr != null)
-            {
-                int formatVersion;
-                if (int.TryParse(formatVersionStr, NumberStyles.Integer, ic, out formatVersion))
-                    rec.RecordingFormatVersion = formatVersion;
-                else
-                    rec.RecordingFormatVersion = 0;
-            }
-            else
-            {
-                rec.RecordingFormatVersion = 0;
-            }
-            string schemaGenerationStr = recNode.GetValue("recordingSchemaGeneration");
-            if (schemaGenerationStr != null
-                && int.TryParse(schemaGenerationStr, NumberStyles.Integer, ic, out int schemaGeneration))
-                rec.RecordingSchemaGeneration = schemaGeneration;
-            else
-                rec.RecordingSchemaGeneration = 0;
+            // Existing recording metadata. recordingFormatVersion /
+            // recordingSchemaGeneration were already parsed and assigned to rec
+            // by LoadRecordingFrom before the schema-compatibility gate, with
+            // identical default-0 semantics, so they are not re-parsed here.
             rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
