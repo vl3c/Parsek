@@ -1222,7 +1222,10 @@ namespace Parsek
                 return true;
             }
 
-            if (EffectiveState.IsRewindRetired(rec, retirements))
+            // Cascade overload: parent-anchored debris of a retired recording
+            // is hidden alongside the retired parent so the orphan debris does
+            // not render at KSC alongside the restored parent's own debris.
+            if (EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements))
             {
                 reason = TimelineInactiveReason.RewindRetired;
                 return true;

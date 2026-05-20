@@ -6883,10 +6883,17 @@ namespace Parsek
             if (suppressed == null || recordings == null || retirements == null || retirements.Count == 0)
                 return;
 
+            // Cascade overload: parent-anchored debris of a retired recording
+            // inherits the retirement so the orphan debris ghost does not
+            // render at the tracking station alongside the restored parent's
+            // own debris.
+            var retiredIds = EffectiveState.ComputeRewindRetiredRecordingIds(recordings, retirements);
             for (int i = 0; i < recordings.Count; i++)
             {
                 Recording rec = recordings[i];
-                if (!EffectiveState.IsRewindRetired(rec, retirements))
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                    continue;
+                if (!retiredIds.Contains(rec.RecordingId))
                     continue;
                 suppressed.Add(rec.RecordingId);
             }

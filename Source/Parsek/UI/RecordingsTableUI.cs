@@ -3015,7 +3015,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(rec.RecordingId)
                 || string.IsNullOrEmpty(owner.RecordingId))
                 return false;
-            if (EffectiveState.IsRewindRetired(rec, retirements))
+            // Cascade overload: parent-anchored debris of a retired recording
+            // must never be picked as a launch-rewind replacement target.
+            // The child's lineage is gone with its retired parent.
+            if (EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements))
                 return false;
             if (supersedes == null || supersedes.Count == 0)
                 return false;
@@ -5142,8 +5145,11 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
             IReadOnlyList<RecordingRewindRetirement> retirements)
         {
+            // Cascade overload: parent-anchored debris of a retired recording
+            // renders as inactive in the recordings table so the orphan row
+            // does not look like a separately-flyable lineage.
             return IsSupersededForDisplay(rec, supersedes)
-                || EffectiveState.IsRewindRetired(rec, retirements);
+                || EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements);
         }
     }
 }

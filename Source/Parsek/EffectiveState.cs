@@ -53,6 +53,20 @@ namespace Parsek
         private static string suppressionCacheRootOverride;
         private static HashSet<string> suppressionCache;
 
+        // Cache for the cascade overload of ComputeRewindRetiredRecordingIds
+        // when called with the live store + scenario lists. Per-frame
+        // consumers (RecordingsTableUI per-row, ParsekKSC.Update per-rec) hit
+        // this path with the same inputs every frame; without the cache, each
+        // call recomputes the fixed-point closure over the full recordings
+        // list and would also re-emit the Verbose cascade log on every call.
+        // Same versioning shape as the ERS cache (StateVersion +
+        // SupersedeStateVersion) because every retirement-list mutation site
+        // (EnsureRewindRetirementsForRollback, LoadTimeSweep,
+        // TreeDiscardPurge) bumps SupersedeStateVersion alongside the write.
+        private static int retiredCacheStoreVersion = int.MinValue;
+        private static int retiredCacheSupersedeVersion = int.MinValue;
+        private static HashSet<string> retiredCache;
+
         /// <summary>Resets all caches. For unit tests only.</summary>
         internal static void ResetCachesForTesting()
         {
@@ -71,6 +85,10 @@ namespace Parsek
                 suppressionCacheStoreVersion = int.MinValue;
                 suppressionCacheRootOverride = null;
                 suppressionCache = null;
+
+                retiredCacheStoreVersion = int.MinValue;
+                retiredCacheSupersedeVersion = int.MinValue;
+                retiredCache = null;
             }
 
             SupersedeCommit.ResetWorldActionSafetyCacheForTesting();
@@ -553,6 +571,137 @@ namespace Parsek
             return result;
         }
 
+        /// <summary>
+        /// Cascade overload: returns the retired id set plus every recording
+        /// whose <see cref="Recording.DebrisParentRecordingId"/> resolves
+        /// (transitively) to a retired id. Fixed-point closure walks the
+        /// parent-anchor edge until no more children are added; bounded by
+        /// the recording count and acyclic by the parent-anchor contract
+        /// (a child cannot be its own ancestor).
+        ///
+        /// <para>Visibility consumers (ERS, timeline-inactive map, ghost
+        /// playback skip-state, KSC marker gate, tracking-station spawn
+        /// suppression, recordings-table inactive predicate) must use this
+        /// overload so that parent-anchored debris of a retired recording
+        /// inherits the retirement and does not render as an orphan ghost
+        /// alongside the restored recording's own debris.</para>
+        ///
+        /// <para>Retirement-writing paths
+        /// (<c>EnsureRewindRetirementsForRollback</c>) keep using the raw
+        /// per-retirement overload: their working set deduplicates rows being
+        /// written, not visibility-derived cascade ids.</para>
+        /// </summary>
+        internal static HashSet<string> ComputeRewindRetiredRecordingIds(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            // Per-frame consumers (RecordingsTableUI per-row,
+            // ParsekKSC.Update per-rec, GhostMapPresence) call this every
+            // frame with the live store + scenario lists. Fast-path the
+            // call so each per-frame loop pays the cascade closure cost
+            // once across the (StateVersion, SupersedeStateVersion) window
+            // instead of N times per frame. Pure-function tests (which
+            // construct ad-hoc lists) miss reference equality and run the
+            // compute path directly, which keeps the testable contract honest.
+            var scenario = ParsekScenario.Instance;
+            // Prefix difference is deliberate and matches the file-wide
+            // convention (see ComputeERS): object.ReferenceEquals(null, x)
+            // for the Unity-null bypass (Object overloads ==), bare
+            // ReferenceEquals(a, b) for pure reference identity.
+            bool isLiveStoreCall = !object.ReferenceEquals(null, scenario)
+                && ReferenceEquals(recordings, RecordingStore.CommittedRecordings)
+                && ReferenceEquals(retirements, scenario.RecordingRewindRetirements);
+            int storeVersion = 0;
+            int supersedeVersion = 0;
+            if (isLiveStoreCall)
+            {
+                // Capture versions BEFORE compute and stamp the cache with
+                // those same captured values after compute, matching the
+                // ERS cache contract above. If we re-read at store time, a
+                // bump that interleaved with compute would stamp the cache
+                // with the post-bump version while the result reflects
+                // pre-bump inputs, a stale entry that would survive until
+                // the next bump.
+                storeVersion = RecordingStore.StateVersion;
+                supersedeVersion = scenario.SupersedeStateVersion;
+                lock (syncRoot)
+                {
+                    if (retiredCache != null
+                        && retiredCacheStoreVersion == storeVersion
+                        && retiredCacheSupersedeVersion == supersedeVersion)
+                    {
+                        return retiredCache;
+                    }
+                }
+            }
+
+            var result = ComputeRewindRetiredRecordingIdsUncached(recordings, retirements);
+
+            if (isLiveStoreCall)
+            {
+                lock (syncRoot)
+                {
+                    retiredCache = result;
+                    retiredCacheStoreVersion = storeVersion;
+                    retiredCacheSupersedeVersion = supersedeVersion;
+                }
+            }
+            return result;
+        }
+
+        private static HashSet<string> ComputeRewindRetiredRecordingIdsUncached(
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            // Seed: the raw per-retirement set. This allocation is NOT
+            // memoized by the caller's cache (only the cascade-expanded
+            // result HashSet is); the seed scan is O(retirements) and runs
+            // on every cache miss, which is fine because misses only happen
+            // when StateVersion / SupersedeStateVersion actually changed.
+            var result = ComputeRewindRetiredRecordingIds(retirements);
+            int seedCount = result.Count;
+            if (seedCount == 0 || recordings == null || recordings.Count == 0)
+                return result;
+
+            int cascadeAdded;
+            do
+            {
+                cascadeAdded = 0;
+                for (int i = 0; i < recordings.Count; i++)
+                {
+                    var rec = recordings[i];
+                    if (rec == null
+                        || string.IsNullOrEmpty(rec.RecordingId)
+                        || string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                        continue;
+                    if (result.Contains(rec.RecordingId))
+                        continue;
+                    if (!result.Contains(rec.DebrisParentRecordingId))
+                        continue;
+                    result.Add(rec.RecordingId);
+                    cascadeAdded++;
+                }
+            }
+            while (cascadeAdded > 0);
+
+            int totalAdded = result.Count - seedCount;
+            if (totalAdded > 0)
+            {
+                // Log fires only on cache miss for live-store callers
+                // (above) or on every call for ad-hoc/test callers; both
+                // paths naturally rate-limit because the work itself is
+                // gated on the same condition. Stable per-frame repeats
+                // never reach this site.
+                ParsekLog.Verbose("ERS",
+                    $"Rewind-retirement cascade: seed={seedCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"cascadeAdded={totalAdded.ToString(CultureInfo.InvariantCulture)} " +
+                    $"finalRetired={result.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    $"recordingsScanned={recordings.Count.ToString(CultureInfo.InvariantCulture)} " +
+                    "(parent-anchored descendants of retired recordings hidden via cascade)");
+            }
+            return result;
+        }
+
         internal static Dictionary<string, TimelineInactiveReason> ComputeTimelineInactiveRecordingIds(
             IReadOnlyList<Recording> recordings,
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
@@ -563,7 +712,7 @@ namespace Parsek
             foreach (string id in superseded)
                 result[id] = TimelineInactiveReason.SupersededByRelation;
 
-            var retired = ComputeRewindRetiredRecordingIds(retirements);
+            var retired = ComputeRewindRetiredRecordingIds(recordings, retirements);
             foreach (string id in retired)
                 result[id] = TimelineInactiveReason.RewindRetired;
 
@@ -589,6 +738,26 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Cascade overload: true when <paramref name="rec"/> is directly
+        /// retired OR is a parent-anchored descendant of a retired recording.
+        /// Use at every visibility site that has access to the recordings
+        /// list; orphan debris of a retired re-fly fork would otherwise
+        /// render alongside the restored recording's own debris.
+        /// </summary>
+        internal static bool IsRewindRetired(
+            Recording rec,
+            IReadOnlyList<Recording> recordings,
+            IReadOnlyList<RecordingRewindRetirement> retirements)
+        {
+            if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+            if (retirements == null || retirements.Count == 0)
+                return false;
+            var retired = ComputeRewindRetiredRecordingIds(recordings, retirements);
+            return retired.Contains(rec.RecordingId);
         }
 
         /// <summary>
@@ -947,8 +1116,8 @@ namespace Parsek
 
                 var suppressed = ComputeSubtreeClosureInternal(
                     marker, marker?.OriginChildRecordingId);
-                var retiredIds = ComputeRewindRetiredRecordingIds(retirements);
                 var source = RecordingStore.CommittedRecordings;
+                var retiredIds = ComputeRewindRetiredRecordingIds(source, retirements);
                 var result = new List<Recording>(source.Count);
                 int raw = source.Count;
                 int skippedNotCommitted = 0;
