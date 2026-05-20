@@ -132,11 +132,12 @@ namespace Parsek
         private Dictionary<uint, TrajectoryPoint> pendingInitialTrajectoryPoints
             = new Dictionary<uint, TrajectoryPoint>();
 
-        // Focused-vessel breakup can create debris before the active parent's open
-        // TrackSection has been flushed into tree.Recordings. Queue the parent
-        // structural-event point so the debris seed can still use the split-UT
-        // parent pose instead of the live parent pose at background initialization.
-        private Dictionary<uint, (string parentRecordingId, TrajectoryPoint point)> pendingDebrisSeedParentAnchorPoints
+        // Focused-vessel breakup can create a parent-anchored child (debris or
+        // controlled-decoupled child) before the active parent's open TrackSection
+        // has been flushed into tree.Recordings. Queue the parent structural-event
+        // point so the child seed can still use the split-UT parent pose instead of
+        // the live parent pose at background initialization.
+        private Dictionary<uint, (string parentRecordingId, TrajectoryPoint point)> pendingParentAnchorSeedPoints
             = new Dictionary<uint, (string, TrajectoryPoint)>();
 
         // Reusable buffer for transition-check methods (avoids per-frame List<PartEvent> allocations)
@@ -224,7 +225,7 @@ namespace Parsek
             public double currentSampleInterval = ProximityRateSelector.OutOfRangeInterval;
             public double highFidelitySamplingUntilUT = double.NaN;
             public string highFidelitySamplingReason;
-            public bool loggedFirstDebrisOrdinarySample;
+            public bool loggedFirstParentAnchorOrdinarySample;
 
             // Part event tracking (mirrors FlightRecorder's instance fields)
             public Dictionary<uint, int> parachuteStates = new Dictionary<uint, int>();
@@ -2014,7 +2015,7 @@ namespace Parsek
             // Check for environment transitions (always, regardless of sampling rate)
             HandleBackgroundEnvironmentTransition(state, bgVessel, pid, ut);
 
-            ProximitySamplingTier debrisTier = UpdateDebrisProximityState(state, treeRec, bgVessel);
+            ProximitySamplingTier debrisTier = UpdateParentAnchorProximityState(state, treeRec, bgVessel);
 
             UpdateBackgroundAnchorDetection(state, bgVessel, treeRec, ut);
 
@@ -2118,7 +2119,7 @@ namespace Parsek
                 "physics-sample");
             TrajectoryPoint absolutePoint = point;
             bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, bgVessel, ut);
-            LogFirstDebrisOrdinarySampleDiagnostics(
+            LogFirstParentAnchorOrdinarySampleDiagnostics(
                 state,
                 treeRec,
                 bgVessel,
@@ -2173,9 +2174,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Queues the focused parent's split-time pose for a debris child seed.
+        /// Queues the focused parent's split-time pose for a parent-anchored child
+        /// seed (debris or controlled-decoupled child).
         /// </summary>
-        internal void QueueDebrisSeedParentAnchorPoint(
+        internal void QueueParentAnchorSeedPoint(
             uint vesselPid,
             string parentRecordingId,
             TrajectoryPoint parentAnchorPoint)
@@ -2183,7 +2185,7 @@ namespace Parsek
             if (vesselPid == 0u || string.IsNullOrWhiteSpace(parentRecordingId))
                 return;
 
-            pendingDebrisSeedParentAnchorPoints[vesselPid] = (parentRecordingId, parentAnchorPoint);
+            pendingParentAnchorSeedPoints[vesselPid] = (parentRecordingId, parentAnchorPoint);
             ParsekLog.Verbose("BgRecorder",
                 $"Queued debris seed parent anchor point: pid={vesselPid} " +
                 $"parentRecId={parentRecordingId} " +
@@ -2336,7 +2338,7 @@ namespace Parsek
 
             pendingInitialEnvironmentOverrides.Remove(vesselPid);
             pendingInitialTrajectoryPoints.Remove(vesselPid);
-            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+            pendingParentAnchorSeedPoints.Remove(vesselPid);
             finalizationCaches.Remove(vesselPid);
             ParsekLog.Info("BgRecorder", $"Vessel removed from background: pid={vesselPid}");
         }
@@ -2476,10 +2478,11 @@ namespace Parsek
         /// followed by go-on-rails identity loss on the same/next frame would
         /// otherwise leave entries that <see cref="ProcessPendingSplitChecks"/>
         /// could use to create branch points and child recordings off the sealed
-        /// parent. Debris-only dicts (<c>pendingDebrisSeedParentAnchorPoints</c>,
-        /// <c>debrisTTLExpiry</c>) are not drained here because the identity-loss
-        /// override only fires on non-debris recordings (<c>IsDebris == false</c>)
-        /// and those dicts are populated only on the debris paths.
+        /// parent. The parent-anchored seed dict (<c>pendingParentAnchorSeedPoints</c>)
+        /// and the debris-only TTL dict (<c>debrisTTLExpiry</c>) are not drained here
+        /// because the identity-loss override only fires on non-debris recordings
+        /// (<c>IsDebris == false</c>) and those dicts are populated on the split /
+        /// debris paths.
         /// </para>
         /// <para>
         /// Logged at Verbose to avoid doubling Info-level output: this is a
@@ -3753,18 +3756,18 @@ namespace Parsek
             // Resolve the recording: TrySeedLoadedPartEvents already provides
             // `treeRecForSeed` when `hasTreeRecording == true`; fall back to a tree
             // lookup when seeding was skipped (e.g. recording already had part events).
-            Recording treeRecForDebris = hasTreeRecording ? treeRecForSeed : null;
-            if (treeRecForDebris == null && tree?.Recordings != null && !string.IsNullOrEmpty(recordingId))
-                tree.Recordings.TryGetValue(recordingId, out treeRecForDebris);
-            bool debrisContractApplies = treeRecForDebris != null
-                && !string.IsNullOrEmpty(treeRecForDebris.ParentAnchorRecordingId)
+            Recording treeRecForParentAnchor = hasTreeRecording ? treeRecForSeed : null;
+            if (treeRecForParentAnchor == null && tree?.Recordings != null && !string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out treeRecForParentAnchor);
+            bool parentAnchorContractApplies = treeRecForParentAnchor != null
+                && !string.IsNullOrEmpty(treeRecForParentAnchor.ParentAnchorRecordingId)
                 && hasInitialTrajectoryPoint;
 
-            bool debrisSeedOpened = false;
-            if (debrisContractApplies)
+            bool parentAnchorSeedOpened = false;
+            if (parentAnchorContractApplies)
             {
-                double seedParentDistance = ResolveDebrisParentDistanceMeters(
-                    treeRecForDebris,
+                double seedParentDistance = ResolveParentAnchorDistanceMeters(
+                    treeRecForParentAnchor,
                     v,
                     out Recording parentRec,
                     out Vessel parentVessel);
@@ -3776,9 +3779,9 @@ namespace Parsek
                     DebrisFullFidelityProximityRangeMeters,
                     DebrisHalfFidelityProximityRangeMeters,
                     out state.debrisProximityReason);
-                LogDebrisProximityTierTransition(
+                LogParentAnchorProximityTierTransition(
                     state.vesselPid,
-                    treeRecForDebris,
+                    treeRecForParentAnchor,
                     ProximitySamplingTier.None,
                     state.debrisProximityTier,
                     seedParentDistance,
@@ -3790,11 +3793,11 @@ namespace Parsek
                     || parentVessel.packed
                     || !seedWithinRelativeRange)
                 {
-                    pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
+                    pendingParentAnchorSeedPoints.Remove(vesselPid);
                     ParsekLog.Warn("BgRecorder",
                         $"InitializeLoadedState: debris contract uses Absolute seed, " +
                         $"falling back to Absolute seed: pid={vesselPid} recId={recordingId} " +
-                        $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                        $"parentRecId={treeRecForParentAnchor.ParentAnchorRecordingId} " +
                         $"parentRecResolved={parentRec != null} " +
                         $"parentVesselResolved={parentVessel != null} " +
                         $"parentVesselLoaded={parentVessel != null && parentVessel.loaded} " +
@@ -3818,10 +3821,10 @@ namespace Parsek
                         (Vector3d)parentVessel.transform.position,
                         parentVessel.transform.rotation,
                         -1,
-                        treeRecForDebris.ParentAnchorRecordingId);
+                        treeRecForParentAnchor.ParentAnchorRecordingId);
 
                     var liveCandidate = new RecordingAnchorCandidate(
-                        treeRecForDebris.ParentAnchorRecordingId,
+                        treeRecForParentAnchor.ParentAnchorRecordingId,
                         liveAnchorPose.WorldPos,
                         liveAnchorPose.WorldRotation,
                         AnchorCandidateSource.Live,
@@ -3837,9 +3840,9 @@ namespace Parsek
                     string queuedSeedAnchorReason;
                     RelativeAnchorResolveFailure recordedSeedAnchorFailure = default;
                     string seedRecordedFallbackFrameContract = "unresolved";
-                    if (TryConsumePendingDebrisSeedParentAnchorPose(
+                    if (TryConsumePendingParentAnchorSeedPose(
                             vesselPid,
-                            treeRecForDebris.ParentAnchorRecordingId,
+                            treeRecForParentAnchor.ParentAnchorRecordingId,
                             initialTrajectoryPoint.ut,
                             out AnchorPose queuedSeedAnchorPose,
                             out queuedSeedAnchorReason))
@@ -3849,11 +3852,11 @@ namespace Parsek
                         ParsekLog.Verbose("BgRecorder",
                             $"InitializeLoadedState: consumed queued debris seed parent anchor: " +
                             $"pid={vesselPid} recId={recordingId} " +
-                            $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                            $"parentRecId={treeRecForParentAnchor.ParentAnchorRecordingId} " +
                             $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)}");
                     }
                     else if (TryResolveBackgroundRecordedAnchorPose(
-                            treeRecForDebris.ParentAnchorRecordingId,
+                            treeRecForParentAnchor.ParentAnchorRecordingId,
                             initialTrajectoryPoint.ut,
                             out AnchorPose recordedSeedAnchorPose,
                             out recordedSeedAnchorFailure))
@@ -3861,19 +3864,19 @@ namespace Parsek
                         seedAnchorPose = recordedSeedAnchorPose;
                         seedAnchorSource = "recorded";
                         seedRecordedFallbackFrameContract = ClassifyBackgroundRelativeFrameContract(
-                            treeRecForDebris.ParentAnchorRecordingId,
+                            treeRecForParentAnchor.ParentAnchorRecordingId,
                             seedAnchorSource,
                             AnchorCandidateSource.Ghost,
                             hasCurrentAnchorCandidate: false,
                             hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
-                                treeRecForDebris.ParentAnchorRecordingId));
+                                treeRecForParentAnchor.ParentAnchorRecordingId));
                     }
                     else
                     {
                         ParsekLog.Warn("BgRecorder",
                             $"InitializeLoadedState: debris seed recorded parent pose unavailable, " +
                             $"falling back to live parent pose: pid={vesselPid} recId={recordingId} " +
-                            $"parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                            $"parentRecId={treeRecForParentAnchor.ParentAnchorRecordingId} " +
                             $"reason={RelativeAnchorResolveFailure.ReasonOrFallback(recordedSeedAnchorFailure, "unknown")} " +
                             $"queuedReason={queuedSeedAnchorReason ?? "unknown"} " +
                             $"seedUT={initialTrajectoryPoint.ut.ToString("F3", CultureInfo.InvariantCulture)} " +
@@ -3888,28 +3891,28 @@ namespace Parsek
                         ref initialTrajectoryPoint,
                         v,
                         seedAnchorPose,
-                        treeRecForDebris.ParentAnchorRecordingId,
+                        treeRecForParentAnchor.ParentAnchorRecordingId,
                         AnchorCandidateSource.Live,
                         parentVessel.persistentId,
                         logSample: true,
                         sourceLabel: seedAnchorSource);
                     string seedFrameContract = ClassifyBackgroundRelativeFrameContract(
-                        treeRecForDebris.ParentAnchorRecordingId,
+                        treeRecForParentAnchor.ParentAnchorRecordingId,
                         seedAnchorSource,
                         AnchorCandidateSource.Live,
                         hasCurrentAnchorCandidate: string.Equals(seedAnchorSource, "live-warn-fallback", StringComparison.Ordinal),
                         hasPreReFlyAnchorSnapshot: HasActiveReFlyPreReFlyAnchorSnapshot(
-                            treeRecForDebris.ParentAnchorRecordingId));
+                            treeRecForParentAnchor.ParentAnchorRecordingId));
                     string seedParentDrift = FormatActiveReFlyParentDriftFromRecorded(
-                        treeRecForDebris.ParentAnchorRecordingId,
+                        treeRecForParentAnchor.ParentAnchorRecordingId,
                         parentVessel.persistentId,
                         initialTrajectoryPoint.ut);
                     string seedParentDriftField = FormatParentDriftLogField(seedParentDrift);
                     string seedFocusRecordingId = string.IsNullOrEmpty(recordingId) ? "(missing)" : recordingId;
-                    LogDebrisSeedRelativeConversionDiagnostics(
+                    LogParentAnchorSeedRelativeConversionDiagnostics(
                         vesselPid,
                         recordingId,
-                        treeRecForDebris.ParentAnchorRecordingId,
+                        treeRecForParentAnchor.ParentAnchorRecordingId,
                         v,
                         parentVessel,
                         absoluteSeedPoint,
@@ -3927,7 +3930,7 @@ namespace Parsek
                         ParsekLog.Warn("BgRecorder",
                             $"InitializeLoadedState: debris seed transform failed, " +
                             $"section opened Relative but offset not applied: " +
-                            $"pid={vesselPid} recId={recordingId} parentRecId={treeRecForDebris.ParentAnchorRecordingId}");
+                            $"pid={vesselPid} recId={recordingId} parentRecId={treeRecForParentAnchor.ParentAnchorRecordingId}");
                     }
                     ActivateBackgroundHighFidelitySampling(
                         state,
@@ -3957,11 +3960,11 @@ namespace Parsek
                     else
                         AppendFrameToCurrentTrackSection(
                             state, initialTrajectoryPoint, absoluteSeedPoint);
-                    debrisSeedOpened = true;
+                    parentAnchorSeedOpened = true;
 
                     ParsekLog.Info("BgRecorder",
                         $"Debris parent-anchor contract applied at seed: pid={vesselPid} " +
-                        $"recId={recordingId} parentRecId={treeRecForDebris.ParentAnchorRecordingId} " +
+                        $"recId={recordingId} parentRecId={treeRecForParentAnchor.ParentAnchorRecordingId} " +
                         $"parentPid={parentVessel.persistentId} " +
                         $"frameContract={seedFrameContract} " +
                         seedParentDriftField +
@@ -3972,7 +3975,7 @@ namespace Parsek
                 }
             }
 
-            if (!debrisSeedOpened)
+            if (!parentAnchorSeedOpened)
             {
                 StartBackgroundTrackSection(state, initialEnv, ReferenceFrame.Absolute,
                     hasInitialTrajectoryPoint ? initialTrajectoryPoint.ut : ut);
@@ -4379,7 +4382,7 @@ namespace Parsek
             return true;
         }
 
-        private static void LogDebrisSeedRelativeConversionDiagnostics(
+        private static void LogParentAnchorSeedRelativeConversionDiagnostics(
             uint vesselPid,
             string recordingId,
             string parentRecordingId,
@@ -4426,7 +4429,7 @@ namespace Parsek
                 $"{DescribeVesselRootForDiagnostics("parent", parentVessel)}");
         }
 
-        private static void LogFirstDebrisOrdinarySampleDiagnostics(
+        private static void LogFirstParentAnchorOrdinarySampleDiagnostics(
             BackgroundVesselState state,
             Recording treeRec,
             Vessel bgVessel,
@@ -4438,12 +4441,12 @@ namespace Parsek
             if (state == null
                 || treeRec == null
                 || string.IsNullOrEmpty(treeRec.ParentAnchorRecordingId)
-                || state.loggedFirstDebrisOrdinarySample)
+                || state.loggedFirstParentAnchorOrdinarySample)
             {
                 return;
             }
 
-            state.loggedFirstDebrisOrdinarySample = true;
+            state.loggedFirstParentAnchorOrdinarySample = true;
             bool hasAbsoluteWorld = TryResolveTrajectoryPointWorldPosition(
                 absolutePoint,
                 bgVessel,
@@ -5193,7 +5196,7 @@ namespace Parsek
             string parentRecId = treeRec.ParentAnchorRecordingId;
             if (string.IsNullOrEmpty(parentRecId)) return;
 
-            if (!ShouldUseDebrisRelativeSection(state))
+            if (!ShouldUseParentAnchorRelativeSection(state))
             {
                 if (state.isRelativeMode
                     || (state.trackSectionActive
@@ -5283,7 +5286,7 @@ namespace Parsek
                 SegmentEnvironment env = state.environmentHysteresis != null
                     ? state.environmentHysteresis.CurrentEnvironment
                     : SegmentEnvironment.Atmospheric;
-                StartDebrisParentRelativeTrackSection(state, env, ut);
+                StartParentAnchorRelativeTrackSection(state, env, ut);
                 if (anchorChanged)
                 {
                     string transition = previousAnchorRecordingId == null ? "entered" : "switched";
@@ -5304,7 +5307,7 @@ namespace Parsek
             }
         }
 
-        private void StartDebrisParentRelativeTrackSection(
+        private void StartParentAnchorRelativeTrackSection(
             BackgroundVesselState state,
             SegmentEnvironment env,
             double ut)
@@ -5380,7 +5383,7 @@ namespace Parsek
                 tree?.Recordings?.TryGetValue(state.recordingId, out treeRec);
             if (treeRec != null && !string.IsNullOrEmpty(treeRec.ParentAnchorRecordingId))
             {
-                UpdateDebrisProximityState(state, treeRec, vessel);
+                UpdateParentAnchorProximityState(state, treeRec, vessel);
                 ApplyParentAnchorContractToState(state, treeRec, vessel, ut);
             }
 
@@ -5948,40 +5951,40 @@ namespace Parsek
                 && !string.IsNullOrEmpty(treeRec.ParentAnchorRecordingId);
         }
 
-        private double ResolveDebrisParentDistanceMeters(Recording debrisRecording, Vessel debrisVessel)
+        private double ResolveParentAnchorDistanceMeters(Recording anchoredRecording, Vessel anchoredVessel)
         {
-            if (!IsDebrisAwareSampleCapEligible(debrisRecording)
-                || debrisVessel == null)
+            if (!IsDebrisAwareSampleCapEligible(anchoredRecording)
+                || anchoredVessel == null)
             {
                 return double.NaN;
             }
 
-            return ResolveDebrisParentDistanceMeters(
-                debrisRecording,
-                debrisVessel,
+            return ResolveParentAnchorDistanceMeters(
+                anchoredRecording,
+                anchoredVessel,
                 out _,
                 out _);
         }
 
-        private double ResolveDebrisParentDistanceMeters(
-            Recording debrisRecording,
-            Vessel debrisVessel,
+        private double ResolveParentAnchorDistanceMeters(
+            Recording anchoredRecording,
+            Vessel anchoredVessel,
             out Recording parentRecording,
             out Vessel parentVessel)
         {
             parentRecording = null;
             parentVessel = null;
 
-            if (debrisRecording == null
-                || debrisVessel == null
+            if (anchoredRecording == null
+                || anchoredVessel == null
                 || tree?.Recordings == null
-                || string.IsNullOrEmpty(debrisRecording.ParentAnchorRecordingId))
+                || string.IsNullOrEmpty(anchoredRecording.ParentAnchorRecordingId))
             {
                 return double.NaN;
             }
 
             if (!tree.Recordings.TryGetValue(
-                    debrisRecording.ParentAnchorRecordingId,
+                    anchoredRecording.ParentAnchorRecordingId,
                     out parentRecording)
                 || parentRecording == null
                 || parentRecording.VesselPersistentId == 0u)
@@ -6001,23 +6004,23 @@ namespace Parsek
             // the boundary resolution and CoM is the cheaper, more conventional
             // proximity metric.
             Vector3d parentWorldPos = parentVessel.GetWorldPos3D();
-            Vector3d debrisWorldPos = debrisVessel.GetWorldPos3D();
-            if (!IsFinite(parentWorldPos) || !IsFinite(debrisWorldPos))
+            Vector3d anchoredWorldPos = anchoredVessel.GetWorldPos3D();
+            if (!IsFinite(parentWorldPos) || !IsFinite(anchoredWorldPos))
                 return double.NaN;
 
-            return Vector3d.Distance(parentWorldPos, debrisWorldPos);
+            return Vector3d.Distance(parentWorldPos, anchoredWorldPos);
         }
 
-        private ProximitySamplingTier UpdateDebrisProximityState(
+        private ProximitySamplingTier UpdateParentAnchorProximityState(
             BackgroundVesselState state,
             Recording treeRec,
-            Vessel debrisVessel)
+            Vessel anchoredVessel)
         {
             if (state == null)
                 return ProximitySamplingTier.None;
 
             ProximitySamplingTier previousTier = state.debrisProximityTier;
-            double distance = ResolveDebrisParentDistanceMeters(treeRec, debrisVessel);
+            double distance = ResolveParentAnchorDistanceMeters(treeRec, anchoredVessel);
             ProximitySamplingTier tier = ProximitySamplingTier.None;
             string reason = null;
             if (IsDebrisAwareSampleCapEligible(treeRec))
@@ -6031,14 +6034,14 @@ namespace Parsek
 
             if (previousTier != tier)
             {
-                LogDebrisProximityTierTransition(
+                LogParentAnchorProximityTierTransition(
                     state.vesselPid,
                     treeRec,
                     previousTier,
                     tier,
                     distance,
                     reason,
-                    "UpdateDebrisProximityState");
+                    "UpdateParentAnchorProximityState");
             }
 
             state.debrisProximityTier = tier;
@@ -6047,7 +6050,7 @@ namespace Parsek
             return tier;
         }
 
-        private static void LogDebrisProximityTierTransition(
+        private static void LogParentAnchorProximityTierTransition(
             uint vesselPid,
             Recording treeRec,
             ProximitySamplingTier previousTier,
@@ -6070,7 +6073,7 @@ namespace Parsek
                 $"reason={reason ?? "ineligible"}");
         }
 
-        private static bool ShouldUseDebrisRelativeSection(BackgroundVesselState state)
+        private static bool ShouldUseParentAnchorRelativeSection(BackgroundVesselState state)
         {
             if (state == null)
                 return false;
@@ -6078,12 +6081,12 @@ namespace Parsek
             bool alreadyRelative = state.isRelativeMode
                 || (state.trackSectionActive
                     && state.currentTrackSection.referenceFrame == ReferenceFrame.Relative);
-            return ShouldUseDebrisRelativeSectionForDistance(
+            return ShouldUseParentAnchorRelativeSectionForDistance(
                 state.debrisProximityDistanceMeters,
                 alreadyRelative);
         }
 
-        internal static bool ShouldUseDebrisRelativeSectionForDistance(
+        internal static bool ShouldUseParentAnchorRelativeSectionForDistance(
             double distanceMeters,
             bool alreadyRelative)
         {
@@ -6249,7 +6252,7 @@ namespace Parsek
             return false;
         }
 
-        internal static bool IsPendingDebrisSeedParentAnchorUsable(
+        internal static bool IsPendingParentAnchorSeedUsable(
             string queuedParentRecordingId,
             string expectedParentRecordingId,
             double queuedUT,
@@ -6302,7 +6305,7 @@ namespace Parsek
             return true;
         }
 
-        private bool TryConsumePendingDebrisSeedParentAnchorPose(
+        private bool TryConsumePendingParentAnchorSeedPose(
             uint vesselPid,
             string expectedParentRecordingId,
             double seedUT,
@@ -6311,7 +6314,7 @@ namespace Parsek
         {
             pose = default;
             reason = null;
-            if (!pendingDebrisSeedParentAnchorPoints.TryGetValue(
+            if (!pendingParentAnchorSeedPoints.TryGetValue(
                     vesselPid,
                     out (string parentRecordingId, TrajectoryPoint point) pending))
             {
@@ -6319,8 +6322,8 @@ namespace Parsek
                 return false;
             }
 
-            pendingDebrisSeedParentAnchorPoints.Remove(vesselPid);
-            if (!IsPendingDebrisSeedParentAnchorUsable(
+            pendingParentAnchorSeedPoints.Remove(vesselPid);
+            if (!IsPendingParentAnchorSeedUsable(
                     pending.parentRecordingId,
                     expectedParentRecordingId,
                     pending.point.ut,
@@ -8538,7 +8541,7 @@ namespace Parsek
             loadedStates[vesselPid] = state;
         }
 
-        internal void StartDebrisParentRelativeTrackSectionForTesting(
+        internal void StartParentAnchorRelativeTrackSectionForTesting(
             uint vesselPid,
             string parentRecordingId,
             SegmentEnvironment env,
@@ -8552,7 +8555,7 @@ namespace Parsek
             state.currentAnchorRecordingId = parentRecordingId;
             state.currentAnchorCandidate = default;
             state.hasCurrentAnchorCandidate = false;
-            StartDebrisParentRelativeTrackSection(state, env, ut);
+            StartParentAnchorRelativeTrackSection(state, env, ut);
             loadedStates[vesselPid] = state;
         }
 

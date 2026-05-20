@@ -6300,7 +6300,7 @@ namespace Parsek
                         // resolve. The debris loop below queues the same seed at line 6470.
                         if (focusedParentSeedAnchorPoint.HasValue)
                         {
-                            backgroundRecorder.QueueDebrisSeedParentAnchorPoint(
+                            backgroundRecorder.QueueParentAnchorSeedPoint(
                                 pid,
                                 activeRecId,
                                 focusedParentSeedAnchorPoint.Value);
@@ -6370,7 +6370,7 @@ namespace Parsek
                         activeTree.BackgroundMap[pid] = childRec.RecordingId;
                         if (focusedParentSeedAnchorPoint.HasValue)
                         {
-                            backgroundRecorder.QueueDebrisSeedParentAnchorPoint(
+                            backgroundRecorder.QueueParentAnchorSeedPoint(
                                 pid,
                                 activeRecId,
                                 focusedParentSeedAnchorPoint.Value);
