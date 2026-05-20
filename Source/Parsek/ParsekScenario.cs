@@ -2202,6 +2202,23 @@ namespace Parsek
                         // revert itself.
                         bool hadPendingTree = RecordingStore.HasPendingTree;
                         RecordingStore.UnstashPendingTreeOnRevert();
+
+                        // Drop orphan ledger actions earned live during the reverted flight that
+                        // carry no recording id (e.g. launch-pad science transmitted during the
+                        // PRELAUNCH window before auto-record starts, and their milestone rewards).
+                        // UnstashPendingTreeOnRevert only filters recording-tied actions; these
+                        // untagged ones would otherwise be re-applied by the recalc below,
+                        // overriding stock KSP's revert. loadedUT is the post-revert clock (the
+                        // launch UT for Revert-to-Launch, an earlier UT for Revert-to-Assembly),
+                        // so strict UT > loadedUT keeps the at-launch rollout spend on a
+                        // Revert-to-Launch while refunding it on a Revert-to-Assembly.
+                        int prunedOrphans = Ledger.PruneOrphanActionsAfterUT(loadedUT);
+                        if (prunedOrphans > 0)
+                            ParsekLog.Info("Scenario",
+                                $"Revert: pruned {prunedOrphans} untagged ledger action(s) after " +
+                                $"loadedUT={loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                                "(launch-pad/PRELAUNCH currency earned before auto-record)");
+
                         if (hadPendingTree)
                         {
                             // ScreenMessages.PostScreenMessage calls into Unity's UI stack,

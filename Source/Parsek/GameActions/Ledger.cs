@@ -186,6 +186,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes orphan ledger actions that were generated live during a now-discarded
+        /// flight session: those with a null/empty <see cref="GameAction.RecordingId"/> and a
+        /// UT strictly greater than <paramref name="cutoffUT"/>. Returns the number removed.
+        ///
+        /// <para>Used by the Revert-to-Launch / Revert-to-Assembly path: stock KSP rewinds the
+        /// game clock back to <paramref name="cutoffUT"/> and zeroes the currency it earned
+        /// during the reverted flight, but actions earned on the launch pad BEFORE auto-record
+        /// starts (PRELAUNCH-window science transmissions, milestone rewards, etc.) carry no
+        /// recording id, so the pending-tree unstash that filters recording-tied actions never
+        /// touches them and the next full recalc re-applies them, overriding the stock revert.
+        /// A cutoff-only walk would merely defer the re-credit until the re-fly clock passes the
+        /// orphan's UT again; removal is the correct semantics for "this flight never happened".</para>
+        ///
+        /// <para>Safe because every persisted ledger action is stamped with the clock UT at the
+        /// moment it was appended and recording-tied actions carry a recording id, so a
+        /// null-recordingId action dated after the revert target can only have come from the live
+        /// (non-recorded) part of the discarded session. Seed actions (<see cref="GameActionType.FundsInitial"/>
+        /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
+        /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
+        /// </summary>
+        internal static int PruneOrphanActionsAfterUT(double cutoffUT)
+        {
+            int removed = 0;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (action == null)
+                    continue;
+                if (!string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+                if (RecalculationEngine.IsSeedType(action.Type))
+                    continue;
+                if (action.UT <= cutoffUT)
+                    continue;
+
+                actions.RemoveAt(i);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"PruneOrphanActionsAfterUT: removed {removed} untagged action(s) after UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"PruneOrphanActionsAfterUT: no untagged actions after UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
         /// Remaps every action tagged with <paramref name="oldRecordingId"/> to
         /// <paramref name="newRecordingId"/>. Called by the recording optimizer when a
         /// root segment is absorbed into a successor (chain coalescing) and the tree's
