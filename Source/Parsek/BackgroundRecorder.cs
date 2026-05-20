@@ -2012,33 +2012,7 @@ namespace Parsek
                 "background_periodic", force: false);
 
             // Check for environment transitions (always, regardless of sampling rate)
-            if (state.environmentHysteresis != null)
-            {
-                bool hasAtmo = bgVessel.mainBody != null && bgVessel.mainBody.atmosphere;
-                double atmoDepth = hasAtmo ? bgVessel.mainBody.atmosphereDepth : 0;
-                double approachAlt = (!hasAtmo && bgVessel.mainBody != null)
-                    ? FlightRecorder.ComputeApproachAltitude(bgVessel.mainBody) : 0;
-                var rawEnv = ClassifyBackgroundEnvironment(
-                    hasAtmo, bgVessel.altitude, atmoDepth,
-                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt,
-                    bgVessel.isEVA, bgVessel.heightFromTerrain,
-                    EnvironmentDetector.IsHeightFromTerrainValid(bgVessel.heightFromTerrain),
-                    bgVessel.mainBody != null && bgVessel.mainBody.ocean);
-                if (state.environmentHysteresis.Update(rawEnv, ut))
-                {
-                    var newEnv = state.environmentHysteresis.CurrentEnvironment;
-                    ActivateBackgroundHighFidelitySampling(state, ut, "environment-transition");
-                    ParsekLog.Info("BgRecorder",
-                        $"Environment transition: pid={pid} -> {newEnv} " +
-                        $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
-
-                    // Capture boundary point before closing (#283)
-                    TrajectoryPoint? boundaryPoint = GetLastBackgroundFrame(state);
-                    CloseBackgroundTrackSection(state, ut);
-                    StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
-                    SeedBackgroundBoundaryPoint(state, boundaryPoint);
-                }
-            }
+            HandleBackgroundEnvironmentTransition(state, bgVessel, pid, ut);
 
             ProximitySamplingTier debrisTier = UpdateDebrisProximityState(state, treeRec, bgVessel);
 
@@ -4815,6 +4789,46 @@ namespace Parsek
                 ref point,
                 "boundary-sample");
             AppendBoundaryPointToRecording(treeRec, point, v.persistentId);
+        }
+
+        /// <summary>
+        /// Handles a background vessel's environment transition: classifies the raw environment,
+        /// feeds the hysteresis, and on a confirmed transition activates high-fidelity sampling,
+        /// captures the boundary point, closes the current BG track section, opens a new Absolute
+        /// section, and seeds the boundary point. Gated on a non-null hysteresis. Runs strictly
+        /// below the packed/on-rails early-return in <see cref="OnBackgroundPhysicsFrame"/> (the
+        /// eccentric-orbit invariant, §S16).
+        /// </summary>
+        private void HandleBackgroundEnvironmentTransition(
+            BackgroundVesselState state, Vessel bgVessel, uint pid, double ut)
+        {
+            if (state.environmentHysteresis != null)
+            {
+                bool hasAtmo = bgVessel.mainBody != null && bgVessel.mainBody.atmosphere;
+                double atmoDepth = hasAtmo ? bgVessel.mainBody.atmosphereDepth : 0;
+                double approachAlt = (!hasAtmo && bgVessel.mainBody != null)
+                    ? FlightRecorder.ComputeApproachAltitude(bgVessel.mainBody) : 0;
+                var rawEnv = ClassifyBackgroundEnvironment(
+                    hasAtmo, bgVessel.altitude, atmoDepth,
+                    (int)bgVessel.situation, bgVessel.srfSpeed, state.cachedEngines, approachAlt,
+                    bgVessel.isEVA, bgVessel.heightFromTerrain,
+                    EnvironmentDetector.IsHeightFromTerrainValid(bgVessel.heightFromTerrain),
+                    bgVessel.mainBody != null && bgVessel.mainBody.ocean);
+                if (state.environmentHysteresis.Update(rawEnv, ut))
+                {
+                    var newEnv = state.environmentHysteresis.CurrentEnvironment;
+                    ActivateBackgroundHighFidelitySampling(state, ut, "environment-transition");
+                    ParsekLog.Info("BgRecorder",
+                        $"Environment transition: pid={pid} -> {newEnv} " +
+                        $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+
+                    // Capture boundary point before closing (#283)
+                    TrajectoryPoint? boundaryPoint = GetLastBackgroundFrame(state);
+                    CloseBackgroundTrackSection(state, ut);
+                    StartBackgroundTrackSection(state, newEnv, ReferenceFrame.Absolute, ut);
+                    SeedBackgroundBoundaryPoint(state, boundaryPoint);
+                }
+            }
         }
 
         private void UpdateBackgroundAnchorDetection(

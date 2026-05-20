@@ -2177,6 +2177,35 @@ namespace Parsek
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
 
             bool ghostOnlySnapshot = result.vesselSnapshot == null && result.ghostVisualSnapshot != null;
+            ApplyTerminalSnapshots(recording, result, logContext);
+
+            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
+                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
+                    "after applying terminal snapshot");
+            }
+            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
+
+            ApplyTerminalSurfaceMetadata(recording, result, ghostOnlySnapshot, logContext);
+
+            recording.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Applies the terminal vessel / ghost-visual snapshots from the finalization result
+        /// onto the recording: copies a vessel snapshot (synthesizing or preserving the ghost
+        /// visual snapshot) or, with no vessel snapshot, applies a ghost-only snapshot. Runs
+        /// before the ghost-snapshot-mode recompute, which reads the GhostVisualSnapshot this
+        /// sets. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSnapshots(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            string logContext)
+        {
             if (result.vesselSnapshot != null)
             {
                 recording.VesselSnapshot = result.vesselSnapshot.CreateCopy();
@@ -2210,17 +2239,20 @@ namespace Parsek
                         $"'{recording.RecordingId}' while applying ghost-only terminal snapshot");
                 }
             }
+        }
 
-            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
-            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
-            {
-                ParsekLog.Verbose("Extrapolator",
-                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
-                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
-                    "after applying terminal snapshot");
-            }
-            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
-
+        /// <summary>
+        /// Sets the recording's terminal surface metadata (TerminalPosition / TerrainHeightAtEnd):
+        /// for a Landed/Splashed terminal state, copies the result's surface position when present,
+        /// warns-and-keeps for a ghost-only snapshot with no surface data, else nulls both; for any
+        /// other terminal state, nulls both. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSurfaceMetadata(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            bool ghostOnlySnapshot,
+            string logContext)
+        {
             if (result.terminalState.Value == TerminalState.Landed
                 || result.terminalState.Value == TerminalState.Splashed)
             {
@@ -2253,8 +2285,6 @@ namespace Parsek
                 recording.TerminalPosition = null;
                 recording.TerrainHeightAtEnd = double.NaN;
             }
-
-            recording.MarkFilesDirty();
         }
     }
 }
