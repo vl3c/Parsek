@@ -111,11 +111,12 @@ namespace Parsek
 
         // Attaches the hover tooltip to the widget. The handler lives on the widget ROOT and the
         // widget's own Graphics are made raycast targets so a pointer-enter on any visible part
-        // bubbles up to it - the funds (tumblers) and reputation (gauge) widgets render in
-        // children that overflow a zero-size root rect, so a root-anchored child overlay alone
-        // would have no hit area there (only the science text fills its root). A transparent
-        // full-rect child is also added as the attach marker and a hit area for sized roots.
-        // Returns true when newly attached, false when already present or widget was null.
+        // bubbles up to it. A transparent full-rect child is the attach marker / primary hit
+        // area, and it carries a CanvasGroup with ignoreParentGroups=true so it stays hittable
+        // even when an ancestor CanvasGroup has blocksRaycasts=false - the funds Tumbler (and
+        // potentially other animated widgets) sit under such a group, which silently blocks
+        // raycasts to the whole subtree (science has no blocking group, which is why it worked
+        // and funds did not). Returns true when newly attached, false when already present.
         internal static bool EnsureTooltip(Transform widget, Func<string> provider)
         {
             if (widget == null)
@@ -149,6 +150,12 @@ namespace Parsek
             image.color = new Color(0f, 0f, 0f, 0f);
             image.raycastTarget = true;
 
+            // Escape any ancestor CanvasGroup that blocks raycasts (e.g. the funds Tumbler).
+            var cg = go.AddComponent<CanvasGroup>();
+            cg.blocksRaycasts = true;
+            cg.interactable = true;
+            cg.ignoreParentGroups = true;
+
             var tip = widgetGo.AddComponent<CurrencyReservationTooltip>();
             tip.Configure(provider);
 
@@ -157,8 +164,26 @@ namespace Parsek
                 ? wr.rect.width.ToString("F0", IC) + "x" + wr.rect.height.ToString("F0", IC)
                 : "n/a";
             ParsekLog.Verbose(Tag,
-                $"CurrencyOverlay: attach '{widgetGo.name}' rootRect={rootSize} childGraphics={graphics.Length} raycastEnabled={raycastEnabled}");
+                $"CurrencyOverlay: attach '{widgetGo.name}' rootRect={rootSize} childGraphics={graphics.Length} " +
+                $"raycastEnabled={raycastEnabled} blockingAncestorGroup={HasBlockingAncestorCanvasGroup(widget)}");
             return true;
+        }
+
+        // Diagnostic: is a raycast-blocking CanvasGroup present on the widget or an ancestor up
+        // to (and including) its Canvas? Such a group blocks hover on the whole subtree.
+        private static bool HasBlockingAncestorCanvasGroup(Transform widget)
+        {
+            Transform t = widget;
+            while (t != null)
+            {
+                var grp = t.GetComponent<CanvasGroup>();
+                if (grp != null && !grp.blocksRaycasts)
+                    return true;
+                if (t.GetComponent<Canvas>() != null)
+                    break;
+                t = t.parent;
+            }
+            return false;
         }
 
         private static int StripTooltip(Transform widget)
@@ -247,7 +272,8 @@ namespace Parsek
     /// </summary>
     internal sealed class CurrencyReservationTooltip : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
-        private const float TooltipWidth = 145f;
+        // 2/3 of the original 220px width; padding/font are otherwise at their original values.
+        private const float TooltipWidth = 147f;
 
         private Func<string> provider;
         private bool hovered;
@@ -289,8 +315,7 @@ namespace Parsek
                 {
                     alignment = TextAnchor.MiddleLeft,
                     wordWrap = false,
-                    fontSize = 11,
-                    padding = new RectOffset(7, 7, 5, 5)
+                    padding = new RectOffset(10, 10, 8, 8)
                 };
             }
 
