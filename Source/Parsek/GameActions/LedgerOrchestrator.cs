@@ -3651,6 +3651,13 @@ namespace Parsek
             if (observedCredit <= 0.1)
                 return 0.0;
 
+            // Both sides use the raw KSP-credited amount: observedCredit from the
+            // ScienceChanged event deltas above, committedCredit from each earning's
+            // ScienceAwarded (the immutable awarded value, not the post-cap effective
+            // science). The gap is therefore internally consistent, and the caller clamps
+            // the held target to the live KSP pool, so a subject that the cross-recording
+            // cap later trims can never inflate science above what KSP actually credited;
+            // it only briefly holds the pre-ingest value until the next recalc.
             double committedCredit = 0.0;
             if (ledgerActions != null)
             {
