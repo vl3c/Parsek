@@ -1283,15 +1283,86 @@ namespace Parsek
             // tick-to-microsecond divisions even on healthy frames. DiagnosticsComputation
             // itself only logs when the budget is actually exceeded AND only once per session,
             // so steady-state cost of the breakdown path is exactly the struct population
-            // below; nothing is written unless the warn fires.
+            // below; nothing is written unless the warn fires. The already-divided
+            // spawnMicroseconds / destroyMicroseconds are reused (not recomputed from ticks)
+            // so the breakdown's buildOtherMicroseconds subtraction matches
+            // DiagnosticsState.playbackBudget.spawnMicroseconds to the microsecond (#414).
+            PlaybackBudgetPhases phases = BuildPlaybackBudgetPhases(
+                elapsedTicksAtLoopEnd: elapsedTicksAtLoopEnd,
+                spawnMicroseconds: spawnMicroseconds,
+                destroyMicroseconds: destroyMicroseconds,
+                deferredCreatedTicks: deferredCreatedStopwatch.ElapsedTicks,
+                deferredCompletedTicks: deferredCompletedStopwatch.ElapsedTicks,
+                observabilityTicks: observabilityStopwatch.ElapsedTicks,
+                trajectoriesIterated: trajectoriesIterated,
+                overlapGhostIterationCount: frameOverlapGhostIterationCount,
+                createdEventsFired: createdEventsFired,
+                completedEventsFired: completedEventsFired,
+                spawnsAttempted: frameSpawnCount,
+                spawnsThrottled: frameSpawnDeferred,
+                frameMaxSpawnTicks: frameMaxSpawnTicks,
+                buildSnapshotResolveTicks: buildSnapshotResolveStopwatch.ElapsedTicks,
+                buildTimelineTicks: buildTimelineStopwatch.ElapsedTicks,
+                buildDictionariesTicks: buildDictionariesStopwatch.ElapsedTicks,
+                buildReentryFxTicks: buildReentryFxStopwatch.ElapsedTicks,
+                heaviestSnapshotResolveTicks: frameHeaviestSpawnSnapshotResolveTicks,
+                heaviestTimelineTicks: frameHeaviestSpawnTimelineTicks,
+                heaviestDictionariesTicks: frameHeaviestSpawnDictionariesTicks,
+                heaviestReentryTicks: frameHeaviestSpawnReentryTicks,
+                heaviestOtherTicks: frameHeaviestSpawnOtherTicks,
+                heaviestBuildType: frameHeaviestSpawnBuildType);
+
+            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
+            // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
+            // first time a spike is seen, to localize the responsible sub-phase (bug #414).
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
+        }
+
+        /// <summary>
+        /// Bug #414/#450: builds the one-shot per-phase budget breakdown struct from the
+        /// UpdatePlayback Phase-C finalization values. Pure arithmetic — tick-to-microsecond
+        /// conversions plus the two negative-clamp floors — extracted verbatim from the inline
+        /// block so it can be unit-tested independently. <paramref name="spawnMicroseconds"/>
+        /// and <paramref name="destroyMicroseconds"/> arrive ALREADY divided (the caller wrote
+        /// them into DiagnosticsState.playbackBudget); they are reused here, never recomputed
+        /// from ticks, so the buildOtherMicroseconds subtraction matches the budget total to
+        /// the microsecond (#414). Everything else arrives as raw stopwatch ticks so the
+        /// `* 1000000L / Stopwatch.Frequency` division lives in exactly one place.
+        /// </summary>
+        internal static PlaybackBudgetPhases BuildPlaybackBudgetPhases(
+            long elapsedTicksAtLoopEnd,
+            long spawnMicroseconds,
+            long destroyMicroseconds,
+            long deferredCreatedTicks,
+            long deferredCompletedTicks,
+            long observabilityTicks,
+            int trajectoriesIterated,
+            int overlapGhostIterationCount,
+            int createdEventsFired,
+            int completedEventsFired,
+            int spawnsAttempted,
+            int spawnsThrottled,
+            long frameMaxSpawnTicks,
+            long buildSnapshotResolveTicks,
+            long buildTimelineTicks,
+            long buildDictionariesTicks,
+            long buildReentryFxTicks,
+            long heaviestSnapshotResolveTicks,
+            long heaviestTimelineTicks,
+            long heaviestDictionariesTicks,
+            long heaviestReentryTicks,
+            long heaviestOtherTicks,
+            HeaviestSpawnBuildType heaviestBuildType)
+        {
             long elapsedMicrosecondsAtLoopEnd = elapsedTicksAtLoopEnd * 1000000L / Stopwatch.Frequency;
             long mainLoopMicroseconds = elapsedMicrosecondsAtLoopEnd - spawnMicroseconds - destroyMicroseconds;
             if (mainLoopMicroseconds < 0) mainLoopMicroseconds = 0;
             // Bug #450: per-sub-phase aggregate = sum across all spawns in the frame.
-            long buildSnapshotResolveMicroseconds = buildSnapshotResolveStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildTimelineFromSnapshotMicroseconds = buildTimelineStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildDictionariesMicroseconds = buildDictionariesStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildReentryFxMicroseconds = buildReentryFxStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildSnapshotResolveMicroseconds = buildSnapshotResolveTicks * 1000000L / Stopwatch.Frequency;
+            long buildTimelineFromSnapshotMicroseconds = buildTimelineTicks * 1000000L / Stopwatch.Frequency;
+            long buildDictionariesMicroseconds = buildDictionariesTicks * 1000000L / Stopwatch.Frequency;
+            long buildReentryFxMicroseconds = buildReentryFxTicks * 1000000L / Stopwatch.Frequency;
             // Residual = outer spawn time − attributed sub-phases (covers camera pivot,
             // materials, MaterialPropertyBlock, SetActive, appearance reset). Floors at 0 so
             // sub-microsecond rounding between the four sub-phase ticks and spawnMicroseconds
@@ -1303,23 +1374,23 @@ namespace Parsek
                 - buildReentryFxMicroseconds;
             if (buildOtherMicroseconds < 0) buildOtherMicroseconds = 0;
 
-            var phases = new PlaybackBudgetPhases
+            return new PlaybackBudgetPhases
             {
                 mainLoopMicroseconds = mainLoopMicroseconds,
                 spawnMicroseconds = spawnMicroseconds,
                 destroyMicroseconds = destroyMicroseconds,
                 explosionCleanupMicroseconds = 0, // FXMonger owns explosion-side cleanup; nothing engine-local to measure
-                deferredCreatedEventsMicroseconds = deferredCreatedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
-                deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
-                observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCreatedEventsMicroseconds = deferredCreatedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCompletedEventsMicroseconds = deferredCompletedTicks * 1000000L / Stopwatch.Frequency,
+                observabilityCaptureMicroseconds = observabilityTicks * 1000000L / Stopwatch.Frequency,
                 trajectoriesIterated = trajectoriesIterated,
                 // Bug #460: total overlap-ghost iterations this frame so the mainLoop
                 // breakdown WARN can compute `meanPerDispatch` alongside `meanPerTraj`.
-                overlapGhostIterationCount = frameOverlapGhostIterationCount,
+                overlapGhostIterationCount = overlapGhostIterationCount,
                 createdEventsFired = createdEventsFired,
                 completedEventsFired = completedEventsFired,
-                spawnsAttempted = frameSpawnCount,
-                spawnsThrottled = frameSpawnDeferred,
+                spawnsAttempted = spawnsAttempted,
+                spawnsThrottled = spawnsThrottled,
                 spawnMaxMicroseconds = frameMaxSpawnTicks * 1000000L / Stopwatch.Frequency,
                 // Bug #450: per-sub-phase aggregate across every spawn this frame.
                 buildSnapshotResolveMicroseconds = buildSnapshotResolveMicroseconds,
@@ -1329,19 +1400,13 @@ namespace Parsek
                 buildOtherMicroseconds = buildOtherMicroseconds,
                 // Bug #450: heaviest-spawn breakdown (latched on whichever single
                 // BuildGhostVisualsWithMetrics call produced the largest delta).
-                heaviestSpawnSnapshotResolveMicroseconds = frameHeaviestSpawnSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnTimelineFromSnapshotMicroseconds = frameHeaviestSpawnTimelineTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnDictionariesMicroseconds = frameHeaviestSpawnDictionariesTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnReentryFxMicroseconds = frameHeaviestSpawnReentryTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnOtherMicroseconds = frameHeaviestSpawnOtherTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnBuildType = frameHeaviestSpawnBuildType,
+                heaviestSpawnSnapshotResolveMicroseconds = heaviestSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnTimelineFromSnapshotMicroseconds = heaviestTimelineTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnDictionariesMicroseconds = heaviestDictionariesTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnReentryFxMicroseconds = heaviestReentryTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnOtherMicroseconds = heaviestOtherTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnBuildType = heaviestBuildType,
             };
-
-            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
-            // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
-            // first time a spike is seen, to localize the responsible sub-phase (bug #414).
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
         }
 
         private void ResetPerFramePlaybackCounters(bool suppressGhosts)
