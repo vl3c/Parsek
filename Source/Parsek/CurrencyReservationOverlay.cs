@@ -31,6 +31,11 @@ namespace Parsek
         private const double FundsEpsilon = 0.5;
         private const double ScienceEpsilon = 0.05;
 
+        // TEMPORARY testing affordance: when true the tooltip renders on hover even when
+        // nothing is reserved (Reserved shows 0), so the hover area / raycast can be verified
+        // in game. Flip back to false to restore the production "only when reserved" behavior.
+        internal static bool AlwaysShowForTesting = true;
+
         private bool active;
 
         private void Start()
@@ -160,11 +165,14 @@ namespace Parsek
         /// the bar equals <paramref name="available"/> = Total - Reserved.
         /// </summary>
         internal static string BuildReservationTooltip(
-            string label, double total, double available, string format, double epsilon)
+            string label, double total, double available, string format, double epsilon,
+            bool alwaysShow = false)
         {
             double reserved = total - available;
-            if (reserved <= epsilon)
+            if (reserved <= epsilon && !alwaysShow)
                 return null;
+            if (reserved < 0.0)
+                reserved = 0.0;
 
             return label + "\n"
                 + "Total: " + total.ToString(format, IC) + "\n"
@@ -187,7 +195,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = Funding.Instance.Funds;
-            return BuildReservationTooltip("Funds", displayed + reserved, displayed, "N0", FundsEpsilon);
+            return BuildReservationTooltip("Funds", displayed + reserved, displayed, "N0", FundsEpsilon, AlwaysShowForTesting);
         }
 
         internal static string GetScienceTooltip()
@@ -199,7 +207,7 @@ namespace Parsek
             if (reserved < 0.0)
                 reserved = 0.0;
             double displayed = ResearchAndDevelopment.Instance.Science;
-            return BuildReservationTooltip("Science", displayed + reserved, displayed, "F1", ScienceEpsilon);
+            return BuildReservationTooltip("Science", displayed + reserved, displayed, "F1", ScienceEpsilon, AlwaysShowForTesting);
         }
     }
 
@@ -229,6 +237,12 @@ namespace Parsek
         public void OnPointerEnter(PointerEventData eventData)
         {
             hovered = true;
+
+            // Log on hover-enter (fires once per hover) so the KSP.log confirms the raycast /
+            // pointer plumbing works and records what the tooltip computed at that instant.
+            string text = provider != null ? provider() : null;
+            string flat = string.IsNullOrEmpty(text) ? "<null>" : text.Replace("\n", " | ");
+            ParsekLog.Verbose("CurrencyOverlay", $"hover enter on '{name}' - tooltip={flat}");
         }
 
         public void OnPointerExit(PointerEventData eventData)

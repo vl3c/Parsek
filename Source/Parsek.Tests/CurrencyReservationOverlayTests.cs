@@ -54,6 +54,17 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AlwaysShow_RendersEvenWhenNothingReserved()
+        {
+            // Testing affordance: with alwaysShow the box renders at reserved=0 so the hover
+            // area can be verified in game.
+            string text = CurrencyReservationOverlay.BuildReservationTooltip(
+                "Science", total: 0, available: 0, format: "F1", epsilon: 0.05, alwaysShow: true);
+
+            Assert.Equal("Science\nTotal: 0.0\nReserved: 0.0", text);
+        }
+
+        [Fact]
         public void OverCommitted_AvailableClampedToZero_ShowsFullBalanceReserved()
         {
             // When committed-future spend exceeds the balance, the bar (available) is
