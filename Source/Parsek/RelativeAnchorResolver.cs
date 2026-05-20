@@ -307,46 +307,15 @@ namespace Parsek
                 }
 
                 TrackSection section = recording.TrackSections[sectionIndex];
-                switch (section.referenceFrame)
-                {
-                    case ReferenceFrame.Absolute:
-                        return TryResolveAbsoluteSectionPose(
-                            context,
-                            recording,
-                            section,
-                            sectionIndex,
-                            ut,
-                            out pose,
-                            out failure);
-                    case ReferenceFrame.Relative:
-                        return TryResolveRelativeSectionPose(
-                            context,
-                            recording,
-                            section,
-                            sectionIndex,
-                            ut,
-                            visited,
-                            out pose,
-                            out failure);
-                    case ReferenceFrame.OrbitalCheckpoint:
-                        return TryResolveOrbitalSectionPose(
-                            context,
-                            recording,
-                            section,
-                            sectionIndex,
-                            ut,
-                            out pose,
-                            out failure);
-                    default:
-                        failure = WarnUnresolved(
-                            RelativeAnchorResolveOutcome.Other,
-                            "anchor-section-frame-unknown",
-                            context.FocusRecordingId,
-                            recording.RecordingId,
-                            ut,
-                            sectionIndex);
-                        return false;
-                }
+                return DispatchSectionPose(
+                    context,
+                    recording,
+                    section,
+                    sectionIndex,
+                    ut,
+                    visited,
+                    out pose,
+                    out failure);
             }
 
             failure = WarnUnresolved(
@@ -356,6 +325,68 @@ namespace Parsek
                 recording.RecordingId,
                 ut);
             return false;
+        }
+
+        /// <summary>
+        /// Dispatches a resolved TrackSection to the per-frame pose resolver for
+        /// its reference frame. Returns the resolver's success flag (or false for
+        /// an unknown frame, after warning). pose/failure are surfaced via out
+        /// params exactly as the per-frame resolvers and the unknown-frame warning
+        /// set them; both default to `default` so the unknown-frame branch leaves
+        /// pose unchanged.
+        /// </summary>
+        private static bool DispatchSectionPose(
+            RelativeAnchorResolverContext context,
+            Recording recording,
+            TrackSection section,
+            int sectionIndex,
+            double ut,
+            HashSet<string> visited,
+            out AnchorPose pose,
+            out RelativeAnchorResolveFailure failure)
+        {
+            pose = default;
+            failure = default;
+            switch (section.referenceFrame)
+            {
+                case ReferenceFrame.Absolute:
+                    return TryResolveAbsoluteSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        ut,
+                        out pose,
+                        out failure);
+                case ReferenceFrame.Relative:
+                    return TryResolveRelativeSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        ut,
+                        visited,
+                        out pose,
+                        out failure);
+                case ReferenceFrame.OrbitalCheckpoint:
+                    return TryResolveOrbitalSectionPose(
+                        context,
+                        recording,
+                        section,
+                        sectionIndex,
+                        ut,
+                        out pose,
+                        out failure);
+                default:
+                    failure = WarnUnresolved(
+                        RelativeAnchorResolveOutcome.Other,
+                        "anchor-section-frame-unknown",
+                        context.FocusRecordingId,
+                        recording.RecordingId,
+                        ut,
+                        sectionIndex);
+                    return false;
+            }
         }
 
         private static bool TryResolveSameChainContinuationPose(
@@ -669,51 +700,15 @@ namespace Parsek
             }
 
             TrackSection section = recording.TrackSections[sectionIndex];
-            bool resolved;
-            switch (section.referenceFrame)
-            {
-                case ReferenceFrame.Absolute:
-                    resolved = TryResolveAbsoluteSectionPose(
-                        context,
-                        recording,
-                        section,
-                        sectionIndex,
-                        clampedUT,
-                        out pose,
-                        out failure);
-                    break;
-                case ReferenceFrame.Relative:
-                    resolved = TryResolveRelativeSectionPose(
-                        context,
-                        recording,
-                        section,
-                        sectionIndex,
-                        clampedUT,
-                        visited,
-                        out pose,
-                        out failure);
-                    break;
-                case ReferenceFrame.OrbitalCheckpoint:
-                    resolved = TryResolveOrbitalSectionPose(
-                        context,
-                        recording,
-                        section,
-                        sectionIndex,
-                        clampedUT,
-                        out pose,
-                        out failure);
-                    break;
-                default:
-                    failure = WarnUnresolved(
-                        RelativeAnchorResolveOutcome.Other,
-                        "anchor-section-frame-unknown",
-                        context.FocusRecordingId,
-                        recording.RecordingId,
-                        clampedUT,
-                        sectionIndex);
-                    resolved = false;
-                    break;
-            }
+            bool resolved = DispatchSectionPose(
+                context,
+                recording,
+                section,
+                sectionIndex,
+                clampedUT,
+                visited,
+                out pose,
+                out failure);
 
             if (!resolved)
                 return false;

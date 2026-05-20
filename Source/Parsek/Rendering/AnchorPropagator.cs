@@ -607,7 +607,7 @@ namespace Parsek.Rendering
                         // Identity-propagate (ε' = ε) and surface the
                         // failure reason once per edge.
                         nineOneFallbackReason = !parentOk ? parentReason : childReason;
-                        string failTag = !parentOk ? "no-sample-skip" : "no-sample-skip";
+                        string failTag = "no-sample-skip";
                         // section-not-absolute / no-sample / body-resolve-failed
                         // each get their own diagnostic suffix so log readers
                         // can distinguish them without parsing the reason field.

@@ -351,23 +351,42 @@ namespace Parsek.Rendering
         // growth.
         private const int ClusterWarnLoggedCap = 4096;
 
+        // Shared once-per-key dedup housekeeping for the cluster-warn and
+        // frame-decision logs. Adds the (recordingId, sectionIndex) key to the
+        // given set under the given lock; returns false (caller should skip its
+        // payload log) when the key was already present. On newly-added keys,
+        // applies the add-then-cap-check-then-clear-and-re-add bound, emitting
+        // the cap-exceeded Info line on the given subsystem when the cap trips.
+        // The lock scope is identical to the original inlined blocks: only the
+        // Add + cap check happen under the lock, the caller's payload log fires
+        // after the lock is released.
+        private static bool RegisterDedupKeyOnce(
+            HashSet<string> loggedSet, object lockObj, string recordingId, int sectionIndex,
+            int cap, string capSubsystem, string capLabel, string capTail)
+        {
+            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
+            lock (lockObj)
+            {
+                if (!loggedSet.Add(key)) return false;
+                if (loggedSet.Count >= cap)
+                {
+                    int prevSize = loggedSet.Count;
+                    loggedSet.Clear();
+                    loggedSet.Add(key);
+                    ParsekLog.Info(capSubsystem,
+                        $"{capLabel} dedup set exceeded cap ({prevSize}/{cap}); cleared. " +
+                        $"Next {capTail} for already-seen (recordingId, sectionIndex) keys will re-fire.");
+                }
+            }
+            return true;
+        }
+
         private static void EmitClusterWarnOnce(string recordingId, int sectionIndex,
             OutlierFlags outliers, OutlierThresholds thresholds)
         {
-            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
-            lock (s_clusterWarnLock)
-            {
-                if (!s_clusterWarnLogged.Add(key)) return;
-                if (s_clusterWarnLogged.Count >= ClusterWarnLoggedCap)
-                {
-                    int prevSize = s_clusterWarnLogged.Count;
-                    s_clusterWarnLogged.Clear();
-                    s_clusterWarnLogged.Add(key);
-                    ParsekLog.Info("Pipeline-Outlier",
-                        $"Cluster-warn dedup set exceeded cap ({prevSize}/{ClusterWarnLoggedCap}); cleared. " +
-                        $"Next cluster trips for already-seen (recordingId, sectionIndex) keys will re-fire.");
-                }
-            }
+            if (!RegisterDedupKeyOnce(s_clusterWarnLogged, s_clusterWarnLock, recordingId, sectionIndex,
+                    ClusterWarnLoggedCap, "Pipeline-Outlier", "Cluster-warn", "cluster trips"))
+                return;
             double rate = outliers.SampleCount > 0
                 ? (double)outliers.RejectedCount / outliers.SampleCount
                 : 0.0;
@@ -379,21 +398,9 @@ namespace Parsek.Rendering
         private static void LogFrameDecisionOnce(string recordingId, int sectionIndex,
             SegmentEnvironment env, byte frameTag, string bodyName)
         {
-            string key = recordingId + "|" + sectionIndex.ToString(CultureInfo.InvariantCulture);
-            lock (s_frameDecisionLock)
-            {
-                if (!s_frameDecisionLogged.Add(key))
-                    return;
-                if (s_frameDecisionLogged.Count >= FrameDecisionLoggedCap)
-                {
-                    int prevSize = s_frameDecisionLogged.Count;
-                    s_frameDecisionLogged.Clear();
-                    s_frameDecisionLogged.Add(key);  // preserve current key
-                    ParsekLog.Info("Pipeline-Frame",
-                        $"Frame-decision dedup set exceeded cap ({prevSize}/{FrameDecisionLoggedCap}); cleared. " +
-                        $"Next emissions for already-seen (recordingId, sectionIndex) keys will re-fire.");
-                }
-            }
+            if (!RegisterDedupKeyOnce(s_frameDecisionLogged, s_frameDecisionLock, recordingId, sectionIndex,
+                    FrameDecisionLoggedCap, "Pipeline-Frame", "Frame-decision", "emissions"))
+                return;
             ParsekLog.Verbose("Pipeline-Frame",
                 $"Section lift to inertial decision: recordingId={recordingId} sectionIndex={sectionIndex} " +
                 $"env={env} frameTag={frameTag} body={bodyName ?? "<null>"}");

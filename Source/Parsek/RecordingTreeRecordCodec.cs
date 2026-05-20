@@ -81,8 +81,14 @@ namespace Parsek
         /// </summary>
         private static void SaveRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
         {
-            var ic = CultureInfo.InvariantCulture;
+            SaveExistingRecordingMetadata(recNode, rec);
+            SaveLoopAndPlaybackSettings(recNode, rec);
+            SaveEvaChildLinkage(recNode, rec);
+            SaveChainLinkage(recNode, rec);
+        }
 
+        private static void SaveExistingRecordingMetadata(ConfigNode recNode, Recording rec)
+        {
             // Existing recording metadata
             rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             rec.RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
@@ -95,6 +101,11 @@ namespace Parsek
             rec.GhostSnapshotMode = ghostSnapshotMode;
             if (ghostSnapshotMode != GhostSnapshotMode.Unspecified)
                 recNode.AddValue("ghostSnapshotMode", ghostSnapshotMode.ToString());
+        }
+
+        private static void SaveLoopAndPlaybackSettings(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
 
             // Sidecar epoch (bug #270): stamped into .prec on write, validated on load
             if (rec.SidecarEpoch > 0)
@@ -113,12 +124,20 @@ namespace Parsek
                 recNode.AddValue("playbackEnabled", rec.PlaybackEnabled.ToString());
             if (rec.Hidden)
                 recNode.AddValue("hidden", rec.Hidden.ToString());
+        }
 
+        private static void SaveEvaChildLinkage(ConfigNode recNode, Recording rec)
+        {
             // EVA child linkage
             if (!string.IsNullOrEmpty(rec.ParentRecordingId))
                 recNode.AddValue("parentRecordingId", rec.ParentRecordingId);
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 recNode.AddValue("evaCrewName", rec.EvaCrewName);
+        }
+
+        private static void SaveChainLinkage(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
 
             // Chain linkage
             if (!string.IsNullOrEmpty(rec.ChainId))
@@ -135,145 +154,28 @@ namespace Parsek
         /// </summary>
         internal static void SaveRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
-            var ic = CultureInfo.InvariantCulture;
-
-            // Atmosphere segment metadata
-            if (!string.IsNullOrEmpty(rec.SegmentPhase))
-                recNode.AddValue("segmentPhase", rec.SegmentPhase);
-            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
-                recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
-
-            // Location context (Phase 10)
-            if (!string.IsNullOrEmpty(rec.StartBodyName))
-                recNode.AddValue("startBodyName", rec.StartBodyName);
-            if (!string.IsNullOrEmpty(rec.StartBiome))
-                recNode.AddValue("startBiome", rec.StartBiome);
-            if (!string.IsNullOrEmpty(rec.StartSituation))
-                recNode.AddValue("startSituation", rec.StartSituation);
-            if (!string.IsNullOrEmpty(rec.EndBiome))
-                recNode.AddValue("endBiome", rec.EndBiome);
-            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
-                recNode.AddValue("launchSiteName", rec.LaunchSiteName);
-
-            // Pre-launch resources
-            if (rec.PreLaunchFunds != 0)
-                recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", ic));
-            if (rec.PreLaunchScience != 0)
-                recNode.AddValue("preLaunchScience", rec.PreLaunchScience.ToString("R", ic));
-            if (rec.PreLaunchReputation != 0)
-                recNode.AddValue("preLaunchRep", rec.PreLaunchReputation.ToString("R", ic));
-
-            // Rewind save metadata
-            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
-            {
-                recNode.AddValue("rewindSave", rec.RewindSaveFileName);
-                recNode.AddValue("rewindResFunds", rec.RewindReservedFunds.ToString("R", ic));
-                recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", ic));
-                recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", ic));
-            }
-
-            // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
-            if (rec.SpawnedVesselPersistentId != 0)
-                recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
-            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
-                recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
-            if (rec.VesselDestroyed)
-                recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
-            // #573/#589: persist scoped rewind suppression metadata. New saves only
-            // write this for the active/source recording; unscoped legacy markers are
-            // recognized at load/spawn time and cleared instead of blocking future
-            // same-tree terminal materialization forever.
-            if (rec.SpawnSuppressedByRewind)
-            {
-                recNode.AddValue("spawnSuppressedByRewind", rec.SpawnSuppressedByRewind.ToString());
-                if (!string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
-                    recNode.AddValue("spawnSuppressedByRewindReason", rec.SpawnSuppressedByRewindReason);
-                if (!double.IsNaN(rec.SpawnSuppressedByRewindUT))
-                    recNode.AddValue("spawnSuppressedByRewindUT", rec.SpawnSuppressedByRewindUT.ToString("R", ic));
-            }
-            recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
-            recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
-
-            // UI grouping tags (multi-group membership)
-            if (rec.RecordingGroups != null)
-                for (int g = 0; g < rec.RecordingGroups.Count; g++)
-                    recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
-            if (!string.IsNullOrEmpty(rec.AutoAssignedStandaloneGroupName))
-                recNode.AddValue("autoAssignedStandaloneGroup", rec.AutoAssignedStandaloneGroupName);
-
-            // Controller info
-            if (rec.Controllers != null)
-            {
-                for (int i = 0; i < rec.Controllers.Count; i++)
-                {
-                    ConfigNode ctrlNode = recNode.AddNode("CONTROLLER");
-                    ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
-                    ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
-                    ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(ic));
-                }
-                ParsekLog.Verbose("RecordingTree",
-                    $"SaveRecordingResourceAndState: saved {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
-            }
-            if (rec.IsDebris)
-                recNode.AddValue("isDebris", rec.IsDebris.ToString());
-            // Sparse on disk: only written when non-null so non-debris recordings stay
-            // byte-identical across the v11 -> v12 upgrade. Legacy v11 debris sidecars
-            // omit this key and load back with DebrisParentRecordingId = null, which
-            // PR 3c uses as the legacy-debris signal at playback time.
-            if (rec.DebrisParentRecordingId != null)
-                recNode.AddValue("debrisParentRecordingId", rec.DebrisParentRecordingId);
-            if (rec.IsGhostOnly)
-                recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
-
-            // Max distance from launch (#302): needed for idle-on-pad auto-discard
-            // after scene reload (without this, deserialized recordings default to 0.0
-            // and IsTreeIdleOnPad falsely discards the whole tree).
-            if (rec.MaxDistanceFromLaunch > 0)
-                recNode.AddValue("maxDist", rec.MaxDistanceFromLaunch.ToString("R", ic));
-
-            // Cascade depth (#284). Only written when non-zero so existing
-            // gen-0 recordings stay byte-identical and old saves stay clean.
-            if (rec.Generation > 0)
-                recNode.AddValue("generation", rec.Generation.ToString(ic));
-
-            // Crew end states (kerbals module)
-            if (rec.CrewEndStatesResolved)
-                recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
-            RecordingStore.SerializeCrewEndStates(recNode, rec);
+            SaveAtmosphereSegmentMetadata(recNode, rec);
+            SaveLocationContext(recNode, rec);
+            SavePreLaunchResources(recNode, rec);
+            SaveRewindSaveMetadata(recNode, rec);
+            SaveMutablePlaybackState(recNode, rec);
+            SaveUiGroupingTags(recNode, rec);
+            SaveControllerInfo(recNode, rec);
+            SaveDebrisAndGhostFlags(recNode, rec);
+            SaveMaxDistanceFromLaunch(recNode, rec);
+            SaveCascadeDepth(recNode, rec);
+            SaveCrewEndStates(recNode, rec);
 
             // Resource manifests (Phase 11)
             RecordingStore.SerializeResourceManifest(recNode, rec);
 
-            // Inventory manifests (Phase 11)
-            RecordingStore.SerializeInventoryManifest(recNode, rec);
-            if (rec.StartInventorySlots != 0)
-                recNode.AddValue("startInvSlots", rec.StartInventorySlots.ToString(ic));
-            if (rec.EndInventorySlots != 0)
-                recNode.AddValue("endInvSlots", rec.EndInventorySlots.ToString(ic));
+            SaveInventoryManifests(recNode, rec);
 
             // Crew manifests (Phase 11)
             RecordingStore.SerializeCrewManifest(recNode, rec);
 
-            // Dock target vessel PID (Phase 11)
-            if (rec.DockTargetVesselPid != 0)
-                recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(ic));
-
-            // Rewind-to-Staging (design section 5.5). Omit the default Immutable enum value
-            // so legacy saves stay byte-identical; write the string form for durability across
-            // enum renumbering. SupersedeTargetId is transient but written defensively so a
-            // mid-session crash can be diagnosed.
-            if (rec.MergeState != MergeState.Immutable)
-                recNode.AddValue("mergeState", rec.MergeState.ToString());
-            if (!string.IsNullOrEmpty(rec.CreatingSessionId))
-                recNode.AddValue("creatingSessionId", rec.CreatingSessionId);
-            if (!string.IsNullOrEmpty(rec.SupersedeTargetId))
-                recNode.AddValue("supersedeTargetId", rec.SupersedeTargetId);
-            if (!string.IsNullOrEmpty(rec.ProvisionalForRpId))
-                recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
-            // Switch/Fly segment ownership (Phase A.2, segment-scoped-switch-fly-autorecord).
-            // Independent from CreatingSessionId, which stays exclusively Re-Fly's field.
-            if (!string.IsNullOrEmpty(rec.SwitchSegmentSessionId))
-                recNode.AddValue("switchSegmentSessionId", rec.SwitchSegmentSessionId);
+            SaveDockTargetVesselPid(recNode, rec);
+            SaveRewindToStagingMergeState(recNode, rec);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
             // at session start so Re-Fly recorded-coordinate resolvers can sample the
@@ -332,6 +234,205 @@ namespace Parsek
             // load path and silently dropped (the fields are gone), which is
             // safe because the new fork model does not need the rollback.
         }
+
+        #region SaveRecordingResourceAndState Block Helpers
+        // The blocks below are the comment-delimited segments of
+        // SaveRecordingResourceAndState, each extracted whole and called in the
+        // original order so the on-disk key order is byte-identical. No AddValue
+        // is reordered relative to another.
+
+        private static void SaveAtmosphereSegmentMetadata(ConfigNode recNode, Recording rec)
+        {
+            // Atmosphere segment metadata
+            if (!string.IsNullOrEmpty(rec.SegmentPhase))
+                recNode.AddValue("segmentPhase", rec.SegmentPhase);
+            if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                recNode.AddValue("segmentBodyName", rec.SegmentBodyName);
+        }
+
+        private static void SaveLocationContext(ConfigNode recNode, Recording rec)
+        {
+            // Location context (Phase 10)
+            if (!string.IsNullOrEmpty(rec.StartBodyName))
+                recNode.AddValue("startBodyName", rec.StartBodyName);
+            if (!string.IsNullOrEmpty(rec.StartBiome))
+                recNode.AddValue("startBiome", rec.StartBiome);
+            if (!string.IsNullOrEmpty(rec.StartSituation))
+                recNode.AddValue("startSituation", rec.StartSituation);
+            if (!string.IsNullOrEmpty(rec.EndBiome))
+                recNode.AddValue("endBiome", rec.EndBiome);
+            if (!string.IsNullOrEmpty(rec.LaunchSiteName))
+                recNode.AddValue("launchSiteName", rec.LaunchSiteName);
+        }
+
+        private static void SavePreLaunchResources(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Pre-launch resources
+            if (rec.PreLaunchFunds != 0)
+                recNode.AddValue("preLaunchFunds", rec.PreLaunchFunds.ToString("R", ic));
+            if (rec.PreLaunchScience != 0)
+                recNode.AddValue("preLaunchScience", rec.PreLaunchScience.ToString("R", ic));
+            if (rec.PreLaunchReputation != 0)
+                recNode.AddValue("preLaunchRep", rec.PreLaunchReputation.ToString("R", ic));
+        }
+
+        private static void SaveRewindSaveMetadata(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Rewind save metadata
+            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+            {
+                recNode.AddValue("rewindSave", rec.RewindSaveFileName);
+                recNode.AddValue("rewindResFunds", rec.RewindReservedFunds.ToString("R", ic));
+                recNode.AddValue("rewindResSci", rec.RewindReservedScience.ToString("R", ic));
+                recNode.AddValue("rewindResRep", rec.RewindReservedRep.ToString("R", ic));
+            }
+        }
+
+        private static void SaveMutablePlaybackState(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Mutable playback state (parallels ParsekScenario.OnSave standalone fields)
+            if (rec.SpawnedVesselPersistentId != 0)
+                recNode.AddValue("spawnedPid", rec.SpawnedVesselPersistentId);
+            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+                recNode.AddValue("terminalSpawnSupersededBy", rec.TerminalSpawnSupersededByRecordingId);
+            if (rec.VesselDestroyed)
+                recNode.AddValue("vesselDestroyed", rec.VesselDestroyed.ToString());
+            // #573/#589: persist scoped rewind suppression metadata. New saves only
+            // write this for the active/source recording; unscoped legacy markers are
+            // recognized at load/spawn time and cleared instead of blocking future
+            // same-tree terminal materialization forever.
+            if (rec.SpawnSuppressedByRewind)
+            {
+                recNode.AddValue("spawnSuppressedByRewind", rec.SpawnSuppressedByRewind.ToString());
+                if (!string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
+                    recNode.AddValue("spawnSuppressedByRewindReason", rec.SpawnSuppressedByRewindReason);
+                if (!double.IsNaN(rec.SpawnSuppressedByRewindUT))
+                    recNode.AddValue("spawnSuppressedByRewindUT", rec.SpawnSuppressedByRewindUT.ToString("R", ic));
+            }
+            recNode.AddValue("lastResIdx", rec.LastAppliedResourceIndex);
+            recNode.AddValue("pointCount", rec.Points != null ? rec.Points.Count : 0);
+        }
+
+        private static void SaveUiGroupingTags(ConfigNode recNode, Recording rec)
+        {
+            // UI grouping tags (multi-group membership)
+            if (rec.RecordingGroups != null)
+                for (int g = 0; g < rec.RecordingGroups.Count; g++)
+                    recNode.AddValue("recordingGroup", rec.RecordingGroups[g]);
+            if (!string.IsNullOrEmpty(rec.AutoAssignedStandaloneGroupName))
+                recNode.AddValue("autoAssignedStandaloneGroup", rec.AutoAssignedStandaloneGroupName);
+        }
+
+        private static void SaveControllerInfo(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Controller info
+            if (rec.Controllers != null)
+            {
+                for (int i = 0; i < rec.Controllers.Count; i++)
+                {
+                    ConfigNode ctrlNode = recNode.AddNode("CONTROLLER");
+                    ctrlNode.AddValue("type", rec.Controllers[i].type ?? "");
+                    ctrlNode.AddValue("part", rec.Controllers[i].partName ?? "");
+                    ctrlNode.AddValue("pid", rec.Controllers[i].partPersistentId.ToString(ic));
+                }
+                ParsekLog.Verbose("RecordingTree",
+                    $"SaveRecordingResourceAndState: saved {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+            }
+        }
+
+        private static void SaveDebrisAndGhostFlags(ConfigNode recNode, Recording rec)
+        {
+            if (rec.IsDebris)
+                recNode.AddValue("isDebris", rec.IsDebris.ToString());
+            // Sparse on disk: only written when non-null so non-debris recordings stay
+            // byte-identical across the v11 -> v12 upgrade. Legacy v11 debris sidecars
+            // omit this key and load back with DebrisParentRecordingId = null, which
+            // PR 3c uses as the legacy-debris signal at playback time.
+            if (rec.DebrisParentRecordingId != null)
+                recNode.AddValue("debrisParentRecordingId", rec.DebrisParentRecordingId);
+            if (rec.IsGhostOnly)
+                recNode.AddValue("isGhostOnly", rec.IsGhostOnly.ToString());
+        }
+
+        private static void SaveMaxDistanceFromLaunch(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Max distance from launch (#302): needed for idle-on-pad auto-discard
+            // after scene reload (without this, deserialized recordings default to 0.0
+            // and IsTreeIdleOnPad falsely discards the whole tree).
+            if (rec.MaxDistanceFromLaunch > 0)
+                recNode.AddValue("maxDist", rec.MaxDistanceFromLaunch.ToString("R", ic));
+        }
+
+        private static void SaveCascadeDepth(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Cascade depth (#284). Only written when non-zero so existing
+            // gen-0 recordings stay byte-identical and old saves stay clean.
+            if (rec.Generation > 0)
+                recNode.AddValue("generation", rec.Generation.ToString(ic));
+        }
+
+        private static void SaveCrewEndStates(ConfigNode recNode, Recording rec)
+        {
+            // Crew end states (kerbals module)
+            if (rec.CrewEndStatesResolved)
+                recNode.AddValue("crewEndStatesResolved", rec.CrewEndStatesResolved.ToString());
+            RecordingStore.SerializeCrewEndStates(recNode, rec);
+        }
+
+        private static void SaveInventoryManifests(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Inventory manifests (Phase 11)
+            RecordingStore.SerializeInventoryManifest(recNode, rec);
+            if (rec.StartInventorySlots != 0)
+                recNode.AddValue("startInvSlots", rec.StartInventorySlots.ToString(ic));
+            if (rec.EndInventorySlots != 0)
+                recNode.AddValue("endInvSlots", rec.EndInventorySlots.ToString(ic));
+        }
+
+        private static void SaveDockTargetVesselPid(ConfigNode recNode, Recording rec)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Dock target vessel PID (Phase 11)
+            if (rec.DockTargetVesselPid != 0)
+                recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(ic));
+        }
+
+        private static void SaveRewindToStagingMergeState(ConfigNode recNode, Recording rec)
+        {
+            // Rewind-to-Staging (design section 5.5). Omit the default Immutable enum value
+            // so legacy saves stay byte-identical; write the string form for durability across
+            // enum renumbering. SupersedeTargetId is transient but written defensively so a
+            // mid-session crash can be diagnosed.
+            if (rec.MergeState != MergeState.Immutable)
+                recNode.AddValue("mergeState", rec.MergeState.ToString());
+            if (!string.IsNullOrEmpty(rec.CreatingSessionId))
+                recNode.AddValue("creatingSessionId", rec.CreatingSessionId);
+            if (!string.IsNullOrEmpty(rec.SupersedeTargetId))
+                recNode.AddValue("supersedeTargetId", rec.SupersedeTargetId);
+            if (!string.IsNullOrEmpty(rec.ProvisionalForRpId))
+                recNode.AddValue("provisionalForRpId", rec.ProvisionalForRpId);
+            // Switch/Fly segment ownership (Phase A.2, segment-scoped-switch-fly-autorecord).
+            // Independent from CreatingSessionId, which stays exclusively Re-Fly's field.
+            if (!string.IsNullOrEmpty(rec.SwitchSegmentSessionId))
+                recNode.AddValue("switchSegmentSessionId", rec.SwitchSegmentSessionId);
+        }
+
+        #endregion
 
         internal static void LoadRecordingFrom(ConfigNode recNode, Recording rec)
         {
@@ -467,6 +568,51 @@ namespace Parsek
 
         #region LoadRecording Extracted Helpers
 
+        // Read-parse-assign helpers. Each reproduces the inline idiom exactly:
+        // read the key, and if it is missing OR unparseable leave the field at
+        // its current value (returned via the `current` parameter); otherwise
+        // return the parsed value. NumberStyles match the original inline calls
+        // (Integer for int/uint, Float for double/float). bool has no styles.
+        private static int ParseIntOr(ConfigNode node, string key, int current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
+                return v;
+            return current;
+        }
+
+        private static uint ParseUintOr(ConfigNode node, string key, uint current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && uint.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out uint v))
+                return v;
+            return current;
+        }
+
+        private static double ParseDoubleOr(ConfigNode node, string key, double current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+                return v;
+            return current;
+        }
+
+        private static float ParseFloatOr(ConfigNode node, string key, float current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float v))
+                return v;
+            return current;
+        }
+
+        private static bool ParseBoolOr(ConfigNode node, string key, bool current)
+        {
+            string s = node.GetValue(key);
+            if (s != null && bool.TryParse(s, out bool v))
+                return v;
+            return current;
+        }
+
         /// <summary>
         /// Loads playback settings (format version, ghost geometry version, loop,
         /// playback enabled), EVA child linkage, and chain linkage from a RECORDING
@@ -474,100 +620,31 @@ namespace Parsek
         /// </summary>
         private static void LoadRecordingPlaybackAndLinkage(ConfigNode recNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
-            var ic = CultureInfo.InvariantCulture;
-
-            // Existing recording metadata
-            string formatVersionStr = recNode.GetValue("recordingFormatVersion");
-            if (formatVersionStr != null)
-            {
-                int formatVersion;
-                if (int.TryParse(formatVersionStr, NumberStyles.Integer, ic, out formatVersion))
-                    rec.RecordingFormatVersion = formatVersion;
-                else
-                    rec.RecordingFormatVersion = 0;
-            }
-            else
-            {
-                rec.RecordingFormatVersion = 0;
-            }
-            string schemaGenerationStr = recNode.GetValue("recordingSchemaGeneration");
-            if (schemaGenerationStr != null
-                && int.TryParse(schemaGenerationStr, NumberStyles.Integer, ic, out int schemaGeneration))
-                rec.RecordingSchemaGeneration = schemaGeneration;
-            else
-                rec.RecordingSchemaGeneration = 0;
+            // Existing recording metadata. recordingFormatVersion /
+            // recordingSchemaGeneration were already parsed and assigned to rec
+            // by LoadRecordingFrom before the schema-compatibility gate, with
+            // identical default-0 semantics, so they are not re-parsed here.
             rec.GhostSnapshotMode = RecordingStore.ParseGhostSnapshotMode(recNode.GetValue("ghostSnapshotMode"));
 
             // Sidecar epoch (bug #270)
-            string sidecarEpochStr = recNode.GetValue("sidecarEpoch");
-            if (sidecarEpochStr != null)
-            {
-                int sidecarEpoch;
-                if (int.TryParse(sidecarEpochStr, NumberStyles.Integer, ic, out sidecarEpoch))
-                    rec.SidecarEpoch = sidecarEpoch;
-            }
+            rec.SidecarEpoch = ParseIntOr(recNode, "sidecarEpoch", rec.SidecarEpoch);
 
-            string loopPlaybackStr = recNode.GetValue("loopPlayback");
-            if (loopPlaybackStr != null)
-            {
-                bool loopPlayback;
-                if (bool.TryParse(loopPlaybackStr, out loopPlayback))
-                    rec.LoopPlayback = loopPlayback;
-            }
+            rec.LoopPlayback = ParseBoolOr(recNode, "loopPlayback", rec.LoopPlayback);
 
-            string loopStartUTStr = recNode.GetValue("loopStartUT");
-            if (loopStartUTStr != null)
-            {
-                double loopStartUT;
-                if (double.TryParse(loopStartUTStr, inv, ic, out loopStartUT))
-                    rec.LoopStartUT = loopStartUT;
-            }
+            rec.LoopStartUT = ParseDoubleOr(recNode, "loopStartUT", rec.LoopStartUT);
 
-            string loopEndUTStr = recNode.GetValue("loopEndUT");
-            if (loopEndUTStr != null)
-            {
-                double loopEndUT;
-                if (double.TryParse(loopEndUTStr, inv, ic, out loopEndUT))
-                    rec.LoopEndUT = loopEndUT;
-            }
+            rec.LoopEndUT = ParseDoubleOr(recNode, "loopEndUT", rec.LoopEndUT);
 
-            string loopIntervalStr = recNode.GetValue("loopIntervalSeconds");
-            if (loopIntervalStr != null)
-            {
-                double loopIntervalSeconds;
-                if (double.TryParse(loopIntervalStr, inv, ic, out loopIntervalSeconds))
-                {
-                    rec.LoopIntervalSeconds = loopIntervalSeconds;
-                }
-            }
+            rec.LoopIntervalSeconds = ParseDoubleOr(recNode, "loopIntervalSeconds", rec.LoopIntervalSeconds);
 
-            string loopAnchorPidStr = recNode.GetValue("loopAnchorPid");
-            if (loopAnchorPidStr != null)
-            {
-                uint loopAnchorPid;
-                if (uint.TryParse(loopAnchorPidStr, NumberStyles.Integer, ic, out loopAnchorPid))
-                    rec.LoopAnchorVesselId = loopAnchorPid;
-            }
+            rec.LoopAnchorVesselId = ParseUintOr(recNode, "loopAnchorPid", rec.LoopAnchorVesselId);
 
             string loopAnchorBodyNameStr = recNode.GetValue("loopAnchorBodyName");
             if (!string.IsNullOrEmpty(loopAnchorBodyNameStr))
                 rec.LoopAnchorBodyName = loopAnchorBodyNameStr;
 
-            string playbackEnabledStr = recNode.GetValue("playbackEnabled");
-            if (playbackEnabledStr != null)
-            {
-                bool playbackEnabled;
-                if (bool.TryParse(playbackEnabledStr, out playbackEnabled))
-                    rec.PlaybackEnabled = playbackEnabled;
-            }
-            string hiddenStr = recNode.GetValue("hidden");
-            if (hiddenStr != null)
-            {
-                bool hidden;
-                if (bool.TryParse(hiddenStr, out hidden))
-                    rec.Hidden = hidden;
-            }
+            rec.PlaybackEnabled = ParseBoolOr(recNode, "playbackEnabled", rec.PlaybackEnabled);
+            rec.Hidden = ParseBoolOr(recNode, "hidden", rec.Hidden);
 
             // EVA child linkage
             rec.ParentRecordingId = recNode.GetValue("parentRecordingId");
@@ -575,20 +652,8 @@ namespace Parsek
 
             // Chain linkage
             rec.ChainId = recNode.GetValue("chainId");
-            string chainIndexStr = recNode.GetValue("chainIndex");
-            if (chainIndexStr != null)
-            {
-                int chainIndex;
-                if (int.TryParse(chainIndexStr, NumberStyles.Integer, ic, out chainIndex))
-                    rec.ChainIndex = chainIndex;
-            }
-            string chainBranchStr = recNode.GetValue("chainBranch");
-            if (chainBranchStr != null)
-            {
-                int chainBranch;
-                if (int.TryParse(chainBranchStr, NumberStyles.Integer, ic, out chainBranch))
-                    rec.ChainBranch = chainBranch;
-            }
+            rec.ChainIndex = ParseIntOr(recNode, "chainIndex", rec.ChainIndex);
+            rec.ChainBranch = ParseIntOr(recNode, "chainBranch", rec.ChainBranch);
         }
 
         /// <summary>
@@ -598,7 +663,6 @@ namespace Parsek
         /// </summary>
         internal static void LoadRecordingResourceAndState(ConfigNode recNode, Recording rec)
         {
-            var inv = NumberStyles.Float;
             var ic = CultureInfo.InvariantCulture;
 
             // Atmosphere segment metadata
@@ -613,51 +677,15 @@ namespace Parsek
             rec.LaunchSiteName = recNode.GetValue("launchSiteName");
 
             // Pre-launch resources
-            string preLaunchFundsStr = recNode.GetValue("preLaunchFunds");
-            if (preLaunchFundsStr != null)
-            {
-                double preLaunchFunds;
-                if (double.TryParse(preLaunchFundsStr, inv, ic, out preLaunchFunds))
-                    rec.PreLaunchFunds = preLaunchFunds;
-            }
-            string preLaunchScienceStr = recNode.GetValue("preLaunchScience");
-            if (preLaunchScienceStr != null)
-            {
-                double preLaunchScience;
-                if (double.TryParse(preLaunchScienceStr, inv, ic, out preLaunchScience))
-                    rec.PreLaunchScience = preLaunchScience;
-            }
-            string preLaunchRepStr = recNode.GetValue("preLaunchRep");
-            if (preLaunchRepStr != null)
-            {
-                float preLaunchRep;
-                if (float.TryParse(preLaunchRepStr, inv, ic, out preLaunchRep))
-                    rec.PreLaunchReputation = preLaunchRep;
-            }
+            rec.PreLaunchFunds = ParseDoubleOr(recNode, "preLaunchFunds", rec.PreLaunchFunds);
+            rec.PreLaunchScience = ParseDoubleOr(recNode, "preLaunchScience", rec.PreLaunchScience);
+            rec.PreLaunchReputation = ParseFloatOr(recNode, "preLaunchRep", rec.PreLaunchReputation);
 
             // Rewind save metadata
             rec.RewindSaveFileName = recNode.GetValue("rewindSave");
-            string rewindFundsStr = recNode.GetValue("rewindResFunds");
-            if (rewindFundsStr != null)
-            {
-                double rewindFunds;
-                if (double.TryParse(rewindFundsStr, inv, ic, out rewindFunds))
-                    rec.RewindReservedFunds = rewindFunds;
-            }
-            string rewindSciStr = recNode.GetValue("rewindResSci");
-            if (rewindSciStr != null)
-            {
-                double rewindSci;
-                if (double.TryParse(rewindSciStr, inv, ic, out rewindSci))
-                    rec.RewindReservedScience = rewindSci;
-            }
-            string rewindRepStr = recNode.GetValue("rewindResRep");
-            if (rewindRepStr != null)
-            {
-                float rewindRep;
-                if (float.TryParse(rewindRepStr, inv, ic, out rewindRep))
-                    rec.RewindReservedRep = rewindRep;
-            }
+            rec.RewindReservedFunds = ParseDoubleOr(recNode, "rewindResFunds", rec.RewindReservedFunds);
+            rec.RewindReservedScience = ParseDoubleOr(recNode, "rewindResSci", rec.RewindReservedScience);
+            rec.RewindReservedRep = ParseFloatOr(recNode, "rewindResRep", rec.RewindReservedRep);
 
             // Mutable playback state
             string pidStr = recNode.GetValue("spawnedPid");
@@ -676,13 +704,7 @@ namespace Parsek
                     rec.VesselSpawned = spawnedPid != 0;
                 }
             }
-            string destroyedStr = recNode.GetValue("vesselDestroyed");
-            if (destroyedStr != null)
-            {
-                bool destroyed;
-                if (bool.TryParse(destroyedStr, out destroyed))
-                    rec.VesselDestroyed = destroyed;
-            }
+            rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
             // #573/#589: load scoped post-rewind suppression marker. Older saves
             // only contain the bool because the original fix marked whole trees;
@@ -708,13 +730,7 @@ namespace Parsek
                 if (string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
                     rec.SpawnSuppressedByRewindReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
             }
-            string resIdxStr = recNode.GetValue("lastResIdx");
-            if (resIdxStr != null)
-            {
-                int resIdx;
-                if (int.TryParse(resIdxStr, NumberStyles.Integer, ic, out resIdx))
-                    rec.LastAppliedResourceIndex = resIdx;
-            }
+            rec.LastAppliedResourceIndex = ParseIntOr(recNode, "lastResIdx", rec.LastAppliedResourceIndex);
             // pointCount is informational — Points list is loaded from sidecar file
 
             // UI grouping tags (multi-group membership, backward compat with single value)
@@ -759,13 +775,7 @@ namespace Parsek
                     $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
             }
 
-            string isDebrisStr = recNode.GetValue("isDebris");
-            if (isDebrisStr != null)
-            {
-                bool isDebris;
-                if (bool.TryParse(isDebrisStr, out isDebris))
-                    rec.IsDebris = isDebris;
-            }
+            rec.IsDebris = ParseBoolOr(recNode, "isDebris", rec.IsDebris);
 
             // v13 debris parent recording id (sparse on disk). Missing key on legacy
             // v11 debris and on non-debris recordings — both default to null. PR 3c's
@@ -774,40 +784,16 @@ namespace Parsek
             if (debrisParentRecordingIdStr != null)
                 rec.DebrisParentRecordingId = debrisParentRecordingIdStr;
 
-            string isGhostOnlyStr = recNode.GetValue("isGhostOnly");
-            if (isGhostOnlyStr != null)
-            {
-                bool isGhostOnly;
-                if (bool.TryParse(isGhostOnlyStr, out isGhostOnly))
-                    rec.IsGhostOnly = isGhostOnly;
-            }
+            rec.IsGhostOnly = ParseBoolOr(recNode, "isGhostOnly", rec.IsGhostOnly);
 
             // Max distance from launch (#302)
-            string maxDistStr = recNode.GetValue("maxDist");
-            if (maxDistStr != null)
-            {
-                double maxDist;
-                if (double.TryParse(maxDistStr, inv, ic, out maxDist))
-                    rec.MaxDistanceFromLaunch = maxDist;
-            }
+            rec.MaxDistanceFromLaunch = ParseDoubleOr(recNode, "maxDist", rec.MaxDistanceFromLaunch);
 
             // Cascade depth (#284). Missing key = 0 (legacy save or gen-0 recording).
-            string generationStr = recNode.GetValue("generation");
-            if (generationStr != null)
-            {
-                int generation;
-                if (int.TryParse(generationStr, NumberStyles.Integer, ic, out generation))
-                    rec.Generation = generation;
-            }
+            rec.Generation = ParseIntOr(recNode, "generation", rec.Generation);
 
             // Crew end states (kerbals module)
-            string crewEndStatesResolvedStr = recNode.GetValue("crewEndStatesResolved");
-            if (crewEndStatesResolvedStr != null)
-            {
-                bool crewEndStatesResolved;
-                if (bool.TryParse(crewEndStatesResolvedStr, out crewEndStatesResolved))
-                    rec.CrewEndStatesResolved = crewEndStatesResolved;
-            }
+            rec.CrewEndStatesResolved = ParseBoolOr(recNode, "crewEndStatesResolved", rec.CrewEndStatesResolved);
             RecordingStore.DeserializeCrewEndStates(recNode, rec);
             if (rec.CrewEndStates != null)
                 rec.CrewEndStatesResolved = true;
@@ -817,32 +803,14 @@ namespace Parsek
 
             // Inventory manifests (Phase 11)
             RecordingStore.DeserializeInventoryManifest(recNode, rec);
-            string startInvSlotsStr = recNode.GetValue("startInvSlots");
-            if (startInvSlotsStr != null)
-            {
-                int startInvSlots;
-                if (int.TryParse(startInvSlotsStr, NumberStyles.Integer, ic, out startInvSlots))
-                    rec.StartInventorySlots = startInvSlots;
-            }
-            string endInvSlotsStr = recNode.GetValue("endInvSlots");
-            if (endInvSlotsStr != null)
-            {
-                int endInvSlots;
-                if (int.TryParse(endInvSlotsStr, NumberStyles.Integer, ic, out endInvSlots))
-                    rec.EndInventorySlots = endInvSlots;
-            }
+            rec.StartInventorySlots = ParseIntOr(recNode, "startInvSlots", rec.StartInventorySlots);
+            rec.EndInventorySlots = ParseIntOr(recNode, "endInvSlots", rec.EndInventorySlots);
 
             // Crew manifests (Phase 11)
             RecordingStore.DeserializeCrewManifest(recNode, rec);
 
             // Dock target vessel PID (Phase 11)
-            string dockTargetPidStr = recNode.GetValue("dockTargetPid");
-            if (dockTargetPidStr != null)
-            {
-                uint dockTargetPid;
-                if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, ic, out dockTargetPid))
-                    rec.DockTargetVesselPid = dockTargetPid;
-            }
+            rec.DockTargetVesselPid = ParseUintOr(recNode, "dockTargetPid", rec.DockTargetVesselPid);
 
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed
