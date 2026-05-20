@@ -2150,5 +2150,198 @@ namespace Parsek.Tests
                 ParsekScenario.SetInstanceForTesting(null);
             }
         }
+
+        // ================================================================
+        // Zero-cost part-purchase noise suppression (timeline display)
+        // ================================================================
+
+        [Fact]
+        public void NoOpZeroFundsSpending_IsFilteredFromTimeline()
+        {
+            // A free part unlock (bypass-entry-purchase) records a FundsSpending(0)
+            // action in the ledger as an audit record, but it carries no information
+            // in the timeline. It must not produce a row. A real (non-zero) spend must.
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 100,
+                    Type = GameActionType.FundsSpending,
+                    Effective = true,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 0f,
+                    DedupKey = "solidBooster.v2"
+                },
+                new GameAction
+                {
+                    UT = 200,
+                    Type = GameActionType.FundsSpending,
+                    Effective = true,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 1200f,
+                    DedupKey = "liquidEngine2"
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true);
+
+            Assert.DoesNotContain(result, e =>
+                e.Source == TimelineSource.GameAction && e.UT == 100);
+            var shown = Assert.Single(result.Where(e => e.Source == TimelineSource.GameAction));
+            Assert.Equal(200, shown.UT);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("no-op (zero-funds) spending action"));
+        }
+
+        [Fact]
+        public void NonZeroPartPurchase_RowShowsPartName()
+        {
+            // The legacy PartPurchased twin (which used to supply the part name) is
+            // de-duped away, so the surviving ledger row must carry the part name.
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 200,
+                    Type = GameActionType.FundsSpending,
+                    Effective = true,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 1200f,
+                    DedupKey = "liquidEngine2"
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone>(),
+                _ => true);
+
+            var row = Assert.Single(result.Where(e => e.Source == TimelineSource.GameAction));
+            Assert.Equal("Part: liquidEngine2 -1200", row.DisplayText);
+        }
+
+        [Fact]
+        public void LegacyFreePartPurchaseEvent_IsSkipped()
+        {
+            // A legacy PartPurchased event with charged cost 0 (bypass shape
+            // "cost=0;entryCost=<raw>") is pure noise — its ledger twin is filtered
+            // as a no-op spend, so the legacy row must be skipped too.
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 100,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "solidBooster.v2",
+                        detail = "cost=0;entryCost=800"
+                    }
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                new List<GameAction>(),
+                new List<Milestone> { milestone },
+                _ => true);
+
+            Assert.DoesNotContain(result, e => e.Source == TimelineSource.Legacy);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Timeline]") && l.Contains("free (zero-cost) legacy part-purchase"));
+        }
+
+        [Fact]
+        public void LegacyTechContractPartDuplicates_AreFilteredWhenMatchingGameActionsExist()
+        {
+            // Tech research, contract accept, and (non-zero) part purchase all appear in
+            // both the ledger and the legacy milestone store. The legacy twin must be
+            // de-duped against the matching ledger action so each shows exactly once.
+            var milestone = new Milestone
+            {
+                Committed = true,
+                Epoch = 0,
+                Events = new List<GameStateEvent>
+                {
+                    new GameStateEvent
+                    {
+                        ut = 300,
+                        eventType = GameStateEventType.TechResearched,
+                        key = "basicRocketry",
+                        detail = "cost=5"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 310,
+                        eventType = GameStateEventType.ContractAccepted,
+                        key = "guid-1",
+                        detail = "title=Test Contract"
+                    },
+                    new GameStateEvent
+                    {
+                        ut = 320,
+                        eventType = GameStateEventType.PartPurchased,
+                        key = "liquidEngine2",
+                        detail = "cost=1200"
+                    }
+                }
+            };
+
+            var actions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 300,
+                    Type = GameActionType.ScienceSpending,
+                    Effective = true,
+                    NodeId = "basicRocketry",
+                    Cost = 5f
+                },
+                new GameAction
+                {
+                    UT = 310,
+                    Type = GameActionType.ContractAccept,
+                    Effective = true,
+                    ContractId = "guid-1",
+                    ContractTitle = "Test Contract"
+                },
+                new GameAction
+                {
+                    UT = 320,
+                    Type = GameActionType.FundsSpending,
+                    Effective = true,
+                    FundsSpendingSource = FundsSpendingSource.Other,
+                    FundsSpent = 1200f,
+                    DedupKey = "liquidEngine2"
+                }
+            };
+
+            var result = TimelineBuilder.Build(
+                new List<Recording>(),
+                actions,
+                new List<Milestone> { milestone },
+                _ => true);
+
+            // No legacy rows survive — all three are de-duped against the ledger.
+            Assert.DoesNotContain(result, e => e.Source == TimelineSource.Legacy);
+
+            // The ledger rows are present and self-describing.
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.Type == TimelineEntryType.ScienceSpending);
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.Type == TimelineEntryType.ContractAccept);
+            Assert.Contains(result, e =>
+                e.Source == TimelineSource.GameAction &&
+                e.DisplayText == "Part: liquidEngine2 -1200");
+        }
     }
 }
