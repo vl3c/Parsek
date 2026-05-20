@@ -375,7 +375,7 @@ namespace Parsek.Tests
         {
             // Pins the CLAUDE.md metres-as-degrees contract: in a Relative section the
             // latitude/longitude/altitude fields are anchor-local METRE offsets, so the
-            // distance is the raw Euclidean delta — NOT a haversine over lat/lon degrees.
+            // distance is the raw Euclidean delta, NOT a haversine over lat/lon degrees.
             var prev = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
             var cur = new TrajectoryPoint { latitude = 3, longitude = 4, altitude = 0 };
 
