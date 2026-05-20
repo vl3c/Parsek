@@ -128,110 +128,7 @@ namespace Parsek.Rendering
 
             for (int i = 0; i < rec.TrackSections.Count; i++)
             {
-                TrackSection section = rec.TrackSections[i];
-                if (!ShouldFitSection(section))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                // Phase 4 frame-tag decision (design doc §6.2).
-                // ExoPropulsive / ExoBallistic sections fit in inertial
-                // longitude. Atmospheric/Surface* enablement remains a later
-                // terrain/drag-aware phase.
-                bool inertial = section.environment == SegmentEnvironment.ExoPropulsive
-                    || section.environment == SegmentEnvironment.ExoBallistic;
-                byte frameTag = inertial ? (byte)1 : (byte)0;
-
-                CelestialBody body = null;
-                string bodyName = section.frames != null && section.frames.Count > 0
-                    ? section.frames[0].bodyName
-                    : null;
-                if (inertial)
-                {
-                    body = ResolveBody(bodyName);
-                    // Use ReferenceEquals to bypass Unity's overloaded `==`,
-                    // which would treat a TestBodyRegistry-built uninitialized
-                    // CelestialBody as null. The test seam delivers genuine
-                    // CLR objects whose Unity-cached pointer is zero; the
-                    // pipeline only needs the managed reference for downstream
-                    // dispatch.
-                    if (object.ReferenceEquals(body, null))
-                    {
-                        // HR-9 visibility: missing body is a real failure for
-                        // an inertial fit (we can't compute the rotation phase),
-                        // not a silent skip. Surface it as Warn and continue —
-                        // the consumer will fall through to the legacy lerp.
-                        fitFailed++;
-                        ParsekLog.Warn("Pipeline-Frame",
-                            $"body not found, skipping inertial fit recordingId={recordingId} " +
-                            $"sectionIndex={i} bodyName={bodyName ?? "<null>"}");
-                        continue;
-                    }
-                }
-
-                IList<TrajectoryPoint> samplesForFit = section.frames;
-                if (inertial)
-                    samplesForFit = LiftFramesToInertial(section.frames, body);
-
-                // Phase 8 (design doc §14, §18 Phase 8): classify samples
-                // before the spline is fit so kraken-event single-frame
-                // teleports do not deflect the spline through their
-                // implausible coordinates. The classifier is gated on the
-                // useOutlierRejection rollout flag; off → null flags →
-                // legacy fit-everything behaviour.
-                OutlierFlags outliers = null;
-                if (ResolveUseOutlierRejection())
-                {
-                    OutlierThresholds thresholds = OutlierThresholds.Default;
-                    Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
-                    outliers = OutlierClassifier.Classify(
-                        rec, i, thresholds, classifierBodyResolver);
-                    if (outliers != null && outliers.RejectedCount > 0)
-                    {
-                        SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
-                        // Cluster warn (§19.2 "Cluster threshold exceeded →
-                        // low-fidelity tag"). Per-session dedup so a flag-
-                        // flip recompute does not double-log.
-                        bool clusterBitSet = (outliers.ClassifierMask
-                            & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
-                        if (clusterBitSet)
-                            EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
-                    }
-                }
-
-                var sw = Stopwatch.StartNew();
-                SmoothingSpline spline = TrajectoryMath.CatmullRomFit.Fit(
-                    samplesForFit,
-                    SmoothingConfiguration.Default.Tension,
-                    out string failureReason,
-                    rejected: outliers);
-                sw.Stop();
-
-                if (!spline.IsValid)
-                {
-                    fitFailed++;
-                    int sampleCount = section.frames != null ? section.frames.Count : 0;
-                    ParsekLog.Warn("Pipeline-Smoothing",
-                        $"Catmull-Rom fit failed: recordingId={recordingId} sectionIndex={i} " +
-                        $"env={section.environment} sampleCount={sampleCount} reason={failureReason ?? "<unknown>"}");
-                    continue;
-                }
-
-                spline.FrameTag = frameTag;
-                SectionAnnotationStore.PutSmoothingSpline(recordingId, i, spline);
-                fitOk++;
-                int knotCount = spline.KnotsUT != null ? spline.KnotsUT.Length : 0;
-                int sampleCt = section.frames != null ? section.frames.Count : 0;
-                ParsekLog.Info("Pipeline-Smoothing",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Spline fit: recordingId={0} sectionIndex={1} env={2} sampleCount={3} knotCount={4} frameTag={5} body={6} fitDurationMs={7}",
-                        recordingId, i, section.environment, sampleCt, knotCount, frameTag, bodyName ?? "<null>", sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
-
-                // Phase 4 §19.2 Stage 2 log: per-section lift-to-inertial
-                // decision, dedup'd so a re-fit during drift recompute does
-                // not double-log.
-                LogFrameDecisionOnce(recordingId, i, section.environment, frameTag, bodyName);
+                FitAndStoreSection(rec, recordingId, i, ref fitOk, ref fitFailed, ref skipped);
             }
 
             ParsekLog.Verbose("Pipeline-Smoothing",
@@ -245,6 +142,123 @@ namespace Parsek.Rendering
             // populate / persist together.
             RecordingTree tree = ResolveTree(recordingId);
             AnchorCandidateBuilder.BuildAndStorePerSection(rec, tree);
+        }
+
+        /// <summary>
+        /// Fits and stores the spline for a single track section, threading the
+        /// fit-ok / fit-failed / skipped counters via ref for the post-loop summary.
+        /// Extracted loop body of <see cref="FitAndStorePerSection"/>: the three skip / fail
+        /// paths (ShouldFitSection skip, missing inertial body, invalid fit) each increment
+        /// the matching counter and return early, exactly as the original loop's continue did.
+        /// </summary>
+        private static void FitAndStoreSection(
+            Recording rec, string recordingId, int i,
+            ref int fitOk, ref int fitFailed, ref int skipped)
+        {
+            TrackSection section = rec.TrackSections[i];
+            if (!ShouldFitSection(section))
+            {
+                skipped++;
+                return;
+            }
+
+            // Phase 4 frame-tag decision (design doc §6.2).
+            // ExoPropulsive / ExoBallistic sections fit in inertial
+            // longitude. Atmospheric/Surface* enablement remains a later
+            // terrain/drag-aware phase.
+            bool inertial = section.environment == SegmentEnvironment.ExoPropulsive
+                || section.environment == SegmentEnvironment.ExoBallistic;
+            byte frameTag = inertial ? (byte)1 : (byte)0;
+
+            CelestialBody body = null;
+            string bodyName = section.frames != null && section.frames.Count > 0
+                ? section.frames[0].bodyName
+                : null;
+            if (inertial)
+            {
+                body = ResolveBody(bodyName);
+                // Use ReferenceEquals to bypass Unity's overloaded `==`,
+                // which would treat a TestBodyRegistry-built uninitialized
+                // CelestialBody as null. The test seam delivers genuine
+                // CLR objects whose Unity-cached pointer is zero; the
+                // pipeline only needs the managed reference for downstream
+                // dispatch.
+                if (object.ReferenceEquals(body, null))
+                {
+                    // HR-9 visibility: missing body is a real failure for
+                    // an inertial fit (we can't compute the rotation phase),
+                    // not a silent skip. Surface it as Warn and continue —
+                    // the consumer will fall through to the legacy lerp.
+                    fitFailed++;
+                    ParsekLog.Warn("Pipeline-Frame",
+                        $"body not found, skipping inertial fit recordingId={recordingId} " +
+                        $"sectionIndex={i} bodyName={bodyName ?? "<null>"}");
+                    return;
+                }
+            }
+
+            IList<TrajectoryPoint> samplesForFit = section.frames;
+            if (inertial)
+                samplesForFit = LiftFramesToInertial(section.frames, body);
+
+            // Phase 8 (design doc §14, §18 Phase 8): classify samples
+            // before the spline is fit so kraken-event single-frame
+            // teleports do not deflect the spline through their
+            // implausible coordinates. The classifier is gated on the
+            // useOutlierRejection rollout flag; off → null flags →
+            // legacy fit-everything behaviour.
+            OutlierFlags outliers = null;
+            if (ResolveUseOutlierRejection())
+            {
+                OutlierThresholds thresholds = OutlierThresholds.Default;
+                Func<string, CelestialBody> classifierBodyResolver = ResolveBody;
+                outliers = OutlierClassifier.Classify(
+                    rec, i, thresholds, classifierBodyResolver);
+                if (outliers != null && outliers.RejectedCount > 0)
+                {
+                    SectionAnnotationStore.PutOutlierFlags(recordingId, i, outliers);
+                    // Cluster warn (§19.2 "Cluster threshold exceeded →
+                    // low-fidelity tag"). Per-session dedup so a flag-
+                    // flip recompute does not double-log.
+                    bool clusterBitSet = (outliers.ClassifierMask
+                        & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0;
+                    if (clusterBitSet)
+                        EmitClusterWarnOnce(recordingId, i, outliers, thresholds);
+                }
+            }
+
+            var sw = Stopwatch.StartNew();
+            SmoothingSpline spline = TrajectoryMath.CatmullRomFit.Fit(
+                samplesForFit,
+                SmoothingConfiguration.Default.Tension,
+                out string failureReason,
+                rejected: outliers);
+            sw.Stop();
+
+            if (!spline.IsValid)
+            {
+                fitFailed++;
+                int sampleCount = section.frames != null ? section.frames.Count : 0;
+                ParsekLog.Warn("Pipeline-Smoothing",
+                    $"Catmull-Rom fit failed: recordingId={recordingId} sectionIndex={i} " +
+                    $"env={section.environment} sampleCount={sampleCount} reason={failureReason ?? "<unknown>"}");
+                return;
+            }
+
+            spline.FrameTag = frameTag;
+            SectionAnnotationStore.PutSmoothingSpline(recordingId, i, spline);
+            fitOk++;
+            int knotCount = spline.KnotsUT != null ? spline.KnotsUT.Length : 0;
+            int sampleCt = section.frames != null ? section.frames.Count : 0;
+            ParsekLog.Info("Pipeline-Smoothing",
+                string.Format(CultureInfo.InvariantCulture,
+                    "Spline fit: recordingId={0} sectionIndex={1} env={2} sampleCount={3} knotCount={4} frameTag={5} body={6} fitDurationMs={7}",
+                    recordingId, i, section.environment, sampleCt, knotCount, frameTag, bodyName ?? "<null>", sw.Elapsed.TotalMilliseconds.ToString("F2", CultureInfo.InvariantCulture)));
+
+            // Phase 4 §19.2 Stage 2 log: per-section lift-to-inertial
+            // decision, dedup'd so a re-fit during drift recompute does
+            // not double-log.
+            LogFrameDecisionOnce(recordingId, i, section.environment, frameTag, bodyName);
         }
 
         private static RecordingTree ResolveTree(string recordingId)

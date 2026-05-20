@@ -582,7 +582,57 @@ namespace Parsek
             }
 
             BallisticStateVector startState;
-            if (appendedSegments.Count > 0)
+            if (appendedSegments.Count > 0
+                && BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                    (IReadOnlyList<OrbitSegment>)appendedSegments,
+                    bodies,
+                    out int reentryClipIndex,
+                    out double atmosphereEntryUT))
+            {
+                // The captured patched-conic tail re-enters an atmospheric body:
+                // its periapsis is below the atmosphere top, so KSP's transition-less
+                // closed ellipse would run underground on playback. Clip the
+                // predicted segments at the descending atmosphere-entry crossing and
+                // hand the atmospheric descent to the ballistic extrapolator, which
+                // terminates at the real terrain impact instead of looping the
+                // sub-surface ellipse.
+                OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
+                for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
+                    appendedSegments.RemoveAt(i);
+                if (atmosphereEntryUT > clipSegment.startUT + 1e-6)
+                {
+                    // Segment has an above-atmosphere arc before re-entry: keep it,
+                    // truncated to the atmosphere-entry crossing.
+                    clipSegment.endUT = atmosphereEntryUT;
+                    appendedSegments[reentryClipIndex] = clipSegment;
+                }
+                else
+                {
+                    // Segment is entirely a re-entry (started at/below the boundary):
+                    // drop it so no zero-length predicted segment is left behind; the
+                    // ballistic descent below covers it from its start.
+                    appendedSegments.RemoveAt(reentryClipIndex);
+                }
+                result.patchedSegmentCount = appendedSegments.Count;
+
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: clipped re-entering predicted orbit for '{0}' at atmosphere-entry " +
+                        "UT={1:F1} (kept {2} predicted segment(s)); handing atmospheric descent to ballistic extrapolator",
+                        recordingId ?? "(null)",
+                        atmosphereEntryUT,
+                        appendedSegments.Count));
+
+                if (!TryBuildStartStateFromSegment(clipSegment, bodies, atmosphereEntryUT, out startState))
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: failed to propagate clipped re-entry segment for '{recordingId}' " +
+                        $"(body={clipSegment.bodyName ?? "(null)"}, atmosphereEntryUT={atmosphereEntryUT:F1})");
+                    return false;
+                }
+            }
+            else if (appendedSegments.Count > 0)
             {
                 OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
                 if (!TryBuildStartStateFromSegment(lastSegment, bodies, out startState))
@@ -1787,13 +1837,22 @@ namespace Parsek
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             out BallisticStateVector startState)
         {
+            return TryBuildStartStateFromSegment(segment, bodies, segment.endUT, out startState);
+        }
+
+        internal static bool TryBuildStartStateFromSegment(
+            OrbitSegment segment,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double atUT,
+            out BallisticStateVector startState)
+        {
             startState = default(BallisticStateVector);
             if (string.IsNullOrEmpty(segment.bodyName)
                 || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
                 || !BallisticExtrapolator.TryPropagate(
                     segment,
                     body.GravitationalParameter,
-                    segment.endUT,
+                    atUT,
                     out Vector3d position,
                     out Vector3d velocity)
                 || !IsFinite(position)
@@ -1802,7 +1861,7 @@ namespace Parsek
 
             startState = new BallisticStateVector
             {
-                ut = segment.endUT,
+                ut = atUT,
                 bodyName = segment.bodyName,
                 position = position,
                 velocity = velocity,
@@ -2177,6 +2236,35 @@ namespace Parsek
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
 
             bool ghostOnlySnapshot = result.vesselSnapshot == null && result.ghostVisualSnapshot != null;
+            ApplyTerminalSnapshots(recording, result, logContext);
+
+            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
+                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
+                    "after applying terminal snapshot");
+            }
+            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
+
+            ApplyTerminalSurfaceMetadata(recording, result, ghostOnlySnapshot, logContext);
+
+            recording.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Applies the terminal vessel / ghost-visual snapshots from the finalization result
+        /// onto the recording: copies a vessel snapshot (synthesizing or preserving the ghost
+        /// visual snapshot) or, with no vessel snapshot, applies a ghost-only snapshot. Runs
+        /// before the ghost-snapshot-mode recompute, which reads the GhostVisualSnapshot this
+        /// sets. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSnapshots(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            string logContext)
+        {
             if (result.vesselSnapshot != null)
             {
                 recording.VesselSnapshot = result.vesselSnapshot.CreateCopy();
@@ -2210,17 +2298,20 @@ namespace Parsek
                         $"'{recording.RecordingId}' while applying ghost-only terminal snapshot");
                 }
             }
+        }
 
-            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
-            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
-            {
-                ParsekLog.Verbose("Extrapolator",
-                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
-                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
-                    "after applying terminal snapshot");
-            }
-            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
-
+        /// <summary>
+        /// Sets the recording's terminal surface metadata (TerminalPosition / TerrainHeightAtEnd):
+        /// for a Landed/Splashed terminal state, copies the result's surface position when present,
+        /// warns-and-keeps for a ghost-only snapshot with no surface data, else nulls both; for any
+        /// other terminal state, nulls both. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSurfaceMetadata(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            bool ghostOnlySnapshot,
+            string logContext)
+        {
             if (result.terminalState.Value == TerminalState.Landed
                 || result.terminalState.Value == TerminalState.Splashed)
             {
@@ -2253,8 +2344,6 @@ namespace Parsek
                 recording.TerminalPosition = null;
                 recording.TerrainHeightAtEnd = double.NaN;
             }
-
-            recording.MarkFilesDirty();
         }
     }
 }

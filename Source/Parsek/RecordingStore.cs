@@ -4309,72 +4309,20 @@ namespace Parsek
                 var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
                 if (splitCandidates.Count == 0) break;
 
-                int chosen = -1;
-                int deferredCandidatesThisIter = 0;
-                if (string.IsNullOrEmpty(deferredActiveReFlyId))
-                {
-                    chosen = 0;
-                }
-                else
-                {
-                    for (int c = 0; c < splitCandidates.Count; c++)
-                    {
-                        int candIdx = splitCandidates[c].Item1;
-                        if (candIdx < 0 || candIdx >= recordings.Count)
-                            continue;
-                        var candRec = recordings[candIdx];
-                        if (candRec != null
-                            && string.Equals(
-                                candRec.RecordingId,
-                                deferredActiveReFlyId,
-                                StringComparison.Ordinal))
-                        {
-                            deferredCandidatesThisIter++;
-                            continue;
-                        }
-                        chosen = c;
-                        break;
-                    }
-                }
+                int chosen = ChooseSplitCandidateIndex(
+                    splitCandidates, recordings, deferredActiveReFlyId,
+                    out int deferredCandidatesThisIter);
 
-                if (chosen < 0)
-                {
-                    deferredCandidatesObservedTotal += deferredCandidatesThisIter;
-                    break;
-                }
                 deferredCandidatesObservedTotal += deferredCandidatesThisIter;
+                if (chosen < 0)
+                    break;
 
                 var (recIdx, secIdx) = splitCandidates[chosen];
                 var original = recordings[recIdx];
 
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
 
-                // Assign identity
-                second.RecordingId = Guid.NewGuid().ToString("N");
-                if (string.IsNullOrEmpty(original.ChainId))
-                    original.ChainId = Guid.NewGuid().ToString("N");
-                second.ChainId = original.ChainId;
-                second.TreeId = original.TreeId;
-                second.VesselName = original.VesselName;
-                second.VesselPersistentId = original.VesselPersistentId;
-                second.PreLaunchFunds = original.PreLaunchFunds;
-                second.PreLaunchScience = original.PreLaunchScience;
-                second.PreLaunchReputation = original.PreLaunchReputation;
-                second.RecordingGroups = original.RecordingGroups != null
-                    ? new List<string>(original.RecordingGroups) : null;
-                second.CreatingSessionId = original.CreatingSessionId;
-                second.ProvisionalForRpId = original.ProvisionalForRpId;
-                // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
-                // Safe here because the optimizer auto-split only runs on
-                // already-committed recordings where original.SupersedeTargetId
-                // is null (the field is transient on NotCommitted provisionals
-                // only). If a future change ever calls the optimizer on a
-                // NotCommitted provisional, this inheritance would silently
-                // carry a phantom id onto `second` until LoadTimeSweep scrubs
-                // it on next load — null it explicitly in that case (mirror
-                // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
-                second.SupersedeTargetId = original.SupersedeTargetId;
-                second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+                CopySplitIdentityFields(original, second);
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
@@ -4415,35 +4363,9 @@ namespace Parsek
                 // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
                 if (!string.IsNullOrEmpty(movedChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
                 {
-                    for (int t = 0; t < committedTrees.Count; t++)
-                    {
-                        if (committedTrees[t].Id != original.TreeId) continue;
-                        var tree = committedTrees[t];
-                        if (tree.BranchPoints != null)
-                        {
-                            for (int b = 0; b < tree.BranchPoints.Count; b++)
-                            {
-                                if (tree.BranchPoints[b].Id == movedChildBranchPointId
-                                    && tree.BranchPoints[b].ParentRecordingIds != null)
-                                {
-                                    var parentIds = tree.BranchPoints[b].ParentRecordingIds;
-                                    for (int p = 0; p < parentIds.Count; p++)
-                                    {
-                                        if (parentIds[p] == original.RecordingId)
-                                        {
-                                            parentIds[p] = second.RecordingId;
-                                            ParsekLog.Verbose("RecordingStore",
-                                                $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
-                                                $"ParentRecordingIds: {original.RecordingId} → {second.RecordingId}");
-                                            break;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
+                    RetargetMovedBranchPointParent(
+                        original.TreeId, movedChildBranchPointId,
+                        original.RecordingId, second.RecordingId);
                 }
 
                 // Add to committed recordings (after original)
@@ -4492,6 +4414,126 @@ namespace Parsek
             }
 
             return splitCount;
+        }
+
+        /// <summary>
+        /// Picks the split candidate to apply this iteration. With no live Re-Fly defer id,
+        /// the first candidate (index 0) is chosen. Otherwise walks the candidate list,
+        /// skipping any whose recording id equals the deferred Re-Fly id (counting them in
+        /// <paramref name="deferredObserved"/>), and returns the first non-deferred candidate's
+        /// index. Returns -1 when every remaining candidate is deferred. Pure read over the
+        /// inputs.
+        /// </summary>
+        internal static int ChooseSplitCandidateIndex(
+            IReadOnlyList<(int, int)> splitCandidates,
+            IReadOnlyList<Recording> recordings,
+            string deferredActiveReFlyId,
+            out int deferredObserved)
+        {
+            deferredObserved = 0;
+            if (string.IsNullOrEmpty(deferredActiveReFlyId))
+            {
+                return 0;
+            }
+
+            for (int c = 0; c < splitCandidates.Count; c++)
+            {
+                int candIdx = splitCandidates[c].Item1;
+                if (candIdx < 0 || candIdx >= recordings.Count)
+                    continue;
+                var candRec = recordings[candIdx];
+                if (candRec != null
+                    && string.Equals(
+                        candRec.RecordingId,
+                        deferredActiveReFlyId,
+                        StringComparison.Ordinal))
+                {
+                    deferredObserved++;
+                    continue;
+                }
+                return c;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Copies the identity / lineage fields from the original recording onto the
+        /// second half produced by an optimizer split (assigns a fresh RecordingId,
+        /// deep-copies RecordingGroups, and carries over chain / tree / vessel / pre-launch
+        /// / session / supersede / switch-segment fields). Straight-line field copy.
+        /// </summary>
+        private static void CopySplitIdentityFields(Recording original, Recording second)
+        {
+            // Assign identity
+            second.RecordingId = Guid.NewGuid().ToString("N");
+            if (string.IsNullOrEmpty(original.ChainId))
+                original.ChainId = Guid.NewGuid().ToString("N");
+            second.ChainId = original.ChainId;
+            second.TreeId = original.TreeId;
+            second.VesselName = original.VesselName;
+            second.VesselPersistentId = original.VesselPersistentId;
+            second.PreLaunchFunds = original.PreLaunchFunds;
+            second.PreLaunchScience = original.PreLaunchScience;
+            second.PreLaunchReputation = original.PreLaunchReputation;
+            second.RecordingGroups = original.RecordingGroups != null
+                ? new List<string>(original.RecordingGroups) : null;
+            second.CreatingSessionId = original.CreatingSessionId;
+            second.ProvisionalForRpId = original.ProvisionalForRpId;
+            // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
+            // Safe here because the optimizer auto-split only runs on
+            // already-committed recordings where original.SupersedeTargetId
+            // is null (the field is transient on NotCommitted provisionals
+            // only). If a future change ever calls the optimizer on a
+            // NotCommitted provisional, this inheritance would silently
+            // carry a phantom id onto `second` until LoadTimeSweep scrubs
+            // it on next load — null it explicitly in that case (mirror
+            // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
+            second.SupersedeTargetId = original.SupersedeTargetId;
+            second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+        }
+
+        /// <summary>
+        /// Retargets the moved child BranchPoint's ParentRecordingIds entry from the original
+        /// recording id to the second-half recording id after an optimizer split moved the
+        /// branch point to the second half. Mutates the matching committed tree's branch point.
+        /// Caller gates entry on a non-empty moved branch-point id and tree id.
+        /// </summary>
+        private static void RetargetMovedBranchPointParent(
+            string treeId,
+            string movedChildBranchPointId,
+            string oldRecordingId,
+            string newRecordingId)
+        {
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                if (committedTrees[t].Id != treeId) continue;
+                var tree = committedTrees[t];
+                if (tree.BranchPoints != null)
+                {
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == movedChildBranchPointId
+                            && tree.BranchPoints[b].ParentRecordingIds != null)
+                        {
+                            var parentIds = tree.BranchPoints[b].ParentRecordingIds;
+                            for (int p = 0; p < parentIds.Count; p++)
+                            {
+                                if (parentIds[p] == oldRecordingId)
+                                {
+                                    parentIds[p] = newRecordingId;
+                                    ParsekLog.Verbose("RecordingStore",
+                                        $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
+                                        $"ParentRecordingIds: {oldRecordingId} → {newRecordingId}");
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
         }
 
         internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(

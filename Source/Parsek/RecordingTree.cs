@@ -320,40 +320,55 @@ namespace Parsek
 
             foreach (Recording rec in tree.Recordings.Values)
             {
-                if (rec == null)
-                    continue;
-
-                if (!string.IsNullOrEmpty(rec.ParentRecordingId)
-                    && rejectedRecordingIds.Contains(rec.ParentRecordingId))
-                {
-                    rec.ParentRecordingId = null;
-                }
-
-                if (!string.IsNullOrEmpty(rec.DebrisParentRecordingId)
-                    && rejectedRecordingIds.Contains(rec.DebrisParentRecordingId))
-                {
-                    rec.DebrisParentRecordingId = null;
-                }
-
-                if (removedBranchPointIds == null || removedBranchPointIds.Count == 0)
-                    continue;
-
-                if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
-                    && removedBranchPointIds.Contains(rec.ParentBranchPointId))
-                {
-                    rec.ParentBranchPointId = null;
-                }
-
-                if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
-                    && removedBranchPointIds.Contains(rec.ChildBranchPointId))
-                {
-                    rec.ChildBranchPointId = null;
-                }
+                ClearRejectedRecordingReferences(rec, rejectedRecordingIds, removedBranchPointIds);
             }
 
             ParsekLog.Warn("RecordingTree",
                 $"Load: pruned references to {rejectedRecordingIds.Count} metadata-rejected recording(s) " +
                 $"from tree={tree.Id ?? "<no-tree>"} removedBranchPoints={removedBranchPoints}");
+        }
+
+        /// <summary>
+        /// Clears a single recording's references to schema-rejected recordings and removed
+        /// branch points: nulls ParentRecordingId / DebrisParentRecordingId when they point at a
+        /// rejected recording id, and nulls ParentBranchPointId / ChildBranchPointId when they
+        /// point at a removed branch point. Short-circuits on a null recording and on an empty
+        /// removed-branch-point set. Mutates the recording.
+        /// </summary>
+        internal static void ClearRejectedRecordingReferences(
+            Recording rec,
+            HashSet<string> rejectedRecordingIds,
+            HashSet<string> removedBranchPointIds)
+        {
+            if (rec == null)
+                return;
+
+            if (!string.IsNullOrEmpty(rec.ParentRecordingId)
+                && rejectedRecordingIds.Contains(rec.ParentRecordingId))
+            {
+                rec.ParentRecordingId = null;
+            }
+
+            if (!string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && rejectedRecordingIds.Contains(rec.DebrisParentRecordingId))
+            {
+                rec.DebrisParentRecordingId = null;
+            }
+
+            if (removedBranchPointIds == null || removedBranchPointIds.Count == 0)
+                return;
+
+            if (!string.IsNullOrEmpty(rec.ParentBranchPointId)
+                && removedBranchPointIds.Contains(rec.ParentBranchPointId))
+            {
+                rec.ParentBranchPointId = null;
+            }
+
+            if (!string.IsNullOrEmpty(rec.ChildBranchPointId)
+                && removedBranchPointIds.Contains(rec.ChildBranchPointId))
+            {
+                rec.ChildBranchPointId = null;
+            }
         }
 
         public void RebuildBackgroundMap()

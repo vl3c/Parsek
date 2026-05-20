@@ -2310,6 +2310,28 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Pure keyword classifier for an aero-surface event: marks an event as deploy when its
+        /// lowercased name or gui name contains deploy/extend/open/brake/enable, and as retract
+        /// when it contains retract/close/stow/disable. Both outputs can be set independently
+        /// (an event matching neither set leaves both false). Inputs are expected lowercased.
+        /// </summary>
+        internal static void ClassifyAeroEventName(
+            string evtName, string guiName, out bool isDeploy, out bool isRetract)
+        {
+            isDeploy =
+                evtName.Contains("deploy") || guiName.Contains("deploy") ||
+                evtName.Contains("extend") || guiName.Contains("extend") ||
+                evtName.Contains("open") || guiName.Contains("open") ||
+                evtName.Contains("brake") || guiName.Contains("brake") ||
+                evtName.Contains("enable") || guiName.Contains("enable");
+            isRetract =
+                evtName.Contains("retract") || guiName.Contains("retract") ||
+                evtName.Contains("close") || guiName.Contains("close") ||
+                evtName.Contains("stow") || guiName.Contains("stow") ||
+                evtName.Contains("disable") || guiName.Contains("disable");
+        }
+
         internal static bool TryClassifyAeroSurfaceState(
             PartModule aeroSurfaceModule, out bool isDeployed, out bool isRetracted)
         {
@@ -2332,17 +2354,8 @@ namespace Parsek
                     string evtName = (evt.name ?? string.Empty).ToLowerInvariant();
                     string guiName = (evt.guiName ?? string.Empty).ToLowerInvariant();
 
-                    bool isDeployEvent =
-                        evtName.Contains("deploy") || guiName.Contains("deploy") ||
-                        evtName.Contains("extend") || guiName.Contains("extend") ||
-                        evtName.Contains("open") || guiName.Contains("open") ||
-                        evtName.Contains("brake") || guiName.Contains("brake") ||
-                        evtName.Contains("enable") || guiName.Contains("enable");
-                    bool isRetractEvent =
-                        evtName.Contains("retract") || guiName.Contains("retract") ||
-                        evtName.Contains("close") || guiName.Contains("close") ||
-                        evtName.Contains("stow") || guiName.Contains("stow") ||
-                        evtName.Contains("disable") || guiName.Contains("disable");
+                    ClassifyAeroEventName(evtName, guiName,
+                        out bool isDeployEvent, out bool isRetractEvent);
 
                     if (isDeployEvent)
                     {
@@ -5744,13 +5757,8 @@ namespace Parsek
                 uint oldAnchorPid = currentAnchorPid;
                 isRelativeMode = false;
                 ClearCurrentRecordingAnchor();
-                CloseCurrentTrackSection(boundaryUT);
-                var env = environmentHysteresis != null
-                    ? environmentHysteresis.CurrentEnvironment
-                    : SegmentEnvironment.Atmospheric;
-                StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
-                ActivateHighFidelitySampling(boundaryUT, "relative-exit-landing");
-                AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-landing");
+                RotateToNewTrackSection(v, boundaryUT, ReferenceFrame.Absolute,
+                    "relative-exit-landing", "relative-exit-landing");
                 ParsekLog.Info("Anchor",
                     $"RELATIVE mode exited on landing: previousAnchorRecordingId={oldAnchorRecordingId ?? "(none)"} " +
                     $"diagnosticPid={oldAnchorPid} " +
@@ -5876,13 +5884,8 @@ namespace Parsek
                     }
                     isRelativeMode = false;
                     ClearCurrentRecordingAnchor();
-                    CloseCurrentTrackSection(boundaryUT);
-                    var env = environmentHysteresis != null
-                        ? environmentHysteresis.CurrentEnvironment
-                        : SegmentEnvironment.Atmospheric;
-                    StartNewTrackSection(env, ReferenceFrame.Absolute, boundaryUT);
-                    ActivateHighFidelitySampling(boundaryUT, "relative-exit");
-                    AppendSectionStartSeamPoint(v, boundaryUT, "relative-exit-distance");
+                    RotateToNewTrackSection(v, boundaryUT, ReferenceFrame.Absolute,
+                        "relative-exit", "relative-exit-distance");
                     ParsekLog.Info("Anchor",
                         BuildRelativeModeExitedLogMessage(
                             oldAnchorRecordingId,
@@ -5892,6 +5895,26 @@ namespace Parsek
                             RecordingVesselId));
                 }
             }
+        }
+
+        /// <summary>
+        /// Closes the current track section and opens a new one at the boundary UT, resolving
+        /// the environment from the hysteresis (defaulting to Atmospheric when absent), then
+        /// activates high-fidelity sampling and appends a section-start seam point. Shared tail
+        /// of the two RELATIVE-exit cases in <see cref="UpdateAnchorDetection"/> (landing and
+        /// distance), which differ only in the activation / seam reason strings.
+        /// </summary>
+        private void RotateToNewTrackSection(
+            Vessel v, double boundaryUT, ReferenceFrame frame,
+            string activationReason, string seamReason)
+        {
+            CloseCurrentTrackSection(boundaryUT);
+            var env = environmentHysteresis != null
+                ? environmentHysteresis.CurrentEnvironment
+                : SegmentEnvironment.Atmospheric;
+            StartNewTrackSection(env, frame, boundaryUT);
+            ActivateHighFidelitySampling(boundaryUT, activationReason);
+            AppendSectionStartSeamPoint(v, boundaryUT, seamReason);
         }
 
         #endregion

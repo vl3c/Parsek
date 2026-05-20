@@ -368,6 +368,132 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ComputePairwiseTravelDistance
+
+        [Fact]
+        public void ComputePairwiseTravelDistance_RelativeFrame_UsesEuclideanMetreOffsets()
+        {
+            // Pins the CLAUDE.md metres-as-degrees contract: in a Relative section the
+            // latitude/longitude/altitude fields are anchor-local METRE offsets, so the
+            // distance is the raw Euclidean delta, NOT a haversine over lat/lon degrees.
+            var prev = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 3, longitude = 4, altitude = 0 };
+
+            double dist = TrajectoryMath.ComputePairwiseTravelDistance(
+                prev, cur, ReferenceFrame.Relative, bodyRadius: 600000);
+
+            // 3-4-5 triangle: sqrt(3^2 + 4^2) = 5 metres, independent of body radius.
+            Assert.Equal(5.0, dist, 6);
+        }
+
+        [Fact]
+        public void ComputePairwiseTravelDistance_RelativeFrame_IncludesAltitudeAxis()
+        {
+            var prev = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 12 };
+
+            double dist = TrajectoryMath.ComputePairwiseTravelDistance(
+                prev, cur, ReferenceFrame.Relative, bodyRadius: 600000);
+
+            Assert.Equal(12.0, dist, 6);
+        }
+
+        [Fact]
+        public void ComputePairwiseTravelDistance_AbsoluteFrame_PureAltitudeChange_EqualsAltDelta()
+        {
+            // Same lat/lon -> haversine surface distance is 0, so the result is the
+            // altitude delta alone.
+            var prev = new TrajectoryPoint { latitude = 10, longitude = 20, altitude = 100 };
+            var cur = new TrajectoryPoint { latitude = 10, longitude = 20, altitude = 250 };
+
+            double dist = TrajectoryMath.ComputePairwiseTravelDistance(
+                prev, cur, ReferenceFrame.Absolute, bodyRadius: 600000);
+
+            Assert.Equal(150.0, dist, 6);
+        }
+
+        [Fact]
+        public void ComputePairwiseTravelDistance_AbsoluteFrame_LatChange_UsesHaversineNotEuclidean()
+        {
+            // 1 degree of latitude at the surface is ~ bodyRadius * pi/180, far larger than
+            // the raw Euclidean delta of 1 the Relative path would produce. This confirms the
+            // frame dispatch picks haversine, not the metre-offset Euclidean path.
+            var prev = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 1, longitude = 0, altitude = 0 };
+
+            double absDist = TrajectoryMath.ComputePairwiseTravelDistance(
+                prev, cur, ReferenceFrame.Absolute, bodyRadius: 600000);
+            double relDist = TrajectoryMath.ComputePairwiseTravelDistance(
+                prev, cur, ReferenceFrame.Relative, bodyRadius: 600000);
+
+            double expectedArc = 600000 * Math.PI / 180.0; // ~10472 m
+            Assert.True(Math.Abs(absDist - expectedArc) < 1.0,
+                $"Absolute lat delta should be ~{expectedArc} m arc, got {absDist}");
+            Assert.Equal(1.0, relDist, 6); // Relative treats the 1 as a metre offset
+        }
+
+        #endregion
+
+        #region ComputePointRangeFromStart
+
+        [Fact]
+        public void ComputePointRangeFromStart_BothRelative_UsesEuclideanMetreOffsets()
+        {
+            var start = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 6, longitude = 8, altitude = 0 };
+
+            double range = TrajectoryMath.ComputePointRangeFromStart(
+                start, cur, ReferenceFrame.Relative, ReferenceFrame.Relative, bodyRadius: 600000);
+
+            Assert.Equal(10.0, range, 6); // 6-8-10 triangle
+        }
+
+        [Fact]
+        public void ComputePointRangeFromStart_CurrentRelativeOnly_ReturnsZero()
+        {
+            // The subtle correctness case: start frame is Absolute but the current point is
+            // Relative -> the two frames cannot be mixed, so range collapses to 0.0.
+            var start = new TrajectoryPoint { latitude = 10, longitude = 20, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 99, longitude = 99, altitude = 500 };
+
+            double range = TrajectoryMath.ComputePointRangeFromStart(
+                start, cur, ReferenceFrame.Absolute, ReferenceFrame.Relative, bodyRadius: 600000);
+
+            Assert.Equal(0.0, range);
+        }
+
+        [Fact]
+        public void ComputePointRangeFromStart_BothAbsolute_UsesHaversineFromStart()
+        {
+            var start = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 1, longitude = 0, altitude = 0 };
+
+            double range = TrajectoryMath.ComputePointRangeFromStart(
+                start, cur, ReferenceFrame.Absolute, ReferenceFrame.Absolute, bodyRadius: 600000);
+
+            double expectedArc = 600000 * Math.PI / 180.0; // ~10472 m
+            Assert.True(Math.Abs(range - expectedArc) < 1.0,
+                $"Absolute-Absolute range should be ~{expectedArc} m arc, got {range}");
+        }
+
+        [Fact]
+        public void ComputePointRangeFromStart_StartRelativeCurrentAbsolute_UsesHaversine()
+        {
+            // Only the BOTH-Relative branch takes the metre-offset path; a start-Relative
+            // current-Absolute pair falls through to the haversine else-branch.
+            var start = new TrajectoryPoint { latitude = 0, longitude = 0, altitude = 0 };
+            var cur = new TrajectoryPoint { latitude = 0, longitude = 1, altitude = 0 };
+
+            double range = TrajectoryMath.ComputePointRangeFromStart(
+                start, cur, ReferenceFrame.Relative, ReferenceFrame.Absolute, bodyRadius: 600000);
+
+            double expectedArc = 600000 * Math.PI / 180.0;
+            Assert.True(Math.Abs(range - expectedArc) < 1.0,
+                $"start-Relative current-Absolute should use haversine ~{expectedArc} m, got {range}");
+        }
+
+        #endregion
+
         #region FindFirstMovingPoint Logging
 
         [Fact]

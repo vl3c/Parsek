@@ -1099,6 +1099,11 @@ namespace Parsek.Tests
                 l.Contains("solver-predicted impact short-circuit"));
         }
 
+        // The solver-impact short-circuit is intentionally airless-only. A
+        // re-entering orbit on an atmospheric body is handled separately by
+        // BallisticExtrapolator.TryFindAtmosphericReentryClip (clip at atmosphere
+        // entry + ballistic descent), exercised by
+        // TryCompleteFinalizationFromPatchedSnapshot_SuborbitalReentry_* below.
         [Fact]
         public void TryShortCircuitSolverPredictedImpact_AtmosphericBody_ReturnsFalse()
         {
@@ -1132,6 +1137,111 @@ namespace Parsek.Tests
             Assert.False(shortCircuited);
             Assert.True(double.IsNaN(terminalUT));
             Assert.DoesNotContain(logLines, l => l.Contains("scene-exit-kerbin-entry"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_SuborbitalReentry_ClipsTailAndHandsToBallistic()
+        {
+            // A re-flown sub-orbital capsule (apoapsis ~98 km, periapsis ~598 km
+            // below the surface) is captured by KSP's transition-less patched-conic
+            // chain as a CLOSED ellipse that runs underground. The finalizer must
+            // clip the predicted tail at the descending atmosphere-entry crossing
+            // and hand the start state at that boundary to the ballistic
+            // extrapolator, instead of propagating from the underground end of the
+            // ellipse (which trips the sub-surface guard and leaves the underground
+            // segments on the recording).
+            var rec = new Recording
+            {
+                RecordingId = "scene-exit-reentry-clip",
+                ExplicitEndUT = 175.0
+            };
+            var snapshot = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.None,
+                Segments = new List<OrbitSegment>
+                {
+                    // Two closed-ellipse periods (epoch at apoapsis), both
+                    // sub-surface periapsis. Only the above-atmosphere arc of the
+                    // first should survive; the rest is underground.
+                    new OrbitSegment
+                    {
+                        bodyName = "Kerbin",
+                        startUT = 0.0,
+                        endUT = 693.0,
+                        semiMajorAxis = 350210.756,
+                        eccentricity = 0.99519589,
+                        meanAnomalyAtEpoch = Math.PI,
+                        epoch = 0.0,
+                        isPredicted = true
+                    },
+                    new OrbitSegment
+                    {
+                        bodyName = "Kerbin",
+                        startUT = 693.0,
+                        endUT = 1386.0,
+                        semiMajorAxis = 350210.756,
+                        eccentricity = 0.99519589,
+                        meanAnomalyAtEpoch = Math.PI,
+                        epoch = 693.0,
+                        isPredicted = true
+                    }
+                }
+            };
+            var bodies = new Dictionary<string, ExtrapolationBody>
+            {
+                ["Kerbin"] = new ExtrapolationBody
+                {
+                    Name = "Kerbin",
+                    GravitationalParameter = 3.5316e12,
+                    Radius = 600000.0,
+                    AtmosphereDepth = 70000.0
+                }
+            };
+
+            BallisticStateVector capturedStartState = default(BallisticStateVector);
+            bool extrapolated = false;
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                snapshot,
+                bodies,
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = default(BallisticStateVector);
+                    return false; // no live fallback; segments must drive the start state
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolated = true;
+                    capturedStartState = startState;
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = startState.ut + 60.0,
+                        terminalBodyName = "Kerbin",
+                        segments = new List<OrbitSegment>()
+                    };
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.True(extrapolated, "Ballistic extrapolator must run from the clipped atmosphere-entry start state.");
+
+            // The start state handed to the extrapolator is at the atmosphere top,
+            // NOT underground.
+            double startAltitude = capturedStartState.position.magnitude - 600000.0;
+            Assert.InRange(startAltitude, 70000.0 - 100.0, 70000.0 + 100.0);
+
+            // The underground tail is gone: the second period is dropped and the
+            // surviving segment is clipped before its (sub-surface) period end.
+            Assert.NotNull(result.appendedOrbitSegments);
+            Assert.Single(result.appendedOrbitSegments);
+            Assert.True(result.appendedOrbitSegments[0].endUT < 693.0,
+                "Surviving predicted segment must be clipped at atmosphere entry, not run the full underground period.");
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("clipped re-entering predicted orbit")
+                && l.Contains("scene-exit-reentry-clip"));
         }
 
         [Fact]
