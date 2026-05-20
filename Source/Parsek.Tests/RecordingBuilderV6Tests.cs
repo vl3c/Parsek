@@ -409,51 +409,51 @@ namespace Parsek.Tests
             Assert.Null(metadata.GetValue("isDebris"));
         }
 
-        // ===== v13 debrisParentRecordingId codec round-trip =====
+        // ===== v13 parentAnchorRecordingId codec round-trip =====
         // Mirrors the recorder's sparse-on-disk contract: only emitted when
         // IsDebris is true AND the parent id is set. PR 3b plumbs this
         // through RecordingBuilder + ScenarioWriter so the synthetic
         // injector (InjectAllRecordings) can produce v13 debris fixtures.
 
         [Fact]
-        public void WithDebrisParentRecordingId_AsDebris_BuildV3Metadata_EmitsField()
+        public void WithParentAnchorRecordingId_AsDebris_BuildV3Metadata_EmitsField()
         {
             var builder = new RecordingBuilder("DebrisWithParent")
                 .AsDebris()
-                .WithDebrisParentRecordingId("parent-rec-001");
+                .WithParentAnchorRecordingId("parent-rec-001");
 
             var metadata = builder.BuildV3Metadata();
 
             Assert.Equal("True", metadata.GetValue("isDebris"));
-            Assert.Equal("parent-rec-001", metadata.GetValue("debrisParentRecordingId"));
+            Assert.Equal("parent-rec-001", metadata.GetValue("parentAnchorRecordingId"));
         }
 
         [Fact]
-        public void WithDebrisParentRecordingId_AsDebris_Build_EmitsField()
+        public void WithParentAnchorRecordingId_AsDebris_Build_EmitsField()
         {
             var builder = new RecordingBuilder("DebrisWithParentBuild")
                 .AsDebris()
-                .WithDebrisParentRecordingId("parent-rec-002");
+                .WithParentAnchorRecordingId("parent-rec-002");
 
             var node = builder.Build();
 
             Assert.Equal("True", node.GetValue("isDebris"));
-            Assert.Equal("parent-rec-002", node.GetValue("debrisParentRecordingId"));
+            Assert.Equal("parent-rec-002", node.GetValue("parentAnchorRecordingId"));
         }
 
         [Fact]
-        public void WithDebrisParentRecordingId_NonDebris_DoesNotEmitField()
+        public void WithParentAnchorRecordingId_NonDebris_DoesNotEmitField()
         {
             // Sparse-write contract: setting the parent id without AsDebris()
             // does NOT write the field — non-debris recordings stay
             // byte-identical on disk across the v11 -> v12 upgrade.
             var builder = new RecordingBuilder("NonDebrisWithParentSet")
-                .WithDebrisParentRecordingId("parent-rec-003");
+                .WithParentAnchorRecordingId("parent-rec-003");
 
             var metadata = builder.BuildV3Metadata();
 
             Assert.Null(metadata.GetValue("isDebris"));
-            Assert.Null(metadata.GetValue("debrisParentRecordingId"));
+            Assert.Null(metadata.GetValue("parentAnchorRecordingId"));
         }
 
         [Fact]
@@ -468,27 +468,27 @@ namespace Parsek.Tests
             var metadata = builder.BuildV3Metadata();
 
             Assert.Equal("True", metadata.GetValue("isDebris"));
-            Assert.Null(metadata.GetValue("debrisParentRecordingId"));
+            Assert.Null(metadata.GetValue("parentAnchorRecordingId"));
         }
 
         [Fact]
-        public void GetDebrisParentRecordingId_ReturnsValue()
+        public void GetParentAnchorRecordingId_ReturnsValue()
         {
-            // ScenarioWriter reads this getter to stamp Recording.DebrisParentRecordingId
-            // on the in-memory Recording instance via Recording.ApplyDebrisAnchorContract.
+            // ScenarioWriter reads this getter to stamp Recording.ParentAnchorRecordingId
+            // on the in-memory Recording instance via Recording.ApplyParentAnchorContract.
             var builder = new RecordingBuilder("DebrisGetterTest")
                 .AsDebris()
-                .WithDebrisParentRecordingId("parent-rec-getter");
+                .WithParentAnchorRecordingId("parent-rec-getter");
 
-            Assert.Equal("parent-rec-getter", builder.GetDebrisParentRecordingId());
+            Assert.Equal("parent-rec-getter", builder.GetParentAnchorRecordingId());
         }
 
         [Fact]
-        public void GetDebrisParentRecordingId_NotSet_ReturnsNull()
+        public void GetParentAnchorRecordingId_NotSet_ReturnsNull()
         {
             var builder = new RecordingBuilder("DebrisGetterNullTest").AsDebris();
 
-            Assert.Null(builder.GetDebrisParentRecordingId());
+            Assert.Null(builder.GetParentAnchorRecordingId());
         }
 
         [Fact]
@@ -498,7 +498,7 @@ namespace Parsek.Tests
             // BoosterDropDebrisPair returns a parent + debris pair whose
             // recordings serialize cleanly via the v12 codec, with the
             // parent's id correctly stamped on the debris's
-            // DebrisParentRecordingId. Catches a regression where the
+            // ParentAnchorRecordingId. Catches a regression where the
             // synthetic factory drifts from the recorder's contract
             // (e.g. forgets to call AsDebris, or uses an unstable
             // recording id that breaks the parent-anchor reference).
@@ -512,7 +512,7 @@ namespace Parsek.Tests
             // Absolute TrackSection so the resolver can resolve it as
             // the debris's anchor at any sample UT.
             Assert.False(parent.GetIsDebris());
-            Assert.Null(parent.GetDebrisParentRecordingId());
+            Assert.Null(parent.GetParentAnchorRecordingId());
             Assert.Equal("synth-booster-drop-parent", parent.GetRecordingId());
             var parentSections = parent.GetTrackSections();
             Assert.Single(parentSections);
@@ -522,7 +522,7 @@ namespace Parsek.Tests
             // Debris: debris=true, parent id matches, has a Relative
             // TrackSection anchored to the parent's recording id.
             Assert.True(debris.GetIsDebris());
-            Assert.Equal(parent.GetRecordingId(), debris.GetDebrisParentRecordingId());
+            Assert.Equal(parent.GetRecordingId(), debris.GetParentAnchorRecordingId());
             var debrisSections = debris.GetTrackSections();
             Assert.Single(debrisSections);
             Assert.Equal(ReferenceFrame.Relative, debrisSections[0].referenceFrame);
@@ -534,10 +534,10 @@ namespace Parsek.Tests
             ConfigNode parentNode = parent.Build();
             ConfigNode debrisNode = debris.Build();
             Assert.Null(parentNode.GetValue("isDebris"));
-            Assert.Null(parentNode.GetValue("debrisParentRecordingId"));
+            Assert.Null(parentNode.GetValue("parentAnchorRecordingId"));
             Assert.Equal("True", debrisNode.GetValue("isDebris"));
             Assert.Equal(parent.GetRecordingId(),
-                debrisNode.GetValue("debrisParentRecordingId"));
+                debrisNode.GetValue("parentAnchorRecordingId"));
         }
 
         #endregion

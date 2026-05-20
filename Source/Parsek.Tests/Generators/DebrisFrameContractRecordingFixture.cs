@@ -62,7 +62,7 @@ namespace Parsek.Tests.Generators
                 VesselName = debrisId,
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = parentId,
+                ParentAnchorRecordingId = parentId,
                 Points = new List<TrajectoryPoint>
                 {
                     absoluteSection.frames[0],

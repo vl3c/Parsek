@@ -3094,7 +3094,7 @@ namespace Parsek.Tests
                     state: MergeState.Immutable, terminal: TerminalState.Destroyed);
                 rec.ExplicitStartUT = row.startUT;
                 rec.IsDebris = row.isDebris;
-                if (row.isDebris) rec.DebrisParentRecordingId = row.parent;
+                if (row.isDebris) rec.ParentAnchorRecordingId = row.parent;
                 // Pass 7: IsPreRewindCarveOut now reads bounds from
                 // TryGetActualTrajectoryBounds (sampled content only). Add
                 // a single Point at the row's startUT so the debris has
@@ -3352,9 +3352,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPreRewindDebris_DebrisWithoutDebrisParentRecordingId_ReturnsFalse()
+        public void IsPreRewindDebris_DebrisWithoutParentAnchorRecordingId_ReturnsFalse()
         {
-            // Legacy v11 debris loaded without DebrisParentRecordingId has
+            // Legacy v11 debris loaded without ParentAnchorRecordingId has
             // no v12 ownership link. The closure walk's
             // EnqueueDebrisChildren refuses to admit such rows in the first
             // place, but if some other path put it in the closure, the
@@ -3370,7 +3370,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_legacy",
                 IsDebris = true,
-                // DebrisParentRecordingId intentionally null
+                // ParentAnchorRecordingId intentionally null
                 ExplicitStartUT = 10.0,
             };
             Assert.False(SupersedeCommit.IsPreRewindDebris(legacyDebris, marker));
@@ -3388,7 +3388,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_d",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_parent",
+                ParentAnchorRecordingId = "rec_parent",
                 ExplicitStartUT = 10.0,
             };
 
@@ -3543,7 +3543,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_carveout",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_carveout",
+                ParentAnchorRecordingId = "rec_origin_carveout",
                 ExplicitStartUT = 22.5, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
@@ -3882,7 +3882,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_at_boundary",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_carveout",
+                ParentAnchorRecordingId = "rec_origin_carveout",
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 34.0,  // == rewindUT
             };
@@ -3915,7 +3915,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_legacy",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_legacy",
+                ParentAnchorRecordingId = "rec_origin_legacy",
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
@@ -3946,7 +3946,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_nomarker",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_nomarker",
+                ParentAnchorRecordingId = "rec_origin_nomarker",
                 ExplicitStartUT = 5.0,
                 ExplicitEndUT = 10.0,
             };
@@ -4049,7 +4049,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_stale_start",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_stale",
+                ParentAnchorRecordingId = "rec_origin_stale",
                 // Stale logical start (parent's branchUT). Sampled content
                 // actually starts at UT=40 — strictly post-rewind.
                 ExplicitStartUT = 8.0,
@@ -4239,7 +4239,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_wrap",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_wrap",
+                ParentAnchorRecordingId = "rec_origin_wrap",
                 ExplicitStartUT = 22.0,
                 ExplicitEndUT = 28.0,
             };

@@ -1219,7 +1219,7 @@ namespace Parsek.Tests
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_LegacyDebris_ReturnsFalse()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            traj.DebrisParentRecordingId = null;
+            traj.ParentAnchorRecordingId = null;
 
             Assert.False(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                 traj, 111.0));
@@ -1229,7 +1229,7 @@ namespace Parsek.Tests
         public void ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage_EmptyParentId_ReturnsTrue()
         {
             var traj = MakeParentAnchoredDebrisWithRelativeSection();
-            traj.DebrisParentRecordingId = "";
+            traj.ParentAnchorRecordingId = "";
 
             Assert.True(GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
                 traj, 111.0));
@@ -1916,7 +1916,7 @@ namespace Parsek.Tests
             traj.VesselName = "Kerbal X Debris";
             traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -1943,7 +1943,7 @@ namespace Parsek.Tests
             traj.VesselName = "Kerbal X Debris";
             traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -1988,7 +1988,7 @@ namespace Parsek.Tests
                 RecordingId = "debris-rec",
                 VesselName = "Kerbal X Debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
+                ParentAnchorRecordingId = "parent-rec",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
             };
             tree.Recordings["parent-rec"] = new Recording
@@ -3775,7 +3775,7 @@ namespace Parsek.Tests
                 VesselName = "RelativeDebrisSpawnGhost",
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
+                ParentAnchorRecordingId = "parent-rec",
                 Points = relativeFrames,
                 OrbitSegments = new List<OrbitSegment>
                 {
@@ -4522,7 +4522,7 @@ namespace Parsek.Tests
             // advance smoothly).
             var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4559,7 +4559,7 @@ namespace Parsek.Tests
             // resolution.
             var traj = new MockTrajectory().WithTimeRange(109.74, 121.94);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4627,7 +4627,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4660,7 +4660,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4693,7 +4693,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4777,7 +4777,7 @@ namespace Parsek.Tests
             // typical debris atmospheric speeds (~190 m/s).
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4809,7 +4809,7 @@ namespace Parsek.Tests
             // live anchor resolution.
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4835,7 +4835,7 @@ namespace Parsek.Tests
             // resolving the live anchor pose.
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = false;
-            traj.DebrisParentRecordingId = null;
+            traj.ParentAnchorRecordingId = null;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4862,7 +4862,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4898,7 +4898,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4946,7 +4946,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = null;
+            traj.ParentAnchorRecordingId = null;
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -4972,7 +4972,7 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, 100.25));
 
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections[0].frames[0] = new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin" };
             Assert.False(GhostPlaybackEngine.ShouldHoldInitialDebrisSeedBridgeActivationHidden(
                 traj, state, 100.25));
@@ -4995,7 +4995,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5027,7 +5027,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5060,7 +5060,7 @@ namespace Parsek.Tests
         {
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5386,7 +5386,7 @@ namespace Parsek.Tests
             // exemption is about the FRESH-SPAWN race, not the section-frame race.
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5423,7 +5423,7 @@ namespace Parsek.Tests
             // that prompted this regression test).
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5468,7 +5468,7 @@ namespace Parsek.Tests
             // live parent pose.
             var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
             traj.IsDebris = true;
-            traj.DebrisParentRecordingId = "parent-rec";
+            traj.ParentAnchorRecordingId = "parent-rec";
             traj.TrackSections.Add(new TrackSection
             {
                 referenceFrame = ReferenceFrame.Relative,
@@ -5536,7 +5536,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 50.0,
             };
             var marker = new ReFlySessionMarker
@@ -5568,7 +5568,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_postrp_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 150.0,
             };
             var marker = new ReFlySessionMarker
@@ -5600,7 +5600,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_at_rp_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 100.0,
             };
             var marker = new ReFlySessionMarker
@@ -5635,7 +5635,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_in_drift_window",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 100.5,
             };
             var marker = new ReFlySessionMarker
@@ -5668,7 +5668,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_at_rp_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 37.20,
             };
             var marker = new ReFlySessionMarker
@@ -5706,7 +5706,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin",
+                ParentAnchorRecordingId = "rec_origin",
                 StartUTOverride = 50.0,
             };
             var marker = new ReFlySessionMarker
@@ -5732,7 +5732,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
             var marker = new ReFlySessionMarker
             {
@@ -5756,7 +5756,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_origin",
                 IsDebris = false,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
             var marker = new ReFlySessionMarker
             {
@@ -5785,7 +5785,7 @@ namespace Parsek.Tests
             {
                 RecordingId = recordingId,
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId
+                ParentAnchorRecordingId = parentRecordingId
             };
             var marker = new ReFlySessionMarker
             {
@@ -5808,7 +5808,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
             var marker = new ReFlySessionMarker
             {
@@ -5835,7 +5835,7 @@ namespace Parsek.Tests
             {
                 RecordingId = trajectoryRecordingId,
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
             var marker = new ReFlySessionMarker
             {
@@ -5862,7 +5862,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
             var marker = new ReFlySessionMarker
             {
@@ -5900,7 +5900,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin"
+                ParentAnchorRecordingId = "rec_origin"
             };
 
             Assert.False(GhostPlaybackEngine.ShouldRenderSuppressedCompanionDebris(
@@ -5924,7 +5924,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "origin",
+                ParentAnchorRecordingId = "origin",
                 StartUTOverride = 25.5,
             };
             var marker = new ReFlySessionMarker
@@ -5963,7 +5963,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "origin",
+                ParentAnchorRecordingId = "origin",
                 StartUTOverride = 25.86,
             };
             var marker = new ReFlySessionMarker

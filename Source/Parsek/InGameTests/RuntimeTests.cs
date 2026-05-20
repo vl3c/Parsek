@@ -3653,7 +3653,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only - this test starts a recording and stages the active vessel to assert the parent-anchor contract stamping on a controlled-decoupled child. Use Run All + Isolated or the row play button on a disposable two-controller decoupler craft.",
-            Description = "Controlled-decoupled child stamps DebrisParentRecordingId pointing at the focused parent recording at split time")]
+            Description = "Controlled-decoupled child stamps ParentAnchorRecordingId pointing at the focused parent recording at split time")]
         public IEnumerator ControlledChildBreakup_StampsParentAnchorContract()
         {
             var flight = ParsekFlight.Instance;
@@ -3737,8 +3737,8 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsFalse(childRec.IsDebris,
                     $"controlled-decoupled child must have IsDebris=false, got IsDebris={childRec.IsDebris} for recId={childRec.RecordingId}");
-                InGameAssert.AreEqual(parentRecId, childRec.DebrisParentRecordingId,
-                    $"controlled child should carry DebrisParentRecordingId={parentRecId}; got '{childRec.DebrisParentRecordingId}' (this is the parent-anchor contract that Phase 2 of the controlled-child-parent-anchored fix lands)");
+                InGameAssert.AreEqual(parentRecId, childRec.ParentAnchorRecordingId,
+                    $"controlled child should carry ParentAnchorRecordingId={parentRecId}; got '{childRec.ParentAnchorRecordingId}' (this is the parent-anchor contract that Phase 2 of the controlled-child-parent-anchored fix lands)");
             }
             finally
             {
@@ -3767,9 +3767,9 @@ namespace Parsek.InGameTests
                     continue;
                 if (rec.IsDebris)
                     continue;
-                if (string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                if (string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
                     continue;
-                if (!string.Equals(rec.DebrisParentRecordingId, parentRecId, System.StringComparison.Ordinal))
+                if (!string.Equals(rec.ParentAnchorRecordingId, parentRecId, System.StringComparison.Ordinal))
                     continue;
                 return rec;
             }
@@ -16395,7 +16395,7 @@ namespace Parsek.InGameTests
                 VesselName = "v13-long-range-debris",
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = "v13-long-range-parent",
+                ParentAnchorRecordingId = "v13-long-range-parent",
                 Points = new List<TrajectoryPoint>(absoluteSection.frames),
                 TrackSections = new List<TrackSection> { absoluteSection },
             };
@@ -16662,7 +16662,7 @@ namespace Parsek.InGameTests
                 VesselName = recordingId,
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId,
+                ParentAnchorRecordingId = parentRecordingId,
                 Points = new List<TrajectoryPoint>(relativeFrames),
                 TrackSections = new List<TrackSection> { section },
             };
@@ -19607,7 +19607,7 @@ namespace Parsek.InGameTests
     internal class Bug613RelativeTrajectory : IPlaybackTrajectory
     {
         private readonly bool _isDebris;
-        private readonly string _debrisParentRecordingId;
+        private readonly string _parentAnchorRecordingId;
         private readonly string _recordingId;
 
         internal Bug613RelativeTrajectory(
@@ -19618,7 +19618,7 @@ namespace Parsek.InGameTests
             string recordingId = "test-b613")
         {
             _isDebris = parentAnchoredDebris;
-            _debrisParentRecordingId = parentAnchoredDebris ? "test-b613-parent" : null;
+            _parentAnchorRecordingId = parentAnchoredDebris ? "test-b613-parent" : null;
             _recordingId = recordingId;
 
             Points = new List<TrajectoryPoint>
@@ -19696,7 +19696,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => _isDebris;
-        public string DebrisParentRecordingId => _debrisParentRecordingId;
+        public string ParentAnchorRecordingId => _parentAnchorRecordingId;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -19792,7 +19792,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -19892,7 +19892,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -19941,7 +19941,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20023,7 +20023,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20090,7 +20090,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0.0;

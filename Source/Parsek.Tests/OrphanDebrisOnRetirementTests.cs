@@ -14,7 +14,7 @@ namespace Parsek.Tests
     /// <c>logs/2026-05-19_2329_pr909-narrowed-gate-playtest/saves/x4/persistent.sfs</c>.
     /// Retirement <c>rrt_33919eadcd674138baef970cb3e7b5b7</c> retires
     /// <c>rec_2c68978d</c>. Recording <c>3d4713df</c> has
-    /// <c>debrisParentRecordingId = rec_2c68978d</c> but no retirement of its
+    /// <c>parentAnchorRecordingId = rec_2c68978d</c> but no retirement of its
     /// own; pre-fix it rendered as an orphan debris ghost alongside the
     /// restored recording's own debris children.
     /// </para>
@@ -58,7 +58,7 @@ namespace Parsek.Tests
 
         private static Recording Rec(
             string id,
-            string debrisParentRecordingId = null,
+            string parentAnchorRecordingId = null,
             MergeState state = MergeState.CommittedProvisional)
         {
             return new Recording
@@ -66,7 +66,7 @@ namespace Parsek.Tests
                 RecordingId = id,
                 VesselName = id,
                 MergeState = state,
-                DebrisParentRecordingId = debrisParentRecordingId,
+                ParentAnchorRecordingId = parentAnchorRecordingId,
             };
         }
 
@@ -89,7 +89,7 @@ namespace Parsek.Tests
         public void Cascade_RetiredParent_HidesParentAnchoredChild()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent", "rec_restored") };
 
@@ -103,9 +103,9 @@ namespace Parsek.Tests
         public void Cascade_MultipleChildren_HidesAllParentAnchoredChildren()
         {
             var parent = Rec("rec_parent");
-            var c1 = Rec("rec_c1", debrisParentRecordingId: "rec_parent");
-            var c2 = Rec("rec_c2", debrisParentRecordingId: "rec_parent");
-            var c3 = Rec("rec_c3", debrisParentRecordingId: "rec_parent");
+            var c1 = Rec("rec_c1", parentAnchorRecordingId: "rec_parent");
+            var c2 = Rec("rec_c2", parentAnchorRecordingId: "rec_parent");
+            var c3 = Rec("rec_c3", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, c1, c2, c3 };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
@@ -121,11 +121,11 @@ namespace Parsek.Tests
         public void Cascade_TransitiveChain_HidesGrandchildren()
         {
             // rec_parent -> rec_child -> rec_grandchild.
-            // grandchild's DebrisParentRecordingId points at child, not parent;
+            // grandchild's ParentAnchorRecordingId points at child, not parent;
             // fixed-point closure adds child first, then grandchild.
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
-            var grandchild = Rec("rec_grandchild", debrisParentRecordingId: "rec_child");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
+            var grandchild = Rec("rec_grandchild", parentAnchorRecordingId: "rec_child");
             var recordings = new List<Recording> { parent, child, grandchild };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
@@ -142,9 +142,9 @@ namespace Parsek.Tests
             // P -> c1 -> c2 -> c3 (depth 4). Pins that the fixed-point
             // closure reaches arbitrary depth, not just two levels.
             var parent = Rec("rec_p");
-            var c1 = Rec("rec_c1", debrisParentRecordingId: "rec_p");
-            var c2 = Rec("rec_c2", debrisParentRecordingId: "rec_c1");
-            var c3 = Rec("rec_c3", debrisParentRecordingId: "rec_c2");
+            var c1 = Rec("rec_c1", parentAnchorRecordingId: "rec_p");
+            var c2 = Rec("rec_c2", parentAnchorRecordingId: "rec_c1");
+            var c3 = Rec("rec_c3", parentAnchorRecordingId: "rec_c2");
             var recordings = new List<Recording> { parent, c1, c2, c3 };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_p") };
 
@@ -164,9 +164,9 @@ namespace Parsek.Tests
             // seed); c2 and c3 require the fixed-point loop's extra passes.
             // Pins that the do/while closure (not a single pass) is what
             // makes the cascade complete.
-            var c3 = Rec("rec_c3", debrisParentRecordingId: "rec_c2");
-            var c2 = Rec("rec_c2", debrisParentRecordingId: "rec_c1");
-            var c1 = Rec("rec_c1", debrisParentRecordingId: "rec_p");
+            var c3 = Rec("rec_c3", parentAnchorRecordingId: "rec_c2");
+            var c2 = Rec("rec_c2", parentAnchorRecordingId: "rec_c1");
+            var c1 = Rec("rec_c1", parentAnchorRecordingId: "rec_p");
             var parent = Rec("rec_p");
             var recordings = new List<Recording> { c3, c2, c1, parent };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_p") };
@@ -182,12 +182,12 @@ namespace Parsek.Tests
         [Fact]
         public void Cascade_SelfParentRecording_TerminatesAndStaysVisibleWhenNotRetired()
         {
-            // Corrupt save: a recording whose DebrisParentRecordingId points
+            // Corrupt save: a recording whose ParentAnchorRecordingId points
             // at itself. The closure must terminate (it does: the recording
             // is only added if its parent id is already in the set, and it
             // can never seed itself) and the self-parent recording stays
             // visible because it is not retired.
-            var selfParent = Rec("rec_self", debrisParentRecordingId: "rec_self");
+            var selfParent = Rec("rec_self", parentAnchorRecordingId: "rec_self");
             var unrelatedRetired = Rec("rec_other");
             var recordings = new List<Recording> { selfParent, unrelatedRetired };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_other") };
@@ -205,8 +205,8 @@ namespace Parsek.Tests
             // The closure must terminate (no seed to expand from) and leave
             // both visible. Guards against an infinite loop if a future
             // change ever seeds from one of them by accident.
-            var a = Rec("rec_A", debrisParentRecordingId: "rec_B");
-            var b = Rec("rec_B", debrisParentRecordingId: "rec_A");
+            var a = Rec("rec_A", parentAnchorRecordingId: "rec_B");
+            var b = Rec("rec_B", parentAnchorRecordingId: "rec_A");
             var recordings = new List<Recording> { a, b };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_unrelated") };
 
@@ -222,8 +222,8 @@ namespace Parsek.Tests
             // A.parent = B, B.parent = A, A retired. The closure adds B (its
             // parent A is retired), then A is already in the seed so the
             // Contains short-circuit prevents re-add and the loop terminates.
-            var a = Rec("rec_A", debrisParentRecordingId: "rec_B");
-            var b = Rec("rec_B", debrisParentRecordingId: "rec_A");
+            var a = Rec("rec_A", parentAnchorRecordingId: "rec_B");
+            var b = Rec("rec_B", parentAnchorRecordingId: "rec_A");
             var recordings = new List<Recording> { a, b };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_A") };
 
@@ -238,7 +238,7 @@ namespace Parsek.Tests
         public void Cascade_UnrelatedRecording_StaysVisible()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var unrelated = Rec("rec_unrelated");
             var recordings = new List<Recording> { parent, child, unrelated };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
@@ -253,7 +253,7 @@ namespace Parsek.Tests
         {
             var retiredParent = Rec("rec_retired");
             var liveParent = Rec("rec_live");
-            var liveChild = Rec("rec_liveChild", debrisParentRecordingId: "rec_live");
+            var liveChild = Rec("rec_liveChild", parentAnchorRecordingId: "rec_live");
             var recordings = new List<Recording> { retiredParent, liveParent, liveChild };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_retired") };
 
@@ -268,7 +268,7 @@ namespace Parsek.Tests
         public void Cascade_NoRetirements_ReturnsEmpty()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
 
             var retired = EffectiveState.ComputeRewindRetiredRecordingIds(
@@ -280,10 +280,10 @@ namespace Parsek.Tests
         [Fact]
         public void Cascade_ParentNotRetiredButChildHasStaleDebrisParentId_StaysVisible()
         {
-            // Negative test for the DebrisParentRecordingId lookup landing on
+            // Negative test for the ParentAnchorRecordingId lookup landing on
             // a non-retired recording.
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_unrelated");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_unrelated");
             var unrelated = Rec("rec_unrelated");
             var recordings = new List<Recording> { parent, child, unrelated };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
@@ -299,7 +299,7 @@ namespace Parsek.Tests
         public void Cascade_LogsVerboseSummaryWhenChildrenAdded()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
@@ -335,7 +335,7 @@ namespace Parsek.Tests
         public void ComputeTimelineInactiveRecordingIds_RetiredParentCascade_MarksChildRewindRetired()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
@@ -356,7 +356,7 @@ namespace Parsek.Tests
         public void IsRewindRetired_Cascade_ReturnsTrueForParentAnchoredChild()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
@@ -370,7 +370,7 @@ namespace Parsek.Tests
             // Raw overload (no recordings list) keeps its per-row contract so
             // EnsureRewindRetirementsForRollback's "seenIds" working set still
             // dedupes only direct rows being written.
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 
             Assert.False(EffectiveState.IsRewindRetired(child, retirements));
@@ -384,7 +384,7 @@ namespace Parsek.Tests
         public void ComputeERS_RetiredParentCascade_OmitsOrphanDebrisChild()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var unrelated = Rec("rec_unrelated");
 
             RecordingStore.AddCommittedInternal(parent);
@@ -426,7 +426,7 @@ namespace Parsek.Tests
         {
             // Mirrors the persistent.sfs shape from the 2026-05-19 playtest:
             // - rec_2c68978d retired via rrt_33919ead (rewound-out-supersede-fork).
-            // - 3d4713df has debrisParentRecordingId = rec_2c68978d, no retirement.
+            // - 3d4713df has parentAnchorRecordingId = rec_2c68978d, no retirement.
             // - ab1f54b0 (the restored recording) and its children stay visible.
             const string retiredFork = "rec_2c68978d84054474b804c579c92f5d40";
             const string orphanDebris = "3d4713df2ba449d99455de98db3085f4";
@@ -436,9 +436,9 @@ namespace Parsek.Tests
             var recordings = new List<Recording>
             {
                 Rec(retiredFork),
-                Rec(orphanDebris, debrisParentRecordingId: retiredFork),
+                Rec(orphanDebris, parentAnchorRecordingId: retiredFork),
                 Rec(restored),
-                Rec(restoredChild, debrisParentRecordingId: restored),
+                Rec(restoredChild, parentAnchorRecordingId: restored),
             };
             var retirements = new List<RecordingRewindRetirement>
             {
@@ -472,7 +472,7 @@ namespace Parsek.Tests
         public void LiveStoreCall_RepeatsCacheCascade_LogsOnceUntilVersionBump()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             RecordingStore.AddCommittedInternal(parent);
             RecordingStore.AddCommittedInternal(child);
 
@@ -543,7 +543,7 @@ namespace Parsek.Tests
             var adHocRecordings = new List<Recording>
             {
                 Rec("rec_adhoc_parent"),
-                Rec("rec_adhoc_child", debrisParentRecordingId: "rec_adhoc_parent"),
+                Rec("rec_adhoc_child", parentAnchorRecordingId: "rec_adhoc_parent"),
             };
             var adHocRetirements = new List<RecordingRewindRetirement>
             {
@@ -567,7 +567,7 @@ namespace Parsek.Tests
         public void Reversibility_RemovingRetirement_ReinstatesChild()
         {
             var parent = Rec("rec_parent");
-            var child = Rec("rec_child", debrisParentRecordingId: "rec_parent");
+            var child = Rec("rec_child", parentAnchorRecordingId: "rec_parent");
             var recordings = new List<Recording> { parent, child };
             var retirements = new List<RecordingRewindRetirement> { Retire("rec_parent") };
 

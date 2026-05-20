@@ -9,7 +9,7 @@ namespace Parsek.Tests
     /// children into the parent-anchored playback path:
     ///   1. <see cref="DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss"/>
     ///      no longer requires <c>IsDebris == true</c> - non-debris recordings with
-    ///      a non-empty <c>DebrisParentRecordingId</c> are now eligible.
+    ///      a non-empty <c>ParentAnchorRecordingId</c> are now eligible.
     ///   2. The canonical <c>GhostPlaybackEngine.TryPositionRelativeSectionAtPlaybackUT</c>
     ///      gate (verified transitively via <see cref="DebrisRelativePlaybackPolicy"/>).
     ///   3. The intermediate retirement helper
@@ -44,7 +44,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = false,
-                DebrisParentRecordingId = "parent-1"
+                ParentAnchorRecordingId = "parent-1"
             };
 
             Assert.True(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
@@ -57,7 +57,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-2"
+                ParentAnchorRecordingId = "parent-2"
             };
 
             Assert.True(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
@@ -70,7 +70,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = false,
-                DebrisParentRecordingId = null
+                ParentAnchorRecordingId = null
             };
 
             Assert.False(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
@@ -83,7 +83,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = true,
-                DebrisParentRecordingId = null
+                ParentAnchorRecordingId = null
             };
 
             Assert.False(DebrisRelativePlaybackPolicy.ShouldRetireOnRecordedParentAnchorMiss(traj));
@@ -106,7 +106,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = false,
-                DebrisParentRecordingId = "parent",
+                ParentAnchorRecordingId = "parent",
                 TrackSections = null
             };
 
@@ -126,7 +126,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = false,
-                DebrisParentRecordingId = null,
+                ParentAnchorRecordingId = null,
                 TrackSections = null
             };
 
@@ -144,7 +144,7 @@ namespace Parsek.Tests
             var traj = new MockTrajectory
             {
                 IsDebris = true,
-                DebrisParentRecordingId = "parent",
+                ParentAnchorRecordingId = "parent",
                 TrackSections = null
             };
 
@@ -160,18 +160,18 @@ namespace Parsek.Tests
         // The resolver's predicate is private; we exercise it indirectly through
         // the in-game test framework. Here we pin the field-stamping contract
         // that the resolver consumes: a controlled-decoupled child Recording
-        // surfaces a non-empty DebrisParentRecordingId.
+        // surfaces a non-empty ParentAnchorRecordingId.
 
         [Fact]
-        public void ControlledChildRecording_AfterApplyDebrisAnchorContract_CarriesParentAnchor()
+        public void ControlledChildRecording_AfterApplyParentAnchorContract_CarriesParentAnchor()
         {
             var parent = new Recording { RecordingId = "parent" };
             var child = new Recording { RecordingId = "controlled-child", IsDebris = false };
 
-            Recording.ApplyDebrisAnchorContract(child, parent);
+            Recording.ApplyParentAnchorContract(child, parent);
 
             Assert.False(child.IsDebris);
-            Assert.Equal("parent", child.DebrisParentRecordingId);
+            Assert.Equal("parent", child.ParentAnchorRecordingId);
         }
 
         // ===== D. KEEP-debris-only policy guards =====
@@ -189,7 +189,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "controlled-child",
                 IsDebris = false,
-                DebrisParentRecordingId = "parent"
+                ParentAnchorRecordingId = "parent"
             };
 
             Assert.False(BackgroundRecorder.IsDebrisAwareSampleCapEligible(rec));
@@ -202,7 +202,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "controlled-child",
                 IsDebris = false,
-                DebrisParentRecordingId = "parent"
+                ParentAnchorRecordingId = "parent"
             };
 
             Assert.False(DebrisRelativeRecorderPolicy.ShouldNormalizeParentAnchoredDebris(rec));
@@ -216,7 +216,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent",
+                ParentAnchorRecordingId = "parent",
                 LoopAnchorVesselId = 0u
             };
 

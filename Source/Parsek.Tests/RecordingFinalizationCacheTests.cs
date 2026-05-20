@@ -319,7 +319,7 @@ namespace Parsek.Tests
         {
             var rec = MakeRecording("rec-parent-debris", 42u, 100.0, 110.0, 140.0);
             rec.IsDebris = true;
-            rec.DebrisParentRecordingId = "parent-rec";
+            rec.ParentAnchorRecordingId = "parent-rec";
             rec.ExplicitEndUT = 140.0;
             rec.TrackSections.Add(new TrackSection
             {

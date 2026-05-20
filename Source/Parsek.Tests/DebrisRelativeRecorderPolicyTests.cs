@@ -146,7 +146,7 @@ namespace Parsek.Tests
         public void NormalizeParentAnchoredRelativeRecording_LegacyDebris_DoesNotMutate()
         {
             var rec = MakeParentAnchoredDebris();
-            rec.DebrisParentRecordingId = null;
+            rec.ParentAnchorRecordingId = null;
             rec.ExplicitEndUT = 140.0;
             rec.TrackSections.Add(RelativeSection(100.0, 140.0, 100.0, 110.0));
 
@@ -233,7 +233,7 @@ namespace Parsek.Tests
                 RecordingId = "debris-rec",
                 VesselName = "Debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
+                ParentAnchorRecordingId = "parent-rec",
                 VesselPersistentId = 42u
             };
         }

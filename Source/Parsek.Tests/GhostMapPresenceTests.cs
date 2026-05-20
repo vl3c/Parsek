@@ -2784,7 +2784,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.SubOrbital,
                 RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
+                ParentAnchorRecordingId = "parent-rec",
                 Points = new List<TrajectoryPoint> { relativeStart, relativeEnd },
                 TrackSections = new List<TrackSection> { section }
             };

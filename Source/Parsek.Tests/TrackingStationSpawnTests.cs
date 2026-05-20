@@ -783,7 +783,7 @@ namespace Parsek.Tests
                 VesselName = recordingId,
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId,
+                ParentAnchorRecordingId = parentRecordingId,
                 Points = relativeFrames,
                 TrackSections = new List<TrackSection> { section },
             };

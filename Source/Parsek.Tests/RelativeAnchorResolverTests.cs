@@ -1334,7 +1334,7 @@ namespace Parsek.Tests
                 localOffset: new Vector3d(1, 0, 0),
                 anchorRecordingId: loopRoot.RecordingId);
             provisionalChild.IsDebris = true;
-            provisionalChild.DebrisParentRecordingId = loopRoot.RecordingId;
+            provisionalChild.ParentAnchorRecordingId = loopRoot.RecordingId;
             var provisional = new Dictionary<string, Recording>(StringComparer.Ordinal)
             {
                 { provisionalChild.RecordingId, provisionalChild },
@@ -1374,7 +1374,7 @@ namespace Parsek.Tests
                 anchorRecordingId: loopRoot.RecordingId);
             child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             child.IsDebris = true;
-            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            child.ParentAnchorRecordingId = loopRoot.RecordingId;
             tree.AddOrReplaceRecording(loopRoot);
             tree.AddOrReplaceRecording(child);
 
@@ -1424,7 +1424,7 @@ namespace Parsek.Tests
                 anchorRecordingId: loopRoot.RecordingId);
             child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             child.IsDebris = true;
-            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            child.ParentAnchorRecordingId = loopRoot.RecordingId;
             tree.AddOrReplaceRecording(loopRoot);
             tree.AddOrReplaceRecording(child);
 
@@ -1483,7 +1483,7 @@ namespace Parsek.Tests
                 anchorRecordingId: loopRoot.RecordingId);
             child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             child.IsDebris = true;
-            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            child.ParentAnchorRecordingId = loopRoot.RecordingId;
             tree.AddOrReplaceRecording(loopRoot);
             tree.AddOrReplaceRecording(child);
 
@@ -1530,7 +1530,7 @@ namespace Parsek.Tests
                 anchorRecordingId: loopRoot.RecordingId);
             firstDebris.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             firstDebris.IsDebris = true;
-            firstDebris.DebrisParentRecordingId = loopRoot.RecordingId;
+            firstDebris.ParentAnchorRecordingId = loopRoot.RecordingId;
             Recording secondDebris = MakeRelativeRecording(
                 "second-debris",
                 tree.Id,
@@ -1538,7 +1538,7 @@ namespace Parsek.Tests
                 anchorRecordingId: firstDebris.RecordingId);
             secondDebris.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             secondDebris.IsDebris = true;
-            secondDebris.DebrisParentRecordingId = firstDebris.RecordingId;
+            secondDebris.ParentAnchorRecordingId = firstDebris.RecordingId;
             tree.AddOrReplaceRecording(loopRoot);
             tree.AddOrReplaceRecording(firstDebris);
             tree.AddOrReplaceRecording(secondDebris);
@@ -1590,7 +1590,7 @@ namespace Parsek.Tests
                 anchorRecordingId: loopRoot.RecordingId);
             child.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             child.IsDebris = true;
-            child.DebrisParentRecordingId = loopRoot.RecordingId;
+            child.ParentAnchorRecordingId = loopRoot.RecordingId;
             tree.AddOrReplaceRecording(loopRoot);
             tree.AddOrReplaceRecording(child);
 

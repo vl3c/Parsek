@@ -419,7 +419,7 @@ namespace Parsek.Tests.Harness
         // Reset by PR 3b: debris parent-anchor contract introduced
         // (plan §3b §"Helper" + §"Per-frame anchor write"). The recorder
         // now writes Relative sections anchored to the parent recording
-        // and stamps `DebrisParentRecordingId` on the child. Composition
+        // and stamps `ParentAnchorRecordingId` on the child. Composition
         // is now (parent_pos + offset) — the correct visual result.
         //
         // Topology (rewritten):
@@ -428,7 +428,7 @@ namespace Parsek.Tests.Harness
         //     Kept in the scene so the harness verifies the resolver
         //     ignores it — the contract pins the anchor regardless.
         //   debris: Relative anchored to "focused-parent" (the parent),
-        //     `DebrisParentRecordingId = parent.RecordingId`, offset (1, 0, 0)
+        //     `ParentAnchorRecordingId = parent.RecordingId`, offset (1, 0, 0)
         // Expected debris world position(ut) =
         //   focused-parent(ut) + (1, 0, 0) = (101 + 10*(ut/10), 0, 0)
         //   i.e. parent sweeps 100..200, debris sweeps 101..201.
@@ -456,7 +456,7 @@ namespace Parsek.Tests.Harness
                 endUT: 10.0);
             otherVessel.VesselPersistentId = 200u;
 
-            // Debris correctly anchored to parent, with DebrisParentRecordingId
+            // Debris correctly anchored to parent, with ParentAnchorRecordingId
             // stamped per the PR 3b contract.
             Recording debris = MakeRelativeRecording(
                 "focused-debris-wrong-anchor",
@@ -466,7 +466,7 @@ namespace Parsek.Tests.Harness
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
-            debris.DebrisParentRecordingId = parent.RecordingId;
+            debris.ParentAnchorRecordingId = parent.RecordingId;
             debris.VesselPersistentId = 300u;
 
             tree.AddOrReplaceRecording(parent);
@@ -506,7 +506,7 @@ namespace Parsek.Tests.Harness
         // Expected debris world position(ut) =
         //   bg-other(ut) + (0, 0, 7) = (0, 100 + ut, 7).
         // Reset by PR 3b: BG-vessel debris is now anchored to its bg parent
-        // and stamped with DebrisParentRecordingId (plan §3b §"Primary creation
+        // and stamped with ParentAnchorRecordingId (plan §3b §"Primary creation
         // sites #2,#3"). Composition becomes (bg-parent + offset).
         internal static HarnessScenario BuildScenario5_BackgroundVesselDebrisWrongAnchor()
         {
@@ -541,7 +541,7 @@ namespace Parsek.Tests.Harness
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
-            debris.DebrisParentRecordingId = bgParent.RecordingId;
+            debris.ParentAnchorRecordingId = bgParent.RecordingId;
             debris.VesselPersistentId = 3000u;
 
             tree.AddOrReplaceRecording(bgParent);
@@ -590,13 +590,13 @@ namespace Parsek.Tests.Harness
         //
         // After PR 3b, the scenario builder will be rewritten so the
         // debris is anchored to "active-refly" (parent) with
-        // DebrisParentRecordingId set; the resolver's
+        // ParentAnchorRecordingId set; the resolver's
         // TryResolveActiveReFlyAnchorRecording fires and walks back to
         // the frozen pre-Re-Fly snapshot — debris world position
         // becomes (101 + ut, 0, 0), which is the actual breakup site.
         // The hash will change; reset with justification.
         // Reset by PR 3b: debris created during a Re-Fly session is now
-        // anchored to the active-refly recording with DebrisParentRecordingId
+        // anchored to the active-refly recording with ParentAnchorRecordingId
         // set, so the resolver's TryResolveActiveReFlyAnchorRecording fires
         // and walks back to the frozen pre-Re-Fly snapshot rather than
         // resolving against the displaced pre-refly-ghost. The pre-refly-ghost
@@ -647,7 +647,7 @@ namespace Parsek.Tests.Harness
                 startUT: 0.0,
                 endUT: 10.0);
             debris.IsDebris = true;
-            debris.DebrisParentRecordingId = active.RecordingId;
+            debris.ParentAnchorRecordingId = active.RecordingId;
 
             tree.AddOrReplaceRecording(active);
             tree.AddOrReplaceRecording(preReFlyGhost);

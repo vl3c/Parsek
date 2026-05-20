@@ -78,7 +78,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId
+                ParentAnchorRecordingId = parentRecordingId
             };
 
             Assert.False(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
@@ -90,7 +90,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec"
+                ParentAnchorRecordingId = "parent-rec"
             };
 
             Assert.True(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));
@@ -102,7 +102,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 IsDebris = false,
-                DebrisParentRecordingId = "parent-rec"
+                ParentAnchorRecordingId = "parent-rec"
             };
 
             Assert.True(BackgroundRecorder.ShouldPreferRootPartSurfacePoseForBackgroundSample(rec));

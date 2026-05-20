@@ -243,7 +243,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 ParentRecordingId = "rejected",
-                DebrisParentRecordingId = "rejected",
+                ParentAnchorRecordingId = "rejected",
                 ParentBranchPointId = "bp",
                 ChildBranchPointId = "bp"
             };
@@ -253,7 +253,7 @@ namespace Parsek.Tests
 
             // Recording-id refs cleared; the branch-point clears short-circuit on null set.
             Assert.Null(rec.ParentRecordingId);
-            Assert.Null(rec.DebrisParentRecordingId);
+            Assert.Null(rec.ParentAnchorRecordingId);
             Assert.Equal("bp", rec.ParentBranchPointId);
             Assert.Equal("bp", rec.ChildBranchPointId);
         }
@@ -281,7 +281,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 ParentRecordingId = "rejectedRec",
-                DebrisParentRecordingId = "rejectedRec",
+                ParentAnchorRecordingId = "rejectedRec",
                 ParentBranchPointId = "removedBp",
                 ChildBranchPointId = "removedBp"
             };
@@ -291,7 +291,7 @@ namespace Parsek.Tests
             RecordingTree.ClearRejectedRecordingReferences(rec, rejected, removedBps);
 
             Assert.Null(rec.ParentRecordingId);
-            Assert.Null(rec.DebrisParentRecordingId);
+            Assert.Null(rec.ParentAnchorRecordingId);
             Assert.Null(rec.ParentBranchPointId);
             Assert.Null(rec.ChildBranchPointId);
         }
@@ -302,7 +302,7 @@ namespace Parsek.Tests
             var rec = new Recording
             {
                 ParentRecordingId = "keepRec",
-                DebrisParentRecordingId = "keepRec",
+                ParentAnchorRecordingId = "keepRec",
                 ParentBranchPointId = "keepBp",
                 ChildBranchPointId = "keepBp"
             };
@@ -312,7 +312,7 @@ namespace Parsek.Tests
             RecordingTree.ClearRejectedRecordingReferences(rec, rejected, removedBps);
 
             Assert.Equal("keepRec", rec.ParentRecordingId);
-            Assert.Equal("keepRec", rec.DebrisParentRecordingId);
+            Assert.Equal("keepRec", rec.ParentAnchorRecordingId);
             Assert.Equal("keepBp", rec.ParentBranchPointId);
             Assert.Equal("keepBp", rec.ChildBranchPointId);
         }

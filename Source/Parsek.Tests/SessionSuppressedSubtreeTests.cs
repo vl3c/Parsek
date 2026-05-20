@@ -844,7 +844,7 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
-        // Debris-children expansion via Recording.DebrisParentRecordingId (v12)
+        // Debris-children expansion via Recording.ParentAnchorRecordingId (v12)
         // =====================================================================
 
         [Fact]
@@ -855,7 +855,7 @@ namespace Parsek.Tests
             // parent recording with N>1 breakup BPs has NO `ChildBranchPointId`
             // set (single-slot field, multiple BPs), so the BP-back-pointer walk
             // exits at the null check before reaching debris children. The v12
-            // DebrisParentRecordingId direct ownership link must admit them
+            // ParentAnchorRecordingId direct ownership link must admit them
             // anyway, regardless of differing PIDs.
             var origin = Rec("rec_origin", "tree_1");
             origin.VesselPersistentId = 100u;
@@ -871,7 +871,7 @@ namespace Parsek.Tests
                 var d = Rec(id, "tree_1", parentBranchPointId: bpId);
                 d.VesselPersistentId = (uint)(200 + i);
                 d.IsDebris = true;
-                d.DebrisParentRecordingId = "rec_origin";
+                d.ParentAnchorRecordingId = "rec_origin";
                 debris.Add(d);
                 bps.Add(Bp(bpId, BranchPointType.Breakup,
                     parents: new List<string> { "rec_origin" },
@@ -902,7 +902,7 @@ namespace Parsek.Tests
         {
             // Even if the parent has ChildBranchPointId set and the BP walk runs,
             // debris would be culled by the same-PID side-off gate (different
-            // VesselPersistentId by construction). The DebrisParentRecordingId
+            // VesselPersistentId by construction). The ParentAnchorRecordingId
             // edge admits them via a separate path before that gate fires.
             var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_breakup");
             origin.VesselPersistentId = 100u;
@@ -910,7 +910,7 @@ namespace Parsek.Tests
             var debris = Rec("rec_debris", "tree_1", parentBranchPointId: "bp_breakup");
             debris.VesselPersistentId = 999u; // different PID
             debris.IsDebris = true;
-            debris.DebrisParentRecordingId = "rec_origin";
+            debris.ParentAnchorRecordingId = "rec_origin";
 
             var bp = Bp("bp_breakup", BranchPointType.Breakup,
                 parents: new List<string> { "rec_origin" },
@@ -929,9 +929,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DebrisChildren_LegacyV11WithoutDebrisParentRecordingId_NotAdmitted()
+        public void DebrisChildren_LegacyV11WithoutParentAnchorRecordingId_NotAdmitted()
         {
-            // Legacy v11 debris loaded without DebrisParentRecordingId stays
+            // Legacy v11 debris loaded without ParentAnchorRecordingId stays
             // un-suppressed by this edge. Project policy: pre-1.0 no
             // backward-compat for old recordings.
             var origin = Rec("rec_origin", "tree_1");
@@ -940,7 +940,7 @@ namespace Parsek.Tests
             var legacyDebris = Rec("rec_legacy", "tree_1");
             legacyDebris.VesselPersistentId = 200u;
             legacyDebris.IsDebris = true;
-            // legacyDebris.DebrisParentRecordingId left null
+            // legacyDebris.ParentAnchorRecordingId left null
 
             InstallTree("tree_1",
                 new List<Recording> { origin, legacyDebris },
@@ -959,7 +959,7 @@ namespace Parsek.Tests
         {
             // Debris pointing at an unrelated parent is not pulled in just
             // because it lives in the same store. The closure only admits
-            // debris whose DebrisParentRecordingId matches a recording already
+            // debris whose ParentAnchorRecordingId matches a recording already
             // in the closure.
             var origin = Rec("rec_origin", "tree_1");
             origin.VesselPersistentId = 100u;
@@ -970,7 +970,7 @@ namespace Parsek.Tests
             var unrelatedDebris = Rec("rec_unrelated_debris", "tree_1");
             unrelatedDebris.VesselPersistentId = 400u;
             unrelatedDebris.IsDebris = true;
-            unrelatedDebris.DebrisParentRecordingId = "rec_unrelated";
+            unrelatedDebris.ParentAnchorRecordingId = "rec_unrelated";
 
             InstallTree("tree_1",
                 new List<Recording> { origin, unrelated, unrelatedDebris },
@@ -991,7 +991,7 @@ namespace Parsek.Tests
             // Defensive symmetry with EnqueueChainSiblings / EnqueuePidPeerSiblings:
             // a debris candidate whose TreeId differs from the dequeued parent's
             // is rejected. Debris is always recorded into the parent's tree at
-            // breakup time, so a cross-tree DebrisParentRecordingId match would
+            // breakup time, so a cross-tree ParentAnchorRecordingId match would
             // be corrupted or hand-spliced data.
             var origin = Rec("rec_origin", "tree_a");
             origin.VesselPersistentId = 100u;
@@ -999,7 +999,7 @@ namespace Parsek.Tests
             var crossTreeDebris = Rec("rec_cross_tree_debris", "tree_b");
             crossTreeDebris.VesselPersistentId = 200u;
             crossTreeDebris.IsDebris = true;
-            crossTreeDebris.DebrisParentRecordingId = "rec_origin";
+            crossTreeDebris.ParentAnchorRecordingId = "rec_origin";
 
             // Install both trees side-by-side (InstallTree alone wipes existing
             // trees, so build the second tree manually after the first).
@@ -1047,7 +1047,7 @@ namespace Parsek.Tests
                 state: MergeState.NotCommitted);
             notCommittedDebris.VesselPersistentId = 200u;
             notCommittedDebris.IsDebris = true;
-            notCommittedDebris.DebrisParentRecordingId = "rec_origin";
+            notCommittedDebris.ParentAnchorRecordingId = "rec_origin";
 
             var bp = Bp("bp_breakup", BranchPointType.Breakup,
                 parents: new List<string> { "rec_origin" },
@@ -1077,12 +1077,12 @@ namespace Parsek.Tests
             var debris1 = Rec("rec_debris1", "tree_1", parentBranchPointId: "bp_breakup_1");
             debris1.VesselPersistentId = 200u;
             debris1.IsDebris = true;
-            debris1.DebrisParentRecordingId = "rec_origin";
+            debris1.ParentAnchorRecordingId = "rec_origin";
 
             var debris2 = Rec("rec_debris2", "tree_1", parentBranchPointId: "bp_breakup_2");
             debris2.VesselPersistentId = 300u;
             debris2.IsDebris = true;
-            debris2.DebrisParentRecordingId = "rec_debris1";
+            debris2.ParentAnchorRecordingId = "rec_debris1";
 
             var bp1 = Bp("bp_breakup_1", BranchPointType.Breakup,
                 parents: new List<string> { "rec_origin" },
@@ -1112,7 +1112,7 @@ namespace Parsek.Tests
             // (BackgroundRecorder.cs:724-741, 1115): a background split
             // creates a parent continuation (same VesselPersistentId as the
             // pre-split parent) plus side-off debris (different PID), and
-            // the debris's DebrisParentRecordingId is deliberately re-pointed
+            // the debris's ParentAnchorRecordingId is deliberately re-pointed
             // at the parent continuation as its relative-sampling anchor.
             // Re-flying the parent continuation must NOT enqueue the
             // anchor-only side-off debris, because the split BP's parent is
@@ -1133,7 +1133,7 @@ namespace Parsek.Tests
             sideOffDebris.ExplicitStartUT =10.0;
             sideOffDebris.IsDebris = true;
             // Anchor (NOT topology) link points at the parent continuation.
-            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+            sideOffDebris.ParentAnchorRecordingId = "rec_parentCont";
 
             // Background split BPs are typed Decouple in production; the BP
             // type alone rejects the candidate. The parent-mismatch gate is
@@ -1194,7 +1194,7 @@ namespace Parsek.Tests
             sideOffDebris.VesselPersistentId = 200u;
             sideOffDebris.ExplicitStartUT =10.0;
             sideOffDebris.IsDebris = true;
-            sideOffDebris.DebrisParentRecordingId = "rec_parentCont";
+            sideOffDebris.ParentAnchorRecordingId = "rec_parentCont";
 
             var splitBp = Bp("bp_split", BranchPointType.Breakup,
                 parents: new List<string> { "rec_preSplit" },

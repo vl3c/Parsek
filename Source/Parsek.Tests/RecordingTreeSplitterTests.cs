@@ -578,10 +578,10 @@ namespace Parsek.Tests
 
             Assert.False(result.Skipped);
             Assert.Equal(2, result.DebrisReparented);
-            Assert.Equal(origin.RecordingId, debrisPre1.DebrisParentRecordingId);
-            Assert.Equal(origin.RecordingId, debrisPre2.DebrisParentRecordingId);
-            Assert.Equal(result.TipRecordingId, debrisPost1.DebrisParentRecordingId);
-            Assert.Equal(result.TipRecordingId, debrisPost2.DebrisParentRecordingId);
+            Assert.Equal(origin.RecordingId, debrisPre1.ParentAnchorRecordingId);
+            Assert.Equal(origin.RecordingId, debrisPre2.ParentAnchorRecordingId);
+            Assert.Equal(result.TipRecordingId, debrisPost1.ParentAnchorRecordingId);
+            Assert.Equal(result.TipRecordingId, debrisPost2.ParentAnchorRecordingId);
         }
 
         private static Recording BuildDebrisRecording(string id, string parentRecordingId,
@@ -593,7 +593,7 @@ namespace Parsek.Tests
                 VesselName = id,
                 TreeId = treeId,
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId,
+                ParentAnchorRecordingId = parentRecordingId,
                 MergeState = MergeState.Immutable,
             };
             rec.Points.Add(PointAt(startUT));
@@ -1041,7 +1041,7 @@ namespace Parsek.Tests
             // Snapshot the pre-call state we'll assert restoration against.
             string originChildBpBefore = origin.ChildBranchPointId; // null
             int originChainIndexBefore = origin.ChainIndex;
-            string debrisParentBefore = debrisPost.DebrisParentRecordingId;
+            string debrisParentBefore = debrisPost.ParentAnchorRecordingId;
             string actionTagBefore = action50.RecordingId;
             string msTagBefore = msPost.RecordingId;
             string markerTargetBefore = origin.RecordingId;
@@ -1056,7 +1056,7 @@ namespace Parsek.Tests
 
             // Verify the post-split state is mutated as expected before rollback.
             Assert.Equal(tipId, marker.SupersedeTargetId);
-            Assert.Equal(tipId, debrisPost.DebrisParentRecordingId);
+            Assert.Equal(tipId, debrisPost.ParentAnchorRecordingId);
             Assert.Equal(tipId, action50.RecordingId);
             Assert.Equal(tipId, msPost.RecordingId);
             Assert.Contains(tipId, bpLate.ParentRecordingIds);
@@ -1097,7 +1097,7 @@ namespace Parsek.Tests
             Assert.Null(FindCommitted(tipId));
             Assert.False(tree.Recordings.ContainsKey(tipId));
             // Ledger entries reversed.
-            Assert.Equal(origin.RecordingId, debrisPost.DebrisParentRecordingId);
+            Assert.Equal(origin.RecordingId, debrisPost.ParentAnchorRecordingId);
             Assert.Equal(origin.RecordingId, action50.RecordingId);
             Assert.Equal(origin.RecordingId, msPost.RecordingId);
             Assert.Contains(origin.RecordingId, bpLate.ParentRecordingIds);
