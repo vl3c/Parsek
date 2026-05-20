@@ -242,6 +242,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AdjustSciencePatchTargetForPendingRecentScienceEarning_NoOpWhenLedgerAtOrAbovePool()
+        {
+            try
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = () => 400.0;
+
+                // A pending credit exists, but the ledger target is already at/above the
+                // KSP pool — the guard must not raise the target or mask a legit state.
+                var evt = new GameStateEvent
+                {
+                    ut = 400.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 0.0,
+                    valueAfter = 12.0
+                };
+                GameStateStore.AddEvent(ref evt);
+
+                double adjusted = KspStatePatcher.AdjustSciencePatchTargetForPendingRecentScienceEarning(
+                    targetScience: 12.0,
+                    currentScience: 10f);
+
+                Assert.Equal(12.0, adjusted, 3);
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[KspStatePatcher]") &&
+                    l.Contains("holding forward"));
+            }
+            finally
+            {
+                LedgerOrchestrator.NowUtProviderForTesting = null;
+            }
+        }
+
+        [Fact]
         public void BuildTargetTechIdsForPatch_RewindCutoffUsesPastBaselineOnly()
         {
             var baselines = new List<GameStateBaseline>

@@ -1229,18 +1229,21 @@ namespace Parsek.Tests
             };
             var actions = new List<GameAction>
             {
+                // Untagged live earning, partially ingested.
                 new GameAction
                 {
                     UT = 1000.0,
                     Type = GameActionType.ScienceEarning,
                     ScienceAwarded = 12f
                 },
+                // Recording-tagged recovery earning: still counts as ingested
+                // (a recovered vessel's earning carries a RecordingId).
                 new GameAction
                 {
                     UT = 1000.0,
                     Type = GameActionType.ScienceEarning,
                     RecordingId = "rec-flight",
-                    ScienceAwarded = 99f
+                    ScienceAwarded = 5f
                 }
             };
 
@@ -1249,7 +1252,8 @@ namespace Parsek.Tests
                 actions,
                 nowUt: 1000.05);
 
-            Assert.Equal(8.0, pending, 3);
+            // Observed credit 20, ingested 12 + 5 = 17, gap 3.
+            Assert.Equal(3.0, pending, 3);
         }
 
         [Fact]
@@ -1274,10 +1278,12 @@ namespace Parsek.Tests
                     Type = GameActionType.ScienceEarning,
                     ScienceAwarded = 15f
                 },
+                // Recording-tagged earning also closes the gap.
                 new GameAction
                 {
                     UT = 1200.04,
                     Type = GameActionType.ScienceEarning,
+                    RecordingId = "rec-x",
                     ScienceAwarded = 10f
                 }
             };
@@ -1288,6 +1294,48 @@ namespace Parsek.Tests
                 nowUt: 1200.02);
 
             Assert.Equal(0.0, pending, 3);
+        }
+
+        [Fact]
+        public void ComputePendingRecentKscScienceCredit_CountsTransmissionIgnoresWrongReasonAndOutsideWindow()
+        {
+            var events = new List<GameStateEvent>
+            {
+                // In-window transmission credit (+6): counted.
+                new GameStateEvent
+                {
+                    ut = 2000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ScienceTransmission",
+                    valueBefore = 0.0,
+                    valueAfter = 6.0
+                },
+                // Wrong reason (contract reward, not a late-flush ScienceEarning): ignored.
+                new GameStateEvent
+                {
+                    ut = 2000.0,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = "ContractReward",
+                    valueBefore = 6.0,
+                    valueAfter = 56.0
+                },
+                // In-reason but outside the epsilon window: ignored.
+                new GameStateEvent
+                {
+                    ut = 2000.5,
+                    eventType = GameStateEventType.ScienceChanged,
+                    key = LedgerOrchestrator.VesselRecoveryReasonKey,
+                    valueBefore = 56.0,
+                    valueAfter = 155.0
+                }
+            };
+
+            double pending = LedgerOrchestrator.ComputePendingRecentKscScienceCredit(
+                events,
+                ledgerActions: null,
+                nowUt: 2000.02);
+
+            Assert.Equal(6.0, pending, 3);
         }
 
         // ================================================================

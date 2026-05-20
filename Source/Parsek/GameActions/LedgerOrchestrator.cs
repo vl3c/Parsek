@@ -3618,8 +3618,11 @@ namespace Parsek
         /// ScienceTransmission) but the matching <c>ScienceEarning</c> action has not landed
         /// in the ledger yet, this returns the un-ingested credit amount that
         /// <see cref="KspStatePatcher.PatchScience"/> would otherwise claw back, transiently
-        /// zeroing the pool until the next recalc. Only the live (untagged) earning is
-        /// counted on the committed side, matching the debit helper's RecordingId filter.
+        /// zeroing the pool until the next recalc. Both untagged and recording-tagged
+        /// <c>ScienceEarning</c> actions inside the window count as ingested: a recovered
+        /// vessel's earning is recording-tagged once <c>PickRecoveryRecordingId</c> matches a
+        /// committed recording, so (unlike the debit helper) the committed side does NOT
+        /// filter on <c>RecordingId</c> — only the UT window gates the match.
         /// </summary>
         internal static double ComputePendingRecentKscScienceCredit(
             IReadOnlyList<GameStateEvent> events,
@@ -3657,8 +3660,6 @@ namespace Parsek
                     if (action == null)
                         continue;
                     if (action.Type != GameActionType.ScienceEarning)
-                        continue;
-                    if (!string.IsNullOrEmpty(action.RecordingId))
                         continue;
                     if (Math.Abs(action.UT - nowUt) > KscReconcileEpsilonSeconds)
                         continue;
