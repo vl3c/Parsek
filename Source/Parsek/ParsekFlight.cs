@@ -2957,9 +2957,9 @@ namespace Parsek
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
-                    newVesselIsGhost,
-                    newVessel.isEVA),
-                trackedInActiveTree);
+                    newVesselIsGhost),
+                trackedInActiveTree,
+                newVessel.isEVA);
 
             // Bug #585: in-place continuation Re-Fly suppression. When the live
             // marker pins the new active vessel as the in-place continuation
@@ -7200,25 +7200,35 @@ namespace Parsek
             bool autoRecordOnFirstModificationAfterSwitchEnabled,
             bool isRecording,
             bool hasNewVessel,
-            bool newVesselIsGhost,
-            bool newVesselIsEva)
+            bool newVesselIsGhost)
         {
             return autoRecordOnFirstModificationAfterSwitchEnabled
                 && !isRecording
                 && hasNewVessel
-                && !newVesselIsGhost
-                && !newVesselIsEva;
+                && !newVesselIsGhost;
         }
 
         internal static PostSwitchAutoRecordArmDecision EvaluatePostSwitchAutoRecordArmDecision(
             bool shouldArm,
-            bool trackedInActiveTree)
+            bool trackedInActiveTree,
+            bool newVesselIsEva)
         {
             if (!shouldArm)
                 return PostSwitchAutoRecordArmDecision.None;
 
-            return trackedInActiveTree
-                ? PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember
+            // A tracked background member is an existing tree recording: switching back
+            // to it should promote it to foreground on the first modification, whether
+            // or not it is an EVA kerbal. (An EVA kerbal re-controlled after a vessel
+            // switch lives here; without this it stays background-tracked and the
+            // missed-vessel-switch recovery loops every frame, never promoting.)
+            if (trackedInActiveTree)
+                return PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember;
+
+            // Outsider (not in any tree): a fresh EVA kerbal is owned by the dedicated
+            // OnCrewOnEva / EVA-branch + "Auto-record on EVA" path, so do not also arm
+            // an outsider standalone recording for it. Non-EVA outsiders still arm.
+            return newVesselIsEva
+                ? PostSwitchAutoRecordArmDecision.None
                 : PostSwitchAutoRecordArmDecision.ArmOutsider;
         }
 
