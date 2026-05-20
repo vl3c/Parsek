@@ -1612,6 +1612,37 @@ if a stock or modded UI exposes a clickable affordance, the overlay candidate
 set and the click-block predicate must share the same `MilestoneStore` source
 helper, with any UI-only suppression kept outside the click-block predicate.
 
+## 641. Funds / Science reservation tooltip on the stock top bar (shipped)
+
+`CurrencyReservationOverlay` attaches a hover tooltip to the stock funds and
+science widgets showing a `Total / Reserved` breakdown. `Reserved` is the ledger's
+committed-future drawdown (`GetProjectionCurrentBalance() - GetAvailable*()`, off
+`LedgerOrchestrator.Funds` / `.Science`); the shown value is anchored on the live
+`Funding.Instance.Funds` / `ResearchAndDevelopment.Instance.Science` (the number on
+the bar) with `Total = displayed + Reserved`, so `Total - Reserved` equals the
+on-screen number exactly. Anchoring on the live value (rather than `GetAvailable*()`)
+keeps it exact even during the brief science pending-tech-unlock catch-up window
+where `KspStatePatcher` holds the bar below ledger-available. It always renders on
+hover (reading `Reserved 0` when nothing is committed, so the breakdown is
+discoverable rather than a silently-absent tooltip) and is gated behind
+`showCommittedFutureOverlays`. Hover is detected by a screen-space rectangle test in
+the controller's `OnGUI` (`TryGetWidgetScreenRect`), NOT UGUI pointer handlers: the
+stock funds widget renders its digits through a rotating 3D `Tumbler` (transform
+rotated about X) which tilts the digit rects out of the screen plane and breaks UGUI
+raycasting there, so a raycast-target overlay only ever fired on the flat science
+text. The screen-rect test sidesteps canvas mode / sorting / masks / rotation.
+
+**Reputation is deliberately excluded** and stays that way: `PatchReputation`
+patches the true `GetRunningRep()`, reputation has no reservation/escrow concept,
+and the 2026-05-20 investigation closed the question as not warranted (reputation
+has no spend-affordability gate, no zero floor, and patching a reserved value
+would falsely block stock strategy/contract activation). See
+`docs/dev/research/reputation-reservation-not-warranted.md`. The genuine one-off
+rep-to-funds exchanges (strategy setup cost, Bail-Out Grant) are live current-UT
+KSC actions, not committed-future obligations, so there is nothing to reserve. If
+that ever changes, `PatchReputation` would need to switch to an available value
+before this overlay could extend to the reputation widget.
+
 ## Phase 5 known gaps (obsolete: Phase 5 co-bubble retired)
 
 > Obsolete: the Phase 5 co-bubble peer blending subsystem was retired in PR #912 (v0.10.0). The first two gaps below (commit-time detector batch coverage, `CoBubbleBlender` primary-spline fallback) no longer apply because `CoBubbleBlender` / `CoBubbleOverlapDetector` and the `.pann` `CoBubbleOffsetTraces` block are deleted. Kept for historical record.
