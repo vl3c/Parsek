@@ -14589,6 +14589,59 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
+            Description = "Currency reservation tooltip: the funds and science widgets resolve a non-degenerate on-screen rectangle (the hover zone the OnGUI tooltip tests against).")]
+        public IEnumerator CurrencyTooltipResolvesWidgetScreenRects()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+
+            // The stock currency app instantiates its widgets a few frames after the
+            // scene loads; poll briefly for them.
+            FundsWidget funds = null;
+            ScienceWidget science = null;
+            float deadline = Time.realtimeSinceStartup + 8f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                funds = Object.FindObjectOfType<FundsWidget>();
+                science = Object.FindObjectOfType<ScienceWidget>();
+                if (funds != null || science != null)
+                    break;
+                yield return null;
+            }
+
+            if (funds == null && science == null)
+            {
+                InGameAssert.Skip("No funds/science currency widget present (non-career or currency bar hidden)");
+                yield break;
+            }
+
+            // The tooltip detects hover by a screen-rect test (UGUI raycasting fails on the
+            // funds widget's rotating 3D Tumbler), so the contract to pin is that each widget
+            // resolves a sane on-screen rectangle.
+            if (funds != null)
+            {
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(funds.transform as RectTransform, out Rect fundsRect),
+                    "Funds widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(fundsRect.width, 1.0, "Funds widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(fundsRect.height, 1.0, "Funds widget screen rect height should be > 1px");
+            }
+            if (science != null)
+            {
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(science.transform as RectTransform, out Rect sciRect),
+                    "Science widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(sciRect.width, 1.0, "Science widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(sciRect.height, 1.0, "Science widget screen rect height should be > 1px");
+            }
+        }
+
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Game-state UI overlays §8.6 / E16: Mission Control despawn strips Parsek_ContractOverlay objects across repeated open/close cycles.")]
         public IEnumerator MissionControlOverlaysClearedOnDespawn()
