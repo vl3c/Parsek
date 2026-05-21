@@ -54,10 +54,17 @@ namespace Parsek
         private readonly ParsekFlight host;
 
         internal const string WatchModeLockId = "ParsekWatch";
+        // PITCH is in the mask so W (and S, the stock pitch-up key) cannot act
+        // on the unattended active vessel while the player is observing a
+        // ghost. W is repurposed to cycle through watchable ghosts; reading the
+        // raw keypress via `Input.GetKeyDown` is unaffected by the lock.
+        // Blocking S as well is intentional: the input lock is axis-granular,
+        // not key-granular, and pitch-up on an unattended vessel is the same
+        // unattended-flight hazard the rest of the mask already mitigates.
         internal const ControlTypes WatchModeLockMask =
             ControlTypes.STAGING | ControlTypes.THROTTLE |
             ControlTypes.VESSEL_SWITCHING | ControlTypes.EVA_INPUT |
-            ControlTypes.CAMERAMODES;
+            ControlTypes.CAMERAMODES | ControlTypes.PITCH;
         // Manual watch entry keeps the legacy 300km affordance. Exit adds a
         // 5km hysteresis band so a target that transfers/rebuilds near the cutoff
         // does not enter and leave watch on the same frame.
@@ -101,6 +108,7 @@ namespace Parsek
         private float savedPivotSharpness = 0.5f;
         private int watchNoTargetFrames;               // consecutive frames with no valid camera target (safety net)
         private int watchCutoffConsecutiveFrames;      // consecutive frames the cached cutoff has tripped (debounce)
+        private string watchCycleCursorRecordingId;    // W-key rotation cursor; persists across cycle presses and switching ExitWatchMode, cleared on full exit
 
         // Horizon-locked camera mode state
         private WatchCameraMode currentCameraMode = WatchCameraMode.Free;
@@ -393,6 +401,20 @@ namespace Parsek
         {
             return string.Format(CultureInfo.InvariantCulture,
                 "({0:F1},{1:F1},{2:F1})", value.x, value.y, value.z);
+        }
+
+        // Rate-limit key is the recording id so two distinct chain transfers
+        // do not collide when the committed-list index slot is reused (the
+        // index can shift across deletes / supersede swaps in the same session).
+        internal static void LogAutoFollowDeferred(int nextIndex, string recordingId)
+        {
+            string key = string.IsNullOrEmpty(recordingId)
+                ? $"auto-follow-deferred-idx-{nextIndex}"
+                : $"auto-follow-deferred-{recordingId}";
+            ParsekLog.VerboseRateLimited(
+                "CameraFollow",
+                key,
+                $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
         }
 
         internal static bool IsWithinWatchEntryRange(double distanceMeters)
@@ -919,6 +941,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when the ghost at index was retired by the playback engine on
+        /// its most recent render frame because the playback UT fell outside the
+        /// recording's authored parent-anchored coverage. A retired ghost is hidden
+        /// and has no renderable position, so EnsureGhostVisualsLoadedForWatch ->
+        /// TryStartWatchSession would fail. Out-of-coverage parent-anchored ghosts are
+        /// retired on every frame, so the flag is stable across the input frame.
+        /// </summary>
+        internal bool IsGhostCoverageRetired(int index)
+        {
+            var ghostStates = host.Engine.ghostStates;
+            GhostPlaybackState s;
+            return ghostStates.TryGetValue(index, out s)
+                && s != null
+                && s.anchorRetiredThisFrame;
+        }
+
+        /// <summary>
         /// Returns true if the ghost at index is within the watch camera range.
         /// Active watches use the wider exit cutoff; idle watch affordances use
         /// the entry cutoff.
@@ -1010,7 +1049,7 @@ namespace Parsek
                 ? "Watching: " + vesselName + modeLabel
                 : "Watching: " + vesselName + "  (" + distText + ")" + modeLabel;
             GUI.Label(new Rect(x, y + 5, boxW, 22f), title, watchOverlayStyle);
-            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V toggle camera", watchOverlayHintStyle);
+            GUI.Label(new Rect(x, y + 27, boxW, 18f), "[ ] return  |  V camera  |  W cycle", watchOverlayHintStyle);
         }
 
         /// <summary>
@@ -1546,7 +1585,26 @@ namespace Parsek
             }
 
             if (!TryStartWatchSession(index, rec, gs, out gs))
+            {
+                // #895 regression guard. When switching, the block above already
+                // ran ExitWatchMode(skipCameraRestore: true), so FlightCamera is
+                // still pointed at the PREVIOUS ghost's transform. If that ghost
+                // is destroyed this frame (e.g. it reached end-of-playback, or the
+                // new target is an out-of-coverage parent-anchored child that can
+                // never load), the camera target becomes a destroyed Unity object
+                // and stock per-frame systems (FlightGlobals.UpdateInformation,
+                // Sun, AmbienceControl, CrewHatchController, UIPartActionController)
+                // throw an NRE every frame, flooding the log and freezing the game.
+                // Restore the camera to the anchor vessel before bailing so it
+                // never references a dead ghost. Fresh entry (!switching) tore
+                // nothing down, so the camera is still on the player vessel.
+                if (switching)
+                    RestoreCameraToAnchorVessel(
+                        preservedCameraVessel, preservedCameraDistance,
+                        preservedCameraPitch, preservedCameraHeading,
+                        context: $"failed-switch rec=#{index} id={rec.RecordingId ?? "null"}");
                 return;
+            }
 
             // Lift the #573 active/source rewind spawn-suppression only after the
             // watch session has actually started. Clearing it earlier would leave
@@ -1842,6 +1900,11 @@ namespace Parsek
             watchEndHoldPendingActivationUT = double.NaN;
             watchNoTargetFrames = 0;
             watchCutoffConsecutiveFrames = 0;
+            // watchCycleCursorRecordingId is NOT cleared here: a switching
+            // ExitWatchMode (skipCameraRestore=true) called from inside
+            // EnterWatchMode while the W-cycle is in flight must preserve the
+            // cursor so the next press advances correctly. Full exits clear
+            // the cursor explicitly in ExitWatchMode below.
             currentCameraMode = WatchCameraMode.Free;
             userModeOverride = false;
             suppressAutoModeAfterChainTransfer = false;
@@ -1892,6 +1955,47 @@ namespace Parsek
                 ParsekLog.Verbose("CameraFollow",
                     $"FlightCamera.SetTargetVessel restored to {activeVessel.vesselName}, distance={savedCameraDistance.ToString("F1", CultureInfo.InvariantCulture)}");
             }
+        }
+
+        /// <summary>
+        /// Points FlightCamera back at the anchor (player) vessel, falling back to
+        /// the current active vessel when the preferred vessel is gone. Used by the
+        /// failed-switch recovery in <see cref="EnterWatchMode"/>: a switch tears
+        /// down the previous session with skipCameraRestore=true (camera still bound
+        /// to the previous ghost), and if the new session fails to start the camera
+        /// would otherwise reference a ghost transform that may be destroyed the same
+        /// frame, triggering a stock per-frame NRE storm and freezing the game.
+        /// </summary>
+        private void RestoreCameraToAnchorVessel(
+            Vessel preferredVessel,
+            float distance,
+            float pitchDegrees,
+            float headingDegrees,
+            string context)
+        {
+            FlightCamera flightCamera = GetFlightCameraSafe();
+            if (flightCamera == null)
+                return;
+
+            Vessel target = (preferredVessel != null && preferredVessel.gameObject != null)
+                ? preferredVessel
+                : GetActiveVesselSafe();
+            if (target == null || target.gameObject == null)
+            {
+                ParsekLog.Warn("CameraFollow",
+                    $"Watch camera anchor restore ({context}): no live vessel to target; camera left as-is");
+                return;
+            }
+
+            flightCamera.SetTargetVessel(target);
+            if (distance > 0f)
+                flightCamera.SetDistance(distance);
+            // Stored pitch/hdg are degrees (see TryCaptureCurrentFlightCameraState); KSP wants radians.
+            flightCamera.camPitch = pitchDegrees * Mathf.Deg2Rad;
+            flightCamera.camHdg = headingDegrees * Mathf.Deg2Rad;
+            ParsekLog.Info("CameraFollow",
+                $"Watch camera anchor restore ({context}): target={target.vesselName} " +
+                $"distance={distance.ToString("F1", CultureInfo.InvariantCulture)}");
         }
 
         /// <summary>
@@ -1967,6 +2071,167 @@ namespace Parsek
             ParsekLog.Verbose("CameraFollow", $"InputLockManager control lock \"{WatchModeLockId}\" removed");
 
             ResetWatchState(preserveLineageProtection, destroyOverlapAnchor: true);
+            // Full exits drop the W-cycle cursor. Switching exits (called from
+            // inside EnterWatchMode with skipCameraRestore=true) intentionally
+            // do not, so a cycle in flight survives the internal switch.
+            if (!skipCameraRestore)
+                watchCycleCursorRecordingId = null;
+        }
+
+        /// <summary>
+        /// Resolution of a single W-key cycle press in watch mode. Pure data; populated
+        /// by <see cref="ResolveCycleTarget"/> and consumed by <see cref="CycleToNextWatchable"/>.
+        /// </summary>
+        internal readonly struct CycleResolution
+        {
+            public readonly int NextIndex;
+            public readonly string NextRecordingId;
+            public readonly bool HasTarget;        // true when caller should EnterWatchMode(NextIndex)
+            public readonly bool IsToggleOff;      // single-entry rotation that IS already watched
+            public readonly int TotalEligible;
+            public readonly int Position;
+            public readonly bool IsWrap;
+
+            public CycleResolution(
+                int nextIndex,
+                string nextRecordingId,
+                bool hasTarget,
+                bool isToggleOff,
+                int totalEligible,
+                int position,
+                bool isWrap)
+            {
+                NextIndex = nextIndex;
+                NextRecordingId = nextRecordingId;
+                HasTarget = hasTarget;
+                IsToggleOff = isToggleOff;
+                TotalEligible = totalEligible;
+                Position = position;
+                IsWrap = isWrap;
+            }
+
+            public static CycleResolution Empty =>
+                new CycleResolution(-1, null, false, false, 0, 0, false);
+        }
+
+        /// <summary>
+        /// Pure resolver for the W-key watch-rotation cycle. Builds a descendants
+        /// set covering every committed index, resolves the currently-watched
+        /// RecordingId from <paramref name="currentWatchedIndex"/>, and delegates
+        /// to <see cref="GhostPlaybackLogic.AdvanceGroupWatchCursor"/> for the
+        /// stable-order rotation walk.
+        ///
+        /// HasTarget is true when the caller should call EnterWatchMode(NextIndex);
+        /// false when the rotation is empty or has reduced to a single entry that
+        /// is already being watched (toggle-off — the caller should NOT exit watch,
+        /// just no-op so the player keeps observing).
+        /// </summary>
+        internal static CycleResolution ResolveCycleTarget(
+            IReadOnlyList<Recording> committed,
+            Func<int, bool> isEligible,
+            int currentWatchedIndex,
+            string cursorRecordingId)
+        {
+            if (committed == null || committed.Count == 0 || isEligible == null)
+                return CycleResolution.Empty;
+
+            var descendants = new HashSet<int>();
+            for (int i = 0; i < committed.Count; i++)
+                descendants.Add(i);
+
+            string watchedId = currentWatchedIndex >= 0 && currentWatchedIndex < committed.Count
+                ? committed[currentWatchedIndex]?.RecordingId
+                : null;
+
+            var rotation = GhostPlaybackLogic.AdvanceGroupWatchCursor(
+                descendants, committed, isEligible, cursorRecordingId, watchedId);
+
+            if (rotation.NextRecordingId == null)
+                return CycleResolution.Empty;
+
+            int nextIdx = GhostPlaybackLogic.FindRecordingIndexById(committed, rotation.NextRecordingId);
+            bool hasTarget = !rotation.IsToggleOff
+                && nextIdx >= 0
+                && nextIdx != currentWatchedIndex;
+
+            return new CycleResolution(
+                nextIdx,
+                rotation.NextRecordingId,
+                hasTarget,
+                rotation.IsToggleOff,
+                rotation.TotalEligible,
+                rotation.Position,
+                rotation.IsWrap);
+        }
+
+        /// <summary>
+        /// Advances watch mode to the next watchable ghost. Bound to W in flight.
+        /// Uses the same eligibility predicate as the group W button (not debris,
+        /// active ghost, same body, within visual range). Logs the press outcome
+        /// for diagnostics.
+        /// </summary>
+        internal void CycleToNextWatchable()
+        {
+            if (!IsWatchingGhost)
+                return;
+
+            var committed = RecordingStore.CommittedRecordings;
+            Func<int, bool> isEligible = idx =>
+            {
+                if (idx < 0 || idx >= committed.Count) return false;
+                var r = committed[idx];
+                if (r == null || r.IsDebris) return false;
+                if (!HasActiveGhost(idx)) return false;
+                // A controlled-decoupled child (IsDebris=false, ParentAnchorRecordingId!=null)
+                // passes the IsDebris filter but may be out of authored coverage at the
+                // current UT, in which case the engine retired it and watch entry would
+                // fail. Skip it so the cycle never steers the camera onto a target it
+                // cannot enter (#895 regression).
+                if (IsGhostCoverageRetired(idx)) return false;
+                if (!IsGhostOnSameBody(idx)) return false;
+                if (!IsGhostWithinVisualRange(idx)) return false;
+                return true;
+            };
+
+            CycleResolution resolution = ResolveCycleTarget(
+                committed, isEligible, watchedRecordingIndex, watchCycleCursorRecordingId);
+
+            string watchedName = watchedRecordingIndex >= 0 && watchedRecordingIndex < committed.Count
+                ? committed[watchedRecordingIndex]?.VesselName ?? "?"
+                : "?";
+
+            if (!resolution.HasTarget)
+            {
+                string reason = resolution.IsToggleOff
+                    ? "only the current target is eligible"
+                    : (resolution.TotalEligible == 0
+                        ? "no eligible ghosts"
+                        : "resolved next id could not be mapped to an index");
+                ParsekLog.Info("CameraFollow",
+                    $"WatchCycle: no advance from #{watchedRecordingIndex} \"{watchedName}\" " +
+                    $"({reason}; total={resolution.TotalEligible})");
+                return;
+            }
+
+            string nextName = committed[resolution.NextIndex]?.VesselName ?? "?";
+            ParsekLog.Info("CameraFollow",
+                $"WatchCycle: advancing from #{watchedRecordingIndex} \"{watchedName}\" " +
+                $"to #{resolution.NextIndex} \"{nextName}\" " +
+                $"(pos={resolution.Position}/{resolution.TotalEligible}, wrap={resolution.IsWrap})");
+
+            // Advance the cursor BEFORE invoking EnterWatchMode. The cursor is a
+            // rotation hint, not a "currently watched" claim: advancing it on
+            // every press (success or failure) keeps the cycle moving forward
+            // through stuck targets (visuals refused to load, target slipped out
+            // of entry range between resolve and entry, etc.) instead of looping
+            // on a single bad pick.
+            //
+            // ResetWatchState no longer clears the cursor, and ExitWatchMode
+            // only clears it on full exits (not the switching skip-camera path
+            // EnterWatchMode runs when handing off between ghosts), so the
+            // cursor survives the internal switching ExitWatchMode here.
+            watchCycleCursorRecordingId = resolution.NextRecordingId;
+            EnterWatchMode(resolution.NextIndex);
         }
 
         /// <summary>
@@ -2472,13 +2737,14 @@ namespace Parsek
             ParsekLog.Info("CameraFollow",
                 $"Auto-following: #{watchedRecordingIndex} \"{oldName}\" -> #{nextIndex} \"{newName}\"");
 
-            // Verify the target ghost exists before transferring
+            // The continuation ghost spawn lags the chain-end detection by
+            // one or two physics frames, so this deferral path is the normal
+            // transient state, not a fault — log at rate-limited Verbose.
             var ghostStates = host.Engine.ghostStates;
             GhostPlaybackState gs;
             if (!ghostStates.TryGetValue(nextIndex, out gs) || gs == null || gs.ghost == null)
             {
-                ParsekLog.Warn("CameraFollow",
-                    $"Auto-follow target #{nextIndex} has no active ghost - deferring transfer");
+                LogAutoFollowDeferred(nextIndex, committed[nextIndex].RecordingId);
                 return false;
             }
 

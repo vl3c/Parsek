@@ -36,8 +36,6 @@ namespace Parsek.Rendering
     /// Deferred sources (each emits ε = 0 and reserves the priority slot;
     /// the corresponding world-frame resolver lands in a follow-up):
     /// <list type="bullet">
-    ///   <item>§7.8 CoBubblePeer — Phase 5 territory; reserved enum value
-    ///   only.</item>
     ///   <item>§7.9 SurfaceContinuous — Phase 7 terrain raycast. Phase 6
     ///   emits the candidate marker so Phase 7 can hook the per-frame
     ///   resolver in without touching commit-time code.</item>
@@ -230,11 +228,14 @@ namespace Parsek.Rendering
                 }
             }
 
-            // Phase 1 — emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
+            // Phase 1: emit non-DockOrMerge seed anchors. For §7.4 / §7.5 /
             // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
-            // for §7.8 / §7.9 (deferred sources — see the class docstring)
-            // the slot is reserved with ε = 0 so the §7.11 priority resolver
-            // still runs.
+            // for §7.9 (deferred source, see the class docstring) the slot is
+            // reserved with ε = 0 so the §7.11 priority resolver still runs.
+            // §7.8 (CoBubblePeer) was retired in v0.10.0 along with the
+            // co-bubble subsystem; the enum slot remains as Reserved7 to
+            // preserve the persisted AnchorCandidate type-byte layout, but no
+            // producer ever emits an AnchorSource.Reserved7 candidate.
             int resolvedRel = 0, resolvedOrb = 0, resolvedSoi = 0,
                 resolvedLoop = 0, resolvedBubble = 0,
                 deferredNoResolver = 0, deferredNoSpline = 0;
@@ -606,7 +607,7 @@ namespace Parsek.Rendering
                         // Identity-propagate (ε' = ε) and surface the
                         // failure reason once per edge.
                         nineOneFallbackReason = !parentOk ? parentReason : childReason;
-                        string failTag = !parentOk ? "no-sample-skip" : "no-sample-skip";
+                        string failTag = "no-sample-skip";
                         // section-not-absolute / no-sample / body-resolve-failed
                         // each get their own diagnostic suffix so log readers
                         // can distinguish them without parsing the reason field.
@@ -708,7 +709,7 @@ namespace Parsek.Rendering
         ///   <item>SoiTransition    → <see cref="IAnchorWorldFrameResolver.TryResolveSoiBoundaryWorldPos"/></item>
         ///   <item>Loop             → <see cref="IAnchorWorldFrameResolver.TryResolveLoopAnchorWorldPos"/></item>
         ///   <item>BubbleEntry / BubbleExit → <see cref="IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos"/></item>
-        ///   <item>SurfaceContinuous / CoBubblePeer
+        ///   <item>SurfaceContinuous
         ///         → deferred (returns false, ε stays 0).</item>
         /// </list>
         /// Returns true with a finite world-frame ε; returns false on
@@ -730,8 +731,7 @@ namespace Parsek.Rendering
             // BubbleEntry / BubbleExit are NO LONGER deferred (§7.7 ships
             // in v0.9.1) — the dispatch below handles them via the new
             // resolver method.
-            if (cand.Source == AnchorSource.CoBubblePeer
-                || cand.Source == AnchorSource.SurfaceContinuous)
+            if (cand.Source == AnchorSource.SurfaceContinuous)
             {
                 return false;
             }

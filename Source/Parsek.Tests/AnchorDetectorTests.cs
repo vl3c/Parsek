@@ -388,6 +388,159 @@ namespace Parsek.Tests
             Assert.False(AnchorDetector.IsRecordingAnchorDAGOrderEligible(unassignedFocus, focus));
         }
 
+        #region TryResolveLoadedAnchorRecordingId
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_BackgroundVessel_ResolvesFromBackgroundMap()
+        {
+            var bgMap = new Dictionary<uint, string> { { 100u, "bg-rec" } };
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                100u,
+                bgMap,
+                "active-rec",
+                999u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.True(resolved);
+            Assert.Equal("bg-rec", recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_ActiveVesselNotInBackgroundMap_ResolvesActiveRecording()
+        {
+            // Regression: the docking-approach drop-out. The anchor vessel left
+            // the BackgroundMap when the player switched control to it, becoming
+            // the active recording. It must still resolve as an anchor candidate.
+            var bgMap = new Dictionary<uint, string>();
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                1963925040u,
+                bgMap,
+                "active-rec",
+                1963925040u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.True(resolved);
+            Assert.Equal("active-rec", recordingId);
+            Assert.True(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_BackgroundMapWinsOverActive()
+        {
+            // A vessel present in BackgroundMap resolves to its background id even
+            // if its pid happens to also match the active recording's pid.
+            var bgMap = new Dictionary<uint, string> { { 100u, "bg-rec" } };
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                100u,
+                bgMap,
+                "active-rec",
+                100u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.True(resolved);
+            Assert.Equal("bg-rec", recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_UnknownVessel_ReturnsFalse()
+        {
+            var bgMap = new Dictionary<uint, string> { { 100u, "bg-rec" } };
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                200u,
+                bgMap,
+                "active-rec",
+                300u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.False(resolved);
+            Assert.Null(recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_ZeroPid_ReturnsFalse()
+        {
+            var bgMap = new Dictionary<uint, string> { { 0u, "bg-rec" } };
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                0u,
+                bgMap,
+                "active-rec",
+                0u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.False(resolved);
+            Assert.Null(recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_NoActiveRecording_ReturnsFalseForNonBackground()
+        {
+            var bgMap = new Dictionary<uint, string>();
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                100u,
+                bgMap,
+                null,
+                0u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.False(resolved);
+            Assert.Null(recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_ActiveRecordingIdSetButPidMismatch_ReturnsFalse()
+        {
+            // The active recording id is set, but the loaded vessel is a
+            // different vessel than the active recording's vessel.
+            var bgMap = new Dictionary<uint, string>();
+
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                100u,
+                bgMap,
+                "active-rec",
+                555u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.False(resolved);
+            Assert.Null(recordingId);
+            Assert.False(isActiveRecording);
+        }
+
+        [Fact]
+        public void TryResolveLoadedAnchorRecordingId_NullBackgroundMap_StillResolvesActive()
+        {
+            bool resolved = AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                100u,
+                null,
+                "active-rec",
+                100u,
+                out string recordingId,
+                out bool isActiveRecording);
+
+            Assert.True(resolved);
+            Assert.Equal("active-rec", recordingId);
+            Assert.True(isActiveRecording);
+        }
+
+        #endregion
+
         [Fact]
         public void TryCreateRecordingAnchorCandidate_RejectsSameTreeNewerCandidate()
         {
@@ -843,7 +996,7 @@ namespace Parsek.Tests
         {
             // Two-debris anchoring is also rejected. By PR 3b construction,
             // debris-of-debris should never reach the candidate path —
-            // debris.DebrisParentRecordingId points at its own parent
+            // debris.ParentAnchorRecordingId points at its own parent
             // (a non-debris parent recording) via the contract, and
             // BackgroundRecorder.UpdateBackgroundAnchorDetection's
             // early-return short-circuits the candidate scan for debris

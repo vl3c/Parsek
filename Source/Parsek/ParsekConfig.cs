@@ -174,7 +174,7 @@ namespace Parsek
         /// <summary>
         /// Initial post-activation window during which ghost visible frames
         /// may be clamped to avoid spawn-time pop. Keep this tight: wider
-        /// clamping can fight co-bubble/chain rendering at optimizer splits.
+        /// clamping can fight chain rendering at optimizer splits.
         /// </summary>
         internal const double InitialVisibleFrameClampWindowSeconds = 0.02;
 

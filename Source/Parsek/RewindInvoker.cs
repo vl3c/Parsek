@@ -215,7 +215,7 @@ namespace Parsek
         /// PR 3b review follow-up §3: extracting this block lets a
         /// regression test fail fast if a future refactor touches the
         /// inheritance set without preserving every field. The
-        /// <c>DebrisParentRecordingId</c> copy is the load-bearing current-schema
+        /// <c>ParentAnchorRecordingId</c> copy is the load-bearing current-schema
         /// debris-anchor inheritance the plan flags as a critical
         /// Re-Fly safety hook (plan §"Risk analysis": "Re-Fly inheritance
         /// loses the contract — High if RewindInvoker propagation is
@@ -244,7 +244,7 @@ namespace Parsek
             // doesn't silently lose the contract on the provisional. Without this,
             // the resolver's chain-walk would not have a parent recording id to
             // chase through supersede successors.
-            provisional.DebrisParentRecordingId = inheritFrom.DebrisParentRecordingId;
+            provisional.ParentAnchorRecordingId = inheritFrom.ParentAnchorRecordingId;
             provisional.Generation = inheritFrom.Generation;
             // SegmentPhase / SegmentBodyName are intentionally NOT copied. Those fields
             // describe the most-recent segment of THIS recording — for the parent that
@@ -435,7 +435,7 @@ namespace Parsek
 
             var selected = rp.ChildSlots[selectedSlotListIndex];
             int selectedSlotId = selected != null ? selected.SlotIndex : selectedSlotListIndex;
-            string title = "Confirm Re-Fly";
+            string title = "Confirm: Re-Fly";
             string message =
                 "Do you want to fly this again? This will take you to the moment after " +
                 "separation and you will be in control of the craft / Kerbal.";
@@ -529,8 +529,8 @@ namespace Parsek
 
             string sessionId = "sess_" + Guid.NewGuid().ToString("N");
             ParsekLog.Info(InvokeTag,
-                $"StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
-                $"slot={selected.SlotIndex}");
+                $"Re-Fly (Rewind-to-Separation) StartInvoke: sess={sessionId} rp={rp.RewindPointId} " +
+                $"slot={selected.SlotIndex}. Re-fly from a RewindPoint, NOT a plain Rewind-to-Launch");
 
             // Step 1: capture reconciliation bundle (synchronous, no yield).
             ReconciliationBundle bundle;
@@ -1341,6 +1341,21 @@ namespace Parsek
                 catch { /* idempotent rollback; swallow secondary failure */ }
                 throw;
             }
+
+            // Nest the live fork under its tree's existing mission folder so the
+            // recordings table renders it inside the group during the active
+            // Re-Fly session instead of floating at the table root. Resolve the
+            // tree from the eager in-place handle when present, else look it up
+            // by the fork's TreeId (covers the placeholder branch that defers
+            // tree attach to RestoreActiveTreeFromPending). No-op when the tree
+            // has no auto-generated folder. Deliberately OUTSIDE the atomic
+            // try/catch above: grouping is cosmetic, not part of the
+            // provisional+marker critical section, so a thrown marker write
+            // rolls back the provisional without leaking a created debris/crew
+            // subgroup mapping.
+            RecordingGroupStore.AssignTreeMemberToExistingAutoGroup(
+                pendingTreeForFork ?? FindTreeForReFlyFork(provisional.TreeId),
+                provisional);
 
             // The quickload-resume context can be armed before this method runs
             // on async FLIGHT loads. Refresh after the marker exists so recorder

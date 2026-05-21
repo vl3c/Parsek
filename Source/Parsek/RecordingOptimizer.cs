@@ -125,7 +125,7 @@ namespace Parsek
             // back together with a partially-set contract. Two debris with different
             // parents cannot auto-merge either.
             if (a.IsDebris != b.IsDebris) return false;
-            if (!string.Equals(a.DebrisParentRecordingId, b.DebrisParentRecordingId, StringComparison.Ordinal))
+            if (!string.Equals(a.ParentAnchorRecordingId, b.ParentAnchorRecordingId, StringComparison.Ordinal))
                 return false;
 
             // Different recording groups = user organized them differently
@@ -1086,7 +1086,7 @@ namespace Parsek
             // PR 3b: propagate the v13 debris parent-anchor contract to both halves of
             // a SplitAtSection split. The `original` half retains its field by virtue of
             // in-place mutation; the `second` (newly-allocated) half needs the explicit copy.
-            second.DebrisParentRecordingId = original.DebrisParentRecordingId;
+            second.ParentAnchorRecordingId = original.ParentAnchorRecordingId;
             second.RecordingFormatVersion = original.RecordingFormatVersion;
             // Both halves are the same vessel — share Generation. (#284)
             second.Generation = original.Generation;

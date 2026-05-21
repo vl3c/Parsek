@@ -408,7 +408,7 @@ namespace Parsek
         // We store each ghost's last positioning inputs and re-apply in LateUpdate()
         // so the position is correct in the post-shift frame that actually renders.
 
-        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint, CoBubble }
+        private enum GhostPosMode { PointInterp, SinglePoint, Orbit, Surface, Relative, CheckpointPoint }
 
         internal enum GhostPositionReapplyPhase { LateUpdate, CameraPreCull }
 
@@ -461,7 +461,6 @@ namespace Parsek
             public double relDx, relDy, relDz;    // interpolated offset (meters)
             public Quaternion relativeRot;         // interpolated relative rotation
             public string relativeBodyName;        // body name for altitude computation
-            public int relativeRecordingFormatVersion;
             public RelativeAnchorPoseSnapshot relativeRecordedAnchorPose;
             public string relativeAnchorRecordingId;
             public bool relativeLoopLiveAnchor;     // true only for loop playback's explicit live-PID contract
@@ -486,19 +485,6 @@ namespace Parsek
             //      passed in, or both gates closed) skipped both paths.
             public string anchorRecordingId;
             public int anchorSectionIndex;
-
-            // Phase 5 P1-C: CoBubble mode fields. The Update path enqueues
-            // a GhostPosEntry whose mode == CoBubble whenever the blender
-            // returned a finite offset; LateUpdate re-evaluates the blender
-            // + standalone primary so the FloatingOrigin shift cannot snap
-            // the ghost back to its bare standalone position. Without this,
-            // LateUpdate's PointInterp branch overwrote the
-            // primary+offset composition every late frame, producing visible
-            // per-frame flicker between Update (correct) and LateUpdate
-            // (wrong). Only valid when mode == CoBubble.
-            public string coBubblePeerRecordingId;
-            public string coBubblePrimaryRecordingId;
-            public double coBubblePointUT;
 
         }
 
@@ -731,6 +717,15 @@ namespace Parsek
         // Used to avoid seeding breakup children from the later deferred-check frame.
         private Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
 
+        // Docking-port undock handoff (onPartUndock -> onVesselsUndocking, same frame).
+        // onPartUndock fires FIRST inside Part.Undock(), while the combined vessel is still
+        // intact (ideal moment to capture the departing root part's pre-split origin seed and
+        // the structural-event snapshot), but the new vessel's persistentId is not assigned
+        // until KSP finishes the split and fires onVesselsUndocking at the end of the same
+        // call. We stash the pre-split seed here and let OnVesselsUndocking author the actual
+        // Undock branch with the final pids.
+        private TrajectoryPoint? pendingUndockRootPartSeed;
+
         // Crash coalescer: groups rapid structural splits into single BREAKUP events
         private CrashCoalescer crashCoalescer = new CrashCoalescer();
 
@@ -820,6 +815,7 @@ namespace Parsek
         private double lastWarpCheckpointUT;
         // Camera follow (watch mode) — extracted to WatchModeController
         private WatchModeController watchMode;
+        internal WatchModeController WatchMode => watchMode;
 
         // UI
         private Rect windowRect = new Rect(20, 100, 250, 250);
@@ -1081,6 +1077,7 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
+            GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
@@ -1617,8 +1614,7 @@ namespace Parsek
                                 anchorRotation,
                                 e.relDx,
                                 e.relDy,
-                                e.relDz,
-                                e.relativeRecordingFormatVersion);
+                                e.relDz);
                             ApplyGhostReapplyTransform(
                                 e,
                                 ghostPos,
@@ -1631,104 +1627,6 @@ namespace Parsek
                         {
                             // Anchor not loaded — hide ghost (offsets are meters, not lat/lon/alt)
                             e.ghost.SetActive(false);
-                        }
-                        break;
-                    }
-                    case GhostPosMode.CoBubble:
-                    {
-                        // Phase 5 P1-C: re-evaluate the blender + primary
-                        // standalone in LateUpdate so the FloatingOrigin
-                        // shift cannot snap the ghost back to the standalone
-                        // bracket position. The Update path already chose
-                        // the CoBubble mode (blender hit + primary resolved);
-                        // here we recompute peer-standalone AND the
-                        // primary+offset target, then lerp between them with
-                        // the blender's blend factor (crossfade-tail
-                        // continuity). Any failure (primary now missing,
-                        // blender mid-session miss) falls through to the
-                        // bare peer-standalone position so HR-9 holds.
-                        if (e.bodyBefore == null) break;
-                        if (e.bodyAfter == null) break;
-
-                        // Always compute peer-standalone (mirrors PointInterp's
-                        // body of work). The lerp at blend=0 lands here, so the
-                        // crossfade-tail handoff to MissCrossfadeOut is exact.
-                        Vector3d standalonePos;
-                        if (!TryComputeLateUpdateSplineWorldPosition(e, out standalonePos))
-                        {
-                            Vector3d posBefore = e.bodyBefore.GetWorldSurfacePosition(
-                                e.latBefore, e.lonBefore, e.altBefore);
-                            Vector3d posAfter = e.bodyAfter.GetWorldSurfacePosition(
-                                e.latAfter, e.lonAfter, e.altAfter);
-                            if (!allowPointHermiteInterpolation(
-                                    false,
-                                    splineApplied: false,
-                                    allowNormalPlaybackHermite: NormalPlaybackPointHermiteEnabled,
-                                    out _))
-                            {
-                                standalonePos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                            }
-                            else
-                            {
-                                double hermiteMaxDeviationMeters =
-                                    ComputePointHermiteMaxDeviationMeters(posBefore, posAfter);
-                                if (!TrajectoryMath.TryInterpolateWorldHermite(
-                                        posBefore,
-                                        e.velocityBefore,
-                                        posAfter,
-                                        e.velocityAfter,
-                                        e.pointDeltaTimeSeconds,
-                                        e.t,
-                                        hermiteMaxDeviationMeters,
-                                        out standalonePos,
-                                        out _,
-                                        out _))
-                                {
-                                    standalonePos = Vector3d.Lerp(posBefore, posAfter, e.t);
-                                }
-                            }
-                        }
-                        if (allowRenderAnchorCorrectionInterval(
-                                e.anchorRecordingId, e.anchorSectionIndex, e.pointUT,
-                                false,
-                                out Vector3d lateEps, out _))
-                        {
-                            standalonePos += lateEps;
-                        }
-
-                        bool blendApplied = false;
-                        if (Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                                e.coBubblePeerRecordingId, e.coBubblePointUT,
-                                out Vector3d worldOffset,
-                                out double blend,
-                                out Parsek.Rendering.CoBubbleBlendStatus _,
-                                out string lateprimary)
-                            && !string.IsNullOrEmpty(lateprimary)
-                            && TryComputeStandaloneWorldPositionForRecording(
-                                lateprimary, e.coBubblePointUT, e.bodyBefore,
-                                out Vector3d primaryWorld,
-                                suppressAnchorCorrection: false))
-                        {
-                            Vector3d coBubbleTarget = primaryWorld + worldOffset;
-                            Vector3d composed = Vector3d.Lerp(standalonePos, coBubbleTarget, blend);
-                            ApplyGhostReapplyTransform(
-                                e,
-                                composed,
-                                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                                phase);
-                            blendApplied = true;
-                        }
-                        if (!blendApplied)
-                        {
-                            ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                                "cobubble-late-update-fallback",
-                                $"cobubble-late-update-fallback peer={e.coBubblePeerRecordingId} primary={e.coBubblePrimaryRecordingId}",
-                                5.0);
-                            ApplyGhostReapplyTransform(
-                                e,
-                                standalonePos,
-                                e.bodyBefore.bodyTransform.rotation * e.interpolatedRot,
-                                phase);
                         }
                         break;
                     }
@@ -1757,7 +1655,6 @@ namespace Parsek
         {
             if (!string.IsNullOrEmpty(entry.recordingId)) return entry.recordingId;
             if (!string.IsNullOrEmpty(entry.anchorRecordingId)) return entry.anchorRecordingId;
-            if (!string.IsNullOrEmpty(entry.coBubblePeerRecordingId)) return entry.coBubblePeerRecordingId;
             if (!string.IsNullOrEmpty(entry.relativeAnchorRecordingId)) return entry.relativeAnchorRecordingId;
             return null;
         }
@@ -1773,7 +1670,6 @@ namespace Parsek
             string recordingId =
                 !string.IsNullOrEmpty(entry.recordingId) ? entry.recordingId :
                 !string.IsNullOrEmpty(entry.anchorRecordingId) ? entry.anchorRecordingId :
-                !string.IsNullOrEmpty(entry.coBubblePeerRecordingId) ? entry.coBubblePeerRecordingId :
                 !string.IsNullOrEmpty(entry.relativeAnchorRecordingId) ? entry.relativeAnchorRecordingId :
                 null;
             double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : entry.pointUT;
@@ -1912,7 +1808,6 @@ namespace Parsek
                     string traceRecordingId =
                         !string.IsNullOrEmpty(e.recordingId) ? e.recordingId :
                         !string.IsNullOrEmpty(e.anchorRecordingId) ? e.anchorRecordingId :
-                        !string.IsNullOrEmpty(e.coBubblePeerRecordingId) ? e.coBubblePeerRecordingId :
                         !string.IsNullOrEmpty(e.relativeAnchorRecordingId) ? e.relativeAnchorRecordingId :
                         null;
                     double currentUT = Planetarium.fetch != null ? Planetarium.GetUniversalTime() : e.pointUT;
@@ -2106,6 +2001,7 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
+            GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
@@ -3092,9 +2988,9 @@ namespace Parsek
                     ParsekSettings.Current?.autoRecordOnFirstModificationAfterSwitch != false,
                     IsRecording,
                     hasNewVessel: true,
-                    newVesselIsGhost,
-                    newVessel.isEVA),
-                trackedInActiveTree);
+                    newVesselIsGhost),
+                trackedInActiveTree,
+                newVessel.isEVA);
 
             // Bug #585: in-place continuation Re-Fly suppression. When the live
             // marker pins the new active vessel as the in-place continuation
@@ -5774,112 +5670,8 @@ namespace Parsek
             return true;
         }
 
-        /// <summary>
-        /// Deferred handler for the transient-state OnPartUndock case (the playtest
-        /// scenario where KSP fires onPartUndock exactly once with
-        /// <c>undockedPart.vessel.persistentId == recorder.RecordingVesselId</c>).
-        /// Waits one frame for KSP to finish the vessel split, walks
-        /// <see cref="FlightGlobals.Vessels"/> to discover the un-decoupled half by
-        /// PID (any vessel whose pid differs from the stopped recorder's
-        /// RecordingVesselId AND whose root part matches the undockedPart we saw at
-        /// event time), then dispatches through the same <see cref="CreateSplitBranch"/>
-        /// path the normal undock uses. That path creates the Undock branch point,
-        /// per-half recordings, AND completes any open route window via
-        /// <see cref="RouteProofCapture.TryCompleteLatestRouteConnectionWindow"/>.
-        ///
-        /// Falls back to <see cref="ResumeSplitRecorder"/> when the new vessel is
-        /// debris (not trackable) or can't be found, mirroring
-        /// <see cref="DeferredUndockBranch"/>'s behavior.
-        /// </summary>
-        IEnumerator DeferredHandleTransientUndock(uint undockedPartPid)
-        {
-            yield return null; // defer one frame for KSP to finalize the split
-
-            try
-            {
-                if (pendingSplitRecorder == null || FlightGlobals.ActiveVessel == null)
-                {
-                    ParsekLog.Warn("Flight",
-                        "DeferredHandleTransientUndock: invalid state after deferral — aborting");
-                    FallbackCommitSplitRecorder(pendingSplitRecorder);
-                    yield break;
-                }
-
-                uint recorderPid = pendingSplitRecorder.RecordingVesselId;
-
-                // Discover the un-decoupled half. Two candidates:
-                //  (a) The vessel that now owns the part with persistentId == undockedPartPid.
-                //      If KSP reparented the docking port to a new vessel, this finds it.
-                //  (b) Any vessel near the recorder whose pid differs and whose parts
-                //      were physically part of the merged vessel pre-undock.
-                Vessel newVessel = null;
-                List<Vessel> vessels = FlightGlobals.Vessels;
-                if (vessels != null && undockedPartPid != 0u)
-                {
-                    for (int i = 0; i < vessels.Count; i++)
-                    {
-                        Vessel v = vessels[i];
-                        if (v == null || v.parts == null || v.parts.Count == 0) continue;
-                        if (v.persistentId == recorderPid) continue;
-                        for (int p = 0; p < v.parts.Count; p++)
-                        {
-                            Part part = v.parts[p];
-                            if (part != null && part.persistentId == undockedPartPid)
-                            {
-                                newVessel = v;
-                                break;
-                            }
-                        }
-                        if (newVessel != null) break;
-                    }
-                }
-
-                if (newVessel == null)
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"DeferredHandleTransientUndock: un-decoupled half not found via " +
-                        $"undockedPartPid={undockedPartPid} recorderPid={recorderPid} — " +
-                        "resuming recording (KSP may have destroyed it or not split at all)");
-                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock new vessel not found");
-                    yield break;
-                }
-
-                if (!IsTrackableVessel(newVessel))
-                {
-                    ParsekLog.Verbose("Flight",
-                        $"DeferredHandleTransientUndock: un-decoupled half is debris " +
-                        $"pid={newVessel.persistentId} type={newVessel.vesselType} — resuming recording");
-                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock new vessel is debris");
-                    yield break;
-                }
-
-                double branchUT = Planetarium.GetUniversalTime();
-                if (!CheckBranchDeduplication(branchUT, newVessel.persistentId))
-                {
-                    ResumeSplitRecorder(pendingSplitRecorder, "transient-undock dedup skip");
-                    yield break;
-                }
-
-                Vessel activeVessel = FlightGlobals.ActiveVessel;
-                ParsekLog.Info("Flight",
-                    $"DeferredHandleTransientUndock: dispatching CreateSplitBranch " +
-                    $"activePid={activeVessel.persistentId} newPid={newVessel.persistentId} " +
-                    $"undockedPartPid={undockedPartPid} branchUT={branchUT.ToString("R", CultureInfo.InvariantCulture)}");
-                CreateSplitBranch(
-                    BranchPointType.Undock,
-                    activeVessel,
-                    newVessel,
-                    branchUT,
-                    backgroundInitialTrajectoryPoint: null);
-            }
-            finally
-            {
-                pendingSplitInProgress = false;
-                pendingSplitRecorder = null;
-            }
-        }
-
         IEnumerator DeferredUndockBranch(
+            uint oldVesselPid,
             uint newVesselPid,
             TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
@@ -5896,38 +5688,60 @@ namespace Parsek
 
                 double branchUT = Planetarium.GetUniversalTime();
 
-                // Deduplication check
-                if (!CheckBranchDeduplication(branchUT, newVesselPid))
+                // Resolve which side KSP gave focus to AFTER the one-frame yield. KSP keeps
+                // focus on oldVessel for a normal undock, but if the player kept controlling
+                // the pod that departed into the new vessel, KSP moves focus to it one frame
+                // later (Vessel.WaitAndSwitchFocus). Mirror DeferredEvaBranch: the recorder
+                // follows the focused side (active child), the OTHER side is backgrounded.
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                uint activePid = activeVessel.persistentId;
+                uint backgroundPid = SegmentBoundaryLogic.ResolveUndockBackgroundPid(
+                    activePid, oldVesselPid, newVesselPid);
+
+                if (activePid != oldVesselPid && activePid != newVesselPid)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: active vessel pid={activePid} is neither undock side " +
+                        $"(old={oldVesselPid}, new={newVesselPid}); defaulting to background new, active stays current");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: active vessel pid={activePid} (old={oldVesselPid}, " +
+                        $"new={newVesselPid}); backgrounding pid={backgroundPid}");
+                }
+
+                // Deduplication check keys on the backgrounded vessel (the new tree child).
+                if (!CheckBranchDeduplication(branchUT, backgroundPid))
                 {
                     ResumeSplitRecorder(pendingSplitRecorder, "undock dedup skip");
                     yield break;
                 }
 
-                // Find the new vessel
-                Vessel newVessel = FlightRecorder.FindVesselByPid(newVesselPid);
-                if (newVessel == null)
+                // Find the vessel that goes to background.
+                Vessel backgroundVessel = FlightRecorder.FindVesselByPid(backgroundPid);
+                if (backgroundVessel == null)
                 {
-                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} not found — debris destroyed, resuming recording");
+                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={backgroundPid} not found, debris destroyed, resuming recording");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel not found");
                     yield break;
                 }
 
                 // Debris filter
-                if (!IsTrackableVessel(newVessel))
+                if (!IsTrackableVessel(backgroundVessel))
                 {
                     ParsekLog.Verbose("Flight",
-                        $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording " +
+                        $"DeferredUndockBranch: vessel pid={backgroundPid} is not trackable (debris), resuming recording " +
                         $"capturedSeed={backgroundInitialTrajectoryPoint.HasValue}");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel is debris");
                     yield break;
                 }
 
-                // Player stays on remaining vessel (active), undocked vessel goes to background
-                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                // Recorder follows the focused vessel (active child); the other goes to background.
                 CreateSplitBranch(
                     BranchPointType.Undock,
                     activeVessel,
-                    newVessel,
+                    backgroundVessel,
                     branchUT,
                     backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
@@ -6650,8 +6464,8 @@ namespace Parsek
             // ambiguity; the focused recording is the right anchor. Caller-decides
             // helper: both debris (IsDebris=true) and controlled-decoupled children
             // (IsDebris=false) receive the contract here.
-            Recording.ApplyDebrisAnchorContract(childRec, parentRecordingId);
-            if (!string.IsNullOrEmpty(childRec.DebrisParentRecordingId))
+            Recording.ApplyParentAnchorContract(childRec, parentRecordingId);
+            if (!string.IsNullOrEmpty(childRec.ParentAnchorRecordingId))
             {
                 string population = childRec.IsDebris ? "debris" : "controlled-child";
                 ParsekLog.Verbose("Coalescer",
@@ -7970,25 +7784,35 @@ namespace Parsek
             bool autoRecordOnFirstModificationAfterSwitchEnabled,
             bool isRecording,
             bool hasNewVessel,
-            bool newVesselIsGhost,
-            bool newVesselIsEva)
+            bool newVesselIsGhost)
         {
             return autoRecordOnFirstModificationAfterSwitchEnabled
                 && !isRecording
                 && hasNewVessel
-                && !newVesselIsGhost
-                && !newVesselIsEva;
+                && !newVesselIsGhost;
         }
 
         internal static PostSwitchAutoRecordArmDecision EvaluatePostSwitchAutoRecordArmDecision(
             bool shouldArm,
-            bool trackedInActiveTree)
+            bool trackedInActiveTree,
+            bool newVesselIsEva)
         {
             if (!shouldArm)
                 return PostSwitchAutoRecordArmDecision.None;
 
-            return trackedInActiveTree
-                ? PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember
+            // A tracked background member is an existing tree recording: switching back
+            // to it should promote it to foreground on the first modification, whether
+            // or not it is an EVA kerbal. (An EVA kerbal re-controlled after a vessel
+            // switch lives here; without this it stays background-tracked and the
+            // missed-vessel-switch recovery loops every frame, never promoting.)
+            if (trackedInActiveTree)
+                return PostSwitchAutoRecordArmDecision.ArmTrackedBackgroundMember;
+
+            // Outsider (not in any tree): a fresh EVA kerbal is owned by the dedicated
+            // OnCrewOnEva / EVA-branch + "Auto-record on EVA" path, so do not also arm
+            // an outsider standalone recording for it. Non-EVA outsiders still arm.
+            return newVesselIsEva
+                ? PostSwitchAutoRecordArmDecision.None
                 : PostSwitchAutoRecordArmDecision.ArmOutsider;
         }
 
@@ -10684,10 +10508,12 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"OnPartUndock: skipped — restore coroutine in progress " +
                     $"(part '{undockedPart?.partInfo?.name}')");
+                ClearPendingUndockSeed();
                 return;
             }
 
             ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
+            ClearPendingUndockSeed();
             if (recorder == null || !recorder.IsRecording) return;
             if (pendingSplitInProgress) return; // another split is already being processed
             if (undockedPart?.vessel == null)
@@ -10696,95 +10522,34 @@ namespace Parsek
                 return;
             }
 
-            uint newPid = undockedPart.vessel.persistentId;
-            if (newPid == recorder.RecordingVesselId)
-            {
-                // Transient state: KSP fired onPartUndock before reparenting the
-                // un-decoupled part to a new vessel. The 2026-05-18 dock-2 playtest
-                // showed KSP fires onPartUndock EXACTLY ONCE in some docking-port-
-                // to-docking-port configurations, so we cannot rely on a follow-up
-                // event to drive the chain-split path.
-                //
-                // Take ownership of the undock here: write the structural-event
-                // snapshot, stop the recorder, set pendingSplitInProgress so any
-                // late follow-up event no-ops, and schedule a deferred coroutine
-                // that discovers the un-decoupled half by walking
-                // FlightGlobals.Vessels next frame and calls CreateSplitBranch.
-                // That path creates the proper Undock branch + new recordings for
-                // both halves AND completes any open route window via
-                // CreateSplitBranch's existing call to
-                // TryCompleteLatestRouteConnectionWindow.
-                double transientUndockUT = Planetarium.GetUniversalTime();
-                var transientInvolved = new List<Vessel>(2) { undockedPart.vessel };
-                if (FlightGlobals.Vessels != null)
-                {
-                    for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                    {
-                        Vessel candidate = FlightGlobals.Vessels[i];
-                        if (candidate != null
-                            && candidate.persistentId == recorder.RecordingVesselId
-                            && candidate != undockedPart.vessel)
-                        {
-                            transientInvolved.Add(candidate);
-                            break;
-                        }
-                    }
-                }
-                recorder.AppendStructuralEventSnapshot(transientUndockUT, transientInvolved, "Undock");
-                backgroundRecorder?.AppendStructuralEventSnapshot(transientUndockUT, transientInvolved, "Undock");
-
-                recorder.StopRecordingForChainBoundary();
-                pendingSplitRecorder = recorder;
-                recorder = null;
-                pendingSplitInProgress = true;
-                Log("onPartUndock (transient): KSP fired with pre-reparent PID — " +
-                    "scheduling deferred undock split discovery " +
-                    $"(recorderPid={pendingSplitRecorder.RecordingVesselId})");
-                StartCoroutine(DeferredHandleTransientUndock(undockedPart.persistentId));
-                return;
-            }
-
-            // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
-            // exact undock UT for the recorded vessel. Done BEFORE
-            // StopRecordingForChainBoundary so the snapshot lands in the active
-            // section. The split halves still share most state at the event UT; the
-            // focused recorder filters by RecordingVesselId and the background
-            // recorder filters by BackgroundMap membership.
+            // onPartUndock fires FIRST inside KSP's Part.Undock(), BEFORE the vessel is
+            // split (the part still reports the OLD combined vessel persistentId here, so
+            // we deliberately do NOT branch off this pid). KSP creates the new vessel and
+            // fires onVesselsUndocking(oldVessel, newVessel) at the END of the same call,
+            // where both pids are final. We capture the structural-event snapshot and the
+            // departing root part's pre-split origin seed NOW (combined vessel intact, part
+            // still attached, the ideal moment) and stash the seed for OnVesselsUndocking,
+            // which authors the actual Undock branch (and, via CreateSplitBranch, completes
+            // any open logistics route-connection window). See the undock-not-recorded fix.
             double undockEventUT = Planetarium.GetUniversalTime();
-            var undockInvolved = new List<Vessel>(2);
-            if (undockedPart.vessel != null) undockInvolved.Add(undockedPart.vessel);
-            // The pre-undock parent vessel is the one matching RecordingVesselId.
-            // Find it in FlightGlobals.Vessels to feed the helper symmetrically.
-            if (FlightGlobals.Vessels != null)
-            {
-                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                {
-                    Vessel candidate = FlightGlobals.Vessels[i];
-                    if (candidate != null
-                        && candidate.persistentId == recorder.RecordingVesselId
-                        && candidate != undockedPart.vessel)
-                    {
-                        undockInvolved.Add(candidate);
-                        break;
-                    }
-                }
-            }
+            var undockInvolved = new List<Vessel>(1) { undockedPart.vessel };
             recorder.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
             backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
+
             uint undockedPartPid = undockedPart.persistentId;
             uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
-            TrajectoryPoint? undockRootPartSeed = null;
             if (ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
                 && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     undockedPart,
                     undockEventUT,
                     out TrajectoryPoint capturedUndockSeed))
             {
-                undockRootPartSeed = capturedUndockSeed;
+                pendingUndockRootPartSeed = capturedUndockSeed;
                 ParsekLog.Verbose("Flight",
                     $"Undock root part-origin seed captured: part='{undockedPart.partInfo?.name}' " +
-                    $"pid={undockedPartPid} vesselPid={newPid} " +
-                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"pid={undockedPartPid} preSplitVesselPid={undockedPart.vessel.persistentId} " +
+                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"(deferring branch to onVesselsUndocking)");
             }
             else
             {
@@ -10794,17 +10559,117 @@ namespace Parsek
                 ParsekLog.Verbose("Flight",
                     $"Undock part-origin seed skipped: reason={reason} " +
                     $"undockedPartPid={undockedPartPid} rootPartPid={undockedRootPartPid} " +
-                    $"vesselPid={newPid}");
+                    $"preSplitVesselPid={undockedPart.vessel.persistentId} " +
+                    $"(deferring branch to onVesselsUndocking)");
+            }
+        }
+
+        /// <summary>
+        /// Authoritative docking-port undock handler. KSP fires
+        /// <c>onVesselsUndocking(oldVessel, newVessel)</c> at the end of <c>Part.Undock()</c>
+        /// with both vessels fully split and carrying their final persistentIds, so unlike a
+        /// stack/radial decoupler (which fires <c>onPartDeCoupleNewVesselComplete</c> and is
+        /// caught by the joint-break fallback) we can map the undock directly. This is the
+        /// fix for docking-port undocks being mis-recorded as within-segment part loss: the
+        /// joint-break fallback can never see the new vessel for an undock, so it classifies
+        /// the departing pod as PartDestroyed instead of branching an Undock.
+        /// </summary>
+        void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)
+        {
+            // #267: skip if restore coroutine is mid-yield; it owns activeTree/recorder.
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    "OnVesselsUndocking: skipped, restore coroutine in progress");
+                ClearPendingUndockSeed();
+                return;
             }
 
-            // Tree mode: create branch instead of chain segment.
-            // Stop recorder synchronously to prevent OnPhysicsFrame interference.
+            ParsekLog.RecState("OnVesselsUndocking:entry", CaptureRecorderState());
+
+            // Snapshot + clear the pre-split seed stashed by OnPartUndock this same frame.
+            TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
+            ClearPendingUndockSeed();
+
+            if (recorder == null || !recorder.IsRecording)
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnVesselsUndocking: not recording, ignoring");
+                return;
+            }
+            if (pendingSplitInProgress)
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnVesselsUndocking: another split is already being processed, ignoring");
+                return;
+            }
+            if (oldVessel == null || newVessel == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: null vessel (old={(oldVessel != null ? "set" : "null")}, " +
+                    $"new={(newVessel != null ? "set" : "null")}), ignoring");
+                return;
+            }
+
+            uint recordedPid = recorder.RecordingVesselId;
+            uint oldPid = oldVessel.persistentId;
+            uint newPid = newVessel.persistentId;
+
+            UndockSplitDecision decision =
+                SegmentBoundaryLogic.ClassifyUndockSplit(recordedPid, oldPid, newPid);
+
+            ParsekLog.Info("Flight",
+                $"OnVesselsUndocking: recordedPid={recordedPid} oldPid={oldPid} " +
+                $"(name='{oldVessel.vesselName}') newPid={newPid} (name='{newVessel.vesselName}') " +
+                $"decision={decision}");
+
+            if (decision == UndockSplitDecision.NotRecordedVessel)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: undock does not involve the recorded vessel " +
+                    $"(recordedPid={recordedPid}), leaving recorder running");
+                return;
+            }
+
+            // The recorder maps to KSP's oldVessel (which keeps its persistentId); the new
+            // vessel is the freshly split-off side. The deferred branch resolves which side
+            // KSP gives focus to and backgrounds the OTHER, so we pass both pids rather than
+            // pre-deciding the background here (focus can move to the departing vessel one
+            // frame later via WaitAndSwitchFocus when the player kept controlling that pod).
+
+            // The undock event IS the authoritative split signal. Consume the recorder's
+            // pending joint-break check (set by the synchronous onPartJointBreak that
+            // KSP's attachJoint.DestroyJoint() fired earlier in the same Part.Undock() call)
+            // so HandleJointBreakDeferredCheck does NOT also run next frame and misclassify
+            // the departing pod as within-segment PartDestroyed. Note: a genuine within-
+            // segment break in the SAME physics frame as the undock would also be swallowed
+            // here, but the broken part is still hidden on playback via its Decoupled
+            // PartEvent (recorded by FlightRecorder.OnPartJointBreak); only the PartDestroyed
+            // SegmentEvent label is lost, an acceptable trade for not double-processing.
+            bool consumedJointBreak = recorder.ConsumePendingJointBreakCheck(out double jointBreakUT);
+            if (consumedJointBreak)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: consumed recorder pending joint-break check " +
+                    $"(ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}); " +
+                    "undock owns this split, suppressing within-segment fallback");
+            }
+
+            // Tree mode: stop recorder synchronously to prevent OnPhysicsFrame interference,
+            // then defer one frame so KSP fully settles the freshly created vessel before we
+            // snapshot it (mirrors the proven decouple/EVA deferred-branch pattern).
             recorder.StopRecordingForChainBoundary();
             pendingSplitRecorder = recorder;
             recorder = null;
             pendingSplitInProgress = true;
-            Log($"onPartUndock: vessel split off (otherPid={newPid}) — starting deferred tree branch");
-            StartCoroutine(DeferredUndockBranch(newPid, undockRootPartSeed));
+            Log($"onVesselsUndocking: vessel split off (recordedPid={recordedPid}, " +
+                $"oldPid={oldPid}, newPid={newPid}); starting deferred Undock branch");
+            StartCoroutine(DeferredUndockBranch(oldPid, newPid, undockRootPartSeed));
+        }
+
+        private void ClearPendingUndockSeed()
+        {
+            pendingUndockRootPartSeed = null;
         }
 
         void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)
@@ -10877,17 +10742,13 @@ namespace Parsek
             ParsekLog.Verbose("Flight",
                 $"Flag planted: '{flagSite.vessel.vesselName}' by '{flagSite.placedBy}' — date stamped");
 
-            // Recording-specific: capture FlagEvent
-            if (recorder == null || !recorder.IsRecording) return;
-
+            // Recording-specific: capture FlagEvent. The planting kerbal may be the
+            // foreground recorder's vessel OR a background-tracked tree member: an EVA
+            // kerbal re-controlled after a vessel switch stays in the tree's
+            // BackgroundMap with the foreground recorder idle, yet can still plant a
+            // flag. Capture into whichever recording owns the planting vessel so the
+            // flag persists to the sidecar and replays during watch/playback.
             string placedBy = flagSite.placedBy ?? "";
-            Vessel recordedVessel = FlightRecorder.FindVesselByPid(recorder.RecordingVesselId);
-            if (!ShouldRecordFlagEvent(placedBy, recordedVessel))
-            {
-                ParsekLog.Verbose("Flight",
-                    $"Flag planted by '{placedBy}' but recorded vessel is '{recordedVessel?.vesselName}' — skipping");
-                return;
-            }
 
             Vessel flagVessel = flagSite.vessel;
             CelestialBody body = flagVessel.mainBody;
@@ -10912,10 +10773,43 @@ namespace Parsek
                 rotW = surfRot.w,
                 bodyName = body.name
             };
-            recorder.FlagEvents.Add(fe);
 
-            Log($"Flag event captured: '{fe.flagSiteName}' by '{fe.placedBy}' at " +
-                $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+            // 1) Foreground recorder owns the planting vessel.
+            if (recorder != null && recorder.IsRecording
+                && ShouldRecordFlagEvent(placedBy,
+                    FlightRecorder.FindVesselByPid(recorder.RecordingVesselId)))
+            {
+                recorder.FlagEvents.Add(fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (foreground recorder pid={recorder.RecordingVesselId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            // 2) A background-tracked tree member owns the planting vessel.
+            uint bgOwnerPid = ResolveBackgroundFlagOwnerPid(
+                placedBy,
+                activeTree?.BackgroundMap,
+                pid => FlightRecorder.FindVesselByPid(pid)?.GetVesselCrew());
+            if (bgOwnerPid != 0
+                && activeTree != null
+                && activeTree.BackgroundMap.TryGetValue(bgOwnerPid, out string bgRecId)
+                && activeTree.Recordings.TryGetValue(bgRecId, out Recording bgRec)
+                && bgRec != null)
+            {
+                AppendFlagEventToTreeRecording(bgRec, fe);
+                ParsekLog.Info("Flight",
+                    $"Flag event captured (background tree member pid={bgOwnerPid} rec={bgRecId}): " +
+                    $"'{fe.flagSiteName}' by '{fe.placedBy}' at " +
+                    $"({fe.latitude:F4},{fe.longitude:F4},{fe.altitude:F1}) on {fe.bodyName}");
+                return;
+            }
+
+            ParsekLog.Verbose("Flight",
+                $"Flag planted by '{placedBy}' but no foreground or background recording owns " +
+                $"the planting vessel - skipping (recorderPid={(recorder != null ? recorder.RecordingVesselId : 0)}, " +
+                $"hasTree={activeTree != null})");
         }
 
         /// <summary>
@@ -10955,6 +10849,59 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Finds the background-tracked vessel pid whose live crew contains the flag
+        /// planter, so a flag planted by a background tree member (e.g. an EVA kerbal
+        /// re-controlled after a vessel switch) can be captured into its recording.
+        /// Returns 0 when no background vessel matches. Pure decision helper (crew
+        /// lookup injected) so it is unit-testable without a live tree.
+        /// </summary>
+        internal static uint ResolveBackgroundFlagOwnerPid(
+            string placedBy,
+            IEnumerable<KeyValuePair<uint, string>> backgroundMap,
+            Func<uint, List<ProtoCrewMember>> crewLookup)
+        {
+            if (string.IsNullOrEmpty(placedBy) || backgroundMap == null || crewLookup == null)
+                return 0;
+
+            foreach (var entry in backgroundMap)
+            {
+                if (entry.Key == 0)
+                    continue;
+                if (CrewContainsKerbalNamed(crewLookup(entry.Key), placedBy))
+                    return entry.Key;
+            }
+
+            return 0;
+        }
+
+        /// <summary>
+        /// Appends a captured flag to a tree recording's FlagEvents, keeping the list
+        /// in stable UT order and marking the recording's sidecar dirty so the new
+        /// event persists. Used for background-tracked tree members whose FlagEvents
+        /// are written straight to the recording; the foreground recorder sorts and
+        /// marks dirty at flush time instead. The MarkFilesDirty call is load-bearing:
+        /// without it the .prec sidecar is skipped on the next OnSave and the flag is
+        /// lost on scene reload (see Recording.MarkFilesDirty).
+        /// </summary>
+        internal static void AppendFlagEventToTreeRecording(Recording rec, FlagEvent fe)
+        {
+            if (rec == null)
+                return;
+
+            rec.FlagEvents.Add(fe);
+
+            // Stable UT order: ApplyFlagEvents/SpawnFlagVesselsUpToUT cursor-walk the
+            // list and break on the first future-UT event, so a recording reused
+            // across rewind/re-fly that already holds a higher-UT flag would otherwise
+            // shadow the new one. Mirrors the foreground flush sort (#287).
+            var sorted = FlightRecorder.StableSortByUT(rec.FlagEvents, e => e.ut);
+            rec.FlagEvents.Clear();
+            rec.FlagEvents.AddRange(sorted);
+
+            rec.MarkFilesDirty();
         }
 
         /// <summary>
@@ -12417,21 +12364,48 @@ namespace Parsek
 
         void HandleInput()
         {
+            bool leftBracket = Input.GetKeyDown(KeyCode.LeftBracket);
+            bool rightBracket = Input.GetKeyDown(KeyCode.RightBracket);
+            bool vKey = Input.GetKeyDown(KeyCode.V);
+            bool wKey = Input.GetKeyDown(KeyCode.W);
+
+            // Suppress watch-mode shortcuts while a text field (recording rename,
+            // settings text fields, etc.) holds keyboard focus. W is the load-bearing
+            // case - it's a common letter in vessel names, so without this guard
+            // typing "Kerbal X Probe" into the rename field would cycle the watch
+            // camera between every keystroke. Raw Input polling bypasses
+            // InputLockManager, so the focus check has to happen here.
+            if ((leftBracket || rightBracket || vKey || wKey)
+                && InputFocusGuard.IsTextFieldFocused())
+            {
+                ParsekLog.Verbose("Input",
+                    $"Watch-mode shortcut suppressed - text field focused " +
+                    $"(L={leftBracket} R={rightBracket} V={vKey} W={wKey})");
+                return;
+            }
+
             // [ or ] — Exit watch mode (return to vessel)
             // Avoids Backspace which is KSP's Abort action group key
-            if (watchMode.IsWatchingGhost
-                && (Input.GetKeyDown(KeyCode.LeftBracket) || Input.GetKeyDown(KeyCode.RightBracket)))
+            if (watchMode.IsWatchingGhost && (leftBracket || rightBracket))
             {
                 watchMode.ExitWatchMode();
             }
 
             // V — Toggle watch camera mode (Free / Horizon-Locked)
             // Stock V (camera mode switch) is blocked by CAMERAMODES control lock during watch
-            if (watchMode.IsWatchingGhost && Input.GetKeyDown(KeyCode.V))
+            if (watchMode.IsWatchingGhost && vKey)
             {
                 watchMode.ToggleCameraMode();
             }
 
+            // W — Cycle through watchable ghosts. Stock pitch-down (W) is blocked
+            // by PITCH in WatchModeLockMask so the unattended active vessel does
+            // not receive the keypress. The raw Unity Input poll here is
+            // unaffected by the input lock.
+            if (watchMode.IsWatchingGhost && wKey)
+            {
+                watchMode.CycleToNextWatchable();
+            }
         }
 
         #endregion
@@ -18195,6 +18169,13 @@ namespace Parsek
 
         private void SpawnVesselOrChainTip(Recording rec, int index)
         {
+            // Defense-in-depth: the spawn gate re-hydrates the vessel snapshot
+            // from the sidecar, but a deferred (warp-queued) spawn can execute
+            // frames later, after an intervening OnSave nulled the in-memory copy
+            // again. Re-hydrate here so the snapshot is present at the moment of
+            // spawn. No-op when already loaded.
+            RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+
             // Existing source-vessel adoption is enforced by VesselSpawner. The #226
             // replay/revert path remains an explicit duplicate-spawn exception for the
             // scene-entry/current active vessel only.
@@ -18533,11 +18514,11 @@ namespace Parsek
                 return false;
 
             if (rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 && TryGetReFlySettleStabilityReasonForRecording(
-                    rec.DebrisParentRecordingId, frame, out reason))
+                    rec.ParentAnchorRecordingId, frame, out reason))
             {
-                anchorRecordingId = rec.DebrisParentRecordingId;
+                anchorRecordingId = rec.ParentAnchorRecordingId;
                 return true;
             }
 
@@ -18652,12 +18633,67 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure-static predicate for <c>TrajectoryPlaybackFlags.isChainSeamSuccessor</c>: the
+        /// successor qualifies for chain-seam handoff treatment iff its branch-0 predecessor in
+        /// the same chain currently has a ghost state and the current UT is at or past the
+        /// successor's own seam UT — i.e. its first playable payload sample (chain handoff
+        /// moment).
+        /// <para>
+        /// The seam UT is the SUCCESSOR's activation-start UT, NOT the predecessor's
+        /// <c>Recording.EndUT</c>. The predecessor's <c>EndUT</c> is the recording's outer
+        /// semantic envelope and is widened by <c>ExplicitEndUT</c> (orbit-tail projections,
+        /// Re-Fly tail estimates), so on a chain-head with an orbit projection the predecessor
+        /// <c>EndUT</c> can sit far past the actual chain handoff (the Kerbal X playtest
+        /// 2026-05-19 had predecessor <c>EndUT</c>=1289 while the seam was at UT 123.54). The
+        /// successor's activation UT is the true seam contract because that is when the engine
+        /// first-spawns the successor.
+        /// </para>
+        /// <para>
+        /// The <c>1e-6</c> epsilon mirrors other "at or past" comparisons in the engine
+        /// (e.g. early debris completion at <c>GhostPlaybackEngine.cs</c>) so floating-point
+        /// dust around an exact endpoint match doesn't flip the predicate frame-to-frame.
+        /// </para>
+        /// </summary>
+        internal static bool IsChainSeamSuccessor(
+            double currentUT, double successorSeamUT, bool predecessorHasGhostState)
+        {
+            if (!predecessorHasGhostState) return false;
+            return currentUT + 1e-6 >= successorSeamUT;
+        }
+
+        private bool IsChainSeamSuccessorAtFrame(Recording rec, double currentUT)
+        {
+            // Cheap call-site early-outs for the standalone-recording majority. GetChainPredecessorIndex
+            // performs the same checks before its O(N) scan, but the function call itself is the cost
+            // we save here — this runs once per committed recording per frame inside ComputePlaybackFlags
+            // (200+ recording saves spent most of that budget on entry/exit of the helper).
+            if (rec == null) return false;
+            if (string.IsNullOrEmpty(rec.ChainId)) return false;
+            if (rec.ChainBranch != 0) return false;
+            if (rec.ChainIndex <= 0) return false;
+
+            int predIdx = RecordingStore.GetChainPredecessorIndex(rec);
+            if (predIdx < 0) return false;
+            var committed = RecordingStore.CommittedRecordings;
+            if (predIdx >= committed.Count) return false;
+            Recording predecessor = committed[predIdx];
+            if (predecessor == null) return false;
+            bool predHasGhost = engine != null
+                && engine.TryGetGhostState(predIdx, out GhostPlaybackState predState)
+                && predState != null;
+            double seamUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
+            return IsChainSeamSuccessor(currentUT, seamUT, predHasGhost);
+        }
+
+        /// <summary>
         /// Pre-computes policy flags for all committed recordings. Called once per frame
         /// before the engine's update loop. Eliminates per-recording RecordingStore queries
         /// from the hot path (was O(n^2), now O(n)).
         /// </summary>
         private TrajectoryPlaybackFlags[] ComputePlaybackFlags(
-            IReadOnlyList<Recording> committed, double currentUT)
+            IReadOnlyList<Recording> committed,
+            double currentUT,
+            ReFlySessionMarker activeReFlyMarker)
         {
             var flags = new TrajectoryPlaybackFlags[committed.Count];
             int frame = FlightRecorder.GetFrameCount();
@@ -18764,11 +18800,14 @@ namespace Parsek
                     needsSpawn = finalNeedsSpawn,
                     isActiveChainMember = isActiveChain,
                     isChainLooping = chainLooping,
+                    isChainSeamSuccessor = IsChainSeamSuccessorAtFrame(rec, currentUT),
                     segmentLabel = RecordingStore.GetSegmentPhaseLabel(rec),
                     recordingId = rec.RecordingId,
                     vesselPersistentId = rec.VesselPersistentId,
                     sessionSuppressedRenderCarveOutEligible =
                         RecordingEligibleForSessionSuppressedRenderCarveOut(rec),
+                    sessionSuppressed = activeReFlyMarker != null
+                        && SessionSuppressionState.IsSuppressedRecordingIndex(i),
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
@@ -18816,8 +18855,14 @@ namespace Parsek
 
             if (committed.Count == 0) return;
 
+            // Snapshot the active re-fly marker once per frame so the per-recording
+            // suppression bit (computed inside ComputePlaybackFlags) and the FrameContext
+            // copy below see the same value. All marker writers run outside this
+            // synchronous call chain, so a single snapshot is exact, not approximate.
+            ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
+
             // Pre-compute flags
-            cachedFlags = ComputePlaybackFlags(committed, currentUT);
+            cachedFlags = ComputePlaybackFlags(committed, currentUT, activeReFlyMarker);
             var flags = cachedFlags;
 
             // Build frame context
@@ -18835,6 +18880,7 @@ namespace Parsek
                 mapViewEnabled = MapView.MapIsEnabled,
                 autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                     ?? LoopTiming.DefaultLoopIntervalSeconds,
+                activeReFlyMarker = activeReFlyMarker,
             };
 
             // Build trajectory list (Recording implements IPlaybackTrajectory)
@@ -20232,7 +20278,7 @@ namespace Parsek
                 ParsekLog.Info("Playback",
                     $"RELATIVE playback started: recording #{index} \"{traj.VesselName}\" " +
                     $"anchorRec={target.AnchorRecordingId ?? "(missing)"} " +
-                    $"contract={RecordingStore.DescribeRelativeFrameContract(traj.RecordingFormatVersion)} " +
+                    $"contract=anchor-local " +
                     $"version={traj.RecordingFormatVersion} sectionUT={sectionUt}");
             }
 
@@ -20327,7 +20373,7 @@ namespace Parsek
                 ghostWorldBefore = (Vector3d)state.ghost.transform.position;
             if (traceEnabled
                 && firstPlaybackRender && traj != null && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 TraceSeparation.OpenPlaybackWindow(
                     "first debris ghost render recId=" + (target.RecordingId ?? "<null>"));
@@ -20350,7 +20396,7 @@ namespace Parsek
             if (traceEnabled
                 && TraceSeparation.PlaybackWindowActive
                 && traj != null && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 Vector3d ghostWorld = state.ghost.transform != null
                     ? (Vector3d)state.ghost.transform.position : Vector3d.zero;
@@ -20427,7 +20473,7 @@ namespace Parsek
                 Vector3d parentGhostWorld = Vector3d.zero;
                 bool parentGhostFound = engine != null
                     && engine.TryGetGhostWorldByRecordingId(
-                        traj.DebrisParentRecordingId, out parentGhostWorld);
+                        traj.ParentAnchorRecordingId, out parentGhostWorld);
                 double renderedParentDist = parentGhostFound
                     ? (ghostWorld - parentGhostWorld).magnitude
                     : double.NaN;
@@ -20492,12 +20538,12 @@ namespace Parsek
                 // disagree about parent-vs-debris geometry.
                 double recordedBodyFixedDist = double.NaN;
                 if (beforeFrame.HasValue && !string.IsNullOrEmpty(beforeFrame.Value.bodyName)
-                    && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                    && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
                 {
                     CelestialBody body = FlightGlobals.Bodies?.Find(
                         b => b.name == beforeFrame.Value.bodyName);
                     Recording parentRec = RecordingStore.TryFindCommittedRecordingById(
-                        traj.DebrisParentRecordingId);
+                        traj.ParentAnchorRecordingId);
                     if (body != null
                         && parentRec != null
                         && parentRec.TrackSections != null)
@@ -20533,7 +20579,7 @@ namespace Parsek
                 }
                 TraceSeparation.PlaybackLog("PositionDebris",
                     "recId=" + (target.RecordingId ?? "<null>") +
-                    " parentRecId=" + (traj.DebrisParentRecordingId ?? "<null>") +
+                    " parentRecId=" + (traj.ParentAnchorRecordingId ?? "<null>") +
                     " playbackUT=" + playbackUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture) +
                     " bodyFixedCount=" + bodyFixedCount +
                     " first=" + firstPlaybackRender +
@@ -21262,49 +21308,6 @@ namespace Parsek
             if (hasAnchorEps)
                 interpolatedPos += anchorEps;
 
-            // Phase 5 co-bubble overlap blend (design doc §6.5, §10, §18 Phase 5).
-            // When the recording is a peer of a designated primary AND a
-            // populated co-bubble offset trace covers the current playback UT,
-            // blend the peer's standalone position with primary's standalone
-            // P_render(t) + recorded offset. HR-15: the primary's P_render
-            // reads from the primary RECORDING, not live KSP state — so a
-            // live re-fly's player input does not move the peer ghost.
-            // The blender returns the UN-FADED offset plus a blend factor in
-            // [0,1]; the caller composes
-            //   peer = Lerp(peer_standalone, primary + worldOffset, blend)
-            // so the crossfade-tail handoff to MissCrossfadeOut past EndUT
-            // is continuous (blend=0 already renders at peer_standalone).
-            // Any miss (status != Hit/HitCrossfade) is a silent fall-through —
-            // standalone Stages 1+2+3+4 already produced a valid position.
-            bool coBubbleHit = false;
-            string coBubblePrimaryId = null;
-            Vector3d coBubbleOffset = Vector3d.zero;
-            double coBubbleBlend = 0.0;
-            Parsek.Rendering.CoBubbleBlendStatus blendStatus = default(Parsek.Rendering.CoBubbleBlendStatus);
-            string coBubbleReason = "not-evaluated";
-            if (allowRenderCoBubbleBlend(recordingId, targetUT, false,
-                    out coBubbleOffset, out coBubbleBlend, out string primaryRecordingId,
-                    out blendStatus, out coBubbleReason))
-            {
-                if (TryComputeStandaloneWorldPositionForRecording(
-                        primaryRecordingId, targetUT, bodyBefore,
-                        out Vector3d primaryWorld,
-                        suppressAnchorCorrection: false))
-                {
-                    Vector3d coBubbleTarget = primaryWorld + coBubbleOffset;
-                    interpolatedPos = Vector3d.Lerp(interpolatedPos, coBubbleTarget, coBubbleBlend);
-                    coBubbleHit = true;
-                    coBubblePrimaryId = primaryRecordingId;
-                    RecordCoBubbleEvalForLogging();
-                }
-                else
-                {
-                    coBubbleReason = "primary-standalone-failed";
-                    Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss(
-                        recordingId, "primary-standalone-failed");
-                }
-            }
-
             ghost.transform.position = interpolatedPos;
             ghost.transform.rotation = bodyBefore.bodyTransform.rotation * interpolatedRot;
 
@@ -21317,7 +21320,7 @@ namespace Parsek
                     traceCurrentUT,
                     targetUT,
                     "UpdatePath",
-                    "mode=" + (coBubbleHit ? "CoBubble" : "PointInterp")
+                    "mode=PointInterp"
                     + " pointFrameSource=" + (pointFrameSource ?? "input")
                     + " sectionIndex=" + sectionIndex.ToString(CultureInfo.InvariantCulture)
                     + " beforeUT=" + before.ut.ToString("F3", CultureInfo.InvariantCulture)
@@ -21337,11 +21340,6 @@ namespace Parsek
                     + " anchorCorrectionHit=" + (hasAnchorEps ? "true" : "false")
                     + " anchorCorrectionReason=" + anchorCorrectionReason
                     + " anchorEps=" + GhostRenderTrace.FormatVector3d(hasAnchorEps ? anchorEps : Vector3d.zero)
-                    + " coBubbleHit=" + (coBubbleHit ? "true" : "false")
-                    + " coBubblePrimary=" + (coBubblePrimaryId ?? "<none>")
-                    + " coBubbleOffset=" + GhostRenderTrace.FormatVector3d(coBubbleHit ? coBubbleOffset : Vector3d.zero)
-                    + " coBubbleBlend=" + (coBubbleHit ? coBubbleBlend.ToString("F3", CultureInfo.InvariantCulture) : "<n/a>")
-                    + " coBubbleReason=" + coBubbleReason
                     + " final=" + GhostRenderTrace.FormatVector3d(interpolatedPos)
                     + " rot=" + GhostRenderTrace.FormatQuaternion(ghost.transform.rotation));
             }
@@ -21356,59 +21354,24 @@ namespace Parsek
             // always-stored when (recordingId, sectionIndex) is valid; the gates
             // (settings flag, store presence) are re-checked at LateUpdate.
             bool hasLookupKey = !string.IsNullOrEmpty(recordingId) && sectionIndex >= 0;
-            // Phase 5 P1-C: when the co-bubble blender produced a finite
-            // offset, register a CoBubble-mode entry so LateUpdate re-runs
-            // the blender + primary-standalone instead of the bare
-            // PointInterp re-evaluation. PointInterp's LateUpdate branch
-            // would otherwise overwrite the primary+offset composition with
-            // the standalone bracket lerp, producing visible per-frame
-            // flicker. On any failure inside the LateUpdate CoBubble case
-            // the switch falls through to the standalone path so HR-9 holds.
-            if (coBubbleHit)
+            AddOrReplaceGhostPosEntry(new GhostPosEntry
             {
-                AddOrReplaceGhostPosEntry(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.CoBubble,
-                    recordingId = recordingId,
-                    bodyBefore = bodyBefore,
-                    bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
-                    t = t,
-                    pointUT = targetUT,
-                    pointDeltaTimeSeconds = after.ut - before.ut,
-                    interpolatedRot = interpolatedRot,
-                    velocityBefore = before.velocity,
-                    velocityAfter = after.velocity,
-                    anchorRecordingId = hasLookupKey ? recordingId : null,
-                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
-                    coBubblePeerRecordingId = recordingId,
-                    coBubblePrimaryRecordingId = coBubblePrimaryId,
-                    coBubblePointUT = targetUT,
-                });
-            }
-            else
-            {
-                AddOrReplaceGhostPosEntry(new GhostPosEntry
-                {
-                    ghost = ghost,
-                    mode = GhostPosMode.PointInterp,
-                    recordingId = recordingId,
-                    bodyBefore = bodyBefore,
-                    bodyAfter = bodyAfter,
-                    latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
-                    latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
-                    t = t,
-                    pointUT = targetUT,
-                    pointDeltaTimeSeconds = after.ut - before.ut,
-                    interpolatedRot = interpolatedRot,
-                    velocityBefore = before.velocity,
-                    velocityAfter = after.velocity,
-                    anchorRecordingId = hasLookupKey ? recordingId : null,
-                    anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
-                });
-            }
+                ghost = ghost,
+                mode = GhostPosMode.PointInterp,
+                recordingId = recordingId,
+                bodyBefore = bodyBefore,
+                bodyAfter = bodyAfter,
+                latBefore = before.latitude, lonBefore = before.longitude, altBefore = effectiveAltBefore,
+                latAfter = after.latitude, lonAfter = after.longitude, altAfter = effectiveAltAfter,
+                t = t,
+                pointUT = targetUT,
+                pointDeltaTimeSeconds = after.ut - before.ut,
+                interpolatedRot = interpolatedRot,
+                velocityBefore = before.velocity,
+                velocityAfter = after.velocity,
+                anchorRecordingId = hasLookupKey ? recordingId : null,
+                anchorSectionIndex = hasLookupKey ? sectionIndex : -1,
+            });
 
             interpResult = new InterpolationResult(
                 Vector3.Lerp(before.velocity, after.velocity, t),
@@ -21592,56 +21555,6 @@ namespace Parsek
             return false;
         }
 
-        /// <summary>
-        /// Phase 5 co-bubble blend gate (design doc §6.5 / §10 / §18 Phase 5
-        /// / HR-9 / HR-15). Returns <c>true</c> with a populated
-        /// <paramref name="worldOffset"/> and resolved
-        /// <paramref name="primaryRecordingId"/> when the recording has a
-        /// designated primary AND a populated co-bubble offset trace covers
-        /// the supplied <paramref name="targetUT"/>. Any miss is a silent
-        /// fall-through: the consumer keeps the standalone Stages 1+2+3+4
-        /// position. <paramref name="status"/> exposes the precise miss
-        /// reason for diagnostics; per-status dedup happens inside the
-        /// blender via <see cref="Parsek.Rendering.RenderSessionState.NotifyCoBubbleTraceMiss"/>.
-        /// </summary>
-        internal static bool allowCoBubbleBlend(string recordingId, double targetUT,
-            out Vector3d worldOffset, out double blend, out string primaryRecordingId,
-            out Parsek.Rendering.CoBubbleBlendStatus status)
-        {
-            return Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                recordingId, targetUT, out worldOffset, out blend, out status, out primaryRecordingId);
-        }
-
-        internal static bool allowRenderCoBubbleBlend(
-            string recordingId,
-            double targetUT,
-            bool suppressBlend,
-            out Vector3d worldOffset,
-            out double blend,
-            out string primaryRecordingId,
-            out Parsek.Rendering.CoBubbleBlendStatus status,
-            out string reason)
-        {
-            worldOffset = Vector3d.zero;
-            blend = 0.0;
-            primaryRecordingId = null;
-            status = default(Parsek.Rendering.CoBubbleBlendStatus);
-            if (suppressBlend)
-            {
-                reason = "suppressed";
-                return false;
-            }
-
-            if (allowCoBubbleBlend(recordingId, targetUT, out worldOffset, out blend, out primaryRecordingId, out status))
-            {
-                reason = "applied";
-                return true;
-            }
-
-            reason = status.ToString();
-            return false;
-        }
-
         internal static bool allowPointHermiteInterpolation(
             bool suppressHermite,
             bool splineApplied,
@@ -21692,306 +21605,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Phase 5 helper: computes the standalone Stages 1+2+3+4 world
-        /// position for an arbitrary recording id at <paramref name="ut"/>.
-        /// Uses the recording's <see cref="Recording.Points"/>, playback-mode
-        /// gated <see cref="Parsek.Rendering.SectionAnnotationStore"/> spline,
-        /// and <see cref="Parsek.Rendering.RenderSessionState"/> anchor — the
-        /// same composition the Update path uses for its own recording.
-        /// HR-15: never reads live <see cref="Vessel"/> state. Returns false
-        /// when the recording is missing, has no sample bracketing
-        /// <paramref name="ut"/>, or the body cannot be resolved.
-        /// </summary>
-        internal static bool TryComputeStandaloneWorldPositionForRecording(
-            string recordingId,
-            double ut,
-            CelestialBody fallbackBody,
-            out Vector3d worldPos,
-            bool suppressAnchorCorrection = false)
-        {
-            worldPos = default;
-            if (string.IsNullOrEmpty(recordingId)) return false;
-
-            Recording rec = ResolveRecordingById(recordingId);
-            if (rec == null) return false;
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            if (GhostPlaybackEngine.ShouldRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
-                    rec,
-                    ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic retireDiagnostic))
-            {
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneWorldPositionForRecording",
-                    "body-fixed-primary-unavailable",
-                    retireDiagnostic);
-                return false;
-            }
-
-            // P1-D: resolve the section's referenceFrame BEFORE reading
-            // before.latitude / longitude / altitude. v6+ RELATIVE-frame
-            // sections store metre offsets (dx/dy/dz) in those fields, NOT
-            // body-fixed lat/lon/alt; calling
-            // body.GetWorldSurfacePosition(metre, metre, metre) silently
-            // produces a position deep inside the planet. The fallback path
-            // below handles ABSOLUTE sections; for RELATIVE we route through
-            // the existing instance helpers (TryUseBodyFixedPrimaryFor… for
-            // active-re-fly cases, TryResolveRelativeWorldPosition for the
-            // anchor-bound common case). Checkpoint sections aren't relevant
-            // for primary's P_render(t) — return false with a Verbose so
-            // tuning is visible.
-            int sectionIndex = TrajectoryMath.FindTrackSectionForUT(rec.TrackSections, ut);
-            TrackSection? maybeSection = null;
-            if (rec.TrackSections != null && sectionIndex >= 0 && sectionIndex < rec.TrackSections.Count)
-                maybeSection = rec.TrackSections[sectionIndex];
-
-            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-checkpoint-skip",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneWorldPositionForRecording: OrbitalCheckpoint section unsupported recording={0} ut={1}",
-                        recordingId, ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-
-            if (maybeSection.HasValue && maybeSection.Value.referenceFrame == ReferenceFrame.Relative)
-            {
-                return TryComputeStandaloneRelativeWorldPosition(rec, maybeSection.Value, ut, out worldPos);
-            }
-
-            // ABSOLUTE-frame section (or no track-section context — pre-v3
-            // recordings without explicit TrackSections fall through here
-            // via maybeSection.HasValue == false).
-            // Linear-interpolate the bracketing points and lift to body
-            // surface position (mirrors the Update path's lerp + spline
-            // composition). HR-15: this reads from rec.Points only, never
-            // from live KSP state.
-            int idx = -1;
-            for (int i = 0; i < rec.Points.Count; i++)
-            {
-                if (rec.Points[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). The pre-fix idx <= 0
-            // collapse clamped both cases to rec.Points[0] — past end
-            // produced an early-recording position, jumping the primary
-            // backwards in time when ut > rec.Points last UT.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-absolute-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "ABSOLUTE-frame standalone past last point: recording={0} ut={1} lastPointUT={2}",
-                        recordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0)
-            {
-                before = rec.Points[0];
-                after = before;
-                t = 0f;
-            }
-            else
-            {
-                before = rec.Points[idx - 1];
-                after = rec.Points[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-
-            CelestialBody body = !object.ReferenceEquals(fallbackBody, null)
-                && string.Equals(fallbackBody.bodyName, before.bodyName, StringComparison.Ordinal)
-                ? fallbackBody
-                : FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            if (object.ReferenceEquals(body, null)) return false;
-
-            double altBefore = ResolveEffectiveAltitudeWithTailLift(
-                body, before.latitude, before.longitude, before.altitude,
-                before.recordedGroundClearance, ReferenceFrame.Absolute,
-                before.ut, recordingId);
-            double altAfter = ResolveEffectiveAltitudeWithTailLift(
-                body, after.latitude, after.longitude, after.altitude,
-                after.recordedGroundClearance, ReferenceFrame.Absolute,
-                after.ut, recordingId);
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, altBefore);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, altAfter);
-            Vector3d pos = Vector3d.Lerp(posBefore, posAfter, t);
-
-            // Phase 1+4 spline + Phase 2/3 anchor correction (no recursion
-            // through the Phase 5 blender — primaries always render
-            // standalone, design doc §6.5).
-            if (allowSplinePositioningForPlayback(
-                    suppressSpline: suppressAnchorCorrection,
-                    allowNormalPlaybackSplinePositioning: NormalPlaybackSplinePositioningEnabled,
-                    out _)
-                && allowSplinePositioning(recordingId, sectionIndex, out Parsek.Rendering.SmoothingSpline spline))
-            {
-                Vector3d splineLatLonAlt = TrajectoryMath.CatmullRomFit.Evaluate(spline, ut);
-                if (!double.IsNaN(splineLatLonAlt.x) && !double.IsNaN(splineLatLonAlt.y) && !double.IsNaN(splineLatLonAlt.z))
-                {
-                    Vector3d splineWorld = TrajectoryMath.FrameTransform.DispatchSplineWorldByFrameTag(
-                        spline.FrameTag,
-                        splineLatLonAlt.x, splineLatLonAlt.y, splineLatLonAlt.z,
-                        body, ut, recordingId, sectionIndex);
-                    if (!double.IsNaN(splineWorld.x) && !double.IsNaN(splineWorld.y) && !double.IsNaN(splineWorld.z))
-                        pos = splineWorld;
-                }
-            }
-            if (!suppressAnchorCorrection
-                && allowAnchorCorrectionInterval(recordingId, sectionIndex, ut, out Vector3d eps))
-                pos += eps;
-            worldPos = pos;
-            return true;
-        }
-
-        /// <summary>
-        /// P1-D: RELATIVE-frame standalone resolver for
-        /// <see cref="TryComputeStandaloneWorldPositionForRecording"/>. Post-reset
-        /// RELATIVE sections store metre offsets in <c>latitude</c>/
-        /// <c>longitude</c>/<c>altitude</c>; reading them as lat/lon/alt
-        /// would land deep inside the planet. Sections resolve through
-        /// <see cref="RelativeAnchorResolver"/> by <c>anchorRecordingId</c>,
-        /// except ordinary parent-anchored debris, where v13 makes
-        /// <c>bodyFixedFrames</c> the primary render surface and a primary miss
-        /// fails closed instead of falling through to recorded Relative replay.
-        /// </summary>
-        private static bool TryComputeStandaloneRelativeWorldPosition(
-            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            bool ordinaryParentAnchoredDebris =
-                GhostPlaybackEngine.ShouldApplyOrdinaryParentAnchoredDebrisCoveragePolicy(rec, ut);
-            if (ordinaryParentAnchoredDebris)
-            {
-                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                    rec,
-                    ut,
-                    out DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic coverageDiagnostic);
-
-                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                    return true;
-
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneRelativeWorldPosition",
-                    "body-fixed-primary-position-failed",
-                    coverageDiagnostic);
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(section.anchorRecordingId))
-            {
-                ParsekLog.WarnRateLimited("Pipeline-CoBubble",
-                    "standalone-relative-no-anchor-recording-id|" + (rec.RecordingId ?? "(none)"),
-                    string.Format(CultureInfo.InvariantCulture,
-                        "TryComputeStandaloneRelativeWorldPosition: reason={0} recording={1} ut={2}",
-                        "anchor-recording-id-missing",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                    return true;
-                return false;
-            }
-
-            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
-            bool skipRecordedRelativeResolver =
-                GhostPlaybackEngine.ShouldSkipRecordedRelativeResolverForAuthoredFrameGap(
-                    rec,
-                    ut,
-                    out diagnostic);
-            if (skipRecordedRelativeResolver)
-            {
-                if (diagnostic.BodyFixedFramesCoverUT
-                    && TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                {
-                    return true;
-                }
-
-                LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-                    rec,
-                    ut,
-                    "TryComputeStandaloneRelativeWorldPosition",
-                    diagnostic.BodyFixedFramesCoverUT
-                        ? "body-fixed-primary-position-failed"
-                        : "body-fixed-primary-unavailable",
-                    diagnostic);
-                return false;
-            }
-
-            RelativeAnchorResolveFailure failure = default;
-            if (TryBuildRelativeAnchorResolverContext(
-                    rec.RecordingId,
-                    out RelativeAnchorResolverContext context)
-                && RelativeAnchorResolver.TryResolveRecordingPose(
-                    context,
-                    rec,
-                    ut,
-                    new HashSet<string>(StringComparer.Ordinal),
-                    out AnchorPose pose,
-                    out failure))
-            {
-                worldPos = pose.WorldPos;
-                return true;
-            }
-
-            if (TryComputeStandaloneBodyFixedPrimaryWorldPosition(rec, section, ut, out worldPos))
-                return true;
-
-            string failureReason = RelativeAnchorResolveFailure.ReasonOrFallback(
-                failure,
-                "recorded-anchor-unresolved");
-            ParsekLog.WarnRateLimited("Pipeline-CoBubble",
-                "standalone-relative-chain-unresolved|" + (rec.RecordingId ?? "(none)") + "|" + section.anchorRecordingId,
-                string.Format(CultureInfo.InvariantCulture,
-                    "TryComputeStandaloneRelativeWorldPosition: chain resolver failed recording={0} anchorRecordingId={1} ut={2} outcome={3} reason={4}",
-                    rec.RecordingId,
-                    section.anchorRecordingId,
-                    ut.ToString("R", CultureInfo.InvariantCulture),
-                    failure.Outcome,
-                    failureReason),
-                5.0);
-            return false;
-        }
-
-        private static void LogStandaloneParentAnchoredDebrisBodyFixedFailClosed(
-            Recording rec,
-            double ut,
-            string callsite,
-            string routeReason,
-            DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic)
-        {
-            string recordingId = rec?.RecordingId ?? "(none)";
-            string key = "standalone-parent-debris-body-fixed-failed-closed|"
-                + recordingId + "|" + (callsite ?? "(unknown)");
-            ParsekLog.WarnRateLimited(
-                "Pipeline-CoBubble",
-                key,
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "{0}: body-fixed primary failed closed for parent-anchored debris; recorded-relative fallback suppressed recording={1} ut={2} routeReason={3} coverageReason={4} sectionIndex={5} sectionUT={6} relativeFrames={7} bodyFixedFrames={8} anchorRec={9}",
-                    callsite ?? "(unknown)",
-                    recordingId,
-                    ut.ToString("R", CultureInfo.InvariantCulture),
-                    routeReason ?? "(unknown)",
-                    diagnostic.Reason ?? "(unknown)",
-                    diagnostic.SectionIndex.ToString(CultureInfo.InvariantCulture),
-                    FormatStandaloneCoverageRange(diagnostic.SectionStartUT, diagnostic.SectionEndUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstRelativeFrameUT, diagnostic.LastRelativeFrameUT),
-                    FormatStandaloneCoverageRange(diagnostic.FirstBodyFixedFrameUT, diagnostic.LastBodyFixedFrameUT),
-                    diagnostic.AnchorRecordingId ?? "(none)"),
-                5.0);
-        }
-
         private static string FormatStandaloneCoverageRange(double startUT, double endUT)
         {
             if (double.IsNaN(startUT) || double.IsNaN(endUT))
@@ -22034,199 +21647,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// P1-C static helper: resolves the active re-fly target's vessel
-        /// persistent ID by walking <see cref="RecordingStore.CommittedTrees"/>
-        /// and <see cref="RecordingStore.PendingTree"/>, then
-        /// <see cref="RecordingStore.CommittedRecordings"/>. Mirrors the
-        /// instance method <see cref="TryResolveActiveReFlyPid"/> but is
-        /// callable from the static standalone-helper path used by
-        /// <see cref="TryComputeStandaloneRelativeWorldPosition"/>.
-        /// </summary>
-        internal static bool TryResolveActiveReFlyPidStatic(
-            ReFlySessionMarker marker, out uint activeReFlyPid)
-        {
-            activeReFlyPid = 0u;
-            if (marker == null || string.IsNullOrEmpty(marker.ActiveReFlyRecordingId))
-                return false;
-
-            IReadOnlyList<RecordingTree> searchTrees =
-                GhostMapPresence.ComposeSearchTreesForReFlySuppression(
-                    RecordingStore.CommittedTrees,
-                    RecordingStore.HasPendingTree ? RecordingStore.PendingTree : null);
-            if (searchTrees != null)
-            {
-                for (int t = 0; t < searchTrees.Count; t++)
-                {
-                    RecordingTree tree = searchTrees[t];
-                    if (tree?.Recordings == null) continue;
-                    Recording rec;
-                    if (tree.Recordings.TryGetValue(marker.ActiveReFlyRecordingId, out rec)
-                        && rec != null
-                        && rec.VesselPersistentId != 0u)
-                    {
-                        activeReFlyPid = rec.VesselPersistentId;
-                        return true;
-                    }
-                }
-            }
-
-            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    Recording rec = committed[i];
-                    if (rec == null
-                        || !string.Equals(rec.RecordingId, marker.ActiveReFlyRecordingId, StringComparison.Ordinal)
-                        || rec.VesselPersistentId == 0u)
-                    {
-                        continue;
-                    }
-                    activeReFlyPid = rec.VesselPersistentId;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        /// <summary>
-        /// P1-C: standalone resolver for active-re-fly RELATIVE primaries
-        /// that bypasses the live anchor by linear-interpolating
-        /// <see cref="TrackSection.bodyFixedFrames"/>. Returns false when
-        /// the body-fixed primary has no authored coverage for the target
-        /// UT or the body cannot be resolved — the caller surfaces the
-        /// failure as HR-9 visible-failure.
-        /// </summary>
-        private static bool TryComputeStandaloneBodyFixedPrimaryWorldPosition(
-            Recording rec, TrackSection section, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            List<TrajectoryPoint> shadow = section.bodyFixedFrames;
-            if (!BodyFixedPrimaryCoversPlaybackUT(
-                    section, ut, out _, out _))
-            {
-                if (shadow != null
-                    && shadow.Count > 0
-                    && ut > shadow[shadow.Count - 1].ut + 1e-6)
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                        "primary-active-refly-shadow-past-end",
-                        string.Format(CultureInfo.InvariantCulture,
-                            "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
-                            rec.RecordingId,
-                            ut.ToString("R", CultureInfo.InvariantCulture),
-                            shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                        5.0);
-                }
-                return false;
-            }
-
-            int idx = -1;
-            for (int i = 0; i < shadow.Count; i++)
-            {
-                if (shadow[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Past end is HR-9 visible failure: fail closed and emit a
-            // rate-limited Verbose so tuning is observable. Normal callers
-            // are pre-gated by BodyFixedPrimaryCoversPlaybackUT, so this
-            // branch only catches malformed or unsorted frame lists.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "primary-active-refly-shadow-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "body-fixed primary exhausted: recording={0} ut={1} lastShadowUT={2}",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        shadow[shadow.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0)
-            {
-                before = shadow[0];
-                after = before;
-                t = 0f;
-            }
-            else
-            {
-                before = shadow[idx - 1];
-                after = shadow[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-            CelestialBody body;
-            try
-            {
-                body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            }
-            catch (TypeInitializationException) { return false; }
-            catch (System.Security.SecurityException) { return false; }
-            if (object.ReferenceEquals(body, null)) return false;
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return true;
-        }
-
-        /// <summary>
-        /// P1-D legacy fallback for v5-and-older RELATIVE-frame primaries:
-        /// lat/lon/alt-as-lat/lon/alt path matching the original (broken-
-        /// for-v6) implementation. Kept so a recording with a mixed-history
-        /// chain that happens to span legacy-v5 and v6+ doesn't suddenly
-        /// drop primary positions for its older sections.
-        /// </summary>
-        private static bool TryComputeStandaloneAbsoluteFallbackWorldPosition(
-            Recording rec, double ut, out Vector3d worldPos)
-        {
-            worldPos = default;
-            if (rec.Points == null || rec.Points.Count == 0) return false;
-            int idx = -1;
-            for (int i = 0; i < rec.Points.Count; i++)
-            {
-                if (rec.Points[i].ut >= ut) { idx = i; break; }
-            }
-            TrajectoryPoint before, after;
-            float t;
-            // Phase 5 review-pass-3 P2-1: distinguish past-end (idx == -1)
-            // from at/before-start (idx == 0). See sibling comment in
-            // TryComputeStandaloneBodyFixedPrimaryWorldPosition.
-            if (idx == -1)
-            {
-                ParsekLog.VerboseRateLimited("Pipeline-CoBubble",
-                    "standalone-fallback-past-end",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Legacy fallback past last point: recording={0} ut={1} lastPointUT={2}",
-                        rec.RecordingId,
-                        ut.ToString("R", CultureInfo.InvariantCulture),
-                        rec.Points[rec.Points.Count - 1].ut.ToString("R", CultureInfo.InvariantCulture)),
-                    5.0);
-                return false;
-            }
-            if (idx == 0) { before = rec.Points[0]; after = before; t = 0f; }
-            else
-            {
-                before = rec.Points[idx - 1];
-                after = rec.Points[idx];
-                double span = after.ut - before.ut;
-                t = span > 0 ? (float)((ut - before.ut) / span) : 0f;
-            }
-            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == before.bodyName);
-            if (object.ReferenceEquals(body, null)) return false;
-            Vector3d posBefore = body.GetWorldSurfacePosition(before.latitude, before.longitude, before.altitude);
-            Vector3d posAfter = body.GetWorldSurfacePosition(after.latitude, after.longitude, after.altitude);
-            worldPos = Vector3d.Lerp(posBefore, posAfter, t);
-            return true;
-        }
-
-        /// <summary>
         /// Resolves a recording by id without driving the active scene's
         /// playback context. Walks <see cref="RecordingStore.CommittedRecordings"/>
-        /// directly — the standalone-for-primary helper needs the peer's
-        /// data even when ERS would filter it out. Phase 5 ERS-exempt path
-        /// (mirrors RenderSessionState's exemption rationale).
+        /// directly so the preview-source tail-lift resolver can locate a
+        /// recording outside the active playback scope.
         /// </summary>
         private static Recording ResolveRecordingById(string recordingId)
         {
@@ -22250,46 +21674,6 @@ namespace Parsek
                 // Mid-load mutation; treat as missing.
             }
             return null;
-        }
-
-        // -------------------------------------------------------------------
-        //  Phase 5 per-frame summary (design doc §19.2 Stage 5).
-        //  Counts every successful co-bubble offset evaluation across the
-        //  Update path and emits a single Verbose Pipeline-CoBubble line per
-        //  second with the accumulated count. Mirrors the Phase 1
-        //  RecordSplineEvalForLogging contract.
-        // -------------------------------------------------------------------
-        private static int s_coBubbleEvalCount;
-        private static long s_coBubbleEvalLogLastTicks;
-        private const long CoBubbleEvalLogIntervalTicks = TimeSpan.TicksPerSecond;
-
-        internal static void RecordCoBubbleEvalForLogging()
-        {
-            int n = ++s_coBubbleEvalCount;
-            long now = NowProviderForTesting != null
-                ? NowProviderForTesting().Ticks
-                : DateTime.UtcNow.Ticks;
-            if (s_coBubbleEvalLogLastTicks == 0)
-            {
-                s_coBubbleEvalLogLastTicks = now;
-                return;
-            }
-            if (now - s_coBubbleEvalLogLastTicks >= CoBubbleEvalLogIntervalTicks)
-            {
-                double intervalSec = (now - s_coBubbleEvalLogLastTicks) / (double)TimeSpan.TicksPerSecond;
-                ParsekLog.Verbose("Pipeline-CoBubble",
-                    string.Format(CultureInfo.InvariantCulture,
-                        "frame summary: coBubbleEvals={0} intervalSec={1:F2}", n, intervalSec));
-                s_coBubbleEvalCount = 0;
-                s_coBubbleEvalLogLastTicks = now;
-            }
-        }
-
-        /// <summary>Test-only reset of the Phase 5 per-frame summary.</summary>
-        internal static void ResetCoBubbleEvalLoggingForTesting()
-        {
-            s_coBubbleEvalCount = 0;
-            s_coBubbleEvalLogLastTicks = 0;
         }
 
         /// <summary>
@@ -25090,8 +24474,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
                 worldPos = anchorPose.worldPos;
             GhostRenderTrace.EmitRelativeResolver(
@@ -25903,7 +25286,7 @@ namespace Parsek
             uint anchorVesselId,
             bool anchorFromRecordedTrajectory)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m anchor={anchorVesselId} " +
                 $"source={(anchorFromRecordedTrajectory ? "recorded" : "live")}";
@@ -25916,7 +25299,7 @@ namespace Parsek
             double dz,
             string anchorRecordingId)
         {
-            return $"RELATIVE playback: contract={RecordingStore.DescribeRelativeFrameContract(recordingFormatVersion)} " +
+            return $"RELATIVE playback: contract=anchor-local " +
                 $"version={recordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"|offset|={System.Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m " +
                 $"anchorRec={(string.IsNullOrEmpty(anchorRecordingId) ? "(missing)" : anchorRecordingId)} source=recorded";
@@ -26060,7 +25443,7 @@ namespace Parsek
                         ParsekLog.Info("Loop",
                             $"Anchor-relative loop playback started: recording #{recIdx} " +
                             $"\"{rec.VesselName}\" anchorPid={anchorVesselId} " +
-                            $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                            $"contract=anchor-local " +
                             $"version={rec.RecordingFormatVersion} " +
                             $"sectionUT=[{section.startUT:F1},{section.endUT:F1}]");
 
@@ -26346,8 +25729,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
 
             if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
             {
@@ -26418,7 +25800,6 @@ namespace Parsek
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = interpolatedRot,
                 relativeBodyName = bodyName,
-                relativeRecordingFormatVersion = recordingFormatVersion,
                 bodyBefore = body,
                 latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                 relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -26555,8 +25936,7 @@ namespace Parsek
                 anchorPose.worldRotation,
                 dx,
                 dy,
-                dz,
-                recordingFormatVersion);
+                dz);
 
             ghost.transform.position = ghostPos;
             ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
@@ -26605,7 +25985,6 @@ namespace Parsek
                 relDx = dx, relDy = dy, relDz = dz,
                 relativeRot = sanitized,
                 relativeBodyName = bodyName,
-                relativeRecordingFormatVersion = recordingFormatVersion,
                 bodyBefore = body,
                 latBefore = dx, lonBefore = dy, altBefore = dz,
                 relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -27062,8 +26441,7 @@ namespace Parsek
                     anchorPose.worldRotation,
                     dx,
                     dy,
-                    dz,
-                    recordingFormatVersion);
+                    dz);
 
                 if (double.IsNaN(ghostPos.x) || double.IsNaN(ghostPos.y) || double.IsNaN(ghostPos.z))
                 {
@@ -27135,7 +26513,6 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = interpolatedRot,
                     relativeBodyName = bodyName,
-                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body, // for fallback in LateUpdate
                     latBefore = before.latitude, lonBefore = before.longitude, altBefore = before.altitude,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),
@@ -27215,8 +26592,7 @@ namespace Parsek
                     anchorPose.worldRotation,
                     dx,
                     dy,
-                    dz,
-                    recordingFormatVersion);
+                    dz);
 
                 ghost.transform.position = ghostPos;
                 ghost.transform.rotation = TrajectoryMath.ResolveRelativePlaybackRotation(
@@ -27266,7 +26642,6 @@ namespace Parsek
                     relDx = dx, relDy = dy, relDz = dz,
                     relativeRot = sanitized,
                     relativeBodyName = bodyName,
-                    relativeRecordingFormatVersion = recordingFormatVersion,
                     bodyBefore = body,
                     latBefore = dx, lonBefore = dy, altBefore = dz,
                     relativeRecordedAnchorPose = RelativeAnchorPoseSnapshot.FromRecordedPose(anchorPose),

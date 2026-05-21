@@ -28,6 +28,18 @@ namespace Parsek
         SpawnSuppressedDeadOnArrival = 13,
         AnchorRotationUnreliable = 14,
         AnchorReFlyUnstable = 15,
+        // Watch chain-seam handoff: when a chain HEAD slot would otherwise
+        // render and a chain continuation slot is already rendering, suppress
+        // the head this frame to avoid two coexisting ghosts for the same
+        // physical vessel across the section overlap window. Pairs with
+        // ChainBridgeHeld below for the gap-direction case.
+        ChainShadowed = 16,
+        // Watch chain-seam handoff: when a chain HEAD slot is past its
+        // sectionUT end but the chain continuation has not yet activated
+        // (sectionUT gap), hold the head ghost briefly instead of destroying
+        // it via the stale-past-end cleanup. Bounded by a real-time bridge
+        // window so a continuation that never spawns still tears down.
+        ChainBridgeHeld = 17,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -68,6 +80,10 @@ namespace Parsek
                     return "anchor-rotation-unreliable";
                 case GhostPlaybackSkipReason.AnchorReFlyUnstable:
                     return "anchor-refly-unstable";
+                case GhostPlaybackSkipReason.ChainShadowed:
+                    return "chain-shadowed";
+                case GhostPlaybackSkipReason.ChainBridgeHeld:
+                    return "chain-bridge-held";
                 default:
                     return "unknown";
             }
@@ -94,6 +110,8 @@ namespace Parsek
         public int spawnSuppressedDeadOnArrival;
         public int anchorRotationUnreliable;
         public int anchorReFlyUnstable;
+        public int chainShadowed;
+        public int chainBridgeHeld;
         public int active;
     }
 
@@ -140,8 +158,28 @@ namespace Parsek
         /// <summary>Host-approved row eligibility for render-only session-suppression carve-outs.</summary>
         public bool sessionSuppressedRenderCarveOutEligible;
 
+        /// <summary>
+        /// True iff this recording is in the session-suppressed subtree of the active re-fly
+        /// session. Populated by the host before each frame so the engine doesn't query
+        /// <c>SessionSuppressionState</c> directly. False when no re-fly is in progress.
+        /// </summary>
+        public bool sessionSuppressed;
+
         /// <summary>Transient Re-Fly settle/FloatingOrigin stability hold; hide-only gate.</summary>
         public bool anchorReFlyUnstable;
+
+        /// <summary>
+        /// True when this recording is the immediate chain successor (same ChainId, ChainBranch=0,
+        /// ChainIndex = predecessor.ChainIndex + 1) of a recording whose ghost is currently in
+        /// <c>ghostStates</c> and at or past its own EndUT this frame. Signals that the first-spawn
+        /// StandardEnter on this trajectory replaces a chain peer that just delivered its terminal
+        /// pose. The engine uses this to (a) force immediate build of the successor so the camera
+        /// transfer can succeed on its first attempt rather than defer-retry across the build
+        /// window, and (b) skip the activation-settle fall-through clause whose race (fresh
+        /// first-appearance pose pop) cannot happen at a chain seam where the predecessor's last
+        /// pose is by construction continuous with the successor's first pose.
+        /// </summary>
+        public bool isChainSeamSuccessor;
     }
 
     /// <summary>
@@ -177,6 +215,15 @@ namespace Parsek
 
         /// <summary>Auto loop interval from settings (engine doesn't read ParsekSettings).</summary>
         public double autoLoopIntervalSeconds;
+
+        /// <summary>
+        /// Active re-fly session marker snapshotted once per frame by the host, or null when
+        /// no re-fly is in progress. Lets the engine consume the marker without reaching into
+        /// <c>SessionSuppressionState</c>; writers of the marker (scenario lifecycle, merge /
+        /// rewind / revert orchestration, reconciliation apply) all run outside the engine's
+        /// per-frame loop, so a single snapshot at frame start matches direct reads.
+        /// </summary>
+        public ReFlySessionMarker activeReFlyMarker;
     }
 
     /// <summary>

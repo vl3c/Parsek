@@ -807,6 +807,174 @@ namespace Parsek.Tests
             Assert.Equal(0.3, stats.AverageGapSeconds, precision: 6);
             Assert.Equal(0.6, stats.MaxGapSeconds, precision: 6);
             Assert.Equal(1, stats.LargeGapCount);
+            // No per-sample warp data supplied: every large gap counts as
+            // normal-rate so the WARN behaviour is unchanged.
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void SectionGapStats_AllGapsUnderWarp_NoNormalRateLargeGap()
+        {
+            // Two large gaps, every bounding sample taken under warp.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }, // 10s gap
+                new TrajectoryPoint { ut = 125.0 }  // 15s gap
+            };
+            var warpFlags = new List<bool> { true, true, true };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void SectionGapStats_MixedSection_OneNormalRateGapAndOneWarpGap()
+        {
+            // The reviewer's edge case: a single section holds BOTH a real 1x
+            // dropped-sample gap AND a later physics-warp gap. The 1x gap must
+            // still count toward LargeGapCountAtNormalRate so it WARNs; the warp
+            // gap must not.
+            // frames:  0     1(0.7s gap @1x)  2(warp on)  3(20s gap, warp->warp)
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 50.0 },
+                new TrajectoryPoint { ut = 50.7 },  // 0.7s gap, both ends 1x  -> normal-rate large gap
+                new TrajectoryPoint { ut = 51.0 },  // small gap (warp just engaged at this sample)
+                new TrajectoryPoint { ut = 71.0 }   // 20s gap, both ends warp -> warp gap
+            };
+            var warpFlags = new List<bool> { false, false, true, true };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            // The mixed section still WARNs because a 1x gap is present.
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
+        }
+
+        [Fact]
+        public void SectionGapStats_LargeGapTouchingWarpSampleOnEitherEnd_NotNormalRate()
+        {
+            // A large gap with warp active at only ONE bounding sample (e.g. the
+            // frame straddling a warp transition) is still warp-attributable.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0.0 },
+                new TrajectoryPoint { ut = 5.0 },  // 5s gap: prev 1x, cur warp
+                new TrajectoryPoint { ut = 11.0 }  // 6s gap: prev warp, cur 1x
+            };
+            var warpFlags = new List<bool> { false, true, false };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void SectionGapStats_MismatchedWarpFlagLength_TreatsAllAsNormalRate()
+        {
+            // Defensive: a length mismatch falls back to "no warp data" so every
+            // large gap stays WARN-eligible rather than being silently downgraded.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0.0 },
+                new TrajectoryPoint { ut = 10.0 }
+            };
+            var warpFlags = new List<bool> { true }; // wrong length
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_NoNormalRateLargeGaps_DoesNotWarn()
+        {
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0));
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_HasNormalRateLargeGap_Warns()
+        {
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(1));
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11));
+        }
+
+        [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_TrimsTailAndKeepsFlagsAligned()
+        {
+            // The BG parent-trim lockstep: TrimParentAtBranchBoundary removes the
+            // post-branchUT tail of the parent section's frames; the warp-flag
+            // list must shrink with it so per-gap classification keeps working.
+            // frames:  100(1x) 101(1x) 102(warp) | 103(trimmed) 104(trimmed)
+            // After trim, gaps 100->101 (1x->1x) and 101->102 (1x->warp) survive.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 101.0 },
+                new TrajectoryPoint { ut = 102.0 }, // branchUT
+                new TrajectoryPoint { ut = 103.0 }, // trimmed
+                new TrajectoryPoint { ut = 104.0 }  // trimmed
+            };
+            var warpFlags = new List<bool> { false, false, true, true, true };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags, maxUT: 102.0);
+
+            Assert.Equal(2, removed);
+            Assert.Equal(3, frames.Count);
+            // Flags stay 1:1 with frames so ComputeSectionGapStats classifies
+            // per gap instead of falling into the length-mismatch fallback.
+            Assert.Equal(frames.Count, warpFlags.Count);
+            Assert.Equal(new List<bool> { false, false, true }, warpFlags);
+
+            // End-to-end through the aligned lists: 100->101 is 1x->1x (normal-rate
+            // large gap), 101->102 touches the warp sample at index 2 (not normal).
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+            Assert.Equal(2, stats.LargeGapCount);          // both 1s gaps are "large" vs 0.5s
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate); // only 100->101 is 1x->1x
+        }
+
+        [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_NoTailToTrim_LeavesListsUnchanged()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 50.0 },
+                new TrajectoryPoint { ut = 51.0 }
+            };
+            var warpFlags = new List<bool> { false, true };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags, maxUT: 100.0);
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, frames.Count);
+            Assert.Equal(2, warpFlags.Count);
+            Assert.Equal(new List<bool> { false, true }, warpFlags);
+        }
+
+        [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_NullWarpFlags_DoesNotThrow()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.0 },
+                new TrajectoryPoint { ut = 20.0 }
+            };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags: null, maxUT: 10.0);
+
+            Assert.Equal(1, removed);
+            Assert.Single(frames);
         }
 
         [Fact]

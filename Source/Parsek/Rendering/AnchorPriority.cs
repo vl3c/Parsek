@@ -32,7 +32,7 @@ namespace Parsek.Rendering
             /* 4 SoiTransition      */ 3, // §7.6, analytical-orbit reference
             /* 5 BubbleEntry        */ 6, // §7.7
             /* 6 BubbleExit         */ 6, // §7.7
-            /* 7 CoBubblePeer       */ 5, // §7.8 (Phase 5 territory; reserved)
+            /* 7 Reserved7          */ 5, // formerly §7.8 CoBubblePeer; slot reserved
             /* 8 SurfaceContinuous  */ 6, // §7.9, terrain reference. Demoted in
                                           // Phase 6 from rank 2 to rank 6 so a
                                           // Phase-7-pending ε = 0 stub cannot

@@ -140,88 +140,6 @@ namespace Parsek.InGameTests
             ParsekLog.Verbose("TestRunner", $"CommittedRecordings count: {recordings.Count}");
         }
 
-        [InGameTest(Category = "ReFlyAnchorContract",
-            Description = "ReFlyAnchorSelection bypass resolves to marker.SupersedeTargetId when a marker is live")]
-        public void ReFlyProvisional_AnchorsOnSupersedeTarget()
-        {
-            // Verifies the production bypass wired into both recorders in
-            // Phases 1-2. Synthesizes a marker + provisional + supersede
-            // target, attaches the marker to ParsekScenario.Instance, calls
-            // the production helper, and asserts the bypass returns the
-            // supersede target id (the recording the provisional continues)
-            // rather than letting the recorder fall through to the generic
-            // nearest-search that previously picked fast-separating siblings.
-            //
-            // The full PR #874 playtest pattern (nested re-flies with a
-            // sibling probe in-bubble + watch mode + GhostRenderTrace
-            // large-delta assertion) requires the manual playtest acceptance
-            // pass documented in
-            // docs/dev/plans/fix-refly-relative-anchor-selection.md section 10.
-            var scenario = ParsekScenario.Instance;
-            if (scenario == null)
-            {
-                InGameAssert.Skip("ParsekScenario.Instance not available (scene not Flight or scenario not loaded yet)");
-                return;
-            }
-            // Skip when CoBubble blending is on: PR #884 made the relevant
-            // path the standalone-absolute Relative-anchor path (default
-            // false in v0.10). Don't override the player's setting; just
-            // skip so the user can re-run with the toggle off.
-            if (ParsekSettings.Current != null && ParsekSettings.Current.useCoBubbleBlend)
-            {
-                InGameAssert.Skip(
-                    "useCoBubbleBlend is enabled; this test exercises the recorded-anchor "
-                    + "path that's only the primary playback contract when CoBubble is off "
-                    + "(v0.10 default after PR #884)");
-                return;
-            }
-
-            ReFlySessionMarker priorMarker = scenario.ActiveReFlySessionMarker;
-            try
-            {
-                var marker = new ReFlySessionMarker
-                {
-                    SessionId = "ingame_reflyanchor_session",
-                    TreeId = "ingame_reflyanchor_tree",
-                    ActiveReFlyRecordingId = "ingame_provisional_rec",
-                    OriginChildRecordingId = "ingame_origin_rec",
-                    SupersedeTargetId = "ingame_supersede_target",
-                    InvokedUT = Planetarium.GetUniversalTime(),
-                    InPlaceContinuation = true,
-                };
-                scenario.ActiveReFlySessionMarker = marker;
-
-                // Pure helper overload — drive every branch with an injected
-                // resolver so the test does not depend on the active tree or
-                // committed list state in the running game.
-                var target = new Recording
-                {
-                    RecordingId = "ingame_supersede_target",
-                    MergeState = MergeState.Immutable,
-                };
-                bool ok = ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(
-                    marker,
-                    "ingame_provisional_rec",
-                    id => string.Equals(id, target.RecordingId, System.StringComparison.Ordinal) ? target : null,
-                    out string anchor,
-                    out string source);
-
-                InGameAssert.IsTrue(ok,
-                    "TryResolveReFlyProvisionalAnchor should fire when a marker is live and the provisional id matches");
-                InGameAssert.AreEqual("ingame_supersede_target", anchor,
-                    "Bypass should return marker.SupersedeTargetId");
-                InGameAssert.AreEqual(ReFlyAnchorSelection.SourceSupersedeTarget, source,
-                    "Bypass source label should report supersede-target on a non-null SupersedeTargetId");
-
-                ParsekLog.Info("TestRunner",
-                    $"ReFlyProvisional_AnchorsOnSupersedeTarget: anchor={anchor} source={source}");
-            }
-            finally
-            {
-                scenario.ActiveReFlySessionMarker = priorMarker;
-            }
-        }
-
         [InGameTest(Category = "RecordingStore", Description = "All committed recordings have valid IDs and non-empty Points")]
         public void CommittedRecordingsHaveValidData()
         {
@@ -403,6 +321,30 @@ namespace Parsek.InGameTests
             InGameAssert.AreEqual(expected, newRec.VesselName);
             InGameAssert.IsTrue(newRec.VesselName != token,
                 $"Builder shipped raw token '{token}' instead of resolved name");
+        }
+
+        [InGameTest(Category = "LocalizedName",
+            Description = "VesselSpawner snapshot normalizer rewrites VESSEL.name when it's a raw #autoLOC token")]
+        public void ResolveLocalizedVesselNameInSnapshot_AutoLocToken_RewritesUnderLiveKsp()
+        {
+            // The Localizer-unavailable branch is covered by xUnit. This is the
+            // live-KSP guard for the snapshot wrap: pv.Save's VESSEL.name field
+            // carries the raw "#autoLOC_..." token until UI display time, and
+            // _vessel.craft sidecars persist it verbatim. The wrap inside
+            // NormalizeBackedUpSnapshotFromLiveVessel must resolve it before
+            // persistence so any ProtoVessel.Load consumer (ghost map presence,
+            // restored vessel) sees a readable Vessel.vesselName.
+            const string token = "#autoLOC_501224";
+            string expected = Recording.ResolveLocalizedName(token);
+            InGameAssert.IsTrue(expected != token,
+                $"Test prerequisite: Localizer must resolve '{token}' (got '{expected}')");
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", token);
+            VesselSpawner.ResolveLocalizedVesselNameInSnapshot(snapshot);
+            InGameAssert.AreEqual(expected, snapshot.GetValue("name"));
+            InGameAssert.IsTrue(snapshot.GetValue("name") != token,
+                $"Snapshot retained raw token '{token}'");
         }
 
         #endregion
@@ -1374,6 +1316,81 @@ namespace Parsek.InGameTests
                 // flag is false and won't remove them on its own, so without
                 // this RemoveAll the TS would be left showing ghosts even
                 // though the user had them disabled.
+                ParsekSettings.Current.showGhostsInTrackingStation = original;
+                if (!original)
+                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            }
+        }
+
+        [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
+            Description = "Marker ProtoVessels load with hardened aero/thermal/structural tolerances so they cannot explode mid-Re-Fly")]
+        public void GhostMarkerProtoVesselsHaveHardenedPartTolerances()
+        {
+            if (ParsekSettings.Current == null)
+            {
+                ParsekLog.Warn("TestRunner",
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: ParsekSettings.Current is null, skipping");
+                return;
+            }
+
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || committed.Count == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no committed recordings, skipping");
+                return;
+            }
+
+            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
+            try
+            {
+                ParsekSettings.Current.showGhostsInTrackingStation = true;
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
+                if (markerCount == 0)
+                {
+                    ParsekLog.Info("TestRunner",
+                        "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
+                    return;
+                }
+
+                int checkedVessels = 0;
+                int checkedParts = 0;
+                foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
+                {
+                    if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
+                    checkedVessels++;
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p == null) continue;
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
+                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
+                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
+                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
+                        checkedParts++;
+                    }
+                }
+
+                InGameAssert.IsTrue(checkedVessels > 0,
+                    $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
+                InGameAssert.IsTrue(checkedParts > 0,
+                    $"Expected to inspect at least one marker part, vessels={checkedVessels}");
+
+                ParsekLog.Info("TestRunner",
+                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
+            }
+            finally
+            {
                 ParsekSettings.Current.showGhostsInTrackingStation = original;
                 if (!original)
                     GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
@@ -3636,7 +3653,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only - this test starts a recording and stages the active vessel to assert the parent-anchor contract stamping on a controlled-decoupled child. Use Run All + Isolated or the row play button on a disposable two-controller decoupler craft.",
-            Description = "Controlled-decoupled child stamps DebrisParentRecordingId pointing at the focused parent recording at split time")]
+            Description = "Controlled-decoupled child stamps ParentAnchorRecordingId pointing at the focused parent recording at split time")]
         public IEnumerator ControlledChildBreakup_StampsParentAnchorContract()
         {
             var flight = ParsekFlight.Instance;
@@ -3720,8 +3737,8 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsFalse(childRec.IsDebris,
                     $"controlled-decoupled child must have IsDebris=false, got IsDebris={childRec.IsDebris} for recId={childRec.RecordingId}");
-                InGameAssert.AreEqual(parentRecId, childRec.DebrisParentRecordingId,
-                    $"controlled child should carry DebrisParentRecordingId={parentRecId}; got '{childRec.DebrisParentRecordingId}' (this is the parent-anchor contract that Phase 2 of the controlled-child-parent-anchored fix lands)");
+                InGameAssert.AreEqual(parentRecId, childRec.ParentAnchorRecordingId,
+                    $"controlled child should carry ParentAnchorRecordingId={parentRecId}; got '{childRec.ParentAnchorRecordingId}' (this is the parent-anchor contract that Phase 2 of the controlled-child-parent-anchored fix lands)");
             }
             finally
             {
@@ -3750,9 +3767,9 @@ namespace Parsek.InGameTests
                     continue;
                 if (rec.IsDebris)
                     continue;
-                if (string.IsNullOrEmpty(rec.DebrisParentRecordingId))
+                if (string.IsNullOrEmpty(rec.ParentAnchorRecordingId))
                     continue;
-                if (!string.Equals(rec.DebrisParentRecordingId, parentRecId, System.StringComparison.Ordinal))
+                if (!string.Equals(rec.ParentAnchorRecordingId, parentRecId, System.StringComparison.Ordinal))
                     continue;
                 return rec;
             }
@@ -3938,7 +3955,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm: Merge to Timeline", dialogTitle,
                     "Merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -4030,7 +4047,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm: Merge to Timeline", dialogTitle,
                     "Deferred merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -6199,6 +6216,51 @@ namespace Parsek.InGameTests
                     "../etc/passwd",
                     RecordingIdValidationLogContext.Test),
                 "path traversal should be invalid");
+        }
+
+        [InGameTest(Category = "Serialization",
+            Description = "Dropped vessel snapshot re-hydrates from its _vessel.craft sidecar")]
+        public void VesselSnapshotRehydratesFromSidecar()
+        {
+            // End-to-end of the spawn-time re-hydration that the orbital-payload
+            // bug needed: the in-memory snapshot is dropped in-session, but the
+            // terminal-spawn path reloads it from the durable sidecar via the
+            // KSP save-context resolver (which xUnit cannot exercise).
+            string recId = "parsektest-rehydrate-" + System.Guid.NewGuid().ToString("N").Substring(0, 8);
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(recId));
+            InGameAssert.IsNotNull(vesselPath, "Should resolve a save-scoped _vessel.craft path in KSP");
+            RecordingPaths.EnsureRecordingsDirectory();
+
+            var snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("name", "Rehydrate Probe");
+            snapshot.AddValue("sit", "ORBITING");
+            snapshot.AddNode("PART").AddValue("name", "probeCoreOcto");
+
+            try
+            {
+                RecordingStore.WriteSnapshotSidecarForTesting(vesselPath, snapshot);
+                InGameAssert.IsTrue(System.IO.File.Exists(vesselPath),
+                    "Vessel sidecar should exist on disk after write");
+
+                // Simulate the in-session drop of the transient in-memory copy.
+                var rec = new Recording { RecordingId = recId, VesselSnapshot = null };
+
+                bool hydrated = RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec);
+
+                InGameAssert.IsTrue(hydrated,
+                    "TryHydrateVesselSnapshotFromSidecar should succeed when the sidecar exists");
+                InGameAssert.IsNotNull(rec.VesselSnapshot,
+                    "VesselSnapshot should be restored after re-hydration");
+                InGameAssert.AreEqual("Rehydrate Probe", rec.VesselSnapshot.GetValue("name"));
+                InGameAssert.AreEqual(1, rec.VesselSnapshot.GetNodes("PART").Length,
+                    "Re-hydrated snapshot should preserve PART nodes");
+            }
+            finally
+            {
+                try { if (System.IO.File.Exists(vesselPath)) System.IO.File.Delete(vesselPath); }
+                catch { }
+            }
         }
     }
 
@@ -8428,76 +8490,6 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
-        private static IEnumerator WaitForCommittedRecording(
-            string recordingId, int committedBefore, float timeoutSeconds,
-            System.Action<Recording> onResolved = null)
-        {
-            // CommitTreeFlight commits the recording (count goes up by 1,
-            // populates RewindSaveFileName on the rewind owner) and then,
-            // because the live active vessel still represents the just-
-            // committed recording, ParsekFlight's auto-restore path
-            // (TryTakeCommittedTreeForSpawnedVesselRestore) immediately pulls
-            // the tree back out of CommittedRecordings to keep it as the live
-            // active tree. The Recording instance is unchanged — it just
-            // moves between the committed slot and the active-tree slot, and
-            // RewindSaveFileName stays populated. Look up via either slot and
-            // latch the count-incremented observation so a single tick inside
-            // the brief committed window is sufficient.
-            float deadline = Time.time + timeoutSeconds;
-            bool sawCountIncrease = false;
-            Recording resolved = null;
-            while (Time.time < deadline)
-            {
-                if (RecordingStore.CommittedRecordings.Count > committedBefore)
-                    sawCountIncrease = true;
-
-                Recording candidate = RecordingStore.CommittedRecordings.FirstOrDefault(
-                    r => r != null && r.RecordingId == recordingId);
-                if (candidate == null)
-                {
-                    var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
-                    if (activeTree?.Recordings != null)
-                        activeTree.Recordings.TryGetValue(recordingId, out candidate);
-                }
-
-                if (sawCountIncrease
-                    && candidate != null
-                    && !string.IsNullOrEmpty(candidate.RewindSaveFileName))
-                {
-                    resolved = candidate;
-                    onResolved?.Invoke(resolved);
-                    yield break;
-                }
-
-                yield return null;
-            }
-
-            InGameAssert.Fail(
-                $"WaitForCommittedRecording timed out after {timeoutSeconds:F0}s " +
-                $"(recordingId={recordingId ?? "null"}, committedBefore={committedBefore}, " +
-                $"committedNow={RecordingStore.CommittedRecordings.Count}, " +
-                $"sawCountIncrease={sawCountIncrease}, " +
-                $"isRecording={ParsekFlight.Instance?.IsRecording == true}, " +
-                $"activeTreeRec={resolved?.RecordingId ?? "null"})");
-        }
-
-        private static IEnumerator WaitForCapturedLogLine(
-            List<string> captured, string containsText, float timeoutSeconds)
-        {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
-            {
-                if (captured.Any(line => line.Contains(containsText)))
-                    yield break;
-
-                yield return null;
-            }
-
-            InGameAssert.Fail(
-                $"WaitForCapturedLogLine timed out after {timeoutSeconds:F0}s " +
-                $"(text='{containsText}', captured={captured?.Count ?? 0})");
-        }
-
         private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
         {
             float deadline = Time.time + durationSeconds;
@@ -10500,206 +10492,6 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Live rewind canary for #527. Commits a real launch recording to get a real
-        /// rewind save, injects future ledger actions, then drives the actual rewind
-        /// load path and asserts the post-rewind FLIGHT follow-up keeps those future
-        /// funds/contracts filtered.
-        /// </summary>
-        [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
-            AllowBatchExecution = false,
-            RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a live recording, drives the in-flight CommitTreeFlight path to commit the launch tree, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
-            Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
-        public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
-        {
-            var flight = ParsekFlight.Instance;
-            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
-            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
-            {
-                InGameAssert.Skip("requires a Career-mode FLIGHT save");
-                yield break;
-            }
-
-            var vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null)
-            {
-                InGameAssert.Skip("no active vessel");
-                yield break;
-            }
-            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
-            {
-                InGameAssert.Skip("requires a non-EVA active vessel");
-                yield break;
-            }
-            if (vessel.situation != Vessel.Situations.PRELAUNCH)
-            {
-                InGameAssert.Skip(
-                    $"requires a PRELAUNCH vessel on the pad so the test can launch, commit, and rewind, got {vessel.situation}");
-                yield break;
-            }
-            if (flight.IsRecording)
-            {
-                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
-                yield break;
-            }
-            if (FlightInputHandler.state == null)
-            {
-                InGameAssert.Skip("FlightInputHandler.state is null");
-                yield break;
-            }
-            if (Funding.Instance == null)
-            {
-                InGameAssert.Skip("Funding.Instance is null — this live rewind cutoff canary needs career funds");
-                yield break;
-            }
-
-            int committedBefore = RecordingStore.CommittedRecordings.Count;
-            float originalThrottle = FlightInputHandler.state.mainThrottle;
-            var captured = new List<string>();
-            var priorObserver = ParsekLog.TestObserverForTesting;
-            string syntheticLedgerTag = null;
-
-            try
-            {
-                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-
-                flight.StartRecording();
-                InGameAssert.IsTrue(flight.IsRecording,
-                    "ParsekFlight.StartRecording should start a live recording before the rewind canary");
-
-                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
-                InGameAssert.IsNotNull(activeRecId,
-                    "ActiveRecordingId should be set before staging the live rewind canary");
-
-                yield return new WaitForSeconds(0.5f);
-
-                FlightInputHandler.state.mainThrottle = 1f;
-                KSP.UI.Screens.StageManager.ActivateNextStage();
-
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
-                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
-                yield return new WaitForSeconds(0.5f);
-
-                FlightInputHandler.state.mainThrottle = 0f;
-                // ParsekFlight.StopRecording stops the underlying recorder but does not
-                // commit the active tree to the timeline — only the flight-button path
-                // (CommitTreeFlight) and the scene-exit MergeDialog flow do that. The
-                // earlier StopRecording-then-wait pattern timed out because the recording
-                // never reached CommittedRecordings; the rewind canary needs a real
-                // committed launch recording (with RewindSaveFileName copied to the root)
-                // before InitiateRewind can resolve a rewind owner.
-                flight.CommitTreeFlight();
-                // Capture the Recording inside the wait so the lookup is not
-                // racing the post-commit auto-restore that pulls the tree
-                // back out of CommittedRecordings (the same Recording
-                // instance moves to the active-tree slot — see WaitForCommittedRecording).
-                Recording committedRecording = null;
-                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f,
-                    rec => committedRecording = rec);
-
-                InGameAssert.IsNotNull(committedRecording,
-                    "Committing the live rewind canary tree should land the recording in the timeline");
-                InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
-                    "Committed rewind canary recording must have a rewind save file");
-
-                double fundsBeforeFutureActions = Funding.Instance.Funds;
-                int activeContractsBeforeFutureActions = LedgerOrchestrator.Contracts.GetActiveContractCount();
-
-                syntheticLedgerTag = "ingame-rewind-cutoff-" + System.Guid.NewGuid().ToString("N");
-                string futureContractId = syntheticLedgerTag + "-contract";
-                double futureUT = Planetarium.GetUniversalTime() + 120.0;
-
-                Ledger.AddAction(new GameAction
-                {
-                    UT = futureUT,
-                    Type = GameActionType.ContractAccept,
-                    RecordingId = syntheticLedgerTag,
-                    ContractId = futureContractId,
-                    ContractType = "ParsekRewindCutoffCanary",
-                    ContractTitle = "Parsek Rewind Cutoff Canary",
-                    AdvanceFunds = 321f,
-                    DeadlineUT = (float)(futureUT + 3600.0)
-                });
-                Ledger.AddAction(new GameAction
-                {
-                    UT = futureUT + 1.0,
-                    Type = GameActionType.MilestoneAchievement,
-                    RecordingId = syntheticLedgerTag,
-                    MilestoneId = syntheticLedgerTag + "-milestone",
-                    MilestoneFundsAwarded = 654f
-                });
-
-                InGameAssert.IsTrue(
-                    LedgerOrchestrator.HasActionsAfterUT(Planetarium.GetUniversalTime()),
-                    "Injected future ledger actions should sit after the current UT before rewind");
-
-                int previousFlightInstanceId = flight.GetInstanceID();
-                RecordingStore.InitiateRewind(committedRecording);
-
-                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
-                yield return WaitForCapturedLogLine(
-                    captured,
-                    "post-rewind scene-load recalc using current-UT cutoff",
-                    10f);
-                yield return new WaitForSeconds(0.5f);
-
-                InGameAssert.IsNotNull(Funding.Instance,
-                    "Funding.Instance must exist after the live rewind cutoff canary reloads");
-
-                double postFunds = Funding.Instance.Funds;
-                int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
-                bool sawDecisionInputs = captured.Any(
-                    line => line.Contains("post-rewind current-UT cutoff decision")
-                        && line.Contains("useCurrentUtCutoff=True")
-                        && line.Contains("hasFutureLedgerActions=True"));
-
-                InGameAssert.IsTrue(
-                    sawDecisionInputs,
-                    "Expected OnLoad to log the post-rewind current-UT cutoff decision inputs");
-                InGameAssert.IsTrue(
-                    System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
-                    $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +
-                    $"(before={fundsBeforeFutureActions:F1}, after={postFunds:F1})");
-                InGameAssert.AreEqual(
-                    activeContractsBeforeFutureActions,
-                    postActiveContracts,
-                    "Post-rewind active-contract count should stay at the pre-future baseline");
-                InGameAssert.IsFalse(
-                    LedgerOrchestrator.Contracts.GetActiveContractIds().Contains(futureContractId),
-                    "Future contract should stay filtered until replay catches up");
-
-                ParsekLog.Info("TestRunner",
-                    $"Rewind cutoff runtime: rec='{activeRecId}' fundsBefore={fundsBeforeFutureActions.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"fundsAfter={postFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"activeContractsBefore={activeContractsBeforeFutureActions} activeContractsAfter={postActiveContracts}");
-            }
-            finally
-            {
-                if (FlightInputHandler.state != null)
-                    FlightInputHandler.state.mainThrottle = originalThrottle;
-                ParsekLog.TestObserverForTesting = priorObserver;
-
-                if (!string.IsNullOrEmpty(syntheticLedgerTag))
-                {
-                    try
-                    {
-                        Ledger.RemoveActionsForRecording(syntheticLedgerTag);
-                        if (HighLogic.CurrentGame != null)
-                            LedgerOrchestrator.RecalculateAndPatch();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"Rewind cutoff runtime cleanup failed for synthetic ledger tag '{syntheticLedgerTag}': {ex.Message}");
-                    }
-                }
-
-                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
-                    ParsekFlight.Instance.StopRecording();
-            }
-        }
-
-        /// <summary>
         /// Stock non-revert scene-exit player-flow canary. Starts a real recording,
         /// launches the active vessel far enough to avoid the idle-on-pad discard
         /// heuristic, then drives the same save-and-exit-to-SpaceCenter path that
@@ -10812,7 +10604,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm: Merge to Timeline", dialogTitle,
                     "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -10995,7 +10787,7 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(dialog, "Popup should expose a MultiOptionDialog");
 
                 string dialogTitle = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Merge to Timeline", dialogTitle,
+                InGameAssert.AreEqual("Confirm: Merge to Timeline", dialogTitle,
                     "Pre-transition merge dialog title should match the production popup");
 
                 DialogGUIButton[] buttons = GetDialogButtons(dialog);
@@ -14572,6 +14364,59 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "ResourceTopBar", Scene = GameScenes.SPACECENTER,
+            Description = "Currency reservation tooltip: the funds and science widgets resolve a non-degenerate on-screen rectangle (the hover zone the OnGUI tooltip tests against).")]
+        public IEnumerator CurrencyTooltipResolvesWidgetScreenRects()
+        {
+            yield return WaitForLoadedScene(GameScenes.SPACECENTER, 15f);
+
+            if (HighLogic.CurrentGame == null)
+            {
+                InGameAssert.Skip("HighLogic.CurrentGame is null");
+                yield break;
+            }
+
+            // The stock currency app instantiates its widgets a few frames after the
+            // scene loads; poll briefly for them.
+            FundsWidget funds = null;
+            ScienceWidget science = null;
+            float deadline = Time.realtimeSinceStartup + 8f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                funds = Object.FindObjectOfType<FundsWidget>();
+                science = Object.FindObjectOfType<ScienceWidget>();
+                if (funds != null || science != null)
+                    break;
+                yield return null;
+            }
+
+            if (funds == null && science == null)
+            {
+                InGameAssert.Skip("No funds/science currency widget present (non-career or currency bar hidden)");
+                yield break;
+            }
+
+            // The tooltip detects hover by a screen-rect test (UGUI raycasting fails on the
+            // funds widget's rotating 3D Tumbler), so the contract to pin is that each widget
+            // resolves a sane on-screen rectangle.
+            if (funds != null)
+            {
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(funds.transform as RectTransform, out Rect fundsRect),
+                    "Funds widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(fundsRect.width, 1.0, "Funds widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(fundsRect.height, 1.0, "Funds widget screen rect height should be > 1px");
+            }
+            if (science != null)
+            {
+                InGameAssert.IsTrue(
+                    CurrencyReservationOverlay.TryGetWidgetScreenRect(science.transform as RectTransform, out Rect sciRect),
+                    "Science widget should resolve a non-degenerate screen rect");
+                InGameAssert.IsGreaterThan(sciRect.width, 1.0, "Science widget screen rect width should be > 1px");
+                InGameAssert.IsGreaterThan(sciRect.height, 1.0, "Science widget screen rect height should be > 1px");
+            }
+        }
+
         [InGameTest(Category = "StockUiOverlay", Scene = GameScenes.SPACECENTER,
             Description = "Game-state UI overlays §8.6 / E16: Mission Control despawn strips Parsek_ContractOverlay objects across repeated open/close cycles.")]
         public IEnumerator MissionControlOverlaysClearedOnDespawn()
@@ -14811,8 +14656,12 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Use wall-clock time, not Time.time: every caller is a facility/overlay wait,
+            // and EnterBuilding pauses the game (FlightDriver.SetPause -> timeScale 0), which
+            // freezes Time.time. A Time.time deadline would never expire while a facility is
+            // open, so a failed close would hang the suite forever instead of timing out.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 if (predicate())
                     yield break;
@@ -14929,23 +14778,23 @@ namespace Parsek.InGameTests
             LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
         }
 
+        // The stock facility close path is firing the matching despawn GameEvent —
+        // that is exactly what UISpaceCenter's exit button / Escape handler does, and
+        // UISpaceCenter listens to it for FlightDriver.UnPause + canvas teardown, while
+        // the facility's own (privately-registered) onDialogClose handler runs as
+        // another listener of the same event. Do NOT gate this on building.IsOpen():
+        // those overrides are always-true mode/instance gates, and invoking the private
+        // onDialogClose directly is a no-op for closing (it only deregisters handlers and
+        // clears a control lock, leaving the canvas up and the game paused — which made
+        // the overlay tests hang until manually exited).
         private static void CloseRnDForOverlayTest(RDController controller)
         {
             try
             {
-                RnDBuilding building = Object.FindObjectOfType<RnDBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
                 if (controller != null)
-                {
                     RDController.OnRDTreeDespawn.Fire(controller);
-                    GameEvents.onGUIRnDComplexDespawn.Fire();
-                }
+                GameEvents.onGUIRnDComplexDespawn.Fire();
             }
             catch (System.Exception ex)
             {
@@ -14957,13 +14806,6 @@ namespace Parsek.InGameTests
         {
             try
             {
-                AstronautComplexFacility building = Object.FindObjectOfType<AstronautComplexFacility>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onAstronautComplexDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIAstronautComplexDespawn.Fire();
             }
             catch (System.Exception ex)
@@ -14976,32 +14818,12 @@ namespace Parsek.InGameTests
         {
             try
             {
-                MissionControlBuilding building = Object.FindObjectOfType<MissionControlBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIMissionControlDespawn.Fire();
             }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("TestRunner", $"Phase 5 MissionControl overlay close helper threw: {ex}");
             }
-        }
-
-        private static void InvokeStockCloseMethodForOverlayTest(object building, string methodName)
-        {
-            MethodInfo method = building != null
-                ? building.GetType().GetMethod(
-                    methodName,
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                : null;
-            if (method == null)
-                throw new System.MissingMethodException(building != null ? building.GetType().FullName : "(null)", methodName);
-
-            method.Invoke(building, null);
         }
 
         private static IEnumerator WaitForNamedChildCount(
@@ -16378,7 +16200,7 @@ namespace Parsek.InGameTests
                 VesselName = "v13-long-range-debris",
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = "v13-long-range-parent",
+                ParentAnchorRecordingId = "v13-long-range-parent",
                 Points = new List<TrajectoryPoint>(absoluteSection.frames),
                 TrackSections = new List<TrackSection> { absoluteSection },
             };
@@ -16645,7 +16467,7 @@ namespace Parsek.InGameTests
                 VesselName = recordingId,
                 PlaybackEnabled = true,
                 IsDebris = true,
-                DebrisParentRecordingId = parentRecordingId,
+                ParentAnchorRecordingId = parentRecordingId,
                 Points = new List<TrajectoryPoint>(relativeFrames),
                 TrackSections = new List<TrackSection> { section },
             };
@@ -18431,12 +18253,13 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the four
+        /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the
         /// structural-event handlers that drive
-        /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/>. The test does
-        /// NOT trigger live KSP events (which is hard to drive deterministically in
-        /// the runner) — instead it walks <c>GameEvents.onPartCouple</c>,
-        /// <c>onPartUndock</c>, <c>onCrewOnEva</c>, and <c>onPartJointBreak</c> via
+        /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/> and the undock split.
+        /// The test does NOT trigger live KSP events (which is hard to drive
+        /// deterministically in the runner); instead it walks <c>GameEvents.onPartCouple</c>,
+        /// <c>onPartUndock</c>, <c>onVesselsUndocking</c>, <c>onCrewOnEva</c>, and
+        /// <c>onPartJointBreak</c> via
         /// reflection on each <c>EventData&lt;T&gt;.events</c> internal listener
         /// list. The joint-break hook is recorder-scoped in production, so the test
         /// installs and removes one transient <see cref="FlightRecorder"/> subscription
@@ -18466,6 +18289,11 @@ namespace Parsek.InGameTests
 
                 AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, ref totalAsserted);
                 AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, ref totalAsserted);
+                // Authoritative docking-port undock split signal (undock-not-recorded fix):
+                // onPartUndock fires before KSP splits the vessel, so the branch is created
+                // from onVesselsUndocking which fires at the end of Part.Undock() with both
+                // final pids. A regression that drops the subscription fails here.
+                AssertHandlerRegistered("onVesselsUndocking", GameEvents.onVesselsUndocking, ref totalAsserted);
                 AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, ref totalAsserted);
                 AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, ref totalAsserted);
             }
@@ -18480,7 +18308,7 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("Pipeline-Smoothing",
                 "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
-                + "asserted=" + totalAsserted + " of 4 GameEvents bindings resolved to "
+                + "asserted=" + totalAsserted + " of 5 GameEvents bindings resolved to "
                 + "FlightRecorder / ParsekFlight delegates");
         }
 
@@ -18853,227 +18681,6 @@ namespace Parsek.InGameTests
 
         #endregion
 
-        #region Pipeline-CoBubble (Phase 5)
-
-        /// <summary>
-        /// Phase 5 (design doc §6.5 / §10 / §18 Phase 5 / §20.5 Phase 5 row).
-        /// Live-primary co-bubble blend smoke test: synthetic peer ghost
-        /// shadowing the active re-fly target. Seeds a co-bubble offset
-        /// trace centred on the live primary, drives the blender, and
-        /// asserts the returned world offset matches the recorded value
-        /// within 0.05 m at the window's midpoint.
-        /// </summary>
-        /// <remarks>
-        /// HR-15 audit: the blender does NOT read live KSP state — it
-        /// reads from the primary RECORDING. Mutating live vessel position
-        /// must not move the peer ghost. The xUnit suite covers the gate's
-        /// branches; this test runs against a real CelestialBody to catch
-        /// any KSP-side rotation/world-frame regression.
-        /// </remarks>
-        [InGameTest(Category = "Pipeline-CoBubble", Scene = GameScenes.FLIGHT,
-            Description = "Live-primary co-bubble peer ghost follows recorded offset within tolerance")]
-        public IEnumerator Pipeline_CoBubble_Live()
-        {
-            const string primaryId = "in-game-cobubble-primary";
-            const string peerId = "in-game-cobubble-peer";
-            const double startUT = 1500.0;
-            const double endUT = 1530.0;
-            const double tolerance = 0.05;
-            Vector3d recordedOffset = new Vector3d(10.0, 0.0, 0.0);
-
-            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.name == "Kerbin");
-            InGameAssert.IsNotNull(kerbin, "Kerbin must be present in FlightGlobals.Bodies");
-            yield return null;
-
-            Parsek.Rendering.RenderSessionState.ResetForTesting();
-            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
-            Parsek.Rendering.CoBubbleBlender.ResetForTesting();
-
-            // Designate primaryId as the primary for peerId.
-            Parsek.Rendering.RenderSessionState.PutPrimaryAssignmentForTesting(peerId, primaryId);
-
-            // Build a co-bubble trace storing recordedOffset peer-minus-primary.
-            int n = 5;
-            double[] uts = new double[n];
-            float[] dx = new float[n], dy = new float[n], dz = new float[n];
-            double step = (endUT - startUT) / (n - 1);
-            for (int i = 0; i < n; i++)
-            {
-                uts[i] = startUT + i * step;
-                dx[i] = (float)recordedOffset.x;
-                dy[i] = (float)recordedOffset.y;
-                dz[i] = (float)recordedOffset.z;
-            }
-            byte[] sig = new byte[32];
-            var trace = new Parsek.Rendering.CoBubbleOffsetTrace
-            {
-                PeerRecordingId = primaryId,
-                PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                PeerSidecarEpoch = 1,
-                PeerContentSignature = sig,
-                StartUT = startUT,
-                EndUT = endUT,
-                FrameTag = 0,
-                PrimaryDesignation = 1,
-                UTs = uts, Dx = dx, Dy = dy, Dz = dz,
-            };
-            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(peerId, trace);
-
-            yield return null;
-
-            // Sample at the window midpoint.
-            double midUT = 0.5 * (startUT + endUT);
-            bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                peerId, midUT,
-                out Vector3d worldOffset,
-                out double blend,
-                out Parsek.Rendering.CoBubbleBlendStatus status,
-                out string resolvedPrimary);
-
-            ParsekLog.Info("Pipeline-CoBubble",
-                "Pipeline_CoBubble_Live: status="
-                + status
-                + " primary=" + (resolvedPrimary ?? "<null>")
-                + " blend=" + blend.ToString("F3", CultureInfo.InvariantCulture)
-                + " worldOffset=("
-                + worldOffset.x.ToString("F4", CultureInfo.InvariantCulture) + ","
-                + worldOffset.y.ToString("F4", CultureInfo.InvariantCulture) + ","
-                + worldOffset.z.ToString("F4", CultureInfo.InvariantCulture) + ")");
-
-            InGameAssert.IsTrue(hit,
-                "CoBubbleBlender.TryEvaluateOffset miss for live-primary peer — status=" + status);
-            InGameAssert.IsTrue(resolvedPrimary == primaryId,
-                "Resolved primary id mismatch: expected " + primaryId + " got " + (resolvedPrimary ?? "<null>"));
-            // Mid-window samples sit in the steady region with blend=1.0.
-            InGameAssert.IsTrue(blend >= 0.999,
-                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
-            double residual = (worldOffset - recordedOffset).magnitude;
-            InGameAssert.IsTrue(residual < tolerance,
-                "Co-bubble offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
-                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture)
-                    + " m — recorded offset / blender wiring is broken");
-
-            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.RenderSessionState.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
-            yield break;
-        }
-
-        /// <summary>
-        /// Phase 5 ghost-ghost formation smoke test (design doc §10.1, §20.5
-        /// Phase 5 row). Two ghost recordings, no live re-fly. Asserts:
-        /// (a) primary selection picks the deterministic winner per §10.1,
-        /// (b) the peer's blender lookup hits inside the recorded window,
-        /// (c) the Pipeline-CoBubble Info "Primary selection" line emits.
-        /// </summary>
-        [InGameTest(Category = "Pipeline-CoBubble", Scene = GameScenes.FLIGHT,
-            Description = "Phase 5 ghost-ghost formation: deterministic primary, recorded offset preserved")]
-        public IEnumerator Pipeline_CoBubble_GhostGhost()
-        {
-            const string idA = "in-game-cobubble-gg-A";
-            const string idB = "in-game-cobubble-gg-B";
-            const double startUT = 2000.0;
-            const double endUT = 2030.0;
-            const double tolerance = 0.05;
-            Vector3d offsetBA = new Vector3d(5.0, 0.0, 0.0); // B - A in primary's frame
-
-            Parsek.Rendering.RenderSessionState.ResetForTesting();
-            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.UseCoBubbleBlendResolverForTesting = () => true;
-            Parsek.Rendering.CoBubbleBlender.ResetForTesting();
-            yield return null;
-
-            // No live anchors → §10.1 rule 5 (HR-3 ordinal tiebreaker) wins.
-            // idA < idB ordinal → A is primary, B is peer.
-            // Build traces on both sides; primary side stores PeerRecordingId=B,
-            // peer side stores PeerRecordingId=A.
-            int n = 3;
-            double[] uts = new double[n];
-            float[] dxA = new float[n], dyA = new float[n], dzA = new float[n];
-            float[] dxB = new float[n], dyB = new float[n], dzB = new float[n];
-            double step = (endUT - startUT) / (n - 1);
-            for (int i = 0; i < n; i++)
-            {
-                uts[i] = startUT + i * step;
-                dxA[i] = (float)offsetBA.x;  dyA[i] = (float)offsetBA.y;  dzA[i] = (float)offsetBA.z;
-                dxB[i] = (float)(-offsetBA.x); dyB[i] = (float)(-offsetBA.y); dzB[i] = (float)(-offsetBA.z);
-            }
-            byte[] sig = new byte[32];
-            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(idA,
-                new Parsek.Rendering.CoBubbleOffsetTrace
-                {
-                    PeerRecordingId = idB,
-                    PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                    PeerSidecarEpoch = 1, PeerContentSignature = sig,
-                    StartUT = startUT, EndUT = endUT, FrameTag = 0, PrimaryDesignation = 0,
-                    UTs = (double[])uts.Clone(), Dx = dxA, Dy = dyA, Dz = dzA,
-                });
-            Parsek.Rendering.SectionAnnotationStore.PutCoBubbleTrace(idB,
-                new Parsek.Rendering.CoBubbleOffsetTrace
-                {
-                    PeerRecordingId = idA,
-                    PeerSourceFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
-                    PeerSidecarEpoch = 1, PeerContentSignature = sig,
-                    StartUT = startUT, EndUT = endUT, FrameTag = 0, PrimaryDesignation = 1,
-                    UTs = (double[])uts.Clone(), Dx = dxB, Dy = dyB, Dz = dzB,
-                });
-
-            // Build minimal Recording objects with no live anchor seeds.
-            var rA = new Recording { RecordingId = idA, VesselName = idA,
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion };
-            var rB = new Recording { RecordingId = idB, VesselName = idB,
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion };
-
-            var primaryMap = Parsek.Rendering.CoBubblePrimarySelector.Resolve(
-                new List<Recording> { rA, rB }, marker: null);
-            InGameAssert.IsTrue(primaryMap.Count == 1,
-                "Expected exactly one (peer, primary) entry; got " + primaryMap.Count);
-            // §10.1 rule 5: lower ordinal wins → A is primary.
-            string peerId = idB;
-            string primaryId = idA;
-            InGameAssert.IsTrue(primaryMap.ContainsKey(peerId),
-                "Primary map missing peer entry for " + peerId);
-            InGameAssert.IsTrue(primaryMap[peerId] == primaryId,
-                "Primary map entry mismatch: expected " + primaryId + " got " + primaryMap[peerId]);
-
-            // Install the primary assignment + emit the dedup'd Info log so
-            // the live blender path sees it.
-            Parsek.Rendering.RenderSessionState.PutPrimaryAssignmentForTesting(peerId, primaryId);
-            Parsek.Rendering.RenderSessionState.NotifyCoBubblePrimarySelection(peerId, primaryId);
-
-            yield return null;
-
-            // Sample the blender mid-window.
-            double midUT = 0.5 * (startUT + endUT);
-            bool hit = Parsek.Rendering.CoBubbleBlender.TryEvaluateOffset(
-                peerId, midUT,
-                out Vector3d worldOffset,
-                out double blend,
-                out Parsek.Rendering.CoBubbleBlendStatus status,
-                out string resolvedPrimary);
-            InGameAssert.IsTrue(hit,
-                "CoBubbleBlender.TryEvaluateOffset miss for ghost-ghost peer — status=" + status);
-            InGameAssert.IsTrue(resolvedPrimary == primaryId,
-                "Resolved primary id mismatch");
-            // Peer-side trace stores -offsetBA, so worldOffset ≈ -offsetBA.
-            // Mid-window samples sit in the steady region with blend=1.0.
-            InGameAssert.IsTrue(blend >= 0.999,
-                "Mid-window blend expected 1.0; got " + blend.ToString("F3", CultureInfo.InvariantCulture));
-            double residual = (worldOffset + offsetBA).magnitude;
-            InGameAssert.IsTrue(residual < tolerance,
-                "Co-bubble peer offset residual " + residual.ToString("F4", CultureInfo.InvariantCulture)
-                    + " m exceeds tolerance " + tolerance.ToString("F4", CultureInfo.InvariantCulture));
-
-            Parsek.Rendering.SectionAnnotationStore.ResetForTesting();
-            Parsek.Rendering.RenderSessionState.ResetForTesting();
-            Parsek.Rendering.SmoothingPipeline.ResetForTesting();
-            yield break;
-        }
-
-        #endregion
 
         #region Pipeline-Outlier (Phase 8)
 
@@ -19811,7 +19418,7 @@ namespace Parsek.InGameTests
     internal class Bug613RelativeTrajectory : IPlaybackTrajectory
     {
         private readonly bool _isDebris;
-        private readonly string _debrisParentRecordingId;
+        private readonly string _parentAnchorRecordingId;
         private readonly string _recordingId;
 
         internal Bug613RelativeTrajectory(
@@ -19822,7 +19429,7 @@ namespace Parsek.InGameTests
             string recordingId = "test-b613")
         {
             _isDebris = parentAnchoredDebris;
-            _debrisParentRecordingId = parentAnchoredDebris ? "test-b613-parent" : null;
+            _parentAnchorRecordingId = parentAnchoredDebris ? "test-b613-parent" : null;
             _recordingId = recordingId;
 
             Points = new List<TrajectoryPoint>
@@ -19900,7 +19507,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => _isDebris;
-        public string DebrisParentRecordingId => _debrisParentRecordingId;
+        public string ParentAnchorRecordingId => _parentAnchorRecordingId;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -19996,7 +19603,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20096,7 +19703,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20145,7 +19752,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20227,7 +19834,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => false;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0;
@@ -20294,7 +19901,7 @@ namespace Parsek.InGameTests
         public double TerrainHeightAtEnd => double.NaN;
         public bool PlaybackEnabled => true;
         public bool IsDebris => true;
-        public string DebrisParentRecordingId => null;
+        public string ParentAnchorRecordingId => null;
         public int LoopSyncParentIdx { get; set; } = -1;
         public string TerminalOrbitBody => null;
         public double TerminalOrbitSemiMajorAxis => 0.0;
@@ -20922,11 +20529,16 @@ namespace Parsek.InGameTests
                 // 8. Pre-rewind carve-out predicate on HEAD. The marker was
                 //    cleared at the end of RunMerge (step 7), so reconstruct
                 //    a marker shell for the predicate check using the same
-                //    RewindPointUT used by the merge.
+                //    RewindPointUT used by the merge. SupersedeTargetId must
+                //    name TIP: post-split the live marker's SupersedeTargetId
+                //    points at TIP, and the chain-head branch of
+                //    IsPreRewindCarveOut needs it to resolve TIP for the
+                //    ChainId/ChainIndex shape match.
                 var carveOutMarker = new ReFlySessionMarker
                 {
                     RewindPointUT = rewindUT,
                     InvokedUT = rewindUT,
+                    SupersedeTargetId = tip.RecordingId,
                 };
                 SupersedeCommit.PreRewindCarveOutReason carveOutReason;
                 bool isCarveOut = SupersedeCommit.IsPreRewindCarveOut(

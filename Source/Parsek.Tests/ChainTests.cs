@@ -787,6 +787,157 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region GetChainPredecessorIndex
+
+        [Fact]
+        public void GetChainPredecessorIndex_TwoSegmentChain_ReturnsIndexOfPredecessor()
+        {
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "pred-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Seg1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "pred-test";
+            rec1.ChainIndex = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            Assert.Equal(0, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_ChainHead_ReturnsNegativeOne()
+        {
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "head-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[0]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_Standalone_ReturnsNegativeOne()
+        {
+            var rec = new Recording { ChainId = null, ChainIndex = 0 };
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(rec));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_NonZeroBranch_ReturnsNegativeOne()
+        {
+            // Branch > 0 segments are parallel continuations, not the primary chain; the
+            // seam carve-out targets the primary (branch 0) path only.
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "branch-test";
+            rec0.ChainIndex = 0;
+            rec0.ChainBranch = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "Branch1");
+            Assert.NotNull(rec1);
+            rec1.ChainId = "branch-test";
+            rec1.ChainIndex = 1;
+            rec1.ChainBranch = 1;
+            RecordingStore.CommitRecordingDirect(rec1);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void GetChainPredecessorIndex_GapInChainIndex_ReturnsNegativeOne()
+        {
+            // Predecessor must exist at ChainIndex - 1 exactly; a chain with a missing
+            // segment (e.g. ChainIndex 0 then jumping to 2) has no immediate predecessor.
+            var rec0 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "Seg0");
+            Assert.NotNull(rec0);
+            rec0.ChainId = "gap-test";
+            rec0.ChainIndex = 0;
+            RecordingStore.CommitRecordingDirect(rec0);
+
+            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Seg2");
+            Assert.NotNull(rec2);
+            rec2.ChainId = "gap-test";
+            rec2.ChainIndex = 2;
+            RecordingStore.CommitRecordingDirect(rec2);
+
+            Assert.Equal(-1, RecordingStore.GetChainPredecessorIndex(RecordingStore.CommittedRecordings[1]));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorHasGhostAndAtSeamUT_ReturnsTrue()
+        {
+            // Predicate input that mirrors what BuildTrajectoryFlags computes: predecessor
+            // has a live ghost state and currentUT is at or past the successor's seam UT
+            // (the successor's first playable payload — the chain handoff moment).
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, successorSeamUT: 99.5, predecessorHasGhostState: true));
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.5, successorSeamUT: 99.5, predecessorHasGhostState: true));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorMissingGhostState_ReturnsFalse()
+        {
+            // Without a live predecessor ghost there is no terminal pose to be continuous
+            // with, so the seam exemption does not apply (e.g. scene-load spawn of a chain
+            // where neither side has been built yet).
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, successorSeamUT: 99.5, predecessorHasGhostState: false));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_BeforeSuccessorSeamUT_ReturnsFalse()
+        {
+            // Before the successor's seam UT arrives, the engine hasn't spawned it yet —
+            // the predicate must not flag the recording as a seam successor. Guard with the
+            // 1us epsilon to absorb floating-point dust at exact-match boundaries.
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.4, successorSeamUT: 99.5, predecessorHasGhostState: true));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_PredecessorWithWidenedEndUT_StillFiresAtSeam()
+        {
+            // Regression: the original predicate compared currentUT against the predecessor's
+            // Recording.EndUT, which is the outer semantic envelope widened by ExplicitEndUT
+            // (orbit-tail predictions, Re-Fly tail estimates). On a chain-head with an orbit
+            // projection, that envelope can be far past the actual chain handoff — e.g.
+            // Kerbal X playtest 2026-05-19 had predecessor.EndUT=1289 while the seam was at
+            // UT 123.54. The predicate must use the SUCCESSOR's seam UT (its first playable
+            // payload), not the predecessor's outer envelope, so the carve-out fires at the
+            // actual handoff frame instead of never.
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 123.55, successorSeamUT: 123.54, predecessorHasGhostState: true));
+        }
+
+        [Fact]
+        public void IsChainSeamSuccessor_UnwidenedRecording_StillFiresAtSeam()
+        {
+            // Happy-path sanity: on a recording WITHOUT ExplicitEndUT widening (chain head
+            // ending exactly at the successor's StartUT, no orbit-tail projection), the
+            // predicate must still fire at the seam frame. This pins that the switch from
+            // predecessor.EndUT to successorSeamUT as the comparison source did not regress
+            // the normal in-flight chain handoff — both sources would have produced the same
+            // truth value on an unwidened recording, so behavior must match.
+            //
+            // Boundary: currentUT exactly at the seam (== successor.StartUT == predecessor's
+            // actual payload end) — predicate returns true thanks to the 1us epsilon. One
+            // physics tick past the seam — still true. One physics tick before — false.
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.0, successorSeamUT: 100.0, predecessorHasGhostState: true));
+            Assert.True(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 100.02, successorSeamUT: 100.0, predecessorHasGhostState: true));
+            Assert.False(ParsekFlight.IsChainSeamSuccessor(
+                currentUT: 99.98, successorSeamUT: 100.0, predecessorHasGhostState: true));
+        }
+
+        #endregion
+
         #region BuildExcludeCrewSet
 
         [Fact]

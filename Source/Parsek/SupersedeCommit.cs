@@ -356,7 +356,7 @@ namespace Parsek
                             $"AppendRelations: skip pre-rewind {carveOutReason} old={oldId} new={newRecordingId} " +
                             $"(startUT={rec.StartUT.ToString("R", ic)} endUT={rec.EndUT.ToString("R", ic)} " +
                             $"rewindUT={marker.RewindPointUT.ToString("R", ic)} " +
-                            $"debrisParent={rec.DebrisParentRecordingId ?? "<null>"})");
+                            $"debrisParent={rec.ParentAnchorRecordingId ?? "<null>"})");
                         continue;
                     }
 
@@ -436,7 +436,7 @@ namespace Parsek
         /// Such debris physically separated before the rewind point and
         /// represents an independent vessel history the re-fly does not
         /// redo. Requires a non-null
-        /// <see cref="Recording.DebrisParentRecordingId"/>: legacy v11
+        /// <see cref="Recording.ParentAnchorRecordingId"/>: legacy v11
         /// debris loaded without the v12 ownership link follows the
         /// unfiltered legacy path.
         /// </description></item>
@@ -528,17 +528,17 @@ namespace Parsek
             // unconditionally fails — see the
             // `IsPreRewindCarveOut_NoActualTrajectoryBounds_NotCarvedOut`
             // regression test in `SupersedeCommitTests.cs`.
-            // KEEP both conjuncts (`rec.IsDebris` and `DebrisParentRecordingId != null`):
+            // KEEP both conjuncts (`rec.IsDebris` and `ParentAnchorRecordingId != null`):
             // this branch is intentionally scoped to genuine debris. Controlled-decoupled
             // children (extension of the parent-anchor contract) carry
-            // DebrisParentRecordingId but have IsDebris=false and must NOT be carved
+            // ParentAnchorRecordingId but have IsDebris=false and must NOT be carved
             // out via this branch - they would lose their re-fly visibility. They go
             // through the chain-head carve-out branch below (which gates on
             // `!rec.IsDebris`) instead.
             double debrisCutoff = ComputePreRewindCutoff(marker);
             if (!double.IsNaN(debrisCutoff)
                 && rec.IsDebris
-                && !string.IsNullOrEmpty(rec.DebrisParentRecordingId)
+                && !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 && rec.TryGetActualTrajectoryBounds(out double recActualStart, out _)
                 && recActualStart < debrisCutoff)
             {
@@ -1010,7 +1010,7 @@ namespace Parsek
                 // sites do not pass an override and continue to use the
                 // static focus.
                 bool classifierQualifies = UnfinishedFlightClassifier.TryQualify(
-                    provisional, slot, rp, false, out classifierReason,
+                    provisional, slot, rp, out classifierReason,
                     treeContext: null, allowNotCommitted: true,
                     focusSlotOverride: slotListIndex);
 
@@ -1907,6 +1907,13 @@ namespace Parsek
             return action.Type == GameActionType.ScienceEarning;
         }
 
+        // Auto-seal-after-safety-close is now encoded entirely in the
+        // provisional fork's MergeState: AutoSealSlot == true implies the
+        // classifier resolved NewState == Immutable (the slot's effective tip
+        // is the provisional fork, which FlipMergeStateAndClearTransient set to
+        // Immutable above before this runs). Open/closed is read from that tip
+        // MergeState (collapse-seal-into-mergestate plan §7.3), so there is no
+        // separate slot bit to flip — this method only emits the diagnostic.
         private static void ApplyAutoSealAfterSafetyClose(
             MergeStateClassification classification,
             Recording provisional,
@@ -1916,17 +1923,11 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario))
                 return;
 
-            if (classification.Slot.Sealed)
-                return;
-
-            classification.Slot.Sealed = true;
-            classification.Slot.SealedRealTime =
-                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-            scenario.BumpSupersedeStateVersion();
             ParsekLog.Info(Tag,
                 $"Auto-sealed re-fly slot={classification.SlotListIndex.ToString(CultureInfo.InvariantCulture)} " +
                 $"rec={provisional?.RecordingId ?? "<no-id>"} " +
                 $"rp={classification.RewindPoint?.RewindPointId ?? "<no-rp>"} " +
+                $"mergeState={classification.NewState} " +
                 $"terminal={DescribeTerminalForLogs(provisional)} " +
                 $"reason={classification.AutoSealReason ?? "<none>"}");
         }
@@ -2082,8 +2083,16 @@ namespace Parsek
             Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec) ?? rec;
             TerminalState? terminal = terminalRec.TerminalStateValue;
             if (!terminal.HasValue) return false;
-            if (terminal.Value == TerminalState.Orbiting
-                || terminal.Value == TerminalState.SubOrbital)
+            // Orbiting is the only stable terminal that requires slot-aware
+            // classification: its slot-close contract reads rp.FocusSlotIndex
+            // and would silently mis-classify if slot lookup fell back to the
+            // v0.9 TerminalKindClassifier. SubOrbital used to be in this set
+            // when the seal contract treated it as stable; the contract was
+            // dropped (a suborbital arc is still in flight, not a conclusion)
+            // and SubOrbital now falls back through the v0.9 classifier
+            // (InFlight kind, no seal) cleanly when slot lookup fails, so it
+            // no longer requires the precondition.
+            if (terminal.Value == TerminalState.Orbiting)
                 return true;
             return !string.IsNullOrEmpty(terminalRec.EvaCrewName)
                 && terminal.Value != TerminalState.Boarded;

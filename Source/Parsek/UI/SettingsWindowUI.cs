@@ -440,17 +440,6 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: writeReadableSidecarMirrors={s.writeReadableSidecarMirrors}");
             }
 
-            bool useCoBubbleBlend = GUILayout.Toggle(s.useCoBubbleBlend,
-                new GUIContent(" Use co-bubble peer blending",
-                    "When on (default), ghost peers that shared a physics bubble with a co-recorded primary at recording time render via the stored co-bubble offset trace (sub-meter relative geometry). "
-                    + "Off → each ghost renders its own standalone Absolute trajectory with no peer-blend. Useful for A/B testing whether vessels align correctly on Re-Fly without co-bubble's involvement. "
-                    + "Flipping invalidates cached .pann sidecars."));
-            if (useCoBubbleBlend != s.useCoBubbleBlend)
-            {
-                s.useCoBubbleBlend = useCoBubbleBlend;
-                ParsekLog.Info("UI", $"Setting changed: useCoBubbleBlend={s.useCoBubbleBlend}");
-            }
-
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
                 "Run runtime tests to verify ghost spawning, playback, and visuals.\nAlso available via Ctrl+Shift+T in any scene.")))
             {
@@ -473,7 +462,7 @@ namespace Parsek
             GUILayout.Label(new GUIContent(
                 RewindPointDiskUsage.FormatLine(rpSnap),
                 "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
-                + "Also shows live RP counts split by crashed, stable, and sealed-pending slots. "
+                + "Also shows live RP counts split by crashed, stable, and concluded slots. "
                 + "Refreshed every 10 seconds or when RP state changes."));
         }
 

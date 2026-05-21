@@ -16,18 +16,16 @@ namespace Parsek
         internal static bool Qualifies(
             Recording rec,
             ChildSlot slot,
-            RewindPoint rp,
-            bool considerSealed)
+            RewindPoint rp)
         {
             string reason;
-            return TryQualify(rec, slot, rp, considerSealed, out reason);
+            return TryQualify(rec, slot, rp, out reason);
         }
 
         internal static bool TryQualify(
             Recording rec,
             ChildSlot slot,
             RewindPoint rp,
-            bool considerSealed,
             out string reason,
             RecordingTree treeContext = null,
             bool allowNotCommitted = false,
@@ -103,14 +101,6 @@ namespace Parsek
                 reason = "notControllable";
                 LogVerdict(false, recId, reason,
                     $"headIsDebris={rec.IsDebris} slotControllable={slot.Controllable}");
-                return false;
-            }
-
-            if (considerSealed && slot.Sealed)
-            {
-                reason = "slotSealed";
-                LogVerdict(false, recId, reason,
-                    $"slot={ResolveSlotListIndexByReference(rp, slot)} sealedRealTime={slot.SealedRealTime ?? "<none>"}");
                 return false;
             }
 
@@ -225,7 +215,7 @@ namespace Parsek
             // matches the override and the chain tip is a stable terminal,
             // the merge concludes the engagement: return
             // stableTerminalFocusSlot so SupersedeCommit closes the slot
-            // (MergeState.Immutable + slot.Sealed=true). The override path
+            // (the slot's effective tip MergeState becomes Immutable). The override path
             // intentionally precedes the stashed-keep-open branch (a
             // stashed slot Re-Flown to a stable conclusion also seals) and
             // the noFocusSignalOrbiting / static focus checks below (the
@@ -235,8 +225,13 @@ namespace Parsek
             // applicable. Recovered/Docked are excluded from the override
             // path because they fall through to the existing stableTerminal
             // close + IsHardSafetyTerminal auto-seal; Boarded / Destroyed
-            // returned earlier above. Non-Re-Fly callers pass null and
-            // follow the existing stashed / focus / orbit flow unchanged.
+            // returned earlier above. SubOrbital is also excluded: a
+            // suborbital arc is "still in flight" (the vessel will crash,
+            // land, splash, or with a burn reach orbit) and is not a
+            // conclusive outcome, so it falls through to the
+            // stableLeafUnconcluded branch below and keeps the slot open.
+            // Non-Re-Fly callers pass null and follow the existing stashed
+            // / focus / orbit flow unchanged.
             if (focusSlotOverride.HasValue && rp != null
                 && IsReFlyOverrideStableTerminal(terminal.Value))
             {
@@ -306,7 +301,17 @@ namespace Parsek
                 return false;
             }
 
-            if (slotListIndex == rp.FocusSlotIndex)
+            // Static-focus seal: only Orbiting concludes the engagement on the
+            // focus slot. SubOrbital falls through to the stableLeafUnconcluded
+            // branch below because a suborbital arc is still in flight: the
+            // vessel will crash, land, splash, or with a burn reach orbit.
+            // Sealing the slot here would close the loop before the outcome is
+            // known. Keeping the slot open for SubOrbital lines up with the
+            // Re-Fly override path above (which also excludes SubOrbital) and
+            // with TerminalKindClassifier.Classify (which routes SubOrbital to
+            // InFlight, not Landed).
+            if (slotListIndex == rp.FocusSlotIndex
+                && terminal.Value == TerminalState.Orbiting)
             {
                 reason = "stableTerminalFocusSlot";
                 LogVerdict(false, recId, reason,
@@ -341,19 +346,24 @@ namespace Parsek
 
         /// <summary>
         /// Stable terminals that the Re-Fly merge focus override seals on the
-        /// player-chosen slot. Recovered / Docked / Boarded are excluded —
-        /// they reach the slot-close path through their own existing branches
-        /// (Boarded EVA returns at the EVA branch above, Recovered / Docked
-        /// fall through to <c>stableTerminal</c> + <c>IsHardSafetyTerminal</c>
-        /// auto-seal in <see cref="SupersedeCommit"/>). Destroyed returned
-        /// earlier as <c>crashed</c>.
+        /// player-chosen slot. Recovered / Docked / Boarded are excluded
+        /// because they reach the slot-close path through their own existing
+        /// branches (Boarded EVA returns at the EVA branch above, Recovered /
+        /// Docked fall through to <c>stableTerminal</c> +
+        /// <c>IsHardSafetyTerminal</c> auto-seal in
+        /// <see cref="SupersedeCommit"/>). Destroyed returned earlier as
+        /// <c>crashed</c>. SubOrbital is also excluded: a suborbital arc is
+        /// still in flight (the vessel will crash, land, splash, or with a
+        /// burn reach orbit), so it falls through to
+        /// <c>stableLeafUnconcluded</c> and keeps the slot open. This aligns
+        /// the slot-close contract with <see cref="TerminalKindClassifier.Classify"/>,
+        /// which already routes SubOrbital to <c>InFlight</c>.
         /// </summary>
         private static bool IsReFlyOverrideStableTerminal(TerminalState terminal)
         {
             switch (terminal)
             {
                 case TerminalState.Orbiting:
-                case TerminalState.SubOrbital:
                 case TerminalState.Landed:
                 case TerminalState.Splashed:
                     return true;
@@ -438,16 +448,8 @@ namespace Parsek
                 return false;
             }
 
-            if (slot.Sealed)
-            {
-                reason = "slotSealed";
-                rp = null;
-                slotListIndex = -1;
-                return false;
-            }
-
             string defaultReason;
-            if (TryQualify(rec, slot, rp, true, out defaultReason))
+            if (TryQualify(rec, slot, rp, out defaultReason))
             {
                 reason = "alreadyUnfinishedFlight";
                 rp = null;
@@ -780,8 +782,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true only for open manual-stash slots. A slot that is both
-        /// stashed and sealed is closed; sealed wins, matching
+        /// Returns true only for open manual-stash slots. A stashed slot
+        /// whose effective tip has been sealed to
+        /// <see cref="MergeState.Immutable"/> is closed; the tip MergeState
+        /// is the single open/closed source of truth, matching
         /// <see cref="RewindPointReaper.IsReapEligible"/>'s closed-slot rule.
         /// </summary>
         internal static bool HasStashedResolvedSlot(Recording rec)
@@ -792,11 +796,57 @@ namespace Parsek
             if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex, out reason))
                 return false;
 
-            return rp?.ChildSlots != null
-                && slotListIndex >= 0
-                && slotListIndex < rp.ChildSlots.Count
-                && rp.ChildSlots[slotListIndex]?.Stashed == true
-                && rp.ChildSlots[slotListIndex]?.Sealed == false;
+            if (rp?.ChildSlots == null
+                || slotListIndex < 0
+                || slotListIndex >= rp.ChildSlots.Count)
+                return false;
+
+            var slot = rp.ChildSlots[slotListIndex];
+            // Pass rec as the candidate: when rec is itself the slot's effective
+            // tip (the common stashed-leaf case) its MergeState is read directly,
+            // so this works without rec being registered in CommittedRecordings
+            // (unit-test fixtures pass an unregistered recording).
+            return slot?.Stashed == true && IsSlotEffectiveTipOpen(slot, rec);
+        }
+
+        /// <summary>
+        /// Returns true iff the slot's effective chain+supersede tip is a
+        /// re-flyable OPEN Unfinished Flight, i.e. the tip MergeState is
+        /// <see cref="MergeState.CommittedProvisional"/>. A tip that is
+        /// <see cref="MergeState.Immutable"/> (sealed / concluded / canon),
+        /// <see cref="MergeState.NotCommitted"/> (recorder still running, not a
+        /// re-flyable row yet), or unresolved (null / orphan) returns false.
+        /// This is the UI / UF-row "show as re-flyable" predicate, derived from
+        /// the same tip MergeState that is the single open/closed source of
+        /// truth after the slot.Sealed bit was collapsed into MergeState.
+        /// NOTE the reaper's reap-eligibility rule is RELATED but not identical:
+        /// it keeps an RP alive when a tip is CommittedProvisional OR
+        /// NotCommitted (never reap a live recorder), and reaps only when every
+        /// tip is Immutable. So this predicate and the reaper agree on CP (open)
+        /// and Immutable (closed) but differ on NotCommitted by design.
+        /// </summary>
+        internal static bool IsSlotEffectiveTipOpen(ChildSlot slot)
+            => IsSlotEffectiveTipOpen(slot, null);
+
+        /// <param name="candidate">The recording being classified; when it is
+        /// itself the slot's effective tip its MergeState is read directly,
+        /// avoiding a committed-store lookup for the common case.</param>
+        internal static bool IsSlotEffectiveTipOpen(ChildSlot slot, Recording candidate)
+        {
+            if (slot == null) return false;
+            var supersedes = GetScenarioSupersedes(ParsekScenario.Instance);
+            string tipId = slot.EffectiveRecordingId(supersedes);
+            if (string.IsNullOrEmpty(tipId)) return false;
+
+            if (candidate != null
+                && string.Equals(candidate.RecordingId, tipId, StringComparison.Ordinal))
+                return candidate.MergeState == MergeState.CommittedProvisional;
+
+            // EffectiveState owns the raw committed read (allowlisted for the
+            // ERS/ELS grep gate); open/closed must see the tip's
+            // CommittedProvisional / Immutable / NotCommitted state directly.
+            Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
+            return tip != null && tip.MergeState == MergeState.CommittedProvisional;
         }
 
         private static bool StashedTerminalQualifies(TerminalState terminal)

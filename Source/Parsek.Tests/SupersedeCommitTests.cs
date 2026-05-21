@@ -439,8 +439,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -470,8 +468,9 @@ namespace Parsek.Tests
             // without auto-seal" because Landed only triggered the
             // stableTerminal path which auto-sealed only on
             // IsHardSafetyTerminal (Recovered/Docked/Boarded). Under the
-            // override, Landed/Splashed/Orbiting/SubOrbital on the
-            // player-chosen slot all seal.
+            // override, Landed/Splashed/Orbiting on the player-chosen
+            // slot all seal; SubOrbital does not (still in flight,
+            // falls through to stableLeafUnconcluded).
             const string bpId = "bp_stage";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -503,8 +502,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -549,8 +546,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -594,8 +589,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -645,8 +638,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -698,8 +689,6 @@ namespace Parsek.Tests
             // Auto-seal fires for stableTerminalFocusSlot regardless of
             // whether the player-chosen slot matched the static focus or
             // was promoted via the override.
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -716,8 +705,8 @@ namespace Parsek.Tests
         public void OrbitingFocusStableLeaf_StableTerminalFocusSlot_AutoSealsSlot()
         {
             // Static-focus orbit Re-Fly: same auto-seal trigger as the
-            // override path. Player flew the focus slot to stable orbit;
-            // slot.Sealed must be true so the row drops out of UF.
+            // override path. Player flew the focus slot to stable orbit; the
+            // slot's effective tip becomes Immutable so the row drops out of UF.
             const string bpId = "bp_stage_focus_seal";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -749,8 +738,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -799,8 +786,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -863,8 +848,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1371,8 +1354,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1424,8 +1405,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1479,8 +1458,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
             Assert.Contains(scenario.RecordingSupersedes,
@@ -1536,8 +1513,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1717,8 +1692,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1770,8 +1743,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
         }
 
         [Fact]
@@ -1812,8 +1783,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1863,8 +1832,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -1916,8 +1883,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -1977,8 +1942,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -2023,8 +1986,6 @@ namespace Parsek.Tests
             // Re-Fly target reached stable Orbiting on the static focus
             // slot: per playtest contract the slot auto-seals, closing the
             // Unfinished-Flight row and preventing further re-fly retries.
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -2111,6 +2072,48 @@ namespace Parsek.Tests
                 && l.Contains("Site B-1 slot lookup failed")
                 && l.Contains("terminal=Orbiting")
                 && l.Contains("aborting because stable-leaf classification cannot safely fall back"));
+        }
+
+        [Fact]
+        public void SubOrbitalStableLeaf_SlotLookupFailure_DoesNotThrow_FallsBackToInFlight()
+        {
+            // Sibling of OrbitingStableLeaf_SlotLookupFailure_ThrowsInsteadOfFallback.
+            // SubOrbital is no longer in RequiresSlotAwareMergeClassification's
+            // set (a suborbital arc is still in flight, not a seal-triggering
+            // stable terminal), so a SubOrbital provisional whose slot lookup
+            // fails must NOT throw. The v0.9 TerminalKindClassifier fallback
+            // routes SubOrbital to InFlight kind, which lands the merge at
+            // MergeState.Immutable with AutoSealSlot=false (slot stays open).
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.SubOrbital, supersedeTargetId: "rec_origin");
+            provisional.ParentBranchPointId = "bp_missing";
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            // Must not throw.
+            SupersedeCommit.CommitSupersede(
+                scenario.ActiveReFlySessionMarker, provisional);
+
+            // v0.9 fallback (TerminalKindClassifier.Classify(SubOrbital) ==
+            // InFlight) lands at MergeState.Immutable with AutoSealSlot=false.
+            // The Immutable here is "the recording is real", NOT "the slot
+            // sealed" - slot-aware seal state cannot be set when slot lookup
+            // failed, so the slot stays open in the rewind point.
+            Assert.Equal(MergeState.Immutable, provisional.MergeState);
+            // The v0.9 fallback path logs that slot lookup failed but did
+            // NOT throw, falling back to the v0.9 terminalKind classifier.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("Site B-1 slot lookup failed")
+                && l.Contains("falling back to v0.9 terminalKind classifier")
+                && l.Contains("terminal=SubOrbital"));
+            // No auto-seal log line for this provisional (the fallback path
+            // never sets AutoSealSlot=true; the dedicated auto-seal log lines
+            // include autoSeal=True only when the seal actually fired).
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Supersede]")
+                && l.Contains("rec_provisional")
+                && l.Contains("autoSeal=True"));
         }
 
         [Fact]
@@ -3136,7 +3139,7 @@ namespace Parsek.Tests
                     state: MergeState.Immutable, terminal: TerminalState.Destroyed);
                 rec.ExplicitStartUT = row.startUT;
                 rec.IsDebris = row.isDebris;
-                if (row.isDebris) rec.DebrisParentRecordingId = row.parent;
+                if (row.isDebris) rec.ParentAnchorRecordingId = row.parent;
                 // Pass 7: IsPreRewindCarveOut now reads bounds from
                 // TryGetActualTrajectoryBounds (sampled content only). Add
                 // a single Point at the row's startUT so the debris has
@@ -3394,9 +3397,9 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsPreRewindDebris_DebrisWithoutDebrisParentRecordingId_ReturnsFalse()
+        public void IsPreRewindDebris_DebrisWithoutParentAnchorRecordingId_ReturnsFalse()
         {
-            // Legacy v11 debris loaded without DebrisParentRecordingId has
+            // Legacy v11 debris loaded without ParentAnchorRecordingId has
             // no v12 ownership link. The closure walk's
             // EnqueueDebrisChildren refuses to admit such rows in the first
             // place, but if some other path put it in the closure, the
@@ -3412,7 +3415,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_legacy",
                 IsDebris = true,
-                // DebrisParentRecordingId intentionally null
+                // ParentAnchorRecordingId intentionally null
                 ExplicitStartUT = 10.0,
             };
             Assert.False(SupersedeCommit.IsPreRewindDebris(legacyDebris, marker));
@@ -3430,7 +3433,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_d",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_parent",
+                ParentAnchorRecordingId = "rec_parent",
                 ExplicitStartUT = 10.0,
             };
 
@@ -3585,7 +3588,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_carveout",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_carveout",
+                ParentAnchorRecordingId = "rec_origin_carveout",
                 ExplicitStartUT = 22.5, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
@@ -3924,7 +3927,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_at_boundary",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_carveout",
+                ParentAnchorRecordingId = "rec_origin_carveout",
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 34.0,  // == rewindUT
             };
@@ -3957,7 +3960,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_legacy",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_legacy",
+                ParentAnchorRecordingId = "rec_origin_legacy",
                 ExplicitStartUT = 20.0, // < 34.0 - 0.05
                 ExplicitEndUT = 28.0,
             };
@@ -3988,7 +3991,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_nomarker",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_nomarker",
+                ParentAnchorRecordingId = "rec_origin_nomarker",
                 ExplicitStartUT = 5.0,
                 ExplicitEndUT = 10.0,
             };
@@ -4091,7 +4094,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_stale_start",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_stale",
+                ParentAnchorRecordingId = "rec_origin_stale",
                 // Stale logical start (parent's branchUT). Sampled content
                 // actually starts at UT=40 — strictly post-rewind.
                 ExplicitStartUT = 8.0,
@@ -4281,7 +4284,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_debris_wrap",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec_origin_wrap",
+                ParentAnchorRecordingId = "rec_origin_wrap",
                 ExplicitStartUT = 22.0,
                 ExplicitEndUT = 28.0,
             };

@@ -270,6 +270,7 @@ namespace Parsek
                 case FundsEarningSource.Recovery:         return "Recovery";
                 case FundsEarningSource.Milestone:        return "Milestone";
                 case FundsEarningSource.LegacyMigration:  return "Legacy migration";
+                case FundsEarningSource.Strategy:         return "Strategy";
                 default:                                  return "Funds";
             }
         }
@@ -284,6 +285,7 @@ namespace Parsek
                 case FundsSpendingSource.KerbalHire:      return "Hire";
                 case FundsSpendingSource.ContractPenalty:  return "Contract penalty";
                 case FundsSpendingSource.Strategy:        return "Strategy";
+                case FundsSpendingSource.Other:           return "Part";
                 default:                                  return "Expense";
             }
         }

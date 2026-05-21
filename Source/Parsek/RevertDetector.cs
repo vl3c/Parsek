@@ -37,14 +37,14 @@ namespace Parsek
             {
                 pending = RevertKind.Launch;
                 ParsekLog.Info("RevertDetector",
-                    "GameEvents.OnRevertToLaunchFlightState fired — armed RevertKind.Launch for next OnLoad");
+                    "GameEvents.OnRevertToLaunchFlightState fired; armed RevertKind.Launch for next OnLoad");
             }
 
             public void OnRevertToPrelaunch(FlightState _)
             {
                 pending = RevertKind.Prelaunch;
                 ParsekLog.Info("RevertDetector",
-                    "GameEvents.OnRevertToPrelaunchFlightState fired — armed RevertKind.Prelaunch for next OnLoad");
+                    "GameEvents.OnRevertToPrelaunchFlightState fired; armed RevertKind.Prelaunch for next OnLoad");
             }
         }
 

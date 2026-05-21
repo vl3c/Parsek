@@ -103,13 +103,32 @@ namespace Parsek
         }
 
         public const int CurrentRecordingFormatVersion = 1;
+        // Schema generation discriminator. Bumped on every clean-slate schema
+        // reset; recordings/sidecars carrying a different generation are rejected
+        // on load (reasons "generation-older" / "generation-newer") so a loader
+        // never sees a shape it was not built for. Pre-1.0 dev: backwards
+        // compatibility is explicitly NOT a goal, so each bump deletes the
+        // tolerance seams that only existed to read the prior generation.
+        //
         // Generation 2 landed the parent-anchor contract extension to
-        // controlled-decoupled children (PR following #872 / #874). The
-        // on-disk truth table widened to admit the previously-unreachable row
-        // (IsDebris=false, DebrisParentRecordingId=non-null); pre-bump
-        // recordings are rejected with reason "generation-older" so a pre-fix
-        // loader never sees the widened shape.
-        public const int CurrentRecordingSchemaGeneration = 2;
+        // controlled-decoupled children (the on-disk truth table widened to
+        // admit the previously-unreachable row IsDebris=false,
+        // ParentAnchorRecordingId=non-null).
+        //
+        // Generation 3 is the clean-slate reset that retired the last batch of
+        // pre-reset compatibility seams: the legacy v5 world-offset RELATIVE
+        // contract, the committed-bool to MergeState migration, the Phase-F
+        // tree-resource residual seam, the legacy rewind-suppression marker
+        // normalizer, and the no-op format-version contract-upgrade helpers.
+        // Generation 2 and older recordings are rejected with reason
+        // "generation-older".
+        //
+        // Generation 4 renamed the parent-anchor ConfigNode key from
+        // "debrisParentRecordingId" to "parentAnchorRecordingId" (the
+        // DebrisParentRecordingId field renamed to ParentAnchorRecordingId).
+        // Generation 3 and older recordings carry the old key and are rejected
+        // with reason "generation-older".
+        public const int CurrentRecordingSchemaGeneration = 4;
 
         /// <summary>
         /// Top-level group name for ghost-only recordings created via the Gloops Flight Recorder.
@@ -131,16 +150,6 @@ namespace Parsek
         // v0 reset: current post-redesign private-development schema. A separate
         // RecordingSchemaGeneration discriminator rejects old internal saves that
         // also defaulted to recordingFormatVersion=0.
-
-        internal static bool UsesRelativeLocalFrameContract(int recordingFormatVersion)
-        {
-            return true;
-        }
-
-        internal static string DescribeRelativeFrameContract(int recordingFormatVersion)
-        {
-            return "anchor-local";
-        }
 
         internal static bool IsRecordingSchemaCompatible(
             int recordingFormatVersion,
@@ -180,41 +189,6 @@ namespace Parsek
         internal static bool? WriteReadableSidecarMirrorsOverrideForTesting;
         internal static Func<double> CurrentUniversalTimeForRewindRetirementOverrideForTesting;
 
-        // Rewind-to-Staging Phase 1 (design section 9): batch counter for the
-        // one-shot legacy migration log. Each RecordingTree.LoadRecordingFrom pass
-        // that promotes a legacy `committed = True/False` bool to MergeState tri-state
-        // bumps this counter; the scenario load emits a single Info line with the total.
-        internal static int LegacyMergeStateMigrationCount;
-        // Flag: one-shot log has been emitted for the current session. Flipped on first
-        // emission; reset by ResetForTesting and by EmitLegacyMergeStateMigrationLogOnce.
-        private static bool legacyMergeStateMigrationLogEmitted;
-
-        internal static void BumpLegacyMergeStateMigrationCounterForTesting()
-        {
-            LegacyMergeStateMigrationCount++;
-        }
-
-        /// <summary>
-        /// Emits the one-shot <c>[Recording] Legacy migration:</c> Info log summarising
-        /// how many recordings were promoted from the binary <c>committed</c> bool to
-        /// the <see cref="Parsek.MergeState"/> tri-state this session. Idempotent: a
-        /// second call is a no-op. Counter is NOT reset so repeated loads within a
-        /// session (e.g. tests asserting idempotence) do not double-count.
-        /// </summary>
-        internal static void EmitLegacyMergeStateMigrationLogOnce()
-        {
-            if (legacyMergeStateMigrationLogEmitted) return;
-            if (LegacyMergeStateMigrationCount <= 0) return;
-            ParsekLog.Info("Recording",
-                $"Legacy migration: {LegacyMergeStateMigrationCount} recordings mapped from committed-bool to MergeState tri-state");
-            legacyMergeStateMigrationLogEmitted = true;
-        }
-
-        internal static void ResetLegacyMergeStateMigrationForTesting()
-        {
-            LegacyMergeStateMigrationCount = 0;
-            legacyMergeStateMigrationLogEmitted = false;
-        }
         // PID of the active vessel at scene entry. Used by SpawnVesselOrChainTip to
         // bypass PID dedup statelessly — if a recording's VesselPersistentId matches
         // this, the existing real vessel is the player's reverted/active vessel, not
@@ -961,6 +935,25 @@ namespace Parsek
         {
             if (tree == null) return;
 
+            // First-commit guard data (collapse-seal-into-mergestate plan §4.1):
+            // snapshot recording ids already committed AS PART OF A TREE, taken at
+            // the LITERAL TOP of CommitTree, BEFORE the union/replace path
+            // (TryUnionActiveReFlyTreeIntoCommitted mutates committedTrees[i].Recordings)
+            // and BEFORE FinalizeTreeCommit swaps. ApplyRewindProvisionalMergeStates
+            // uses this (plus supersede-fork identity) so it never re-derives an
+            // already-concluded recording's MergeState. Keyed on committed-TREE
+            // membership, NOT the flat committedRecordings list (which is polluted
+            // mid-flight by CommitRecordingDirect).
+            var alreadyCommittedRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int ci = 0; ci < committedTrees.Count; ci++)
+            {
+                var ctSnapshot = committedTrees[ci];
+                if (ctSnapshot?.Recordings == null) continue;
+                foreach (var committedId in ctSnapshot.Recordings.Keys)
+                    if (!string.IsNullOrEmpty(committedId))
+                        alreadyCommittedRecordingIds.Add(committedId);
+            }
+
             int replaceCommittedTreeIndex = -1;
             for (int i = 0; i < committedTrees.Count; i++)
             {
@@ -1053,7 +1046,7 @@ namespace Parsek
             }
 
             ApplySessionMergeToRecordings(tree);
-            ApplyRewindProvisionalMergeStates(tree);
+            ApplyRewindProvisionalMergeStates(tree, alreadyCommittedRecordingIds);
             PromoteNormalStagingRewindPoints(tree);
             AutoGroupTreeRecordings(tree);
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
@@ -1100,14 +1093,65 @@ namespace Parsek
         /// Legacy/default recordings are born Immutable, so stamp that precise
         /// shape during the normal tree commit path.
         /// </summary>
-        private static void ApplyRewindProvisionalMergeStates(RecordingTree tree)
+        /// <summary>
+        /// Test seam: re-runs the slot-driven MergeState promotion + clobber
+        /// guard (collapse-seal-into-mergestate) against the already-committed
+        /// trees, exactly as a later CommitTree would. Builds the committed-TREE
+        /// membership snapshot from the current committed trees so the
+        /// first-commit guard treats already-committed recordings as concluded.
+        /// </summary>
+        internal static void ApplyRewindProvisionalMergeStatesForTesting(RecordingTree tree)
+        {
+            var snapshot = new HashSet<string>(StringComparer.Ordinal);
+            for (int ci = 0; ci < committedTrees.Count; ci++)
+            {
+                var ct = committedTrees[ci];
+                if (ct?.Recordings == null) continue;
+                foreach (var id in ct.Recordings.Keys)
+                    if (!string.IsNullOrEmpty(id))
+                        snapshot.Add(id);
+            }
+            ApplyRewindProvisionalMergeStates(tree, snapshot);
+        }
+
+        private static void ApplyRewindProvisionalMergeStates(
+            RecordingTree tree, HashSet<string> alreadyCommittedRecordingIds)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return;
             if (tree.BranchPoints == null || tree.BranchPoints.Count == 0)
                 return;
 
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario) && scenario.RecordingSupersedes != null
+                    ? scenario.RecordingSupersedes
+                    : (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+
+            // Supersede forks (NewRecordingId) get their MergeState authoritatively from
+            // SupersedeCommit, never from promotion (plan §4.1). Skipping them also covers
+            // non-in-place forks that never enter a committed tree.
+            var supersedeForkIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int r = 0; r < supersedes.Count; r++)
+            {
+                string forkId = supersedes[r]?.NewRecordingId;
+                if (!string.IsNullOrEmpty(forkId)) supersedeForkIds.Add(forkId);
+            }
+
+            // First-commit guard: a recording is "already concluded as canon" (its
+            // MergeState must NOT be re-derived) if it was already committed as part of a
+            // tree, or it is a supersede fork. Open-UF tips committed mid-flight via
+            // CommitRecordingDirect are in neither set on their tree's first commit, so
+            // they ARE demoted here.
+            var committedSnapshot = alreadyCommittedRecordingIds
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            Func<string, bool> isFirstCommit = id =>
+                !string.IsNullOrEmpty(id)
+                && !committedSnapshot.Contains(id)
+                && !supersedeForkIds.Contains(id);
+
             int promoted = 0;
+            int tipsPromoted = 0;
             int autoSealed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
@@ -1134,7 +1178,7 @@ namespace Parsek
                 var slot = rp.ChildSlots[slotListIndex];
                 string qualifyReason;
                 if (!UnfinishedFlightClassifier.TryQualify(
-                        rec, slot, rp, true, out qualifyReason, tree))
+                        rec, slot, rp, out qualifyReason, tree))
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
                         $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
@@ -1152,17 +1196,52 @@ namespace Parsek
                     }
                 }
 
-                rec.MergeState = MergeState.CommittedProvisional;
-                rec.FilesDirty = true;
-                promoted++;
-                ParsekLog.Info("UnfinishedFlights",
-                    $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
-                    $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
-                    $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
-                    $"to CommittedProvisional");
+                // Demote the qualifying HEAD on first commit. The first-commit guard
+                // keeps a manually-sealed HEAD==tip (Immutable) from being re-opened on a
+                // later re-commit (plan §4.1).
+                if (isFirstCommit(rec.RecordingId))
+                {
+                    rec.MergeState = MergeState.CommittedProvisional;
+                    rec.FilesDirty = true;
+                    promoted++;
+                    ParsekLog.Info("UnfinishedFlights",
+                        $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
+                        $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                        $"to CommittedProvisional");
+                }
+                else
+                {
+                    ParsekLog.Verbose("UnfinishedFlights",
+                        $"CommitTree: rec={rec.RecordingId ?? "<no-id>"} already committed/fork — " +
+                        $"not re-deriving MergeState (slot={slotListIndex} rp={rp.RewindPointId ?? "<no-rp>"})");
+                }
+
+                // Reach the slot's effective chain TIP. A continuation crash tip is born
+                // Immutable and may not itself resolve to the RP (no branch link), so the
+                // HEAD-driven demotion above misses it; the reaper's legacy
+                // Immutable-qualifies workaround currently compensates. Demote the tip so
+                // open/closed can be read directly from MergeState (plan §4.2). Tips are
+                // disjoint across slots, so this cannot cross-close another slot.
+                string tipId = slot.EffectiveRecordingId(supersedes);
+                if (!string.IsNullOrEmpty(tipId)
+                    && !string.Equals(tipId, rec.RecordingId, StringComparison.Ordinal)
+                    && tree.Recordings.TryGetValue(tipId, out var tipRec)
+                    && tipRec != null
+                    && tipRec.MergeState == MergeState.Immutable
+                    && isFirstCommit(tipId))
+                {
+                    tipRec.MergeState = MergeState.CommittedProvisional;
+                    tipRec.FilesDirty = true;
+                    tipsPromoted++;
+                    ParsekLog.Info("UnfinishedFlights",
+                        $"CommitTree promoted chain-tip rec={tipId} (head={rec.RecordingId ?? "<no-id>"}) " +
+                        $"slot={slotListIndex} rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                        $"to CommittedProvisional");
+                }
             }
 
-            if (promoted > 0 || autoSealed > 0)
+            if (promoted > 0 || tipsPromoted > 0 || autoSealed > 0)
                 BumpStateVersion();
         }
 
@@ -1191,7 +1270,7 @@ namespace Parsek
             RecordingTree tree,
             string qualifyReason)
         {
-            if (slot == null || slot.Sealed)
+            if (slot == null)
                 return false;
 
             Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
@@ -1199,20 +1278,18 @@ namespace Parsek
                 ? tip.TerminalStateValue.Value.ToString()
                 : "<none>";
 
-            slot.Sealed = true;
-            slot.SealedRealTime =
-                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-
-            // CommitTree is already inside the merge/save lifecycle. Unlike the
-            // manual Seal button, do not force a persistent save or RP reap here.
-            var scenario = ParsekScenario.Instance;
-            if (!object.ReferenceEquals(null, scenario))
-                scenario.BumpSupersedeStateVersion();
-
+            // A stable-EVA conclusion is closed by leaving the slot's effective
+            // tip Immutable (its born state). Open/closed is read from the tip
+            // MergeState (the single source of truth), so closing the slot
+            // means NOT demoting the first-commit tip to CommittedProvisional.
+            // The caller skips the CP demotion when this returns true. No slot
+            // bit and no state-version bump are needed: the tip never changes
+            // state, so no consumer's cached open/closed view goes stale.
             ParsekLog.Info("UnfinishedFlights",
                 $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
                 $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
-                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason}");
+                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason} " +
+                $"(tip left Immutable = concluded)");
             return true;
         }
 
@@ -3498,6 +3575,34 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns the index in <c>committedRecordings</c> of the immediate chain predecessor of
+        /// <paramref name="rec"/> on branch 0 (the recording with the same ChainId, ChainBranch=0,
+        /// and ChainIndex = rec.ChainIndex - 1), or -1 if no such predecessor exists, if rec is
+        /// not on branch 0, if rec is a chain head (ChainIndex &lt;= 0), or if rec is not part of a
+        /// chain at all. Used by the playback flag builder to detect chain-seam first-spawns
+        /// (see <c>TrajectoryPlaybackFlags.isChainSeamSuccessor</c>).
+        /// </summary>
+        internal static int GetChainPredecessorIndex(Recording rec)
+        {
+            if (rec == null) return -1;
+            if (string.IsNullOrEmpty(rec.ChainId)) return -1;
+            if (rec.ChainBranch != 0) return -1;
+            if (rec.ChainIndex <= 0) return -1;
+            int expectedPredecessorIndex = rec.ChainIndex - 1;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var other = committedRecordings[i];
+                if (other.ChainId == rec.ChainId
+                    && other.ChainBranch == 0
+                    && other.ChainIndex == expectedPredecessorIndex)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// Returns the EndUT of the last segment in this recording's chain.
         /// Returns rec.EndUT if the recording is not part of a chain.
         /// </summary>
@@ -4313,72 +4418,20 @@ namespace Parsek
                 var splitCandidates = RecordingOptimizer.FindSplitCandidatesForOptimizer(recordings);
                 if (splitCandidates.Count == 0) break;
 
-                int chosen = -1;
-                int deferredCandidatesThisIter = 0;
-                if (string.IsNullOrEmpty(deferredActiveReFlyId))
-                {
-                    chosen = 0;
-                }
-                else
-                {
-                    for (int c = 0; c < splitCandidates.Count; c++)
-                    {
-                        int candIdx = splitCandidates[c].Item1;
-                        if (candIdx < 0 || candIdx >= recordings.Count)
-                            continue;
-                        var candRec = recordings[candIdx];
-                        if (candRec != null
-                            && string.Equals(
-                                candRec.RecordingId,
-                                deferredActiveReFlyId,
-                                StringComparison.Ordinal))
-                        {
-                            deferredCandidatesThisIter++;
-                            continue;
-                        }
-                        chosen = c;
-                        break;
-                    }
-                }
+                int chosen = ChooseSplitCandidateIndex(
+                    splitCandidates, recordings, deferredActiveReFlyId,
+                    out int deferredCandidatesThisIter);
 
-                if (chosen < 0)
-                {
-                    deferredCandidatesObservedTotal += deferredCandidatesThisIter;
-                    break;
-                }
                 deferredCandidatesObservedTotal += deferredCandidatesThisIter;
+                if (chosen < 0)
+                    break;
 
                 var (recIdx, secIdx) = splitCandidates[chosen];
                 var original = recordings[recIdx];
 
                 var second = RecordingOptimizer.SplitAtSection(original, secIdx);
 
-                // Assign identity
-                second.RecordingId = Guid.NewGuid().ToString("N");
-                if (string.IsNullOrEmpty(original.ChainId))
-                    original.ChainId = Guid.NewGuid().ToString("N");
-                second.ChainId = original.ChainId;
-                second.TreeId = original.TreeId;
-                second.VesselName = original.VesselName;
-                second.VesselPersistentId = original.VesselPersistentId;
-                second.PreLaunchFunds = original.PreLaunchFunds;
-                second.PreLaunchScience = original.PreLaunchScience;
-                second.PreLaunchReputation = original.PreLaunchReputation;
-                second.RecordingGroups = original.RecordingGroups != null
-                    ? new List<string>(original.RecordingGroups) : null;
-                second.CreatingSessionId = original.CreatingSessionId;
-                second.ProvisionalForRpId = original.ProvisionalForRpId;
-                // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
-                // Safe here because the optimizer auto-split only runs on
-                // already-committed recordings where original.SupersedeTargetId
-                // is null (the field is transient on NotCommitted provisionals
-                // only). If a future change ever calls the optimizer on a
-                // NotCommitted provisional, this inheritance would silently
-                // carry a phantom id onto `second` until LoadTimeSweep scrubs
-                // it on next load — null it explicitly in that case (mirror
-                // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
-                second.SupersedeTargetId = original.SupersedeTargetId;
-                second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+                CopySplitIdentityFields(original, second);
 
                 // Derive SegmentBodyName from trajectory points
                 if (original.Points != null && original.Points.Count > 0)
@@ -4419,35 +4472,9 @@ namespace Parsek
                 // Update BranchPoint.ParentRecordingIds when ChildBranchPointId moves to new half
                 if (!string.IsNullOrEmpty(movedChildBranchPointId) && !string.IsNullOrEmpty(original.TreeId))
                 {
-                    for (int t = 0; t < committedTrees.Count; t++)
-                    {
-                        if (committedTrees[t].Id != original.TreeId) continue;
-                        var tree = committedTrees[t];
-                        if (tree.BranchPoints != null)
-                        {
-                            for (int b = 0; b < tree.BranchPoints.Count; b++)
-                            {
-                                if (tree.BranchPoints[b].Id == movedChildBranchPointId
-                                    && tree.BranchPoints[b].ParentRecordingIds != null)
-                                {
-                                    var parentIds = tree.BranchPoints[b].ParentRecordingIds;
-                                    for (int p = 0; p < parentIds.Count; p++)
-                                    {
-                                        if (parentIds[p] == original.RecordingId)
-                                        {
-                                            parentIds[p] = second.RecordingId;
-                                            ParsekLog.Verbose("RecordingStore",
-                                                $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
-                                                $"ParentRecordingIds: {original.RecordingId} → {second.RecordingId}");
-                                            break;
-                                        }
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                        break;
-                    }
+                    RetargetMovedBranchPointParent(
+                        original.TreeId, movedChildBranchPointId,
+                        original.RecordingId, second.RecordingId);
                 }
 
                 // Add to committed recordings (after original)
@@ -4496,6 +4523,126 @@ namespace Parsek
             }
 
             return splitCount;
+        }
+
+        /// <summary>
+        /// Picks the split candidate to apply this iteration. With no live Re-Fly defer id,
+        /// the first candidate (index 0) is chosen. Otherwise walks the candidate list,
+        /// skipping any whose recording id equals the deferred Re-Fly id (counting them in
+        /// <paramref name="deferredObserved"/>), and returns the first non-deferred candidate's
+        /// index. Returns -1 when every remaining candidate is deferred. Pure read over the
+        /// inputs.
+        /// </summary>
+        internal static int ChooseSplitCandidateIndex(
+            IReadOnlyList<(int, int)> splitCandidates,
+            IReadOnlyList<Recording> recordings,
+            string deferredActiveReFlyId,
+            out int deferredObserved)
+        {
+            deferredObserved = 0;
+            if (string.IsNullOrEmpty(deferredActiveReFlyId))
+            {
+                return 0;
+            }
+
+            for (int c = 0; c < splitCandidates.Count; c++)
+            {
+                int candIdx = splitCandidates[c].Item1;
+                if (candIdx < 0 || candIdx >= recordings.Count)
+                    continue;
+                var candRec = recordings[candIdx];
+                if (candRec != null
+                    && string.Equals(
+                        candRec.RecordingId,
+                        deferredActiveReFlyId,
+                        StringComparison.Ordinal))
+                {
+                    deferredObserved++;
+                    continue;
+                }
+                return c;
+            }
+
+            return -1;
+        }
+
+        /// <summary>
+        /// Copies the identity / lineage fields from the original recording onto the
+        /// second half produced by an optimizer split (assigns a fresh RecordingId,
+        /// deep-copies RecordingGroups, and carries over chain / tree / vessel / pre-launch
+        /// / session / supersede / switch-segment fields). Straight-line field copy.
+        /// </summary>
+        private static void CopySplitIdentityFields(Recording original, Recording second)
+        {
+            // Assign identity
+            second.RecordingId = Guid.NewGuid().ToString("N");
+            if (string.IsNullOrEmpty(original.ChainId))
+                original.ChainId = Guid.NewGuid().ToString("N");
+            second.ChainId = original.ChainId;
+            second.TreeId = original.TreeId;
+            second.VesselName = original.VesselName;
+            second.VesselPersistentId = original.VesselPersistentId;
+            second.PreLaunchFunds = original.PreLaunchFunds;
+            second.PreLaunchScience = original.PreLaunchScience;
+            second.PreLaunchReputation = original.PreLaunchReputation;
+            second.RecordingGroups = original.RecordingGroups != null
+                ? new List<string>(original.RecordingGroups) : null;
+            second.CreatingSessionId = original.CreatingSessionId;
+            second.ProvisionalForRpId = original.ProvisionalForRpId;
+            // NOTE: same pattern as RecordingTreeSplitter Pass 6 M3 fix.
+            // Safe here because the optimizer auto-split only runs on
+            // already-committed recordings where original.SupersedeTargetId
+            // is null (the field is transient on NotCommitted provisionals
+            // only). If a future change ever calls the optimizer on a
+            // NotCommitted provisional, this inheritance would silently
+            // carry a phantom id onto `second` until LoadTimeSweep scrubs
+            // it on next load — null it explicitly in that case (mirror
+            // RecordingTreeSplitter.cs's `tip.SupersedeTargetId = null;`).
+            second.SupersedeTargetId = original.SupersedeTargetId;
+            second.SwitchSegmentSessionId = original.SwitchSegmentSessionId;
+        }
+
+        /// <summary>
+        /// Retargets the moved child BranchPoint's ParentRecordingIds entry from the original
+        /// recording id to the second-half recording id after an optimizer split moved the
+        /// branch point to the second half. Mutates the matching committed tree's branch point.
+        /// Caller gates entry on a non-empty moved branch-point id and tree id.
+        /// </summary>
+        private static void RetargetMovedBranchPointParent(
+            string treeId,
+            string movedChildBranchPointId,
+            string oldRecordingId,
+            string newRecordingId)
+        {
+            for (int t = 0; t < committedTrees.Count; t++)
+            {
+                if (committedTrees[t].Id != treeId) continue;
+                var tree = committedTrees[t];
+                if (tree.BranchPoints != null)
+                {
+                    for (int b = 0; b < tree.BranchPoints.Count; b++)
+                    {
+                        if (tree.BranchPoints[b].Id == movedChildBranchPointId
+                            && tree.BranchPoints[b].ParentRecordingIds != null)
+                        {
+                            var parentIds = tree.BranchPoints[b].ParentRecordingIds;
+                            for (int p = 0; p < parentIds.Count; p++)
+                            {
+                                if (parentIds[p] == oldRecordingId)
+                                {
+                                    parentIds[p] = newRecordingId;
+                                    ParsekLog.Verbose("RecordingStore",
+                                        $"Split: updated BranchPoint '{movedChildBranchPointId}' " +
+                                        $"ParentRecordingIds: {oldRecordingId} → {newRecordingId}");
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
         }
 
         internal static bool ShouldMoveChildBranchPointToSplitSecondHalf(
@@ -5093,7 +5240,6 @@ namespace Parsek
             suppressNextTreeSceneExitCommitReason = null;
             suppressNextActiveTreeRestore = false;
             suppressNextActiveTreeRestoreReason = null;
-            ResetLegacyMergeStateMigrationForTesting();
         }
 
         /// <summary>
@@ -6094,8 +6240,13 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
+            // Cascade overload: a parent-anchored debris child whose parent
+            // was retired must also refuse fast-forward; without this, the
+            // child stays interactive in the recordings table even though
+            // its trajectory belongs to a retired re-fly fork.
             if (EffectiveState.IsRewindRetired(
                     rec,
+                    CommittedRecordings,
                     object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements))
             {
                 reason = "Recording was rewound out of the active timeline";
@@ -6273,8 +6424,9 @@ namespace Parsek
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {owner.StartUT} " +
-                    $"(save: {owner.RewindSaveFileName})");
+                    $"Rewind-to-Launch initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName}). Plain launch rewind via parsek_rw_* quicksave; " +
+                    $"this is NOT a Re-Fly (no RewindPoint / ReFlySessionMarker / MergeJournal)");
         }
 
         /// <summary>
@@ -7572,19 +7724,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Phase 5 P1-A overload: forward a tree-local load set to the
-        /// per-trace co-bubble peer validator so same-tree peers being
-        /// hydrated in the same OnLoad pass are visible BEFORE they land
-        /// in <see cref="CommittedRecordings"/>.
-        /// </summary>
-        internal static bool LoadRecordingFiles(
-            Recording rec,
-            IReadOnlyDictionary<string, Recording> treeLocalLoadSet)
-        {
-            return RecordingSidecarStore.LoadRecordingFiles(rec, treeLocalLoadSet);
-        }
-
-        /// <summary>
         /// Bug #270: Returns true if the sidecar file's epoch doesn't match the
         /// recording's expected epoch (loaded from .sfs). When true, the caller
         /// should skip trajectory deserialization — the .prec is from a different
@@ -7874,6 +8013,23 @@ namespace Parsek
         internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
         {
             return RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+        }
+
+        /// <summary>
+        /// Re-hydrates a recording's vessel snapshot from its <c>_vessel.craft</c>
+        /// sidecar when the transient in-memory copy was dropped. Used by the
+        /// terminal-spawn path so a spawnable leaf (e.g. an orbital payload) can
+        /// still materialize after its snapshot was nulled in-session. No-op when
+        /// already loaded; quiet when the sidecar is absent or unresolvable.
+        /// </summary>
+        internal static bool TryHydrateVesselSnapshotFromSidecar(Recording rec)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
+        }
+
+        internal static bool TryHydrateVesselSnapshotFromPath(Recording rec, string vesselPath)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, vesselPath);
         }
 
         #endregion

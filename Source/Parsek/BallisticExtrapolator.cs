@@ -604,6 +604,78 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Detects a captured patched-conic tail that re-enters an atmospheric
+        /// body. KSP's patched-conic chain for an off-scene / on-rails vessel
+        /// carries no atmosphere or IMPACT transition, so a sub-orbital arc whose
+        /// periapsis sits below the atmosphere top is snapshotted as a CLOSED
+        /// ellipse that runs underground. This finds the first segment whose
+        /// periapsis is below the atmosphere top and returns the UT of its
+        /// descending crossing of the atmosphere boundary (or the segment start,
+        /// when the segment already begins inside the atmosphere), so the caller
+        /// can clip the predicted segments there and hand the atmospheric descent
+        /// to the ballistic extrapolator (which terminates at the real terrain
+        /// impact).
+        /// Airless bodies are intentionally skipped: their patched-conic chain
+        /// ends at an IMPACT patch and is handled by the solver-impact
+        /// short-circuit, so they never leak a closed sub-surface ellipse here.
+        /// Genuine coasts (periapsis above the atmosphere) return false.
+        /// </summary>
+        internal static bool TryFindAtmosphericReentryClip(
+            IReadOnlyList<OrbitSegment> segments,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            out int clipSegmentIndex,
+            out double atmosphereEntryUT)
+        {
+            clipSegmentIndex = -1;
+            atmosphereEntryUT = double.NaN;
+            if (segments == null || segments.Count == 0 || bodies == null)
+                return false;
+
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment segment = segments[i];
+                if (string.IsNullOrEmpty(segment.bodyName)
+                    || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
+                    || body == null
+                    || !body.HasAtmosphere)
+                    continue;
+
+                double boundaryRadius = body.Radius + body.AtmosphereDepth;
+                double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+                if (double.IsNaN(periapsisRadius)
+                    || double.IsInfinity(periapsisRadius)
+                    || periapsisRadius >= boundaryRadius)
+                    continue;
+
+                if (!TwoBodyOrbit.TryCreateFromSegment(segment, body.GravitationalParameter, out TwoBodyOrbit orbit))
+                    continue;
+
+                // The segment may already begin at or below the atmosphere boundary
+                // (KSP can capture a patch that starts on the descending arc rather
+                // than at apoapsis). The whole segment is then a re-entry: clip at
+                // its start so the ballistic extrapolator takes the descent from
+                // there. Otherwise clip at the in-segment descending crossing.
+                double startRadius = Magnitude(orbit.GetPositionAtUT(segment.startUT));
+                if (startRadius <= boundaryRadius + OrbitEpsilon)
+                {
+                    clipSegmentIndex = i;
+                    atmosphereEntryUT = segment.startUT;
+                    return true;
+                }
+
+                if (TryFindDescendingRadiusCrossingUT(
+                        orbit, segment.startUT, segment.endUT, boundaryRadius, out double crossingUT))
+                {
+                    clipSegmentIndex = i;
+                    atmosphereEntryUT = crossingUT;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static OrbitSegment CreateSegment(
             TwoBodyOrbit orbit,
             string bodyName,

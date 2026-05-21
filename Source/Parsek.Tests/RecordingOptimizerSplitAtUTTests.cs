@@ -952,7 +952,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-bf-undermin",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec",
+                ParentAnchorRecordingId = "parent-rec",
             };
             rec.Points.Add(PointAt(8.0));
             rec.Points.Add(PointAt(53.0));

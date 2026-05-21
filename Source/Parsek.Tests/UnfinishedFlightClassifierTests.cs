@@ -47,9 +47,12 @@ namespace Parsek.Tests
         {
             const string treeId = "tree_kerbal_x";
             const string bpId = "bp_probe_split";
+            // Both slots are OPEN crashed Unfinished Flights, so their effective
+            // tips are CommittedProvisional (post-promotion). Open/closed is
+            // read from the tip MergeState after collapse-seal-into-mergestate.
             var parent = Rec(
                 "rec_parent",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed);
             var child = Rec(
                 "rec_probe",
@@ -79,7 +82,6 @@ namespace Parsek.Tests
                 parent,
                 rp.ChildSlots[parentSlot],
                 rp,
-                considerSealed: true,
                 out string parentReason));
             Assert.Equal("crashed", parentReason);
             Assert.Contains(logLines, l =>
@@ -123,7 +125,6 @@ namespace Parsek.Tests
                 parent,
                 branchRp.ChildSlots[slotListIndex],
                 branchRp,
-                considerSealed: true,
                 out string reason));
             Assert.Equal("crashed", reason);
             Assert.Contains(logLines, l =>
@@ -167,7 +168,6 @@ namespace Parsek.Tests
                 probe,
                 rp.ChildSlots[probeSlot],
                 rp,
-                considerSealed: false,
                 out string baselineReason));
             Assert.Equal("stableLeafUnconcluded", baselineReason);
 
@@ -180,7 +180,6 @@ namespace Parsek.Tests
                 probe,
                 rp.ChildSlots[probeSlot],
                 rp,
-                considerSealed: false,
                 out string overrideReason,
                 treeContext: null,
                 allowNotCommitted: false,
@@ -226,12 +225,104 @@ namespace Parsek.Tests
                 focus,
                 rp.ChildSlots[focusSlot],
                 rp,
-                considerSealed: false,
                 out string staticReason,
                 treeContext: null,
                 allowNotCommitted: false,
                 focusSlotOverride: focusSlot));
             Assert.Equal("stableTerminalFocusSlot", staticReason);
+        }
+
+        [Fact]
+        public void SubOrbitalNonFocusSlot_WithFocusOverride_FallsThroughToStableLeafUnconcluded()
+        {
+            // A suborbital arc is "still in flight" under the new seal
+            // contract (the vessel will crash, land, splash, or with a burn
+            // reach orbit). The Re-Fly merge focus override therefore must
+            // NOT seal on SubOrbital - it falls through to the
+            // stableLeafUnconcluded branch and keeps the slot open. Contrast
+            // with OrbitingNonFocusSlot_WithFocusOverride_ReturnsStableTerminalFocusSlot
+            // above, where Orbiting on the same shape DOES seal.
+            const string treeId = "tree_suborbital_probe";
+            const string bpId = "bp_suborbital_split";
+            var probe = Rec(
+                "rec_suborbital_probe",
+                MergeState.CommittedProvisional,
+                TerminalState.SubOrbital,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, probe);
+            var rp = RpWithFocus("rp_suborbital_split", bpId, 0, "rec_parent", "rec_suborbital_probe");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                probe, out RewindPoint probeRp, out int probeSlot));
+            Assert.Same(rp, probeRp);
+            Assert.Equal(1, probeSlot);
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                probe,
+                rp.ChildSlots[probeSlot],
+                rp,
+                out string overrideReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: probeSlot));
+            Assert.Equal("stableLeafUnconcluded", overrideReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_suborbital_probe")
+                && l.Contains("reason=stableLeafUnconcluded")
+                && l.Contains("terminal=SubOrbital"));
+        }
+
+        [Fact]
+        public void SubOrbitalFocusSlot_StaticFocusPath_FallsThroughToStableLeafUnconcluded()
+        {
+            // Mirror of OrbitingFocusSlot_StaticFocusPathUnchangedByOverride
+            // but flipped: SubOrbital + slot == rp.FocusSlotIndex no longer
+            // returns stableTerminalFocusSlot (slot stays open). The
+            // Re-Fly override also does not fire for SubOrbital, so neither
+            // path can seal the slot on the focus index. The natural-merge
+            // (non-override) call also lands here.
+            const string treeId = "tree_focus_suborbital";
+            const string bpId = "bp_focus_suborbital_split";
+            var focus = Rec(
+                "rec_focus_suborbital",
+                MergeState.CommittedProvisional,
+                TerminalState.SubOrbital,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, focus);
+            var rp = RpWithFocus("rp_focus_suborbital_split", bpId, 0, "rec_focus_suborbital", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(UnfinishedFlightClassifier.TryResolveRewindPointForRecording(
+                focus, out RewindPoint focusRp, out int focusSlot));
+            Assert.Same(rp, focusRp);
+            Assert.Equal(0, focusSlot);
+
+            // Without the override (natural-merge / non-Re-Fly call).
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                focus,
+                rp.ChildSlots[focusSlot],
+                rp,
+                out string naturalReason));
+            Assert.Equal("stableLeafUnconcluded", naturalReason);
+
+            // With the override (Re-Fly call site).
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                focus,
+                rp.ChildSlots[focusSlot],
+                rp,
+                out string overrideReason,
+                treeContext: null,
+                allowNotCommitted: false,
+                focusSlotOverride: focusSlot));
+            Assert.Equal("stableLeafUnconcluded", overrideReason);
         }
 
         [Fact]
@@ -276,12 +367,14 @@ namespace Parsek.Tests
             // chosen slot. Pinned so a regression here would be caught
             // before RewindPointReaperTests' more elaborate fixture trips.
             Assert.True(UnfinishedFlightClassifier.Qualifies(
-                head, rp.ChildSlots[0], rp, considerSealed: true));
+                head, rp.ChildSlots[0], rp));
             Assert.True(UnfinishedFlightClassifier.Qualifies(
-                tip, rp.ChildSlots[0], rp, considerSealed: true));
+                tip, rp.ChildSlots[0], rp));
 
-            // Consumer-facing predicate suppresses the chain continuation.
-            // Head admits; tip is filtered with reason=chainContinuation.
+            // Consumer-facing predicate suppresses the chain continuation:
+            // both members resolve to slot 0, slot.Origin is "rec_head" so
+            // HEAD is the anchor and TIP suppresses with
+            // reason=slotPeerAnchored.
             ParsekLog.ResetRateLimitsForTesting();
             logLines.Clear();
             Assert.True(EffectiveState.IsUnfinishedFlight(head));
@@ -289,9 +382,9 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_tip")
-                && l.Contains("reason=chainContinuation")
-                && l.Contains("chainBranch=0")
-                && l.Contains("headRec=rec_head"));
+                && l.Contains("reason=slotPeerAnchored")
+                && l.Contains("slotOrigin=rec_head")
+                && l.Contains("anchorRec=rec_head"));
 
             // The STASH UI group falls out of the predicate, so it lists
             // one row per logical flight without doing its own dedupe.
@@ -304,7 +397,7 @@ namespace Parsek.Tests
         public void OptimizerSplitChainContinuation_MultiSegmentChainCollapsesToHead()
         {
             // Three-member chain (Atmospheric -> ExoBallistic -> ...) —
-            // confirms only the lowest-ChainIndex member surfaces, not a
+            // confirms only the slot-anchor (HEAD) surfaces, not a
             // mid-chain segment that happens to be enumerated first.
             const string treeId = "tree_multi";
             const string bpId = "bp_multi_anchor";
@@ -339,13 +432,11 @@ namespace Parsek.Tests
         {
             // Asymmetric chain shape: the chain HEAD is the launch-row
             // (no parent/child BP linkage, no BP match), and only the
-            // chain TIP carries the BP-linked qualifier. Pre-fix this
-            // shape worked because the dedupe didn't exist; the new
-            // dedupe must NOT suppress the TIP here -- the HEAD doesn't
-            // pass Raw, so the "lower-index peer also qualifies" gate
-            // fails and the TIP correctly surfaces. Pinned alongside the
-            // optimizer-split tests so the asymmetry is documented in
-            // one place.
+            // chain TIP carries the BP-linked qualifier. slot.Origin is
+            // the TIP recording, so TIP is the anchor and surfaces. The
+            // HEAD doesn't pass Raw at all (no slot match), so the
+            // dedupe never runs for it. Pinned alongside the optimizer-
+            // split tests so the asymmetry is documented in one place.
             const string treeId = "tree_launch_chain";
             const string bpId = "bp_launch_split";
             const string chainId = "chain_launch";
@@ -379,7 +470,7 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("rec=rec_launch_tip")
-                && l.Contains("reason=chainContinuation"));
+                && l.Contains("reason=slotPeerAnchored"));
 
             var members = UnfinishedFlightsGroup.ComputeMembers();
             Assert.Single(members);
@@ -387,11 +478,177 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SupersedeTargetWithoutChainId_SuppressedByVisibleLaunchOriginAnchor()
+        {
+            // Reproduces the bug from logs/2026-05-19_2055_pr901-stash-organization:
+            // a re-fly merge supersedes a chain continuation member (a mid-
+            // chain TIP) and writes a new recording with empty ChainId.
+            // The slot resolution walker (ResolveRewindPointSlotIndexForRecording)
+            // hops chain-then-supersede, so the new recording resolves to the
+            // same slot as the visible chain HEAD. Without slot-anchor
+            // dedupe, both pass IsUnfinishedFlight and STASH renders two
+            // "Kerbal X" rows. The slot's OriginChildRecordingId is the
+            // launch row (HEAD), which is itself ERS-visible, so HEAD is
+            // the anchor and the empty-ChainId supersede target suppresses
+            // with reason=slotPeerAnchored.
+            const string treeId = "tree_refly_chain_tip";
+            const string bpId = "bp_refly";
+            const string chainId = "chain_kerbal_x";
+
+            // Launch row: chainIndex 0, visible, slot.Origin.
+            var launchHead = Rec(
+                "rec_launch_head",
+                MergeState.CommittedProvisional,
+                TerminalState.SubOrbital);
+            launchHead.ChainId = chainId;
+            launchHead.ChainIndex = 0;
+
+            // Chain continuation tip: chainIndex 1. Will be superseded.
+            var chainTip = Rec(
+                "rec_chain_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            chainTip.ChainId = chainId;
+            chainTip.ChainIndex = 1;
+
+            // Re-fly supersede target: no ChainId, BP-linked to the rewind
+            // point. ResolveRewindPointSlotIndexForRecording hops
+            // chain → tip → supersede to map this to slot 0.
+            var supersedeTarget = Rec(
+                "rec_refly_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            // ChainId left null — re-fly target writes without inheriting.
+
+            InstallTree(treeId, launchHead, chainTip, supersedeTarget);
+            var rp = RpWithFocus("rp_refly", bpId, 0, "rec_launch_head", "rec_other");
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_test",
+                OldRecordingId = "rec_chain_tip",
+                NewRecordingId = "rec_refly_tip",
+                UT = 100.0
+            });
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            // Launch HEAD admits as the slot anchor.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.True(EffectiveState.IsUnfinishedFlight(launchHead));
+
+            // Supersede target maps to the same slot but is not the anchor
+            // — it suppresses with reason=slotPeerAnchored.
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            Assert.False(EffectiveState.IsUnfinishedFlight(supersedeTarget));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_refly_tip")
+                && l.Contains("reason=slotPeerAnchored")
+                && l.Contains("slotOrigin=rec_launch_head")
+                && l.Contains("anchorRec=rec_launch_head"));
+
+            // STASH lists exactly one row for the slot.
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_launch_head", members[0].RecordingId);
+        }
+
+        [Fact]
+        public void ChainContinuationStillReportsChainMembershipOfUnfinishedFlight()
+        {
+            // After the slot-anchor dedupe, only the chain HEAD admits as
+            // IsUnfinishedFlight=true. The chain TIP itself returns false.
+            // But IsChainMemberOfUnfinishedFlight must still return true
+            // for the TIP — it scans same-ChainId peers and asks each
+            // one. The HEAD admits, so the TIP correctly reports it
+            // belongs to an unfinished flight chain. This is the contract
+            // the R-button suppression and chain-aware UI sites rely on.
+            const string treeId = "tree_chain_membership";
+            const string bpId = "bp_anchor";
+            const string chainId = "chain_x";
+
+            var head = Rec(
+                "rec_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                childBranchPointId: bpId);
+            head.ChainId = chainId;
+            head.ChainIndex = 0;
+
+            var tip = Rec(
+                "rec_tip",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+            tip.ChainId = chainId;
+            tip.ChainIndex = 1;
+
+            InstallTree(treeId, head, tip);
+            var rp = RpWithFocus("rp_chain", bpId, 0, "rec_head", "rec_other");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.True(EffectiveState.IsUnfinishedFlight(head));
+            Assert.False(EffectiveState.IsUnfinishedFlight(tip));
+
+            // Membership query: both peers report true because the chain
+            // contains an Unfinished Flight anchor (HEAD).
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
+            Assert.True(EffectiveState.IsChainMemberOfUnfinishedFlight(tip));
+        }
+
+        [Fact]
+        public void SupersedeTargetWithHiddenOrigin_BecomesAnchor()
+        {
+            // Companion to SupersedeTargetWithoutChainId_SuppressedByVisibleLaunchOriginAnchor:
+            // when the slot's OriginChildRecordingId is itself superseded
+            // (and therefore hidden in ERS), the anchor walks supersedes
+            // forward from origin and the visible supersede target wins.
+            const string treeId = "tree_refly_origin";
+            const string bpId = "bp_origin";
+
+            var origin = Rec(
+                "rec_origin",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed);
+
+            var supersedeTarget = Rec(
+                "rec_refly_target",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+
+            InstallTree(treeId, origin, supersedeTarget);
+            var rp = RpWithFocus("rp_refly_origin", bpId, 0, "rec_origin", "rec_other");
+            var scenario = InstallScenario(new List<RewindPoint> { rp });
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_origin",
+                OldRecordingId = "rec_origin",
+                NewRecordingId = "rec_refly_target",
+                UT = 100.0
+            });
+            scenario.BumpSupersedeStateVersion();
+            EffectiveState.ResetCachesForTesting();
+
+            // Origin is hidden (superseded), supersede target is visible
+            // and becomes the slot anchor.
+            Assert.False(EffectiveState.IsUnfinishedFlight(origin));
+            Assert.True(EffectiveState.IsUnfinishedFlight(supersedeTarget));
+
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_refly_target", members[0].RecordingId);
+        }
+
+        [Fact]
         public void NonChainRecording_AdmitsWithoutChainDedupe()
         {
-            // The chain-dedupe branch must not interfere with the legacy
-            // single-recording flow: a recording with null ChainId admits
-            // directly when the classifier qualifies it.
+            // The slot-anchor dedupe must not interfere with the legacy
+            // single-recording flow: a recording with null ChainId that
+            // is itself the slot origin admits directly.
             const string treeId = "tree_solo";
             const string bpId = "bp_solo_anchor";
             var solo = Rec(
@@ -430,6 +687,46 @@ namespace Parsek.Tests
 
             Assert.Same(latestRp, resolvedRp);
             Assert.Equal(1, slotListIndex);
+        }
+
+        [Fact]
+        public void OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf()
+        {
+            // The terminal shape qualifies (crashed), but the slot's effective
+            // tip is Immutable (sealed / concluded), so it is NOT an open
+            // Unfinished Flight. Open/closed is read solely from the tip
+            // MergeState (collapse-seal-into-mergestate plan §7.7).
+            const string treeId = "tree_open_closed";
+            const string bpId = "bp_open_closed";
+            var crashed = Rec(
+                "rec_crashed",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, crashed);
+            var rp = RpWithFocus("rp_open_closed", bpId, 0, "rec_other", "rec_crashed");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // Shape predicate still qualifies the crashed slot.
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                crashed, rp.ChildSlots[1], rp, out string shapeReason));
+            Assert.Equal("crashed", shapeReason);
+
+            // Slot tip is Immutable -> closed -> not open.
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+
+            // Consumer-facing open read returns false; the row drops from UF.
+            Assert.False(EffectiveState.IsUnfinishedFlight(crashed));
+            Assert.Empty(UnfinishedFlightsGroup.ComputeMembers());
+
+            // Flip the tip to CommittedProvisional -> open -> surfaces.
+            crashed.MergeState = MergeState.CommittedProvisional;
+            EffectiveState.ResetCachesForTesting();
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+            Assert.True(EffectiveState.IsUnfinishedFlight(crashed));
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_crashed", members[0].RecordingId);
         }
 
         private static Recording Rec(

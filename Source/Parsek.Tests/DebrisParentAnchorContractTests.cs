@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// PR 3b unit tests covering the v13 debris parent-anchor contract.
     ///
     /// Coverage matrix:
-    ///   - <see cref="Recording.ApplyDebrisAnchorContract"/> helper (both overloads):
+    ///   - <see cref="Recording.ApplyParentAnchorContract"/> helper (both overloads):
     ///     non-debris no-op, debris stamps the field, null parent.
     ///   - The eight propagation sites enumerated in plan §"`IsDebris` propagation
     ///     surface": three primary creation sites (focused-vessel via
@@ -20,7 +20,7 @@ namespace Parsek.Tests
     ///     RewindInvoker Re-Fly inheritance, RecordingOptimizer.SplitAtSection,
     ///     BackgroundRecorder parent-continuation).
     ///   - <see cref="RecordingOptimizer.CanAutoMerge"/> mismatch guards
-    ///     (IsDebris differs / DebrisParentRecordingId differs).
+    ///     (IsDebris differs / ParentAnchorRecordingId differs).
     ///   - <see cref="RecordingOptimizer.SplitAtSection"/>: both halves keep the
     ///     contract.
     ///   - <see cref="FlightRecorder.IsReFlyPostLoadSettleActiveForRecording"/>
@@ -51,7 +51,7 @@ namespace Parsek.Tests
         // ===== A. Helper =====
 
         [Fact]
-        public void ApplyDebrisAnchorContract_NonDebrisChild_StampsParentRecordingId()
+        public void ApplyParentAnchorContract_NonDebrisChild_StampsParentRecordingId()
         {
             // Post-controlled-child-extension: helper is caller-decides. Controlled-
             // decoupled children (IsDebris=false) now also carry the parent-anchor
@@ -59,85 +59,85 @@ namespace Parsek.Tests
             var parent = new Recording { RecordingId = "parent-1" };
             var child = new Recording { RecordingId = "child-1", IsDebris = false };
 
-            Recording.ApplyDebrisAnchorContract(child, parent);
+            Recording.ApplyParentAnchorContract(child, parent);
 
-            Assert.Equal("parent-1", child.DebrisParentRecordingId);
+            Assert.Equal("parent-1", child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_DebrisChild_StampsParentRecordingId()
+        public void ApplyParentAnchorContract_DebrisChild_StampsParentRecordingId()
         {
             var parent = new Recording { RecordingId = "parent-2" };
             var child = new Recording { RecordingId = "child-2", IsDebris = true };
 
-            Recording.ApplyDebrisAnchorContract(child, parent);
+            Recording.ApplyParentAnchorContract(child, parent);
 
-            Assert.Equal("parent-2", child.DebrisParentRecordingId);
+            Assert.Equal("parent-2", child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_DebrisChild_NullParent_LeavesFieldNull()
+        public void ApplyParentAnchorContract_DebrisChild_NullParent_LeavesFieldNull()
         {
             var child = new Recording { RecordingId = "child-3", IsDebris = true };
 
-            Recording.ApplyDebrisAnchorContract(child, (Recording)null);
+            Recording.ApplyParentAnchorContract(child, (Recording)null);
 
-            Assert.Null(child.DebrisParentRecordingId);
+            Assert.Null(child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_StringOverload_DebrisChild_StampsId()
+        public void ApplyParentAnchorContract_StringOverload_DebrisChild_StampsId()
         {
             var child = new Recording { RecordingId = "child-4", IsDebris = true };
 
-            Recording.ApplyDebrisAnchorContract(child, "parent-id-string");
+            Recording.ApplyParentAnchorContract(child, "parent-id-string");
 
-            Assert.Equal("parent-id-string", child.DebrisParentRecordingId);
+            Assert.Equal("parent-id-string", child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_StringOverload_NonDebrisChild_StampsId()
+        public void ApplyParentAnchorContract_StringOverload_NonDebrisChild_StampsId()
         {
             // Post-controlled-child-extension: string overload is also caller-decides.
             var child = new Recording { RecordingId = "child-5", IsDebris = false };
 
-            Recording.ApplyDebrisAnchorContract(child, "parent-id-string");
+            Recording.ApplyParentAnchorContract(child, "parent-id-string");
 
-            Assert.Equal("parent-id-string", child.DebrisParentRecordingId);
+            Assert.Equal("parent-id-string", child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_NullParentString_LeavesFieldNull()
+        public void ApplyParentAnchorContract_NullParentString_LeavesFieldNull()
         {
             // Empty / null parent id is the new "do not apply" sentinel (replaces
             // the pre-extension `!child.IsDebris` early-return).
             var child = new Recording { RecordingId = "child-5b", IsDebris = true };
 
-            Recording.ApplyDebrisAnchorContract(child, (string)null);
-            Recording.ApplyDebrisAnchorContract(child, string.Empty);
+            Recording.ApplyParentAnchorContract(child, (string)null);
+            Recording.ApplyParentAnchorContract(child, string.Empty);
 
-            Assert.Null(child.DebrisParentRecordingId);
+            Assert.Null(child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_ParentWithEmptyRecordingId_LeavesFieldNull()
+        public void ApplyParentAnchorContract_ParentWithEmptyRecordingId_LeavesFieldNull()
         {
             // Defensive: a Recording wrapper around an empty id is still a no-op.
             var parent = new Recording { RecordingId = string.Empty };
             var child = new Recording { RecordingId = "child-5c", IsDebris = true };
 
-            Recording.ApplyDebrisAnchorContract(child, parent);
+            Recording.ApplyParentAnchorContract(child, parent);
 
-            Assert.Null(child.DebrisParentRecordingId);
+            Assert.Null(child.ParentAnchorRecordingId);
         }
 
         [Fact]
-        public void ApplyDebrisAnchorContract_NullChild_DoesNotThrow()
+        public void ApplyParentAnchorContract_NullChild_DoesNotThrow()
         {
             // Defensive: helper guard. Both overloads should be safe to call with
             // a null child (guarantees the helper can wrap an in-progress null check).
-            Recording.ApplyDebrisAnchorContract((Recording)null, new Recording { RecordingId = "p" });
-            Recording.ApplyDebrisAnchorContract((Recording)null, "parent");
+            Recording.ApplyParentAnchorContract((Recording)null, new Recording { RecordingId = "p" });
+            Recording.ApplyParentAnchorContract((Recording)null, "parent");
         }
 
         // ===== B. Primary creation site #3 — BuildBackgroundSplitBranchData =====
@@ -156,14 +156,14 @@ namespace Parsek.Tests
 
             Assert.Single(children);
             Assert.True(children[0].IsDebris);
-            Assert.Equal("parent_rec_42", children[0].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[0].ParentAnchorRecordingId);
         }
 
         [Fact]
         public void BuildBackgroundSplitBranchData_ControlledChild_StampsParentRecordingId()
         {
             // Post-controlled-child-extension: controlled children also receive the
-            // parent-anchor contract. IsDebris stays false; DebrisParentRecordingId
+            // parent-anchor contract. IsDebris stays false; ParentAnchorRecordingId
             // gets the parent id.
             var newVessels = new List<(uint pid, string name, bool hasController)>
             {
@@ -176,14 +176,14 @@ namespace Parsek.Tests
 
             Assert.Single(children);
             Assert.False(children[0].IsDebris);
-            Assert.Equal("parent_rec_42", children[0].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[0].ParentAnchorRecordingId);
         }
 
         [Fact]
         public void BuildBackgroundSplitBranchData_MixedChildren_AllReceiveParentAnchor()
         {
             // Post-controlled-child-extension: both controlled and debris children
-            // get DebrisParentRecordingId; only IsDebris differs by population.
+            // get ParentAnchorRecordingId; only IsDebris differs by population.
             var newVessels = new List<(uint pid, string name, bool hasController)>
             {
                 (300u, "Probe Ship", true),
@@ -197,11 +197,11 @@ namespace Parsek.Tests
 
             Assert.Equal(3, children.Count);
             Assert.False(children[0].IsDebris);
-            Assert.Equal("parent_rec_42", children[0].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[0].ParentAnchorRecordingId);
             Assert.True(children[1].IsDebris);
-            Assert.Equal("parent_rec_42", children[1].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[1].ParentAnchorRecordingId);
             Assert.True(children[2].IsDebris);
-            Assert.Equal("parent_rec_42", children[2].DebrisParentRecordingId);
+            Assert.Equal("parent_rec_42", children[2].ParentAnchorRecordingId);
         }
 
         // ===== C. Secondary propagation site #4 — Recording.ApplyPersistenceArtifactsFrom =====
@@ -213,14 +213,14 @@ namespace Parsek.Tests
             {
                 RecordingId = "src",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-from-src"
+                ParentAnchorRecordingId = "parent-from-src"
             };
             var dest = new Recording { RecordingId = "dst" };
 
             dest.ApplyPersistenceArtifactsFrom(source);
 
             Assert.True(dest.IsDebris);
-            Assert.Equal("parent-from-src", dest.DebrisParentRecordingId);
+            Assert.Equal("parent-from-src", dest.ParentAnchorRecordingId);
         }
 
         [Fact]
@@ -232,13 +232,13 @@ namespace Parsek.Tests
             dest.ApplyPersistenceArtifactsFrom(source);
 
             Assert.False(dest.IsDebris);
-            Assert.Null(dest.DebrisParentRecordingId);
+            Assert.Null(dest.ParentAnchorRecordingId);
         }
 
         // ===== C. Secondary propagation site #5 — SessionMerger =====
         // PR 3b review follow-up §3: drive SessionMerger.MergeTree with a
         // debris source recording and assert the merged copy carries both
-        // IsDebris and DebrisParentRecordingId. A future refactor that
+        // IsDebris and ParentAnchorRecordingId. A future refactor that
         // touches one field-copy line but forgets the other lights up here.
 
         [Fact]
@@ -251,7 +251,7 @@ namespace Parsek.Tests
                 TreeId = "test-tree",
                 VesselPersistentId = 4242u,
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec-from-merger",
+                ParentAnchorRecordingId = "parent-rec-from-merger",
                 ExplicitStartUT = 0.0,
                 ExplicitEndUT = 10.0,
             };
@@ -280,7 +280,7 @@ namespace Parsek.Tests
             Assert.True(merged.ContainsKey("src-debris"));
             Recording mergedRec = merged["src-debris"];
             Assert.True(mergedRec.IsDebris);
-            Assert.Equal("parent-rec-from-merger", mergedRec.DebrisParentRecordingId);
+            Assert.Equal("parent-rec-from-merger", mergedRec.ParentAnchorRecordingId);
         }
 
         [Fact]
@@ -288,7 +288,7 @@ namespace Parsek.Tests
         {
             // Mirror the sparse-write contract on the merge path: a non-debris
             // recording's merged copy must NOT carry a non-null
-            // DebrisParentRecordingId (the source side has it null too; this
+            // ParentAnchorRecordingId (the source side has it null too; this
             // test pins the no-stamping invariant on the merger).
             var src = new Recording
             {
@@ -297,7 +297,7 @@ namespace Parsek.Tests
                 TreeId = "test-tree",
                 VesselPersistentId = 1u,
                 IsDebris = false,
-                DebrisParentRecordingId = null,
+                ParentAnchorRecordingId = null,
             };
             src.TrackSections.Add(new TrackSection
             {
@@ -322,7 +322,7 @@ namespace Parsek.Tests
             Assert.True(merged.ContainsKey("src-non-debris"));
             Recording mergedRec = merged["src-non-debris"];
             Assert.False(mergedRec.IsDebris);
-            Assert.Null(mergedRec.DebrisParentRecordingId);
+            Assert.Null(mergedRec.ParentAnchorRecordingId);
         }
 
         // ===== C. Secondary propagation site #6 — RewindInvoker Re-Fly inheritance =====
@@ -331,7 +331,7 @@ namespace Parsek.Tests
         // RewindInvoker.CopyInheritedIdentityForFork(provisional, inheritFrom)
         // helper so xUnit can validate the field-copy contract directly.
         // Tests cover null guards plus every field copied including the
-        // load-bearing DebrisParentRecordingId.
+        // load-bearing ParentAnchorRecordingId.
 
         [Fact]
         public void CopyInheritedIdentityForFork_DebrisProvisional_PropagatesParentRecordingId()
@@ -342,7 +342,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 9999u,
                 VesselName = "Booster Debris (origin)",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-rec-from-rewind",
+                ParentAnchorRecordingId = "parent-rec-from-rewind",
                 Generation = 1,
                 SegmentPhase = "atmo",
                 SegmentBodyName = "Kerbin",
@@ -365,7 +365,7 @@ namespace Parsek.Tests
             Assert.Equal(9999u, provisional.VesselPersistentId);
             Assert.Equal("Booster Debris (origin)", provisional.VesselName);
             Assert.True(provisional.IsDebris);
-            Assert.Equal("parent-rec-from-rewind", provisional.DebrisParentRecordingId);
+            Assert.Equal("parent-rec-from-rewind", provisional.ParentAnchorRecordingId);
             Assert.Equal(1, provisional.Generation);
             // SegmentPhase / SegmentBodyName describe the recording's own most-recent
             // segment — for the parent that means its terminating phase, which is
@@ -395,7 +395,7 @@ namespace Parsek.Tests
                 VesselPersistentId = 1234u,
                 VesselName = "Manned Probe",
                 IsDebris = false,
-                DebrisParentRecordingId = null,
+                ParentAnchorRecordingId = null,
                 Generation = 0,
             };
             var provisional = new Recording { RecordingId = "provisional-fork" };
@@ -404,7 +404,7 @@ namespace Parsek.Tests
 
             Assert.Equal(1234u, provisional.VesselPersistentId);
             Assert.False(provisional.IsDebris);
-            Assert.Null(provisional.DebrisParentRecordingId);
+            Assert.Null(provisional.ParentAnchorRecordingId);
         }
 
         [Fact]
@@ -429,7 +429,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "split-src",
                 IsDebris = true,
-                DebrisParentRecordingId = "parent-split",
+                ParentAnchorRecordingId = "parent-split",
                 ExplicitStartUT = 0.0,
                 ExplicitEndUT = 30.0,
                 ChainId = "chain-x"
@@ -466,15 +466,15 @@ namespace Parsek.Tests
             Assert.NotNull(second);
             // `original` half: in-place mutation must not drop the contract.
             Assert.True(rec.IsDebris);
-            Assert.Equal("parent-split", rec.DebrisParentRecordingId);
+            Assert.Equal("parent-split", rec.ParentAnchorRecordingId);
             // `second` half: explicit propagation line copies the contract.
             Assert.True(second.IsDebris);
-            Assert.Equal("parent-split", second.DebrisParentRecordingId);
+            Assert.Equal("parent-split", second.ParentAnchorRecordingId);
         }
 
         // ===== C. Secondary propagation site #8 — BackgroundRecorder.cs:673 parent continuation =====
         // The BackgroundRecorder parent-continuation initializer is a mechanical
-        // `DebrisParentRecordingId = parentRec.DebrisParentRecordingId` adjacent to
+        // `ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId` adjacent to
         // the existing IsDebris copy. With MaxRecordingGeneration=1 this site never
         // creates a debris continuation today (forward-compat per Decision §10);
         // in-game tests cover the full BG-split flow.
@@ -516,7 +516,7 @@ namespace Parsek.Tests
             var a = MakeChainSegmentForMerge("chain-a", 0);
             var b = MakeChainSegmentForMerge("chain-a", 1);
             a.IsDebris = true;
-            a.DebrisParentRecordingId = "parent-a";
+            a.ParentAnchorRecordingId = "parent-a";
 
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
             Assert.False(RecordingOptimizer.CanAutoMerge(b, a));
@@ -528,9 +528,9 @@ namespace Parsek.Tests
             var a = MakeChainSegmentForMerge("chain-a", 0);
             var b = MakeChainSegmentForMerge("chain-a", 1);
             a.IsDebris = true;
-            a.DebrisParentRecordingId = "parent-a";
+            a.ParentAnchorRecordingId = "parent-a";
             b.IsDebris = true;
-            b.DebrisParentRecordingId = "parent-b";
+            b.ParentAnchorRecordingId = "parent-b";
 
             Assert.False(RecordingOptimizer.CanAutoMerge(a, b));
         }
@@ -541,9 +541,9 @@ namespace Parsek.Tests
             var a = MakeChainSegmentForMerge("chain-a", 0);
             var b = MakeChainSegmentForMerge("chain-a", 1);
             a.IsDebris = true;
-            a.DebrisParentRecordingId = "parent-a";
+            a.ParentAnchorRecordingId = "parent-a";
             b.IsDebris = true;
-            b.DebrisParentRecordingId = "parent-a";
+            b.ParentAnchorRecordingId = "parent-a";
 
             Assert.True(RecordingOptimizer.CanAutoMerge(a, b));
         }

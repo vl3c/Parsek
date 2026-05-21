@@ -31,17 +31,17 @@ namespace Parsek.InGameTests
             Description = "Unfinished Flight Seal popup cancel button clears the input lock without sealing")]
         public IEnumerator SealPopupCancelClearsLockWithoutSealing()
         {
-            yield return RunSealDialogButtonFlow("Cancel", expectedSealed: false);
+            yield return RunSealDialogButtonFlow("Cancel", expectSealed: false);
         }
 
         [InGameTest(Category = "Rewind", Scene = GameScenes.SPACECENTER,
-            Description = "Unfinished Flight Seal popup confirm button seals the slot and clears the input lock")]
+            Description = "Unfinished Flight Seal popup confirm button seals the slot tip and clears the input lock")]
         public IEnumerator SealPopupConfirmSealsSlotAndClearsLock()
         {
-            yield return RunSealDialogButtonFlow("Seal Permanently", expectedSealed: true);
+            yield return RunSealDialogButtonFlow("Seal Permanently", expectSealed: true);
         }
 
-        private static IEnumerator RunSealDialogButtonFlow(string buttonText, bool expectedSealed)
+        private static IEnumerator RunSealDialogButtonFlow(string buttonText, bool expectSealed)
         {
             if (!AnyReflectionBindingResolved())
             {
@@ -106,6 +106,10 @@ namespace Parsek.InGameTests
                 scenario.RewindPoints = new List<RewindPoint> { rp };
                 scenario.RecordingSupersedes = new List<RecordingSupersedeRelation>();
                 scenario.LedgerTombstones = new List<LedgerTombstone>();
+                // Seal flips the slot's effective tip MergeState; the handler
+                // resolves the tip recording from the committed list, so the
+                // synthetic target recording must be discoverable there.
+                RecordingStore.AddCommittedInternal(rec);
 
                 UnfinishedFlightSealHandler.ShowConfirmation(rec);
                 yield return WaitForPopupDialog(UnfinishedFlightSealHandler.DialogName, 2f);
@@ -122,7 +126,7 @@ namespace Parsek.InGameTests
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Seal popup should expose a MultiOptionDialog");
                 string title = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Seal Unfinished Flight", title,
+                InGameAssert.AreEqual("Confirm: Seal Unfinished Flight", title,
                     "Seal popup title should match production copy");
 
                 DialogGUIButton button = FindButton(dialog, buttonText);
@@ -134,19 +138,17 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsFalse(UnfinishedFlightSealHandler.DialogLockActiveForTesting,
                     "Seal dialog should clear its input lock after the button callback");
-                InGameAssert.AreEqual(expectedSealed, targetSlot.Sealed,
-                    $"Button '{buttonText}' should leave sealed={expectedSealed}");
-                if (expectedSealed)
-                    InGameAssert.IsFalse(string.IsNullOrEmpty(targetSlot.SealedRealTime),
-                        "Confirming Seal should stamp SealedRealTime");
-                else
-                    InGameAssert.IsTrue(string.IsNullOrEmpty(targetSlot.SealedRealTime),
-                        "Cancelling Seal should leave SealedRealTime blank");
+                MergeState expectedState = expectSealed
+                    ? MergeState.Immutable
+                    : MergeState.CommittedProvisional;
+                InGameAssert.AreEqual(expectedState, rec.MergeState,
+                    $"Button '{buttonText}' should leave the slot tip MergeState={expectedState}");
             }
             finally
             {
                 PopupDialog.DismissPopup(UnfinishedFlightSealHandler.DialogName);
                 UnfinishedFlightSealHandler.ClearLock();
+                RecordingStore.RemoveCommittedInternal(rec);
                 scenario.RewindPoints = originalRps;
                 scenario.RecordingSupersedes = originalSupersedes;
                 scenario.LedgerTombstones = originalTombstones;

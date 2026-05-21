@@ -5,19 +5,39 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Phase 2 of fix-refly-relative-anchor: source-text gates that confirm
-    /// the ReFlyAnchorSelection bypass is wired into both recorder sites
-    /// (active-vessel and background).
+    /// Source-text gates for the narrowed-gate re-fly anchor selection wired
+    /// into both recorder sites (active-vessel <see cref="FlightRecorder"/>
+    /// and background <see cref="BackgroundRecorder"/>).
     ///
-    /// <para>Driving <c>UpdateAnchorDetection</c> / <c>UpdateBackgroundAnchorDetection</c>
-    /// from xUnit would require constructing a live KSP Vessel and the
-    /// private <c>BackgroundVesselState</c>; the established alternative
-    /// (see <c>ChainSaveLoadTests.ChainStateNotPersistedInScenario</c> and
+    /// <para>History: the original 2300m physics-bubble anchor rule was
+    /// extended by PR #889 with a supersede-target bypass
+    /// (<c>ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor</c>) that
+    /// pinned the Relative anchor to the supersede target so the
+    /// nearest-search would not pick a fast-separating sibling. PR 901
+    /// validated that Absolute (no Relative anchor at all) is the right
+    /// contract for re-fly forks with no nearby real anchor. The bypass was
+    /// replaced with a filter
+    /// (<c>ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional</c>) that
+    /// drops every candidate whose recording is in the same
+    /// <see cref="RecordingTree"/> as the provisional, so the nearest-search
+    /// sees only out-of-tree real anchors (stations, bases, live vessels
+    /// from other lineages). The result: re-fly fork with no nearby real
+    /// anchor authors Absolute, re-fly fork mid-docking-approach authors
+    /// Relative-against-real-station, loop-anchored re-fly fork authors
+    /// Relative-against-live-loop-anchor. The orphaned bypass function, the
+    /// two recorder apply helpers, and the force-Absolute rollback toggle
+    /// have since been deleted; these gates now only assert the filter is
+    /// wired and the bypass call is absent.</para>
+    ///
+    /// <para>Driving <c>UpdateAnchorDetection</c> /
+    /// <c>UpdateBackgroundAnchorDetection</c> from xUnit would require
+    /// constructing a live KSP Vessel and the private
+    /// <c>BackgroundVesselState</c>; the established alternative (see
+    /// <c>ChainSaveLoadTests.ChainStateNotPersistedInScenario</c> and
     /// <c>memory/reference_parsek_scenario_xunit.md</c>) is a source-text
-    /// gate that catches accidental wiring drift. The helper itself is
-    /// exhaustively exercised in <c>ReFlyAnchorSelectionTests</c>; the
-    /// end-to-end behavior is validated by the
-    /// <c>ReFlyAnchorContract</c> in-game test landed in Phase 4.</para>
+    /// gate that catches accidental wiring drift. The filter helper itself
+    /// is exhaustively exercised by xUnit in
+    /// <c>FilterCandidatesForReFlyProvisionalTests</c>.</para>
     /// </summary>
     public class ReFlyAnchorBypassWiringTests
     {
@@ -32,32 +52,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BackgroundRecorder_WiresReFlyAnchorBypass_AfterDebrisBypass()
+        public void BackgroundRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
             string source = ReadSource("BackgroundRecorder.cs");
 
-            int debrisBypassIdx = source.IndexOf(
-                "ApplyDebrisAnchorContractToState(state, treeRec, bgVessel, ut)",
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 StringComparison.Ordinal);
-            Assert.True(debrisBypassIdx >= 0,
-                "Existing debris-parent bypass call site not found");
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call missing from BackgroundRecorder.cs");
 
-            int reflyBypassIdx = source.IndexOf(
-                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
+            int findNearestIdx = source.IndexOf(
+                "AnchorDetector.FindNearestRecordingAnchor(",
                 StringComparison.Ordinal);
-            Assert.True(reflyBypassIdx >= 0,
-                "ReFlyAnchorSelection bypass call site missing from BackgroundRecorder.cs");
-            Assert.True(reflyBypassIdx > debrisBypassIdx,
-                "Re-fly bypass must come after the debris-parent bypass so debris recordings still take precedence");
+            Assert.True(findNearestIdx >= 0,
+                "FindNearestRecordingAnchor call missing from BackgroundRecorder.cs");
 
-            // Verify the BG-specific apply helper is defined.
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToState(",
-                source);
+            Assert.True(filterIdx < findNearestIdx,
+                "Narrowed-gate filter must execute BEFORE FindNearestRecordingAnchor " +
+                "so the nearest-search only sees out-of-tree candidates");
         }
 
         [Fact]
-        public void FlightRecorder_WiresReFlyAnchorBypass_BeforeBuildCandidateList()
+        public void BackgroundRecorder_NoLongerCallsSupersedeTargetBypass()
+        {
+            // The supersede-target bypass call is gone from the gate site
+            // (the bypass function and its apply helper were deleted). This
+            // test confirms the call string never returns to
+            // UpdateBackgroundAnchorDetection.
+            string source = ReadSource("BackgroundRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "UpdateBackgroundAnchorDetection",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateBackgroundAnchorDetection not found");
+
+            // Find the next method declaration after UpdateBackgroundAnchorDetection
+            // so the search is scoped to that method's body. The bypass call
+            // string must not appear inside that scope.
+            int nextMethodIdx = source.IndexOf(
+                "\n        private ",
+                updateAnchorIdx + 1,
+                StringComparison.Ordinal);
+            if (nextMethodIdx < 0) nextMethodIdx = source.Length;
+
+            string methodBody = source.Substring(
+                updateAnchorIdx,
+                nextMethodIdx - updateAnchorIdx);
+
+            Assert.DoesNotContain(
+                "TryResolveReFlyProvisionalAnchor(",
+                methodBody);
+        }
+
+        [Fact]
+        public void FlightRecorder_WiresNarrowedGateFilter_BeforeNearestSearch()
         {
             string source = ReadSource("FlightRecorder.cs");
 
@@ -67,101 +117,94 @@ namespace Parsek.Tests
             Assert.True(updateAnchorIdx >= 0,
                 "UpdateAnchorDetection method not found");
 
-            int reflyBypassIdx = source.IndexOf(
-                "ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor(",
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
-            Assert.True(reflyBypassIdx >= 0,
-                "Re-fly bypass call missing from FlightRecorder.UpdateAnchorDetection");
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call missing from FlightRecorder.UpdateAnchorDetection");
 
-            // The bypass must precede the nearest-search call.
+            int findNearestIdx = source.IndexOf(
+                "AnchorDetector.FindNearestRecordingAnchor(",
+                updateAnchorIdx,
+                StringComparison.Ordinal);
+            Assert.True(findNearestIdx >= 0,
+                "FindNearestRecordingAnchor call not found in UpdateAnchorDetection");
+
+            Assert.True(filterIdx < findNearestIdx,
+                "Narrowed-gate filter must execute BEFORE FindNearestRecordingAnchor " +
+                "so the nearest-search only sees out-of-tree candidates");
+        }
+
+        [Fact]
+        public void FlightRecorder_NoLongerCallsSupersedeTargetBypass()
+        {
+            // Symmetric counterpart to
+            // BackgroundRecorder_NoLongerCallsSupersedeTargetBypass: the
+            // bypass call is gone from UpdateAnchorDetection.
+            string source = ReadSource("FlightRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "private void UpdateAnchorDetection(Vessel v)",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateAnchorDetection method not found");
+
+            int nextMethodIdx = source.IndexOf(
+                "\n        private ",
+                updateAnchorIdx + 1,
+                StringComparison.Ordinal);
+            if (nextMethodIdx < 0) nextMethodIdx = source.Length;
+
+            string methodBody = source.Substring(
+                updateAnchorIdx,
+                nextMethodIdx - updateAnchorIdx);
+
+            Assert.DoesNotContain(
+                "TryResolveReFlyProvisionalAnchor(",
+                methodBody);
+        }
+
+        [Fact]
+        public void FlightRecorder_BuildsCandidateList_BeforeNarrowedGateFilter()
+        {
+            // BuildRecordingAnchorCandidateList carries a load-bearing side
+            // effect: ConsiderReFlyTreeSamplingProximity (called from the
+            // Add{Live,External}RecordingAnchorCandidates helpers) populates
+            // reFlyTreeSamplingProximityMeters, which feeds the next
+            // OnPhysicsFrame's proximity-tier sampling cadence
+            // (Full / Half / None at 0-250m / 250-500m / 500m+ ranges,
+            // see ReFlyTree{Full,Half}FidelityProximityRangeMeters).
+            //
+            // The candidate build must execute before the narrowed-gate
+            // filter so the proximity scan side effect runs on every re-fly
+            // frame, even ones where the filter drops every same-tree
+            // candidate. The filter also consumes the candidate list, so the
+            // ordering is doubly load-bearing.
+            string source = ReadSource("FlightRecorder.cs");
+
+            int updateAnchorIdx = source.IndexOf(
+                "private void UpdateAnchorDetection(Vessel v)",
+                StringComparison.Ordinal);
+            Assert.True(updateAnchorIdx >= 0,
+                "UpdateAnchorDetection method not found");
+
             int candidateBuildIdx = source.IndexOf(
                 "BuildRecordingAnchorCandidateList(",
                 updateAnchorIdx,
                 StringComparison.Ordinal);
-            Assert.True(candidateBuildIdx > reflyBypassIdx,
-                "Re-fly bypass must execute before BuildRecordingAnchorCandidateList so the bypass actually intercepts the nearest-search");
+            Assert.True(candidateBuildIdx >= 0,
+                "BuildRecordingAnchorCandidateList call missing from UpdateAnchorDetection");
 
-            // Verify the active-vessel apply helper is defined.
-            Assert.Contains(
-                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
-                source);
-        }
-
-        [Fact]
-        public void ReFlyAnchorBypass_UsesReFlyProvisionalSupersedeCandidateSource()
-        {
-            // The synthetic RecordingAnchorCandidate constructed by the
-            // active-vessel apply helper must tag itself with the new
-            // diagnostic enum value so log lines and downstream
-            // affinity-ranking treat it as a distinct source.
-            string flightSource = ReadSource("FlightRecorder.cs");
-            Assert.Contains(
-                "AnchorCandidateSource.ReFlyProvisionalSupersede",
-                flightSource);
-
-            string anchorDetectorSource = ReadSource("AnchorDetector.cs");
-            Assert.Contains(
-                "ReFlyProvisionalSupersede",
-                anchorDetectorSource);
-        }
-
-        [Fact]
-        public void ReFlyAnchorBypass_PreChecksAnchorPoseBeforeOpeningRelativeSection()
-        {
-            // PR #889 validation playtest discovered a per-frame thrash when
-            // the supersede target's authored trajectory does not cover the
-            // current playback UT (nested re-fly where the rewind point
-            // predates the prior provisional's startUT). The bypass opened a
-            // Relative section, SeedRelativeBoundaryPoint failed with
-            // anchor-out-of-recorded-range, ForceExitRelativeToAbsolute
-            // closed it, and the next frame's bypass call repeated the
-            // cycle. The thrash produced thousands of zero-frame
-            // TrackSections (caught by the recorder safeguard so the on-disk
-            // recordings stay clean) and thousands of matching INFO log
-            // lines.
-            //
-            // Source-text gate: confirms both recorder bypass apply helpers
-            // pre-check the anchor pose with a rate-limited VerboseRateLimited
-            // log (key=refly-bypass-anchor-uncovered) before any section
-            // flip, anchor write, or HF sampling activation.
-            string flightSource = ReadSource("FlightRecorder.cs");
-            int flightApplyIdx = flightSource.IndexOf(
-                "private void ApplyReFlyProvisionalAnchorToActiveRecording(",
-                System.StringComparison.Ordinal);
-            Assert.True(flightApplyIdx >= 0, "Active-vessel apply helper not found");
-            int flightPreCheckIdx = flightSource.IndexOf(
-                "refly-bypass-anchor-uncovered",
-                flightApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(flightPreCheckIdx >= 0,
-                "Active-vessel pre-check log (key=refly-bypass-anchor-uncovered) missing");
-            // The pre-check must run BEFORE the section flip and HF sampling
-            // calls, otherwise the thrash regression returns.
-            int flightSamplePositionIdx = flightSource.IndexOf(
-                "SamplePosition(v);",
-                flightApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(flightSamplePositionIdx > flightPreCheckIdx,
-                "Active-vessel pre-check must come before SamplePosition / section flip");
-
-            string bgSource = ReadSource("BackgroundRecorder.cs");
-            int bgApplyIdx = bgSource.IndexOf(
-                "private void ApplyReFlyProvisionalAnchorToState(",
-                System.StringComparison.Ordinal);
-            Assert.True(bgApplyIdx >= 0, "BG apply helper not found");
-            int bgPreCheckIdx = bgSource.IndexOf(
-                "refly-bypass-anchor-uncovered",
-                bgApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(bgPreCheckIdx >= 0,
-                "BG pre-check log (key=refly-bypass-anchor-uncovered) missing");
-            int bgStartSectionIdx = bgSource.IndexOf(
-                "StartBackgroundTrackSection(state, env, ReferenceFrame.Relative",
-                bgApplyIdx,
-                System.StringComparison.Ordinal);
-            Assert.True(bgStartSectionIdx > bgPreCheckIdx,
-                "BG pre-check must come before StartBackgroundTrackSection / section flip");
+            int filterIdx = source.IndexOf(
+                "ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional(",
+                updateAnchorIdx,
+                StringComparison.Ordinal);
+            Assert.True(filterIdx >= 0,
+                "Narrowed-gate filter call not found in UpdateAnchorDetection");
+            Assert.True(candidateBuildIdx < filterIdx,
+                "BuildRecordingAnchorCandidateList must execute BEFORE the narrowed-gate filter " +
+                "so the filter has a candidate list and the proximity-tier sampling side effect runs.");
         }
     }
 }

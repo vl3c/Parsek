@@ -5,19 +5,12 @@ using UnityEngine;
 
 namespace Parsek
 {
+    // In-memory diagnostic enum only, never serialized. The rendering-side
+    // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
     internal enum AnchorCandidateSource
     {
         Live,
-        Ghost,
-        // Re-fly provisional anchored on its supersede target (or
-        // OriginChildRecordingId fallback) via ReFlyAnchorSelection. The
-        // recorder skips the nearest-search and pins the anchor to the
-        // recording the provisional continues, so the offset is recorded
-        // against a stable physical-identity continuation instead of a
-        // fast-separating sibling that happens to be in-bubble.
-        // In-memory diagnostic only — never serialized; the rendering-side
-        // AnchorSource enum in Rendering/AnchorCorrection.cs is separate.
-        ReFlyProvisionalSupersede
+        Ghost
     }
 
     internal readonly struct RecordingAnchorCandidate
@@ -238,7 +231,7 @@ namespace Parsek
             //
             // Self-reference: a debris recording's own contract path
             // (`BackgroundRecorder.UpdateBackgroundAnchorDetection` early-return
-            // when `treeRec.DebrisParentRecordingId != null`) bypasses this
+            // when `treeRec.ParentAnchorRecordingId != null`) bypasses this
             // helper entirely and pins the anchor to the parent recording. Keep
             // this candidate-scan rejection as defense-in-depth for any future
             // path that accidentally offers debris as a generic live anchor.
@@ -260,6 +253,61 @@ namespace Parsek
                 return false;
 
             return candidateRecording.TreeOrder < focusRecording.TreeOrder;
+        }
+
+        /// <summary>
+        /// Resolves the anchor recording id for a loaded vessel as seen by a
+        /// background recorder's candidate scan. A loaded vessel maps to a
+        /// recording either because it is a background recording
+        /// (<paramref name="backgroundMap"/>) or because it is the currently
+        /// focused/active recording (<paramref name="activeRecordingId"/> with
+        /// matching <paramref name="activeRecordingVesselPid"/>).
+        ///
+        /// Background recorders historically only consulted the BackgroundMap,
+        /// so when the player switched control to a co-recorded anchor vessel
+        /// (e.g. flying the target during a docking approach) that anchor left
+        /// the BackgroundMap, became the active recording, and the still-
+        /// backgrounded chaser silently lost its only RELATIVE anchor and
+        /// dropped to ABSOLUTE for the rest of the close approach. Including the
+        /// active recording here lets the DAG-order rule (candidate.TreeOrder
+        /// &lt; focus.TreeOrder) decide eligibility instead of the focus state.
+        ///
+        /// Pure static -- maps injected for testability. <paramref name="isActiveRecording"/>
+        /// reports which surface resolved the id so callers can sanity-check it
+        /// against the re-fly provisional gate.
+        /// </summary>
+        internal static bool TryResolveLoadedAnchorRecordingId(
+            uint loadedVesselPid,
+            IReadOnlyDictionary<uint, string> backgroundMap,
+            string activeRecordingId,
+            uint activeRecordingVesselPid,
+            out string recordingId,
+            out bool isActiveRecording)
+        {
+            recordingId = null;
+            isActiveRecording = false;
+            if (loadedVesselPid == 0u)
+                return false;
+
+            if (backgroundMap != null
+                && backgroundMap.TryGetValue(loadedVesselPid, out recordingId)
+                && !string.IsNullOrWhiteSpace(recordingId))
+            {
+                return true;
+            }
+
+            recordingId = null;
+            if (!string.IsNullOrWhiteSpace(activeRecordingId)
+                && activeRecordingVesselPid != 0u
+                && activeRecordingVesselPid == loadedVesselPid)
+            {
+                recordingId = activeRecordingId;
+                isActiveRecording = true;
+                return true;
+            }
+
+            recordingId = null;
+            return false;
         }
 
         internal static bool IsSealedRecordingAnchor(Recording recording)

@@ -159,11 +159,13 @@ namespace Parsek
             var reFlyScenario = ParsekScenario.Instance;
             string message;
             bool timelineActionPermanent = true;
+            bool isReFlyDialog = false;
             string mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
             string title = BuildTimelineActionDialogTitle(timelineActionPermanent);
             if (!object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveReFlySessionMarker != null)
             {
+                isReFlyDialog = true;
                 var marker = reFlyScenario.ActiveReFlySessionMarker;
                 Recording reFlyRec = FindReFlyRecording(marker, tree);
                 string vesselLabel = reFlyRec != null
@@ -189,10 +191,11 @@ namespace Parsek
                 timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(
                         reFlyRec, marker, preview, out labelSource);
-                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
+                mergeLabel = BuildTimelineActionButtonLabel(
+                    timelineActionPermanent, isReFlyAttempt: true);
                 title = BuildTimelineActionDialogTitle(timelineActionPermanent);
                 message = BuildReFlyDialogBody(
-                    vesselLabel, reFlyDuration, preview);
+                    vesselLabel, reFlyDuration, preview, timelineActionPermanent);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview (post-transition): " +
@@ -227,17 +230,38 @@ namespace Parsek
             var capturedDecisions = decisions;
             int capturedSpawnCount = spawnCount;
 
-            DialogGUIButton[] buttons = new[]
-            {
-                new DialogGUIButton(mergeLabel, () =>
+            // A not-yet-sealable Re-Fly attempt gets a third button so the
+            // player can close the slot here instead of making a separate
+            // trip to the Recordings window: Commit (don't seal) keeps it
+            // open, Merge & Seal commits and seals it now.
+            DialogGUIButton[] buttons = (isReFlyDialog && !timelineActionPermanent)
+                ? new[]
                 {
-                    MergeCommit(tree, capturedDecisions, capturedSpawnCount);
-                }),
-                new DialogGUIButton("Discard", () =>
+                    new DialogGUIButton(mergeLabel, () =>
+                    {
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount);
+                    }),
+                    new DialogGUIButton(BuildReFlyMergeAndSealButtonLabel(), () =>
+                    {
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount,
+                            playerRequestedSeal: true);
+                    }),
+                    new DialogGUIButton("Discard", () =>
+                    {
+                        MergeDiscard(tree);
+                    })
+                }
+                : new[]
                 {
-                    MergeDiscard(tree);
-                })
-            };
+                    new DialogGUIButton(mergeLabel, () =>
+                    {
+                        MergeCommit(tree, capturedDecisions, capturedSpawnCount);
+                    }),
+                    new DialogGUIButton("Discard", () =>
+                    {
+                        MergeDiscard(tree);
+                    })
+                };
 
             // Order matters: DismissPopup may invoke the previous popup's
             // OnDismiss handler, which clears the lock armed by LockInput.
@@ -312,8 +336,11 @@ namespace Parsek
             string message;
             string mergeLabel;
             string discardLabel;
+            bool isReFlyDialog = false;
+            bool timelineActionPermanent = true;
             if (labels == MergeDialogButtonLabels.ReFlyAttempt)
             {
+                isReFlyDialog = true;
                 title = "Re-Fly attempt - leaving flight";
                 discardLabel = "Discard";
                 Recording reFlyRec = marker != null
@@ -335,11 +362,13 @@ namespace Parsek
                 var preview = ReFlyAutoSealPreviewer.Preview(
                     reFlyRec, marker, FlightGlobals.ActiveVessel);
                 string labelSource;
-                bool timelineActionPermanent =
+                timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(
                         reFlyRec, marker, preview, out labelSource);
-                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
-                message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
+                mergeLabel = BuildTimelineActionButtonLabel(
+                    timelineActionPermanent, isReFlyAttempt: true);
+                message = BuildReFlyDialogBody(
+                    vesselLabel, reFlyDuration, preview, timelineActionPermanent);
 
                 ParsekLog.Info("MergeDialog",
                     $"Re-Fly auto-seal preview: willSeal={preview.WillAutoSeal} " +
@@ -351,7 +380,7 @@ namespace Parsek
             }
             else
             {
-                title = "Confirm Merge to Timeline";
+                title = "Confirm: Merge to Timeline";
                 mergeLabel = "Merge to Timeline";
                 discardLabel = "Discard";
                 // Bug 3 (post-#876 playtest 2026-05-17): unified body for both
@@ -380,25 +409,55 @@ namespace Parsek
                 !object.ReferenceEquals(null, reFlyScenario)
                 && reFlyScenario.ActiveMergeJournal != null;
 
-            DialogGUIButton[] buttons = journalActive
-                ? new[]
-                  {
-                      new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
-                          isMerge: true,
-                          preCommitFinalize: preCommitFinalize,
-                          postChoice: postChoice)),
-                  }
-                : new[]
-                  {
-                      new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
-                          isMerge: true,
-                          preCommitFinalize: preCommitFinalize,
-                          postChoice: postChoice)),
-                      new DialogGUIButton(discardLabel, () => RunPreTransitionAction(
-                          isMerge: false,
-                          preCommitFinalize: preCommitFinalize,
-                          postChoice: postChoice)),
-                  };
+            // Three buttons for a not-yet-sealable Re-Fly attempt so the
+            // player can close the slot at scene exit instead of a separate
+            // Recordings-window trip. Journal-active keeps the single forced
+            // merge button (Discard is gated for merge-journal safety).
+            DialogGUIButton[] buttons;
+            if (journalActive)
+            {
+                buttons = new[]
+                {
+                    new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
+                        isMerge: true,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                };
+            }
+            else if (isReFlyDialog && !timelineActionPermanent)
+            {
+                buttons = new[]
+                {
+                    new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
+                        isMerge: true,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                    new DialogGUIButton(BuildReFlyMergeAndSealButtonLabel(), () =>
+                        RunPreTransitionAction(
+                            isMerge: true,
+                            preCommitFinalize: preCommitFinalize,
+                            postChoice: postChoice,
+                            playerRequestedSeal: true)),
+                    new DialogGUIButton(discardLabel, () => RunPreTransitionAction(
+                        isMerge: false,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                };
+            }
+            else
+            {
+                buttons = new[]
+                {
+                    new DialogGUIButton(mergeLabel, () => RunPreTransitionAction(
+                        isMerge: true,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                    new DialogGUIButton(discardLabel, () => RunPreTransitionAction(
+                        isMerge: false,
+                        preCommitFinalize: preCommitFinalize,
+                        postChoice: postChoice)),
+                };
+            }
 
             PopupDialog.DismissPopup(DialogName);
             LockInput();
@@ -743,7 +802,8 @@ namespace Parsek
         private static void RunPreTransitionAction(
             bool isMerge,
             System.Action preCommitFinalize,
-            System.Action postChoice)
+            System.Action postChoice,
+            bool playerRequestedSeal = false)
         {
             try
             {
@@ -802,7 +862,7 @@ namespace Parsek
             bool actionCompleted;
             if (isMerge)
             {
-                MergeCommit(pending, decisions, spawnCount);
+                MergeCommit(pending, decisions, spawnCount, playerRequestedSeal);
                 // CommitPendingTree nulls RecordingStore.PendingTree on success.
                 actionCompleted = (RecordingStore.PendingTree == null);
             }
@@ -834,14 +894,34 @@ namespace Parsek
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
 
-        internal static string BuildTimelineActionButtonLabel(bool isPermanent)
+        internal static string BuildTimelineActionButtonLabel(
+            bool isPermanent, bool isReFlyAttempt = false)
         {
-            return isPermanent ? "Merge to Timeline" : "Commit to Timeline";
+            // Non-permanent is only reachable on a Re-Fly attempt whose
+            // outcome is not yet a sealing terminal; that dialog offers a
+            // separate "Merge & Seal" button, so this one commits without
+            // closing the slot.
+            if (!isPermanent)
+                return "Commit (don't seal)";
+            // Only a permanent Re-Fly merge auto-seals the rewind slot
+            // (MergeState.Immutable); name that consequence on the button.
+            // Ordinary whole-tree merges are also permanent but have no
+            // slot to seal, so they keep the plain "Merge to Timeline".
+            return isReFlyAttempt ? "Merge & Seal" : "Merge to Timeline";
         }
+
+        /// <summary>
+        /// Button label for the explicit "commit and close the re-fly slot
+        /// now" action shown beneath "Commit (don't seal)" on a not-yet-
+        /// sealable Re-Fly attempt. Shares the wording with the permanent
+        /// auto-seal button so there is one canonical seal string.
+        /// </summary>
+        internal static string BuildReFlyMergeAndSealButtonLabel()
+            => BuildTimelineActionButtonLabel(isPermanent: true, isReFlyAttempt: true);
 
         internal static string BuildTimelineActionDialogTitle(bool isPermanent)
         {
-            return isPermanent ? "Confirm Merge to Timeline" : "Confirm Commit to Timeline";
+            return isPermanent ? "Confirm: Merge to Timeline" : "Confirm: Commit to Timeline";
         }
 
         internal static bool DetermineReFlyTimelineActionIsPermanent(
@@ -882,15 +962,22 @@ namespace Parsek
         internal static string BuildReFlyDialogBody(
             string vesselLabel,
             double reFlyDuration,
-            ReFlyAutoSealPreviewResult preview)
+            ReFlyAutoSealPreviewResult preview,
+            bool willAutoSeal)
         {
             string headline = $"<align=\"center\">{vesselLabel} - " +
                               $"{FormatDuration(reFlyDuration)}</align>\n\n";
-            if (!preview.WillAutoSeal)
+            if (!willAutoSeal)
             {
+                // Not a sealing terminal: the dialog shows both
+                // "Commit (don't seal)" and "Merge & Seal", so the body
+                // names what each one does to the re-fly slot.
                 return headline +
                     "<align=\"left\">Do you want to commit this Re-Fly attempt " +
-                    "to the timeline?</align>";
+                    "to the timeline?\n\n" +
+                    "Commit (don't seal) keeps this Re-Fly slot open. " +
+                    "Merge & Seal permanently closes it — you cannot Re-Fly " +
+                    "this line again.</align>";
             }
 
             string reasons = BuildReFlyAutoSealReasonLines(preview);
@@ -1212,11 +1299,19 @@ namespace Parsek
 
         /// <summary>
         /// Implements the "Merge to Timeline" branch of the dialog.
+        /// <paramref name="playerRequestedSeal"/> is set ONLY by the
+        /// "Merge &amp; Seal" button shown on a not-yet-sealable Re-Fly
+        /// attempt; it closes the re-fly slot after the commit (same effect
+        /// as the Recordings-window Seal button) by flipping the slot's
+        /// effective tip to <see cref="MergeState.Immutable"/>. The
+        /// "Commit (don't seal)" button leaves it <c>false</c>, so the tip
+        /// stays <see cref="MergeState.CommittedProvisional"/> (open).
         /// </summary>
         internal static void MergeCommit(
             RecordingTree tree,
             Dictionary<string, bool> decisions,
-            int spawnCount)
+            int spawnCount,
+            bool playerRequestedSeal = false)
         {
             if (tree == null)
             {
@@ -1279,7 +1374,7 @@ namespace Parsek
             // OnTreeCommitted (so downstream chain evaluators see the
             // superseded subtree hidden from ERS).
             ReFlyMergeCommitResult reFlyResult =
-                TryCommitReFlySupersede(activeReFlyTargetHint);
+                TryCommitReFlySupersede(activeReFlyTargetHint, playerRequestedSeal);
 
             // #292 + rewind-staging follow-up: refresh quicksave only after the
             // re-fly staged commit has either completed or been bypassed.
@@ -2559,10 +2654,11 @@ namespace Parsek
         /// is unchanged.
         /// </summary>
         internal static ReFlyMergeCommitResult TryCommitReFlySupersede()
-            => TryCommitReFlySupersede(null);
+            => TryCommitReFlySupersede(null, playerRequestedSeal: false);
 
         private static ReFlyMergeCommitResult TryCommitReFlySupersede(
-            RecordingIdentityHint activeReFlyTargetHint)
+            RecordingIdentityHint activeReFlyTargetHint,
+            bool playerRequestedSeal)
         {
             var scenario = ParsekScenario.Instance;
             if (object.ReferenceEquals(null, scenario))
@@ -2653,7 +2749,79 @@ namespace Parsek
                 return ReFlyMergeCommitResult.Interrupted;
             }
 
+            // "Merge & Seal": the player asked to close the slot now even
+            // though the outcome did not auto-seal. Reuse the same path the
+            // Recordings-window Seal button uses, which flips the slot's
+            // effective tip CommittedProvisional -> Immutable (the single
+            // open/closed source of truth after collapse-seal-into-mergestate).
+            // "Commit (don't seal)" leaves playerRequestedSeal false, so the
+            // tip stays CommittedProvisional (open / re-flyable) and the slot
+            // remains an Unfinished Flight. Failure to resolve the slot is
+            // non-fatal — the merge already committed, so warn and point the
+            // player at the manual Seal affordance. TrySeal does its own
+            // persist + RP reap, a second durable pass after the merge
+            // journal's; that redundancy is intentional and cheap for a
+            // one-off interactive action.
+            if (playerRequestedSeal)
+            {
+                ApplyPlayerRequestedSeal(provisional);
+            }
+            else
+            {
+                // Diagnostic: make "Commit (don't seal)" leave a positive trace
+                // so a log reader can tell it apart from "Merge & Seal" (which
+                // logs via ApplyPlayerRequestedSeal). Without this, only the
+                // seal path was visible. The player declined to seal, but the
+                // merge's terminal classification may still have auto-sealed the
+                // tip to Immutable (e.g. a landed / destroyed outcome via
+                // SupersedeCommit), so report the provisional's actual resulting
+                // MergeState rather than assuming it stayed open — the tip
+                // MergeState is the single open/closed source of truth.
+                MergeState resultState = provisional != null
+                    ? provisional.MergeState
+                    : MergeState.NotCommitted;
+                string disposition = resultState == MergeState.Immutable
+                    ? "tip auto-sealed to Immutable by terminal classification"
+                    : $"slot left open at {resultState}";
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly merge committed WITHOUT player seal (player chose Commit-don't-seal); " +
+                    $"{disposition} rec={provisional?.RecordingId ?? "<no-id>"}");
+            }
+
             return ReFlyMergeCommitResult.Completed;
+        }
+
+        // internal (not private) so the MergeAndSealReFlyClosesSlot in-game
+        // test can drive the exact Merge & Seal post-merge step.
+        internal static void ApplyPlayerRequestedSeal(Recording provisional)
+        {
+            string recId = provisional?.RecordingId ?? "<no-id>";
+            if (provisional == null)
+            {
+                ParsekLog.Warn("MergeDialog",
+                    "Merge & Seal: resolved provisional is null after merge — " +
+                    "cannot seal; player can seal from the Recordings window");
+                ParsekLog.ScreenMessage(
+                    "Merged, but could not seal — seal it from the Recordings window", 4f);
+                return;
+            }
+
+            string sealReason;
+            bool sealed_ = UnfinishedFlightSealHandler.TrySeal(provisional, out sealReason);
+            if (sealed_)
+            {
+                ParsekLog.Info("MergeDialog",
+                    $"Merge & Seal: sealed re-fly slot after merge rec={recId}");
+                ParsekLog.ScreenMessage("Re-Fly slot sealed", 3f);
+            }
+            else
+            {
+                ParsekLog.Warn("MergeDialog",
+                    $"Merge & Seal: seal failed after merge rec={recId} " +
+                    $"reason={sealReason ?? "<none>"} — player can seal from the Recordings window");
+                ParsekLog.ScreenMessage(
+                    "Merged, but could not seal — seal it from the Recordings window", 4f);
+            }
         }
 
 

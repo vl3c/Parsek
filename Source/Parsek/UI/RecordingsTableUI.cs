@@ -2182,20 +2182,16 @@ namespace Parsek
             List<int> directMembers;
             grpToRecs.TryGetValue(groupName, out directMembers);
 
-            // When this tree owns Unfinished Flight members (rendered below as
-            // the nested virtual subgroup), exclude them from the regular
-            // member list so the same recording does not appear twice in the
-            // table — once as a top-level tree row and once inside the
-            // Unfinished Flights group. Without this filter the UF row
-            // duplicates because grpToRecs stores raw tree membership and
-            // does not know about the virtual subgroup.
-            List<int> displayMembers = hasNestedUnfinished
-                ? FilterUnfinishedFlightRowsForRegularTree(directMembers, committed, groupName)
-                : directMembers;
-
-            if (displayMembers != null)
+            // STASH is a mirror, not a destination: when this tree owns
+            // Unfinished Flight members (rendered below as the nested
+            // virtual subgroup), the same recordings remain in the regular
+            // member list and render under their natural mission tree
+            // group too. The nested STASH subgroup just surfaces the
+            // Fly/Seal-eligible rows so they're easy to act on without
+            // hunting through the tree.
+            if (directMembers != null)
             {
-                var displayBlocks = BuildGroupDisplayBlocks(groupName, displayMembers, committed, chainToRecs);
+                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                 {
                     var block = displayBlocks[i];
@@ -3019,7 +3015,10 @@ namespace Parsek
             if (string.IsNullOrEmpty(rec.RecordingId)
                 || string.IsNullOrEmpty(owner.RecordingId))
                 return false;
-            if (EffectiveState.IsRewindRetired(rec, retirements))
+            // Cascade overload: parent-anchored debris of a retired recording
+            // must never be picked as a launch-rewind replacement target.
+            // The child's lineage is gone with its retired parent.
+            if (EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements))
                 return false;
             if (supersedes == null || supersedes.Count == 0)
                 return false;
@@ -3561,7 +3560,7 @@ namespace Parsek
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog("ParsekDisbandGroupConfirm", msg,
-                    "Confirm Disband Group", HighLogic.UISkin,
+                    "Confirm: Disband Group", HighLogic.UISkin,
                     new DialogGUIButton("Disband Group", () =>
                     {
                         int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
@@ -3605,12 +3604,12 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekRewindConfirm",
                     message,
-                    "Confirm Rewind",
+                    "Confirm: Rewind",
                     HighLogic.UISkin,
                     new DialogGUIButton("Rewind", () =>
                     {
                         ParsekLog.Info("Rewind",
-                            $"User confirmed rewind to \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT}");
+                            $"User confirmed Rewind-to-Launch for \"{capturedOwner.VesselName}\" at UT {capturedOwner.StartUT} (not a Re-Fly)");
                         RecordingStore.InitiateRewind(capturedOwner);
                     }),
                     new DialogGUIButton("Cancel", () =>
@@ -3639,7 +3638,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekFastForwardConfirm",
                     message,
-                    "Confirm Fast-Forward",
+                    "Confirm: Fast-Forward",
                     HighLogic.UISkin,
                     new DialogGUIButton("Fast-Forward", () =>
                     {
@@ -3696,7 +3695,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekClearRecordingConfirm",
                     "Discard the current recording?\n\nThis cannot be undone.",
-                    "Confirm Clear Recording",
+                    "Confirm: Clear Recording",
                     HighLogic.UISkin,
                     new DialogGUIButton("Clear", () =>
                     {
@@ -4373,60 +4372,6 @@ namespace Parsek
             }
 
             return "Recording";
-        }
-
-        /// <summary>
-        /// Pure helper: returns a copy of <paramref name="directMembers"/> with
-        /// every recording for which
-        /// <see cref="EffectiveState.IsUnfinishedFlight(Recording)"/> is true
-        /// stripped out. Used by <see cref="DrawGroupTree"/> when a tree
-        /// already nests an Unfinished Flights virtual subgroup so the same
-        /// recording does not render in both places.
-        ///
-        /// <para>
-        /// Out-of-range indices are passed through unchanged (defensive — any
-        /// future caller error stays visible at the row layer instead of
-        /// being silently swallowed by a UF-filter pre-pass). Returns
-        /// <paramref name="directMembers"/> unchanged when no filtering is
-        /// needed (avoids an allocation in the common no-UF case). Emits one
-        /// rate-limited Verbose log line per `<groupName>` flush so the trim
-        /// is auditable without flooding the log.
-        /// </para>
-        /// </summary>
-        internal static List<int> FilterUnfinishedFlightRowsForRegularTree(
-            IList<int> directMembers,
-            IReadOnlyList<Recording> committed,
-            string groupName)
-        {
-            if (directMembers == null) return null;
-            if (committed == null) return directMembers as List<int> ?? new List<int>(directMembers);
-
-            int filtered = 0;
-            var trimmed = new List<int>(directMembers.Count);
-            for (int i = 0; i < directMembers.Count; i++)
-            {
-                int ri = directMembers[i];
-                if (ri < 0 || ri >= committed.Count)
-                {
-                    trimmed.Add(ri);
-                    continue;
-                }
-                if (EffectiveState.IsUnfinishedFlight(committed[ri]))
-                {
-                    filtered++;
-                    continue;
-                }
-                trimmed.Add(ri);
-            }
-
-            if (filtered == 0)
-                return directMembers as List<int> ?? new List<int>(directMembers);
-
-            ParsekLog.VerboseRateLimited("UnfinishedFlights",
-                "uf-filter-out-of-tree-row-" + (groupName ?? "<none>"),
-                $"DrawGroupTree: filtered {filtered} UF row(s) from regular tree '{groupName ?? "<none>"}' " +
-                "(rendered in nested Unfinished Flights subgroup)");
-            return trimmed;
         }
 
         internal static List<GroupDisplayBlock> BuildGroupDisplayBlocks(
@@ -5200,8 +5145,11 @@ namespace Parsek
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
             IReadOnlyList<RecordingRewindRetirement> retirements)
         {
+            // Cascade overload: parent-anchored debris of a retired recording
+            // renders as inactive in the recordings table so the orphan row
+            // does not look like a separately-flyable lineage.
             return IsSupersededForDisplay(rec, supersedes)
-                || EffectiveState.IsRewindRetired(rec, retirements);
+                || EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements);
         }
     }
 }

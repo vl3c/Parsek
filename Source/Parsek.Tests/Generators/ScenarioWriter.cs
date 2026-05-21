@@ -586,9 +586,9 @@ namespace Parsek.Tests.Generators
             // v13 debris parent-anchor contract: stamp adjacent to IsDebris
             // so cloned/merged/serialized synthetic debris recordings carry the
             // contract through every code path the recorder writes for live debris.
-            // Recording.ApplyDebrisAnchorContract no-ops on non-debris, so this
+            // Recording.ApplyParentAnchorContract no-ops on non-debris, so this
             // assignment is safe even when the builder didn't call AsDebris().
-            Recording.ApplyDebrisAnchorContract(rec, builder.GetDebrisParentRecordingId());
+            Recording.ApplyParentAnchorContract(rec, builder.GetParentAnchorRecordingId());
 
             return rec;
         }

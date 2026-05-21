@@ -1223,7 +1223,10 @@ namespace Parsek
                 return true;
             }
 
-            if (EffectiveState.IsRewindRetired(rec, retirements))
+            // Cascade overload: parent-anchored debris of a retired recording
+            // is hidden alongside the retired parent so the orphan debris does
+            // not render at KSC alongside the restored parent's own debris.
+            if (EffectiveState.IsRewindRetired(rec, RecordingStore.CommittedRecordings, retirements))
             {
                 reason = TimelineInactiveReason.RewindRetired;
                 return true;
@@ -1801,8 +1804,7 @@ namespace Parsek
                 anchor.WorldRot,
                 dx,
                 dy,
-                dz,
-                rec.RecordingFormatVersion);
+                dz);
             if (double.IsNaN(worldPos.x) || double.IsNaN(worldPos.y) || double.IsNaN(worldPos.z))
             {
                 ParsekLog.Warn("KSCGhost",
@@ -1817,7 +1819,7 @@ namespace Parsek
             pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorRecordingId);
             ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-position",
                 $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
-                $"contract={RecordingStore.DescribeRelativeFrameContract(rec.RecordingFormatVersion)} " +
+                $"contract=anchor-local " +
                 $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
                 $"anchorRec={anchorRecordingId} |offset|={Math.Sqrt(dx * dx + dy * dy + dz * dz):F2}m",
                 2.0);
@@ -2214,6 +2216,18 @@ namespace Parsek
                 // RespawnVessel uses protoVessels directly - works in any scene.
                 ParsekLog.Info("KSCSpawn",
                     $"Attempting spawn for #{recIdx} \"{rec.VesselName}\" (id={rec.RecordingId})");
+
+                // The in-memory snapshot is a transient cache that may have been
+                // dropped in-session; re-hydrate from the durable _vessel.craft
+                // sidecar before consuming it. No-op when already loaded.
+                if (!RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec)
+                    || rec.VesselSnapshot == null)
+                {
+                    ParsekLog.Warn("KSCSpawn",
+                        $"Spawn FAILED for #{recIdx} \"{rec.VesselName}\": vessel snapshot " +
+                        "unavailable (in-memory copy dropped and sidecar could not be re-hydrated)");
+                    return;
+                }
 
                 // Keep a private working snapshot for the entire KSC spawn flow so route
                 // selection, fallback repairs, and aborts never mutate the stored recording.

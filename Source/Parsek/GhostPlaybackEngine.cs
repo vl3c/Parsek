@@ -97,6 +97,8 @@ namespace Parsek
         private int frameSkipSpawnSuppressedDeadOnArrival;
         private int frameSkipAnchorRotationUnreliable;
         private int frameSkipAnchorReFlyUnstable;
+        private int frameSkipChainShadowed;
+        private int frameSkipChainBridgeHeld;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -173,6 +175,21 @@ namespace Parsek
             CompletedThisCall = 3
         }
 
+        // Outcome of the first-spawn block (R3) extracted from RenderInRangeGhost.
+        // The helper owns the block body; the caller maps the outcome to the
+        // corresponding return / fall-through so no return is buried in the helper.
+        private enum FirstSpawnOutcome : byte
+        {
+            // Spawn produced a ready state — fall through to the defensive
+            // null-check and the zone-rendering pipeline (original fall-out-of-block).
+            Proceed = 0,
+            // Caller should `return true;` (original Pending path).
+            ReturnTrue = 1,
+            // Caller should `return false;` (original dead-on-arrival / throttle /
+            // visual-load-Failed paths).
+            ReturnFalse = 2
+        }
+
         #endregion
 
         #region Lifecycle events
@@ -190,6 +207,31 @@ namespace Parsek
         /// destroying ghosts that the policy is intentionally keeping alive.
         /// </summary>
         internal System.Func<int, bool> IsGhostHeld;
+
+        /// <summary>
+        /// Delegate set by the policy to resolve the slot index of the chain
+        /// continuation for a given slot. Returns -1 when the slot has no
+        /// chain continuation (no chain id, branch &gt; 0, no committed
+        /// recording at the next chainIndex, or supersede resolution failed).
+        /// Used by <see cref="ChainHandoffLogic"/> to coordinate the chain-seam
+        /// handoff: shadow the head when the continuation is rendering,
+        /// bridge-hold the head when the continuation has not yet activated.
+        /// Null is treated as "no chain continuation for any slot" — engine
+        /// behaviour falls back to the pre-handoff destroy-and-respawn shape.
+        /// </summary>
+        internal System.Func<int, int> ResolveChainNextIndex;
+
+        /// <summary>
+        /// Per-slot bookkeeping for the chain-bridge hold: the playback UT at
+        /// which the bridge first opened for a slot waiting on its chain
+        /// continuation. Bounded by
+        /// <see cref="ChainHandoffLogic.DefaultBridgeMaxSeconds"/> so a
+        /// continuation that genuinely never spawns still tears down the head.
+        /// Entries are removed on bridge close (continuation activated,
+        /// bridge expired, or slot destroyed).
+        /// </summary>
+        private readonly Dictionary<int, double> chainBridgeOpenedUT
+            = new Dictionary<int, double>();
 
         /// <summary>
         /// Optional host-supplied exact watched-state predicate. Needed so overlap cycles
@@ -244,7 +286,7 @@ namespace Parsek
                 return false;
             }
 
-            string parentRecordingId = traj.DebrisParentRecordingId;
+            string parentRecordingId = traj.ParentAnchorRecordingId;
             string originRecordingId = marker.OriginChildRecordingId;
             if (string.IsNullOrWhiteSpace(parentRecordingId)
                 || string.IsNullOrWhiteSpace(originRecordingId)
@@ -294,7 +336,7 @@ namespace Parsek
             ReFlySessionMarker marker)
         {
             string recordingId = traj?.RecordingId;
-            string parentRecordingId = traj?.DebrisParentRecordingId;
+            string parentRecordingId = traj?.ParentAnchorRecordingId;
             double trajStartUT = traj?.StartUT ?? 0.0;
             double rewindPointUT = marker?.RewindPointUT ?? double.NaN;
             string identity = "session-suppressed-companion-debris|"
@@ -507,6 +549,12 @@ namespace Parsek
                 case GhostPlaybackSkipReason.AnchorReFlyUnstable:
                     frameSkipAnchorReFlyUnstable++;
                     break;
+                case GhostPlaybackSkipReason.ChainShadowed:
+                    frameSkipChainShadowed++;
+                    break;
+                case GhostPlaybackSkipReason.ChainBridgeHeld:
+                    frameSkipChainBridgeHeld++;
+                    break;
             }
         }
 
@@ -529,7 +577,9 @@ namespace Parsek
                 || counters.rewindRetired > 0
                 || counters.spawnSuppressedDeadOnArrival > 0
                 || counters.anchorRotationUnreliable > 0
-                || counters.anchorReFlyUnstable > 0;
+                || counters.anchorReFlyUnstable > 0
+                || counters.chainShadowed > 0
+                || counters.chainBridgeHeld > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -541,7 +591,8 @@ namespace Parsek
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
-                "anchorReFlyUnstable={17}] active={18}",
+                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19}] " +
+                "active={20}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -560,6 +611,8 @@ namespace Parsek
                 counters.spawnSuppressedDeadOnArrival,
                 counters.anchorRotationUnreliable,
                 counters.anchorReFlyUnstable,
+                counters.chainShadowed,
+                counters.chainBridgeHeld,
                 counters.active);
         }
 
@@ -585,6 +638,8 @@ namespace Parsek
                 spawnSuppressedDeadOnArrival = frameSkipSpawnSuppressedDeadOnArrival,
                 anchorRotationUnreliable = frameSkipAnchorRotationUnreliable,
                 anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
+                chainShadowed = frameSkipChainShadowed,
+                chainBridgeHeld = frameSkipChainBridgeHeld,
                 active = ghostStates.Count
             };
         }
@@ -817,9 +872,16 @@ namespace Parsek
                 // replaced parent ghost. Destroy any other leftover ghost
                 // visuals first so the player doesn't see stale meshes from a
                 // recording that just got superseded mid-flight.
-                ReFlySessionMarker activeReFlyMarker = SessionSuppressionState.ActiveMarker;
-                if (activeReFlyMarker != null
-                    && SessionSuppressionState.IsSuppressedRecordingIndex(i))
+                //
+                // The marker and per-recording suppression bit are pushed in by
+                // the host through FrameContext / TrajectoryPlaybackFlags so
+                // the engine doesn't reach into SessionSuppressionState
+                // directly. Both inputs are stable across a frame: every
+                // re-fly marker writer (scenario lifecycle, merge / rewind /
+                // revert orchestration, reconciliation apply) runs outside the
+                // engine's per-frame loop.
+                ReFlySessionMarker activeReFlyMarker = ctx.activeReFlyMarker;
+                if (activeReFlyMarker != null && f.sessionSuppressed)
                 {
                     if (!ShouldRenderSuppressedCompanionDebris(
                             traj, activeReFlyMarker, f))
@@ -917,73 +979,11 @@ namespace Parsek
                 }
 
                 // === Loop-synced debris: use parent's loop clock ===
-                if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
-                {
-                    var parent = trajectories[traj.LoopSyncParentIdx];
-                    if (ShouldLoopPlayback(parent))
-                    {
-                        double parentLoopUT;
-                        long parentCycle;
-                        bool parentPaused;
-                        if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                                out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
-                        {
-                            GhostRenderTrace.EmitGuardSkip(
-                                traj, i, ctx.currentUT, "parent-loop-sync-failed");
-                            if (ghostActive)
-                                DestroyGhost(i, traj, f, reason: "parent loop sync failed");
-                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
-                            continue;
-                        }
-
-                        bool suppressLoopSyncGhost = suppressGhosts
-                            && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
-                                ctx.warpRate, traj, parentLoopUT);
-                        if (parentPaused || suppressLoopSyncGhost)
-                        {
-                            GhostRenderTrace.EmitGuardSkip(
-                                traj, i, ctx.currentUT,
-                                parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
-                            if (state != null)
-                                DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
-                            CountFrameSkip(parentPaused
-                                ? GhostPlaybackSkipReason.ParentLoopPaused
-                                : GhostPlaybackSkipReason.WarpHidden);
-                            continue;
-                        }
-
-                        // Cycle change: rebuild ghost for clean visual state
-                        if (state != null && state.loopCycleIndex != parentCycle)
-                        {
-                            DestroyGhost(i, traj, f, reason: "parent loop cycle change");
-                            ghostActive = false;
-                            state = null;
-                            // Clear completed-event flag so the debris can play again
-                            completedEventFired.Remove(i);
-                        }
-
-                        bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
-                        if (debrisInRange)
-                        {
-                            // Override UT for positioning — use parent's loop clock
-                            var syncCtx = ctx;
-                            syncCtx.currentUT = parentLoopUT;
-                            if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
-                                    hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
-                                    allowEarlyDestroyedDebrisCompletion: false,
-                                    ref state, ref ghostActive))
-                            {
-                                if (state != null)
-                                    state.loopCycleIndex = parentCycle;
-                            }
-                        }
-                        else if (state != null)
-                        {
-                            DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
-                        }
-                        continue;
-                    }
-                }
+                if (TryUpdateLoopSyncedDebris(
+                        i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
+                        activationStartUT, hasPointData, hasInterpolatedPoints,
+                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
+                    continue;
 
                 // === Warp suppression: hide moving ghosts during high warp ===
                 if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
@@ -996,6 +996,91 @@ namespace Parsek
                     }
                     DestroyAllOverlapGhosts(i);
                     CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                    continue;
+                }
+
+                // === Chain-seam handoff: shadow the head when the chain
+                // continuation is rendering. This collapses the section-overlap
+                // case (head + continuation both authored across a UT window)
+                // onto a single visible ghost. The continuation already covers
+                // playback inside its UT range, so the head's render here is
+                // redundant. Bridge bookkeeping for the gap-case lives below
+                // in the stale-past-end cleanup. ===
+                //
+                // Note (flag/part events): the shadow path short-circuits
+                // before RenderInRangeGhost, which also means
+                // ApplyFlagEvents and per-frame part-event playback do not
+                // run for the shadowed head this frame. Authored flags are
+                // world-permanent and the same FlagEvent payload typically
+                // exists on the continuation recording (chain splits clone
+                // the events to both sides), so the continuation's render
+                // path plants them. Part events on the head past the
+                // continuation's startUT are intentionally skipped — the
+                // continuation's authored events are the authoritative
+                // surface during the overlap.
+                //
+                // Note (inRange vs chainEndUT): inRange uses traj.EndUT and
+                // pastEffectiveEnd uses f.chainEndUT.
+                // RecordingStore.GetChainEndUT returns Max(rec.EndUT, ...)
+                // over branch-0 chain peers, so chainEndUT >= EndUT and
+                // inRange implies !pastEffectiveEnd. Shadow firing here
+                // therefore cannot collide with the past-end branch below.
+                int chainNextIndex = ResolveChainNextIndex != null
+                    ? ResolveChainNextIndex(i)
+                    : -1;
+                bool continuationHasActiveGhost = chainNextIndex >= 0
+                    && HasActiveGhost(chainNextIndex);
+                // Defensive: never shadow the watched head. WatchModeController
+                // already coordinates the chain transition via its own destroy
+                // path (`auto-followed during hold`) and only fires after the
+                // continuation's ghost is active, so in normal flow the watch
+                // transfer wins the race and the head is destroyed before
+                // the shadow ever runs. But for chains whose head and
+                // continuation sectionUTs overlap (post-optimizer splits
+                // routinely leave a sub-second overlap), there is a 1-2 frame
+                // window where the head is still in-range AND watched AND the
+                // continuation has just activated. Without this guard the
+                // shadow would SetActive(false) on the watched ghost mesh in
+                // that window. The downstream watch transfer then destroys
+                // the head a frame or two later. Mesh hiding is visually
+                // subtle because the continuation's mesh is at an
+                // approximately overlapping world position, but the watch
+                // camera target should never be a deactivated ghost
+                // GameObject — IsGhostHeld(i) returns true only for the
+                // watched slot (or a held-pending-spawn slot), so the guard
+                // closes the race without affecting non-watched chain
+                // segments which is the primary case the shadow fixes.
+                // Bridge-hold path below is already gated by !IsGhostHeld
+                // via the surrounding stale-past-end cleanup branch.
+                if (inRange
+                    && (IsGhostHeld == null || !IsGhostHeld(i))
+                    && ChainHandoffLogic.DecideShadow(
+                        chainNextIndex, continuationHasActiveGhost))
+                {
+                    if (ghostActive && state != null && state.ghost != null
+                        && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                    }
+                    SetOverlapGhostsActive(i, false);
+                    // Continuation is rendering, so the gap-case bridge for
+                    // this slot is no longer relevant. Clearing here keeps the
+                    // dictionary footprint bounded.
+                    chainBridgeOpenedUT.Remove(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.ChainShadowed);
+                    ParsekLog.VerboseRateLimited(
+                        "Engine",
+                        "chain-shadow-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " \"" + (traj.VesselName ?? "?")
+                            + "\" chain-shadowed by continuation slot #"
+                            + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                            + " at UT="
+                            + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                        5.0);
+                    GhostRenderTrace.EmitGuardSkip(
+                        traj, i, ctx.currentUT, "chain-shadowed");
                     continue;
                 }
 
@@ -1022,7 +1107,70 @@ namespace Parsek
                 if (state != null && completedEventFired.Contains(i)
                     && (IsGhostHeld == null || !IsGhostHeld(i)))
                 {
-                    DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+                    // === Chain-seam handoff: bridge-hold the head when its
+                    // chain continuation has not yet activated. Collapses the
+                    // section-gap case onto a single visible ghost by keeping
+                    // the head alive briefly while the continuation spawns.
+                    // Bounded by ChainHandoffLogic.DefaultBridgeMaxSeconds so
+                    // a continuation that genuinely never activates still
+                    // tears down. ===
+                    double bridgeOpenedUT;
+                    if (!chainBridgeOpenedUT.TryGetValue(i, out bridgeOpenedUT))
+                        bridgeOpenedUT = double.NaN;
+                    ChainBridgeAction bridge = ChainHandoffLogic.DecideBridgeHold(
+                        chainNextIndex,
+                        continuationHasActiveGhost,
+                        ctx.currentUT,
+                        bridgeOpenedUT,
+                        ChainHandoffLogic.DefaultBridgeMaxSeconds);
+                    if (bridge == ChainBridgeAction.Hold)
+                    {
+                        if (double.IsNaN(bridgeOpenedUT))
+                            chainBridgeOpenedUT[i] = ctx.currentUT;
+                        CountFrameSkip(GhostPlaybackSkipReason.ChainBridgeHeld);
+                        double openedUTForLog = double.IsNaN(bridgeOpenedUT)
+                            ? ctx.currentUT : bridgeOpenedUT;
+                        ParsekLog.VerboseRateLimited(
+                            "Engine",
+                            "chain-bridge-hold-" + i.ToString(CultureInfo.InvariantCulture),
+                            "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " \"" + (traj.VesselName ?? "?")
+                                + "\" chain-bridge-hold: waiting for continuation slot #"
+                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                                + " at UT="
+                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                                + " openedUT="
+                                + openedUTForLog.ToString("F2", CultureInfo.InvariantCulture)
+                                + " maxSeconds="
+                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                                    "F1", CultureInfo.InvariantCulture),
+                            5.0);
+                        // Mirror the shadow path's trace emit so a "why
+                        // wasn't this ghost destroyed at past-end?"
+                        // investigation can correlate against the same
+                        // anomaly-window stream the rest of the engine
+                        // writes into.
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "chain-bridge-held");
+                    }
+                    else
+                    {
+                        if (bridge == ChainBridgeAction.Expired)
+                        {
+                            ParsekLog.Verbose("Engine",
+                                "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " \"" + (traj.VesselName ?? "?")
+                                + "\" chain-bridge-expired: continuation slot #"
+                                + chainNextIndex.ToString(CultureInfo.InvariantCulture)
+                                + " did not activate within "
+                                + ChainHandoffLogic.DefaultBridgeMaxSeconds.ToString(
+                                    "F1", CultureInfo.InvariantCulture)
+                                + "s; destroying head at UT="
+                                + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture));
+                        }
+                        chainBridgeOpenedUT.Remove(i);
+                        DestroyGhost(i, traj, f, reason: "stale past-end ghost (no longer held)");
+                    }
                 }
             }
 
@@ -1050,17 +1198,7 @@ namespace Parsek
             long elapsedTicksAtLoopEnd = updateStopwatch.ElapsedTicks;
 
             // Fire deferred events AFTER loop completes
-            int createdEventsFired = deferredCreatedEvents.Count;
-            deferredCreatedStopwatch.Start();
-            for (int i = 0; i < deferredCreatedEvents.Count; i++)
-                OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
-            deferredCreatedStopwatch.Stop();
-
-            int completedEventsFired = deferredCompletedEvents.Count;
-            deferredCompletedStopwatch.Start();
-            for (int i = 0; i < deferredCompletedEvents.Count; i++)
-                OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
-            deferredCompletedStopwatch.Stop();
+            FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired);
 
             // Observability capture is measured as a phase and is now inside the updateStopwatch
             // window — totalMicroseconds includes it, so the #414 breakdown's phase sum matches
@@ -1088,15 +1226,109 @@ namespace Parsek
             // tick-to-microsecond divisions even on healthy frames. DiagnosticsComputation
             // itself only logs when the budget is actually exceeded AND only once per session,
             // so steady-state cost of the breakdown path is exactly the struct population
-            // below; nothing is written unless the warn fires.
+            // below; nothing is written unless the warn fires. The already-divided
+            // spawnMicroseconds / destroyMicroseconds are reused (not recomputed from ticks)
+            // so the breakdown's buildOtherMicroseconds subtraction matches
+            // DiagnosticsState.playbackBudget.spawnMicroseconds to the microsecond (#414).
+            PlaybackBudgetPhases phases = BuildPlaybackBudgetPhases(
+                elapsedTicksAtLoopEnd: elapsedTicksAtLoopEnd,
+                spawnMicroseconds: spawnMicroseconds,
+                destroyMicroseconds: destroyMicroseconds,
+                deferredCreatedTicks: deferredCreatedStopwatch.ElapsedTicks,
+                deferredCompletedTicks: deferredCompletedStopwatch.ElapsedTicks,
+                observabilityTicks: observabilityStopwatch.ElapsedTicks,
+                trajectoriesIterated: trajectoriesIterated,
+                overlapGhostIterationCount: frameOverlapGhostIterationCount,
+                createdEventsFired: createdEventsFired,
+                completedEventsFired: completedEventsFired,
+                spawnsAttempted: frameSpawnCount,
+                spawnsThrottled: frameSpawnDeferred,
+                frameMaxSpawnTicks: frameMaxSpawnTicks,
+                buildSnapshotResolveTicks: buildSnapshotResolveStopwatch.ElapsedTicks,
+                buildTimelineTicks: buildTimelineStopwatch.ElapsedTicks,
+                buildDictionariesTicks: buildDictionariesStopwatch.ElapsedTicks,
+                buildReentryFxTicks: buildReentryFxStopwatch.ElapsedTicks,
+                heaviestSnapshotResolveTicks: frameHeaviestSpawnSnapshotResolveTicks,
+                heaviestTimelineTicks: frameHeaviestSpawnTimelineTicks,
+                heaviestDictionariesTicks: frameHeaviestSpawnDictionariesTicks,
+                heaviestReentryTicks: frameHeaviestSpawnReentryTicks,
+                heaviestOtherTicks: frameHeaviestSpawnOtherTicks,
+                heaviestBuildType: frameHeaviestSpawnBuildType);
+
+            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
+            // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
+            // first time a spike is seen, to localize the responsible sub-phase (bug #414).
+            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
+                totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
+        }
+
+        /// <summary>
+        /// Phase-C tail: fire the deferred OnGhostCreated then OnPlaybackCompleted events
+        /// accumulated during the per-trajectory loop, each timed by its own stopwatch for the
+        /// #414 budget breakdown. Extracted verbatim from UpdatePlayback; the index `for` loops
+        /// (NOT foreach — avoids enumerator allocation) and the capture-count-before-iterate
+        /// ordering are preserved. The two counts return via <c>out</c> because the caller feeds
+        /// them into the budget-phase struct.
+        /// </summary>
+        private void FireDeferredFrameEvents(out int createdEventsFired, out int completedEventsFired)
+        {
+            createdEventsFired = deferredCreatedEvents.Count;
+            deferredCreatedStopwatch.Start();
+            for (int i = 0; i < deferredCreatedEvents.Count; i++)
+                OnGhostCreated?.Invoke(deferredCreatedEvents[i]);
+            deferredCreatedStopwatch.Stop();
+
+            completedEventsFired = deferredCompletedEvents.Count;
+            deferredCompletedStopwatch.Start();
+            for (int i = 0; i < deferredCompletedEvents.Count; i++)
+                OnPlaybackCompleted?.Invoke(deferredCompletedEvents[i]);
+            deferredCompletedStopwatch.Stop();
+        }
+
+        /// <summary>
+        /// Bug #414/#450: builds the one-shot per-phase budget breakdown struct from the
+        /// UpdatePlayback Phase-C finalization values. Pure arithmetic — tick-to-microsecond
+        /// conversions plus the two negative-clamp floors — extracted verbatim from the inline
+        /// block so it can be unit-tested independently. <paramref name="spawnMicroseconds"/>
+        /// and <paramref name="destroyMicroseconds"/> arrive ALREADY divided (the caller wrote
+        /// them into DiagnosticsState.playbackBudget); they are reused here, never recomputed
+        /// from ticks, so the buildOtherMicroseconds subtraction matches the budget total to
+        /// the microsecond (#414). Everything else arrives as raw stopwatch ticks so the
+        /// `* 1000000L / Stopwatch.Frequency` division lives in exactly one place.
+        /// </summary>
+        internal static PlaybackBudgetPhases BuildPlaybackBudgetPhases(
+            long elapsedTicksAtLoopEnd,
+            long spawnMicroseconds,
+            long destroyMicroseconds,
+            long deferredCreatedTicks,
+            long deferredCompletedTicks,
+            long observabilityTicks,
+            int trajectoriesIterated,
+            int overlapGhostIterationCount,
+            int createdEventsFired,
+            int completedEventsFired,
+            int spawnsAttempted,
+            int spawnsThrottled,
+            long frameMaxSpawnTicks,
+            long buildSnapshotResolveTicks,
+            long buildTimelineTicks,
+            long buildDictionariesTicks,
+            long buildReentryFxTicks,
+            long heaviestSnapshotResolveTicks,
+            long heaviestTimelineTicks,
+            long heaviestDictionariesTicks,
+            long heaviestReentryTicks,
+            long heaviestOtherTicks,
+            HeaviestSpawnBuildType heaviestBuildType)
+        {
             long elapsedMicrosecondsAtLoopEnd = elapsedTicksAtLoopEnd * 1000000L / Stopwatch.Frequency;
             long mainLoopMicroseconds = elapsedMicrosecondsAtLoopEnd - spawnMicroseconds - destroyMicroseconds;
             if (mainLoopMicroseconds < 0) mainLoopMicroseconds = 0;
             // Bug #450: per-sub-phase aggregate = sum across all spawns in the frame.
-            long buildSnapshotResolveMicroseconds = buildSnapshotResolveStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildTimelineFromSnapshotMicroseconds = buildTimelineStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildDictionariesMicroseconds = buildDictionariesStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
-            long buildReentryFxMicroseconds = buildReentryFxStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency;
+            long buildSnapshotResolveMicroseconds = buildSnapshotResolveTicks * 1000000L / Stopwatch.Frequency;
+            long buildTimelineFromSnapshotMicroseconds = buildTimelineTicks * 1000000L / Stopwatch.Frequency;
+            long buildDictionariesMicroseconds = buildDictionariesTicks * 1000000L / Stopwatch.Frequency;
+            long buildReentryFxMicroseconds = buildReentryFxTicks * 1000000L / Stopwatch.Frequency;
             // Residual = outer spawn time − attributed sub-phases (covers camera pivot,
             // materials, MaterialPropertyBlock, SetActive, appearance reset). Floors at 0 so
             // sub-microsecond rounding between the four sub-phase ticks and spawnMicroseconds
@@ -1108,23 +1340,23 @@ namespace Parsek
                 - buildReentryFxMicroseconds;
             if (buildOtherMicroseconds < 0) buildOtherMicroseconds = 0;
 
-            var phases = new PlaybackBudgetPhases
+            return new PlaybackBudgetPhases
             {
                 mainLoopMicroseconds = mainLoopMicroseconds,
                 spawnMicroseconds = spawnMicroseconds,
                 destroyMicroseconds = destroyMicroseconds,
                 explosionCleanupMicroseconds = 0, // FXMonger owns explosion-side cleanup; nothing engine-local to measure
-                deferredCreatedEventsMicroseconds = deferredCreatedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
-                deferredCompletedEventsMicroseconds = deferredCompletedStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
-                observabilityCaptureMicroseconds = observabilityStopwatch.ElapsedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCreatedEventsMicroseconds = deferredCreatedTicks * 1000000L / Stopwatch.Frequency,
+                deferredCompletedEventsMicroseconds = deferredCompletedTicks * 1000000L / Stopwatch.Frequency,
+                observabilityCaptureMicroseconds = observabilityTicks * 1000000L / Stopwatch.Frequency,
                 trajectoriesIterated = trajectoriesIterated,
                 // Bug #460: total overlap-ghost iterations this frame so the mainLoop
                 // breakdown WARN can compute `meanPerDispatch` alongside `meanPerTraj`.
-                overlapGhostIterationCount = frameOverlapGhostIterationCount,
+                overlapGhostIterationCount = overlapGhostIterationCount,
                 createdEventsFired = createdEventsFired,
                 completedEventsFired = completedEventsFired,
-                spawnsAttempted = frameSpawnCount,
-                spawnsThrottled = frameSpawnDeferred,
+                spawnsAttempted = spawnsAttempted,
+                spawnsThrottled = spawnsThrottled,
                 spawnMaxMicroseconds = frameMaxSpawnTicks * 1000000L / Stopwatch.Frequency,
                 // Bug #450: per-sub-phase aggregate across every spawn this frame.
                 buildSnapshotResolveMicroseconds = buildSnapshotResolveMicroseconds,
@@ -1134,19 +1366,13 @@ namespace Parsek
                 buildOtherMicroseconds = buildOtherMicroseconds,
                 // Bug #450: heaviest-spawn breakdown (latched on whichever single
                 // BuildGhostVisualsWithMetrics call produced the largest delta).
-                heaviestSpawnSnapshotResolveMicroseconds = frameHeaviestSpawnSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnTimelineFromSnapshotMicroseconds = frameHeaviestSpawnTimelineTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnDictionariesMicroseconds = frameHeaviestSpawnDictionariesTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnReentryFxMicroseconds = frameHeaviestSpawnReentryTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnOtherMicroseconds = frameHeaviestSpawnOtherTicks * 1000000L / Stopwatch.Frequency,
-                heaviestSpawnBuildType = frameHeaviestSpawnBuildType,
+                heaviestSpawnSnapshotResolveMicroseconds = heaviestSnapshotResolveTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnTimelineFromSnapshotMicroseconds = heaviestTimelineTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnDictionariesMicroseconds = heaviestDictionariesTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnReentryFxMicroseconds = heaviestReentryTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnOtherMicroseconds = heaviestOtherTicks * 1000000L / Stopwatch.Frequency,
+                heaviestSpawnBuildType = heaviestBuildType,
             };
-
-            // Budget threshold warning (8ms = half of 16.6ms frame budget at 60fps).
-            // WithBreakdown variant: also emits a one-shot WARN with phase breakdown the
-            // first time a spike is seen, to localize the responsible sub-phase (bug #414).
-            DiagnosticsComputation.CheckPlaybackBudgetThresholdWithBreakdown(
-                totalMicroseconds, ghostsProcessed, ctx.warpRate, phases);
         }
 
         private void ResetPerFramePlaybackCounters(bool suppressGhosts)
@@ -1175,6 +1401,8 @@ namespace Parsek
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
             frameSkipAnchorReFlyUnstable = 0;
+            frameSkipChainShadowed = 0;
+            frameSkipChainBridgeHeld = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -1234,6 +1462,195 @@ namespace Parsek
         }
 
         /// <summary>
+        /// #688 follow-up: chain-segment dead-on-arrival spawn-suppression predicate. A chain
+        /// successor whose section is already past its effective end at first-spawn time, and
+        /// which is not held by the policy, should never build its mesh (it would flash for a
+        /// few frames then be torn down by the stale-past-end cleanup). True => suppress the
+        /// first spawn. Pure; the <paramref name="ghostHeld"/> bool is resolved from the
+        /// IsGhostHeld delegate at the call site (no delegate-as-parameter). The original
+        /// condition was `(currentUT > endUT || currentUT > chainEndUT) && (IsGhostHeld == null
+        /// || !IsGhostHeld(i))`; with ghostHeld = `IsGhostHeld != null &amp;&amp; IsGhostHeld(i)`,
+        /// `!ghostHeld` is the exact De Morgan equivalent of the held-not clause.
+        /// </summary>
+        internal static bool IsSpawnSuppressedDeadOnArrival(
+            double currentUT, double endUT, double chainEndUT, bool ghostHeld)
+        {
+            bool deadOnArrivalPastEnd = currentUT > endUT || currentUT > chainEndUT;
+            return deadOnArrivalPastEnd && !ghostHeld;
+        }
+
+        /// <summary>
+        /// Loop-synced-debris dispatch (B10) of UpdatePlayback: when this slot is debris
+        /// synced to a looping parent, render it on the parent's loop clock. Returns true when
+        /// the caller should `continue` — i.e. the parent-loop branch was taken (every internal
+        /// `continue` in the original block, including the trailing one). Returns false in the
+        /// exactly two cases that fell through to warp-suppression in the original:
+        /// (a) LoopSyncParentIdx out of range, (b) parent not looping. <paramref name="state"/>
+        /// and <paramref name="ghostActive"/> are by ref because the cycle-change path nulls
+        /// state / clears ghostActive and the inner RenderInRangeGhost reassigns both; on a
+        /// false return the block wrote neither, so the contract matches inline either way.
+        /// Verbatim extraction; the syncCtx struct copy stays a stack local.
+        /// </summary>
+        private bool TryUpdateLoopSyncedDebris(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, bool suppressGhosts, bool suppressVisualFx,
+            double activationStartUT, bool hasPointData, bool hasInterpolatedPoints,
+            bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
+            {
+                var parent = trajectories[traj.LoopSyncParentIdx];
+                if (ShouldLoopPlayback(parent))
+                {
+                    double parentLoopUT;
+                    long parentCycle;
+                    bool parentPaused;
+                    if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                            out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "parent-loop-sync-failed");
+                        if (ghostActive)
+                            DestroyGhost(i, traj, f, reason: "parent loop sync failed");
+                        CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                        return true;
+                    }
+
+                    bool suppressLoopSyncGhost = suppressGhosts
+                        && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                            ctx.warpRate, traj, parentLoopUT);
+                    if (parentPaused || suppressLoopSyncGhost)
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT,
+                            parentPaused ? "parent-loop-paused" : "parent-loop-warp-hidden");
+                        if (state != null)
+                            DestroyGhost(i, traj, f, reason: "parent loop paused/warp");
+                        CountFrameSkip(parentPaused
+                            ? GhostPlaybackSkipReason.ParentLoopPaused
+                            : GhostPlaybackSkipReason.WarpHidden);
+                        return true;
+                    }
+
+                    // Cycle change: rebuild ghost for clean visual state
+                    if (state != null && state.loopCycleIndex != parentCycle)
+                    {
+                        DestroyGhost(i, traj, f, reason: "parent loop cycle change");
+                        ghostActive = false;
+                        state = null;
+                        // Clear completed-event flag so the debris can play again
+                        completedEventFired.Remove(i);
+                    }
+
+                    bool debrisInRange = parentLoopUT >= activationStartUT && parentLoopUT <= traj.EndUT;
+                    if (debrisInRange)
+                    {
+                        // Override UT for positioning — use parent's loop clock
+                        var syncCtx = ctx;
+                        syncCtx.currentUT = parentLoopUT;
+                        if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
+                                hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                                allowEarlyDestroyedDebrisCompletion: false,
+                                ref state, ref ghostActive))
+                        {
+                            if (state != null)
+                                state.loopCycleIndex = parentCycle;
+                        }
+                    }
+                    else if (state != null)
+                    {
+                        DestroyGhost(i, traj, f, reason: "outside debris UT range in parent loop");
+                    }
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// First-spawn block (R3) of RenderInRangeGhost, run only when state == null:
+        /// #688 dead-on-arrival suppression, the #414 first-spawn slot throttle, pending-state
+        /// creation + store, and EnsureGhostVisualsLoaded with Failed/Pending handling.
+        /// Returns an outcome enum so every original `return` stays at the caller's statement
+        /// level (item 4: no buried return). <paramref name="state"/> and
+        /// <paramref name="ghostActive"/> are by ref because this assigns state =
+        /// CreatePendingSpawnState(...), writes ghostStates[i] = state, and sets ghostActive
+        /// = false on the Failed/Pending paths. Verbatim extraction; the dead-on-arrival
+        /// VerboseRateLimited message and the Failed-path ghostStates.Remove(i) are preserved.
+        /// </summary>
+        private FirstSpawnOutcome TryFirstSpawn(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            // #688 follow-up: chain-segment dead-on-arrival suppression.
+            // A chain successor whose section is already past its
+            // effective end at the moment of first-spawn would build
+            // its mesh at the recorded-start coords, render for a few
+            // frames at a position discontinuous from the previous
+            // chain segment's last frame, then be destroyed by the
+            // stale-past-end cleanup at the bottom of the loop.
+            // Players see this as a one-frame Probe ghost flash on
+            // the booster's destruction segment. Mirror the same
+            // predicate the cleanup uses so the spawn is skipped
+            // entirely; the fall-through past-end handler below this
+            // branch still fires the PlaybackCompleted event so
+            // consumers (camera transfer, debris spawn, milestone
+            // logging) see the lifecycle they expect.
+            // traj is non-null per the loop's earlier guard at the
+            // entry to UpdatePlayback's per-trajectory iteration; the
+            // surface area below uses it directly.
+            bool ghostHeld = IsGhostHeld != null && IsGhostHeld(i);
+            if (IsSpawnSuppressedDeadOnArrival(ctx.currentUT, traj.EndUT, f.chainEndUT, ghostHeld))
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj.VesselName ?? "?")
+                    + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
+                    + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " chainEndUT=" + f.chainEndUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " (past-end handler will still fire completion)",
+                    5.0);
+                return FirstSpawnOutcome.ReturnFalse;
+            }
+
+            // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
+            // land every eligible ghost's visual build on a single frame.
+            if (!TryReserveSpawnSlot(i, "first-spawn"))
+                return FirstSpawnOutcome.ReturnFalse;
+
+            state = CreatePendingSpawnState(
+                traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
+            ghostStates[i] = state;
+            // Chain seam: skip time-slicing the build so gs.ghost is set the same frame the
+            // successor enters range. The mid-chain Watch transfer then succeeds on its first
+            // attempt instead of defer-retrying for 3-5 frames while the launch ghost's
+            // terminal frame remains glued to the camera.
+            GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
+                i, traj, state, ctx.currentUT, "first spawn",
+                forceImmediateBuild: state.spawnedAtChainSeam,
+                resetCompletedEventDedup: true);
+            if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
+            {
+                CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
+                ghostStates.Remove(i);
+                ghostActive = false;
+                return FirstSpawnOutcome.ReturnFalse;
+            }
+            if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
+            {
+                ghostActive = false;
+                return FirstSpawnOutcome.ReturnTrue;
+            }
+
+            return FirstSpawnOutcome.Proceed;
+        }
+
+        /// <summary>
         /// Handles in-range ghost rendering: spawn if needed, position, apply visual events.
         /// Returns true if the ghost was processed (caller should continue to next iteration).
         /// </summary>
@@ -1267,65 +1684,12 @@ namespace Parsek
 
             if (state == null)
             {
-                // #688 follow-up: chain-segment dead-on-arrival suppression.
-                // A chain successor whose section is already past its
-                // effective end at the moment of first-spawn would build
-                // its mesh at the recorded-start coords, render for a few
-                // frames at a position discontinuous from the previous
-                // chain segment's last frame, then be destroyed by the
-                // stale-past-end cleanup at the bottom of the loop.
-                // Players see this as a one-frame Probe ghost flash on
-                // the booster's destruction segment. Mirror the same
-                // predicate the cleanup uses so the spawn is skipped
-                // entirely; the fall-through past-end handler below this
-                // branch still fires the PlaybackCompleted event so
-                // consumers (camera transfer, debris spawn, milestone
-                // logging) see the lifecycle they expect.
-                // traj is non-null per the loop's earlier guard at the
-                // entry to UpdatePlayback's per-trajectory iteration; the
-                // surface area below uses it directly.
-                bool deadOnArrivalPastEnd = ctx.currentUT > traj.EndUT
-                    || ctx.currentUT > f.chainEndUT;
-                bool deadOnArrivalNotHeld = IsGhostHeld == null || !IsGhostHeld(i);
-                if (deadOnArrivalPastEnd && deadOnArrivalNotHeld)
+                switch (TryFirstSpawn(i, traj, f, ctx, ref state, ref ghostActive))
                 {
-                    CountFrameSkip(GhostPlaybackSkipReason.SpawnSuppressedDeadOnArrival);
-                    ParsekLog.VerboseRateLimited(
-                        "Engine",
-                        "spawn-suppressed-dead-on-arrival-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj.VesselName ?? "?")
-                        + "\" spawn suppressed: past-effective-end at first-spawn time and not held — "
-                        + "ut=" + ctx.currentUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " endUT=" + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " chainEndUT=" + f.chainEndUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " (past-end handler will still fire completion)",
-                        5.0);
-                    return false;
-                }
-
-                // Bug #414: throttle first-ever spawns so scene-load warm-up bursts don't
-                // land every eligible ghost's visual build on a single frame.
-                if (!TryReserveSpawnSlot(i, "first-spawn"))
-                    return false;
-
-                state = CreatePendingSpawnState(
-                    traj, ctx.currentUT, PendingSpawnLifecycle.StandardEnter, f);
-                ghostStates[i] = state;
-                GhostVisualLoadStatus firstSpawnStatus = EnsureGhostVisualsLoaded(
-                    i, traj, state, ctx.currentUT, "first spawn",
-                    resetCompletedEventDedup: true);
-                if (firstSpawnStatus == GhostVisualLoadStatus.Failed)
-                {
-                    CountFrameSkip(GhostPlaybackSkipReason.VisualLoadFailed);
-                    ghostStates.Remove(i);
-                    ghostActive = false;
-                    return false;
-                }
-                if (firstSpawnStatus == GhostVisualLoadStatus.Pending)
-                {
-                    ghostActive = false;
-                    return true;
+                    case FirstSpawnOutcome.ReturnTrue: return true;
+                    case FirstSpawnOutcome.ReturnFalse: return false;
+                    // FirstSpawnOutcome.Proceed: fall through to the defensive
+                    // null-check below and the zone-rendering pipeline.
                 }
             }
 
@@ -1459,13 +1823,9 @@ namespace Parsek
             // unconditionally re-show the ghost the same frame we hid it.
             // Skip TrackGhostAppearance -- logging a root=(0,0,0) appearance
             // for a retired ghost was the original misleading symptom.
-            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                state.anchorRetiredThisFrame);
-            GhostRenderTrace.EmitPostUpdate(
-                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop", retired,
-                ResolveRenderSurface(usedBodyFixedPrimary, retired),
-                rawPlaybackUT: ctx.currentUT,
-                activationStartUT: ResolveGhostActivationStartUT(traj));
+            bool retired = EmitPostPositionUpdate(
+                traj, i, ctx.currentUT, visiblePlaybackUT, state, "non-loop",
+                usedBodyFixedPrimary, rawPlaybackUT: ctx.currentUT);
             if (!retired)
                 MarkPrimaryGhostPositionedThisFrame(state);
             if (retired)
@@ -1476,70 +1836,9 @@ namespace Parsek
             }
             else
             {
-                bool effectiveSkipPartEvents = zoneResult.skipPartEvents;
-                bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
-                string initialActivationHiddenReason;
-                bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
-                    traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
-                bool hasGhostTransform = state?.ghost != null;
-                Vector3 ghostPosition = hasGhostTransform
-                    ? state.ghost.transform.position
-                    : Vector3.zero;
-                GhostRenderTrace.EmitActivationDecision(
-                    trajectory: traj,
-                    ghostIndex: i,
-                    currentUT: ctx.currentUT,
-                    rawPlaybackUT: ctx.currentUT,
-                    visiblePlaybackUT: visiblePlaybackUT,
-                    activationStartUT: ResolveGhostActivationStartUT(traj),
-                    framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
-                    hidden: initialActivationHidden,
-                    hideReason: initialActivationHidden
-                        ? (initialActivationHiddenReason ?? "unknown")
-                        : null,
-                    callSite: "RenderInRangeGhost",
-                    currentPosition: ghostPosition,
-                    hasCurrentPosition: hasGhostTransform);
-                if (initialActivationHidden)
-                {
-                    if (state.ghost != null && state.ghost.activeSelf)
-                        state.ghost.SetActive(false);
-                    ghostActive = false;
-                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        effectiveSkipPartEvents, suppressVisualFx: true,
-                        allowTransientEffects: false);
-                    ResetGhostAppearanceTracking(state);
-                    ParsekLog.VerboseRateLimited(
-                        "Engine",
-                        "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
-                        "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
-                        + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
-                        + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
-                        + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
-                        + " activationStart="
-                        + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
-                        + " relativeWindow="
-                        + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s absoluteBridgeMax="
-                        + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s debrisSeedBridgeMax="
-                        + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
-                        + "s minFrames="
-                        + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
-                        5.0);
-                }
-                else
-                {
-                    bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
-                    ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
-                        effectiveSkipPartEvents, effectiveSuppressVisualFx);
-                    if (ShouldRestoreDeferredRuntimeFxState(
-                            activatedDeferredState,
-                            effectiveSuppressVisualFx))
-                        GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
-                    TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
-                        reason: "playback", requestedPlaybackUT: ctx.currentUT);
-                }
+                ApplyNonRetiredPostPosition(
+                    i, traj, ctx, state, visiblePlaybackUT, suppressVisualFx, zoneResult,
+                    ref ghostActive);
             }
 
             // Targeted post-separation observability: emits one
@@ -1579,6 +1878,86 @@ namespace Parsek
                     $"early-completion suppressed: anchor retired ghost #{i} \"{traj.VesselName}\"");
 
             return true;
+        }
+
+        /// <summary>
+        /// R10 non-retired post-position arm of RenderInRangeGhost: resolve the effective
+        /// skip-part-events / suppress-visual-fx flags, decide the initial-activation-hidden
+        /// hold, emit the activation-decision trace, and run the two-way hide-vs-activate
+        /// split. Extracted verbatim (straight-line, no control-flow exits — both inner arms
+        /// fall out the bottom). <paramref name="ghostActive"/> is by ref because the hidden
+        /// arm sets it to false; the FrameContext / ZoneRenderingResult structs pass by value
+        /// (no boxing). The state?.ghost null-checks keep their exact short-circuit form.
+        /// </summary>
+        private void ApplyNonRetiredPostPosition(
+            int i, IPlaybackTrajectory traj, FrameContext ctx, GhostPlaybackState state,
+            double visiblePlaybackUT, bool suppressVisualFx, ZoneRenderingResult zoneResult,
+            ref bool ghostActive)
+        {
+            bool effectiveSkipPartEvents = zoneResult.skipPartEvents;
+            bool effectiveSuppressVisualFx = suppressVisualFx || zoneResult.suppressVisualFx;
+            string initialActivationHiddenReason;
+            bool initialActivationHidden = ShouldHoldInitialActivationHiddenThisFrame(
+                traj, state, visiblePlaybackUT, out initialActivationHiddenReason);
+            bool hasGhostTransform = state?.ghost != null;
+            Vector3 ghostPosition = hasGhostTransform
+                ? state.ghost.transform.position
+                : Vector3.zero;
+            GhostRenderTrace.EmitActivationDecision(
+                trajectory: traj,
+                ghostIndex: i,
+                currentUT: ctx.currentUT,
+                rawPlaybackUT: ctx.currentUT,
+                visiblePlaybackUT: visiblePlaybackUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj),
+                framesRemaining: state?.initialRelativeActivationHiddenFramesRemaining ?? 0,
+                hidden: initialActivationHidden,
+                hideReason: initialActivationHidden
+                    ? (initialActivationHiddenReason ?? "unknown")
+                    : null,
+                callSite: "RenderInRangeGhost",
+                currentPosition: ghostPosition,
+                hasCurrentPosition: hasGhostTransform);
+            if (initialActivationHidden)
+            {
+                if (state.ghost != null && state.ghost.activeSelf)
+                    state.ghost.SetActive(false);
+                ghostActive = false;
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    effectiveSkipPartEvents, suppressVisualFx: true,
+                    allowTransientEffects: false);
+                ResetGhostAppearanceTracking(state);
+                ParsekLog.VerboseRateLimited(
+                    "Engine",
+                    "initial-activation-hidden-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Ghost #" + i.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj.VesselName ?? "?") + "\" initial activation hidden: "
+                    + "reason=" + (initialActivationHiddenReason ?? "unknown") + " "
+                    + "ut=" + visiblePlaybackUT.ToString("F3", CultureInfo.InvariantCulture)
+                    + " activationStart="
+                    + ResolveGhostActivationStartUT(traj).ToString("F3", CultureInfo.InvariantCulture)
+                    + " relativeWindow="
+                    + GhostPlayback.InitialRelativeActivationHiddenSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s absoluteBridgeMax="
+                    + GhostPlayback.InitialAbsoluteBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s debrisSeedBridgeMax="
+                    + GhostPlayback.InitialDebrisSeedBridgeActivationHiddenMaxSeconds.ToString("F3", CultureInfo.InvariantCulture)
+                    + "s minFrames="
+                    + GhostPlayback.InitialActivationHiddenMinimumFrames.ToString(CultureInfo.InvariantCulture),
+                    5.0);
+            }
+            else
+            {
+                bool activatedDeferredState = ActivateGhostVisualsIfNeeded(state);
+                ApplyFrameVisuals(i, traj, state, visiblePlaybackUT, ctx.warpRate,
+                    effectiveSkipPartEvents, effectiveSuppressVisualFx);
+                if (ShouldRestoreDeferredRuntimeFxState(
+                        activatedDeferredState,
+                        effectiveSuppressVisualFx))
+                    GhostPlaybackLogic.RestoreDeferredRuntimeFxState(state);
+                TrackGhostAppearance(index: i, traj: traj, state: state, playbackUT: visiblePlaybackUT,
+                    reason: "playback", requestedPlaybackUT: ctx.currentUT);
+            }
         }
 
         private bool TryHandleEarlyDestroyedDebrisCompletion(
@@ -2318,13 +2697,9 @@ namespace Parsek
                         bool overlapPrimaryUsedBodyFixed = PositionLoopAtPlaybackUT(
                             index, traj, primaryState, primaryLoopUT, effectiveSuppressVisualFx,
                             "GhostPlaybackEngine.UpdateOverlapPlayback.primary");
-                        bool primaryRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                            primaryState.anchorRetiredThisFrame);
-                        GhostRenderTrace.EmitPostUpdate(
-                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary", primaryRetired,
-                            ResolveRenderSurface(overlapPrimaryUsedBodyFixed, primaryRetired),
-                            rawPlaybackUT: primaryLoopUT,
-                            activationStartUT: ResolveGhostActivationStartUT(traj));
+                        bool primaryRetired = EmitPostPositionUpdate(
+                            traj, index, ctx.currentUT, primaryLoopUT, primaryState, "overlap-primary",
+                            overlapPrimaryUsedBodyFixed, rawPlaybackUT: primaryLoopUT);
                         if (primaryRetired)
                         {
                             ApplyFrameVisuals(index, traj, primaryState, primaryLoopUT, ctx.warpRate,
@@ -2502,15 +2877,10 @@ namespace Parsek
                     index, traj, ovState, loopUT,
                     effectiveSuppressVisualFx,
                     "GhostPlaybackEngine.UpdateExpireAndPositionOverlaps");
-                bool overlapRetired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
-                    ovState.anchorRetiredThisFrame);
-                GhostRenderTrace.EmitPostUpdate(
+                bool overlapRetired = EmitPostPositionUpdate(
                     traj, index, ctx.currentUT, loopUT, ovState,
                     "loop-overlap cycle=" + cycle.ToString(CultureInfo.InvariantCulture),
-                    overlapRetired,
-                    ResolveRenderSurface(overlapLoopUsedBodyFixed, overlapRetired),
-                    rawPlaybackUT: loopUT,
-                    activationStartUT: ResolveGhostActivationStartUT(traj));
+                    overlapLoopUsedBodyFixed, rawPlaybackUT: loopUT);
                 if (overlapRetired)
                 {
                     ApplyFrameVisuals(index, traj, ovState, loopUT, ctx.warpRate,
@@ -2924,14 +3294,14 @@ namespace Parsek
             out bool usedBodyFixedPrimary)
         {
             usedBodyFixedPrimary = false;
-            // Parent-anchored gate is now `DebrisParentRecordingId != null` alone.
+            // Parent-anchored gate is now `ParentAnchorRecordingId != null` alone.
             // Both genuine debris (IsDebris=true) and controlled-decoupled children
             // (IsDebris=false) take this path while inside a Relative section against
             // their parent. Post-window Absolute sections bypass this method entirely
             // through TryGetRelativeSectionAtUT returning false for non-Relative
             // sections (see plan section 7).
             bool parentAnchored = traj != null
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
             bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
@@ -3068,7 +3438,7 @@ namespace Parsek
         {
             if (traj == null
                 || !traj.IsDebris
-                || string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId))
+                || string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId))
             {
                 return false;
             }
@@ -3080,7 +3450,7 @@ namespace Parsek
             }
 
             var visited = new HashSet<string>(StringComparer.Ordinal);
-            string anchorRecordingId = traj.DebrisParentRecordingId;
+            string anchorRecordingId = traj.ParentAnchorRecordingId;
             while (!string.IsNullOrWhiteSpace(anchorRecordingId))
             {
                 if (!visited.Add(anchorRecordingId))
@@ -3389,7 +3759,7 @@ namespace Parsek
         {
             bool parentAnchoredDebris = traj != null
                 && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
             bool loopAnchoredDebrisChain = parentAnchoredDebris
                 && ShouldUseLoopAnchoredDebrisChain(traj, loopUT);
             if (!loopAnchoredDebrisChain
@@ -3478,6 +3848,35 @@ namespace Parsek
             if (retired)
                 return GhostRenderTrace.RenderSurface.Hidden;
             return GhostRenderTrace.RenderSurface.Legacy;
+        }
+
+        /// <summary>
+        /// Computes the post-position retired flag and emits the post-update
+        /// render trace for one positioned ghost. Shared by the non-loop,
+        /// overlap-primary, and loop-overlap per-frame paths, which differ only
+        /// in the ghost index, playback UT, state, path label, body-fixed flag,
+        /// and rawPlaybackUT. Returns retired so callers can gate their divergent
+        /// post-position bodies. Hot per-frame path: all arguments are primitives
+        /// or reference copies, no allocations.
+        /// </summary>
+        private static bool EmitPostPositionUpdate(
+            IPlaybackTrajectory traj,
+            int ghostIndex,
+            double currentUT,
+            double playbackUT,
+            GhostPlaybackState state,
+            string path,
+            bool usedBodyFixedPrimary,
+            double rawPlaybackUT)
+        {
+            bool retired = RelativeAnchorResolution.ShouldSkipPostPositionPipeline(
+                state.anchorRetiredThisFrame);
+            GhostRenderTrace.EmitPostUpdate(
+                traj, ghostIndex, currentUT, playbackUT, state, path, retired,
+                ResolveRenderSurface(usedBodyFixedPrimary, retired),
+                rawPlaybackUT: rawPlaybackUT,
+                activationStartUT: ResolveGhostActivationStartUT(traj));
+            return retired;
         }
 
         #endregion
@@ -4678,6 +5077,19 @@ namespace Parsek
                 ghostStates.Remove(index);
         }
 
+        /// <summary>
+        /// Pure-static gate for <c>GhostPlaybackState.spawnedAtChainSeam</c>: the chain-seam
+        /// carve-out applies ONLY to <see cref="PendingSpawnLifecycle.StandardEnter"/> spawns.
+        /// Loop reentries and overlap-primary spawns originate from the same recording as the
+        /// just-completed cycle, not from a chain predecessor, so they must not skip the
+        /// activation-settle hold — their fresh first-appearance race is real.
+        /// </summary>
+        internal static bool ShouldMarkSpawnedAtChainSeam(
+            bool isChainSeamSuccessor, PendingSpawnLifecycle lifecycle)
+        {
+            return isChainSeamSuccessor && lifecycle == PendingSpawnLifecycle.StandardEnter;
+        }
+
         private GhostPlaybackState CreatePendingSpawnState(
             IPlaybackTrajectory traj, double playbackUT,
             PendingSpawnLifecycle lifecycle, TrajectoryPlaybackFlags flags)
@@ -4691,8 +5103,18 @@ namespace Parsek
                 flagEventIndex = 0,
                 pendingSpawnLifecycle = lifecycle,
                 pendingSpawnFlags = flags,
+                spawnedAtChainSeam = ShouldMarkSpawnedAtChainSeam(flags.isChainSeamSuccessor, lifecycle),
                 audioPaused = ghostAudioPaused
             };
+
+            if (state.spawnedAtChainSeam)
+            {
+                string shortRecId = string.IsNullOrEmpty(state.recordingId)
+                    ? "(no-id)"
+                    : (state.recordingId.Length > 8 ? state.recordingId.Substring(0, 8) : state.recordingId);
+                ParsekLog.Verbose("Engine", FormattableString.Invariant(
+                    $"Chain-seam spawn: vessel='{state.vesselName}' rec={shortRecId} UT={playbackUT:F2}: force-immediate-build + skip activation-settle (predecessor pose is continuous)"));
+            }
 
             if (TryResolvePendingPlaybackInterpolation(traj, playbackUT, out InterpolationResult initialPlayback))
             {
@@ -4925,6 +5347,8 @@ namespace Parsek
             frameSkipSpawnSuppressedDeadOnArrival = 0;
             frameSkipAnchorRotationUnreliable = 0;
             frameSkipAnchorReFlyUnstable = 0;
+            frameSkipChainShadowed = 0;
+            frameSkipChainBridgeHeld = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -5769,7 +6193,7 @@ namespace Parsek
         {
             return traj != null
                 && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.DebrisParentRecordingId);
+                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
         }
 
         /// <summary>
@@ -6022,8 +6446,23 @@ namespace Parsek
             // activation-settle skip, so the two carve-outs stay in lockstep.
             bool v13ParentAnchoredDebrisExempt =
                 IsV13ParentAnchoredDebrisWithBodyFixedPrimaryAtActivationUT(traj);
+            // Chain-seam carve-out: a StandardEnter spawn that replaces a same-chain predecessor
+            // whose ghost just delivered its terminal pose this same frame does not need the
+            // activation-settle hold. The settle window exists to mask the fresh first-appearance
+            // pose pop that races visual construction + anchor resolution against the engine's
+            // first positioning call; at a chain seam the predecessor's last pose is by
+            // construction continuous with the successor's first pose (same vessel id, same chain,
+            // same body, same physics tick), so there is no first-appearance race to suppress.
+            // Skipping settle here removes the 14 ms invisible-ghost gap the camera otherwise sees
+            // immediately after a chain handoff and keeps the new ghost visually continuous with
+            // the just-departed predecessor. UT-window clauses above (debris-seed-bridge,
+            // relative-start, absolute-seed-bridge, absolute-primer-to-relative) are unaffected;
+            // chain successors that fall inside one of those windows still hide for the window's
+            // own physical reason.
+            bool chainSeamSpawnExempt = state.spawnedAtChainSeam;
             bool withinActivationSettle = !withinUtWindow
                 && !v13ParentAnchoredDebrisExempt
+                && !chainSeamSpawnExempt
                 && CanEvaluateInitialActivationHidden(traj, state)
                 && !IsInitialDebrisSeedBridgeEndFrame(traj, state, playbackUT)
                 && !state.initialRelativeActivationHiddenPrimed;
@@ -6829,6 +7268,12 @@ namespace Parsek
             ghostStates.Remove(index);
             loopPhaseOffsets.Remove(index);
             completedEventFired.Remove(index);
+            // Chain-bridge bookkeeping is tied to the slot's ghost-state
+            // lifetime; once the ghost is destroyed (for any reason — bridge
+            // expiry, in-range failure, anchor unloaded, parent-loop sync
+            // failure, etc.) the bridge entry must clear so a fresh spawn at
+            // the same index reopens its own bridge.
+            chainBridgeOpenedUT.Remove(index);
             GhostVisualBuilder.ClearMissingAudioClipWarnings(ghostRootName);
             DiagnosticsState.health.ghostDestroysThisSession++;
         }
@@ -7046,6 +7491,7 @@ namespace Parsek
             loggedReshow.Clear();
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
+            chainBridgeOpenedUT.Clear();
 
             // Drop cached structural-event UT lists and per-ghost trace
             // cursors so a re-spawned ghost computes its first delta
@@ -7066,6 +7512,7 @@ namespace Parsek
             ReindexDict(ghostStates, removedIndex);
             ReindexDict(overlapGhosts, removedIndex);
             ReindexDict(loopPhaseOffsets, removedIndex);
+            ReindexDict(chainBridgeOpenedUT, removedIndex);
             ReindexSet(loggedGhostEnter, removedIndex);
             ReindexSet(loggedReshow, removedIndex);
             ReindexSet(completedEventFired, removedIndex);

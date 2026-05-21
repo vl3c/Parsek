@@ -4834,10 +4834,26 @@ namespace Parsek
             {
                 return (false, "vessel destroyed");
             }
-            // Base condition: must have a snapshot
+            // Base condition: must have a vessel snapshot to materialize a real
+            // vessel. The in-memory copy is a transient cache that several sites
+            // null out in-session (vessel-gone debris, the crew-unreserve pass);
+            // the durable copy lives in the _vessel.craft sidecar. Re-hydrate it
+            // from disk for genuinely-spawnable, non-debris recordings only. The
+            // checks below reject debris / non-spawnable terminals / ghost-only /
+            // non-leaf recordings regardless, so they skip the disk probe and keep
+            // the cheap early-out (no per-frame I/O). Without this, a spawnable
+            // leaf whose snapshot was dropped (e.g. an orbital payload re-flown
+            // after a Rewind-to-Launch) would silently fail to re-materialize.
             if (rec.VesselSnapshot == null)
             {
-                return (false, "no vessel snapshot");
+                bool worthHydrating = !rec.IsDebris
+                    && rec.TerminalStateValue.HasValue
+                    && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+                if (!worthHydrating
+                    || !RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                {
+                    return (false, "no vessel snapshot");
+                }
             }
 
             // Gloops Flight Recorder recordings are ghost-only — never spawn a real vessel
@@ -5895,6 +5911,83 @@ namespace Parsek
             return -1;
         }
 
+        /// <summary>
+        /// Resolves the slot index of the chain continuation for the given
+        /// slot, or -1 if none. Used by
+        /// <see cref="ChainHandoffLogic"/> via the engine callback wired in
+        /// <see cref="ParsekPlaybackPolicy"/> to coordinate the chain-seam
+        /// handoff between a chain HEAD and its continuation.
+        ///
+        /// <para>Resolution shape mirrors <see cref="FindNextWatchTarget"/>'s
+        /// Case 1 chain-next lookup: same ChainId, ChainBranch == 0, ChainIndex
+        /// == current + 1; result is supersede-walked through
+        /// <see cref="ResolveSupersedeIndex"/> so a continuation that was
+        /// superseded by a fork resolves to the fork's index.</para>
+        ///
+        /// <para>Returns -1 on any of: invalid <paramref name="slotIndex"/>;
+        /// the slot's recording has no ChainId or is on a parallel branch
+        /// (ChainBranch &gt; 0); no candidate matches the next index;
+        /// supersede resolution lands back on the same slot (defensive,
+        /// indicates a cycle or self-supersede edge).</para>
+        /// </summary>
+        internal static int ResolveChainNextSlotIndex(
+            int slotIndex,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (committed == null || slotIndex < 0 || slotIndex >= committed.Count)
+                return -1;
+            Recording current = committed[slotIndex];
+            if (current == null
+                || string.IsNullOrEmpty(current.ChainId)
+                || current.ChainIndex < 0
+                || current.ChainBranch != 0)
+                return -1;
+            int nextChainIndex = current.ChainIndex + 1;
+            // Ordinal string compare here is deliberately stricter than
+            // FindNextWatchTarget's plain `==` operator (same effect for
+            // System.String today, but Ordinal is unambiguous about the
+            // contract — chain ids are opaque guid-like tokens, never
+            // locale-sensitive). Same convention as
+            // EffectiveState.ResolveChainTerminalRecording.
+            int firstMatchIdx = -1;
+            for (int j = 0; j < committed.Count; j++)
+            {
+                Recording candidate = committed[j];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.ChainId, current.ChainId, StringComparison.Ordinal))
+                    continue;
+                if (candidate.ChainBranch != 0) continue;
+                if (candidate.ChainIndex != nextChainIndex) continue;
+                if (firstMatchIdx < 0)
+                {
+                    firstMatchIdx = j;
+                    continue;
+                }
+                // Two committed recordings sharing (ChainId, ChainBranch=0,
+                // ChainIndex+1) is a data anomaly — chain coordinates are
+                // supposed to be a 1:1 identifier within a tree. Warn the
+                // first time it shows up per (chain, index) so the recorder
+                // bug or merge conflict that produced the duplicate gets a
+                // breadcrumb in KSP.log without spamming on every frame.
+                ParsekLog.WarnRateLimited(
+                    "ChainHandoff",
+                    "duplicate-chain-next-" + current.ChainId + "-" + nextChainIndex.ToString(CultureInfo.InvariantCulture),
+                    "ResolveChainNextSlotIndex: duplicate branch-0 successor at chainId=" + current.ChainId
+                        + " chainIndex=" + nextChainIndex.ToString(CultureInfo.InvariantCulture)
+                        + " firstMatch=" + firstMatchIdx.ToString(CultureInfo.InvariantCulture)
+                        + " duplicateMatch=" + j.ToString(CultureInfo.InvariantCulture)
+                        + " — picking firstMatch; recorder produced a chain-index collision",
+                    30.0);
+                break;
+            }
+            if (firstMatchIdx < 0) return -1;
+            int resolvedIdx = ResolveSupersedeIndex(firstMatchIdx, committed, supersedes);
+            if (resolvedIdx < 0 || resolvedIdx == slotIndex)
+                return -1;
+            return resolvedIdx;
+        }
+
         // Re-fly forks attach the canonical post-rewind continuation under a
         // tree branch point and emit a RECORDING_SUPERSEDES row pointing the
         // pre-rewind chain-next at the fork. The chain-next slot is then
@@ -5902,7 +5995,7 @@ namespace Parsek
         // (which is NOT a chain member of the rewind origin) carries the live
         // ghost. Watch-target search has to follow that supersede edge or it
         // sees only the inactive chain slot and returns -1.
-        private static int ResolveSupersedeIndex(
+        internal static int ResolveSupersedeIndex(
             int candidateIdx,
             IReadOnlyList<Recording> committed,
             IReadOnlyList<RecordingSupersedeRelation> supersedes)
@@ -6345,5 +6438,112 @@ namespace Parsek
         }
 
         #endregion
+    }
+
+    /// <summary>
+    /// Decisions returned by <see cref="ChainHandoffLogic.DecideBridgeHold"/>.
+    /// </summary>
+    internal enum ChainBridgeAction
+    {
+        /// <summary>No bridge needed: no chain continuation, or the continuation is already rendering.</summary>
+        None = 0,
+        /// <summary>Hold the head ghost in place; continuation has not yet activated.</summary>
+        Hold = 1,
+        /// <summary>Bridge window has expired without continuation activation; destroy normally.</summary>
+        Expired = 2,
+    }
+
+    /// <summary>
+    /// Pure decisions for the chain-seam handoff between a chain HEAD slot
+    /// and its continuation. Two call sites in
+    /// <see cref="GhostPlaybackEngine"/>: the in-range render branch
+    /// consults <see cref="DecideShadow"/> to suppress double-rendering when
+    /// both segments are live at the same UT (the section-overlap case);
+    /// the stale-past-end cleanup consults <see cref="DecideBridgeHold"/>
+    /// to keep the head ghost alive briefly when the continuation's
+    /// activation lags behind the head's section end (the section-gap
+    /// case). Together they collapse the visible chain seam onto a single
+    /// contiguous ghost per chain.
+    ///
+    /// Keep these decisions pure: every input is a primitive, the output
+    /// is a primitive enum. Bridge-window state is tracked by the caller
+    /// (per slot, in the engine) so callers can write log lines and reset
+    /// state when the slot churns. Unit tests live in
+    /// <c>ChainHandoffLogicTests</c>.
+    /// </summary>
+    internal static class ChainHandoffLogic
+    {
+        /// <summary>
+        /// Default bridge window in playback UT-seconds (the same clock the
+        /// engine's <c>ctx.currentUT</c> advances on). Under time warp the
+        /// budget elapses faster than wall-clock; under physics pause it
+        /// does not elapse. This is intentional: the continuation's
+        /// activation is keyed to UT, not real time, so the bridge needs to
+        /// hold for "long enough in UT for the continuation to spawn" —
+        /// roughly a few engine ticks at 1x warp. Bounded conservatively
+        /// (1.0 s) so a continuation that genuinely never spawns (recorder
+        /// bug, spawn throttle stall, etc.) still tears down the head
+        /// within a single second of UT progression. Tunable for tests via
+        /// the explicit <see cref="DecideBridgeHold"/> overload parameter.
+        /// </summary>
+        internal const double DefaultBridgeMaxSeconds = 1.0;
+
+        /// <summary>
+        /// In-range render decision: should the head's render be shadowed
+        /// by an actively-rendering chain continuation?
+        /// </summary>
+        /// <param name="chainNextIndex">Resolved chain-next slot index, or -1 if none.</param>
+        /// <param name="continuationHasActiveGhost">True if the continuation slot has loaded visuals.</param>
+        /// <returns>True iff the head's render should be suppressed this frame.</returns>
+        internal static bool DecideShadow(int chainNextIndex, bool continuationHasActiveGhost)
+        {
+            if (chainNextIndex < 0) return false;
+            return continuationHasActiveGhost;
+        }
+
+        /// <summary>
+        /// Stale-past-end cleanup decision: should the head ghost be held
+        /// (instead of destroyed) while waiting for the continuation to
+        /// spawn?
+        /// </summary>
+        /// <param name="chainNextIndex">Resolved chain-next slot index, or -1 if none.</param>
+        /// <param name="continuationHasActiveGhost">
+        /// True if the continuation slot has loaded visuals. When true the
+        /// shadow path already hides the head's render, so the bridge is
+        /// unnecessary and the head should destroy normally.
+        /// </param>
+        /// <param name="currentUT">Current playback UT.</param>
+        /// <param name="bridgeOpenedUT">
+        /// UT at which the bridge first opened for this slot, or
+        /// <see cref="double.NaN"/> if the bridge has not opened yet (i.e.
+        /// this is the first frame past-end with no continuation active).
+        /// </param>
+        /// <param name="bridgeMaxSeconds">
+        /// Bridge window in seconds. Use <see cref="DefaultBridgeMaxSeconds"/>
+        /// for production. Zero or negative collapses immediately to
+        /// <see cref="ChainBridgeAction.Expired"/> after the first open frame.
+        /// </param>
+        /// <returns>
+        /// <see cref="ChainBridgeAction.None"/> when no continuation exists
+        /// or the continuation is already rendering;
+        /// <see cref="ChainBridgeAction.Hold"/> when the bridge should
+        /// open or stay open; <see cref="ChainBridgeAction.Expired"/>
+        /// when the bridge has run past its window.
+        /// </returns>
+        internal static ChainBridgeAction DecideBridgeHold(
+            int chainNextIndex,
+            bool continuationHasActiveGhost,
+            double currentUT,
+            double bridgeOpenedUT,
+            double bridgeMaxSeconds)
+        {
+            if (chainNextIndex < 0) return ChainBridgeAction.None;
+            if (continuationHasActiveGhost) return ChainBridgeAction.None;
+            if (double.IsNaN(bridgeOpenedUT)) return ChainBridgeAction.Hold;
+            if (bridgeMaxSeconds <= 0.0) return ChainBridgeAction.Expired;
+            return (currentUT - bridgeOpenedUT) < bridgeMaxSeconds
+                ? ChainBridgeAction.Hold
+                : ChainBridgeAction.Expired;
+        }
     }
 }

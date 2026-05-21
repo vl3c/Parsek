@@ -1,21 +1,24 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 
 namespace Parsek
 {
     /// <summary>
-    /// Anchor-selection helper for Re-Fly provisional recordings. Reads the
-    /// active <see cref="ReFlySessionMarker"/> and returns the supersede
-    /// target recording id (with <c>OriginChildRecordingId</c> fallback) for
-    /// use as <c>TrackSection.anchorRecordingId</c>. Both recorder sites
-    /// (<c>BackgroundRecorder.UpdateBackgroundAnchorDetection</c> and
-    /// <c>FlightRecorder.UpdateAnchorDetection</c>) consult this helper at the
-    /// head of their anchor-detection logic and bypass the generic
-    /// nearest-search when the active recording is the live re-fly provisional.
+    /// Anchor-selection helpers for Re-Fly provisional recordings. The default
+    /// path is the narrowed-gate filter
+    /// <see cref="FilterCandidatesForReFlyProvisional(ReFlySessionMarker, string, System.Collections.Generic.ICollection{string}, System.Collections.Generic.IReadOnlyList{RecordingAnchorCandidate})"/>:
+    /// while a re-fly is active, drop every nearest-search candidate whose
+    /// recording id is a member of the same <see cref="RecordingTree"/> as
+    /// the provisional, so the recorder authors Relative against real
+    /// out-of-tree anchors only (stations / bases / live loop anchors). See
+    /// <c>docs/dev/plans/narrow-refly-relative-gate.md</c>.
     ///
-    /// <para>The selector deliberately uses the marker (not a recording-level
+    /// <para><see cref="IsActiveRecordingReFlyProvisional(ReFlySessionMarker, string)"/>
+    /// is the predicate the filter uses to decide whether the recording being
+    /// authored IS the live re-fly provisional.</para>
+    ///
+    /// <para>The filter deliberately uses the marker (not a recording-level
     /// field) so no schema bump is required. The recording on disk continues
     /// to use the existing <c>TrackSection.anchorRecordingId</c> field, so a
     /// future parent-anchored-contract extension can swap the marker lookup
@@ -23,247 +26,128 @@ namespace Parsek
     /// </summary>
     internal static class ReFlyAnchorSelection
     {
-        /// <summary>Maximum supersede-chain walk depth before the helper returns false with a Warn.</summary>
-        internal const int CycleWalkDepthCap = 8;
-
-        /// <summary>Depth at which the helper emits an Info breadcrumb so deep chains remain observable.</summary>
-        internal const int CycleWalkDeepBreadcrumb = 4;
-
-        internal const string SourceSupersedeTarget = "supersede-target";
-        internal const string SourceOriginChild = "origin-child";
-
         /// <summary>
-        /// Production overload. Looks up the active marker through
-        /// <see cref="ParsekScenario.Instance"/> and resolves recordings by
-        /// id through the supplied active tree first, then the committed-
-        /// recording list. Returns true when the bypass should fire and the
-        /// caller should pin <c>TrackSection.anchorRecordingId</c> to
-        /// <paramref name="anchorRecordingId"/>.
+        /// Returns true iff the active recording is the live re-fly
+        /// provisional. Used by the narrowed-gate filter to decide whether to
+        /// drop same-tree anchor candidates.
+        ///
+        /// <para>Parent-anchored re-fly provisionals (controlled-decoupled
+        /// child being re-flown, with <c>ParentAnchorRecordingId</c> set on the
+        /// provisional) are treated the same as top-level re-fly provisionals:
+        /// the predicate does not read <c>ParentAnchorRecordingId</c>.</para>
         /// </summary>
-        internal static bool TryResolveReFlyProvisionalAnchor(
-            RecordingTree activeTree,
-            string activeRecordingId,
-            out string anchorRecordingId,
-            out string source)
-        {
-            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
-            return TryResolveReFlyProvisionalAnchor(
-                marker,
-                activeRecordingId,
-                MakeDefaultResolver(activeTree),
-                out anchorRecordingId,
-                out source);
-        }
-
-        /// <summary>
-        /// Pure overload — marker and recording resolver are injected so
-        /// xUnit fixtures can pin every branch (no-marker, mismatch,
-        /// supersede-target, origin-child fallback, unknown id, cycle, depth
-        /// cap) without touching live KSP state.
-        /// </summary>
-        internal static bool TryResolveReFlyProvisionalAnchor(
+        internal static bool IsActiveRecordingReFlyProvisional(
             ReFlySessionMarker marker,
-            string activeRecordingId,
-            Func<string, Recording> resolveRecording,
-            out string anchorRecordingId,
-            out string source)
+            string activeRecordingId)
         {
-            anchorRecordingId = null;
-            source = null;
-
-            if (marker == null)
-            {
-                // No marker; the caller falls through to its existing logic.
-                // Silent — logging here would spam every recorder tick.
-                return false;
-            }
-
-            if (string.IsNullOrEmpty(activeRecordingId)
-                || !string.Equals(
+            if (marker == null) return false;
+            if (string.IsNullOrEmpty(activeRecordingId)) return false;
+            if (!string.Equals(
                     marker.ActiveReFlyRecordingId,
                     activeRecordingId,
                     StringComparison.Ordinal))
-            {
-                ParsekLog.VerboseRateLimited(
-                    "Anchor",
-                    "refly-bypass-skipped",
-                    "re-fly bypass skipped: activeRecId=" + (activeRecordingId ?? "(none)") +
-                    " markerActiveRecId=" + (marker.ActiveReFlyRecordingId ?? "(none)"),
-                    5.0);
                 return false;
-            }
-
-            string candidate = !string.IsNullOrEmpty(marker.SupersedeTargetId)
-                ? marker.SupersedeTargetId
-                : marker.OriginChildRecordingId;
-            string candidateSource = !string.IsNullOrEmpty(marker.SupersedeTargetId)
-                ? SourceSupersedeTarget
-                : SourceOriginChild;
-
-            // When the bypass declines, the caller falls back to the existing
-            // anchor-selection path (nearest-search at both recorders).
-            // Wording avoids claiming "recording as Absolute" because the
-            // caller's nearest-search may still open a Relative section
-            // against a different anchor candidate. The log surfaces the
-            // bypass-decline with enough context to identify which fall-back
-            // path will actually run.
-            const string BypassDeclineSuffix = " -> bypass declined, falling back to nearest-search";
-
-            if (string.IsNullOrEmpty(candidate))
-            {
-                ParsekLog.Warn(
-                    "Anchor",
-                    "re-fly anchor unavailable: provisionalRecId=" +
-                    (activeRecordingId ?? "(none)") +
-                    " supersedeTargetId=(none) originChildRecordingId=(none)" +
-                    BypassDeclineSuffix);
-                return false;
-            }
-
-            if (resolveRecording == null)
-            {
-                ParsekLog.Warn(
-                    "Anchor",
-                    "re-fly anchor walk: no resolver provided provisionalRecId=" +
-                    (activeRecordingId ?? "(none)") +
-                    " candidate=" + candidate +
-                    BypassDeclineSuffix);
-                return false;
-            }
-
-            if (!TryWalkSupersedeChain(
-                    activeRecordingId,
-                    candidate,
-                    resolveRecording,
-                    out string failureReason))
-            {
-                ParsekLog.Warn(
-                    "Anchor",
-                    "re-fly anchor walk: " + failureReason +
-                    " provisionalRecId=" + (activeRecordingId ?? "(none)") +
-                    " candidate=" + candidate +
-                    " source=" + candidateSource +
-                    BypassDeclineSuffix);
-                return false;
-            }
-
-            // Confirm the candidate itself resolves to a known recording. If
-            // the resolver returns null, the candidate is referenced but not
-            // loaded — bypass declines and the caller falls back to
-            // nearest-search.
-            Recording candidateRec = resolveRecording(candidate);
-            if (candidateRec == null)
-            {
-                ParsekLog.Warn(
-                    "Anchor",
-                    "re-fly anchor walk: candidate recording not resolvable provisionalRecId=" +
-                    (activeRecordingId ?? "(none)") +
-                    " candidate=" + candidate +
-                    " source=" + candidateSource +
-                    BypassDeclineSuffix);
-                return false;
-            }
-
-            anchorRecordingId = candidate;
-            source = candidateSource;
             return true;
         }
 
-        private static bool TryWalkSupersedeChain(
-            string provisionalRecId,
-            string startCandidate,
-            Func<string, Recording> resolveRecording,
-            out string failureReason)
+        /// <summary>
+        /// Production wrapper. Derives marker + active recording id from live
+        /// scenario state and the supplied active tree.
+        /// </summary>
+        internal static bool IsActiveRecordingReFlyProvisional(
+            RecordingTree activeTree)
         {
-            failureReason = null;
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            visited.Add(provisionalRecId ?? string.Empty);
-
-            string currentId = startCandidate;
-            int depth = 0;
-
-            while (!string.IsNullOrEmpty(currentId))
-            {
-                if (!visited.Add(currentId))
-                {
-                    failureReason = "cycle detected"
-                        + " visited=" + FormatVisited(visited)
-                        + " depth=" + depth.ToString(CultureInfo.InvariantCulture);
-                    return false;
-                }
-
-                if (depth == CycleWalkDeepBreadcrumb)
-                {
-                    ParsekLog.Info(
-                        "Anchor",
-                        "re-fly anchor walk: deep chain provisionalRecId=" +
-                        (provisionalRecId ?? "(none)") +
-                        " depth=" + depth.ToString(CultureInfo.InvariantCulture) +
-                        " currentAnchor=" + currentId +
-                        " -> continuing");
-                }
-
-                Recording rec = resolveRecording(currentId);
-                if (rec == null)
-                {
-                    // Walk ends at an unresolvable id; not a cycle and not a
-                    // depth-cap hit. The caller's candidate-existence check
-                    // handles whether the bypass actually fires; this walker
-                    // just guarantees no cycle.
-                    return true;
-                }
-
-                currentId = string.IsNullOrEmpty(rec.SupersedeTargetId) ? null : rec.SupersedeTargetId;
-                depth++;
-
-                if (depth > CycleWalkDepthCap)
-                {
-                    failureReason = "depth cap exceeded"
-                        + " visited=" + FormatVisited(visited)
-                        + " depth=" + depth.ToString(CultureInfo.InvariantCulture);
-                    return false;
-                }
-            }
-
-            return true;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            string activeRecordingId = activeTree?.ActiveRecordingId;
+            return IsActiveRecordingReFlyProvisional(marker, activeRecordingId);
         }
 
-        private static string FormatVisited(HashSet<string> visited)
+        /// <summary>
+        /// Narrowed-gate filter for re-fly provisional anchor selection. When a
+        /// re-fly session is active and the recording being authored IS the
+        /// provisional, drops every candidate whose recording id is a member
+        /// of the same <see cref="RecordingTree.Recordings"/> keyset as the
+        /// provisional. Real persistent vessels / stations / bases live in
+        /// other trees (or no tree at all), so they pass through and remain
+        /// eligible for the nearest-search.
+        ///
+        /// <para>The narrowed gate keeps the nearest-search behavior for real
+        /// anchors (preserving Relative-against-live-station for
+        /// docking-mid-rewind and Relative-against-live-loop-anchor for
+        /// loop-anchored re-fly forks) while never authoring Relative against
+        /// a same-tree (superseded) sibling.</para>
+        ///
+        /// <para>Pure overload: marker and same-tree recording-id set are
+        /// injected so xUnit fixtures can pin every branch without touching
+        /// live <see cref="ParsekScenario.Instance"/> state.</para>
+        /// </summary>
+        internal static IReadOnlyList<RecordingAnchorCandidate> FilterCandidatesForReFlyProvisional(
+            ReFlySessionMarker marker,
+            string activeRecordingId,
+            ICollection<string> sameTreeRecordingIds,
+            IReadOnlyList<RecordingAnchorCandidate> candidates)
         {
-            var sb = new StringBuilder("[");
-            bool first = true;
-            foreach (string id in visited)
+            if (candidates == null || candidates.Count == 0)
+                return candidates;
+            if (!IsActiveRecordingReFlyProvisional(marker, activeRecordingId))
+                return candidates;
+            if (sameTreeRecordingIds == null || sameTreeRecordingIds.Count == 0)
+                return candidates;
+
+            int dropped = 0;
+            List<RecordingAnchorCandidate> filtered = null;
+            for (int i = 0; i < candidates.Count; i++)
             {
-                if (string.IsNullOrEmpty(id)) continue;
-                if (!first) sb.Append(",");
-                sb.Append(id);
-                first = false;
+                RecordingAnchorCandidate c = candidates[i];
+                bool drop = !string.IsNullOrEmpty(c.RecordingId)
+                    && sameTreeRecordingIds.Contains(c.RecordingId);
+                if (drop)
+                {
+                    if (filtered == null)
+                    {
+                        filtered = new List<RecordingAnchorCandidate>(candidates.Count);
+                        for (int j = 0; j < i; j++) filtered.Add(candidates[j]);
+                    }
+                    dropped++;
+                    continue;
+                }
+                filtered?.Add(c);
             }
-            sb.Append("]");
-            return sb.ToString();
+
+            if (dropped == 0) return candidates;
+
+            ParsekLog.VerboseRateLimited(
+                "Anchor",
+                "refly-anchor-filter",
+                "FilterCandidatesForReFlyProvisional: dropped=" +
+                dropped.ToString(CultureInfo.InvariantCulture) +
+                " kept=" + (filtered?.Count ?? 0).ToString(CultureInfo.InvariantCulture) +
+                " provisionalRecId=" + (activeRecordingId ?? "(none)"),
+                5.0);
+
+            return filtered;
         }
 
-        private static Func<string, Recording> MakeDefaultResolver(RecordingTree activeTree)
+        /// <summary>
+        /// Production overload. Reads the marker from live scenario state and
+        /// derives the same-tree recording-id set from <paramref name="activeTree"/>.
+        /// </summary>
+        internal static IReadOnlyList<RecordingAnchorCandidate> FilterCandidatesForReFlyProvisional(
+            RecordingTree activeTree,
+            IReadOnlyList<RecordingAnchorCandidate> candidates)
         {
-            return recordingId =>
-            {
-                if (string.IsNullOrEmpty(recordingId)) return null;
-
-                // Prefer the supplied recorder tree first — the provisional
-                // and its supersede target both live there during an in-flight
-                // Re-Fly.
-                if (activeTree?.Recordings != null
-                    && activeTree.Recordings.TryGetValue(recordingId, out Recording fromTree)
-                    && fromTree != null)
-                {
-                    return fromTree;
-                }
-
-                // Fall back to the committed-recording list for ids referenced
-                // from outside the active recorder tree (e.g. background-only
-                // continuation cases).
-                return RecordingStore.TryFindCommittedRecordingById(recordingId);
-            };
+            if (candidates == null || candidates.Count == 0)
+                return candidates;
+            ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
+            string activeRecordingId = activeTree?.ActiveRecordingId;
+            if (!IsActiveRecordingReFlyProvisional(marker, activeRecordingId))
+                return candidates;
+            ICollection<string> sameTreeRecordingIds = activeTree?.Recordings?.Keys;
+            return FilterCandidatesForReFlyProvisional(
+                marker,
+                activeRecordingId,
+                sameTreeRecordingIds,
+                candidates);
         }
     }
 }

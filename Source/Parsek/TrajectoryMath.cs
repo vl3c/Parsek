@@ -681,25 +681,8 @@ namespace Parsek
                                     ? rec.TrackSections[sectionIdx].referenceFrame
                                     : ReferenceFrame.Absolute;
 
-                                if (frame == ReferenceFrame.Relative)
-                                {
-                                    double dx = pt.latitude - prev.latitude;
-                                    double dy = pt.longitude - prev.longitude;
-                                    double dz = pt.altitude - prev.altitude;
-                                    stats.distanceTravelled += System.Math.Sqrt(
-                                        dx * dx + dy * dy + dz * dz);
-                                }
-                                else
-                                {
-                                    double avgAlt = (prev.altitude + pt.altitude) * 0.5;
-                                    double surfaceDist = HaversineDistance(
-                                        prev.latitude, prev.longitude,
-                                        pt.latitude, pt.longitude,
-                                        bodyRadius + avgAlt);
-                                    double altDiff = System.Math.Abs(pt.altitude - prev.altitude);
-                                    stats.distanceTravelled += System.Math.Sqrt(
-                                        surfaceDist * surfaceDist + altDiff * altDiff);
-                                }
+                                stats.distanceTravelled += ComputePairwiseTravelDistance(
+                                    prev, pt, frame, bodyRadius);
                             }
                         }
 
@@ -710,27 +693,8 @@ namespace Parsek
                             ReferenceFrame pointFrame = pointSectionIdx >= 0
                                 ? rec.TrackSections[pointSectionIdx].referenceFrame
                                 : ReferenceFrame.Absolute;
-                            double range;
-                            if (firstPointFrame == ReferenceFrame.Relative
-                                && pointFrame == ReferenceFrame.Relative)
-                            {
-                                double dx = pt.latitude - lat0;
-                                double dy = pt.longitude - lon0;
-                                double dz = pt.altitude - rec.Points[0].altitude;
-                                range = System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
-                            }
-                            else if (pointFrame == ReferenceFrame.Relative)
-                            {
-                                range = 0.0;
-                            }
-                            else
-                            {
-                                double avgAlt = (rec.Points[0].altitude + pt.altitude) * 0.5;
-                                range = HaversineDistance(
-                                    lat0, lon0,
-                                    pt.latitude, pt.longitude,
-                                    bodyRadius + avgAlt);
-                            }
+                            double range = ComputePointRangeFromStart(
+                                rec.Points[0], pt, firstPointFrame, pointFrame, bodyRadius);
                             if (range > stats.maxRange)
                                 stats.maxRange = range;
                         }
@@ -747,6 +711,69 @@ namespace Parsek
                 $"dist={stats.distanceTravelled:F0} range={stats.maxRange:F0} body={stats.primaryBody}");
 
             return stats;
+        }
+
+        /// <summary>
+        /// Computes the distance contributed by a single consecutive point pair, dispatching
+        /// on reference frame: Relative sections store anchor-local metre offsets in
+        /// latitude/longitude/altitude (Euclidean dx/dy/dz delta), while non-Relative sections
+        /// store body-fixed lat/lon/alt (haversine surface distance plus altitude delta).
+        /// </summary>
+        internal static double ComputePairwiseTravelDistance(
+            in TrajectoryPoint prev,
+            in TrajectoryPoint cur,
+            ReferenceFrame frame,
+            double bodyRadius)
+        {
+            if (frame == ReferenceFrame.Relative)
+            {
+                double dx = cur.latitude - prev.latitude;
+                double dy = cur.longitude - prev.longitude;
+                double dz = cur.altitude - prev.altitude;
+                return System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            double avgAlt = (prev.altitude + cur.altitude) * 0.5;
+            double surfaceDist = HaversineDistance(
+                prev.latitude, prev.longitude,
+                cur.latitude, cur.longitude,
+                bodyRadius + avgAlt);
+            double altDiff = System.Math.Abs(cur.altitude - prev.altitude);
+            return System.Math.Sqrt(surfaceDist * surfaceDist + altDiff * altDiff);
+        }
+
+        /// <summary>
+        /// Computes the range of a point from the first recorded point, dispatching on the
+        /// start-point and current-point reference frames: both Relative uses an anchor-local
+        /// Euclidean dx/dy/dz delta; current-Relative-only returns 0.0 (cannot mix frames);
+        /// otherwise uses a haversine surface range from the start point.
+        /// </summary>
+        internal static double ComputePointRangeFromStart(
+            in TrajectoryPoint start,
+            in TrajectoryPoint cur,
+            ReferenceFrame startFrame,
+            ReferenceFrame curFrame,
+            double bodyRadius)
+        {
+            if (startFrame == ReferenceFrame.Relative
+                && curFrame == ReferenceFrame.Relative)
+            {
+                double dx = cur.latitude - start.latitude;
+                double dy = cur.longitude - start.longitude;
+                double dz = cur.altitude - start.altitude;
+                return System.Math.Sqrt(dx * dx + dy * dy + dz * dz);
+            }
+
+            if (curFrame == ReferenceFrame.Relative)
+            {
+                return 0.0;
+            }
+
+            double avgAlt = (start.altitude + cur.altitude) * 0.5;
+            return HaversineDistance(
+                start.latitude, start.longitude,
+                cur.latitude, cur.longitude,
+                bodyRadius + avgAlt);
         }
 
         private static void ApplyTrackSectionAltitudeMetadata(
@@ -1169,7 +1196,10 @@ namespace Parsek
 
             private static bool IsFinite(double value)
             {
-                return !double.IsNaN(value) && !double.IsInfinity(value);
+                // Delegates to the enclosing TrajectoryMath.IsFinite (byte-identical
+                // body); fully qualified so the call does not recurse into this
+                // nested method.
+                return TrajectoryMath.IsFinite(value);
             }
         }
 
@@ -1298,98 +1328,6 @@ namespace Parsek
 
                 double bodyFixedLon = WrapLongitudeDegrees(inertialLonDeg - phase);
                 return ResolveWorldSurfacePosition(body, latDeg, bodyFixedLon, altMeters);
-            }
-
-            /// <summary>
-            /// Phase 5 helper: re-lifts a peer-relative offset from the body's
-            /// inertial frame at the trace's recording UT to the world frame
-            /// at <paramref name="playbackUT"/> via a single rotation about
-            /// the body's spin axis. Unlike <see cref="LowerFromInertialToWorld"/>
-            /// (which lowers a POSITION via <c>GetWorldSurfacePosition</c>),
-            /// this helper rotates a TRANSLATION vector — co-bubble traces
-            /// store offsets, not positions. Null body returns the input
-            /// unchanged with a Verbose log; non-finite period returns the
-            /// input unchanged (HR-9).
-            /// </summary>
-            internal static Vector3d LowerOffsetFromInertialToWorld(
-                Vector3d inertialOffset, CelestialBody body, double playbackUT)
-            {
-                if (object.ReferenceEquals(body, null))
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-Frame", "lower-offset-no-body",
-                        $"LowerOffsetFromInertialToWorld: body=null playbackUT={playbackUT} — returning input unchanged",
-                        5.0);
-                    return inertialOffset;
-                }
-                double period = ResolveRotationPeriod(body);
-                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
-                    return inertialOffset;
-                if (double.IsNaN(playbackUT) || double.IsInfinity(playbackUT))
-                    return inertialOffset;
-
-                // The inertial frame at recording-time and at playback-time
-                // share an axis (the body's spin axis); the only delta is
-                // the rotation phase. Compute the rotation that takes
-                // inertial-at-recording → world-at-playback. Phase 5 stores
-                // offsets at trace-build time using the recording UT for
-                // each sample; the blender re-evaluates at playbackUT, so
-                // here we apply the inverse (negative-phase) rotation
-                // around the body's transform's up axis (KSP convention).
-                //
-                // Production callers pass the live CelestialBody, which has
-                // a non-null bodyTransform. xUnit tests construct minimal
-                // CelestialBody instances; if bodyTransform is null we
-                // fall back to identity rotation (offset returned as-is).
-                if (object.ReferenceEquals(body.bodyTransform, null))
-                    return inertialOffset;
-
-                double phaseDeg = (playbackUT * 360.0) / period;
-                Vector3 axis = body.bodyTransform.up;
-                Quaternion rot = Quaternion.AngleAxis((float)(-phaseDeg), axis);
-                return rot * inertialOffset;
-            }
-
-            /// <summary>
-            /// Phase 5 P1-B helper: the inverse of
-            /// <see cref="LowerOffsetFromInertialToWorld"/>. Lifts a world-
-            /// frame translation captured at <paramref name="recordedUT"/>
-            /// to the body's inertial frame so it can be persisted into a
-            /// co-bubble offset trace and re-lowered at an arbitrary playback
-            /// UT. Without lifting at detect-time, the trace stores a
-            /// world-frame delta whose validity is pinned to the recording
-            /// UT — playing the same trace at a later UT (after the body
-            /// has rotated) would emit a wrong offset for FrameTag=1
-            /// (inertial-frame) traces. Null body or non-finite period is a
-            /// no-op (returns the input unchanged).
-            /// </summary>
-            internal static Vector3d LiftOffsetFromWorldToInertial(
-                Vector3d worldOffset, CelestialBody body, double recordedUT)
-            {
-                if (object.ReferenceEquals(body, null))
-                {
-                    ParsekLog.VerboseRateLimited("Pipeline-Frame", "lift-offset-no-body",
-                        $"LiftOffsetFromWorldToInertial: body=null recordedUT={recordedUT} — returning input unchanged",
-                        5.0);
-                    return worldOffset;
-                }
-                double period = ResolveRotationPeriod(body);
-                if (double.IsNaN(period) || double.IsInfinity(period) || System.Math.Abs(period) <= double.Epsilon)
-                    return worldOffset;
-                if (double.IsNaN(recordedUT) || double.IsInfinity(recordedUT))
-                    return worldOffset;
-                if (object.ReferenceEquals(body.bodyTransform, null))
-                    return worldOffset;
-
-                // Inverse of LowerOffsetFromInertialToWorld at the same UT:
-                // Lower applies AngleAxis(-phase(t), axis); Lift applies
-                // AngleAxis(+phase(t), axis). Composition over (recordedUT,
-                // playbackUT) yields a net rotation of (recordedUT-playbackUT)
-                // worth of phase, which is the desired "follow the body"
-                // behaviour for a translation pinned in inertial space.
-                double phaseDeg = (recordedUT * 360.0) / period;
-                Vector3 axis = body.bodyTransform.up;
-                Quaternion rot = Quaternion.AngleAxis((float)(+phaseDeg), axis);
-                return rot * worldOffset;
             }
 
             /// <summary>
@@ -1746,29 +1684,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Computes the position offset from an anchor vessel to the focused vessel
-        /// in world-space coordinates for legacy v5-and-older RELATIVE sections.
-        ///
-        /// The returned (dx, dy, dz) vector is stored in the TrajectoryPoint's
-        /// latitude/longitude/altitude fields when recording in RELATIVE frame.
-        /// Pure static method for testability.
-        /// </summary>
-        internal static Vector3d ComputeRelativeOffset(Vector3d focusedPosition, Vector3d anchorPosition)
-        {
-            return focusedPosition - anchorPosition;
-        }
-
-        /// <summary>
-        /// Computes world position from anchor position and a legacy world-space
-        /// relative offset. Pure static for testability.
-        /// </summary>
-        internal static Vector3d ApplyRelativeOffset(Vector3d anchorWorldPos, double dx, double dy, double dz)
-        {
-            return new Vector3d(anchorWorldPos.x + dx, anchorWorldPos.y + dy, anchorWorldPos.z + dz);
-        }
-
-        /// <summary>
-        /// Computes the anchor-local offset used by format-v6 RELATIVE sections.
+        /// Computes the anchor-local offset used by RELATIVE sections.
         /// Pure static method for testability.
         /// </summary>
         internal static Vector3d ComputeRelativeLocalOffset(
@@ -1825,29 +1741,22 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolves a RELATIVE-frame position to world space using the version-specific
-        /// contract for the recording being played back.
+        /// Resolves a RELATIVE-frame anchor-local position offset to world space.
         /// </summary>
         internal static Vector3d ResolveRelativePlaybackPosition(
             Vector3d anchorWorldPos,
             Quaternion anchorWorldRotation,
             double dx,
             double dy,
-            double dz,
-            int recordingFormatVersion)
+            double dz)
         {
-            return RecordingStore.UsesRelativeLocalFrameContract(recordingFormatVersion)
-                ? ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz)
-                : ApplyRelativeOffset(anchorWorldPos, dx, dy, dz);
+            return ApplyRelativeLocalOffset(anchorWorldPos, anchorWorldRotation, dx, dy, dz);
         }
 
         /// <summary>
-        /// Resolves a RELATIVE-frame rotation to world space.
-        /// Legacy v5-and-older RELATIVE sections stored <c>v.srfRelRotation</c> as the
-        /// "relative" slot; v6 RELATIVE sections store <c>Inverse(anchor) * focus</c>.
-        /// Both contracts reconstitute with the same <c>anchor * stored</c> formula —
-        /// the semantic difference lives at sample time, not playback time — so this
-        /// resolver takes no format-version parameter and is shared across v5 and v6.
+        /// Resolves a RELATIVE-frame rotation to world space. RELATIVE sections store the
+        /// anchor-local rotation <c>Inverse(anchor) * focus</c>, and this resolver
+        /// reconstitutes the focus world rotation with <c>anchor * stored</c>.
         /// </summary>
         internal static Quaternion ResolveRelativePlaybackRotation(
             Quaternion anchorWorldRotation,

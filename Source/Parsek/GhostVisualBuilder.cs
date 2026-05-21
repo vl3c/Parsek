@@ -4386,6 +4386,31 @@ namespace Parsek
             return null;
         }
 
+        /// <summary>
+        /// Computes the heat color/emission ramp from a cold color and whether the material
+        /// has a color / emissive property. Returns the hot color (cold lerped 0.45 toward the
+        /// heat tint, or the cold color when there is no color property), the hot emission (the
+        /// heat emission color, or black when there is no emissive property), and the medium
+        /// midpoints (cold->hot at 0.5 for both). Pure leaf math over Color structs.
+        /// </summary>
+        internal static (Color hot, Color medium, Color hotEmission, Color mediumEmission)
+            ComputeHeatColorRamp(Color coldColor, bool hasColorProperty, bool hasEmissiveProperty)
+        {
+            Color hotColor = hasColorProperty
+                ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
+                : coldColor;
+
+            Color coldEmission = Color.black;
+            Color hotEmission = hasEmissiveProperty
+                ? HeatEmissionColor
+                : coldEmission;
+
+            Color mediumColor = Color.Lerp(coldColor, hotColor, 0.5f);
+            Color mediumEmission = Color.Lerp(coldEmission, hotEmission, 0.5f);
+
+            return (hotColor, mediumColor, hotEmission, mediumEmission);
+        }
+
         private static List<HeatMaterialState> BuildHeatMaterialStates(
             Transform modelNode, string partName, uint persistentId,
             List<HeatTransformState> affectedTransforms)
@@ -4488,17 +4513,10 @@ namespace Parsek
                     Color coldColor = colorProperty != null
                         ? materialClone.GetColor(colorProperty)
                         : Color.white;
-                    Color hotColor = colorProperty != null
-                        ? Color.Lerp(coldColor, HeatTintColor, 0.45f)
-                        : coldColor;
-
                     Color coldEmission = Color.black;
-                    Color hotEmission = emissiveProperty != null
-                        ? HeatEmissionColor
-                        : coldEmission;
 
-                    Color mediumColor = Color.Lerp(coldColor, hotColor, 0.5f);
-                    Color mediumEmission = Color.Lerp(coldEmission, hotEmission, 0.5f);
+                    var (hotColor, mediumColor, hotEmission, mediumEmission) =
+                        ComputeHeatColorRamp(coldColor, colorProperty != null, emissiveProperty != null);
 
                     materialStates.Add(new HeatMaterialState
                     {
@@ -7149,6 +7167,13 @@ namespace Parsek
                     VesselSpawner.CleanupFailedSpawnedProtoVessel(pv, "GhostVisual", "Flag spawn cleanup");
                     return null;
                 }
+
+                // The flag prefab is PhysicsSignificance=1 but KSP promotes single-part
+                // roots back to FULL. Without hardening, an Eve flag at the hot atmosphere
+                // bottom can overheat (prefab maxTemp=2000) and a high-speed active-vessel
+                // collision with a replay flag can exceed crashTolerance=12. Same fix
+                // shape as the GhostMapPresence map-presence markers.
+                GhostMapPresence.HardenGhostVesselPartPhysics(pv.vesselRef, "SpawnFlagVessel");
 
                 ParsekLog.Verbose("GhostVisual",
                     $"Spawned flag vessel: '{vesselName}' by '{evt.placedBy}' " +

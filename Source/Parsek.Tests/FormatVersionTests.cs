@@ -40,7 +40,7 @@ namespace Parsek.Tests
             // updating this pin, or rolls it back without restoring the
             // pre-bump enum / migration semantics.
             Assert.Equal(1, RecordingStore.CurrentRecordingFormatVersion);
-            Assert.Equal(2, RecordingStore.CurrentRecordingSchemaGeneration);
+            Assert.Equal(4, RecordingStore.CurrentRecordingSchemaGeneration);
         }
 
         [Fact]
@@ -65,7 +65,6 @@ namespace Parsek.Tests
 
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, rec.RecordingFormatVersion);
             Assert.Equal(RecordingStore.CurrentRecordingSchemaGeneration, rec.RecordingSchemaGeneration);
-            Assert.True(RecordingStore.UsesRelativeLocalFrameContract(rec.RecordingFormatVersion));
         }
 
         [Fact]
@@ -96,8 +95,10 @@ namespace Parsek.Tests
         [InlineData(0, 0, "generation-missing")]
         [InlineData(0, -1, "generation-older")]
         [InlineData(0, 1, "generation-older")]
-        [InlineData(0, 3, "generation-newer")]
-        [InlineData(13, 2, "format-version-mismatch")]
+        [InlineData(0, 2, "generation-older")]
+        [InlineData(0, 3, "generation-older")]
+        [InlineData(0, 5, "generation-newer")]
+        [InlineData(13, 4, "format-version-mismatch")]
         public void IsRecordingSchemaCompatible_RejectsNonCurrentSchema(
             int formatVersion,
             int schemaGeneration,
@@ -293,7 +294,7 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "future-generation");
             node.AddValue("recordingFormatVersion", "0");
-            node.AddValue("recordingSchemaGeneration", "3");
+            node.AddValue("recordingSchemaGeneration", "5");
 
             var rec = new Recording();
             RecordingTreeRecordCodec.LoadRecordingFrom(node, rec);
@@ -307,14 +308,43 @@ namespace Parsek.Tests
         [Fact]
         public void IsRecordingSchemaCompatible_LegacyGeneration1_IsRejected()
         {
-            // Pre-controlled-child-extension recordings (generation 1) are no
-            // longer loaded - they pre-date the on-disk truth-table widening for
-            // (IsDebris, DebrisParentRecordingId) and would silently mis-render
-            // the newly-valid (IsDebris=false, DebrisParentRecordingId=non-null)
-            // row if loaded.
+            // Generation 1 recordings pre-date both the controlled-child truth-table
+            // widening (gen 2) and the generation 3 clean-slate reset. Per the
+            // pre-1.0 no-backwards-compat policy they are rejected on load rather
+            // than migrated.
             bool compatible = RecordingStore.IsRecordingSchemaCompatible(
                 RecordingStore.CurrentRecordingFormatVersion,
                 1,
+                out string reason);
+
+            Assert.False(compatible);
+            Assert.Equal("generation-older", reason);
+        }
+
+        [Fact]
+        public void IsRecordingSchemaCompatible_PreResetGeneration2_IsRejected()
+        {
+            // Generation 2 was the pre-reset current generation. The generation 3
+            // reset retired the last batch of compatibility seams, so gen-2
+            // recordings are now rejected as "generation-older" on load.
+            bool compatible = RecordingStore.IsRecordingSchemaCompatible(
+                RecordingStore.CurrentRecordingFormatVersion,
+                2,
+                out string reason);
+
+            Assert.False(compatible);
+            Assert.Equal("generation-older", reason);
+        }
+
+        [Fact]
+        public void IsRecordingSchemaCompatible_PreRenameGeneration3_IsRejected()
+        {
+            // Generation 3 carried the old "debrisParentRecordingId" ConfigNode key.
+            // Generation 4 renamed it to "parentAnchorRecordingId", so gen-3
+            // recordings are now rejected as "generation-older" on load.
+            bool compatible = RecordingStore.IsRecordingSchemaCompatible(
+                RecordingStore.CurrentRecordingFormatVersion,
+                3,
                 out string reason);
 
             Assert.False(compatible);

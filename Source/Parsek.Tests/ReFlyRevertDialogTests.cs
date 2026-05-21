@@ -676,11 +676,12 @@ namespace Parsek.Tests
         [Fact]
         public void DiscardReFly_UnfinishedFlightsEntryForThisSplit_StaysVisible()
         {
-            // Build a minimal Immutable origin recording whose ParentBranchPointId
-            // points at the RP's BranchPoint. IsUnfinishedFlight returns true iff
-            // (rec.MergeState == Immutable) && crashed && ParentBranchPointId
-            // present && an RP resolving to that BranchPointId is in
-            // scenario.RewindPoints.
+            // Build a minimal open-crashed origin recording whose
+            // ParentBranchPointId points at the RP's BranchPoint.
+            // IsUnfinishedFlight returns true iff the recording is crashed,
+            // ParentBranchPointId is present, an RP resolving to that
+            // BranchPointId is in scenario.RewindPoints, AND the slot's
+            // effective tip MergeState is CommittedProvisional (open).
             var marker = MakeMarker();
             var rp = MakeRewindPoint(marker.RewindPointId, marker.OriginChildRecordingId);
             rp.BranchPointId = "bp_origin";
@@ -689,7 +690,7 @@ namespace Parsek.Tests
             {
                 RecordingId = marker.OriginChildRecordingId,
                 VesselName = "origin_vessel",
-                MergeState = MergeState.Immutable,
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = "bp_origin",
             };

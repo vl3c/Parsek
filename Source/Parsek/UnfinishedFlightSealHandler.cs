@@ -6,8 +6,10 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Per-row Seal action for Unfinished Flights. Seal closes the RP child
-    /// slot only; it does not mutate the recording or its MergeState.
+    /// Per-row Seal action for Unfinished Flights. Seal permanently closes the
+    /// slot by flipping its effective chain+supersede tip recording's
+    /// MergeState from CommittedProvisional to Immutable (the single
+    /// open/closed source of truth). This cannot be undone.
     /// </summary>
     internal static class UnfinishedFlightSealHandler
     {
@@ -60,11 +62,40 @@ namespace Parsek
                 return false;
             }
 
-            DateTime now = UtcNowForTesting != null ? UtcNowForTesting() : DateTime.UtcNow;
-            if (!slot.Sealed)
+            // Seal is a permanent CommittedProvisional -> Immutable transition
+            // on the slot's effective chain+supersede tip. Open/closed is read
+            // from the tip MergeState (the single source of truth), so closing
+            // the slot just means flipping the tip to Immutable. Idempotent: a
+            // tip already Immutable is a no-op. Tips are disjoint across slots
+            // (distinct origins -> distinct tips) so this cannot cross-close a
+            // sibling slot.
+            var scenarioForSupersedes = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> sealSupersedes =
+                !object.ReferenceEquals(null, scenarioForSupersedes)
+                    ? scenarioForSupersedes.RecordingSupersedes
+                    : null;
+            string tipId = slot.EffectiveRecordingId(sealSupersedes);
+            Recording tipRec = FindCommittedRecordingById(tipId);
+            if (tipRec == null)
             {
-                slot.Sealed = true;
-                slot.SealedRealTime = now.ToString("o", CultureInfo.InvariantCulture);
+                // The slot resolved to an RP child slot, but its effective
+                // chain+supersede tip recording is not in the committed store
+                // (dangling supersede edge, or the tip was reaped out from
+                // under the slot). Open/closed is read from the tip MergeState,
+                // so with no tip there is nothing to flip to Immutable. Report a
+                // hard failure instead of silently returning success: otherwise
+                // the slot keeps reading as open while the UI claims "Sealed".
+                reason = "tip-unresolvable";
+                ParsekLog.Error("UnfinishedFlights",
+                    $"Seal could not resolve effective tip for rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"tip={tipId ?? "<no-tip>"} reason=tip-unresolvable");
+                return false;
+            }
+            MergeState oldState = tipRec.MergeState;
+            if (tipRec.MergeState != MergeState.Immutable)
+            {
+                tipRec.MergeState = MergeState.Immutable;
+                tipRec.FilesDirty = true;
             }
 
             var scenario = ParsekScenario.Instance;
@@ -98,12 +129,24 @@ namespace Parsek
             string impact = willReap
                 ? "willReap"
                 : (reapEligible ? "deferredPersistence" : "stillBlocked");
+            MergeState newState = tipRec.MergeState;
 
             ParsekLog.Info("UnfinishedFlights",
                 $"Sealed slot={slotListIndex} rec={rec.RecordingId ?? "<no-id>"} " +
                 $"bp={rp.BranchPointId ?? "<no-bp>"} rp={rp.RewindPointId ?? "<no-rp>"} " +
+                $"tip={tipId ?? "<no-tip>"} mergeState={oldState}->{newState} " +
                 $"terminal={terminal} reaperImpact={impact} reaped={reaped}");
             return true;
+        }
+
+        private static Recording FindCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            // Open/closed is read from the slot's effective tip MergeState;
+            // EffectiveState owns the raw committed-list read (allowlisted for
+            // the ERS/ELS grep gate). The tip may be NotCommitted, which ERS
+            // would filter out, so route through the raw-by-id helper.
+            return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
         private static bool PersistSealBeforeReap()
@@ -172,7 +215,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     DialogName,
                     body,
-                    "Confirm Seal Unfinished Flight",
+                    "Confirm: Seal Unfinished Flight",
                     HighLogic.UISkin,
                     new DialogGUIButton("Seal Permanently", () =>
                     {

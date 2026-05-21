@@ -299,13 +299,16 @@ research note (R17) at
   Focus-continuation upper stages, debris, and successful auto-recovered
   boosters stay out of the list.
 - **STASH system group and row actions** — the virtual Unfinished Flights group
-  is now displayed as `STASH`; rows expose `Fly` and `Seal`, and stable terminal
-  leaves backed by a Rewind Point can be manually `Stash`ed without changing the
-  underlying recording or merge state.
-- **Persistent slot signals** — `ChildSlot.Sealed`, `ChildSlot.Stashed`,
+  is now displayed as `STASH`; rows expose `Fly` and `Seal`. `Seal` permanently
+  closes a slot by flipping its effective tip recording to `Immutable`, and a
+  stable terminal leaf backed by a Rewind Point can be manually `Stash`ed (which
+  opens it by demoting its tip to `CommittedProvisional`). A slot's open/closed
+  state is read solely from its tip `MergeState`, the single source of truth.
+- **Persistent slot signals** — `ChildSlot.Stashed`,
   `RewindPoint.FocusSlotIndex`, and `ReFlySessionMarker.SupersedeTargetId`
-  preserve stable-leaf qualification, manual closure, and linear re-fly chain
-  extension across save/load.
+  preserve manual stash intent, focus, and linear re-fly chain extension across
+  save/load. (Open/closed itself lives in the recording's `MergeState`, not a
+  separate slot bit.)
 - **Helper extraction** — Unfinished Flight membership and route resolution now
   live outside the table UI so commit/merge/reap code can use the same predicate
   as the Recordings Manager.

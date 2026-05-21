@@ -60,7 +60,9 @@ namespace Parsek.Tests
             {
                 RecordingId = id,
                 VesselName = parentVessel,
-                MergeState = MergeState.Immutable,
+                // Open crashed Unfinished Flight -> CommittedProvisional tip
+                // (open) after promotion (collapse-seal-into-mergestate).
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = bpId,
             };

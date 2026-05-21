@@ -175,29 +175,6 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void AllowRenderCoBubbleBlend_Suppressed_SuppressesBlend()
-        {
-            bool result = ParsekFlight.allowRenderCoBubbleBlend(
-                "rec-refly-cobubble",
-                targetUT: 2050.0,
-                suppressBlend: true,
-                out Vector3d offset,
-                out double blend,
-                out string primaryRecordingId,
-                out CoBubbleBlendStatus status,
-                out string reason);
-
-            Assert.False(result);
-            Assert.Equal(0.0, offset.x, 9);
-            Assert.Equal(0.0, offset.y, 9);
-            Assert.Equal(0.0, offset.z, 9);
-            Assert.Equal(0.0, blend, 9);
-            Assert.Null(primaryRecordingId);
-            Assert.Equal(default(CoBubbleBlendStatus), status);
-            Assert.Equal("suppressed", reason);
-        }
-
-        [Fact]
         public void AllowPointHermiteInterpolation_Suppressed_UsesLinearPath()
         {
             bool result = ParsekFlight.allowPointHermiteInterpolation(

@@ -42,8 +42,6 @@ namespace Parsek.Tests
                         Controllable = true,
                         Disabled = true,
                         DisabledReason = "lookup failed",
-                        Sealed = true,
-                        SealedRealTime = "2026-04-28T10:15:30.0000000Z",
                         Stashed = true,
                         StashedRealTime = "2026-04-29T08:09:10.0000000Z"
                     },
@@ -91,8 +89,6 @@ namespace Parsek.Tests
             Assert.True(restored.ChildSlots[0].Controllable);
             Assert.False(restored.ChildSlots[0].Disabled);
             Assert.Null(restored.ChildSlots[0].DisabledReason);
-            Assert.False(restored.ChildSlots[0].Sealed);
-            Assert.Null(restored.ChildSlots[0].SealedRealTime);
             Assert.False(restored.ChildSlots[0].Stashed);
             Assert.Null(restored.ChildSlots[0].StashedRealTime);
 
@@ -100,14 +96,11 @@ namespace Parsek.Tests
             Assert.Equal("rec_child1", restored.ChildSlots[1].OriginChildRecordingId);
             Assert.True(restored.ChildSlots[1].Disabled);
             Assert.Equal("lookup failed", restored.ChildSlots[1].DisabledReason);
-            Assert.True(restored.ChildSlots[1].Sealed);
-            Assert.Equal("2026-04-28T10:15:30.0000000Z", restored.ChildSlots[1].SealedRealTime);
             Assert.True(restored.ChildSlots[1].Stashed);
             Assert.Equal("2026-04-29T08:09:10.0000000Z", restored.ChildSlots[1].StashedRealTime);
 
             Assert.Equal(2, restored.ChildSlots[2].SlotIndex);
             Assert.Equal("rec_child2", restored.ChildSlots[2].OriginChildRecordingId);
-            Assert.False(restored.ChildSlots[2].Sealed);
             Assert.False(restored.ChildSlots[2].Stashed);
 
             Assert.Equal(3, restored.PidSlotMap.Count);
@@ -186,8 +179,6 @@ namespace Parsek.Tests
 
             Assert.Equal(-1, restored.FocusSlotIndex);
             Assert.Single(restored.ChildSlots);
-            Assert.False(restored.ChildSlots[0].Sealed);
-            Assert.Null(restored.ChildSlots[0].SealedRealTime);
             Assert.False(restored.ChildSlots[0].Stashed);
             Assert.Null(restored.ChildSlots[0].StashedRealTime);
         }

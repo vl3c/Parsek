@@ -47,7 +47,6 @@ namespace Parsek
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
-        private const string UseCoBubbleBlendKey = "useCoBubbleBlend";
         private const string UseOutlierRejectionKey = "useOutlierRejection";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
@@ -60,7 +59,6 @@ namespace Parsek
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
-        private static bool? storedUseCoBubbleBlend;
         private static bool? storedUseOutlierRejection;
         private static bool loaded;
 
@@ -213,17 +211,6 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseAnchorTaxonomyKey} — using default");
                 }
 
-                string useCoBubbleStr = root.GetValue(UseCoBubbleBlendKey);
-                if (!string.IsNullOrEmpty(useCoBubbleStr)
-                    && bool.TryParse(useCoBubbleStr, out bool useCoBubble))
-                {
-                    storedUseCoBubbleBlend = useCoBubble;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseCoBubbleBlendKey} — using default");
-                }
-
                 string useOutlierStr = root.GetValue(UseOutlierRejectionKey);
                 if (!string.IsNullOrEmpty(useOutlierStr)
                     && bool.TryParse(useOutlierStr, out bool useOutlier))
@@ -245,7 +232,6 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
-                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<default>")}" +
                     $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
@@ -338,16 +324,6 @@ namespace Parsek
                 settings.useAnchorTaxonomy = storedUseAnchorTaxonomy.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useAnchorTaxonomy {prev} -> {storedUseAnchorTaxonomy.Value} from persistent store");
-            }
-
-            if (storedUseCoBubbleBlend.HasValue
-                && storedUseCoBubbleBlend.Value != settings.useCoBubbleBlend)
-            {
-                bool prev = settings.useCoBubbleBlend;
-                // Property setter emits Notify on change.
-                settings.useCoBubbleBlend = storedUseCoBubbleBlend.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useCoBubbleBlend {prev} -> {storedUseCoBubbleBlend.Value} from persistent store");
             }
 
             if (storedUseOutlierRejection.HasValue
@@ -489,26 +465,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordUseCoBubbleBlend(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseCoBubbleBlend: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedUseCoBubbleBlend.HasValue && storedUseCoBubbleBlend.Value == value) return;
-            storedUseCoBubbleBlend = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseCoBubbleBlend: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
         internal static void RecordUseOutlierRejection(bool value)
         {
             try { LoadIfNeeded(); }
@@ -637,8 +593,6 @@ namespace Parsek
                     root.AddValue(UseAnchorCorrectionKey, storedUseAnchorCorrection.Value.ToString());
                 if (storedUseAnchorTaxonomy.HasValue)
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
-                if (storedUseCoBubbleBlend.HasValue)
-                    root.AddValue(UseCoBubbleBlendKey, storedUseCoBubbleBlend.Value.ToString());
                 if (storedUseOutlierRejection.HasValue)
                     root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
@@ -652,7 +606,6 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
-                    $" useCoBubbleBlend={(storedUseCoBubbleBlend.HasValue ? storedUseCoBubbleBlend.Value.ToString() : "<null>")}" +
                     $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
@@ -677,7 +630,6 @@ namespace Parsek
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
-            storedUseCoBubbleBlend = null;
             storedUseOutlierRejection = null;
             loaded = false;
             reconciledWithLiveSettings = false;
@@ -746,8 +698,6 @@ namespace Parsek
 
         internal static bool? GetStoredUseAnchorTaxonomy() => storedUseAnchorTaxonomy;
 
-        internal static bool? GetStoredUseCoBubbleBlend() => storedUseCoBubbleBlend;
-
         internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
         /// <summary>
@@ -799,12 +749,6 @@ namespace Parsek
         internal static void SetStoredUseAnchorTaxonomyForTesting(bool? value)
         {
             storedUseAnchorTaxonomy = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseCoBubbleBlendForTesting(bool? value)
-        {
-            storedUseCoBubbleBlend = value;
             loaded = true;
         }
 

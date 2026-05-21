@@ -104,8 +104,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryStash_SetsSlotStashTimestamp_DoesNotChangeMergeState_LogsAndBlocksReap()
+        public void TryStash_SetsStashBit_DemotesTipToCommittedProvisional_LogsAndBlocksReap()
         {
+            // Stash sets the monotonic Stashed bit AND opens the slot by
+            // demoting its effective tip from Immutable to CommittedProvisional
+            // (open/closed is read from the tip MergeState after
+            // collapse-seal-into-mergestate).
             var landed = Rec("rec_landed", TerminalState.Landed);
             var focus = Rec("rec_focus", TerminalState.Orbiting);
             RecordingStore.AddRecordingWithTreeForTesting(focus, "tree_1");
@@ -131,7 +135,7 @@ namespace Parsek.Tests
             Assert.Null(reason);
             Assert.True(rp.ChildSlots[1].Stashed);
             Assert.Equal("2026-04-29T08:09:10.0000000Z", rp.ChildSlots[1].StashedRealTime);
-            Assert.Equal(MergeState.Immutable, landed.MergeState);
+            Assert.Equal(MergeState.CommittedProvisional, landed.MergeState);
             Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
             Assert.True(EffectiveState.IsUnfinishedFlight(landed));
             Assert.False(RewindPointReaper.IsReapEligible(rp, scenario.RecordingSupersedes));
@@ -139,6 +143,7 @@ namespace Parsek.Tests
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("Stashed slot=1")
                 && l.Contains("rec=rec_landed")
+                && l.Contains("tipDemoted=True")
                 && l.Contains("reaperBlocked=True"));
         }
 

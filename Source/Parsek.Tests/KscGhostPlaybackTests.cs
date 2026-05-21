@@ -151,7 +151,7 @@ namespace Parsek.Tests
             rec.RecordingId = "debris-rec";
             rec.VesselName = "ParentDebrisKsc";
             rec.IsDebris = true;
-            rec.DebrisParentRecordingId = "parent-rec";
+            rec.ParentAnchorRecordingId = "parent-rec";
             rec.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
             if (includeBodyFixedPrimary)
             {

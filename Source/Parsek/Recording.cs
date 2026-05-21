@@ -25,10 +25,12 @@ namespace Parsek
         // True if vessel has no controller parts (debris). Minimal recording only.
         public bool IsDebris;
 
-        // Set on parent-anchored debris recordings to the parent recording's id;
-        // null on non-debris. The current debris-frame contract uses this field to
-        // choose parent-owned recording and playback paths.
-        public string DebrisParentRecordingId;
+        // Set on parent-anchored recordings to the parent recording's id; null when
+        // the recording has no parent anchor. Stamped on debris, on
+        // controlled-decoupled children, and on any other parent-anchored recording.
+        // The parent-anchor contract uses this field to choose parent-owned recording
+        // and playback paths.
+        public string ParentAnchorRecordingId;
 
         // True if this recording was created via the Gloops Flight Recorder (manual ghost-only).
         // Ghost-only recordings never spawn a real vessel at playback end.
@@ -336,6 +338,12 @@ namespace Parsek
         public string VesselSituation;          // "Orbiting Kerbin", "Landed on Mun", etc.
         public double MaxDistanceFromLaunch;     // Peak distance reached during recording
         public bool VesselSpawned;              // True after deferred RespawnVessel has fired
+        // Transient (not serialized): negative cache for spawn-time snapshot
+        // re-hydration. Set once when the _vessel.craft sidecar is confirmed
+        // absent/unusable so the per-frame spawn gate stops re-probing disk.
+        // A null in-memory snapshot with no sidecar cannot gain one later, so
+        // caching the failure is safe; reset implicitly each session (default false).
+        public bool VesselSnapshotHydrationFailed;
 
         public uint SpawnedVesselPersistentId;  // persistentId of spawned vessel (0 = not yet spawned)
         public string TerminalSpawnSupersededByRecordingId; // Later continuation owns the real terminal spawn
@@ -745,10 +753,10 @@ namespace Parsek
             if (source.Controllers != null)
                 Controllers = new List<ControllerInfo>(source.Controllers);
             IsDebris = source.IsDebris;
-            // Propagate the debris parent-anchor contract alongside IsDebris.
-            // Without this, every cloned debris recording would silently lose the
-            // contract — see plan §"`IsDebris` propagation surface" site #4.
-            DebrisParentRecordingId = source.DebrisParentRecordingId;
+            // Propagate the parent-anchor contract alongside IsDebris.
+            // Without this, every cloned parent-anchored recording would silently
+            // lose the contract — see plan §"`IsDebris` propagation surface" site #4.
+            ParentAnchorRecordingId = source.ParentAnchorRecordingId;
             IsGhostOnly = source.IsGhostOnly;
             // Generation is transient, but copied so the cascade-depth state is
             // preserved across recording creation/commit boundaries within a tree session.
@@ -1041,31 +1049,31 @@ namespace Parsek
 
         /// <summary>
         /// Stamps the parent-anchor contract on <paramref name="child"/>:
-        /// sets <see cref="DebrisParentRecordingId"/> to the supplied parent's
+        /// sets <see cref="ParentAnchorRecordingId"/> to the supplied parent's
         /// recording id when a parent is provided. The helper is caller-decides:
         /// the caller is responsible for not stamping populations that do not
         /// want the contract (e.g. top-level launch recordings). Both genuine
         /// debris (IsDebris=true) and controlled-decoupled children (IsDebris=false)
         /// use this helper.
         /// </summary>
-        internal static void ApplyDebrisAnchorContract(Recording child, Recording parent)
+        internal static void ApplyParentAnchorContract(Recording child, Recording parent)
         {
             if (child == null) return;
             if (parent == null) return;
             if (string.IsNullOrEmpty(parent.RecordingId)) return;
-            child.DebrisParentRecordingId = parent.RecordingId;
+            child.ParentAnchorRecordingId = parent.RecordingId;
         }
 
         /// <summary>
-        /// String overload of <see cref="ApplyDebrisAnchorContract(Recording, Recording)"/>
+        /// String overload of <see cref="ApplyParentAnchorContract(Recording, Recording)"/>
         /// for the pure-static factory path (`BuildBackgroundSplitBranchData`) where the
         /// caller has the parent's recording id but no Recording object in scope.
         /// </summary>
-        internal static void ApplyDebrisAnchorContract(Recording child, string parentRecordingId)
+        internal static void ApplyParentAnchorContract(Recording child, string parentRecordingId)
         {
             if (child == null) return;
             if (string.IsNullOrEmpty(parentRecordingId)) return;
-            child.DebrisParentRecordingId = parentRecordingId;
+            child.ParentAnchorRecordingId = parentRecordingId;
         }
 
         /// <summary>
@@ -1149,7 +1157,7 @@ namespace Parsek
         double IPlaybackTrajectory.TerrainHeightAtEnd => TerrainHeightAtEnd;
         bool IPlaybackTrajectory.PlaybackEnabled => PlaybackEnabled;
         bool IPlaybackTrajectory.IsDebris => IsDebris;
-        string IPlaybackTrajectory.DebrisParentRecordingId => DebrisParentRecordingId;
+        string IPlaybackTrajectory.ParentAnchorRecordingId => ParentAnchorRecordingId;
         string IPlaybackTrajectory.TerminalOrbitBody => TerminalOrbitBody;
         double IPlaybackTrajectory.TerminalOrbitSemiMajorAxis => TerminalOrbitSemiMajorAxis;
         double IPlaybackTrajectory.TerminalOrbitEccentricity => TerminalOrbitEccentricity;

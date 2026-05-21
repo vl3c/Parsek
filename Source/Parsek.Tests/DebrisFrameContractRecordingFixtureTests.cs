@@ -15,7 +15,7 @@ namespace Parsek.Tests
             Assert.NotEmpty(fixture.RelativeSection.frames);
             Assert.NotEmpty(fixture.RelativeSection.bodyFixedFrames);
             Assert.True(fixture.Debris.IsDebris);
-            Assert.Equal(fixture.Parent.RecordingId, fixture.Debris.DebrisParentRecordingId);
+            Assert.Equal(fixture.Parent.RecordingId, fixture.Debris.ParentAnchorRecordingId);
         }
 
         [Fact]

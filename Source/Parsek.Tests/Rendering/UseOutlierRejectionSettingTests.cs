@@ -9,8 +9,6 @@ namespace Parsek.Tests.Rendering
     /// <summary>
     /// Tests for the Phase 8 <c>useOutlierRejection</c> rollout flag (design
     /// doc §18 Phase 8, §19.2 Outlier Rejection row "Settings flag flip").
-    /// Mirrors <see cref="UseCoBubbleBlendSettingTests"/> line-for-line so
-    /// the rollout-gate contract is consistent across phases.
     /// </summary>
     [Collection("Sequential")]
     public class UseOutlierRejectionSettingTests : IDisposable
@@ -77,14 +75,15 @@ namespace Parsek.Tests.Rendering
         [Fact]
         public void UseOutlierRejection_ConfigHashChangesOnFlip()
         {
-            // Without byte-85 in the canonical encoding, a flag flip would
-            // not invalidate the cached .pann (HR-10 violation).
+            // Without the trailing useOutlierRejection byte in the canonical
+            // encoding, a flag flip would not invalidate the cached .pann
+            // (HR-10 violation).
             byte[] flagOn = PannotationsSidecarBinary.ComputeConfigurationHash(
                 SmoothingConfiguration.Default,
-                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: true);
+                useAnchorTaxonomy: true, useOutlierRejection: true);
             byte[] flagOff = PannotationsSidecarBinary.ComputeConfigurationHash(
                 SmoothingConfiguration.Default,
-                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: false);
+                useAnchorTaxonomy: true, useOutlierRejection: false);
             Assert.NotEqual(flagOn, flagOff);
         }
 
@@ -97,10 +96,10 @@ namespace Parsek.Tests.Rendering
             tweaked.AccelCeilingExoBallistic = 999.0f;
             byte[] defHash = PannotationsSidecarBinary.ComputeConfigurationHash(
                 SmoothingConfiguration.Default, OutlierThresholds.Default,
-                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: true);
+                useAnchorTaxonomy: true, useOutlierRejection: true);
             byte[] tweakedHash = PannotationsSidecarBinary.ComputeConfigurationHash(
                 SmoothingConfiguration.Default, tweaked,
-                useAnchorTaxonomy: true, useCoBubbleBlend: true, useOutlierRejection: true);
+                useAnchorTaxonomy: true, useOutlierRejection: true);
             Assert.NotEqual(defHash, tweakedHash);
         }
 

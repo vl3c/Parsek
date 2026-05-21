@@ -387,8 +387,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Preview_RecordedTerminalSubOrbital_NullVessel_FlagsSubOrbitalArc()
+        public void Preview_RecordedTerminalSubOrbital_NullVessel_FlagsNoSeal()
         {
+            // SubOrbital is excluded from the seal contract: a suborbital arc
+            // is still in flight (the vessel will crash, land, splash, or
+            // with a burn reach orbit). The recorded-terminal classifier
+            // must not surface a seal reason here, and the preview's
+            // WillAutoSeal must be false.
             var rec = MakeRecording();
             rec.TerminalStateValue = TerminalState.SubOrbital;
             var marker = MakeMarker();
@@ -396,8 +401,8 @@ namespace Parsek.Tests
 
             var result = ReFlyAutoSealPreviewer.Preview(rec, marker, null);
 
-            Assert.True(result.WillAutoSeal);
-            Assert.Contains(ReFlyAutoSealReason.SubOrbitalArc, result.Reasons);
+            Assert.False(result.WillAutoSeal);
+            Assert.Empty(result.Reasons);
         }
 
         [Fact]
@@ -539,7 +544,6 @@ namespace Parsek.Tests
                 { ReFlyAutoSealReason.Landed, "landed" },
                 { ReFlyAutoSealReason.SplashedDown, "splashed down" },
                 { ReFlyAutoSealReason.StableOrbit, "reached a stable orbit" },
-                { ReFlyAutoSealReason.SubOrbitalArc, "reached a sub-orbital arc" },
             };
             foreach (var kvp in expected)
                 Assert.Equal(kvp.Value, ReFlyAutoSealPreviewResult.PhraseFor(kvp.Key));
@@ -625,24 +629,46 @@ namespace Parsek.Tests
         // ---------- BuildReFlyDialogBody --------------------------------
 
         [Fact]
-        public void BuildTimelineActionButtonLabel_PermanentAction_UsesMergeToTimeline()
+        public void BuildTimelineActionButtonLabel_PermanentNonReFlyMerge_UsesMergeToTimeline()
         {
+            // Ordinary whole-tree merge: permanent, but no re-fly slot to
+            // seal, so the plain label stays.
             Assert.Equal("Merge to Timeline",
                 MergeDialog.BuildTimelineActionButtonLabel(isPermanent: true));
         }
 
         [Fact]
-        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitToTimeline()
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptSealed_UsesMergeAndSeal()
         {
-            Assert.Equal("Commit to Timeline",
-                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: false));
+            Assert.Equal("Merge & Seal",
+                MergeDialog.BuildTimelineActionButtonLabel(
+                    isPermanent: true, isReFlyAttempt: true));
+            // The standalone helper used for the explicit Merge & Seal button
+            // shares the same string.
+            Assert.Equal("Merge & Seal",
+                MergeDialog.BuildReFlyMergeAndSealButtonLabel());
+        }
+
+        [Fact]
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitDontSeal()
+        {
+            Assert.Equal("Commit (don't seal)",
+                MergeDialog.BuildTimelineActionButtonLabel(
+                    isPermanent: false, isReFlyAttempt: true));
         }
 
         [Fact]
         public void BuildTimelineActionDialogTitle_NotPermanent_UsesCommitToTimeline()
         {
-            Assert.Equal("Confirm Commit to Timeline",
+            Assert.Equal("Confirm: Commit to Timeline",
                 MergeDialog.BuildTimelineActionDialogTitle(isPermanent: false));
+        }
+
+        [Fact]
+        public void BuildTimelineActionDialogTitle_Permanent_UsesMergeToTimeline()
+        {
+            Assert.Equal("Confirm: Merge to Timeline",
+                MergeDialog.BuildTimelineActionDialogTitle(isPermanent: true));
         }
 
         [Fact]
@@ -799,13 +825,17 @@ namespace Parsek.Tests
         {
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: false);
             Assert.Contains("TestVessel", body);
             Assert.Contains("Do you want to commit this Re-Fly attempt", body);
             Assert.Contains("to the timeline", body);
             Assert.DoesNotContain("cannot be undone", body);
             Assert.DoesNotContain("auto-sealed", body);
             Assert.DoesNotContain("for the following reason", body);
+            // Non-sealable attempt: body names what each button does to the slot.
+            Assert.Contains("Commit (don't seal) keeps this Re-Fly slot open", body);
+            Assert.Contains("Merge & Seal permanently closes it", body);
+            Assert.Contains("cannot Re-Fly this line again", body);
         }
 
         [Fact]
@@ -818,7 +848,7 @@ namespace Parsek.Tests
                     { ReFlyAutoSealReason.TransmittedScience },
             };
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: true);
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
             Assert.Contains("for the following reason(s):\n- transmitted science\n\n",
@@ -847,7 +877,7 @@ namespace Parsek.Tests
                 },
             };
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: true);
             Assert.Contains(
                 "for the following reason(s):\n" +
                 "- transmitted science\n" +
@@ -862,7 +892,7 @@ namespace Parsek.Tests
         {
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
             string body = MergeDialog.BuildReFlyDialogBody(
-                "MyShip", 65.0, preview);
+                "MyShip", 65.0, preview, willAutoSeal: false);
             Assert.Contains("<align=\"center\">MyShip - ", body);
         }
 

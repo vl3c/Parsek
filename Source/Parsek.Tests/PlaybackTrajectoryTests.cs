@@ -471,6 +471,7 @@ namespace Parsek.Tests
             Assert.Null(flags.recordingId);
             Assert.Equal(0u, flags.vesselPersistentId);
             Assert.False(flags.sessionSuppressedRenderCarveOutEligible);
+            Assert.False(flags.sessionSuppressed);
             Assert.False(flags.anchorReFlyUnstable);
         }
 
@@ -489,6 +490,7 @@ namespace Parsek.Tests
                 recordingId = "abc123",
                 vesselPersistentId = 42,
                 sessionSuppressedRenderCarveOutEligible = true,
+                sessionSuppressed = true,
                 anchorReFlyUnstable = true
             };
             Assert.True(flags.skipGhost);
@@ -501,6 +503,7 @@ namespace Parsek.Tests
             Assert.Equal("abc123", flags.recordingId);
             Assert.Equal(42u, flags.vesselPersistentId);
             Assert.True(flags.sessionSuppressedRenderCarveOutEligible);
+            Assert.True(flags.sessionSuppressed);
             Assert.True(flags.anchorReFlyUnstable);
         }
 
@@ -522,11 +525,18 @@ namespace Parsek.Tests
             Assert.Equal(0, ctx.protectedLoopCycleIndex);
             Assert.Equal(0, ctx.externalGhostCount);
             Assert.Equal(0.0, ctx.autoLoopIntervalSeconds);
+            Assert.Null(ctx.activeReFlyMarker);
         }
 
         [Fact]
         public void FrameContext_AllFieldsSettable()
         {
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess-frame-ctx",
+                TreeId = "tree-frame-ctx",
+                ActiveReFlyRecordingId = "rec-frame-ctx",
+            };
             var ctx = new FrameContext
             {
                 currentUT = 1234.5,
@@ -535,7 +545,8 @@ namespace Parsek.Tests
                 protectedIndex = 3,
                 protectedLoopCycleIndex = 9,
                 externalGhostCount = 7,
-                autoLoopIntervalSeconds = 15.0
+                autoLoopIntervalSeconds = 15.0,
+                activeReFlyMarker = marker
             };
             Assert.Equal(1234.5, ctx.currentUT, 6);
             Assert.Equal(100f, ctx.warpRate);
@@ -543,6 +554,7 @@ namespace Parsek.Tests
             Assert.Equal(9, ctx.protectedLoopCycleIndex);
             Assert.Equal(7, ctx.externalGhostCount);
             Assert.Equal(15.0, ctx.autoLoopIntervalSeconds, 6);
+            Assert.Same(marker, ctx.activeReFlyMarker);
         }
 
         #endregion

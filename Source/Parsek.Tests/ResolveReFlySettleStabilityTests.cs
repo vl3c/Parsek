@@ -46,7 +46,7 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-debris",
                 IsDebris = true,
-                DebrisParentRecordingId = "rec-parent"
+                ParentAnchorRecordingId = "rec-parent"
             };
 
             bool result = ParsekFlight.ResolveReFlySettleStabilityForTesting(

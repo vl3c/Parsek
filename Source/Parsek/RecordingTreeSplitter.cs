@@ -306,7 +306,7 @@ namespace Parsek
                         break;
                     case Kind.DebrisParentRewrite:
                         if (e.Recording != null)
-                            e.Recording.DebrisParentRecordingId = e.OldId;
+                            e.Recording.ParentAnchorRecordingId = e.OldId;
                         break;
                     case Kind.TrackSectionAnchorRewrite:
                         if (e.Recording != null
@@ -849,7 +849,7 @@ namespace Parsek
                     var d = debrisSource[i];
                     if (d == null) continue;
                     if (!string.Equals(
-                            d.DebrisParentRecordingId,
+                            d.ParentAnchorRecordingId,
                             origin.RecordingId,
                             StringComparison.Ordinal))
                     {
@@ -871,7 +871,7 @@ namespace Parsek
                     if (!(debrisActualStart >= rewindUT)) continue;
                     snapshot.Ledger.Add(SplitMutationLedger.DebrisParent(
                         d, origin.RecordingId, tip.RecordingId));
-                    d.DebrisParentRecordingId = tip.RecordingId;
+                    d.ParentAnchorRecordingId = tip.RecordingId;
                     reparentedDebrisIds.Add(d.RecordingId);
                     result.DebrisReparented++;
                 }

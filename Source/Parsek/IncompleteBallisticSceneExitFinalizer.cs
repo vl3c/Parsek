@@ -52,6 +52,15 @@ namespace Parsek
         private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
         private const double PredictedTailReseedAnchorMaxGapSeconds = 5.0;
 
+        // Generous slack added to a parent-anchored recording's authored coverage span
+        // when deciding whether a recorded body-fixed surface point may contradict a
+        // bogus live-orbit sub-surface start. A parent-anchored recording's live vessel
+        // orbit is the origin-collapse NullSolver fingerprint (alt ~= -bodyRadius), so
+        // its own body-fixed surface is authoritative and the tight fresh-split window
+        // must not gate it. The slack only bounds against pathological out-of-recording
+        // points; the live-orbit UT itself carries no meaning for these recordings.
+        private const double ParentAnchoredRecordedPointCoverageSlackSeconds = 5.0;
+
         private static bool? flightGlobalsRuntimeAvailableForTesting;
         internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
 
@@ -75,6 +84,12 @@ namespace Parsek
 
         internal static TryFinalizeDelegate TryFinalizeHook;
         internal static TryFinalizeDelegate TryFinalizeOverrideForTesting;
+        // Override seam so xUnit can exercise the sub-surface-suppression
+        // recovery path without a Unity FlightGlobals runtime. Real callers
+        // route through TryBuildRecoveryStartStateFromRecordedPoint which
+        // resolves the body via FlightGlobals + OrbitReseed.
+        internal static Func<TrajectoryPoint, IReadOnlyDictionary<string, ExtrapolationBody>, BallisticStateVector?>
+            TryBuildRecoveryStartStateOverrideForTesting;
         private static readonly HashSet<string> subSurfaceDestroyedClassificationLogs =
             new HashSet<string>(StringComparer.Ordinal);
 
@@ -84,6 +99,7 @@ namespace Parsek
             FlightGlobalsRuntimeAvailabilityOverrideForTesting = null;
             TryFinalizeHook = null;
             TryFinalizeOverrideForTesting = null;
+            TryBuildRecoveryStartStateOverrideForTesting = null;
             ResetLifecycleDiagnostics();
         }
 
@@ -575,7 +591,57 @@ namespace Parsek
             }
 
             BallisticStateVector startState;
-            if (appendedSegments.Count > 0)
+            if (appendedSegments.Count > 0
+                && BallisticExtrapolator.TryFindAtmosphericReentryClip(
+                    (IReadOnlyList<OrbitSegment>)appendedSegments,
+                    bodies,
+                    out int reentryClipIndex,
+                    out double atmosphereEntryUT))
+            {
+                // The captured patched-conic tail re-enters an atmospheric body:
+                // its periapsis is below the atmosphere top, so KSP's transition-less
+                // closed ellipse would run underground on playback. Clip the
+                // predicted segments at the descending atmosphere-entry crossing and
+                // hand the atmospheric descent to the ballistic extrapolator, which
+                // terminates at the real terrain impact instead of looping the
+                // sub-surface ellipse.
+                OrbitSegment clipSegment = appendedSegments[reentryClipIndex];
+                for (int i = appendedSegments.Count - 1; i > reentryClipIndex; i--)
+                    appendedSegments.RemoveAt(i);
+                if (atmosphereEntryUT > clipSegment.startUT + 1e-6)
+                {
+                    // Segment has an above-atmosphere arc before re-entry: keep it,
+                    // truncated to the atmosphere-entry crossing.
+                    clipSegment.endUT = atmosphereEntryUT;
+                    appendedSegments[reentryClipIndex] = clipSegment;
+                }
+                else
+                {
+                    // Segment is entirely a re-entry (started at/below the boundary):
+                    // drop it so no zero-length predicted segment is left behind; the
+                    // ballistic descent below covers it from its start.
+                    appendedSegments.RemoveAt(reentryClipIndex);
+                }
+                result.patchedSegmentCount = appendedSegments.Count;
+
+                ParsekLog.Info("Extrapolator",
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "TryFinalizeRecording: clipped re-entering predicted orbit for '{0}' at atmosphere-entry " +
+                        "UT={1:F1} (kept {2} predicted segment(s)); handing atmospheric descent to ballistic extrapolator",
+                        recordingId ?? "(null)",
+                        atmosphereEntryUT,
+                        appendedSegments.Count));
+
+                if (!TryBuildStartStateFromSegment(clipSegment, bodies, atmosphereEntryUT, out startState))
+                {
+                    ParsekLog.Warn("Extrapolator",
+                        $"TryFinalizeRecording: failed to propagate clipped re-entry segment for '{recordingId}' " +
+                        $"(body={clipSegment.bodyName ?? "(null)"}, atmosphereEntryUT={atmosphereEntryUT:F1})");
+                    return false;
+                }
+            }
+            else if (appendedSegments.Count > 0)
             {
                 OrbitSegment lastSegment = appendedSegments[appendedSegments.Count - 1];
                 if (!TryBuildStartStateFromSegment(lastSegment, bodies, out startState))
@@ -632,6 +698,143 @@ namespace Parsek
                     out double recordedPointDeltaUT,
                     out double recordingStartUT))
                 {
+                    // Before falling through to suppression, try to extrapolate
+                    // forward from the recorded point itself. The recorded
+                    // sample is body-fixed and above ground (the suppression
+                    // check filtered for that), and when it carries a recorded
+                    // velocity we can reseed an orbit + propagate it through
+                    // the same downstream extrapolator path that the working
+                    // PatchedConicSnapshot branch uses. Without this recovery,
+                    // a sub-orbital recording whose vessel solver was torn down
+                    // (NullSolver fingerprint) stays at the recorder's
+                    // instantaneous SubOrbital tag even though its predicted
+                    // trajectory dives well below atmosphere — leaving the
+                    // crash invisible to the STASH / Unfinished Flights gate.
+                    //
+                    // Skip recovery when the recorded point came from a
+                    // parent's EVA structural snapshot: that velocity belongs
+                    // to the parent vessel at EVA-UT, not the EVA child's
+                    // post-separation jetpack trajectory, so reseeding from
+                    // it would commit a wrong terminal on the child. The
+                    // pre-fix suppression behaviour was correct for that
+                    // population — preserve it.
+                    BallisticStateVector recoveryStartState = default(BallisticStateVector);
+                    string recoveryFailureReason = "parent-structural-eva-source";
+                    bool recoveryEligible =
+                        !IsParentEvaStructuralRecoverySource(recordedPointSource);
+                    bool recoveryBuilt = recoveryEligible
+                        && TryBuildRecoveryStartStateFromRecordedPoint(
+                            recordedPoint,
+                            bodies,
+                            out recoveryStartState,
+                            out recoveryFailureReason);
+
+                    if (recoveryBuilt)
+                    {
+                        ExtrapolationResult recovered = extrapolate != null
+                            ? extrapolate(recoveryStartState, bodies)
+                            : BallisticExtrapolator.Extrapolate(recoveryStartState, bodies);
+
+                        // Only adopt the recovery if it produced something
+                        // strictly better than the sub-surface verdict it was
+                        // meant to replace. Anything still SubSurfaceStart means
+                        // the reseeded orbit also collapses underground (a
+                        // pathological recorded velocity); fall through to the
+                        // existing suppression in that case.
+                        if (recovered.failureReason != ExtrapolationFailureReason.SubSurfaceStart)
+                        {
+                            appendedSegments.Clear();
+                            if (recovered.segments != null)
+                            {
+                                for (int i = 0; i < recovered.segments.Count; i++)
+                                {
+                                    OrbitSegment seg = recovered.segments[i];
+                                    if (seg.endUT > seg.startUT)
+                                        appendedSegments.Add(seg);
+                                }
+                            }
+
+                            result.appendedOrbitSegments = appendedSegments.Count > 0 ? appendedSegments : null;
+                            result.extrapolatedSegmentCount = recovered.segments != null
+                                ? recovered.segments.Count
+                                : 0;
+                            result.terminalState = recovered.terminalState;
+                            result.terminalUT = recovered.terminalUT;
+                            result.extrapolationFailureReason = recovered.failureReason;
+                            // Recovery replaces the sub-surface-Destroyed verdict
+                            // wholesale; clear every field the SubSurfaceStart
+                            // branch populated so the result is self-contained
+                            // against future callers reading them.
+                            result.subSurfaceDestroyedBodyName = null;
+                            result.subSurfaceDestroyedAltitude = 0.0;
+                            result.subSurfaceDestroyedThreshold = 0.0;
+                            result.terminalPosition = null;
+                            result.terrainHeightAtEnd = null;
+                            result.terminalOrbit = null;
+
+                            if (recovered.terminalState == TerminalState.Orbiting
+                                && appendedSegments.Count > 0)
+                            {
+                                result.terminalOrbit = RecordingFinalizationTerminalOrbit.FromSegment(
+                                    appendedSegments[appendedSegments.Count - 1]);
+                            }
+
+                            ParsekLog.Info("Extrapolator",
+                                string.Format(
+                                    CultureInfo.InvariantCulture,
+                                    "TryFinalizeRecording: recovered sub-surface live-orbit fallback for '{0}' " +
+                                    "by extrapolating recorded surface point (pointUT={1:F3}, source={2}, " +
+                                    "recordedAlt={3:F1}) -> terminal={4} terminalUT={5:F1} appendedSegments={6}",
+                                    recordingId,
+                                    recordedPoint.ut,
+                                    recordedPointSource ?? "(unknown)",
+                                    recordedPoint.altitude,
+                                    recovered.terminalState,
+                                    recovered.terminalUT,
+                                    appendedSegments.Count));
+
+                            double recordingEndUTForRecovery = recording == null
+                                ? double.NaN
+                                : recording.EndUT;
+                            return ShouldApplyExtrapolatorResult(
+                                appendedSegments.Count,
+                                result.terminalUT,
+                                recordingEndUTForRecovery,
+                                recovered.failureReason);
+                        }
+
+                        // Rate-limit per (recordingId, decline-category): a
+                        // recording stuck in this failure mode would otherwise
+                        // re-log every cache-refresh tick. 30s window matches
+                        // the suppression WARN that fires alongside.
+                        ParsekLog.VerboseRateLimited(
+                            "Extrapolator",
+                            "subsurface-destroyed-recovery-stillsubsurface." + recordingId,
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "TryFinalizeRecording: recorded-point recovery for '{0}' also produced " +
+                                "SubSurfaceStart (pointUT={1:F3}, source={2}); falling through to suppression",
+                                recordingId,
+                                recordedPoint.ut,
+                                recordedPointSource ?? "(unknown)"),
+                            minIntervalSeconds: 30.0);
+                    }
+                    else
+                    {
+                        ParsekLog.VerboseRateLimited(
+                            "Extrapolator",
+                            "subsurface-destroyed-recovery-declined." + recordingId,
+                            string.Format(
+                                CultureInfo.InvariantCulture,
+                                "TryFinalizeRecording: recorded-point recovery declined for '{0}' " +
+                                "(pointUT={1:F3}, source={2}, reason={3}); falling through to suppression",
+                                recordingId,
+                                recordedPoint.ut,
+                                recordedPointSource ?? "(unknown)",
+                                recoveryFailureReason ?? "(none)"),
+                            minIntervalSeconds: 30.0);
+                    }
+
                     ParsekLog.WarnRateLimited(
                         "Extrapolator",
                         "subsurface-destroyed-recorded-start-contradiction." + recordingId,
@@ -729,8 +932,16 @@ namespace Parsek
                 out recordedPointSource,
                 out recordedPointDeltaUT))
             {
-                if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
+                if (IsRecordedSurfaceContradictionAccepted(
+                        recording,
+                        recordedPoint,
+                        recordedPointDeltaUT,
+                        recordedPointSource,
+                        startState,
+                        result))
+                {
                     return true;
+                }
             }
 
             if (!TryFindParentEvaStructuralSurfacePoint(
@@ -746,7 +957,94 @@ namespace Parsek
                 return false;
             }
 
-            return recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds;
+            return IsRecordedSurfaceContradictionAccepted(
+                recording,
+                recordedPoint,
+                recordedPointDeltaUT,
+                recordedPointSource,
+                startState,
+                result);
+        }
+
+        /// <summary>
+        /// Decides whether a recorded body-fixed surface point may contradict a
+        /// sub-surface live-orbit start. The recorded point's lat/lon/alt are the
+        /// recording's authoritative body-fixed surface (for a Relative
+        /// <see cref="TrackSection"/> the contradiction search reads
+        /// <c>bodyFixedFrames</c>, never the anchor-local metre offsets in
+        /// <c>frames</c>), so the altitude here is a real geocentric altitude.
+        /// <para>
+        /// For a non-parent-anchored recording the live-orbit altitude is trustworthy,
+        /// so only the tight "fresh split" window admits the contradiction. For a
+        /// parent-anchored recording the live vessel orbit ALTITUDE/POSITION is the
+        /// origin-collapse NullSolver fingerprint (alt ~= -bodyRadius) and cannot be
+        /// trusted, even though the live-orbit UT (commitUT) is fine: the body-fixed
+        /// surface is authoritative and acceptance widens to the recording's own
+        /// authored coverage span. This is the mechanism fix for parent-anchored debris
+        /// being classified Destroyed off a -bodyRadius live-orbit read instead of its
+        /// genuine body-fixed altitude.
+        /// </para>
+        /// </summary>
+        internal static bool IsRecordedSurfaceContradictionAccepted(
+            Recording recording,
+            TrajectoryPoint recordedPoint,
+            double recordedPointDeltaUT,
+            string recordedPointSource,
+            BallisticStateVector startState,
+            IncompleteBallisticFinalizationResult result)
+        {
+            if (recording == null || !IsFinite(recordedPointDeltaUT))
+                return false;
+
+            if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
+                return true;
+
+            // Parent-anchored widening: the live-orbit start ALTITUDE/POSITION is the
+            // origin-collapse fingerprint, so the recorded body-fixed surface is
+            // authoritative even outside the tight fresh-split window. Bound only
+            // against pathological points that fall outside the recording's own
+            // authored coverage.
+            // Deliberately keyed on ParentAnchorRecordingId alone, NOT on IsDebris:
+            // the two are orthogonal (see CLAUDE.md), so this covers both genuine
+            // debris (IsDebris=true) and controlled-decoupled children (IsDebris=false)
+            // that come off a parent through a decoupler. Do not tighten to debris-only.
+            bool parentAnchored = !string.IsNullOrEmpty(recording.ParentAnchorRecordingId);
+            if (!parentAnchored)
+                return false;
+
+            double recordingStartUT = recording.StartUT;
+            double recordingEndUT = recording.EndUT;
+            if (!IsFinite(recordingStartUT) || !IsFinite(recordingEndUT))
+                return false;
+
+            double lowerBound = recordingStartUT - ParentAnchoredRecordedPointCoverageSlackSeconds;
+            double upperBound = recordingEndUT + ParentAnchoredRecordedPointCoverageSlackSeconds;
+            bool withinAuthoredCoverage =
+                IsFinite(recordedPoint.ut)
+                && recordedPoint.ut >= lowerBound
+                && recordedPoint.ut <= upperBound;
+            if (!withinAuthoredCoverage)
+                return false;
+
+            ParsekLog.Verbose("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Sub-surface contradiction accepted via parent-anchored body-fixed surface: " +
+                    "rec={0} parentAnchorRec={1} source={2} recordedPointUT={3:F3} recordedAlt={4:F1} " +
+                    "(body-fixed) liveStartUT={5:F3} liveAlt={6:F1} (origin-collapse) deltaUT={7:F3} " +
+                    "exceeds freshSplitWindow={8:F1}s but within authoredCoverage=[{9:F3},{10:F3}]",
+                    recording.RecordingId ?? "(null)",
+                    recording.ParentAnchorRecordingId ?? "(null)",
+                    recordedPointSource ?? "(unknown)",
+                    recordedPoint.ut,
+                    recordedPoint.altitude,
+                    startState.ut,
+                    result.subSurfaceDestroyedAltitude,
+                    recordedPointDeltaUT,
+                    SubSurfaceRecordedPointContradictionWindowSeconds,
+                    lowerBound,
+                    upperBound));
+            return true;
         }
 
         private static bool TryFindNearestRecordedSurfacePoint(
@@ -1643,13 +1941,22 @@ namespace Parsek
             IReadOnlyDictionary<string, ExtrapolationBody> bodies,
             out BallisticStateVector startState)
         {
+            return TryBuildStartStateFromSegment(segment, bodies, segment.endUT, out startState);
+        }
+
+        internal static bool TryBuildStartStateFromSegment(
+            OrbitSegment segment,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            double atUT,
+            out BallisticStateVector startState)
+        {
             startState = default(BallisticStateVector);
             if (string.IsNullOrEmpty(segment.bodyName)
                 || !bodies.TryGetValue(segment.bodyName, out ExtrapolationBody body)
                 || !BallisticExtrapolator.TryPropagate(
                     segment,
                     body.GravitationalParameter,
-                    segment.endUT,
+                    atUT,
                     out Vector3d position,
                     out Vector3d velocity)
                 || !IsFinite(position)
@@ -1658,7 +1965,7 @@ namespace Parsek
 
             startState = new BallisticStateVector
             {
-                ut = segment.endUT,
+                ut = atUT,
                 bodyName = segment.bodyName,
                 position = position,
                 velocity = velocity,
@@ -1802,6 +2109,144 @@ namespace Parsek
             return true;
         }
 
+        // Parent-EVA structural-event recovery is unsafe: the recorded point
+        // carries the PARENT vessel's velocity at EVA-UT, not the EVA child's
+        // post-separation trajectory. The decline keyword `parent-structural-eva:`
+        // is appended by `TryFindParentEvaStructuralSurfacePoint` via the
+        // `TryFindNearestRecordedSurfacePoint` sourcePrefix.
+        private static bool IsParentEvaStructuralRecoverySource(string recordedPointSource)
+        {
+            return !string.IsNullOrEmpty(recordedPointSource)
+                && recordedPointSource.StartsWith("parent-structural-eva:", StringComparison.Ordinal);
+        }
+
+        // Recovery start state built from a recorded above-surface trajectory
+        // point. Routed through when the live-orbit fallback would otherwise
+        // poison the extrapolator with origin-collapsed coordinates (the
+        // destroyed-vessel `NullSolver` fingerprint) but the recording itself
+        // still carries a fresh body-fixed sample with a real recorded
+        // velocity. The recorder stores `TrajectoryPoint.velocity` in Y-up
+        // body-relative inertial axes (see OrbitReseed docstring), so the
+        // resulting reseeded orbit + propagated start state lives in the same
+        // frame the extrapolator's working path (`TryBuildStartStateFromSegment`)
+        // produces — letting the same downstream extrapolation loop integrate
+        // it through atmosphere / terrain instead of mis-classifying as
+        // sub-surface and bailing into the recording's stale `SubOrbital`
+        // verdict.
+        private static bool TryBuildRecoveryStartStateFromRecordedPoint(
+            TrajectoryPoint point,
+            IReadOnlyDictionary<string, ExtrapolationBody> bodies,
+            out BallisticStateVector startState,
+            out string failureReason)
+        {
+            startState = default(BallisticStateVector);
+            failureReason = null;
+
+            if (TryBuildRecoveryStartStateOverrideForTesting != null)
+            {
+                BallisticStateVector? overrideResult =
+                    TryBuildRecoveryStartStateOverrideForTesting(point, bodies);
+                if (overrideResult.HasValue)
+                {
+                    startState = overrideResult.Value;
+                    return true;
+                }
+                failureReason = "override-declined";
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(point.bodyName))
+            {
+                failureReason = "body-missing";
+                return false;
+            }
+            if (!IsFinite(point.ut)
+                || !IsFinite(point.latitude)
+                || !IsFinite(point.longitude)
+                || !IsFinite(point.altitude))
+            {
+                failureReason = "position-non-finite";
+                return false;
+            }
+
+            Vector3d recordedVel = new Vector3d(
+                point.velocity.x,
+                point.velocity.y,
+                point.velocity.z);
+            if (!IsFinite(recordedVel))
+            {
+                failureReason = "velocity-non-finite";
+                return false;
+            }
+            // TwoBodyOrbit.TryCreate rejects a zero-speed state; an orbit
+            // cannot be derived from a single position with no motion. Bail
+            // explicitly so the caller falls through to the existing
+            // suppression path (sentinel / zero-velocity recorded points keep
+            // their current behaviour).
+            double speedSquared = recordedVel.x * recordedVel.x
+                + recordedVel.y * recordedVel.y
+                + recordedVel.z * recordedVel.z;
+            if (speedSquared <= 1e-8)
+            {
+                failureReason = "velocity-zero";
+                return false;
+            }
+
+            CelestialBody body = FlightGlobals.Bodies?.Find(b => b != null && b.name == point.bodyName);
+            if (body == null)
+            {
+                failureReason = "body-unresolved";
+                return false;
+            }
+
+            try
+            {
+                Orbit reseededOrbit = new Orbit();
+                OrbitReseed.FromLatLonAltAndRecordedVelocity(
+                    reseededOrbit,
+                    body,
+                    point.latitude,
+                    point.longitude,
+                    point.altitude,
+                    recordedVel,
+                    point.ut);
+
+                OrbitSegment segment = new OrbitSegment
+                {
+                    startUT = point.ut,
+                    endUT = point.ut,
+                    inclination = reseededOrbit.inclination,
+                    eccentricity = reseededOrbit.eccentricity,
+                    semiMajorAxis = reseededOrbit.semiMajorAxis,
+                    longitudeOfAscendingNode = reseededOrbit.LAN,
+                    argumentOfPeriapsis = reseededOrbit.argumentOfPeriapsis,
+                    meanAnomalyAtEpoch = reseededOrbit.meanAnomalyAtEpoch,
+                    epoch = reseededOrbit.epoch,
+                    bodyName = body.name,
+                    isPredicted = true
+                };
+
+                if (!IsFiniteOrbitElements(segment))
+                {
+                    failureReason = "orbit-elements-non-finite";
+                    return false;
+                }
+
+                if (!TryBuildStartStateFromSegment(segment, bodies, out startState))
+                {
+                    failureReason = "segment-propagation-failed";
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                failureReason = ex.GetType().Name;
+                return false;
+            }
+        }
+
         private static double GetBallisticCutoffAltitude(CelestialBody body)
         {
             if (body == null)
@@ -1895,6 +2340,35 @@ namespace Parsek
                 StampTerminalOrbit(recording, result.terminalOrbit.Value);
 
             bool ghostOnlySnapshot = result.vesselSnapshot == null && result.ghostVisualSnapshot != null;
+            ApplyTerminalSnapshots(recording, result, logContext);
+
+            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
+            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
+            {
+                ParsekLog.Verbose("Extrapolator",
+                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
+                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
+                    "after applying terminal snapshot");
+            }
+            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
+
+            ApplyTerminalSurfaceMetadata(recording, result, ghostOnlySnapshot, logContext);
+
+            recording.MarkFilesDirty();
+        }
+
+        /// <summary>
+        /// Applies the terminal vessel / ghost-visual snapshots from the finalization result
+        /// onto the recording: copies a vessel snapshot (synthesizing or preserving the ghost
+        /// visual snapshot) or, with no vessel snapshot, applies a ghost-only snapshot. Runs
+        /// before the ghost-snapshot-mode recompute, which reads the GhostVisualSnapshot this
+        /// sets. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSnapshots(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            string logContext)
+        {
             if (result.vesselSnapshot != null)
             {
                 recording.VesselSnapshot = result.vesselSnapshot.CreateCopy();
@@ -1928,17 +2402,20 @@ namespace Parsek
                         $"'{recording.RecordingId}' while applying ghost-only terminal snapshot");
                 }
             }
+        }
 
-            GhostSnapshotMode recomputedGhostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(recording);
-            if (recording.GhostSnapshotMode != recomputedGhostSnapshotMode)
-            {
-                ParsekLog.Verbose("Extrapolator",
-                    $"{logContext ?? "SceneExitFinalizer"}: updated ghost snapshot mode for " +
-                    $"'{recording.RecordingId}' {recording.GhostSnapshotMode}->{recomputedGhostSnapshotMode} " +
-                    "after applying terminal snapshot");
-            }
-            recording.GhostSnapshotMode = recomputedGhostSnapshotMode;
-
+        /// <summary>
+        /// Sets the recording's terminal surface metadata (TerminalPosition / TerrainHeightAtEnd):
+        /// for a Landed/Splashed terminal state, copies the result's surface position when present,
+        /// warns-and-keeps for a ghost-only snapshot with no surface data, else nulls both; for any
+        /// other terminal state, nulls both. Mutates the recording.
+        /// </summary>
+        private static void ApplyTerminalSurfaceMetadata(
+            Recording recording,
+            in IncompleteBallisticFinalizationResult result,
+            bool ghostOnlySnapshot,
+            string logContext)
+        {
             if (result.terminalState.Value == TerminalState.Landed
                 || result.terminalState.Value == TerminalState.Splashed)
             {
@@ -1971,8 +2448,6 @@ namespace Parsek
                 recording.TerminalPosition = null;
                 recording.TerrainHeightAtEnd = double.NaN;
             }
-
-            recording.MarkFilesDirty();
         }
     }
 }

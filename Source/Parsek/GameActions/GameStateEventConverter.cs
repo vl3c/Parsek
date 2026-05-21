@@ -18,6 +18,13 @@ namespace Parsek
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
         private const string Tag = "GameStateEventConverter";
 
+        // Stock CurrencyExchanger reason keys (TransactionReasons.ToString()). The
+        // recorder stores ReputationChanged / FundsChanged events keyed by reason; these
+        // two are the only resource-change reasons converted into ledger actions (the
+        // Bail-Out Grant exchange). See fix-bailout-grant-currency-exchange-capture.md.
+        internal const string StrategyInputReasonKey = "StrategyInput";
+        internal const string StrategyOutputReasonKey = "StrategyOutput";
+
         /// <summary>
         /// Converts a list of GameStateEvents into GameActions, filtering to the given UT range
         /// and skipping non-convertible event types. When <paramref name="recordingId"/> is
@@ -196,11 +203,25 @@ namespace Parsek
                 case GameStateEventType.StrategyDeactivated:
                     return ConvertStrategyDeactivated(evt, recordingId);
 
+                // FundsChanged / ReputationChanged are normally dropped (see the comment
+                // below), with ONE carve-out: stock CurrencyExchanger strategies
+                // (Bail-Out Grant) move currency via direct AddFunds/AddReputation under
+                // the dedicated reasons StrategyOutput / StrategyInput, which no other
+                // channel captures. Those two specific reasons are converted; every other
+                // reason still returns null. See
+                // docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md.
+                case GameStateEventType.FundsChanged:
+                    return ConvertStrategyExchangeFunds(evt, recordingId);
+
+                case GameStateEventType.ReputationChanged:
+                    return ConvertStrategyExchangeReputation(evt, recordingId);
+
                 // Skipped event types — no GameAction equivalent.
                 //
-                // DO NOT try to "fix" this by re-emitting FundsChanged/ScienceChanged/
-                // ReputationChanged as FundsEarning/ScienceEarning/ReputationEarning.
-                // The earning values already flow through dedicated channels:
+                // DO NOT try to "fix" this by re-emitting ScienceChanged (or non-strategy
+                // FundsChanged/ReputationChanged) as ScienceEarning/FundsEarning/
+                // ReputationEarning. The earning values already flow through dedicated
+                // channels:
                 //   - Recovery        via LedgerOrchestrator.CreateVesselCostActions
                 //   - ContractReward  via ConvertContractCompleted (reads detail)
                 //   - Milestone       via ConvertMilestoneAchieved (reads detail)
@@ -213,9 +234,7 @@ namespace Parsek
                 // commit time and WARNs if these dropped deltas disagree with the effective
                 // emitted actions — so regressions in any channel surface loudly without
                 // needing to re-emit here.
-                case GameStateEventType.FundsChanged:
                 case GameStateEventType.ScienceChanged:
-                case GameStateEventType.ReputationChanged:
                 case GameStateEventType.CrewStatusChanged:
                 case GameStateEventType.CrewRemoved:
                 case GameStateEventType.ContractOffered:
@@ -439,11 +458,7 @@ namespace Parsek
         /// </remarks>
         private static GameAction ConvertPartPurchased(GameStateEvent evt, string recordingId)
         {
-            float cost = 0f;
-            string costStr = ExtractDetail(evt.detail, "cost")
-                          ?? ExtractDetail(evt.detail, "entryCost");
-            if (costStr != null)
-                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            float cost = ParsePartPurchaseChargedCost(evt.detail);
 
             // DedupKey uses the part name so multiple part purchases at KSC (where
             // RecordingId is null) do not collide under GetActionKey. See #F in
@@ -458,6 +473,22 @@ namespace Parsek
                 FundsSpendingSource = FundsSpendingSource.Other,
                 DedupKey = evt.key ?? ""
             };
+        }
+
+        /// <summary>
+        /// Parses the actual charged cost from a PartPurchased event detail. `cost=` is
+        /// authoritative (0 under bypass-entry-purchase); falls back to `entryCost=` only
+        /// when `cost=` is absent (pre-#451 events). Shared by the converter guard and the
+        /// Timeline legacy-collector skip so both agree on what counts as a free unlock.
+        /// </summary>
+        internal static float ParsePartPurchaseChargedCost(string detail)
+        {
+            string costStr = ExtractDetail(detail, "cost")
+                          ?? ExtractDetail(detail, "entryCost");
+            float cost = 0f;
+            if (costStr != null)
+                float.TryParse(costStr, NumberStyles.Float, IC, out cost);
+            return cost;
         }
 
         /// <summary>
@@ -822,6 +853,76 @@ namespace Parsek
                 Type = GameActionType.StrategyDeactivate,
                 RecordingId = recordingId,
                 StrategyId = evt.key
+            };
+        }
+
+        /// <summary>
+        /// Converts the funds OUTPUT leg of a stock CurrencyExchanger strategy
+        /// (Bail-Out Grant) into a <see cref="GameActionType.FundsEarning"/> with
+        /// <see cref="FundsEarningSource.Strategy"/>. KSP credits funds directly under
+        /// <c>TransactionReasons.StrategyOutput</c> (stored as a FundsChanged event keyed
+        /// by reason); no other channel captures it, and the strategy's own InitialCost*
+        /// setup cost is zero. Funds are linear, so the actual gained amount is carried
+        /// straight through. Returns null for any other FundsChanged reason (those flow
+        /// through their dedicated channels or are intentionally dropped). Internal static
+        /// for testability.
+        /// </summary>
+        internal static GameAction ConvertStrategyExchangeFunds(GameStateEvent evt, string recordingId)
+        {
+            if (!string.Equals(evt.key, StrategyOutputReasonKey, StringComparison.Ordinal))
+                return null;
+
+            double delta = evt.valueAfter - evt.valueBefore;
+            if (delta <= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConvertStrategyExchangeFunds: non-positive StrategyOutput delta=" +
+                    $"{delta.ToString("R", IC)} at UT={evt.ut.ToString("F1", IC)} — skipping");
+                return null;
+            }
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.FundsEarning,
+                RecordingId = recordingId,
+                FundsAwarded = (float)delta,
+                FundsSource = FundsEarningSource.Strategy
+            };
+        }
+
+        /// <summary>
+        /// Converts the reputation INPUT leg of a stock CurrencyExchanger strategy
+        /// (Bail-Out Grant) into a <see cref="GameActionType.ReputationPenalty"/> with
+        /// <see cref="ReputationPenaltySource.Strategy"/>. KSP subtracts reputation
+        /// directly under <c>TransactionReasons.StrategyInput</c>, ALREADY through the
+        /// granular curve, so the recorded delta is the actual post-curve change.
+        /// <c>NominalPenalty</c> carries that actual magnitude and
+        /// <see cref="ReputationModule"/> applies it without re-curving (avoiding a double
+        /// curve). Returns null for any other ReputationChanged reason. Internal static for
+        /// testability.
+        /// </summary>
+        internal static GameAction ConvertStrategyExchangeReputation(GameStateEvent evt, string recordingId)
+        {
+            if (!string.Equals(evt.key, StrategyInputReasonKey, StringComparison.Ordinal))
+                return null;
+
+            double delta = evt.valueAfter - evt.valueBefore;
+            if (delta >= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"ConvertStrategyExchangeReputation: non-negative StrategyInput delta=" +
+                    $"{delta.ToString("R", IC)} at UT={evt.ut.ToString("F1", IC)} — skipping");
+                return null;
+            }
+
+            return new GameAction
+            {
+                UT = evt.ut,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
+                NominalPenalty = (float)(-delta), // positive magnitude (already post-curve)
+                RepPenaltySource = ReputationPenaltySource.Strategy
             };
         }
 

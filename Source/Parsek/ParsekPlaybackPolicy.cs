@@ -78,6 +78,13 @@ namespace Parsek
             engine.IsGhostHeld = idx =>
                 heldGhosts.ContainsKey(idx) || host.WatchedRecordingIndex == idx;
 
+            // Tell the engine how to resolve the chain continuation for a
+            // given slot. Used by ChainHandoffLogic to shadow the head when
+            // the continuation is rendering (overlap case) and bridge-hold
+            // the head when the continuation has not yet activated (gap
+            // case). Returns -1 when no continuation exists.
+            engine.ResolveChainNextIndex = idx => ResolveChainNextSlotIndex(idx);
+
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy created and subscribed to engine events");
         }
 
@@ -983,6 +990,17 @@ namespace Parsek
 
         private void HandleGhostCreated(GhostLifecycleEvent evt)
         {
+            // Chain-seam auto-follow: if this is a chain-seam first-spawn AND the watched
+            // recording is the same-chain predecessor, transfer the camera to the successor
+            // immediately. The standard auto-follow path (HandlePlaybackCompleted -> Mid-chain
+            // auto-follow) does NOT fire for chain-head predecessors whose Recording.EndUT is
+            // widened by ExplicitEndUT / orbit-tail projection past the actual seam UT — the
+            // engine's pastEnd check (currentUT > traj.EndUT) stays false, PlaybackCompleted
+            // never fires, the policy never transfers, and the camera stays glued to the
+            // predecessor while the successor is rendering correctly somewhere else (the
+            // "duplicate ghost suspended in air" the Kerbal X playtest 2026-05-19 reproduced).
+            TryAutoFollowChainSeamSpawn(evt);
+
             // KEEP debris-only: this is the policy decision to NOT give debris
             // recordings their own tracking-station map presence / orbit lines.
             // Controlled-decoupled children (extension of the parent-anchor
@@ -1085,6 +1103,114 @@ namespace Parsek
         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure decision predicate: should the policy auto-follow the watch camera onto a
+        /// freshly spawned chain-seam successor? True iff the spawn was flagged as a chain
+        /// seam, an active watch exists, the watch is not already on the new spawn, and the
+        /// new spawn's chain predecessor IS the currently watched recording. The chain-topology
+        /// half stays single-sourced in <c>RecordingStore.GetChainPredecessorIndex</c>; this
+        /// predicate composes that with the spawn-time signal and the watch state.
+        /// <para>
+        /// <b>Gates intentionally NOT added (Opus PR review 2026-05-19):</b>
+        /// </para>
+        /// <list type="bullet">
+        /// <item><b>Watch-hold timer active</b>: the hold timer (set by <c>HandlePlaybackCompleted</c>
+        /// when a mid-chain transfer defers and consumed by <c>ProcessWatchEndHoldTimer</c>'s
+        /// per-frame retry) IS the retry-handoff path for the same seam this predicate handles.
+        /// Auto-follow during the hold is the desired-earlier version of the per-frame retry —
+        /// gating on the hold would just add 1 frame of latency before the retry catches up to
+        /// the same transfer. <c>TransferWatchToNextSegmentFromPolicy</c> clears the hold on
+        /// success (<c>WatchModeController.cs:2738</c>).</item>
+        /// <item><b>Time warp active</b>: the existing <c>Mid-chain auto-follow</c> path
+        /// (<c>HandlePlaybackCompleted</c> mid-chain branch above) does not gate on warp either;
+        /// the warp-special branch only triggers for <c>needsSpawn &amp;&amp; PastEffectiveEnd</c>
+        /// (end-of-chain real-vessel spawn), not for mid-chain segment handoffs. Gating only the
+        /// new path would diverge from the existing path's behavior; gating both is a larger
+        /// scope decision out of scope for this PR.</item>
+        /// <item><b>Pre-switch decision dialog up</b>: MergeDialog runs from MAP / TS contexts
+        /// (rapid-switch flows, scene-exit Merge / Discard); flight-scene Watch and the dialog
+        /// path do not realistically overlap. No accessor exposes "any dialog open" today.</item>
+        /// </list>
+        /// </summary>
+        internal static bool ShouldAutoFollowChainSeamSpawn(
+            bool spawnedAtChainSeam,
+            int watchedIndex,
+            int spawnIndex,
+            int predecessorIndexOfSpawn)
+        {
+            if (!spawnedAtChainSeam) return false;
+            if (watchedIndex < 0) return false;
+            if (watchedIndex == spawnIndex) return false;
+            return predecessorIndexOfSpawn == watchedIndex;
+        }
+
+        /// <summary>
+        /// At chain-seam first-spawn, transfer the watch camera from the same-chain
+        /// predecessor to this new successor. The standard <c>HandlePlaybackCompleted</c>
+        /// -&gt; <c>Mid-chain auto-follow</c> path does not fire for chain-head predecessors
+        /// whose <c>Recording.EndUT</c> is widened past the actual seam by
+        /// <c>ExplicitEndUT</c> / orbit-tail projection / Re-Fly origin-split residue.
+        /// The engine's <c>pastEnd = currentUT &gt; traj.EndUT</c> check stays false in
+        /// that case, so the policy never sees a completion event for the predecessor and
+        /// the camera stays glued to the now-frozen predecessor while the successor
+        /// renders correctly somewhere else (the "duplicate ghost suspended in air"
+        /// symptom). The seam-spawn flag is a direct, predecessor-EndUT-independent
+        /// signal that the chain handoff is happening, so we transfer on it.
+        /// <para>
+        /// <b>Engine timing contract relied on:</b> <c>QueueOrEmitGhostCreated</c>
+        /// (<c>GhostPlaybackEngine.cs</c>) defers the Created event into
+        /// <c>deferredCreatedEvents</c> whenever <c>updateStopwatch.IsRunning</c>; the deferred
+        /// pump flushes Created events BEFORE Completed events, AFTER
+        /// <c>FinalizePendingSpawnLifecycle</c> has populated <c>state.ghost</c>,
+        /// <c>state.cameraPivot</c>, and <c>state.horizonProxy</c>. By the time this method
+        /// runs, the new ghost is fully built and <c>TransferWatchToNextSegmentFromPolicy</c>
+        /// can target it. <c>TransferWatchToNextSegment</c> (<c>WatchModeController.cs:2660</c>)
+        /// independently re-checks <c>gs.ghost != null</c> and falls back to deferred-retry
+        /// if the contract is ever violated. No double-transfer risk: the new path runs first
+        /// and flips <c>WatchedRecordingIndex</c> to the successor; when <c>HandlePlaybackCompleted</c>
+        /// then fires for the predecessor (if ever — see EndUT-widening note above), the
+        /// <c>isWatched = host.WatchedRecordingIndex == evt.Index</c> test is now false so the
+        /// Mid-chain branch skips.
+        /// </para>
+        /// </summary>
+        private void TryAutoFollowChainSeamSpawn(GhostLifecycleEvent evt)
+        {
+            if (evt == null || evt.State == null) return;
+            if (evt.Trajectory == null) return;
+
+            int watchedIndex = host.WatchedRecordingIndex;
+            var committed = RecordingStore.CommittedRecordings;
+            if (evt.Index < 0 || evt.Index >= committed.Count) return;
+            Recording successor = committed[evt.Index];
+            if (successor == null) return;
+            int predIdxForSuccessor = RecordingStore.GetChainPredecessorIndex(successor);
+
+            if (!ShouldAutoFollowChainSeamSpawn(
+                evt.State.spawnedAtChainSeam, watchedIndex, evt.Index, predIdxForSuccessor))
+            {
+                return;
+            }
+
+            if (watchedIndex >= committed.Count) return;
+            Recording watched = committed[watchedIndex];
+            if (watched == null) return;
+
+            if (host.TransferWatchToNextSegmentFromPolicy(evt.Index))
+            {
+                ParsekLog.Info("Policy",
+                    $"Chain-seam auto-follow: #{watchedIndex} \"{watched.VesselName}\" -> " +
+                    $"#{evt.Index} \"{successor.VesselName}\" " +
+                    "(seam-spawn while predecessor watched; predecessor EndUT does not gate PlaybackCompleted)");
+            }
+            else
+            {
+                ParsekLog.VerboseRateLimited("Policy", $"chain-seam-transfer-failed-{evt.Index}",
+                    $"Chain-seam auto-follow declined: #{watchedIndex} -> #{evt.Index} " +
+                    "(TransferWatchToNextSegmentFromPolicy returned false)",
+                    1.0);
+            }
         }
 
         /// <summary>
@@ -1832,6 +1958,22 @@ namespace Parsek
             stateVectorCachedIndices.Clear();
             terminalMapRetentionLoggedIds.Clear();
             ParsekLog.Info("Policy", "ParsekPlaybackPolicy disposed and unsubscribed from 6 engine events");
+        }
+
+        /// <summary>
+        /// Live-state adapter for the pure chain-next resolver in
+        /// <see cref="GhostPlaybackLogic.ResolveChainNextSlotIndex"/>. Reads
+        /// the current <see cref="RecordingStore.CommittedRecordings"/> and
+        /// <see cref="ParsekScenario.RecordingSupersedes"/> and delegates the
+        /// lookup. Behaviour is fully covered by
+        /// <c>ResolveChainNextSlotIndexTests</c> against the pure helper.
+        /// </summary>
+        internal int ResolveChainNextSlotIndex(int slotIndex)
+        {
+            return GhostPlaybackLogic.ResolveChainNextSlotIndex(
+                slotIndex,
+                RecordingStore.CommittedRecordings,
+                ParsekScenario.Instance?.RecordingSupersedes);
         }
     }
 
