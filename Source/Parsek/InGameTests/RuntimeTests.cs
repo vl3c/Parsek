@@ -14926,8 +14926,12 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Use wall-clock time, not Time.time: every caller is a facility/overlay wait,
+            // and EnterBuilding pauses the game (FlightDriver.SetPause -> timeScale 0), which
+            // freezes Time.time. A Time.time deadline would never expire while a facility is
+            // open, so a failed close would hang the suite forever instead of timing out.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 if (predicate())
                     yield break;
@@ -15044,23 +15048,23 @@ namespace Parsek.InGameTests
             LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
         }
 
+        // The stock facility close path is firing the matching despawn GameEvent —
+        // that is exactly what UISpaceCenter's exit button / Escape handler does, and
+        // UISpaceCenter listens to it for FlightDriver.UnPause + canvas teardown, while
+        // the facility's own (privately-registered) onDialogClose handler runs as
+        // another listener of the same event. Do NOT gate this on building.IsOpen():
+        // those overrides are always-true mode/instance gates, and invoking the private
+        // onDialogClose directly is a no-op for closing (it only deregisters handlers and
+        // clears a control lock, leaving the canvas up and the game paused — which made
+        // the overlay tests hang until manually exited).
         private static void CloseRnDForOverlayTest(RDController controller)
         {
             try
             {
-                RnDBuilding building = Object.FindObjectOfType<RnDBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
                 if (controller != null)
-                {
                     RDController.OnRDTreeDespawn.Fire(controller);
-                    GameEvents.onGUIRnDComplexDespawn.Fire();
-                }
+                GameEvents.onGUIRnDComplexDespawn.Fire();
             }
             catch (System.Exception ex)
             {
@@ -15072,13 +15076,6 @@ namespace Parsek.InGameTests
         {
             try
             {
-                AstronautComplexFacility building = Object.FindObjectOfType<AstronautComplexFacility>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onAstronautComplexDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIAstronautComplexDespawn.Fire();
             }
             catch (System.Exception ex)
@@ -15091,32 +15088,12 @@ namespace Parsek.InGameTests
         {
             try
             {
-                MissionControlBuilding building = Object.FindObjectOfType<MissionControlBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIMissionControlDespawn.Fire();
             }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("TestRunner", $"Phase 5 MissionControl overlay close helper threw: {ex}");
             }
-        }
-
-        private static void InvokeStockCloseMethodForOverlayTest(object building, string methodName)
-        {
-            MethodInfo method = building != null
-                ? building.GetType().GetMethod(
-                    methodName,
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                : null;
-            if (method == null)
-                throw new System.MissingMethodException(building != null ? building.GetType().FullName : "(null)", methodName);
-
-            method.Invoke(building, null);
         }
 
         private static IEnumerator WaitForNamedChildCount(
@@ -20816,11 +20793,16 @@ namespace Parsek.InGameTests
                 // 8. Pre-rewind carve-out predicate on HEAD. The marker was
                 //    cleared at the end of RunMerge (step 7), so reconstruct
                 //    a marker shell for the predicate check using the same
-                //    RewindPointUT used by the merge.
+                //    RewindPointUT used by the merge. SupersedeTargetId must
+                //    name TIP: post-split the live marker's SupersedeTargetId
+                //    points at TIP, and the chain-head branch of
+                //    IsPreRewindCarveOut needs it to resolve TIP for the
+                //    ChainId/ChainIndex shape match.
                 var carveOutMarker = new ReFlySessionMarker
                 {
                     RewindPointUT = rewindUT,
                     InvokedUT = rewindUT,
+                    SupersedeTargetId = tip.RecordingId,
                 };
                 SupersedeCommit.PreRewindCarveOutReason carveOutReason;
                 bool isCarveOut = SupersedeCommit.IsPreRewindCarveOut(
