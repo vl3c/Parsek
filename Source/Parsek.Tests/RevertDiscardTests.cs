@@ -493,5 +493,36 @@ namespace Parsek.Tests
             Assert.Equal(3.98, ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: double.NaN, rolloutUT: 3.98));
             Assert.True(double.IsNaN(ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: double.NaN, rolloutUT: double.NaN)));
         }
+
+        [Fact]
+        public void DecideFreshLaunchUtAction_FreshLaunchFlight_Captures()
+        {
+            Assert.Equal(FreshLaunchUtAction.Capture, ParsekScenario.DecideFreshLaunchUtAction(
+                GameScenes.FLIGHT, isRevert: false, isVesselSwitch: false, isFreshLaunchStartup: true));
+        }
+
+        [Fact]
+        public void DecideFreshLaunchUtAction_NonFreshFlight_Clears()
+        {
+            // Quickload-resume: a FLIGHT load that isn't a fresh launch clears the stale capture.
+            Assert.Equal(FreshLaunchUtAction.Clear, ParsekScenario.DecideFreshLaunchUtAction(
+                GameScenes.FLIGHT, isRevert: false, isVesselSwitch: false, isFreshLaunchStartup: false));
+        }
+
+        [Theory]
+        // Revert-to-launch reloads FLIGHT (isRevert): leave the capture so Revert-to-editor reads it.
+        [InlineData(GameScenes.FLIGHT, true, false, true)]
+        [InlineData(GameScenes.FLIGHT, true, false, false)]
+        // Vessel switch: leave untouched.
+        [InlineData(GameScenes.FLIGHT, false, true, true)]
+        // Revert-to-editor / space center / editor loads (not FLIGHT): leave untouched.
+        [InlineData(GameScenes.EDITOR, true, false, false)]
+        [InlineData(GameScenes.SPACECENTER, false, false, false)]
+        public void DecideFreshLaunchUtAction_LeavesCapture(
+            GameScenes scene, bool isRevert, bool isVesselSwitch, bool isFreshLaunchStartup)
+        {
+            Assert.Equal(FreshLaunchUtAction.Leave, ParsekScenario.DecideFreshLaunchUtAction(
+                scene, isRevert, isVesselSwitch, isFreshLaunchStartup));
+        }
     }
 }

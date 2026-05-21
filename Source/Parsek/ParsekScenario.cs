@@ -8,6 +8,20 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
+    /// What OnLoad should do with the captured fresh-launch UT used as the editor-revert
+    /// orphan-prune boundary. See <see cref="ParsekScenario.DecideFreshLaunchUtAction"/>.
+    /// </summary>
+    internal enum FreshLaunchUtAction
+    {
+        /// <summary>Leave the captured UT untouched (revert load, non-flight load).</summary>
+        Leave,
+        /// <summary>Capture loadedUT as the launch instant (fresh launch from editor).</summary>
+        Capture,
+        /// <summary>Clear the captured UT (non-fresh flight load, e.g. quickload-resume).</summary>
+        Clear,
+    }
+
+    /// <summary>
     /// ScenarioModule that persists committed recordings to save games.
     /// Handles OnSave/OnLoad to serialize trajectory data into ConfigNodes.
     /// Also manages crew reservation for deferred vessel spawns.
@@ -266,6 +280,28 @@ namespace Parsek
         internal static double ResolveEditorRevertBoundaryUT(double capturedLaunchUT, double rolloutUT)
         {
             return !double.IsNaN(capturedLaunchUT) ? capturedLaunchUT : rolloutUT;
+        }
+
+        /// <summary>
+        /// Decides what to do with the captured fresh-launch UT (<see cref="currentFlightLaunchUT"/>)
+        /// on an OnLoad. Pure so the gating is unit-testable outside the OnLoad lifecycle.
+        ///
+        /// <para>Only FLIGHT loads that are neither a revert nor a vessel switch touch the static:
+        /// a fresh launch (<paramref name="isFreshLaunchStartup"/>) captures <c>loadedUT</c> (the
+        /// launch instant); any other flight load (quickload-resume) clears it so a stale value
+        /// can't over-prune a later editor revert. Revert loads and non-flight loads return
+        /// <see cref="FreshLaunchUtAction.Leave"/> so the captured UT survives until the matching
+        /// Revert-to-editor reads it.</para>
+        /// </summary>
+        internal static FreshLaunchUtAction DecideFreshLaunchUtAction(
+            GameScenes loadedScene, bool isRevert, bool isVesselSwitch, bool isFreshLaunchStartup)
+        {
+            if (loadedScene != GameScenes.FLIGHT || isRevert || isVesselSwitch)
+                return FreshLaunchUtAction.Leave;
+
+            return isFreshLaunchStartup
+                ? FreshLaunchUtAction.Capture
+                : FreshLaunchUtAction.Clear;
         }
 
         internal static Func<double> CurrentTimelineUTProviderForTesting;
@@ -2023,21 +2059,25 @@ namespace Parsek
                     // over-prune a later editor revert. Revert loads (isRevert) and non-flight
                     // loads leave the static untouched so the captured launch UT survives until
                     // the matching Revert-to-editor reads it.
-                    if (HighLogic.LoadedScene == GameScenes.FLIGHT && !isRevert && !isVesselSwitch)
+                    switch (DecideFreshLaunchUtAction(
+                        HighLogic.LoadedScene, isRevert, isVesselSwitch,
+                        ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviour)))
                     {
-                        if (ParsekFlight.IsFreshLaunchStartupBehaviour(FlightDriver.StartupBehaviour))
-                        {
+                        case FreshLaunchUtAction.Capture:
                             currentFlightLaunchUT = loadedUT;
                             ParsekLog.Info("Scenario",
                                 $"Captured fresh-launch UT {loadedUT.ToString("R", CultureInfo.InvariantCulture)} " +
                                 "for the Revert-to-editor orphan-prune boundary");
-                        }
-                        else if (!double.IsNaN(currentFlightLaunchUT))
-                        {
-                            currentFlightLaunchUT = double.NaN;
-                            ParsekLog.Verbose("Scenario",
-                                "Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)");
-                        }
+                            break;
+                        case FreshLaunchUtAction.Clear:
+                            if (!double.IsNaN(currentFlightLaunchUT))
+                            {
+                                currentFlightLaunchUT = double.NaN;
+                                ParsekLog.Verbose("Scenario",
+                                    "Cleared captured fresh-launch UT on non-fresh flight load (quickload-resume)");
+                            }
+                            break;
+                        // FreshLaunchUtAction.Leave: revert / non-flight load keeps the captured UT.
                     }
 
                     // Discard stashed-this-transition recordings on quickload (Bug A).
