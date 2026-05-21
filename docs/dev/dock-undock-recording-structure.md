@@ -40,6 +40,15 @@ KSP fires `GameEvents.onPartUndock(undockedPart)` where `undockedPart` is the do
 - KSP **may** fire `onPartUndock` a second time with the new PID once the split is complete, and **may also not**. In the 2026-05-18 playtest, KSP fired `onPartUndock` exactly once with the transient (pre-reparent) PID. The follow-up that always arrives, however, is a different event: `GameEvents.onVesselsUndocking(oldVessel, newVessel)`, fired at the END of the same `Part.Undock()` call with both vessels fully split and carrying their final persistentIds.
 - **Authoritative handler (main PR #943, merged 2026-05-21):** Parsek subscribes to `onVesselsUndocking` and authors the Undock branch there via `DeferredUndockBranch`. `OnPartUndock` no longer drives the split or schedules discovery; it only captures the `Undock` structural-event snapshot plus a pre-split origin seed (`pendingUndockRootPartSeed`) for `OnVesselsUndocking` to consume. The earlier transient-state deferred-discovery coroutine (`DeferredHandleTransientUndock`) was removed in that merge, because it conflated "no follow-up `onPartUndock`" with "no follow-up event" and worked around the un-updated PID instead of using the correct event. The transient-state subsections below (§6.4 and the §7.3 walkthrough) describe that superseded approach and are kept for historical context only.
 
+**Verified KSP event contract (decompiled `Part.Undock(DockedVesselInfo)`, KSP 1.12.5).** Inside one `Part.Undock()` call, in order:
+
+1. `GameEvents.onPartUndock.Fire(this)`: fired FIRST, exactly once, before any split work. The part still belongs to the combined vessel, so `undockedPart.vessel.persistentId == mergedPid` here. This is the only `onPartUndock.Fire` in the method; do not expect a second one.
+2. `attachJoint.DestroyJoint()`: synchronous; this is where the docking-port `onPartJointBreak` fires (consumed by `recorder.ConsumePendingJointBreakCheck()` so the within-segment PartDestroyed fallback does not also process the split).
+3. The split: a new `Vessel` is created (`AddComponent<Vessel>()`, fresh `Guid`), parts are reparented and removed from the old vessel.
+4. `GameEvents.onVesselsUndocking.Fire(oldVessel, vessel)`: fired LAST, **unconditionally on every code path** (both the `newVesselInfo == null` branch and the `newVesselInfo != null` / sub-assembly / EVA branch converge on this single `Fire` immediately before `return`). `oldVessel` keeps the merged PID; `vessel` is the freshly split-off half with its final new PID.
+
+So `onVesselsUndocking` is the guaranteed, final-PID signal for any docking-port undock. Empirically confirmed: log `2026-05-21_2236_switch-dock-transfer-undock` shows `OnPartUndock` ("deferring branch to onVesselsUndocking") then `OnVesselsUndocking:entry` ~23 ms later (`recordedPid=9871332 oldPid=9871332 newPid=1013512573`), then `Tree branch created: type=Undock`.
+
 After the split completes (next frame), `FlightGlobals.Vessels` contains both halves as separate `Vessel` objects with separate PIDs. Each half's `vessel.parts` list contains only its own parts.
 
 ---
