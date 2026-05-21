@@ -643,12 +643,16 @@ namespace Parsek.Tests
             Assert.Equal("Merge & Seal",
                 MergeDialog.BuildTimelineActionButtonLabel(
                     isPermanent: true, isReFlyAttempt: true));
+            // The standalone helper used for the explicit Merge & Seal button
+            // shares the same string.
+            Assert.Equal("Merge & Seal",
+                MergeDialog.BuildReFlyMergeAndSealButtonLabel());
         }
 
         [Fact]
-        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitToTimeline()
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitDontSeal()
         {
-            Assert.Equal("Commit to Timeline",
+            Assert.Equal("Commit (don't seal)",
                 MergeDialog.BuildTimelineActionButtonLabel(
                     isPermanent: false, isReFlyAttempt: true));
         }
@@ -814,13 +818,17 @@ namespace Parsek.Tests
         {
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: false);
             Assert.Contains("TestVessel", body);
             Assert.Contains("Do you want to commit this Re-Fly attempt", body);
             Assert.Contains("to the timeline", body);
             Assert.DoesNotContain("cannot be undone", body);
             Assert.DoesNotContain("auto-sealed", body);
             Assert.DoesNotContain("for the following reason", body);
+            // Non-sealable attempt: body names what each button does to the slot.
+            Assert.Contains("Commit (don't seal) keeps this Re-Fly slot open", body);
+            Assert.Contains("Merge & Seal permanently closes it", body);
+            Assert.Contains("cannot Re-Fly this line again", body);
         }
 
         [Fact]
@@ -833,7 +841,7 @@ namespace Parsek.Tests
                     { ReFlyAutoSealReason.TransmittedScience },
             };
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: true);
             Assert.Contains("If not discarded, this Re-Fly attempt", body);
             Assert.Contains("merged AND auto-sealed", body);
             Assert.Contains("for the following reason(s):\n- transmitted science\n\n",
@@ -862,7 +870,7 @@ namespace Parsek.Tests
                 },
             };
             string body = MergeDialog.BuildReFlyDialogBody(
-                "TestVessel", 123.0, preview);
+                "TestVessel", 123.0, preview, willAutoSeal: true);
             Assert.Contains(
                 "for the following reason(s):\n" +
                 "- transmitted science\n" +
@@ -877,7 +885,7 @@ namespace Parsek.Tests
         {
             var preview = ReFlyAutoSealPreviewResult.NoSeal();
             string body = MergeDialog.BuildReFlyDialogBody(
-                "MyShip", 65.0, preview);
+                "MyShip", 65.0, preview, willAutoSeal: false);
             Assert.Contains("<align=\"center\">MyShip - ", body);
         }
 
