@@ -184,7 +184,8 @@ namespace Parsek
                 timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(
                         reFlyRec, marker, preview, out labelSource);
-                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
+                mergeLabel = BuildTimelineActionButtonLabel(
+                    timelineActionPermanent, isReFlyAttempt: true);
                 title = BuildTimelineActionDialogTitle(timelineActionPermanent);
                 message = BuildReFlyDialogBody(
                     vesselLabel, reFlyDuration, preview);
@@ -333,7 +334,8 @@ namespace Parsek
                 bool timelineActionPermanent =
                     DetermineReFlyTimelineActionIsPermanent(
                         reFlyRec, marker, preview, out labelSource);
-                mergeLabel = BuildTimelineActionButtonLabel(timelineActionPermanent);
+                mergeLabel = BuildTimelineActionButtonLabel(
+                    timelineActionPermanent, isReFlyAttempt: true);
                 message = BuildReFlyDialogBody(vesselLabel, reFlyDuration, preview);
 
                 ParsekLog.Info("MergeDialog",
@@ -829,9 +831,16 @@ namespace Parsek
         internal static string FormatDuration(double seconds)
             => ParsekTimeFormat.FormatDuration(seconds);
 
-        internal static string BuildTimelineActionButtonLabel(bool isPermanent)
+        internal static string BuildTimelineActionButtonLabel(
+            bool isPermanent, bool isReFlyAttempt = false)
         {
-            return isPermanent ? "Merge to Timeline" : "Commit to Timeline";
+            if (!isPermanent)
+                return "Commit to Timeline";
+            // Only a permanent Re-Fly merge auto-seals the rewind slot
+            // (MergeState.Immutable); name that consequence on the button.
+            // Ordinary whole-tree merges are also permanent but have no
+            // slot to seal, so they keep the plain "Merge to Timeline".
+            return isReFlyAttempt ? "Merge & Seal" : "Merge to Timeline";
         }
 
         internal static string BuildTimelineActionDialogTitle(bool isPermanent)

@@ -629,17 +629,28 @@ namespace Parsek.Tests
         // ---------- BuildReFlyDialogBody --------------------------------
 
         [Fact]
-        public void BuildTimelineActionButtonLabel_PermanentAction_UsesMergeToTimeline()
+        public void BuildTimelineActionButtonLabel_PermanentNonReFlyMerge_UsesMergeToTimeline()
         {
+            // Ordinary whole-tree merge: permanent, but no re-fly slot to
+            // seal, so the plain label stays.
             Assert.Equal("Merge to Timeline",
                 MergeDialog.BuildTimelineActionButtonLabel(isPermanent: true));
+        }
+
+        [Fact]
+        public void BuildTimelineActionButtonLabel_ReFlyAttemptSealed_UsesMergeAndSeal()
+        {
+            Assert.Equal("Merge & Seal",
+                MergeDialog.BuildTimelineActionButtonLabel(
+                    isPermanent: true, isReFlyAttempt: true));
         }
 
         [Fact]
         public void BuildTimelineActionButtonLabel_ReFlyAttemptNotSealed_UsesCommitToTimeline()
         {
             Assert.Equal("Commit to Timeline",
-                MergeDialog.BuildTimelineActionButtonLabel(isPermanent: false));
+                MergeDialog.BuildTimelineActionButtonLabel(
+                    isPermanent: false, isReFlyAttempt: true));
         }
 
         [Fact]
