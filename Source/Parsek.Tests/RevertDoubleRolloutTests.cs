@@ -213,6 +213,44 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Career repro (c6, 2026-05-21): the same auto-saved craft (shared
+        /// vessel pid) launched from Launch Pad (UT 72.24) then from the Desert
+        /// alternate site (UT 131.82) 59.578 s later, just inside the 60 s
+        /// dedup window. The PID-only match collapsed them, dropped the Desert
+        /// rollout, and the next recalc refunded the player 3805 funds
+        /// (PatchFunds 42190 -> 45995). Two launches from different known sites
+        /// are independent rollouts and both must be kept.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_SamePidSameCostDifferentSite_BothKept()
+        {
+            RecordRollout(ut: 72.24, cost: 3805.0, launchSiteName: "Launch Pad");
+            RecordRollout(ut: 131.82, cost: 3805.0, launchSiteName: "Desert Launch Site");
+
+            Assert.Equal(2, CountUnadoptedRollouts());
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout"));
+        }
+
+        /// <summary>
+        /// Same-site guard preservation: Revert-to-Launch always relaunches from
+        /// the same site, so same pid + same site + same cost within the window
+        /// must still collapse to one (the #710 contract). The new cross-site
+        /// reject must not weaken this.
+        /// </summary>
+        [Fact]
+        public void OnVesselRolloutSpending_SamePidSameCostSameSiteWithinWindow_Deduped()
+        {
+            RecordRollout(ut: 100.0, cost: 3805.0, launchSiteName: "Desert Launch Site");
+            RecordRollout(ut: 100.5, cost: 3805.0, launchSiteName: "Desert Launch Site");
+
+            Assert.Equal(1, CountUnadoptedRollouts());
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("OnVesselRolloutSpending: skipping duplicate rollout"));
+        }
+
+        /// <summary>
         /// Gap 2 regression: when the new write has a strictly smaller UT
         /// than the existing row (revert-relaunch with a measurable clock
         /// rollback), the surviving row's UT/DedupKey/Sequence must be
@@ -480,6 +518,42 @@ namespace Parsek.Tests
 
             Assert.Equal(0, removed);
             Assert.Equal(3, CountUnadoptedRollouts());
+        }
+
+        /// <summary>
+        /// Load-time mirror of the c6 cross-site career repro: an already-saved
+        /// ledger holding a Launch Pad rollout and a Desert rollout of the same
+        /// craft (shared pid, equal cost, 59.58 s apart, inside the window)
+        /// must keep both. The repair pass routes through the same
+        /// <see cref="LedgerRolloutAdoption.RolloutDuplicateMatches"/> guard, so
+        /// the cross-site reject heals against accidental collapse here too.
+        /// </summary>
+        [Fact]
+        public void RepairDuplicateRolloutActions_DifferentSiteSamePid_BothKept()
+        {
+            Ledger.AddAction(new GameAction
+            {
+                UT = 72.24,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 3805f,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 1,
+                DedupKey = $"rollout:72.24|pid={ProductionPid}|site=Launch%20Pad|vessel=r0",
+            });
+            Ledger.AddAction(new GameAction
+            {
+                UT = 131.82,
+                Type = GameActionType.FundsSpending,
+                FundsSpent = 3805f,
+                FundsSpendingSource = FundsSpendingSource.VesselBuild,
+                Sequence = 2,
+                DedupKey = $"rollout:131.82|pid={ProductionPid}|site=Desert%20Launch%20Site|vessel=r0",
+            });
+
+            int removed = Ledger.RepairDuplicateRolloutActions();
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, CountUnadoptedRollouts());
         }
 
         /// <summary>

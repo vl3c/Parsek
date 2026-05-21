@@ -391,6 +391,91 @@ namespace Parsek.Tests
             Assert.Equal(0.0, restored.OrbitSegments[0].eccentricity, 10);
         }
 
+        private static int CountCheckpointSections(Recording rec)
+        {
+            int n = 0;
+            if (rec.TrackSections != null)
+            {
+                for (int i = 0; i < rec.TrackSections.Count; i++)
+                {
+                    if (rec.TrackSections[i].referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                        n++;
+                }
+            }
+            return n;
+        }
+
+        private static OrbitSegment DegenerateParabolicSegment()
+        {
+            // Parabolic / near-escape orbit: eccentricity == 1, semiMajorAxis undefined (NaN).
+            // This is the exact shape recorded in save x7 (8192 duplicates of one Mun segment).
+            return new OrbitSegment
+            {
+                startUT = 40586.88094970557,
+                endUT = 40587.840949705416,
+                inclination = 97.693013342256535,
+                eccentricity = 1.0,
+                semiMajorAxis = double.NaN,
+                longitudeOfAscendingNode = 275.08462349522677,
+                argumentOfPeriapsis = 89.999999999999986,
+                meanAnomalyAtEpoch = 0,
+                epoch = 40586.82094970558,
+                bodyName = "Mun",
+                isPredicted = false
+            };
+        }
+
+        /// <summary>
+        /// Regression: a degenerate orbit segment (parabolic — eccentricity 1, semiMajorAxis
+        /// NaN) must dedup against itself in the checkpoint bridge. Before the FieldNearlyEqual
+        /// fix, Math.Abs(NaN - NaN) &lt;= tol was false, so the segment never matched an existing
+        /// checkpoint section: EnsureCheckpointSectionsForTopLevelOrbitSegments re-added it on
+        /// every call and RebuildFlatOrbitCache doubled OrbitSegments — a geometric explosion
+        /// that bloated the recording and froze save load. Repeated calls must keep counts stable.
+        /// </summary>
+        [Fact]
+        public void EnsureCheckpointSections_NaNSemiMajorAxis_IsIdempotent()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(DegenerateParabolicSegment());
+
+            OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+            Assert.Equal(1, CountCheckpointSections(rec));
+            Assert.Single(rec.OrbitSegments);
+
+            // Mimics the contexts that touch a recording per load+save (load-read, optimizer
+            // scan, three write codecs). None may grow the section / orbit-segment count.
+            for (int i = 0; i < 5; i++)
+            {
+                var stats = OrbitSegmentCheckpointBridge.EnsureCheckpointSectionsForTopLevelOrbitSegments(rec, markDirty: false);
+                Assert.Equal(0, stats.Added);
+                Assert.Equal(1, CountCheckpointSections(rec));
+                Assert.Single(rec.OrbitSegments);
+            }
+        }
+
+        /// <summary>
+        /// Regression for the freeze itself: repeatedly serializing a recording that holds a
+        /// degenerate (NaN-semiMajorAxis) orbit segment must not grow its orbit-segment count.
+        /// SerializeTrajectoryInto mutates the recording via the checkpoint bridge, so without
+        /// the dedup fix each serialization doubled the segment list.
+        /// </summary>
+        [Fact]
+        public void RepeatedSerialization_NaNSemiMajorAxis_DoesNotExplode()
+        {
+            var rec = new Recording();
+            rec.OrbitSegments.Add(DegenerateParabolicSegment());
+
+            for (int i = 0; i < 4; i++)
+            {
+                var node = new ConfigNode("TEST");
+                RecordingStore.SerializeTrajectoryInto(node, rec);
+            }
+
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(1, CountCheckpointSections(rec));
+        }
+
         /// <summary>
         /// Catches: high inclination (polar or retrograde orbit) serialization issue.
         /// Inclination in radians can exceed pi.

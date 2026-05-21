@@ -1479,5 +1479,189 @@ namespace Parsek.Tests
                 && l.Contains("SeedInitialScience: ScienceInitial already exists")
                 && l.Contains("refusing to upgrade"));
         }
+
+        // ================================================================
+        // PruneOrphanActionsAfterUT (Revert-to-Launch orphan cleanup)
+        // ================================================================
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_RemovesUntaggedScienceAfterCutoff()
+        {
+            // Launch-pad science transmitted during PRELAUNCH (before auto-record): no recordingId.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 32.9,
+                Type = GameActionType.ScienceEarning,
+                SubjectId = "mysteryGoo@KerbinSrfLandedLaunchPad"
+            });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(1, removed);
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("removed 1"));
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_RemovesUntaggedMilestoneAfterCutoff()
+        {
+            // Proves the prune is not earning/spending-scoped: a milestone reward earned on the
+            // pad (untagged) must be dropped too.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 32.9,
+                Type = GameActionType.MilestoneAchievement,
+                MilestoneId = "Kerbin/Science"
+            });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(1, removed);
+            Assert.Empty(Ledger.Actions);
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_KeepsUntaggedActionAtCutoff()
+        {
+            // The at-launch rollout spend sits exactly at the Revert-to-Launch target UT;
+            // strict > means it is kept (cost stays deducted, matching stock).
+            Ledger.AddAction(new GameAction
+            {
+                UT = 7.34,
+                Type = GameActionType.FundsSpending
+            });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(0, removed);
+            Assert.Single(Ledger.Actions);
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_KeepsRecordingTaggedActionAfterCutoff()
+        {
+            // A committed/later-flight action carries a recordingId and must survive a revert
+            // of an unrelated vessel, even though its UT is past the cutoff.
+            Ledger.AddAction(new GameAction
+            {
+                UT = 1432.0,
+                Type = GameActionType.ScienceEarning,
+                RecordingId = "rec_committed_999",
+                SubjectId = "temperatureScan@KerbinSrfLandedLaunchPad"
+            });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(0, removed);
+            Assert.Single(Ledger.Actions);
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_KeepsSeedActionsRegardlessOfUT()
+        {
+            // Guardrail: seed types define the session baseline and must survive even if a
+            // future change ever stamps a seed with a non-zero UT above the cutoff.
+            Ledger.AddAction(new GameAction { UT = 100.0, Type = GameActionType.FundsInitial });
+            Ledger.AddAction(new GameAction { UT = 100.0, Type = GameActionType.ScienceInitial });
+            Ledger.AddAction(new GameAction { UT = 100.0, Type = GameActionType.ReputationInitial });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(50.0);
+
+            Assert.Equal(0, removed);
+            Assert.Equal(3, Ledger.Actions.Count);
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_MixedBatch_RemovesOnlyUntaggedOrphans()
+        {
+            // Reverse-iteration removal must drop every untagged post-cutoff orphan while leaving
+            // seeds, tagged rows, and at/below-cutoff rows intact in a single mixed ledger.
+            Ledger.AddAction(new GameAction { UT = 0.0, Type = GameActionType.ScienceInitial });            // seed: keep
+            Ledger.AddAction(new GameAction { UT = 7.34, Type = GameActionType.FundsSpending });            // at cutoff: keep
+            Ledger.AddAction(new GameAction { UT = 20.0, Type = GameActionType.ScienceEarning });           // orphan: drop
+            Ledger.AddAction(new GameAction { UT = 25.0, Type = GameActionType.MilestoneAchievement });     // orphan: drop
+            Ledger.AddAction(new GameAction { UT = 30.0, Type = GameActionType.FundsEarning, RecordingId = "rec_live" }); // tagged: keep
+            Ledger.AddAction(new GameAction { UT = 40.0, Type = GameActionType.ScienceEarning });           // orphan: drop
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(3, removed);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.ScienceInitial);
+            Assert.Contains(Ledger.Actions, a => a.Type == GameActionType.FundsSpending && a.UT == 7.34);
+            Assert.Contains(Ledger.Actions, a => a.RecordingId == "rec_live");
+            Assert.DoesNotContain(Ledger.Actions, a => string.IsNullOrEmpty(a.RecordingId) && a.UT > 7.34
+                && !(a.Type == GameActionType.ScienceInitial));
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_Inclusive_RemovesAtCutoffRollout()
+        {
+            // Revert-to-editor passes the launch UT inclusively so the at-launch rollout spend
+            // (untagged, at the launch UT) is dropped and KSP's refund stands.
+            Ledger.AddAction(new GameAction { UT = 12.0, Type = GameActionType.FundsSpending }); // rollout at launch UT
+            Ledger.AddAction(new GameAction { UT = 22.6, Type = GameActionType.ScienceEarning }); // pad science after launch
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(12.0, inclusive: true);
+
+            Assert.Equal(2, removed);
+            Assert.Empty(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("at/after"));
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_Inclusive_KeepsPreLaunchKscActionBelowCutoff()
+        {
+            // A KSC-scope career action done before launch sits at a UT below the launch UT
+            // (the clock advances in the Space Center / flight), so it survives an editor revert.
+            Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.FundsSpending }); // pre-launch facility upgrade
+            Ledger.AddAction(new GameAction { UT = 12.0, Type = GameActionType.FundsSpending }); // rollout at launch UT
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(12.0, inclusive: true);
+
+            Assert.Equal(1, removed);
+            Assert.Single(Ledger.Actions);
+            Assert.Equal(5.0, Ledger.Actions[0].UT);
+        }
+
+        [Fact]
+        public void GetLatestUntaggedVesselBuildUT_PicksMaxUntaggedRollout()
+        {
+            // Untagged VesselBuild rollouts mark uncommitted-flight launches; the max UT is the
+            // current flight's launch. Tagged rollouts (committed flights) and non-VesselBuild
+            // funds spends (facility upgrades, hiring) are ignored.
+            Ledger.AddAction(new GameAction { UT = 100.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild, RecordingId = "rec_committed" }); // tagged: ignored
+            Ledger.AddAction(new GameAction { UT = 150.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.FacilityUpgrade }); // not VesselBuild: ignored
+            Ledger.AddAction(new GameAction { UT = 200.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild }); // untagged rollout
+            Ledger.AddAction(new GameAction { UT = 7.34, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.VesselBuild }); // earlier untagged rollout
+
+            double ut = Ledger.GetLatestUntaggedVesselBuildUT();
+
+            Assert.Equal(200.0, ut);
+        }
+
+        [Fact]
+        public void GetLatestUntaggedVesselBuildUT_NoRollout_ReturnsNaN()
+        {
+            Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });
+            Ledger.AddAction(new GameAction { UT = 6.0, Type = GameActionType.FundsSpending, FundsSpendingSource = FundsSpendingSource.KerbalHire });
+
+            Assert.True(double.IsNaN(Ledger.GetLatestUntaggedVesselBuildUT()));
+        }
+
+        [Fact]
+        public void PruneOrphanActionsAfterUT_NoMatches_ReturnsZero()
+        {
+            Ledger.AddAction(new GameAction { UT = 5.0, Type = GameActionType.ScienceEarning });
+
+            int removed = Ledger.PruneOrphanActionsAfterUT(7.34);
+
+            Assert.Equal(0, removed);
+            Assert.Single(Ledger.Actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Ledger]") && l.Contains("PruneOrphanActionsAfterUT") && l.Contains("no untagged"));
+        }
     }
 }
