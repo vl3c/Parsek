@@ -651,28 +651,43 @@ namespace Parsek
 
         private static bool OrbitSegmentNearlyEquals(OrbitSegment a, OrbitSegment b)
         {
-            return NearlyEqual(a.startUT, b.startUT, UtTolerance)
-                && NearlyEqual(a.endUT, b.endUT, UtTolerance)
-                && NearlyEqual(a.inclination, b.inclination, ScalarTolerance)
-                && NearlyEqual(a.eccentricity, b.eccentricity, ScalarTolerance)
-                && NearlyEqual(a.semiMajorAxis, b.semiMajorAxis, DistanceTolerance)
-                && NearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, ScalarTolerance)
-                && NearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, ScalarTolerance)
-                && NearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, ScalarTolerance)
-                && NearlyEqual(a.epoch, b.epoch, UtTolerance)
+            return FieldNearlyEqual(a.startUT, b.startUT, UtTolerance)
+                && FieldNearlyEqual(a.endUT, b.endUT, UtTolerance)
+                && FieldNearlyEqual(a.inclination, b.inclination, ScalarTolerance)
+                && FieldNearlyEqual(a.eccentricity, b.eccentricity, ScalarTolerance)
+                && FieldNearlyEqual(a.semiMajorAxis, b.semiMajorAxis, DistanceTolerance)
+                && FieldNearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, ScalarTolerance)
+                && FieldNearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, ScalarTolerance)
+                && FieldNearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, ScalarTolerance)
+                && FieldNearlyEqual(a.epoch, b.epoch, UtTolerance)
                 && a.bodyName == b.bodyName
                 && a.isPredicted == b.isPredicted
-                && NearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, VectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, VectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, VectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, VectorTolerance)
-                && NearlyEqual(a.angularVelocity.x, b.angularVelocity.x, VectorTolerance)
-                && NearlyEqual(a.angularVelocity.y, b.angularVelocity.y, VectorTolerance)
-                && NearlyEqual(a.angularVelocity.z, b.angularVelocity.z, VectorTolerance);
+                && FieldNearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.x, b.angularVelocity.x, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.y, b.angularVelocity.y, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.z, b.angularVelocity.z, VectorTolerance);
         }
 
         private static bool NearlyEqual(double a, double b, double tolerance)
         {
+            return Math.Abs(a - b) <= tolerance;
+        }
+
+        // Structural-equality comparison for orbit-segment fields. Unlike NearlyEqual,
+        // two NaNs (and two equal infinities) compare equal: parabolic/degenerate orbits
+        // store semiMajorAxis = NaN (eccentricity == 1), and Math.Abs(NaN - NaN) <= tol is
+        // false, so such a segment never equals itself. That broke the checkpoint-bridge
+        // dedup (AnyCheckpointMatches always missed), re-adding the segment on every
+        // serialization in a geometric explosion that bloated the recording and froze load.
+        private static bool FieldNearlyEqual(double a, double b, double tolerance)
+        {
+            if (double.IsNaN(a) || double.IsNaN(b))
+                return double.IsNaN(a) && double.IsNaN(b);
+            if (a == b)
+                return true;
             return Math.Abs(a - b) <= tolerance;
         }
 
