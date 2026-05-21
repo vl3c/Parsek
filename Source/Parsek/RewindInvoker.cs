@@ -435,7 +435,7 @@ namespace Parsek
 
             var selected = rp.ChildSlots[selectedSlotListIndex];
             int selectedSlotId = selected != null ? selected.SlotIndex : selectedSlotListIndex;
-            string title = "Confirm Re-Fly";
+            string title = "Confirm: Re-Fly";
             string message =
                 "Do you want to fly this again? This will take you to the moment after " +
                 "separation and you will be in control of the craft / Kerbal.";

@@ -172,7 +172,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     DialogName,
                     body,
-                    "Confirm Seal Unfinished Flight",
+                    "Confirm: Seal Unfinished Flight",
                     HighLogic.UISkin,
                     new DialogGUIButton("Seal Permanently", () =>
                     {
