@@ -2757,7 +2757,9 @@ namespace Parsek
             return ReFlyMergeCommitResult.Completed;
         }
 
-        private static void ApplyPlayerRequestedSeal(Recording provisional)
+        // internal (not private) so the MergeAndSealReFlyClosesSlot in-game
+        // test can drive the exact Merge & Seal post-merge step.
+        internal static void ApplyPlayerRequestedSeal(Recording provisional)
         {
             string recId = provisional?.RecordingId ?? "<no-id>";
             if (provisional == null)
