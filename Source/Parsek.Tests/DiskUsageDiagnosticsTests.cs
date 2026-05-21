@@ -93,7 +93,6 @@ namespace Parsek.Tests
         private static ChildSlot Slot(
             int index,
             string originRecordingId,
-            bool sealedSlot = false,
             bool stashedSlot = false)
         {
             return new ChildSlot
@@ -101,8 +100,6 @@ namespace Parsek.Tests
                 SlotIndex = index,
                 OriginChildRecordingId = originRecordingId,
                 Controllable = true,
-                Sealed = sealedSlot,
-                SealedRealTime = sealedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
                 Stashed = stashedSlot,
                 StashedRealTime = stashedSlot ? "2026-04-29T12:01:00.0000000Z" : null
             };
@@ -206,24 +203,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DiskUsage_LiveBreakdownCountsCrashedStableAndSealedPendingRps()
+        public void DiskUsage_LiveBreakdownBucketsByEffectiveTipMergeState()
         {
-            // Regression: the diagnostics line needs to explain why RP files
-            // still exist, not just show bytes. Buckets are per-RP and can
-            // overlap when one RP has both sealed and still-open slots.
-            var crash = Rec("rec_crash", MergeState.CommittedProvisional,
+            // After collapse-seal-into-mergestate the diagnostics line buckets
+            // each RP by its slots' effective tip MergeState: NotCommitted =
+            // live-crashed (recorder still running), CommittedProvisional =
+            // stable-open, Immutable = concluded. Buckets are per-RP and can
+            // overlap when one RP has both concluded and still-open slots.
+            var liveCrash = Rec("rec_crash", MergeState.NotCommitted,
                 TerminalState.Destroyed, "bp_crash");
             var focus = Rec("rec_focus", MergeState.Immutable,
                 TerminalState.Landed, "bp_stable");
             var probe = Rec("rec_probe", MergeState.CommittedProvisional,
                 TerminalState.Orbiting, "bp_stable");
-            var sealedCrash = Rec("rec_sealed", MergeState.CommittedProvisional,
+            var concluded = Rec("rec_sealed", MergeState.Immutable,
                 TerminalState.Destroyed, "bp_sealed");
 
-            RecordingStore.AddRecordingWithTreeForTesting(crash, "tree_crash");
+            RecordingStore.AddRecordingWithTreeForTesting(liveCrash, "tree_crash");
             RecordingStore.AddRecordingWithTreeForTesting(focus, "tree_stable");
             RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_stable");
-            RecordingStore.AddRecordingWithTreeForTesting(sealedCrash, "tree_sealed");
+            RecordingStore.AddRecordingWithTreeForTesting(concluded, "tree_sealed");
 
             var scenario = InstallScenario(
                 Rp("rp_crash", "bp_crash", 0, Slot(0, "rec_crash")),
@@ -231,14 +230,17 @@ namespace Parsek.Tests
                     Slot(0, "rec_focus"),
                     Slot(1, "rec_probe")),
                 Rp("rp_sealed", "bp_sealed", 0,
-                    Slot(0, "rec_sealed", sealedSlot: true)));
+                    Slot(0, "rec_sealed")));
 
             var snap = RewindPointDiskUsage.Compute(tempRoot, nowSeconds: 0.0, scenario);
 
             Assert.Equal(3, snap.Live.RewindPointCount);
+            // rp_crash: tip NotCommitted -> live-crashed.
             Assert.Equal(1, snap.Live.CrashedOpenCount);
+            // rp_stable: probe tip CommittedProvisional -> stable-open.
             Assert.Equal(1, snap.Live.StableOpenCount);
-            Assert.Equal(1, snap.Live.SealedPendingCount);
+            // rp_stable (focus Immutable) + rp_sealed (Immutable) -> concluded.
+            Assert.Equal(2, snap.Live.ConcludedCount);
         }
 
         [Fact]
@@ -253,7 +255,7 @@ namespace Parsek.Tests
                     RewindPointCount = 4,
                     CrashedOpenCount = 1,
                     StableOpenCount = 2,
-                    SealedPendingCount = 1
+                    ConcludedCount = 1
                 }
             };
 
@@ -264,7 +266,7 @@ namespace Parsek.Tests
             Assert.Contains("live=4", line);
             Assert.Contains("crashed=1", line);
             Assert.Contains("stable=2", line);
-            Assert.Contains("sealed-pending=1", line);
+            Assert.Contains("concluded=1", line);
         }
 
         [Fact]
@@ -275,7 +277,9 @@ namespace Parsek.Tests
             double fakeNow = 2000.0;
             RewindPointDiskUsage.ClockSourceForTesting = () => fakeNow;
             WriteFile("rp_a.sfs", 100);
-            var crash = Rec("rec_crash", MergeState.CommittedProvisional,
+            // NotCommitted tip -> live-crashed bucket under the new
+            // MergeState-driven bucketing.
+            var crash = Rec("rec_crash", MergeState.NotCommitted,
                 TerminalState.Destroyed, "bp_crash");
             RecordingStore.AddRecordingWithTreeForTesting(crash, "tree_crash");
 

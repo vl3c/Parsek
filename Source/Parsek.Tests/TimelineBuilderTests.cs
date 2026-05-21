@@ -1937,6 +1937,9 @@ namespace Parsek.Tests
                 terminal: TerminalState.Destroyed);
             booster.VesselPersistentId = 99u;
             booster.ParentBranchPointId = kBpId;
+            // Open crashed Unfinished Flight -> CommittedProvisional tip after
+            // promotion (collapse-seal-into-mergestate).
+            booster.MergeState = MergeState.CommittedProvisional;
 
             var scenario = new ParsekScenario
             {
@@ -1996,12 +1999,15 @@ namespace Parsek.Tests
                 recordingId: "rec_root");
             root.VesselPersistentId = 42u;
             root.ChildBranchPointId = kBpId;
+            // Open crashed Unfinished Flights -> CommittedProvisional tips.
+            root.MergeState = MergeState.CommittedProvisional;
 
             var probe = MakeRecording("Kerbal X Probe", 200, 260,
                 terminal: TerminalState.Destroyed,
                 recordingId: "rec_probe");
             probe.VesselPersistentId = 99u;
             probe.ParentBranchPointId = kBpId;
+            probe.MergeState = MergeState.CommittedProvisional;
 
             var scenario = new ParsekScenario
             {

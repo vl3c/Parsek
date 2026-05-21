@@ -186,12 +186,8 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(orbiting, out reason),
                     "Sealing the orbiting member should succeed");
-                InGameAssert.AreEqual(MergeState.CommittedProvisional, orbiting.MergeState,
-                    "Seal must not mutate MergeState");
-                InGameAssert.IsTrue(rp.ChildSlots[1].Sealed,
-                    "Orbiting slot should be marked sealed");
-                InGameAssert.AreEqual("2000-01-01T00:00:00.0000000Z", rp.ChildSlots[1].SealedRealTime,
-                    "Seal timestamp should come from the test clock");
+                InGameAssert.AreEqual(MergeState.Immutable, orbiting.MergeState,
+                    "Seal must flip the slot's effective tip to Immutable (closed)");
                 AssertDoesNotContainMember(UnfinishedFlightsGroup.ComputeMembers(), orbiting,
                     "Sealed orbiting slot should drop from Unfinished Flights");
                 InGameAssert.AreEqual(1, scenario.RewindPoints.Count,
@@ -210,15 +206,15 @@ namespace Parsek.InGameTests
 
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(eva, out reason),
                     "Sealing the final CommittedProvisional member should succeed");
-                InGameAssert.AreEqual(MergeState.CommittedProvisional, eva.MergeState,
-                    "Sealing the final CommittedProvisional member must not mutate MergeState");
+                InGameAssert.AreEqual(MergeState.Immutable, eva.MergeState,
+                    "Seal must flip the EVA slot's effective tip to Immutable (closed)");
                 InGameAssert.AreEqual(1, scenario.RewindPoints.Count,
-                    "Stashed Immutable slot should keep the synthetic RP open after CP slots close");
+                    "Stashed-then-opened slot should keep the synthetic RP open after the other CP slots close");
 
                 InGameAssert.IsTrue(UnfinishedFlightSealHandler.TrySeal(landed, out reason),
                     "Sealing the stashed Landed member should succeed");
                 InGameAssert.AreEqual(MergeState.Immutable, landed.MergeState,
-                    "Sealing a stashed Immutable slot must not mutate MergeState");
+                    "Sealing a stashed-then-opened slot flips its tip back to Immutable (closed)");
                 InGameAssert.IsTrue(deleteHookCalled,
                     "Last Seal should invoke the RP quicksave delete hook");
                 InGameAssert.AreEqual(0, scenario.RewindPoints.Count,

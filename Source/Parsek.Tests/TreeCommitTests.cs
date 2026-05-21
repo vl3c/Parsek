@@ -679,20 +679,22 @@ namespace Parsek.Tests
                         Slot(1, "child2"),
                     }
                 };
-                var scenario = InstallScenarioWithRps(rp);
-                int versionBefore = scenario.SupersedeStateVersion;
+                InstallScenarioWithRps(rp);
 
                 RecordingStore.CommitTree(tree);
 
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+                // Stable-EVA conclusion leaves the slot's tip Immutable (the
+                // born state) instead of demoting to CommittedProvisional, so
+                // the slot reads closed.
                 Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
-                Assert.True(rp.ChildSlots[1].Sealed);
-                Assert.False(string.IsNullOrEmpty(rp.ChildSlots[1].SealedRealTime));
-                Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
-                Assert.False(UnfinishedFlightClassifier.TryQualify(
-                    tree.Recordings["child2"], rp.ChildSlots[1], rp, true,
+                // Shape still qualifies (strandedEva), but the slot is closed
+                // because its effective tip is Immutable.
+                Assert.True(UnfinishedFlightClassifier.TryQualify(
+                    tree.Recordings["child2"], rp.ChildSlots[1], rp,
                     out string sealedReason, tree));
-                Assert.Equal("slotSealed", sealedReason);
+                Assert.Equal("strandedEva", sealedReason);
+                Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
                 Assert.Contains(logLines, l =>
                     l.Contains("[UnfinishedFlights]")
                     && l.Contains("CommitTree auto-sealed stable EVA")
@@ -737,20 +739,22 @@ namespace Parsek.Tests
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
-            Assert.False(rp.ChildSlots[1].Sealed);
-            Assert.True(string.IsNullOrEmpty(rp.ChildSlots[1].SealedRealTime));
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
         }
 
         [Fact]
-        public void CommitTree_SealedOrbitingChildUnderRewindPoint_RemainsImmutable()
+        public void CommitTree_AlreadyConcludedOrbitingChild_StaysImmutable()
         {
+            // A previously concluded (sealed) orbiting child: its tip is
+            // already Immutable when the tree is committed. The first-commit
+            // guard skips it on re-commit, and promotion does not re-open it.
+            // Open/closed is read from the tip MergeState, so the slot stays
+            // closed (collapse-seal-into-mergestate).
             var tree = MakeTreeWithBranch("stable_leaf_sealed_tree");
             tree.BranchPoints[0].RewindPointId = "rp_stage";
             tree.Recordings["child1"].TerminalStateValue = TerminalState.Landed;
             tree.Recordings["child2"].TerminalStateValue = TerminalState.Orbiting;
-            var sealedSlot = Slot(1, "child2");
-            sealedSlot.Sealed = true;
-            sealedSlot.SealedRealTime = "2026-04-29T12:00:00.0000000Z";
+            var concludedSlot = Slot(1, "child2");
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_stage",
@@ -761,17 +765,25 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     Slot(0, "child1"),
-                    sealedSlot,
+                    concludedSlot,
                 }
             };
             InstallScenarioWithRps(rp);
 
+            // Commit once: child2 (non-focus Orbiting) promotes to CP (open).
+            RecordingStore.CommitTree(tree);
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
+
+            // Seal it (flip the tip to Immutable), then re-commit the tree.
+            tree.Recordings["child2"].MergeState = MergeState.Immutable;
             RecordingStore.CommitTree(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
+            // The first-commit guard keeps the concluded tip Immutable; the
+            // slot stays closed.
             Assert.Equal(MergeState.Immutable, tree.Recordings["child2"].MergeState);
             Assert.False(rp.SessionProvisional);
-            Assert.True(sealedSlot.Sealed);
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(concludedSlot));
         }
 
         [Fact]

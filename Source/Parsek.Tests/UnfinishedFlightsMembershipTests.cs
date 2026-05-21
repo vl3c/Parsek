@@ -56,7 +56,7 @@ namespace Parsek.Tests
 
         // --- Helpers ----------------------------------------------------------
 
-        private static Recording Rec(string id, MergeState state = MergeState.Immutable,
+        private static Recording Rec(string id, MergeState state = MergeState.CommittedProvisional,
             TerminalState? terminal = null,
             string parentBranchPointId = null,
             string childBranchPointId = null,
@@ -100,7 +100,6 @@ namespace Parsek.Tests
         private static ChildSlot Slot(
             int slotIndex,
             string recordingId,
-            bool sealedSlot = false,
             bool stashedSlot = false)
         {
             return new ChildSlot
@@ -108,8 +107,6 @@ namespace Parsek.Tests
                 SlotIndex = slotIndex,
                 OriginChildRecordingId = recordingId,
                 Controllable = true,
-                Sealed = sealedSlot,
-                SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
                 Stashed = stashedSlot,
                 StashedRealTime = stashedSlot ? "2026-04-29T09:10:11.0000000Z" : null
             };
@@ -163,10 +160,14 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
-        public void HasStashedResolvedSlot_SealedStashedSlot_ReturnsFalse()
+        public void HasStashedResolvedSlot_StashedThenSealedSlot_ReturnsFalse()
         {
+            // A stashed slot whose effective tip has been sealed (Immutable) is
+            // closed; HasStashedResolvedSlot reads open/closed from the tip
+            // MergeState, so it returns false (collapse-seal-into-mergestate).
             var rec = Rec("rec_stashed", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
             {
                 new RewindPoint
@@ -176,7 +177,7 @@ namespace Parsek.Tests
                     FocusSlotIndex = 0,
                     ChildSlots = new List<ChildSlot>
                     {
-                        Slot(0, "rec_stashed", sealedSlot: true, stashedSlot: true)
+                        Slot(0, "rec_stashed", stashedSlot: true)
                     }
                 }
             });
@@ -193,7 +194,7 @@ namespace Parsek.Tests
             // Destroyed AND whose parent BranchPoint has a RewindPoint MUST
             // appear in the virtual group (the definition of an unfinished
             // flight — design §3.1 / §5.11).
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             // AddRecordingWithTreeForTesting builds a single-node tree with a
@@ -213,7 +214,7 @@ namespace Parsek.Tests
         [Fact]
         public void DestroyedWithRecordingScopedScienceEarningAction_NotMember()
         {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
@@ -241,7 +242,7 @@ namespace Parsek.Tests
         [Fact]
         public void DestroyedWithRecordingScopedScienceSpendingAction_IsMember()
         {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
@@ -263,7 +264,7 @@ namespace Parsek.Tests
         [Fact]
         public void DestroyedWithRecordingScopedMilestoneAction_IsMember()
         {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
@@ -295,7 +296,7 @@ namespace Parsek.Tests
         [Fact]
         public void DestroyedWithOnlyTombstoneableKerbalDeathActions_IsMember()
         {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
@@ -330,7 +331,7 @@ namespace Parsek.Tests
         [Fact]
         public void StrandedEvaWithRecordingScopedScienceEarningAction_NotMember()
         {
-            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
@@ -356,7 +357,7 @@ namespace Parsek.Tests
         [Fact]
         public void StrandedEvaWithRecordingScopedScienceSpendingAction_IsMember()
         {
-            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_eva") });
@@ -385,13 +386,13 @@ namespace Parsek.Tests
             // terminal outcome.
             var upper = Rec(
                 "rec_upper",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed,
                 childBranchPointId: "bp_stage",
                 treeId: "tree_1");
             var probe = Rec(
                 "rec_probe",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed,
                 parentBranchPointId: "bp_stage",
                 childBranchPointId: "bp_probe_destroyed",
@@ -431,7 +432,7 @@ namespace Parsek.Tests
         {
             var rec = Rec(
                 "rec_stage",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed,
                 parentBranchPointId: "bp_old",
                 childBranchPointId: "bp_new",
@@ -462,7 +463,7 @@ namespace Parsek.Tests
         {
             var rec = Rec(
                 "rec_stage",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.SubOrbital,
                 parentBranchPointId: "bp_old",
                 childBranchPointId: "bp_new",
@@ -493,7 +494,7 @@ namespace Parsek.Tests
         {
             var rec = Rec(
                 "rec_stage",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed,
                 parentBranchPointId: "bp_old",
                 childBranchPointId: "bp_new",
@@ -509,7 +510,6 @@ namespace Parsek.Tests
                 rec,
                 olderRp.ChildSlots[0],
                 olderRp,
-                considerSealed: true,
                 out string reason));
             Assert.Equal("downstreamBp", reason);
         }
@@ -540,7 +540,7 @@ namespace Parsek.Tests
             // same BranchPoint/RewindPoint as a real controllable child, but if
             // it was never assigned an RP child slot it cannot be re-flown and
             // must not show as a disabled duplicate Unfinished Flight.
-            var rec = Rec("rec_debris", MergeState.Immutable,
+            var rec = Rec("rec_debris", MergeState.CommittedProvisional,
                 TerminalState.Destroyed, parentBranchPointId: "bp_1",
                 treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
@@ -564,7 +564,7 @@ namespace Parsek.Tests
         {
             // Regression: stable terminal vessel outcomes are NOT unfinished
             // flights even when a parent RP exists.
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
@@ -576,7 +576,7 @@ namespace Parsek.Tests
         [Fact]
         public void StashedImmutableLandedUnderRP_IsMember()
         {
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Landed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -603,7 +603,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitingNonFocusUnderPostFeatureRP_IsMember()
         {
-            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_probe", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -620,7 +620,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitingFocusSlotUnderPostFeatureRP_NotMember()
         {
-            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_focus", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -638,7 +638,7 @@ namespace Parsek.Tests
         [Fact]
         public void StashedOrbitingFocusSlotUnderPostFeatureRP_IsMember()
         {
-            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_focus", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -666,7 +666,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitingLegacyNoFocusSignal_NotMember()
         {
-            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_probe", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -684,7 +684,7 @@ namespace Parsek.Tests
         [Fact]
         public void StashedOrbitingLegacyNoFocusSignal_IsMember()
         {
-            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_probe", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -711,7 +711,7 @@ namespace Parsek.Tests
         [Fact]
         public void OrbitingDebrisUnderPostFeatureRP_NotMember()
         {
-            var rec = Rec("rec_debris", MergeState.Immutable, TerminalState.Orbiting,
+            var rec = Rec("rec_debris", MergeState.CommittedProvisional, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1", isDebris: true);
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -729,7 +729,7 @@ namespace Parsek.Tests
         [Fact]
         public void SubOrbitalNonFocusUnderPostFeatureRP_IsMember()
         {
-            var rec = Rec("rec_upper", MergeState.Immutable, TerminalState.SubOrbital,
+            var rec = Rec("rec_upper", MergeState.CommittedProvisional, TerminalState.SubOrbital,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -753,7 +753,7 @@ namespace Parsek.Tests
             // a burn reach orbit), so the focus-slot SubOrbital row stays
             // an Unfinished Flight member and the underlying classifier
             // returns stableLeafUnconcluded instead of stableTerminalFocusSlot.
-            var rec = Rec("rec_focus", MergeState.Immutable, TerminalState.SubOrbital,
+            var rec = Rec("rec_focus", MergeState.CommittedProvisional, TerminalState.SubOrbital,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -778,7 +778,7 @@ namespace Parsek.Tests
         [Fact]
         public void StrandedEvaLegacyNoFocusSignal_IsMember()
         {
-            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             InstallScenario(rps: new List<RewindPoint>
@@ -795,7 +795,7 @@ namespace Parsek.Tests
         [Fact]
         public void StashedBoardedEva_NotMember()
         {
-            var rec = Rec("rec_eva", MergeState.Immutable, TerminalState.Boarded,
+            var rec = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Boarded,
                 parentBranchPointId: "bp_1", treeId: "tree_1", evaCrewName: "Jebediah Kerman");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -824,7 +824,7 @@ namespace Parsek.Tests
         [InlineData(TerminalState.Boarded)]
         public void StashedWorldInteractingTerminal_NotMember(TerminalState terminal)
         {
-            var rec = Rec("rec_unsafe", MergeState.Immutable, terminal,
+            var rec = Rec("rec_unsafe", MergeState.CommittedProvisional, terminal,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -852,7 +852,10 @@ namespace Parsek.Tests
         [Fact]
         public void SealedSlot_NotMember()
         {
-            var rec = Rec("rec_probe", MergeState.CommittedProvisional, TerminalState.Orbiting,
+            // A sealed slot's effective tip is Immutable (closed); open/closed
+            // is read from the tip MergeState, so the row drops from UF with
+            // reason=sealedTipClosed (collapse-seal-into-mergestate).
+            var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Orbiting,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
             var rp = new RewindPoint
@@ -864,7 +867,7 @@ namespace Parsek.Tests
                 ChildSlots = new List<ChildSlot>
                 {
                     Slot(0, "rec_focus"),
-                    Slot(1, "rec_probe", sealedSlot: true)
+                    Slot(1, "rec_probe")
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
@@ -873,12 +876,17 @@ namespace Parsek.Tests
 
             Assert.Empty(members);
             Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=slotSealed"));
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=sealedTipClosed"));
         }
 
         [Fact]
-        public void StashedSealedSlot_NotMember()
+        public void StashedThenSealedSlot_NotMember()
         {
+            // A stashed stable leaf that was later sealed: its effective tip is
+            // Immutable (closed). HasStashedResolvedSlot reads the tip
+            // MergeState and reports closed, so the stash candidate no longer
+            // qualifies and the row drops from UF
+            // (collapse-seal-into-mergestate).
             var rec = Rec("rec_probe", MergeState.Immutable, TerminalState.Landed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
@@ -890,16 +898,14 @@ namespace Parsek.Tests
                 SessionProvisional = false,
                 ChildSlots = new List<ChildSlot>
                 {
-                    Slot(0, "rec_probe", sealedSlot: true, stashedSlot: true)
+                    Slot(0, "rec_probe", stashedSlot: true)
                 }
             };
             InstallScenario(rps: new List<RewindPoint> { rp });
 
+            Assert.False(UnfinishedFlightClassifier.HasStashedResolvedSlot(rec));
             var members = UnfinishedFlightsGroup.ComputeMembers();
-
             Assert.Empty(members);
-            Assert.Contains(logLines, l =>
-                l.Contains("[UnfinishedFlights]") && l.Contains("reason=slotSealed"));
         }
 
         [Fact]
@@ -909,7 +915,7 @@ namespace Parsek.Tests
             // RewindPoint MUST NOT appear (§5.11 requires an RP for the
             // rewind button to have a target — absent RP, the row is just a
             // historical recording).
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_unknown");
             RecordingStore.AddRecordingWithTreeForTesting(rec);
             InstallScenario(); // no RPs
@@ -939,9 +945,9 @@ namespace Parsek.Tests
             // Regression: walking supersedes filters a recording out of ERS
             // before the unfinished-flight classifier even sees it. Design
             // §3.1 makes ERS the canonical visible set.
-            var recOld = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var recOld = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1");
-            var recNew = Rec("rec_B", MergeState.Immutable, TerminalState.Landed,
+            var recNew = Rec("rec_B", MergeState.CommittedProvisional, TerminalState.Landed,
                 parentBranchPointId: "bp_1");
             RecordingStore.AddRecordingWithTreeForTesting(recOld);
             RecordingStore.AddRecordingWithTreeForTesting(recNew);
@@ -971,7 +977,7 @@ namespace Parsek.Tests
             // subtree drops out of ERS (design §3.3). An unfinished-flight
             // recording inside that subtree therefore must not surface in the
             // virtual group until the session ends.
-            var recOrigin = Rec("rec_origin", MergeState.Immutable, TerminalState.Destroyed,
+            var recOrigin = Rec("rec_origin", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(recOrigin);
 
@@ -1012,7 +1018,7 @@ namespace Parsek.Tests
             // Regression: the recompute Verbose line must reflect the member
             // count — design §10.5 uses it for post-hoc audits of virtual
             // group population.
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
 

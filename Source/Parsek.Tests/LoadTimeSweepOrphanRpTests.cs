@@ -42,13 +42,22 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SweepMissingRewindPointQuicksaves_SealsSlotsAndReapsRp()
+        public void SweepMissingRewindPointQuicksaves_ConcludesSlotTipsAndReapsRp()
         {
             string missingPath = Path.Combine(
                 Path.GetTempPath(),
                 "ParsekTests",
                 Guid.NewGuid().ToString("N"),
                 "rp_missing.sfs");
+            // An open (CommittedProvisional) slot tip; the missing-quicksave
+            // sweep must conclude it (flip to Immutable) since it can never be
+            // re-flown without its quicksave, then reap the RP.
+            var tip = new Recording
+            {
+                RecordingId = "rec_missing",
+                MergeState = MergeState.CommittedProvisional,
+            };
+            RecordingStore.AddCommittedInternal(tip);
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_missing",
@@ -80,7 +89,7 @@ namespace Parsek.Tests
             int swept = LoadTimeSweep.SweepMissingRewindPointQuicksaves(scenario);
 
             Assert.Equal(1, swept);
-            Assert.True(rp.ChildSlots[0].Sealed);
+            Assert.Equal(MergeState.Immutable, tip.MergeState);
             Assert.True(rp.ChildSlots[0].Stashed);
             Assert.Empty(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
@@ -99,6 +108,12 @@ namespace Parsek.Tests
                 Path.GetTempPath(),
                 "ParsekTests",
                 Guid.NewGuid().ToString("N"));
+            var activeTip = new Recording
+            {
+                RecordingId = "rec_active",
+                MergeState = MergeState.CommittedProvisional,
+            };
+            RecordingStore.AddCommittedInternal(activeTip);
             var active = new RewindPoint
             {
                 RewindPointId = "rp_active",
@@ -149,7 +164,7 @@ namespace Parsek.Tests
             int swept = LoadTimeSweep.SweepMissingRewindPointQuicksaves(scenario);
 
             Assert.Equal(1, swept);
-            Assert.False(active.ChildSlots[0].Sealed);
+            Assert.Equal(MergeState.CommittedProvisional, activeTip.MergeState);
             Assert.Contains(active, scenario.RewindPoints);
             Assert.DoesNotContain(other, scenario.RewindPoints);
             Assert.Contains(logLines, l =>
@@ -172,6 +187,12 @@ namespace Parsek.Tests
                 Path.GetTempPath(),
                 "ParsekTests",
                 Guid.NewGuid().ToString("N"));
+            var provisionalTip = new Recording
+            {
+                RecordingId = "rec_provisional",
+                MergeState = MergeState.CommittedProvisional,
+            };
+            RecordingStore.AddCommittedInternal(provisionalTip);
             var provisional = new RewindPoint
             {
                 RewindPointId = "rp_provisional",
@@ -202,7 +223,7 @@ namespace Parsek.Tests
             int swept = LoadTimeSweep.SweepMissingRewindPointQuicksaves(scenario);
 
             Assert.Equal(0, swept);
-            Assert.False(provisional.ChildSlots[0].Sealed);
+            Assert.Equal(MergeState.CommittedProvisional, provisionalTip.MergeState);
             Assert.Contains(provisional, scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[VERBOSE][LoadSweep]")

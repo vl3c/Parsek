@@ -16,18 +16,16 @@ namespace Parsek
         internal static bool Qualifies(
             Recording rec,
             ChildSlot slot,
-            RewindPoint rp,
-            bool considerSealed)
+            RewindPoint rp)
         {
             string reason;
-            return TryQualify(rec, slot, rp, considerSealed, out reason);
+            return TryQualify(rec, slot, rp, out reason);
         }
 
         internal static bool TryQualify(
             Recording rec,
             ChildSlot slot,
             RewindPoint rp,
-            bool considerSealed,
             out string reason,
             RecordingTree treeContext = null,
             bool allowNotCommitted = false,
@@ -103,14 +101,6 @@ namespace Parsek
                 reason = "notControllable";
                 LogVerdict(false, recId, reason,
                     $"headIsDebris={rec.IsDebris} slotControllable={slot.Controllable}");
-                return false;
-            }
-
-            if (considerSealed && slot.Sealed)
-            {
-                reason = "slotSealed";
-                LogVerdict(false, recId, reason,
-                    $"slot={ResolveSlotListIndexByReference(rp, slot)} sealedRealTime={slot.SealedRealTime ?? "<none>"}");
                 return false;
             }
 
@@ -225,7 +215,7 @@ namespace Parsek
             // matches the override and the chain tip is a stable terminal,
             // the merge concludes the engagement: return
             // stableTerminalFocusSlot so SupersedeCommit closes the slot
-            // (MergeState.Immutable + slot.Sealed=true). The override path
+            // (the slot's effective tip MergeState becomes Immutable). The override path
             // intentionally precedes the stashed-keep-open branch (a
             // stashed slot Re-Flown to a stable conclusion also seals) and
             // the noFocusSignalOrbiting / static focus checks below (the
@@ -458,16 +448,8 @@ namespace Parsek
                 return false;
             }
 
-            if (slot.Sealed)
-            {
-                reason = "slotSealed";
-                rp = null;
-                slotListIndex = -1;
-                return false;
-            }
-
             string defaultReason;
-            if (TryQualify(rec, slot, rp, true, out defaultReason))
+            if (TryQualify(rec, slot, rp, out defaultReason))
             {
                 reason = "alreadyUnfinishedFlight";
                 rp = null;
@@ -800,8 +782,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns true only for open manual-stash slots. A slot that is both
-        /// stashed and sealed is closed; sealed wins, matching
+        /// Returns true only for open manual-stash slots. A stashed slot
+        /// whose effective tip has been sealed to
+        /// <see cref="MergeState.Immutable"/> is closed; the tip MergeState
+        /// is the single open/closed source of truth, matching
         /// <see cref="RewindPointReaper.IsReapEligible"/>'s closed-slot rule.
         /// </summary>
         internal static bool HasStashedResolvedSlot(Recording rec)
@@ -812,11 +796,52 @@ namespace Parsek
             if (!TryResolveRewindPointForRecording(rec, out rp, out slotListIndex, out reason))
                 return false;
 
-            return rp?.ChildSlots != null
-                && slotListIndex >= 0
-                && slotListIndex < rp.ChildSlots.Count
-                && rp.ChildSlots[slotListIndex]?.Stashed == true
-                && rp.ChildSlots[slotListIndex]?.Sealed == false;
+            if (rp?.ChildSlots == null
+                || slotListIndex < 0
+                || slotListIndex >= rp.ChildSlots.Count)
+                return false;
+
+            var slot = rp.ChildSlots[slotListIndex];
+            // Pass rec as the candidate: when rec is itself the slot's effective
+            // tip (the common stashed-leaf case) its MergeState is read directly,
+            // so this works without rec being registered in CommittedRecordings
+            // (unit-test fixtures pass an unregistered recording).
+            return slot?.Stashed == true && IsSlotEffectiveTipOpen(slot, rec);
+        }
+
+        /// <summary>
+        /// Reads a slot's open/closed state from the single source of truth:
+        /// the slot's effective chain+supersede tip MergeState. The slot is
+        /// OPEN iff the tip is <see cref="MergeState.CommittedProvisional"/>;
+        /// it is closed when the tip is <see cref="MergeState.Immutable"/>
+        /// (sealed / concluded / canon), <see cref="MergeState.NotCommitted"/>,
+        /// or the tip cannot be resolved to a committed recording (null /
+        /// orphan). This is the recording-level open/closed signal the reaper,
+        /// classifier UF filter, and disk-usage diagnostics share after the
+        /// slot.Sealed bit was collapsed into MergeState.
+        /// </summary>
+        internal static bool IsSlotEffectiveTipOpen(ChildSlot slot)
+            => IsSlotEffectiveTipOpen(slot, null);
+
+        /// <param name="candidate">The recording being classified; when it is
+        /// itself the slot's effective tip its MergeState is read directly,
+        /// avoiding a committed-store lookup for the common case.</param>
+        internal static bool IsSlotEffectiveTipOpen(ChildSlot slot, Recording candidate)
+        {
+            if (slot == null) return false;
+            var supersedes = GetScenarioSupersedes(ParsekScenario.Instance);
+            string tipId = slot.EffectiveRecordingId(supersedes);
+            if (string.IsNullOrEmpty(tipId)) return false;
+
+            if (candidate != null
+                && string.Equals(candidate.RecordingId, tipId, StringComparison.Ordinal))
+                return candidate.MergeState == MergeState.CommittedProvisional;
+
+            // EffectiveState owns the raw committed read (allowlisted for the
+            // ERS/ELS grep gate); open/closed must see the tip's
+            // CommittedProvisional / Immutable / NotCommitted state directly.
+            Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
+            return tip != null && tip.MergeState == MergeState.CommittedProvisional;
         }
 
         private static bool StashedTerminalQualifies(TerminalState terminal)

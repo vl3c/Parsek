@@ -1002,7 +1002,7 @@ namespace Parsek
                 // sites do not pass an override and continue to use the
                 // static focus.
                 bool classifierQualifies = UnfinishedFlightClassifier.TryQualify(
-                    provisional, slot, rp, false, out classifierReason,
+                    provisional, slot, rp, out classifierReason,
                     treeContext: null, allowNotCommitted: true,
                     focusSlotOverride: slotListIndex);
 
@@ -1885,6 +1885,13 @@ namespace Parsek
             return action.Type == GameActionType.ScienceEarning;
         }
 
+        // Auto-seal-after-safety-close is now encoded entirely in the
+        // provisional fork's MergeState: AutoSealSlot == true implies the
+        // classifier resolved NewState == Immutable (the slot's effective tip
+        // is the provisional fork, which FlipMergeStateAndClearTransient set to
+        // Immutable above before this runs). Open/closed is read from that tip
+        // MergeState (collapse-seal-into-mergestate plan §7.3), so there is no
+        // separate slot bit to flip — this method only emits the diagnostic.
         private static void ApplyAutoSealAfterSafetyClose(
             MergeStateClassification classification,
             Recording provisional,
@@ -1894,17 +1901,11 @@ namespace Parsek
                 || object.ReferenceEquals(null, scenario))
                 return;
 
-            if (classification.Slot.Sealed)
-                return;
-
-            classification.Slot.Sealed = true;
-            classification.Slot.SealedRealTime =
-                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-            scenario.BumpSupersedeStateVersion();
             ParsekLog.Info(Tag,
                 $"Auto-sealed re-fly slot={classification.SlotListIndex.ToString(CultureInfo.InvariantCulture)} " +
                 $"rec={provisional?.RecordingId ?? "<no-id>"} " +
                 $"rp={classification.RewindPoint?.RewindPointId ?? "<no-rp>"} " +
+                $"mergeState={classification.NewState} " +
                 $"terminal={DescribeTerminalForLogs(provisional)} " +
                 $"reason={classification.AutoSealReason ?? "<none>"}");
         }

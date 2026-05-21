@@ -47,9 +47,12 @@ namespace Parsek.Tests
         {
             const string treeId = "tree_kerbal_x";
             const string bpId = "bp_probe_split";
+            // Both slots are OPEN crashed Unfinished Flights, so their effective
+            // tips are CommittedProvisional (post-promotion). Open/closed is
+            // read from the tip MergeState after collapse-seal-into-mergestate.
             var parent = Rec(
                 "rec_parent",
-                MergeState.Immutable,
+                MergeState.CommittedProvisional,
                 TerminalState.Destroyed);
             var child = Rec(
                 "rec_probe",
@@ -79,7 +82,6 @@ namespace Parsek.Tests
                 parent,
                 rp.ChildSlots[parentSlot],
                 rp,
-                considerSealed: true,
                 out string parentReason));
             Assert.Equal("crashed", parentReason);
             Assert.Contains(logLines, l =>
@@ -123,7 +125,6 @@ namespace Parsek.Tests
                 parent,
                 branchRp.ChildSlots[slotListIndex],
                 branchRp,
-                considerSealed: true,
                 out string reason));
             Assert.Equal("crashed", reason);
             Assert.Contains(logLines, l =>
@@ -167,7 +168,6 @@ namespace Parsek.Tests
                 probe,
                 rp.ChildSlots[probeSlot],
                 rp,
-                considerSealed: false,
                 out string baselineReason));
             Assert.Equal("stableLeafUnconcluded", baselineReason);
 
@@ -180,7 +180,6 @@ namespace Parsek.Tests
                 probe,
                 rp.ChildSlots[probeSlot],
                 rp,
-                considerSealed: false,
                 out string overrideReason,
                 treeContext: null,
                 allowNotCommitted: false,
@@ -226,7 +225,6 @@ namespace Parsek.Tests
                 focus,
                 rp.ChildSlots[focusSlot],
                 rp,
-                considerSealed: false,
                 out string staticReason,
                 treeContext: null,
                 allowNotCommitted: false,
@@ -266,7 +264,6 @@ namespace Parsek.Tests
                 probe,
                 rp.ChildSlots[probeSlot],
                 rp,
-                considerSealed: false,
                 out string overrideReason,
                 treeContext: null,
                 allowNotCommitted: false,
@@ -311,7 +308,6 @@ namespace Parsek.Tests
                 focus,
                 rp.ChildSlots[focusSlot],
                 rp,
-                considerSealed: false,
                 out string naturalReason));
             Assert.Equal("stableLeafUnconcluded", naturalReason);
 
@@ -322,7 +318,6 @@ namespace Parsek.Tests
                 focus,
                 rp.ChildSlots[focusSlot],
                 rp,
-                considerSealed: false,
                 out string overrideReason,
                 treeContext: null,
                 allowNotCommitted: false,
@@ -372,9 +367,9 @@ namespace Parsek.Tests
             // chosen slot. Pinned so a regression here would be caught
             // before RewindPointReaperTests' more elaborate fixture trips.
             Assert.True(UnfinishedFlightClassifier.Qualifies(
-                head, rp.ChildSlots[0], rp, considerSealed: true));
+                head, rp.ChildSlots[0], rp));
             Assert.True(UnfinishedFlightClassifier.Qualifies(
-                tip, rp.ChildSlots[0], rp, considerSealed: true));
+                tip, rp.ChildSlots[0], rp));
 
             // Consumer-facing predicate suppresses the chain continuation:
             // both members resolve to slot 0, slot.Origin is "rec_head" so
@@ -692,6 +687,46 @@ namespace Parsek.Tests
 
             Assert.Same(latestRp, resolvedRp);
             Assert.Equal(1, slotListIndex);
+        }
+
+        [Fact]
+        public void OpenClosedFilter_ImmutableTip_HidesShapeQualifyingSlotFromUf()
+        {
+            // The terminal shape qualifies (crashed), but the slot's effective
+            // tip is Immutable (sealed / concluded), so it is NOT an open
+            // Unfinished Flight. Open/closed is read solely from the tip
+            // MergeState (collapse-seal-into-mergestate plan §7.7).
+            const string treeId = "tree_open_closed";
+            const string bpId = "bp_open_closed";
+            var crashed = Rec(
+                "rec_crashed",
+                MergeState.Immutable,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            InstallTree(treeId, crashed);
+            var rp = RpWithFocus("rp_open_closed", bpId, 0, "rec_other", "rec_crashed");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            // Shape predicate still qualifies the crashed slot.
+            Assert.True(UnfinishedFlightClassifier.TryQualify(
+                crashed, rp.ChildSlots[1], rp, out string shapeReason));
+            Assert.Equal("crashed", shapeReason);
+
+            // Slot tip is Immutable -> closed -> not open.
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+
+            // Consumer-facing open read returns false; the row drops from UF.
+            Assert.False(EffectiveState.IsUnfinishedFlight(crashed));
+            Assert.Empty(UnfinishedFlightsGroup.ComputeMembers());
+
+            // Flip the tip to CommittedProvisional -> open -> surfaces.
+            crashed.MergeState = MergeState.CommittedProvisional;
+            EffectiveState.ResetCachesForTesting();
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+            Assert.True(EffectiveState.IsUnfinishedFlight(crashed));
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+            Assert.Single(members);
+            Assert.Equal("rec_crashed", members[0].RecordingId);
         }
 
         private static Recording Rec(

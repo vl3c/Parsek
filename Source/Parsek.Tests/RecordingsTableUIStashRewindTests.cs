@@ -102,8 +102,13 @@ namespace Parsek.Tests
         [Fact]
         public void SeparateColumns_UnfinishedFlightRow_ShowsFlySealOnly()
         {
+            // An OPEN crashed Unfinished Flight: its effective tip is
+            // CommittedProvisional (open) after promotion, so IsUnfinishedFlight
+            // is true (collapse-seal-into-mergestate).
             var rec = StableLeaf("rec_crashed", "bp_1", rewindSave: "parsek_rw_crashed",
-                terminal: TerminalState.Destroyed);
+                terminal: TerminalState.Destroyed,
+                mergeState: MergeState.CommittedProvisional);
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_crashed");
             InstallScenario(Rp("rp_1", "bp_1", focusSlot: 0, Slot(0, rec.RecordingId)));
 
             Assert.True(EffectiveState.IsUnfinishedFlight(rec));
@@ -119,13 +124,14 @@ namespace Parsek.Tests
             string id,
             string parentBranchPointId,
             string rewindSave = null,
-            TerminalState terminal = TerminalState.Landed)
+            TerminalState terminal = TerminalState.Landed,
+            MergeState mergeState = MergeState.Immutable)
         {
             var rec = new Recording
             {
                 RecordingId = id,
                 VesselName = id,
-                MergeState = MergeState.Immutable,
+                MergeState = mergeState,
                 ParentBranchPointId = parentBranchPointId,
                 TerminalStateValue = terminal,
                 RewindSaveFileName = rewindSave,

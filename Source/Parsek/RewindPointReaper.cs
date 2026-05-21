@@ -11,12 +11,14 @@ namespace Parsek
     ///
     /// <para>
     /// A <see cref="RewindPoint"/> becomes reap-eligible when every child
-    /// slot's effective recording is closed: <see cref="MergeState.Immutable"/>
-    /// unless the slot is unsealed, stashed, and still qualifies as an
-    /// Unfinished Flight, or a sealed
-    /// <see cref="MergeState.CommittedProvisional"/>. At that point no slot
-    /// can be re-flown any more, so the on-disk quicksave and the scenario
-    /// entry are dead weight. Session-provisional RPs
+    /// slot's effective chain+supersede tip recording is closed
+    /// (<see cref="MergeState.Immutable"/> = sealed / concluded). A slot whose
+    /// tip is <see cref="MergeState.NotCommitted"/> or
+    /// <see cref="MergeState.CommittedProvisional"/> is still open and keeps
+    /// the RP alive. Open/closed is read solely from the tip MergeState (the
+    /// single source of truth after collapse-seal-into-mergestate). At that
+    /// point no slot can be re-flown any more, so the on-disk quicksave and the
+    /// scenario entry are dead weight. Session-provisional RPs
     /// (<see cref="RewindPoint.SessionProvisional"/> still true) are
     /// always retained; Phase 10's <see cref="MergeJournalOrchestrator.TagRpsForReap"/>
     /// flips that flag at merge time so the first post-merge reap pass can
@@ -95,7 +97,6 @@ namespace Parsek
                 scenario.RecordingSupersedes
                 ?? (IReadOnlyList<RecordingSupersedeRelation>)new List<RecordingSupersedeRelation>();
             string markerRewindPointId = scenario.ActiveReFlySessionMarker?.RewindPointId;
-            int sealedSlotsContributingTotal = 0;
 
             // Snapshot of eligible RPs + matching indices so we don't mutate
             // while iterating.
@@ -113,10 +114,8 @@ namespace Parsek
                         $"while re-fly session {scenario.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"} is active");
                     continue;
                 }
-                int sealedSlotsContributing;
-                if (!IsReapEligible(rp, supersedes, out sealedSlotsContributing))
+                if (!IsReapEligible(rp, supersedes))
                     continue;
-                sealedSlotsContributingTotal += sealedSlotsContributing;
                 toReap.Add(rp);
                 toReapIndices.Add(i);
             }
@@ -124,8 +123,7 @@ namespace Parsek
             if (toReap.Count == 0)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
-                    $"sealedSlotsContributing=0");
+                    $"ReapOrphanedRPs: reaped=0 remaining={rps.Count.ToString(CultureInfo.InvariantCulture)}");
                 return 0;
             }
 
@@ -164,8 +162,7 @@ namespace Parsek
                 $"remaining={rps.Count.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteOk={fileDeleteOk.ToString(CultureInfo.InvariantCulture)} " +
                 $"fileDeleteFail={fileDeleteFail.ToString(CultureInfo.InvariantCulture)} " +
-                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)} " +
-                $"sealedSlotsContributing={sealedSlotsContributingTotal.ToString(CultureInfo.InvariantCulture)}");
+                $"bpBackrefCleared={bpBackrefCleared.ToString(CultureInfo.InvariantCulture)}");
 
             return toReap.Count;
         }
@@ -174,27 +171,19 @@ namespace Parsek
         /// A <see cref="RewindPoint"/> is reap-eligible when <b>all</b> of:
         /// <list type="bullet">
         ///   <item><description><see cref="RewindPoint.SessionProvisional"/> is false (the owning session has merged).</description></item>
-        ///   <item><description>Every <see cref="ChildSlot"/>'s effective recording resolves to a closed <see cref="Recording"/>: <see cref="MergeState.Immutable"/> unless the slot is unsealed and still qualifies as an Unfinished Flight (the canonical UI-visibility predicate, which covers manual stashed-keep-open AND auto-UF outcomes: crashed terminal, stranded EVA, non-focused stable leaf), or sealed <see cref="MergeState.CommittedProvisional"/>.</description></item>
+        ///   <item><description>Every <see cref="ChildSlot"/> is CLOSED: its effective chain+supersede tip recording resolves to <see cref="MergeState.Immutable"/>. A slot is OPEN (blocks reap) when its tip is <see cref="MergeState.NotCommitted"/> (recorder still running) or <see cref="MergeState.CommittedProvisional"/> (re-flyable Unfinished Flight or stashed stable leaf).</description></item>
         /// </list>
-        /// A slot whose OriginChildRecordingId is null/blank is treated as
-        /// terminal-Immutable (there is no recording that could still be
-        /// re-flown). An RP with no slots at all is eligible (the feature
-        /// doesn't create empty RPs, but defensive: an empty slot list has
-        /// no open rewind arrows).
+        /// Open/closed is read solely from the tip MergeState — the single
+        /// source of truth after the <c>slot.Sealed</c> bit was collapsed into
+        /// MergeState (collapse-seal-into-mergestate plan). A slot whose
+        /// OriginChildRecordingId is null/blank, or whose effective tip cannot
+        /// be resolved to a committed recording (orphan), is treated as closed
+        /// (there is no recording that could still be re-flown). An RP with no
+        /// slots at all is eligible.
         /// </summary>
         internal static bool IsReapEligible(
             RewindPoint rp, IReadOnlyList<RecordingSupersedeRelation> supersedes)
         {
-            int sealedSlotsContributing;
-            return IsReapEligible(rp, supersedes, out sealedSlotsContributing);
-        }
-
-        private static bool IsReapEligible(
-            RewindPoint rp,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes,
-            out int sealedSlotsContributing)
-        {
-            sealedSlotsContributing = 0;
             if (rp == null) return false;
             if (rp.SessionProvisional) return false;
 
@@ -206,8 +195,8 @@ namespace Parsek
                 var slot = slots[s];
                 if (slot == null) continue;
 
-                // Null / empty origin -> treat as eligible (no live slot to
-                // re-fly). Same policy as EffectiveRecordingId.
+                // Null / empty origin -> closed (no live slot to re-fly).
+                // Same policy as EffectiveRecordingId.
                 string effectiveId = slot.EffectiveRecordingId(supersedes);
                 if (string.IsNullOrEmpty(effectiveId))
                     continue;
@@ -217,52 +206,16 @@ namespace Parsek
                 {
                     // Orphan recording id (tree was discarded mid-session,
                     // or the save dropped the recording). No re-fly target
-                    // survives — treat as eligible.
+                    // survives -> closed.
                     continue;
                 }
 
-                if (rec.MergeState == MergeState.NotCommitted)
+                // Open iff the effective tip is NotCommitted (recorder still
+                // running) or CommittedProvisional (re-flyable). Immutable =
+                // sealed / concluded = closed.
+                if (rec.MergeState == MergeState.NotCommitted
+                    || rec.MergeState == MergeState.CommittedProvisional)
                     return false;
-                if (rec.MergeState == MergeState.Immutable)
-                {
-                    // Keep the RP alive for any slot that still qualifies as
-                    // an Unfinished Flight. Covers the manual stashed-keep-
-                    // open exception AND the auto-UF cases (crashed terminal,
-                    // stranded EVA, non-focused stable leaf) where the slot's
-                    // chain HEAD is CommittedProvisional but its chain TIP
-                    // (the recording returned by slot.EffectiveRecordingId)
-                    // was born Immutable and never promoted, because
-                    // ApplyRewindProvisionalMergeStates only promotes
-                    // recordings with a branch-point link or origin-slot
-                    // match. Without this branch, the reaper would treat a
-                    // Destroyed chain-tip slot as closed and drop the RP that
-                    // the UI is still listing as a re-flyable unfinished
-                    // flight. Passing considerSealed:true makes Qualifies
-                    // reject sealed slots with reason=slotSealed, so the
-                    // explicit !slot.Sealed short-circuit is purely a perf
-                    // hint (skip the classifier walk for the closed path);
-                    // removing it would not bypass the seal gate. Perf: one
-                    // Qualifies call per Immutable+unsealed slot; acceptable
-                    // at current RP counts. If reap latency ever shows up,
-                    // EffectiveTipRecordingId has a hot-loop dict overload
-                    // that can memoize chain-tip lookups across slots.
-                    if (!slot.Sealed
-                        && UnfinishedFlightClassifier.Qualifies(rec, slot, rp, considerSealed: true))
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"IsReapEligible: keeping rp={rp.RewindPointId ?? "<no-id>"} " +
-                            $"slot={s} rec={rec.RecordingId ?? "<no-id>"} reason=immutable-qualifies-as-unfinished-flight");
-                        return false;
-                    }
-                    continue;
-                }
-                if (slot.Sealed)
-                {
-                    sealedSlotsContributing++;
-                    continue;
-                }
-
-                return false;
             }
 
             return true;

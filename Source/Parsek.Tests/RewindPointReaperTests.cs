@@ -10,11 +10,14 @@ namespace Parsek.Tests
     /// §10.1): guards <see cref="RewindPointReaper.ReapOrphanedRPs"/>.
     ///
     /// <para>
-    /// Covers the eligibility matrix (session-provisional stay, all-slots-
-    /// Immutable reaped, any-slot-CommittedProvisional retained, any-slot-
-    /// NotCommitted retained), BranchPoint back-ref clearing, quicksave file
-    /// delete (with a test seam), idempotence (second call reaps nothing),
-    /// and the count/log contract.
+    /// Open/closed is read solely from each slot's effective tip MergeState
+    /// (the single source of truth after collapse-seal-into-mergestate):
+    /// Immutable = closed, CommittedProvisional / NotCommitted = open. Covers
+    /// the eligibility matrix (session-provisional stay, all-slots-Immutable
+    /// reaped, any-slot-CommittedProvisional retained, any-slot-NotCommitted
+    /// retained), the seal transition (a kept-alive CP tip flipped to Immutable
+    /// reaps on the next pass), BranchPoint back-ref clearing, quicksave file
+    /// delete (with a test seam), idempotence, and the count/log contract.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
@@ -99,7 +102,6 @@ namespace Parsek.Tests
         private static ChildSlot Slot(
             int index,
             string originRecordingId,
-            bool sealedSlot = false,
             bool stashedSlot = false)
         {
             return new ChildSlot
@@ -107,8 +109,6 @@ namespace Parsek.Tests
                 SlotIndex = index,
                 OriginChildRecordingId = originRecordingId,
                 Controllable = true,
-                Sealed = sealedSlot,
-                SealedRealTime = sealedSlot ? "2026-04-28T12:00:00.0000000Z" : null,
                 Stashed = stashedSlot,
                 StashedRealTime = stashedSlot ? "2026-04-29T12:00:00.0000000Z" : null,
             };
@@ -213,15 +213,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_StashedImmutableSlot_RetainedUntilSealed()
+        public void Reap_StashedOpenSlot_RetainedUntilSealed()
         {
+            // A stashed stable leaf is OPEN: stash demoted its tip to
+            // CommittedProvisional. The RP stays alive until the tip is sealed
+            // back to Immutable.
             var bp = Bp("bp_1", "rp_1");
+            var stashedTip = Rec("rec_b", MergeState.CommittedProvisional,
+                TerminalState.Landed, parentBranchPointId: "bp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_a", MergeState.Immutable),
-                    Rec("rec_b", MergeState.Immutable, TerminalState.Landed,
-                        parentBranchPointId: "bp_1"),
+                    stashedTip,
                 },
                 new List<BranchPoint> { bp });
             var stashedSlot = Slot(1, "rec_b", stashedSlot: true);
@@ -236,8 +240,8 @@ namespace Parsek.Tests
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
 
-            stashedSlot.Sealed = true;
-            stashedSlot.SealedRealTime = "2026-04-29T12:01:00.0000000Z";
+            // Seal closes the slot by flipping its effective tip to Immutable.
+            stashedTip.MergeState = MergeState.Immutable;
 
             int second = RewindPointReaper.ReapOrphanedRPs();
 
@@ -302,10 +306,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_StashedSlotThatTransitionsToBoardedEva_ClosesOnNextPass()
+        public void Reap_StashedOpenSlot_IgnoresTerminalShape_ClosesOnSeal()
         {
+            // Open/closed is read from the tip MergeState, not the terminal
+            // shape. A stashed-open (CP tip) slot stays open even if its
+            // terminal flips to Boarded; only sealing the tip to Immutable
+            // closes it.
             var bp = Bp("bp_1", "rp_1");
-            var eva = Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+            var eva = Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                 "Jebediah Kerman", parentBranchPointId: "bp_1");
             InstallTree("tree_1",
                 new List<Recording>
@@ -325,8 +333,14 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Empty(deletedRpIds);
 
+            // Terminal shape change alone does NOT close the slot anymore.
             eva.TerminalStateValue = TerminalState.Boarded;
+            int stillOpen = RewindPointReaper.ReapOrphanedRPs();
+            Assert.Equal(0, stillOpen);
+            Assert.Single(scenario.RewindPoints);
 
+            // Sealing the tip to Immutable closes it.
+            eva.MergeState = MergeState.Immutable;
             int second = RewindPointReaper.ReapOrphanedRPs();
 
             Assert.Equal(1, second);
@@ -335,31 +349,34 @@ namespace Parsek.Tests
             Assert.Equal(new[] { "rp_1" }, deletedRpIds);
         }
 
-        // ---------- Auto-UF keep-open (fix-rp-reap-auto-uf) -----------------
+        // ---------- Open keep-alive (collapse-seal-into-mergestate) ----------
         //
-        // An Immutable slot whose chain ends in an automatic Unfinished Flight
-        // outcome (crashed terminal, stranded EVA, non-focused stable leaf)
-        // must keep its RP alive even when the slot has never been manually
-        // stashed. The UI shows these slots as re-flyable; reaping the RP
-        // would silently strip the Re-Fly button.
+        // After collapse-seal-into-mergestate, open/closed is read SOLELY from
+        // the slot's effective tip MergeState. An open Unfinished Flight tip
+        // (crashed terminal, stranded EVA, non-focused stable leaf) is
+        // CommittedProvisional after promotion (ApplyRewindProvisionalMergeStates
+        // demotes its first-commit tip to CP), so the reaper keeps its RP alive
+        // because the tip is CP, not because the classifier re-qualifies it.
+        // These tests pin that CP tips keep the RP and Immutable tips close it.
 
         [Fact]
-        public void Reap_ImmutableCrashedSlot_KeepsRpAlive()
+        public void Reap_OpenCrashedSlot_KeepsRpAlive()
         {
-            // Slot's origin recording ended Destroyed. The slot is unsealed
-            // and not stashed (auto-UF, not manual). Reaper must keep RP.
+            // Slot's effective tip ended Destroyed and was promoted to
+            // CommittedProvisional (open). Reaper keeps the RP because the tip
+            // is CP.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
                         parentBranchPointId: "bp_1"),
-                    Rec("rec_destroyed", MergeState.Immutable, TerminalState.Destroyed,
+                    Rec("rec_destroyed", MergeState.CommittedProvisional, TerminalState.Destroyed,
                         parentBranchPointId: "bp_1"),
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true),
+                Slot(0, "rec_a"),
                 Slot(1, "rec_destroyed"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
@@ -369,29 +386,21 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]")
-                && l.Contains("immutable-qualifies-as-unfinished-flight")
-                && l.Contains("rec=rec_destroyed"));
         }
 
         [Fact]
-        public void Reap_ImmutableDestroyedChainTipSlot_KeepsRpAlive()
+        public void Reap_OpenDestroyedChainTipSlot_KeepsRpAlive()
         {
-            // Regression for the kerbalx-probe-stash-refly playtest:
-            //   chain HEAD = CommittedProvisional (promoted by
-            //   ApplyRewindProvisionalMergeStates because it had a parentBp
-            //   link), chain TIP = Immutable (born default and never promoted,
-            //   because it has no branch link and is no slot's origin).
-            // The slot's OriginChildRecordingId = "rec_head" (chainIndex=0).
-            // slot.EffectiveRecordingId calls EffectiveState.EffectiveTipRecordingId,
-            // which hops via ResolveChainTerminalRecording: same ChainId,
-            // same ChainBranch (both default 0), higher ChainIndex wins, so
-            // rec_head (0) -> rec_tip (1). The reaper looks up rec_tip
-            // (Immutable + Destroyed) and pre-fix would drop the RP.
-            // Post-fix it routes through Qualifies, which walks the chain
-            // again from rec_tip (tip-of-self), sees terminal=Destroyed,
-            // and returns true (reason=crashed) -> RP retained.
+            // Regression for the kerbalx-probe-stash-refly playtest, re-modeled
+            // for collapse-seal-into-mergestate: the slot's effective walker
+            // resolves the chain TIP, and open/closed is read from that tip's
+            // MergeState. The slot's OriginChildRecordingId = "rec_head"
+            // (chainIndex=0). slot.EffectiveRecordingId hops via
+            // ResolveChainTerminalRecording: same ChainId, higher ChainIndex
+            // wins, so rec_head (0) -> rec_tip (1). Promotion demotes the
+            // first-commit tip to CommittedProvisional (the gap the old reaper
+            // workaround compensated for), so the reaper reads rec_tip = CP =
+            // open and keeps the RP alive.
             var bp = Bp("bp_1", "rp_1");
             var chainHead = new Recording
             {
@@ -408,7 +417,7 @@ namespace Parsek.Tests
                 RecordingId = "rec_tip",
                 VesselName = "Probe",
                 TreeId = "tree_1",
-                MergeState = MergeState.Immutable,
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ChainId = "chain_1",
                 ChainIndex = 1,
@@ -419,7 +428,7 @@ namespace Parsek.Tests
                 new List<Recording> { siblingA, chainHead, chainTip },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true),
+                Slot(0, "rec_a"),
                 Slot(1, "rec_head"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
@@ -429,36 +438,24 @@ namespace Parsek.Tests
             Assert.Single(scenario.RewindPoints);
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
-            // The keep-alive log must name the chain TIP (the recording the
-            // slot's effective walker landed on), proving the reaper saw the
-            // Immutable tip and still routed through Qualifies rather than
-            // the legacy unconditional `continue`. If the chain hop ever
-            // regresses, this assertion catches it: a broken hop would log
-            // rec=rec_head instead.
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]")
-                && l.Contains("immutable-qualifies-as-unfinished-flight")
-                && l.Contains("rec=rec_tip"));
+
+            // Sealing the chain tip to Immutable closes the slot.
+            chainTip.MergeState = MergeState.Immutable;
+            int afterSeal = RewindPointReaper.ReapOrphanedRPs();
+            Assert.Equal(1, afterSeal);
+            Assert.Empty(scenario.RewindPoints);
         }
 
         [Fact]
-        public void Reap_ImmutableDestroyedChainTipWithDownstreamRp_Reaped()
+        public void Reap_ImmutableChainTipSharedByTwoRps_BothReaped()
         {
-            // The classifier's `downstreamBp` reject branch: a chain-tip
-            // recording whose ChildBranchPointId points at a downstream BP
-            // that has its own real RewindPoint. The destroyed terminal is
-            // no longer "open" from the upstream RP's perspective because
-            // the player can re-fly from the downstream RP instead, so the
-            // UPSTREAM rp_1 must be reapable even though the slot's
-            // effective recording is Immutable + Destroyed. The DOWNSTREAM
-            // rp_2 still owns its own re-fly slot and must NOT reap.
-            //
-            // The downstreamBp check fires only when the downstream RP's
-            // slot resolves to the chain tip via ResolveRewindPointSlotIndex
-            // ForRecording. The simplest synthetic representation is
-            // slot.OriginChildRecordingId = rec_tip (mechanism #1: direct
-            // origin-id equality); a real re-fly chain would resolve via
-            // the supersede walker, but the predicate is the same.
+            // After collapse-seal-into-mergestate the reaper no longer consults
+            // the classifier's `downstreamBp` branch: open/closed is read
+            // purely from the slot's effective tip MergeState. Two RPs whose
+            // slots both resolve to the same Immutable chain tip are both
+            // closed and both reaped (a concluded chain tip closes every RP
+            // that depends on it). A genuinely re-flyable downstream slot would
+            // carry a CommittedProvisional tip, which keeps both RPs alive.
             var bpUpstream = Bp("bp_1", "rp_1");
             var bpDownstream = Bp("bp_2", "rp_2");
             var chainHead = new Recording
@@ -485,13 +482,10 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording> { chainHead, chainTip },
                 new List<BranchPoint> { bpUpstream, bpDownstream });
-            // Upstream slot: origin walks chain rec_head -> rec_tip.
+            // Upstream slot: origin walks chain rec_head -> rec_tip (Immutable).
             var rpUpstream = Rp("rp_1", "bp_1", sessionProvisional: false,
                 Slot(0, "rec_head"));
-            // Downstream slot: origin resolves directly to rec_tip, so
-            // HasResolvedRewindPointForBranch finds a real downstream rewind
-            // route and Qualifies on rp_1's slot returns false with
-            // reason=downstreamBp.
+            // Downstream slot: origin resolves directly to rec_tip (Immutable).
             var rpDownstream = Rp("rp_2", "bp_2", sessionProvisional: false,
                 Slot(0, "rec_tip"));
             var scenario = InstallScenario(
@@ -499,37 +493,33 @@ namespace Parsek.Tests
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();
 
-            // rp_1 reaped (upstream RP no longer needed). rp_2 stays (the
-            // chain-tip's ChildBranchPointId matches rp_2.BranchPointId, so
-            // rp_2's own slot evaluates as `crashed` and keeps its RP
-            // alive for the downstream re-fly path).
-            Assert.Equal(1, reaped);
-            Assert.Single(scenario.RewindPoints);
-            Assert.Equal("rp_2", scenario.RewindPoints[0].RewindPointId);
+            Assert.Equal(2, reaped);
+            Assert.Empty(scenario.RewindPoints);
             Assert.Null(bpUpstream.RewindPointId);
-            Assert.Equal("rp_2", bpDownstream.RewindPointId);
-            Assert.Equal(new[] { "rp_1" }, deletedRpIds);
+            Assert.Null(bpDownstream.RewindPointId);
+            Assert.Contains("rp_1", deletedRpIds);
+            Assert.Contains("rp_2", deletedRpIds);
         }
 
         [Fact]
-        public void Reap_ImmutableStrandedEvaSlot_KeepsRpAlive()
+        public void Reap_OpenStrandedEvaSlot_KeepsRpAlive()
         {
-            // EVA crew Landed (not Boarded) qualifies as `strandedEva` per the
-            // classifier. Without manual stash, an Immutable slot in this
-            // state must still keep the RP alive.
+            // A stranded-EVA tip promoted to CommittedProvisional is open. The
+            // companion focus slot's tip is Immutable (concluded), so only the
+            // open EVA slot keeps the RP alive.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
                         parentBranchPointId: "bp_1"),
-                    Rec("rec_eva", MergeState.Immutable, TerminalState.Landed,
+                    Rec("rec_eva", MergeState.CommittedProvisional, TerminalState.Landed,
                         evaCrewName: "Jebediah Kerman",
                         parentBranchPointId: "bp_1"),
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true),
+                Slot(0, "rec_a"),
                 Slot(1, "rec_eva"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
@@ -542,24 +532,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_ImmutableNonFocusStableLeafSlot_KeepsRpAlive()
+        public void Reap_OpenNonFocusStableLeafSlot_KeepsRpAlive()
         {
-            // Non-focused stable leaf (Orbiting at a slot that isn't
-            // rp.FocusSlotIndex) qualifies as `stableLeafUnconcluded`. The
-            // focus slot must close on its own terminal path; the non-focus
-            // slot stays open until the player Seals it.
+            // A non-focused stable leaf promoted to CommittedProvisional is
+            // open. The focus slot's tip is Immutable (concluded on its own
+            // terminal path); the non-focus CP slot keeps the RP alive until
+            // the player Seals it.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_focus", MergeState.Immutable, TerminalState.Landed,
                         parentBranchPointId: "bp_1"),
-                    Rec("rec_other", MergeState.Immutable, TerminalState.Orbiting,
+                    Rec("rec_other", MergeState.CommittedProvisional, TerminalState.Orbiting,
                         parentBranchPointId: "bp_1"),
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_focus", sealedSlot: true),
+                Slot(0, "rec_focus"),
                 Slot(1, "rec_other"));
             rp.FocusSlotIndex = 0;
             var scenario = InstallScenario(new List<RewindPoint> { rp });
@@ -573,24 +563,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_ImmutableCrashedSlot_SealedClosesIt()
+        public void Reap_OpenCrashedSlot_SealedClosesIt()
         {
-            // Auto-UF keep-open is conditional on !slot.Sealed. Once the
-            // player explicitly seals a crashed slot, it counts as closed
-            // and the RP reaps on the next pass.
+            // An open crashed slot (CP tip) keeps the RP alive. Sealing flips
+            // its tip to Immutable, and the RP reaps on the next pass.
             var bp = Bp("bp_1", "rp_1");
+            var crashedTip = Rec("rec_destroyed", MergeState.CommittedProvisional,
+                TerminalState.Destroyed, parentBranchPointId: "bp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_a", MergeState.Immutable, TerminalState.Landed,
                         parentBranchPointId: "bp_1"),
-                    Rec("rec_destroyed", MergeState.Immutable, TerminalState.Destroyed,
-                        parentBranchPointId: "bp_1"),
+                    crashedTip,
                 },
                 new List<BranchPoint> { bp });
             var crashedSlot = Slot(1, "rec_destroyed");
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true),
+                Slot(0, "rec_a"),
                 crashedSlot);
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
@@ -598,8 +588,7 @@ namespace Parsek.Tests
             Assert.Equal(0, first);
             Assert.Single(scenario.RewindPoints);
 
-            crashedSlot.Sealed = true;
-            crashedSlot.SealedRealTime = "2026-05-17T18:00:00.0000000Z";
+            crashedTip.MergeState = MergeState.Immutable;
 
             int second = RewindPointReaper.ReapOrphanedRPs();
             Assert.Equal(1, second);
@@ -655,18 +644,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_CommittedProvisionalSealedSlot_CountsAsClosed()
+        public void Reap_AllSlotTipsImmutable_Reaped()
         {
+            // A slot whose effective tip is Immutable is closed; with every
+            // slot's tip Immutable the RP reaps.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>
                 {
-                    Rec("rec_a", MergeState.CommittedProvisional),
+                    Rec("rec_a", MergeState.Immutable),
                     Rec("rec_b", MergeState.Immutable),
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+                Slot(0, "rec_a"), Slot(1, "rec_b"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();
@@ -674,15 +665,13 @@ namespace Parsek.Tests
             Assert.Equal(1, reaped);
             Assert.Empty(scenario.RewindPoints);
             Assert.Null(bp.RewindPointId);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]")
-                && l.Contains("ReapOrphanedRPs:")
-                && l.Contains("sealedSlotsContributing=1"));
         }
 
         [Fact]
-        public void Reap_NotCommittedSealedSlot_StillRetained()
+        public void Reap_AnySlotNotCommittedTip_StillRetained()
         {
+            // A NotCommitted tip is open (recorder still running) and keeps the
+            // RP alive even when every other slot's tip is Immutable.
             var bp = Bp("bp_1", "rp_1");
             InstallTree("tree_1",
                 new List<Recording>
@@ -692,7 +681,7 @@ namespace Parsek.Tests
                 },
                 new List<BranchPoint> { bp });
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
-                Slot(0, "rec_a", sealedSlot: true), Slot(1, "rec_b"));
+                Slot(0, "rec_a"), Slot(1, "rec_b"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int reaped = RewindPointReaper.ReapOrphanedRPs();
@@ -704,22 +693,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Reap_MixedClosedAndOpenSlots_ReapsAfterLastUnsealedSlotIsSealed()
+        public void Reap_MixedClosedAndOpenSlots_ReapsAfterLastOpenTipSealed()
         {
+            // Open/closed is read from each slot's tip MergeState. The RP stays
+            // alive while any tip is CommittedProvisional, and reaps once the
+            // last open tip is sealed to Immutable.
             var bp = Bp("bp_1", "rp_1");
+            var openTip = Rec("rec_open", MergeState.CommittedProvisional);
             InstallTree("tree_1",
                 new List<Recording>
                 {
                     Rec("rec_immutable", MergeState.Immutable),
-                    Rec("rec_open", MergeState.CommittedProvisional),
-                    Rec("rec_sealed", MergeState.CommittedProvisional),
+                    openTip,
+                    Rec("rec_sealed", MergeState.Immutable),
                 },
                 new List<BranchPoint> { bp });
             var openSlot = Slot(1, "rec_open");
             var rp = Rp("rp_1", "bp_1", sessionProvisional: false,
                 Slot(0, "rec_immutable"),
                 openSlot,
-                Slot(2, "rec_sealed", sealedSlot: true));
+                Slot(2, "rec_sealed"));
             var scenario = InstallScenario(new List<RewindPoint> { rp });
 
             int first = RewindPointReaper.ReapOrphanedRPs();
@@ -729,8 +722,7 @@ namespace Parsek.Tests
             Assert.Equal("rp_1", bp.RewindPointId);
             Assert.Empty(deletedRpIds);
 
-            openSlot.Sealed = true;
-            openSlot.SealedRealTime = "2026-04-28T12:01:00.0000000Z";
+            openTip.MergeState = MergeState.Immutable;
 
             int second = RewindPointReaper.ReapOrphanedRPs();
 
@@ -738,10 +730,6 @@ namespace Parsek.Tests
             Assert.Empty(scenario.RewindPoints);
             Assert.Null(bp.RewindPointId);
             Assert.Equal(new[] { "rp_1" }, deletedRpIds);
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]")
-                && l.Contains("ReapOrphanedRPs:")
-                && l.Contains("sealedSlotsContributing=2"));
         }
 
         // ---------- File delete -------------------------------------------

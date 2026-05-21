@@ -304,6 +304,39 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Raw committed lookup by id, exposed so the open/closed read in
+        /// <see cref="UnfinishedFlightClassifier.IsSlotEffectiveTipOpen"/> can
+        /// inspect a slot's effective tip MergeState (CommittedProvisional =
+        /// open, Immutable = closed) without the classifier itself touching
+        /// <c>RecordingStore.CommittedRecordings</c> (which the ERS/ELS grep
+        /// gate would flag). The open/closed signal must see NotCommitted /
+        /// CommittedProvisional states that ERS would filter out. Scans the flat
+        /// committed list first, then falls back to the committed trees so a
+        /// chain-tip recording that lives in a committed tree (the same source
+        /// <see cref="ResolveChainTerminalRecording"/> walks) resolves even when
+        /// it has not been mirrored into the flat list.
+        /// </summary>
+        internal static Recording FindCommittedRecordingByIdRaw(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var direct = FindRecordingById(recordingId);
+            if (direct != null) return direct;
+
+            var trees = RecordingStore.CommittedTrees;
+            if (trees != null)
+            {
+                for (int t = 0; t < trees.Count; t++)
+                {
+                    var tree = trees[t];
+                    if (tree?.Recordings == null) continue;
+                    if (tree.Recordings.TryGetValue(recordingId, out var rec) && rec != null)
+                        return rec;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Pass 5 review M2: dict-aware lookup. Returns
         /// <paramref name="recById"/>[<paramref name="recordingId"/>] when
         /// the index is present, falling back to
@@ -821,9 +854,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True iff <paramref name="rec"/> is an Unfinished Flight: committed
-        /// visible, mapped to a RewindPoint child slot, not sealed, and with a
-        /// qualifying terminal outcome per <see cref="UnfinishedFlightClassifier"/>.
+        /// True iff <paramref name="rec"/> is an OPEN Unfinished Flight:
+        /// committed visible, mapped to a RewindPoint child slot, with a
+        /// qualifying terminal shape per <see cref="UnfinishedFlightClassifier"/>,
+        /// AND the slot's effective tip MergeState is CommittedProvisional
+        /// (open). A sealed / concluded tip (Immutable) is closed and returns
+        /// false.
         /// </summary>
         public static bool IsUnfinishedFlight(Recording rec)
         {
@@ -1009,14 +1045,34 @@ namespace Parsek
             var slot = rp.ChildSlots[slotListIndex];
             string qualifyReason;
             bool qualifies = UnfinishedFlightClassifier.TryQualify(
-                rec, slot, rp, true, out qualifyReason);
+                rec, slot, rp, out qualifyReason);
             if (!qualifies)
             {
                 rp = null;
                 slotListIndex = -1;
+                return false;
             }
 
-            return qualifies;
+            // Open/closed filter: a slot is an OPEN unfinished flight only when
+            // its effective chain+supersede tip is CommittedProvisional. A
+            // sealed / concluded tip (Immutable) is closed and must not surface
+            // as a UF row, even though its terminal shape still qualifies. This
+            // filter runs BEFORE the anchor-dedupe admit-on-unresolved fallback
+            // in TryResolveUnfinishedFlight so an Immutable peer cannot slip
+            // through the malformed-slot path (collapse-seal-into-mergestate
+            // plan §7.7).
+            if (!UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot, rec))
+            {
+                ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                    $"sealedTipClosed-{recId}",
+                    $"IsUnfinishedFlight=false rec={recId} reason=sealedTipClosed " +
+                    $"rp={rp.RewindPointId ?? "<no-rp>"} slot={slotListIndex}");
+                rp = null;
+                slotListIndex = -1;
+                return false;
+            }
+
+            return true;
         }
 
         /// <summary>

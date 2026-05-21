@@ -1617,11 +1617,11 @@ Based on the answers, the fix shape is one of: back-step only `part.transform.po
 
 ---
 
-## TODO - STASH auto-seal persisted reason metadata
+## ~~TODO - STASH auto-seal persisted reason metadata~~ (OBSOLETE)
 
-**Status:** TODO - deferred schema follow-up from PR #696 review.
+**Status:** OBSOLETE - superseded by collapse-seal-into-mergestate.
 
-`ChildSlot.Sealed` / `SealedRealTime` intentionally stay schema-minimal in the STASH safety PR, and the runtime INFO log distinguishes player Seal from system auto-seal with `reason=<closeReason>`. The persisted slot does not yet retain `SealedBy` / `SealedReason`, so a future Timeline or Recordings-table explanation UI would need to reconstruct the reason from logs. Add explicit persisted metadata before building any in-game "why was this sealed?" affordance.
+`ChildSlot.Sealed` / `SealedRealTime` no longer exist: Seal was collapsed into `MergeState` (open = `CommittedProvisional`, sealed = `Immutable`). There is no slot bit to hang `SealedBy` / `SealedReason` on. A future "why was this sealed?" affordance would attach reason metadata to the recording / supersede relation instead. The runtime INFO log still distinguishes player Seal from auto-seal (`reason=<closeReason>` / `mergeState=<old>-><new>`).
 
 ---
 

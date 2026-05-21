@@ -580,7 +580,8 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_tip_uf",
                 VesselName = "ChainTip",
-                MergeState = MergeState.Immutable,
+                // Open crashed chain tip -> CommittedProvisional after promotion.
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = null,
                 TreeId = "tree_uf",
@@ -705,12 +706,13 @@ namespace Parsek.Tests
                 RewindSaveFileName = "parsek_rw_launch"
             };
             head.Points.Add(new TrajectoryPoint { ut = 10.0 });
-            // TIP = destroyed continuation under the staging BP.
+            // TIP = destroyed continuation under the staging BP. Open crashed
+            // Unfinished Flight -> CommittedProvisional after promotion.
             var tip = new Recording
             {
                 RecordingId = "rec_tip",
                 VesselName = "Kerbal X (continued)",
-                MergeState = MergeState.Immutable,
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = "bp_stage",
                 TreeId = "tree_chain",

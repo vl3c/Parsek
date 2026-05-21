@@ -331,13 +331,31 @@ namespace Parsek
                     continue;
                 }
 
+                // The RP quicksave is gone, so no slot can ever be re-flown
+                // again -> every slot is concluded. Close each slot by setting
+                // its effective chain+supersede tip recording to Immutable
+                // (open/closed is read from the tip MergeState, the single
+                // source of truth after collapse-seal-into-mergestate). Tips are
+                // disjoint across slots, so this cannot cross-close a sibling.
                 if (rp.ChildSlots != null)
                 {
+                    IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                        scenario.RecordingSupersedes
+                        ?? (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
                     for (int s = 0; s < rp.ChildSlots.Count; s++)
                     {
                         var slot = rp.ChildSlots[s];
                         if (slot == null) continue;
-                        slot.Sealed = true;
+                        string tipId = slot.EffectiveRecordingId(supersedes);
+                        Recording tip = FindCommittedRecordingById(tipId);
+                        if (tip != null && tip.MergeState != MergeState.Immutable)
+                        {
+                            tip.MergeState = MergeState.Immutable;
+                            tip.FilesDirty = true;
+                            ParsekLog.Verbose(SweepTag,
+                                $"Missing rewind-point quicksave concluded slot={s} " +
+                                $"rp={rp.RewindPointId} tip={tipId} -> Immutable");
+                        }
                     }
                 }
 
@@ -379,6 +397,26 @@ namespace Parsek
             }
 
             return cleaned;
+        }
+
+        // [ERS-exempt] The missing-quicksave sweep concludes orphaned slots by
+        // flipping their effective tip MergeState to Immutable; the tip may
+        // still be NotCommitted / CommittedProvisional, which ERS would filter
+        // out. The raw committed-list read is part of the load-time-sweep
+        // exemption documented in the ERS/ELS allowlist.
+        private static Recording FindCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return null;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                var rec = committed[i];
+                if (rec == null) continue;
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    return rec;
+            }
+            return null;
         }
 
         private sealed class MissingRewindPointQuicksave

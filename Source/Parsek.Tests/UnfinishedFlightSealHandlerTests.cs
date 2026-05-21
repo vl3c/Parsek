@@ -81,7 +81,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TrySeal_SetsSlotSealTimestamp_DoesNotChangeMergeState_Logs()
+        public void TrySeal_FlipsSlotTipToImmutable_BumpsStateVersion_Logs()
         {
             var rec = Rec("rec_probe");
             RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
@@ -112,15 +112,55 @@ namespace Parsek.Tests
 
             Assert.True(ok);
             Assert.Null(reason);
-            Assert.True(rp.ChildSlots[1].Sealed);
-            Assert.Equal("2026-04-28T12:34:56.0000000Z", rp.ChildSlots[1].SealedRealTime);
-            Assert.Equal(MergeState.CommittedProvisional, rec.MergeState);
+            // Seal flips the slot's effective tip (rec_probe) to Immutable.
+            Assert.Equal(MergeState.Immutable, rec.MergeState);
             Assert.NotEqual(versionBefore, scenario.SupersedeStateVersion);
+            // The other slot's tip (rec_focus) is still CommittedProvisional
+            // (open), so the RP is still blocked.
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
                 && l.Contains("Sealed slot=1")
                 && l.Contains("rec=rec_probe")
+                && l.Contains("mergeState=CommittedProvisional->Immutable")
                 && l.Contains("reaperImpact=stillBlocked"));
+        }
+
+        [Fact]
+        public void TrySeal_AlreadyImmutableTip_IsIdempotent()
+        {
+            var rec = Rec("rec_probe", MergeState.Immutable);
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(
+                new Recording
+                {
+                    RecordingId = "rec_focus",
+                    TreeId = "tree_1",
+                    MergeState = MergeState.CommittedProvisional,
+                },
+                "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                SessionProvisional = false,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "rec_focus"),
+                    Slot(1, "rec_probe")
+                }
+            };
+            InstallScenario(rp);
+
+            bool ok = UnfinishedFlightSealHandler.TrySeal(rec, out string reason);
+
+            Assert.True(ok);
+            Assert.Null(reason);
+            Assert.Equal(MergeState.Immutable, rec.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("Sealed slot=1")
+                && l.Contains("mergeState=Immutable->Immutable"));
         }
 
         [Fact]
@@ -154,6 +194,7 @@ namespace Parsek.Tests
 
             Assert.True(ok);
             Assert.Null(reason);
+            Assert.Equal(MergeState.Immutable, rec.MergeState);
             Assert.Empty(scenario.RewindPoints);
             Assert.Contains(logLines, l =>
                 l.Contains("[UnfinishedFlights]")
@@ -192,7 +233,7 @@ namespace Parsek.Tests
 
             UnfinishedFlightSealHandler.SavePersistentForTesting = () =>
             {
-                Assert.True(rp.ChildSlots[1].Sealed);
+                Assert.Equal(MergeState.Immutable, rec.MergeState);
                 Assert.Single(scenario.RewindPoints);
                 saveHookObservedSeal = true;
                 return true;
@@ -200,7 +241,7 @@ namespace Parsek.Tests
             RewindPointReaper.DeleteQuicksaveForTesting = rpId =>
             {
                 Assert.Equal("rp_1", rpId);
-                Assert.True(rp.ChildSlots[1].Sealed);
+                Assert.Equal(MergeState.Immutable, rec.MergeState);
                 Assert.True(saveHookObservedSeal);
                 deleteHookObservedAfterSave = true;
                 return true;
@@ -254,7 +295,7 @@ namespace Parsek.Tests
 
             Assert.True(ok);
             Assert.Null(reason);
-            Assert.True(rp.ChildSlots[1].Sealed);
+            Assert.Equal(MergeState.Immutable, rec.MergeState);
             Assert.False(deleteHookCalled);
             Assert.Single(scenario.RewindPoints);
             Assert.Contains(logLines, l =>

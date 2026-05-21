@@ -124,10 +124,13 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_probe",
                 VesselName = "Kerbal X Probe",
-                MergeState = MergeState.Immutable,
+                // Open crashed Unfinished Flight -> CommittedProvisional tip
+                // after promotion (collapse-seal-into-mergestate).
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = "bp_stage"
             };
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_stage");
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_stage",
@@ -166,6 +169,7 @@ namespace Parsek.Tests
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = "bp_stage"
             };
+            RecordingStore.AddRecordingWithTreeForTesting(probe, "tree_stage");
             var rp = new RewindPoint
             {
                 RewindPointId = "rp_stage",
@@ -279,11 +283,14 @@ namespace Parsek.Tests
         [Fact]
         public void StashedLandedChildResolvesAsUnfinishedFlightAndNoLongerStashable()
         {
+            // A stashed-and-opened stable leaf: stash demoted its tip to
+            // CommittedProvisional (open), so it resolves as an Unfinished
+            // Flight and the monotonic Stashed bit blocks a re-stash.
             var landed = new Recording
             {
                 RecordingId = "rec_landed",
                 VesselName = "Safe Child",
-                MergeState = MergeState.Immutable,
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Landed,
                 ParentBranchPointId = "bp_stage"
             };

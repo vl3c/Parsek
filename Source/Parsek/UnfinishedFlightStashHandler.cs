@@ -6,8 +6,10 @@ namespace Parsek
 {
     /// <summary>
     /// Per-row Stash action for stable Rewind Point leaves the default
-    /// Unfinished Flights predicate excluded. Stash marks the slot only; it
-    /// does not mutate the recording or its MergeState.
+    /// Unfinished Flights predicate excluded. Stash sets the monotonic
+    /// <see cref="ChildSlot.Stashed"/> bit (the re-stash guard) AND opens the
+    /// slot by demoting its effective tip recording from Immutable to
+    /// CommittedProvisional (open/closed is read from the tip MergeState).
     /// </summary>
     internal static class UnfinishedFlightStashHandler
     {
@@ -62,24 +64,55 @@ namespace Parsek
             }
 
             var scenario = ParsekScenario.Instance;
-            if (stashedNow && !object.ReferenceEquals(null, scenario))
-                scenario.BumpSupersedeStateVersion();
-
-            Recording tip = EffectiveState.ResolveChainTerminalRecording(rec);
-            string terminal = tip?.TerminalStateValue.HasValue == true
-                ? tip.TerminalStateValue.Value.ToString()
-                : "<none>";
             IReadOnlyList<RecordingSupersedeRelation> supersedes =
                 !object.ReferenceEquals(null, scenario)
                     ? scenario.RecordingSupersedes
                     : null;
+
+            // Open the slot: demote its effective chain+supersede tip from
+            // Immutable to CommittedProvisional. Open/closed is read from the
+            // tip MergeState (the single source of truth), so a stashed stable
+            // leaf becomes re-flyable by flipping its tip to CP. Guarded to
+            // only demote from Immutable (a stable leaf is born Immutable);
+            // never disturb a NotCommitted or already-CP tip. slot.Stashed
+            // stays set monotonically and blocks any later re-stash, so the
+            // stash -> seal -> re-stash un-seal cannot happen (plan §5).
+            string tipId = slot.EffectiveRecordingId(supersedes);
+            Recording tip = FindCommittedRecordingById(tipId);
+            bool demotedTip = false;
+            if (tip != null && tip.MergeState == MergeState.Immutable)
+            {
+                tip.MergeState = MergeState.CommittedProvisional;
+                tip.FilesDirty = true;
+                demotedTip = true;
+            }
+
+            if ((stashedNow || demotedTip) && !object.ReferenceEquals(null, scenario))
+                scenario.BumpSupersedeStateVersion();
+
+            Recording terminalTip = EffectiveState.ResolveChainTerminalRecording(rec);
+            string terminal = terminalTip?.TerminalStateValue.HasValue == true
+                ? terminalTip.TerminalStateValue.Value.ToString()
+                : "<none>";
+            MergeState tipState = tip != null ? tip.MergeState : MergeState.NotCommitted;
             bool reapEligible = RewindPointReaper.IsReapEligible(rp, supersedes);
 
             ParsekLog.Info("UnfinishedFlights",
                 $"Stashed slot={slotListIndex} rec={rec.RecordingId ?? "<no-id>"} " +
                 $"bp={rp.BranchPointId ?? "<no-bp>"} rp={rp.RewindPointId ?? "<no-rp>"} " +
+                $"tip={tipId ?? "<no-tip>"} tipMergeState={tipState} tipDemoted={demotedTip} " +
                 $"terminal={terminal} reaperBlocked={!reapEligible}");
             return true;
+        }
+
+        private static Recording FindCommittedRecordingById(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return null;
+            // Open/closed is read from the slot's effective tip MergeState;
+            // EffectiveState owns the raw committed-list read (allowlisted for
+            // the ERS/ELS grep gate). The tip may be NotCommitted, which ERS
+            // would filter out, so route through the raw-by-id helper.
+            return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
         private static void LogStashRejected(Recording rec, string reason)
