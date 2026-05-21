@@ -12,6 +12,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Re-Fly merge dialog now offers Merge & Seal on a not-yet-sealable attempt
+
+- Player feedback: a Re-Fly attempt whose outcome does not auto-seal showed only "Commit to Timeline" (slot stays open) + "Discard". Closing the slot meant a separate trip to the Recordings window to click Seal.
+- **Change:** renamed the auto-seal button to "Merge & Seal"; for the not-yet-sealable case the dialog now stacks three buttons: "Commit (don't seal)" (keeps slot open), "Merge & Seal" (commits, then closes the slot), and "Discard". Permanent/auto-seal dialogs stay two buttons; non-Re-Fly merges stay "Merge to Timeline". All "Confirm X" confirmation-dialog titles now carry a colon ("Confirm: Merge to Timeline", "Confirm: Commit to Timeline", "Confirm: Re-Fly", "Confirm: Rewind", "Confirm: Fast-Forward", "Confirm: Wipe Recordings", "Confirm: Wipe Game Actions", "Confirm: Disband Group", "Confirm: Clear Recording", "Confirm: Seal Unfinished Flight"). "Merge & Seal" reuses `UnfinishedFlightSealHandler.TrySeal` (sets `slot.Sealed=true` only; `MergeState` stays `CommittedProvisional`, NOT forced Immutable), threaded via `playerRequestedSeal` through `MergeCommit` → `RunPreTransitionAction` → `TryCommitReFlySupersede` → `ApplyPlayerRequestedSeal` on the survivor-resolved provisional after the merge journal completes. Seal-resolution failure is non-fatal (merge already committed; player told to seal manually).
+- **Tests:** label/body unit tests updated in `ReFlyAutoSealPreviewTests.cs` (rename to "Commit (don't seal)", new "Merge & Seal" label + `BuildReFlyMergeAndSealButtonLabel`, two-option body copy). New in-game test `MergeAndSealReFlyClosesSlotTest` (`InGameTests/`) drives the production seal path: it runs `MergeJournalOrchestrator.RunMerge` then `MergeDialog.ApplyPlayerRequestedSeal` on a not-yet-permanent re-fly and asserts the slot resolves after the journal's RP reap + marker clear, ends up `slot.Sealed==true`, and the recording stays `CommittedProvisional` (not promoted to Immutable). `ApplyPlayerRequestedSeal` was made `internal` for this. Run it in a scratch save (it performs the real merge).
+- **Status:** CLOSED 2026-05-21.
+
+---
+
 ## Done - v0.10.0 Orbital payload did not re-spawn after Rewind-to-Launch (dropped vessel snapshot)
 
 - Investigation 2026-05-20 (`logs/2026-05-20_2332_kerbalx-nospawn/`). After a plain Rewind-to-Launch of "Kerbal X", the slot-1 "Kerbal X Probe" leaf (terminal=Orbiting, rec 69780fcd) failed to re-materialize as a real vessel when warp playback reached its endpoint, and its orbit ghost was destroyed at past-end so the orbit line vanished too. The Mun lander (#48) and Valentina EVA (#49) at the chain tip re-spawned fine.

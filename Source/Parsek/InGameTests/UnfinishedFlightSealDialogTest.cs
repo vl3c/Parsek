@@ -122,7 +122,7 @@ namespace Parsek.InGameTests
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popup) as MultiOptionDialog;
                 InGameAssert.IsNotNull(dialog, "Seal popup should expose a MultiOptionDialog");
                 string title = MultiOptionDialogTitleField.GetValue(dialog) as string;
-                InGameAssert.AreEqual("Confirm Seal Unfinished Flight", title,
+                InGameAssert.AreEqual("Confirm: Seal Unfinished Flight", title,
                     "Seal popup title should match production copy");
 
                 DialogGUIButton button = FindButton(dialog, buttonText);

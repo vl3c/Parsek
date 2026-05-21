@@ -717,7 +717,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekWipeRecordingsConfirm",
                     $"Delete all {count} recording(s) and their files?\n\nThis cannot be undone.",
-                    "Confirm Wipe Recordings",
+                    "Confirm: Wipe Recordings",
                     HighLogic.UISkin,
                     new DialogGUIButton("Wipe All", () =>
                     {
@@ -750,7 +750,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekWipeActionsConfirm",
                     $"Delete all {count} game action milestone(s)?\n\nThis cannot be undone.",
-                    "Confirm Wipe Game Actions",
+                    "Confirm: Wipe Game Actions",
                     HighLogic.UISkin,
                     new DialogGUIButton("Wipe All", () =>
                     {
