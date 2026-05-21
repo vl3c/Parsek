@@ -289,6 +289,18 @@ namespace Parsek
             public double surfaceMobileMaxClearanceThisSection = double.NaN;
             public double surfaceMobileClearanceSumThisSection;
 
+            // Per-frame warp flags for the current section, index-aligned with
+            // currentTrackSection.frames (flag[i] == true means frame i was
+            // sampled under physics time-warp). Used at section close to
+            // classify each large gap: a gap touching a warp sample is a
+            // structurally-expected jump (Verbose), a large gap whose both ends
+            // were at 1x is a genuine dropped-sample signal (WARN). On-rails BG
+            // samples never reach the per-frame tick (OnBackgroundPhysicsFrame
+            // early-returns on bgVessel.packed), so physics warp is the only
+            // signal here. Reset on StartBackgroundTrackSection, trimmed in
+            // lockstep with frames in TrimParentAtBranchBoundary.
+            public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
+
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
 
@@ -1079,8 +1091,12 @@ namespace Parsek
             int bodyFixedFramesRemoved = 0;
             if (parentLoaded != null && parentLoaded.trackSectionActive)
             {
-                sectionFramesRemoved = TrimTrajectoryPointsAfterUT(
-                    parentLoaded.currentTrackSection.frames, branchUT);
+                // Trim the section frames and keep the per-section warp-flag list
+                // index-aligned with them in one step (see the helper for why).
+                sectionFramesRemoved = TrimSectionFramesAndWarpFlagsAfterUT(
+                    parentLoaded.currentTrackSection.frames,
+                    parentLoaded.sectionFrameWarpFlags,
+                    branchUT);
                 bodyFixedFramesRemoved = TrimTrajectoryPointsAfterUT(
                     parentLoaded.currentTrackSection.bodyFixedFrames, branchUT);
                 if (sectionFramesRemoved > 0 || bodyFixedFramesRemoved > 0)
@@ -1124,6 +1140,39 @@ namespace Parsek
             }
 
             return removed;
+        }
+
+        /// <summary>
+        /// Trims a section's <paramref name="frames"/> after <paramref name="maxUT"/>
+        /// and truncates the index-aligned <paramref name="warpFlags"/> list back to
+        /// the new frame count, restoring the 1:1 alignment the sparse-sampling
+        /// per-gap classifier relies on.
+        ///
+        /// Frames are appended in UT order, so <see cref="TrimTrajectoryPointsAfterUT"/>
+        /// removes a contiguous post-<paramref name="maxUT"/> tail; truncating the
+        /// flags down to <c>frames.Count</c> drops the warp flags for exactly those
+        /// removed tail samples. Without this the flags list stays longer than frames
+        /// for the rest of the section's life and
+        /// <see cref="FlightRecorder.ComputeSectionGapStats"/> falls back to its
+        /// length-mismatch path (every gap counted as 1x =&gt; over-WARN) instead of
+        /// per-gap warp classification. Mirrors the active-side
+        /// <see cref="FlightRecorder.TrimRecordingToUT"/> lockstep trim.
+        ///
+        /// Pure (no recorder/Unity state) for direct unit testing. Returns the number
+        /// of frames removed.
+        /// </summary>
+        internal static int TrimSectionFramesAndWarpFlagsAfterUT(
+            List<TrajectoryPoint> frames, List<bool> warpFlags, double maxUT)
+        {
+            int framesRemoved = TrimTrajectoryPointsAfterUT(frames, maxUT);
+            if (framesRemoved > 0 && warpFlags != null)
+            {
+                int frameCount = frames?.Count ?? 0;
+                if (warpFlags.Count > frameCount)
+                    warpFlags.RemoveRange(frameCount, warpFlags.Count - frameCount);
+            }
+
+            return framesRemoved;
         }
 
         private static void RecomputeCurrentTrackSectionAltitudeRange(BackgroundVesselState state)
@@ -2157,7 +2206,10 @@ namespace Parsek
             state.lastWorldRotation = currentWorldRotation;
             state.hasLastWorldRotation = true;
 
-            // Dual-write: also add to current TrackSection's frames list
+            // Dual-write: also add to current TrackSection's frames list. The
+            // per-sample warp flag is appended in lockstep inside
+            // AddFrameToActiveTrackSection so each large gap is classified by the
+            // warp state at its bounding samples at section close.
             AddFrameToActiveTrackSection(
                 state,
                 point,
@@ -5010,6 +5062,22 @@ namespace Parsek
             if (vessels == null)
                 return;
 
+            // Resolve the active recording's vessel pid so a still-backgrounded
+            // recording can anchor to the recording the player just switched to
+            // (e.g. the docking target). The active recording lives outside
+            // BackgroundMap, so without this it is invisible to the candidate
+            // scan and the RELATIVE anchor silently drops to ABSOLUTE mid-
+            // approach. DAG-order eligibility still decides whether the anchor
+            // is actually allowed.
+            string activeRecordingId = tree.ActiveRecordingId;
+            uint activeRecordingVesselPid =
+                !string.IsNullOrWhiteSpace(activeRecordingId)
+                && tree.Recordings != null
+                && tree.Recordings.TryGetValue(activeRecordingId, out Recording activeRec)
+                && activeRec != null
+                    ? activeRec.VesselPersistentId
+                    : 0u;
+
             for (int i = 0; i < vessels.Count; i++)
             {
                 Vessel vessel = vessels[i];
@@ -5023,8 +5091,16 @@ namespace Parsek
                     continue;
 
                 scanned++;
-                if (!tree.BackgroundMap.TryGetValue(vessel.persistentId, out string recordingId))
+                if (!AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                        vessel.persistentId,
+                        tree.BackgroundMap,
+                        activeRecordingId,
+                        activeRecordingVesselPid,
+                        out string recordingId,
+                        out _))
+                {
                     continue;
+                }
                 if (!TryGetBackgroundEligibleAnchorRecording(
                         recordingId,
                         focusRecording,
@@ -5123,8 +5199,15 @@ namespace Parsek
             candidateRecording = null;
             if (tree?.Recordings == null || string.IsNullOrWhiteSpace(recordingId))
                 return false;
-            if (string.Equals(recordingId, tree.ActiveRecordingId, StringComparison.Ordinal))
-                return false;
+            // NOTE: the active recording is intentionally NOT blanket-excluded
+            // here. A still-backgrounded recording must be able to anchor to the
+            // recording the player just switched to (the docking target the
+            // player is now flying) to keep RELATIVE engaged through the close
+            // approach. Cycle safety is provided by IsRecordingAnchorDAGOrderEligible
+            // (candidate.TreeOrder < focus.TreeOrder) below: the active recording
+            // can only anchor a higher-TreeOrder background recording, never the
+            // reverse, so no A<->B anchor cycle can form. The re-fly provisional
+            // (still-being-appended fork) is still excluded by the marker gate.
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             if (marker != null
                 && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
@@ -6607,9 +6690,23 @@ namespace Parsek
             state.surfaceMobileMinClearanceThisSection = double.NaN;
             state.surfaceMobileMaxClearanceThisSection = double.NaN;
             state.surfaceMobileClearanceSumThisSection = 0.0;
+            state.sectionFrameWarpFlags.Clear();
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Appends one entry to <paramref name="state"/>'s per-section warp-flag
+        /// list in lockstep with a <c>currentTrackSection.frames.Add</c>. Records
+        /// whether the sample was taken under physics time-warp so the section-
+        /// close sparse-sampling check can classify each gap. On-rails BG samples
+        /// never reach these append paths (the per-frame tick early-returns on
+        /// <c>bgVessel.packed</c>), so physics warp is the only signal.
+        /// </summary>
+        private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
+        {
+            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsTimeWarpActiveForDiagnostics());
         }
 
         private static void AppendFrameToCurrentTrackSection(
@@ -6621,6 +6718,7 @@ namespace Parsek
                 return;
 
             state.currentTrackSection.frames.Add(point);
+            AppendSectionFrameWarpFlag(state);
             if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
                 state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
@@ -6760,6 +6858,7 @@ namespace Parsek
                 return;
 
             state.currentTrackSection.frames.Add(point);
+            AppendSectionFrameWarpFlag(state);
             if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
                 state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
@@ -6850,7 +6949,9 @@ namespace Parsek
             state.trackSectionActive = false;
 
             FlightRecorder.SectionGapStats gapStats =
-                FlightRecorder.ComputeSectionGapStats(state.currentTrackSection.frames);
+                FlightRecorder.ComputeSectionGapStats(
+                    state.currentTrackSection.frames,
+                    warpFlags: state.sectionFrameWarpFlags);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
             {
@@ -6875,13 +6976,19 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                ParsekLog.Warn("BgRecorder",
+                bool warn = FlightRecorder.ShouldWarnOnSparseSampling(
+                    gapStats.LargeGapCountAtNormalRate);
+                string message =
                     $"TrackSection sparse sampling: pid={state.vesselPid} " +
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={FlightRecorder.SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount}");
+                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
+                if (warn)
+                    ParsekLog.Warn("BgRecorder", message);
+                else
+                    ParsekLog.Verbose("BgRecorder", message);
             }
 
             // Phase 7: per-surface-section clearance distribution
