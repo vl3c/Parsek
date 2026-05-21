@@ -810,15 +810,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reads a slot's open/closed state from the single source of truth:
-        /// the slot's effective chain+supersede tip MergeState. The slot is
-        /// OPEN iff the tip is <see cref="MergeState.CommittedProvisional"/>;
-        /// it is closed when the tip is <see cref="MergeState.Immutable"/>
-        /// (sealed / concluded / canon), <see cref="MergeState.NotCommitted"/>,
-        /// or the tip cannot be resolved to a committed recording (null /
-        /// orphan). This is the recording-level open/closed signal the reaper,
-        /// classifier UF filter, and disk-usage diagnostics share after the
-        /// slot.Sealed bit was collapsed into MergeState.
+        /// Returns true iff the slot's effective chain+supersede tip is a
+        /// re-flyable OPEN Unfinished Flight, i.e. the tip MergeState is
+        /// <see cref="MergeState.CommittedProvisional"/>. A tip that is
+        /// <see cref="MergeState.Immutable"/> (sealed / concluded / canon),
+        /// <see cref="MergeState.NotCommitted"/> (recorder still running, not a
+        /// re-flyable row yet), or unresolved (null / orphan) returns false.
+        /// This is the UI / UF-row "show as re-flyable" predicate, derived from
+        /// the same tip MergeState that is the single open/closed source of
+        /// truth after the slot.Sealed bit was collapsed into MergeState.
+        /// NOTE the reaper's reap-eligibility rule is RELATED but not identical:
+        /// it keeps an RP alive when a tip is CommittedProvisional OR
+        /// NotCommitted (never reap a live recorder), and reaps only when every
+        /// tip is Immutable. So this predicate and the reaper agree on CP (open)
+        /// and Immutable (closed) but differ on NotCommitted by design.
         /// </summary>
         internal static bool IsSlotEffectiveTipOpen(ChildSlot slot)
             => IsSlotEffectiveTipOpen(slot, null);

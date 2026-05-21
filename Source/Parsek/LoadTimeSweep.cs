@@ -347,7 +347,11 @@ namespace Parsek
                         var slot = rp.ChildSlots[s];
                         if (slot == null) continue;
                         string tipId = slot.EffectiveRecordingId(supersedes);
-                        Recording tip = FindCommittedRecordingById(tipId);
+                        // Use the shared tree-aware resolver: a chain tip can
+                        // live in a committed tree without being mirrored into
+                        // the flat committed list, and a flat-only scan would
+                        // miss it and leave the orphaned slot un-concluded.
+                        Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
                         if (tip != null && tip.MergeState != MergeState.Immutable)
                         {
                             tip.MergeState = MergeState.Immutable;
@@ -397,26 +401,6 @@ namespace Parsek
             }
 
             return cleaned;
-        }
-
-        // [ERS-exempt] The missing-quicksave sweep concludes orphaned slots by
-        // flipping their effective tip MergeState to Immutable; the tip may
-        // still be NotCommitted / CommittedProvisional, which ERS would filter
-        // out. The raw committed-list read is part of the load-time-sweep
-        // exemption documented in the ERS/ELS allowlist.
-        private static Recording FindCommittedRecordingById(string recordingId)
-        {
-            if (string.IsNullOrEmpty(recordingId)) return null;
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-            return null;
         }
 
         private sealed class MissingRewindPointQuicksave

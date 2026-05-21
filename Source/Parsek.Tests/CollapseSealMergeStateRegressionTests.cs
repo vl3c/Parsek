@@ -406,5 +406,44 @@ namespace Parsek.Tests
             // the fork stays Immutable, never re-demoted/un-sealed.
             Assert.Equal(MergeState.Immutable, forkTree.Recordings["fork_root"].MergeState);
         }
+
+        // ---------- 6. Tree-only tip resolves via the tree fallback ----------
+
+        [Fact]
+        public void FindCommittedRecordingByIdRaw_ResolvesTreeOnlyTip_NotInFlatList()
+        {
+            // A recording that lives in a committed tree but is NOT mirrored into
+            // the flat committed list must still resolve, via the tree fallback
+            // in EffectiveState.FindCommittedRecordingByIdRaw. The Seal / Stash
+            // handlers and LoadTimeSweep's missing-quicksave sweep all resolve a
+            // slot's effective tip through this helper; a flat-list-only scan
+            // would return null and silently skip the slot (leaving it
+            // un-concluded / un-sealable). This pins the shared tree-aware
+            // resolver the LoadTimeSweep fix depends on.
+            var rec = new Recording
+            {
+                RecordingId = "tree_only_tip",
+                VesselName = "Tree Only",
+                TreeId = "treeonly",
+                MergeState = MergeState.CommittedProvisional,
+                TerminalStateValue = TerminalState.Orbiting,
+            };
+            var tree = new RecordingTree
+            {
+                Id = "treeonly",
+                TreeName = "TreeOnly",
+                RootRecordingId = "tree_only_tip",
+                ActiveRecordingId = "tree_only_tip",
+            };
+            tree.Recordings["tree_only_tip"] = rec;
+            // Adds the tree to committedTrees ONLY; does not touch the flat
+            // committed list, so a flat-only scan cannot find this recording.
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            EffectiveState.ResetCachesForTesting();
+
+            var resolved = EffectiveState.FindCommittedRecordingByIdRaw("tree_only_tip");
+            Assert.NotNull(resolved);
+            Assert.Same(rec, resolved);
+        }
     }
 }
