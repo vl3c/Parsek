@@ -460,22 +460,22 @@ namespace Parsek
         {
             return source.startUT <= rebuilt.startUT + OrbitUtTolerance
                 && source.endUT + OrbitUtTolerance >= rebuilt.endUT
-                && NearlyEqual(source.inclination, rebuilt.inclination, OrbitScalarTolerance)
-                && NearlyEqual(source.eccentricity, rebuilt.eccentricity, OrbitScalarTolerance)
-                && NearlyEqual(source.semiMajorAxis, rebuilt.semiMajorAxis, OrbitDistanceTolerance)
-                && NearlyEqual(source.longitudeOfAscendingNode, rebuilt.longitudeOfAscendingNode, OrbitScalarTolerance)
-                && NearlyEqual(source.argumentOfPeriapsis, rebuilt.argumentOfPeriapsis, OrbitScalarTolerance)
-                && NearlyEqual(source.meanAnomalyAtEpoch, rebuilt.meanAnomalyAtEpoch, OrbitScalarTolerance)
-                && NearlyEqual(source.epoch, rebuilt.epoch, OrbitUtTolerance)
+                && FieldNearlyEqual(source.inclination, rebuilt.inclination, OrbitScalarTolerance)
+                && FieldNearlyEqual(source.eccentricity, rebuilt.eccentricity, OrbitScalarTolerance)
+                && FieldNearlyEqual(source.semiMajorAxis, rebuilt.semiMajorAxis, OrbitDistanceTolerance)
+                && FieldNearlyEqual(source.longitudeOfAscendingNode, rebuilt.longitudeOfAscendingNode, OrbitScalarTolerance)
+                && FieldNearlyEqual(source.argumentOfPeriapsis, rebuilt.argumentOfPeriapsis, OrbitScalarTolerance)
+                && FieldNearlyEqual(source.meanAnomalyAtEpoch, rebuilt.meanAnomalyAtEpoch, OrbitScalarTolerance)
+                && FieldNearlyEqual(source.epoch, rebuilt.epoch, OrbitUtTolerance)
                 && source.bodyName == rebuilt.bodyName
                 && source.isPredicted == rebuilt.isPredicted
-                && NearlyEqual(source.orbitalFrameRotation.x, rebuilt.orbitalFrameRotation.x, OrbitVectorTolerance)
-                && NearlyEqual(source.orbitalFrameRotation.y, rebuilt.orbitalFrameRotation.y, OrbitVectorTolerance)
-                && NearlyEqual(source.orbitalFrameRotation.z, rebuilt.orbitalFrameRotation.z, OrbitVectorTolerance)
-                && NearlyEqual(source.orbitalFrameRotation.w, rebuilt.orbitalFrameRotation.w, OrbitVectorTolerance)
-                && NearlyEqual(source.angularVelocity.x, rebuilt.angularVelocity.x, OrbitVectorTolerance)
-                && NearlyEqual(source.angularVelocity.y, rebuilt.angularVelocity.y, OrbitVectorTolerance)
-                && NearlyEqual(source.angularVelocity.z, rebuilt.angularVelocity.z, OrbitVectorTolerance);
+                && FieldNearlyEqual(source.orbitalFrameRotation.x, rebuilt.orbitalFrameRotation.x, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.orbitalFrameRotation.y, rebuilt.orbitalFrameRotation.y, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.orbitalFrameRotation.z, rebuilt.orbitalFrameRotation.z, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.orbitalFrameRotation.w, rebuilt.orbitalFrameRotation.w, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.angularVelocity.x, rebuilt.angularVelocity.x, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.angularVelocity.y, rebuilt.angularVelocity.y, OrbitVectorTolerance)
+                && FieldNearlyEqual(source.angularVelocity.z, rebuilt.angularVelocity.z, OrbitVectorTolerance);
         }
 
         private static bool StartsAtOrAfter(double candidateStartUT, double minStartUT)
@@ -490,28 +490,37 @@ namespace Parsek
 
         private static bool OrbitSegmentNearlyEquals(OrbitSegment a, OrbitSegment b)
         {
-            return NearlyEqual(a.startUT, b.startUT, OrbitUtTolerance)
-                && NearlyEqual(a.endUT, b.endUT, OrbitUtTolerance)
-                && NearlyEqual(a.inclination, b.inclination, OrbitScalarTolerance)
-                && NearlyEqual(a.eccentricity, b.eccentricity, OrbitScalarTolerance)
-                && NearlyEqual(a.semiMajorAxis, b.semiMajorAxis, OrbitDistanceTolerance)
-                && NearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, OrbitScalarTolerance)
-                && NearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, OrbitScalarTolerance)
-                && NearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, OrbitScalarTolerance)
-                && NearlyEqual(a.epoch, b.epoch, OrbitUtTolerance)
+            return FieldNearlyEqual(a.startUT, b.startUT, OrbitUtTolerance)
+                && FieldNearlyEqual(a.endUT, b.endUT, OrbitUtTolerance)
+                && FieldNearlyEqual(a.inclination, b.inclination, OrbitScalarTolerance)
+                && FieldNearlyEqual(a.eccentricity, b.eccentricity, OrbitScalarTolerance)
+                && FieldNearlyEqual(a.semiMajorAxis, b.semiMajorAxis, OrbitDistanceTolerance)
+                && FieldNearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, OrbitScalarTolerance)
+                && FieldNearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, OrbitScalarTolerance)
+                && FieldNearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, OrbitScalarTolerance)
+                && FieldNearlyEqual(a.epoch, b.epoch, OrbitUtTolerance)
                 && a.bodyName == b.bodyName
                 && a.isPredicted == b.isPredicted
-                && NearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, OrbitVectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, OrbitVectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, OrbitVectorTolerance)
-                && NearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, OrbitVectorTolerance)
-                && NearlyEqual(a.angularVelocity.x, b.angularVelocity.x, OrbitVectorTolerance)
-                && NearlyEqual(a.angularVelocity.y, b.angularVelocity.y, OrbitVectorTolerance)
-                && NearlyEqual(a.angularVelocity.z, b.angularVelocity.z, OrbitVectorTolerance);
+                && FieldNearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.x, b.angularVelocity.x, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.y, b.angularVelocity.y, OrbitVectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.z, b.angularVelocity.z, OrbitVectorTolerance);
         }
 
-        private static bool NearlyEqual(double a, double b, double tolerance)
+        // Structural-equality comparison for orbit-segment fields: two NaNs (and two equal
+        // infinities) compare equal. Parabolic/degenerate orbits store semiMajorAxis = NaN,
+        // and Math.Abs(NaN - NaN) <= tol is false, so a raw NearlyEqual makes such a segment
+        // never equal itself — defeating the predicted-tail duplicate suppression here, the
+        // same defect that drove the checkpoint-bridge explosion.
+        private static bool FieldNearlyEqual(double a, double b, double tolerance)
         {
+            if (double.IsNaN(a) || double.IsNaN(b))
+                return double.IsNaN(a) && double.IsNaN(b);
+            if (a == b)
+                return true;
             return Math.Abs(a - b) <= tolerance;
         }
 
