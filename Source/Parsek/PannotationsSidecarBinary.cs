@@ -120,7 +120,7 @@ namespace Parsek
         // outlierAltitudeCeilingMargin(4) + outlierClusterRate(4) +
         // useOutlierRejection(1) = 73 bytes. The 13 bytes formerly occupied
         // by the co-bubble persisted tunables (blendMaxWindow + resampleHz)
-        // and the useCoBubbleBlend rollout flag were removed in v0.10.0
+        // and the useCoBubbleBlend rollout flag were removed in v0.9.3
         // when the co-bubble subsystem retired. The byte-shrink drifts the
         // cache key of every existing .pann via config-hash-drift (HR-10),
         // and the recompute path overwrites them with the post-retirement

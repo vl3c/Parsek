@@ -253,5 +253,5 @@ uninitialized `ParsekFlight` host with the recordings list passed in.
 - `Source/Parsek.Tests/OrphanDebrisOnRetirementTests.cs` (new fixture).
 - `Source/Parsek.Tests/FlightPlaybackExplainabilityTests.cs` (one added
   flight-scene end-to-end test).
-- `CHANGELOG.md` v0.10.0 Bug Fixes section.
+- `CHANGELOG.md` v0.9.3 Bug Fixes section.
 - `docs/dev/todo-and-known-bugs.md` new Open / Done entry.

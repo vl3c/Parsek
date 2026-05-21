@@ -193,11 +193,11 @@ Four production touch points + four test files. No schema or serialization chang
 
 ### Doc updates (per CLAUDE.md per-commit rule)
 
-11. **`CHANGELOG.md`** under `## 0.10.0` → `### Bug Fixes`. Draft (compliant: no em dashes, two sentences, user-facing):
+11. **`CHANGELOG.md`** under `## 0.9.3` → `### Bug Fixes`. Draft (compliant: no em dashes, two sentences, user-facing):
 
     > Re-Fly: a suborbital arc no longer seals the rewind slot or shows "reached a sub-orbital arc" in the merge dialog. The slot now stays open until the vessel actually lands, splashes, crashes, or reaches a stable orbit.
 
-12. **`docs/dev/todo-and-known-bugs.md`** — new `## Open - v0.10.0 ...` entry inserted between the existing Done items (line 15 `Scene-exit finalizer leaves sub-orbital recordings stale...`) and the next Open entry. Flips to `## Done` on PR merge. Per CLAUDE.md's follow-up commit trap warning, re-read the existing wording before editing on any follow-up commit so the doc stays in lockstep with the actual change.
+12. **`docs/dev/todo-and-known-bugs.md`** — new `## Open - v0.9.3 ...` entry inserted between the existing Done items (line 15 `Scene-exit finalizer leaves sub-orbital recordings stale...`) and the next Open entry. Flips to `## Done` on PR merge. Per CLAUDE.md's follow-up commit trap warning, re-read the existing wording before editing on any follow-up commit so the doc stays in lockstep with the actual change.
 
 13. **`docs/parsek-rewind-to-separation-design.md`** — this is the AUTHORITATIVE seal-contract design doc and is the load-bearing update. SubOrbital is referenced as a stable terminal / sealable / stashable terminal at lines 44, 47, 168, 174, 410, 1138, 1155-1156, 2132, 2138, 2166 (plus the prose at lines 1545-1551, 1657, 1666, 1751, 1864, 1872, 1874 that describe the post-feature predicate). The Stash references (lines 47, 174, 2138) and Stash matrix (line 2138) STAY: manual Stash + Seal is the only remaining seal path for SubOrbital and SubOrbital must still be in the spawnable-stable-terminal stash set. The auto-seal references (44, 168, 410, 1155-1156, 1545-1551, 1657, 1666, 1751, etc.) need editing: remove SubOrbital from "stable terminal that seals on the player-chosen slot" lists, add a short paragraph stating that SubOrbital is not a conclusive outcome (the vessel will crash, land, splash, or with a burn reach orbit) and so does not auto-seal even on the focus slot. The "Vacuum-arc SubOrbital" pseudocode at line 1155 changes from "is focus → seal" to "is in-flight → stays open."
 

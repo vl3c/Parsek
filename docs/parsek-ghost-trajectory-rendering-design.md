@@ -1,6 +1,6 @@
 # Parsek Ghost Trajectory Rendering — Design Document
 
-> **v0.10.0 retirement note:** A "co-bubble peer blending" stage (formerly Stage 5 / Section 10 / Section 7.8, plus a `.pann` `CoBubbleOffsetTraces` block, the `useCoBubbleBlend` toggle, the `CoBubbleBlender` / `CoBubbleOverlapDetector` / `CoBubblePrimarySelector` files, and the `AnchorSource.CoBubblePeer` producer arm) existed and was removed in v0.10.0 (PR #912). Close-formation accuracy is now delivered by the controlled-decoupled child parent-anchor contract (`Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`). The co-bubble sections have been excised from this document; the implementation prior to the retirement commit's parent is preserved in git history. The `AnchorSource` enum keeps slot 7 reserved (`Reserved7`) so the persisted `.pann` byte layout stays stable, and the pipeline stage list below is the four surviving stages.
+> **v0.9.3 retirement note:** A "co-bubble peer blending" stage (formerly Stage 5 / Section 10 / Section 7.8, plus a `.pann` `CoBubbleOffsetTraces` block, the `useCoBubbleBlend` toggle, the `CoBubbleBlender` / `CoBubbleOverlapDetector` / `CoBubblePrimarySelector` files, and the `AnchorSource.CoBubblePeer` producer arm) existed and was removed in v0.9.3 (PR #912). Close-formation accuracy is now delivered by the controlled-decoupled child parent-anchor contract (`Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`). The co-bubble sections have been excised from this document; the implementation prior to the retirement commit's parent is preserved in git history. The `AnchorSource` enum keeps slot 7 reserved (`Reserved7`) so the persisted `.pann` byte layout stays stable, and the pipeline stage list below is the four surviving stages.
 
 *Comprehensive design specification for rendering ghost vessel trajectories during recording playback and re-fly sessions. Covers anchor correction, smoothing, multi-anchor interpolation, DAG propagation across vessel lineages, frame-of-reference handling per segment, terrain correction during playback, and edge-case handling.*
 
@@ -37,7 +37,7 @@ It covers:
 - Edge cases from gameplay scenarios
 - Performance profile
 - Implementation map: concept-to-code, pipeline insertion points, sidecar layout, concrete file / type / line refs into the current Parsek codebase
-- Implementation phasing: ordered phases naming files to create, types to add, hooks to wire, and per-phase done conditions (Phase 5, co-bubble overlap blend, was retired in v0.10.0; the remaining phases keep their original numbers)
+- Implementation phasing: ordered phases naming files to create, types to add, hooks to wire, and per-phase done conditions (Phase 5, co-bubble overlap blend, was retired in v0.9.3; the remaining phases keep their original numbers)
 - Diagnostic logging: per-stage subsystem tags, log lines, levels, and batch counters that make every pipeline decision observable in `KSP.log`
 - Test plan: unit tests, log-assertion tests, in-game tests, synthetic recording fixtures, and a per-phase test-done checklist
 - Loader policy: format version 1 / generation 3 is the accepted `.prec` baseline; `.pann` annotations may lazy-compute, but older trajectory sidecars are rejected instead of compatibility-routed
@@ -142,7 +142,7 @@ Four stages:
 
 4. **Correction interpolation**: between two anchors bracketing a segment, lerp `ε` linearly along the segment. Bounds accumulated drift; further addresses 3.3 across long segments.
 
-(A fifth stage, "co-bubble overlap blend," existed in earlier drafts and in the v0.9.x implementation; it was retired in v0.10.0. Close-formation accuracy is now delivered by the parent-anchored debris / controlled-decoupled child contract: see Section 7.4 and `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`.)
+(A fifth stage, "co-bubble overlap blend," existed in earlier drafts and in the v0.9.x implementation; it was retired in v0.9.3. Close-formation accuracy is now delivered by the parent-anchored debris / controlled-decoupled child contract: see Section 7.4 and `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`.)
 
 The render-time output is `U_render(t) = U_smoothed_in_segment_frame(t) + ε(t)`, with the frame transform applied last.
 
@@ -213,7 +213,7 @@ The "no anchors" case is rare in practice. Standalone ghosts with no live refere
 
 ### 6.5 Stage 5: Co-Bubble Overlap Blend (retired)
 
-Stage 5 was an optional co-bubble overlap blend that rendered a non-primary vessel as `primary_render(t) + relative_offset_trace(t)` over a window where two vessels were physically close in the recording. It was retired in v0.10.0 (PR #912). Very-close-range visuals (debris, separation effects, controlled-decoupled children) are now handled by the parent-anchored debris contract: see Section 7.4 and `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`, which records a body-fixed primary surface for the close-formation window instead of a separate peer-relative trace. The git history before the retirement commit's parent preserves the original blend math.
+Stage 5 was an optional co-bubble overlap blend that rendered a non-primary vessel as `primary_render(t) + relative_offset_trace(t)` over a window where two vessels were physically close in the recording. It was retired in v0.9.3 (PR #912). Very-close-range visuals (debris, separation effects, controlled-decoupled children) are now handled by the parent-anchored debris contract: see Section 7.4 and `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`, which records a body-fixed primary surface for the close-formation window instead of a separate peer-relative trace. The git history before the retirement commit's parent preserves the original blend math.
 
 ---
 
@@ -286,7 +286,7 @@ The boundary value of the RELATIVE segment, computed via the resolver, is the re
 
 ### 7.8 Ghost-Ghost Co-Bubble Anchor (retired)
 
-This anchor source (`AnchorSource.CoBubblePeer`) was retired in v0.10.0 (PR #912) along with the rest of the co-bubble subsystem. The numbering and the persisted enum slot are preserved: in code, `AnchorSource` slot 7 is now `Reserved7` so the `.pann` `AnchorCandidatesList` byte layout stays stable (see `Rendering/AnchorCorrection.cs`). Close-formation ghost-ghost geometry is now handled by the parent-anchored debris contract (Section 7.4, `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`), not by a separate peer-relative trace.
+This anchor source (`AnchorSource.CoBubblePeer`) was retired in v0.9.3 (PR #912) along with the rest of the co-bubble subsystem. The numbering and the persisted enum slot are preserved: in code, `AnchorSource` slot 7 is now `Reserved7` so the `.pann` `AnchorCandidatesList` byte layout stays stable (see `Rendering/AnchorCorrection.cs`). Close-formation ghost-ghost geometry is now handled by the parent-anchored debris contract (Section 7.4, `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`), not by a separate peer-relative trace.
 
 ### 7.9 Surface Mobile Anchor (Continuous)
 
@@ -314,7 +314,7 @@ When multiple anchor types apply at the same UT, priority order:
 4. DAG-propagated reference from a higher-priority upstream anchor (7.2, 7.3, 9)
 5. Bubble entry/exit (7.7)
 
-(7.8 designated co-bubble reference was retired in v0.10.0; `AnchorPriority` keeps slot 7, `Reserved7`, at a fixed rank so the priority vector encoding stays stable.)
+(7.8 designated co-bubble reference was retired in v0.9.3; `AnchorPriority` keeps slot 7, `Reserved7`, at a fixed rank so the priority vector encoding stays stable.)
 
 The highest-priority available source wins. The pipeline does not blend across sources at the same UT.
 
@@ -391,7 +391,7 @@ Propagation terminates at:
 
 ## 10. Co-Bubble Overlap (retired)
 
-This section described the co-bubble overlap blend (designated-primary selection, stored offset trace, trace validity boundaries, and the live-primary case). The subsystem was retired in v0.10.0 (PR #912): the `CoBubbleBlender` / `CoBubbleOverlapDetector` / `CoBubblePrimarySelector` files, the `.pann` `CoBubbleOffsetTraces` block, and the `useCoBubbleBlend` toggle are gone. The section number is preserved so existing cross-references do not silently retarget.
+This section described the co-bubble overlap blend (designated-primary selection, stored offset trace, trace validity boundaries, and the live-primary case). The subsystem was retired in v0.9.3 (PR #912): the `CoBubbleBlender` / `CoBubbleOverlapDetector` / `CoBubblePrimarySelector` files, the `.pann` `CoBubbleOffsetTraces` block, and the `useCoBubbleBlend` toggle are gone. The section number is preserved so existing cross-references do not silently retarget.
 
 Close-formation accuracy (debris, separation effects, controlled-decoupled children that stay near a parent) is now delivered by the parent-anchored debris contract instead of a peer-relative trace: a recording with `Recording.DebrisParentRecordingId != null` records `TrackSection.bodyFixedFrames` (a body-fixed primary surface) while close to its parent, and playback renders from that surface directly. See Section 7.4 and `.claude/CLAUDE.md` -> "Parent-anchored contract". The git history before the retirement commit's parent preserves the original blend math and the designated-primary selection rules.
 
@@ -500,7 +500,7 @@ This section walks through scenarios from gameplay and maps each to the pipeline
 
 Two committed recordings with vessels in a tight formation. Player rewinds before both, no re-fly.
 
-Handling: each ghost renders standalone (Stages 1+2+3+4 with whatever anchors apply). The co-bubble peer blend that formerly tightened two same-bubble ghosts to centimeter fidelity was retired in v0.10.0 (Section 10); independent formation ghosts now render at smoothing-residual fidelity. Close-formation cases where one vessel is genuinely parent-anchored to the other (controlled-decoupled child / debris) are covered instead by the parent-anchored debris contract (Section 7.4).
+Handling: each ghost renders standalone (Stages 1+2+3+4 with whatever anchors apply). The co-bubble peer blend that formerly tightened two same-bubble ghosts to centimeter fidelity was retired in v0.9.3 (Section 10); independent formation ghosts now render at smoothing-residual fidelity. Close-formation cases where one vessel is genuinely parent-anchored to the other (controlled-decoupled child / debris) are covered instead by the parent-anchored debris contract (Section 7.4).
 
 ### 15.2 Orbital Rendezvous Replay
 
@@ -523,7 +523,7 @@ L1 → L2 → U. Re-fly L1 live. See Section 9.2.
 
 R1 launches base B. R2 drives a rover near B. Player re-flies a different rover near B; R2 plays as ghost.
 
-Handling: R2's trajectory is SURFACE_MOBILE, body-fixed, with continuous terrain correction (Section 13). R2 renders standalone (the ghost-ghost co-bubble path was retired in v0.10.0, Section 10).
+Handling: R2's trajectory is SURFACE_MOBILE, body-fixed, with continuous terrain correction (Section 13). R2 renders standalone (the ghost-ghost co-bubble path was retired in v0.9.3, Section 10).
 
 ### 15.5 Long Coast With Boundary Anchors
 
@@ -575,7 +575,7 @@ Handling: pipeline state is not persisted. Rebuild from recording data on every 
 
 Many ghosts simultaneously loaded in physics bubble (a base with traffic, a debris field, a constellation pass).
 
-Handling: Stage 1 smoothing is precomputed at commit. Stage 2 frame transformation is a single matrix multiply per ghost. Stage 3 anchors are looked up. Stage 4 lerp is a single multiply. (There is no per-pair work since the Stage 5 co-bubble blend was retired in v0.10.0.)
+Handling: Stage 1 smoothing is precomputed at commit. Stage 2 frame transformation is a single matrix multiply per ghost. Stage 3 anchors are looked up. Stage 4 lerp is a single multiply. (There is no per-pair work since the Stage 5 co-bubble blend was retired in v0.9.3.)
 
 Per-frame cost per ghost: one spline eval, one matrix multiply, one anchor lookup, one lerp. All small and bounded.
 
@@ -751,7 +751,7 @@ Binary schema (initial version `PannotationsBinaryVersion = 1`):
               types        : byte[utCount]   (matches AnchorSource enum, Section 18 Phase 2)
 ```
 
-(A `CoBubbleOffsetTraces` block followed `AnchorCandidatesList` in the v0.9.x layout. It was removed when the co-bubble subsystem retired in v0.10.0, Section 10. The on-disk `.pann` no longer carries it; `PannotationsSidecarBinary` reads/writes only the three blocks above.)
+(A `CoBubbleOffsetTraces` block followed `AnchorCandidatesList` in the v0.9.x layout. It was removed when the co-bubble subsystem retired in v0.9.3, Section 10. The on-disk `.pann` no longer carries it; `PannotationsSidecarBinary` reads/writes only the three blocks above.)
 
 **Configuration Cache Key.** The `ConfigurationHash` field is SHA-256 over a canonical-encoded record of every tunable that affects derived output. The encoding is endian-fixed and field-order-fixed so the hash is reproducible across machines and runs. Tunables included:
 
@@ -865,7 +865,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 **New files:**
 
-- `Source/Parsek/Rendering/AnchorCorrection.cs`: `internal struct AnchorCorrection { string RecordingId; int SectionIndex; double UT; Vector3d Epsilon; AnchorSource Source; }` with `enum AnchorSource : byte { LiveSeparation, DockOrMerge, RelativeBoundary, OrbitalCheckpoint, SoiTransition, BubbleEntry, BubbleExit, Reserved7, SurfaceContinuous, Loop }`. (Slot 7 was `CoBubblePeer` before the co-bubble subsystem retired in v0.10.0; it is now `Reserved7` to keep the persisted byte layout stable.)
+- `Source/Parsek/Rendering/AnchorCorrection.cs`: `internal struct AnchorCorrection { string RecordingId; int SectionIndex; double UT; Vector3d Epsilon; AnchorSource Source; }` with `enum AnchorSource : byte { LiveSeparation, DockOrMerge, RelativeBoundary, OrbitalCheckpoint, SoiTransition, BubbleEntry, BubbleExit, Reserved7, SurfaceContinuous, Loop }`. (Slot 7 was `CoBubblePeer` before the co-bubble subsystem retired in v0.9.3; it is now `Reserved7` to keep the persisted byte layout stable.)
 - `Source/Parsek/Rendering/RenderSessionState.cs` — `internal static class` holding the in-memory anchor map. Methods: `RebuildFromMarker(ReFlySessionMarker marker)`, `Lookup(string recordingId, int sectionIndex, double ut) : AnchorCorrection?`, `Clear()`. Lifetime tied to scene transitions and marker writes — populated by `RewindInvoker.ConsumePostLoad` and `ParsekScenario.OnLoad`, cleared on scene exit and re-fly clear.
 - `Source/Parsek.Tests/Rendering/RenderSessionStateTests.cs` — anchor lookup before/after marker write, cleared on marker clear, deterministic across rebuild.
 
@@ -908,7 +908,7 @@ The first four phases together address the three naive-rendering failure modes (
 
 ### Phase 5: Co-Bubble Overlap Blend (Stage 5) (retired)
 
-This phase delivered sub-metre fidelity at very close range via a co-bubble peer blend (`CoBubbleBlender`, `CoBubbleOverlapDetector`, the `.pann` `CoBubbleOffsetTraces` block, and the `useCoBubbleBlend` toggle). It shipped in v0.9.x and was retired in v0.10.0 (PR #912). The phase number is kept so Phases 6 through 9 retain their original numbers. Close-formation accuracy is now delivered by the parent-anchored debris contract (Section 7.4, `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`), which the recorder authors directly; no separate render-time peer blend is required.
+This phase delivered sub-metre fidelity at very close range via a co-bubble peer blend (`CoBubbleBlender`, `CoBubbleOverlapDetector`, the `.pann` `CoBubbleOffsetTraces` block, and the `useCoBubbleBlend` toggle). It shipped in v0.9.x and was retired in v0.9.3 (PR #912). The phase number is kept so Phases 6 through 9 retain their original numbers. Close-formation accuracy is now delivered by the parent-anchored debris contract (Section 7.4, `Recording.DebrisParentRecordingId` + `TrackSection.bodyFixedFrames`), which the recorder authors directly; no separate render-time peer blend is required.
 
 ### Phase 6: Anchor Taxonomy Completion (Stage 3 full)
 
@@ -982,7 +982,7 @@ This phase delivered sub-metre fidelity at very close range via a co-bubble peer
 ### Phase Ordering Discipline
 
 - Phases 1-4 are sequential and high-leverage. Each builds on the previous and unlocks a visible failure-mode fix.
-- Phases 6-9 are independent and can ship in any order once 1-4 land. None block each other. (Phase 5, co-bubble overlap blend, was retired in v0.10.0; see its retired note above.)
+- Phases 6-9 are independent and can ship in any order once 1-4 land. None block each other. (Phase 5, co-bubble overlap blend, was retired in v0.9.3; see its retired note above.)
 - Format-version landings: Phase 1 introduces the `.pann` annotation sidecar at its own initial version `PannotationsBinaryVersion = 1`; later phases that touch `.pann` bump only the `AlgorithmStampVersion` inside the file, never `PannotationsBinaryVersion`. The canonical `.prec` chain has been reset to format version 1 / generation 3 (PR #916). The original pipeline plan accounted for historical raw-field additions for `recordedGroundClearance` and `flags` (Section 17.3.2); later work folded recorded-anchor Relative playback, debris parent ownership, and body-fixed primary debris playback into the single current contract. Phases 2, 3, 4, 6, and 8 do not touch `.prec`.
 - Each phase ends with a CHANGELOG entry under the current Parsek version (per `.claude/CLAUDE.md` -> "Documentation Updates, Per Commit, Not Per PR") and the corresponding `docs/dev/todo-and-known-bugs.md` strikethroughs.
 
@@ -1074,7 +1074,7 @@ For each stage, the table below lists the events that must produce a log line, t
 
 #### Stage 5: Co-Bubble Blend (retired)
 
-Stage 5 (co-bubble overlap blend) and its `Pipeline-CoBubble` tag were retired in v0.10.0 (Section 10). No log lines remain for this stage.
+Stage 5 (co-bubble overlap blend) and its `Pipeline-CoBubble` tag were retired in v0.9.3 (Section 10). No log lines remain for this stage.
 
 #### Outlier Rejection (Section 14)
 
@@ -1241,7 +1241,7 @@ Coroutine-style tests (multi-frame `IEnumerator`) are appropriate for any test t
 
 ### 20.4 Synthetic Recordings
 
-The pipeline's edge cases are best exercised by synthetic recordings injected into a test save via `dotnet test --filter InjectAllRecordings` (per `.claude/CLAUDE.md`). The pipeline ships seven new fixtures, parallel to existing synthetic recordings (a `pipeline-cobubble-formation.prec` fixture existed for the retired co-bubble stage and was dropped in v0.10.0):
+The pipeline's edge cases are best exercised by synthetic recordings injected into a test save via `dotnet test --filter InjectAllRecordings` (per `.claude/CLAUDE.md`). The pipeline ships seven new fixtures, parallel to existing synthetic recordings (a `pipeline-cobubble-formation.prec` fixture existed for the retired co-bubble stage and was dropped in v0.9.3):
 
 1. `pipeline-smoothing-coast.prec` — 60 s coast at LKO with synthetic jitter envelope.
 2. `pipeline-anchor-separation.prec` — staging split with one ghost sibling, geometric offset known to the millimetre.
@@ -1263,7 +1263,7 @@ Maps to Section 18's phase ordering. A phase is not done until every box ticks.
 | 2     | `RenderSessionState` lifecycle, single anchor | Anchor identification + ε magnitude | `Pipeline-Anchor-LiveSeparation` | (none new) | `pipeline-anchor-separation` |
 | 3     | Lerp linearity, divergence Warn | Lerp divergence Warn | `Pipeline-Anchor-RelativeBoundary` | (none new) | (reuse) |
 | 4     | Lift / lower round-trip, distributivity | Frame mismatch Warn | `Pipeline-Anchor-OrbitalCheckpoint` | (none new) | (reuse) |
-| 5     | Retired in v0.10.0 (co-bubble overlap blend) | n/a | n/a | n/a | n/a |
+| 5     | Retired in v0.9.3 (co-bubble overlap blend) | n/a | n/a | n/a | n/a |
 | 6     | Three-stage propagation, suppressed predecessor | DAG walk summary | `Pipeline-DAG-Three-Stage` | `.pann` `AnchorCandidatesList` | (reuse) |
 | 7     | Terrain bucket cache hit / miss, eviction | Terrain Warn on raycast miss | `Pipeline-Terrain-Continuous` | `.prec` ground-clearance field round-trip | `pipeline-terrain-rover` |
 | 8     | Classifier accept / reject, cluster threshold | Outlier rejection summary, cluster Warn | `Pipeline-Outlier-Kraken` | `.pann` `OutlierFlagsList` | `pipeline-outlier-kraken` |
@@ -1350,7 +1350,7 @@ These are areas where the design is intentionally underspecified pending impleme
 
 The exact spline type (Catmull-Rom vs Hermite vs B-spline), tension parameters, and outlier threshold tuning are deferred. They can be tuned empirically once Increment 1 is in.
 
-(Sections 22.2 "Designated-Primary Stability" and 22.3 "Trace Precomputation Strategy" were co-bubble open questions; both were retired in v0.10.0 with the co-bubble subsystem, Section 10. The remaining open questions are renumbered below.)
+(Sections 22.2 "Designated-Primary Stability" and 22.3 "Trace Precomputation Strategy" were co-bubble open questions; both were retired in v0.9.3 with the co-bubble subsystem, Section 10. The remaining open questions are renumbered below.)
 
 ### 22.2 Surface Terrain Cache Granularity
 
@@ -1380,7 +1380,7 @@ Section 7.11 establishes priority for multiple-source anchors. Whether any real-
 | Frame transformation | Render-time switch between body-fixed and body-centered inertial representations. |
 | Hard discontinuity | A point along a trajectory across which smoothing splines and correction lerps must not cross. |
 | Lerp | Linear interpolation of correction values between two anchors bracketing a segment. |
-| Pipeline | The four-stage process producing rendered ghost positions from recorded data (a fifth co-bubble stage was retired in v0.10.0, Section 10). |
+| Pipeline | The four-stage process producing rendered ghost positions from recorded data (a fifth co-bubble stage was retired in v0.9.3, Section 10). |
 | Smoothing | Catmull-Rom or Hermite spline fit through recorded samples per segment. |
 | Snapshot | A reference vessel's position frozen at an anchor UT, used as a live-separation anchor. |
 
