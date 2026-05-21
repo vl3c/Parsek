@@ -1294,11 +1294,13 @@ namespace Parsek
 
         /// <summary>
         /// Implements the "Merge to Timeline" branch of the dialog.
-        /// <paramref name="playerRequestedSeal"/> is set by the
+        /// <paramref name="playerRequestedSeal"/> is set ONLY by the
         /// "Merge &amp; Seal" button shown on a not-yet-sealable Re-Fly
         /// attempt; it closes the re-fly slot after the commit (same effect
-        /// as the Recordings-window Seal button), without forcing the
-        /// recording to <see cref="MergeState.Immutable"/>.
+        /// as the Recordings-window Seal button) by flipping the slot's
+        /// effective tip to <see cref="MergeState.Immutable"/>. The
+        /// "Commit (don't seal)" button leaves it <c>false</c>, so the tip
+        /// stays <see cref="MergeState.CommittedProvisional"/> (open).
         /// </summary>
         internal static void MergeCommit(
             RecordingTree tree,
@@ -2744,15 +2746,31 @@ namespace Parsek
 
             // "Merge & Seal": the player asked to close the slot now even
             // though the outcome did not auto-seal. Reuse the same path the
-            // Recordings-window Seal button uses (closes the slot only;
-            // MergeState stays CommittedProvisional). Failure to resolve the
-            // slot is non-fatal — the merge already committed, so warn and
-            // point the player at the manual Seal affordance. TrySeal does
-            // its own persist + RP reap, a second durable pass after the
-            // merge journal's; that redundancy is intentional and cheap for
-            // a one-off interactive action.
+            // Recordings-window Seal button uses, which flips the slot's
+            // effective tip CommittedProvisional -> Immutable (the single
+            // open/closed source of truth after collapse-seal-into-mergestate).
+            // "Commit (don't seal)" leaves playerRequestedSeal false, so the
+            // tip stays CommittedProvisional (open / re-flyable) and the slot
+            // remains an Unfinished Flight. Failure to resolve the slot is
+            // non-fatal — the merge already committed, so warn and point the
+            // player at the manual Seal affordance. TrySeal does its own
+            // persist + RP reap, a second durable pass after the merge
+            // journal's; that redundancy is intentional and cheap for a
+            // one-off interactive action.
             if (playerRequestedSeal)
+            {
                 ApplyPlayerRequestedSeal(provisional);
+            }
+            else
+            {
+                // Diagnostic: make "Commit (don't seal)" leave a positive trace
+                // so a log reader can tell it apart from "Merge & Seal" (which
+                // logs via ApplyPlayerRequestedSeal). Without this, only the
+                // seal path was visible.
+                ParsekLog.Info("MergeDialog",
+                    $"Re-Fly merge committed WITHOUT seal (player chose Commit-don't-seal); " +
+                    $"slot left open at CommittedProvisional rec={provisional?.RecordingId ?? "<no-id>"}");
+            }
 
             return ReFlyMergeCommitResult.Completed;
         }
