@@ -434,5 +434,95 @@ namespace Parsek.Tests
             RecordingStore.DiscardPendingTree();
             Assert.Empty(GameStateStore.Events); // purge confirmed
         }
+
+        // ================================================================
+        // ResolveRevertPruneCutoff (launch boundary for the orphan prune)
+        // ================================================================
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Launch_UsesLoadedUTExclusive()
+        {
+            // Revert-to-Launch rewinds the clock, so loadedUT is the exact launch UT and the
+            // at-launch rollout is kept (vessel stays on the pad).
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Launch, loadedUT: 7.34, editorBoundaryUT: 7.34, out bool inclusive);
+
+            Assert.Equal(7.34, cutoff);
+            Assert.False(inclusive);
+        }
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Prelaunch_UsesEditorBoundaryInclusive()
+        {
+            // Revert-to-editor does NOT rewind the clock: loadedUT (39.72) is the revert-moment
+            // UT, useless as a launch boundary. The captured fresh-launch UT (24.5) is used
+            // instead, inclusive so the rollout (if any) is dropped (refund).
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Prelaunch, loadedUT: 39.72, editorBoundaryUT: 24.5, out bool inclusive);
+
+            Assert.Equal(24.5, cutoff);
+            Assert.True(inclusive);
+        }
+
+        [Fact]
+        public void ResolveRevertPruneCutoff_Prelaunch_NaNBoundary_FallsBackToLoadedUT()
+        {
+            // No launch boundary available (quickload-resumed free / science-mode vessel) -> NaN.
+            // Fall back to loadedUT, which prunes nothing harmful rather than risking a wrong cutoff.
+            double cutoff = ParsekScenario.ResolveRevertPruneCutoff(
+                RevertKind.Prelaunch, loadedUT: 31.28, editorBoundaryUT: double.NaN, out bool inclusive);
+
+            Assert.Equal(31.28, cutoff);
+            Assert.True(inclusive);
+        }
+
+        [Fact]
+        public void ResolveEditorRevertBoundaryUT_PrefersCapturedLaunchUT()
+        {
+            // The captured fresh-launch UT (site/mode independent) wins over the rollout UT.
+            // This is the Making History alt-site case: a Desert/Woomerang launch records no
+            // VesselRollout action (rollout UT is NaN), but the captured launch UT still works.
+            Assert.Equal(24.5, ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: 24.5, rolloutUT: double.NaN));
+            Assert.Equal(24.5, ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: 24.5, rolloutUT: 30.0));
+        }
+
+        [Fact]
+        public void ResolveEditorRevertBoundaryUT_FallsBackToRollout_WhenNoCapture()
+        {
+            // Quickload-resumed flight cleared the captured UT (NaN); fall back to the rollout UT.
+            Assert.Equal(3.98, ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: double.NaN, rolloutUT: 3.98));
+            Assert.True(double.IsNaN(ParsekScenario.ResolveEditorRevertBoundaryUT(capturedLaunchUT: double.NaN, rolloutUT: double.NaN)));
+        }
+
+        [Fact]
+        public void DecideFreshLaunchUtAction_FreshLaunchFlight_Captures()
+        {
+            Assert.Equal(FreshLaunchUtAction.Capture, ParsekScenario.DecideFreshLaunchUtAction(
+                GameScenes.FLIGHT, isRevert: false, isVesselSwitch: false, isFreshLaunchStartup: true));
+        }
+
+        [Fact]
+        public void DecideFreshLaunchUtAction_NonFreshFlight_Clears()
+        {
+            // Quickload-resume: a FLIGHT load that isn't a fresh launch clears the stale capture.
+            Assert.Equal(FreshLaunchUtAction.Clear, ParsekScenario.DecideFreshLaunchUtAction(
+                GameScenes.FLIGHT, isRevert: false, isVesselSwitch: false, isFreshLaunchStartup: false));
+        }
+
+        [Theory]
+        // Revert-to-launch reloads FLIGHT (isRevert): leave the capture so Revert-to-editor reads it.
+        [InlineData(GameScenes.FLIGHT, true, false, true)]
+        [InlineData(GameScenes.FLIGHT, true, false, false)]
+        // Vessel switch: leave untouched.
+        [InlineData(GameScenes.FLIGHT, false, true, true)]
+        // Revert-to-editor / space center / editor loads (not FLIGHT): leave untouched.
+        [InlineData(GameScenes.EDITOR, true, false, false)]
+        [InlineData(GameScenes.SPACECENTER, false, false, false)]
+        public void DecideFreshLaunchUtAction_LeavesCapture(
+            GameScenes scene, bool isRevert, bool isVesselSwitch, bool isFreshLaunchStartup)
+        {
+            Assert.Equal(FreshLaunchUtAction.Leave, ParsekScenario.DecideFreshLaunchUtAction(
+                scene, isRevert, isVesselSwitch, isFreshLaunchStartup));
+        }
     }
 }

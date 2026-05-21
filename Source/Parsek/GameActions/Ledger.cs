@@ -186,6 +186,111 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Removes orphan ledger actions that were generated live during a now-discarded
+        /// flight session: those with a null/empty <see cref="GameAction.RecordingId"/> whose UT
+        /// is past <paramref name="cutoffUT"/>. Returns the number removed. When
+        /// <paramref name="inclusive"/> is false the boundary is exclusive (UT &gt; cutoff); when
+        /// true it is inclusive (UT &gt;= cutoff).
+        ///
+        /// <para>Used by the revert path. Stock KSP discards the reverted flight and zeroes the
+        /// currency it earned, but actions earned on the launch pad BEFORE auto-record starts
+        /// (PRELAUNCH-window science transmissions, milestone rewards, the vessel rollout spend)
+        /// carry no recording id, so the pending-tree unstash that filters recording-tied actions
+        /// never touches them and the next full recalc re-applies them, overriding the stock
+        /// revert. A cutoff-only recalc walk would merely defer the re-credit until the clock
+        /// passes the orphan's UT again; removal is the correct semantics for "this flight never
+        /// happened".</para>
+        ///
+        /// <para><b>Boundary:</b> <paramref name="cutoffUT"/> is the launch UT. Revert-to-Launch
+        /// keeps the vessel on the pad, so it passes <paramref name="inclusive"/>=false to keep
+        /// the at-launch rollout spend (and any pre-launch KSC action that shares the launch UT
+        /// because UT is frozen in the editor). Revert-to-editor (VAB/SPH) un-builds the vessel,
+        /// so it passes <paramref name="inclusive"/>=true to also drop the at-launch rollout
+        /// (KSP refunds it). In-flight orphans always have UT strictly greater than the launch UT
+        /// because the clock advances once in flight, so both modes drop them.</para>
+        ///
+        /// <para>Safe because every persisted ledger action is stamped with the clock UT at the
+        /// moment it was appended and recording-tied actions carry a recording id, so a
+        /// null-recordingId action at/after the launch UT can only have come from the live
+        /// (non-recorded) part of the discarded session. Seed actions (<see cref="GameActionType.FundsInitial"/>
+        /// / <see cref="GameActionType.ScienceInitial"/> / <see cref="GameActionType.ReputationInitial"/>)
+        /// are excluded explicitly: they define the session baseline and must survive regardless of UT.</para>
+        /// </summary>
+        internal static int PruneOrphanActionsAfterUT(double cutoffUT, bool inclusive = false)
+        {
+            int removed = 0;
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (action == null)
+                    continue;
+                if (!string.IsNullOrEmpty(action.RecordingId))
+                    continue;
+                if (RecalculationEngine.IsSeedType(action.Type))
+                    continue;
+                // Keep everything before the launch boundary. Exclusive keeps the boundary UT
+                // itself (rollout retained on Revert-to-Launch); inclusive drops it (rollout
+                // refunded on Revert-to-editor).
+                bool keep = inclusive ? action.UT < cutoffUT : action.UT <= cutoffUT;
+                if (keep)
+                    continue;
+
+                actions.RemoveAt(i);
+                removed++;
+            }
+
+            string boundary = inclusive ? "at/after" : "after";
+            if (removed > 0)
+            {
+                BumpStateVersion();
+                ParsekLog.Info("Ledger",
+                    $"PruneOrphanActionsAfterUT: removed {removed} untagged action(s) {boundary} UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+            }
+            else
+            {
+                ParsekLog.Verbose("Ledger",
+                    $"PruneOrphanActionsAfterUT: no untagged actions {boundary} UT " +
+                    $"{cutoffUT.ToString("R", CultureInfo.InvariantCulture)} (total={actions.Count})");
+            }
+
+            return removed;
+        }
+
+        /// <summary>
+        /// Returns the UT of the most recent untagged (no recording id) vessel rollout spend
+        /// (<see cref="GameActionType.FundsSpending"/> with <see cref="FundsSpendingSource.VesselBuild"/>),
+        /// or <c>double.NaN</c> when none exists. This is the pad/runway placement UT of the
+        /// current uncommitted flight, used by the editor-revert prune as the launch boundary.
+        ///
+        /// <para>Reliable because the rollout spend is recorded exactly once when the vessel is
+        /// placed (KSP's <c>VesselRollout</c> transaction), unlike the vessel's own
+        /// <c>launchTime</c>/<c>missionTime</c> which KSP keeps resetting to "now" while the
+        /// vessel sits in PRELAUNCH. Committed flights' rollouts carry a recording id and are
+        /// excluded, so the untagged set is the in-progress flight(s); the max UT is the current
+        /// launch. Returns NaN for free / science-mode vessels that have no rollout spend.</para>
+        /// </summary>
+        internal static double GetLatestUntaggedVesselBuildUT()
+        {
+            double latest = double.NaN;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (a == null)
+                    continue;
+                if (!string.IsNullOrEmpty(a.RecordingId))
+                    continue;
+                if (a.Type != GameActionType.FundsSpending)
+                    continue;
+                if (a.FundsSpendingSource != FundsSpendingSource.VesselBuild)
+                    continue;
+                if (double.IsNaN(latest) || a.UT > latest)
+                    latest = a.UT;
+            }
+            return latest;
+        }
+
+        /// <summary>
         /// Remaps every action tagged with <paramref name="oldRecordingId"/> to
         /// <paramref name="newRecordingId"/>. Called by the recording optimizer when a
         /// root segment is absorbed into a successor (chain coalescing) and the tree's
