@@ -445,5 +445,70 @@ namespace Parsek.Tests
             Assert.NotNull(resolved);
             Assert.Same(rec, resolved);
         }
+
+        // ---------- 7. Reaper must not kill an open sibling slot -------------
+
+        [Fact]
+        public void IsReapEligible_OpenSiblingTipInCommittedTreeOnly_NotReapEligible()
+        {
+            // Playtest data-loss repro: a 2-slot RP where slot 0 is sealed (tip
+            // Immutable) and slot 1 is OPEN (tip CommittedProvisional), but
+            // slot 1's tip recording lives only in a committed TREE, not the
+            // flat committed list (the transient state during a re-fly merge's
+            // tree-replace tail). The reaper MUST resolve slot 1's tip
+            // tree-aware and see it open, so it does NOT reap the RP and
+            // destroy the open sibling. A flat-list-only lookup misses slot 1,
+            // treats it as an orphan (closed), and reaps the whole RP -> the
+            // open slot loses its rewind point (observed: sealing the Kerbal X
+            // slot reaped the RP and killed the open Kerbal X Probe slot).
+            var sealedTip = new Recording
+            {
+                RecordingId = "slot0_sealed",
+                VesselName = "Kerbal X",
+                MergeState = MergeState.Immutable,
+            };
+            RecordingStore.AddCommittedInternal(sealedTip); // flat list
+
+            var openTip = new Recording
+            {
+                RecordingId = "slot1_open",
+                VesselName = "Kerbal X Probe",
+                TreeId = "probe_tree",
+                MergeState = MergeState.CommittedProvisional,
+            };
+            var probeTree = new RecordingTree
+            {
+                Id = "probe_tree",
+                TreeName = "Probe",
+                RootRecordingId = "slot1_open",
+            };
+            probeTree.Recordings["slot1_open"] = openTip;
+            // Committed TREE only; deliberately NOT added to the flat list, so
+            // a flat-only reaper lookup would miss it.
+            RecordingStore.AddCommittedTreeForTesting(probeTree);
+
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_multi",
+                BranchPointId = "bp_multi",
+                UT = 100.0,
+                SessionProvisional = false,
+                FocusSlotIndex = -1,
+                ChildSlots = new List<ChildSlot>
+                {
+                    Slot(0, "slot0_sealed"),
+                    Slot(1, "slot1_open"),
+                },
+            };
+            InstallScenario(rp);
+            EffectiveState.ResetCachesForTesting();
+
+            var supersedes = ParsekScenario.Instance.RecordingSupersedes;
+            Assert.False(
+                RewindPointReaper.IsReapEligible(rp, supersedes),
+                "RP with an open (CommittedProvisional) sibling slot must NOT be "
+                + "reap-eligible, even when that slot's tip lives only in a "
+                + "committed tree (not the flat committed list).");
+        }
     }
 }

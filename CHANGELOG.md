@@ -24,6 +24,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Sealing one slot of a multi-slot rewind point (for example sealing a booster while its probe was still re-flyable) no longer reaps the whole rewind point and silently closes the still-open sibling slot. The reaper and disk-usage diagnostics now resolve each slot's recording tree-aware, so an open slot whose recording lives in a committed tree is never mistaken for a deleted one.
 - A committed vessel left in orbit (or otherwise landed/splashed) now re-materializes as a real vessel when playback reaches the end of its recording, even after you rewound its launch back to the pad. Previously such a payload silently failed to re-spawn and its orbit marker vanished, because its vessel snapshot had been dropped from memory during the session; Parsek now reloads the snapshot from disk at spawn time.
 - A flag planted by an EVA kerbal you re-control after switching away and back now records and replays during watch. Previously the plant was silently dropped whenever Parsek was still tracking that kerbal in the background, so the ghost never re-planted the flag.
 - Taking control of an EVA kerbal that Parsek was tracking in the background (for example after switching to a nearby vessel and back) now resumes full-fidelity recording of that kerbal on their first movement, instead of leaving them background-tracked. This also stops a stream of repeated "recovering missed vessel switch" log warnings during the stay.

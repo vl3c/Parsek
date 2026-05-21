@@ -224,18 +224,17 @@ namespace Parsek
         private static Recording FindRecordingById(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
-            // Allowlisted raw read: the reaper MUST see NotCommitted /
-            // CommittedProvisional states (ERS would filter NotCommitted out).
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-            return null;
+            // Tree-aware raw lookup. A slot's effective tip can live in a
+            // committed tree without being mirrored into the flat committed
+            // list (transiently true during a re-fly merge's tree-replace
+            // tail). A flat-list-only scan would miss such a tip, return null,
+            // and the caller would treat the slot as an orphan (closed) -> the
+            // reaper would reap the RP and destroy an OPEN sibling slot (data
+            // loss). EffectiveState.FindCommittedRecordingByIdRaw checks the
+            // flat list first, then the committed trees. The reaper MUST see
+            // NotCommitted / CommittedProvisional states (ERS would filter
+            // NotCommitted out), which the raw-by-id helper preserves.
+            return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
         internal static bool TryDeleteQuicksaveFile(RewindPoint rp)

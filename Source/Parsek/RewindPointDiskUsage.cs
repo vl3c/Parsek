@@ -261,22 +261,12 @@ namespace Parsek
         private static Recording FindRecordingById(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
-            // [ERS-exempt] Diagnostics resolve the slot's already-walked
-            // effective id against the raw committed list so the explicit
-            // scenario overload stays self-contained. ERS reads the global
-            // ParsekScenario.Instance, while this helper may be called with a
-            // test scenario supplied directly.
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-
-            return null;
+            // Tree-aware lookup so a slot tip that lives only in a committed
+            // tree (not mirrored into the flat list, e.g. during a re-fly
+            // merge tail) is bucketed by its true MergeState rather than as a
+            // missing/concluded slot. Matches the reaper and seal/stash tip
+            // resolution; a flat-only scan would mis-bucket such a slot.
+            return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
         /// <summary>Test-only: clears the cached snapshot and resets the clock override.</summary>
