@@ -52,6 +52,15 @@ namespace Parsek
         private const double SubSurfaceRecordedPointContradictionWindowSeconds = 0.5;
         private const double PredictedTailReseedAnchorMaxGapSeconds = 5.0;
 
+        // Generous slack added to a parent-anchored recording's authored coverage span
+        // when deciding whether a recorded body-fixed surface point may contradict a
+        // bogus live-orbit sub-surface start. A parent-anchored recording's live vessel
+        // orbit is the origin-collapse NullSolver fingerprint (alt ~= -bodyRadius), so
+        // its own body-fixed surface is authoritative and the tight fresh-split window
+        // must not gate it. The slack only bounds against pathological out-of-recording
+        // points; the live-orbit UT itself carries no meaning for these recordings.
+        private const double ParentAnchoredRecordedPointCoverageSlackSeconds = 5.0;
+
         private static bool? flightGlobalsRuntimeAvailableForTesting;
         internal static Func<(bool runtimeAvailable, bool cacheResult, string diagnostic)> FlightGlobalsRuntimeAvailabilityOverrideForTesting;
 
@@ -923,8 +932,16 @@ namespace Parsek
                 out recordedPointSource,
                 out recordedPointDeltaUT))
             {
-                if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
+                if (IsRecordedSurfaceContradictionAccepted(
+                        recording,
+                        recordedPoint,
+                        recordedPointDeltaUT,
+                        recordedPointSource,
+                        startState,
+                        result))
+                {
                     return true;
+                }
             }
 
             if (!TryFindParentEvaStructuralSurfacePoint(
@@ -940,7 +957,88 @@ namespace Parsek
                 return false;
             }
 
-            return recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds;
+            return IsRecordedSurfaceContradictionAccepted(
+                recording,
+                recordedPoint,
+                recordedPointDeltaUT,
+                recordedPointSource,
+                startState,
+                result);
+        }
+
+        /// <summary>
+        /// Decides whether a recorded body-fixed surface point may contradict a
+        /// sub-surface live-orbit start. The recorded point's lat/lon/alt are the
+        /// recording's authoritative body-fixed surface (for a Relative
+        /// <see cref="TrackSection"/> the contradiction search reads
+        /// <c>bodyFixedFrames</c>, never the anchor-local metre offsets in
+        /// <c>frames</c>), so the altitude here is a real geocentric altitude.
+        /// <para>
+        /// For a non-parent-anchored recording the live-orbit UT is meaningful, so
+        /// only the tight "fresh split" window admits the contradiction. For a
+        /// parent-anchored recording the live vessel orbit is the origin-collapse
+        /// NullSolver fingerprint (alt ~= -bodyRadius), so the live-orbit UT carries
+        /// no meaning: the body-fixed surface is authoritative and acceptance widens
+        /// to the recording's own authored coverage span. This is the mechanism fix
+        /// for parent-anchored debris being classified Destroyed off a -bodyRadius
+        /// live-orbit read instead of its genuine body-fixed altitude.
+        /// </para>
+        /// </summary>
+        internal static bool IsRecordedSurfaceContradictionAccepted(
+            Recording recording,
+            TrajectoryPoint recordedPoint,
+            double recordedPointDeltaUT,
+            string recordedPointSource,
+            BallisticStateVector startState,
+            IncompleteBallisticFinalizationResult result)
+        {
+            if (recording == null || !IsFinite(recordedPointDeltaUT))
+                return false;
+
+            if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
+                return true;
+
+            // Parent-anchored widening: the live-orbit start is the origin-collapse
+            // fingerprint, so the recorded body-fixed surface is authoritative even
+            // outside the tight fresh-split window. Bound only against pathological
+            // points that fall outside the recording's own authored coverage.
+            bool parentAnchored = !string.IsNullOrEmpty(recording.ParentAnchorRecordingId);
+            if (!parentAnchored)
+                return false;
+
+            double recordingStartUT = recording.StartUT;
+            double recordingEndUT = recording.EndUT;
+            if (!IsFinite(recordingStartUT) || !IsFinite(recordingEndUT))
+                return false;
+
+            double lowerBound = recordingStartUT - ParentAnchoredRecordedPointCoverageSlackSeconds;
+            double upperBound = recordingEndUT + ParentAnchoredRecordedPointCoverageSlackSeconds;
+            bool withinAuthoredCoverage =
+                IsFinite(recordedPoint.ut)
+                && recordedPoint.ut >= lowerBound
+                && recordedPoint.ut <= upperBound;
+            if (!withinAuthoredCoverage)
+                return false;
+
+            ParsekLog.Verbose("Extrapolator",
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Sub-surface contradiction accepted via parent-anchored body-fixed surface: " +
+                    "rec={0} parentAnchorRec={1} source={2} recordedPointUT={3:F3} recordedAlt={4:F1} " +
+                    "(body-fixed) liveStartUT={5:F3} liveAlt={6:F1} (origin-collapse) deltaUT={7:F3} " +
+                    "exceeds freshSplitWindow={8:F1}s but within authoredCoverage=[{9:F3},{10:F3}]",
+                    recording.RecordingId ?? "(null)",
+                    recording.ParentAnchorRecordingId ?? "(null)",
+                    recordedPointSource ?? "(unknown)",
+                    recordedPoint.ut,
+                    recordedPoint.altitude,
+                    startState.ut,
+                    result.subSurfaceDestroyedAltitude,
+                    recordedPointDeltaUT,
+                    SubSurfaceRecordedPointContradictionWindowSeconds,
+                    lowerBound,
+                    upperBound));
+            return true;
         }
 
         private static bool TryFindNearestRecordedSurfacePoint(

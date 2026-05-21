@@ -2266,6 +2266,363 @@ namespace Parsek.Tests
                 && l.Contains("source=TrackSection[0].bodyFixedFrames"));
         }
 
+        // ---------------------------------------------------------------
+        // Parent-anchored Relative-frame sub-surface mechanism fix:
+        // a parent-anchored debris/child recording's live vessel orbit is the
+        // origin-collapse NullSolver fingerprint (alt ~= -bodyRadius). Its
+        // authored body-fixed surface (Relative TrackSection.bodyFixedFrames) is
+        // authoritative even when the only authored body-fixed sample sits just
+        // outside the tight 0.5s "fresh split" window, which is keyed off the
+        // (bogus) live-orbit UT.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void IsRecordedSurfaceContradictionAccepted_NonParentAnchored_RequiresFreshSplitWindow()
+        {
+            // Non-parent-anchored: the live-orbit UT is meaningful, so only the
+            // tight fresh-split window admits the contradiction.
+            var rec = new Recording
+            {
+                RecordingId = "non-anchored",
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 110.0
+            };
+            var recordedPoint = new TrajectoryPoint { ut = 100.0, bodyName = "Kerbin", altitude = 900.0 };
+            var startState = new BallisticStateVector { ut = 100.7, bodyName = "Kerbin" };
+            var result = new IncompleteBallisticFinalizationResult { subSurfaceDestroyedAltitude = -599034.0 };
+
+            // deltaUT = 0.7 > 0.5 and not parent-anchored -> rejected.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsRecordedSurfaceContradictionAccepted(
+                rec, recordedPoint, 0.7, "TrackSection[0].bodyFixedFrames", startState, result));
+
+            // deltaUT = 0.4 <= 0.5 -> accepted (fresh-split coincidence).
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsRecordedSurfaceContradictionAccepted(
+                rec, recordedPoint, 0.4, "TrackSection[0].bodyFixedFrames", startState, result));
+        }
+
+        [Fact]
+        public void IsRecordedSurfaceContradictionAccepted_ParentAnchored_AcceptsBodyFixedPointOutsideFreshSplitWindow()
+        {
+            // Parent-anchored: live-orbit UT is bogus, so the body-fixed surface is
+            // authoritative as long as the recorded point lies within the recording's
+            // own authored coverage (start - slack .. end + slack), even though
+            // deltaUT (vs the bogus live-orbit UT) exceeds the fresh-split window.
+            var rec = new Recording
+            {
+                RecordingId = "anchored-debris",
+                ParentAnchorRecordingId = "parent-rec",
+                IsDebris = true,
+                ExplicitStartUT = 21.2,
+                ExplicitEndUT = 27.8
+            };
+            // This mirrors the playtest: the only authored body-fixed seed point
+            // is at ut=21.2; the live-orbit fallback UT is the commit UT 21.72, so
+            // deltaUT = 0.52 (just outside the 0.5s window).
+            var recordedPoint = new TrajectoryPoint { ut = 21.2, bodyName = "Kerbin", altitude = 961.97 };
+            var startState = new BallisticStateVector { ut = 21.72, bodyName = "Kerbin" };
+            var result = new IncompleteBallisticFinalizationResult { subSurfaceDestroyedAltitude = -599034.5 };
+
+            Assert.True(IncompleteBallisticSceneExitFinalizer.IsRecordedSurfaceContradictionAccepted(
+                rec, recordedPoint, 0.52, "TrackSection[0].bodyFixedFrames", startState, result));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Extrapolator]")
+                && l.Contains("Sub-surface contradiction accepted via parent-anchored body-fixed surface")
+                && l.Contains("rec=anchored-debris")
+                && l.Contains("recordedAlt=962.0")
+                && l.Contains("liveAlt=-599034.5"));
+        }
+
+        [Fact]
+        public void IsRecordedSurfaceContradictionAccepted_ParentAnchored_RejectsPointFarOutsideAuthoredCoverage()
+        {
+            // A recorded point far outside the recording's authored coverage (even
+            // for a parent-anchored recording) must not be accepted: that would be a
+            // pathological cross-recording contamination, not the recording's own
+            // body-fixed surface.
+            var rec = new Recording
+            {
+                RecordingId = "anchored-debris-2",
+                ParentAnchorRecordingId = "parent-rec",
+                IsDebris = true,
+                ExplicitStartUT = 21.2,
+                ExplicitEndUT = 27.8
+            };
+            var recordedPoint = new TrajectoryPoint { ut = 999.0, bodyName = "Kerbin", altitude = 961.97 };
+            var startState = new BallisticStateVector { ut = 21.72, bodyName = "Kerbin" };
+            var result = new IncompleteBallisticFinalizationResult { subSurfaceDestroyedAltitude = -599034.5 };
+
+            // ut=999 is well beyond endUT(27.8)+slack(5) -> rejected.
+            Assert.False(IncompleteBallisticSceneExitFinalizer.IsRecordedSurfaceContradictionAccepted(
+                rec, recordedPoint, 977.28, "TrackSection[0].bodyFixedFrames", startState, result));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredRelativeDebris_ReseedsFromBodyFixedSurface_NotBogusLiveAltitude()
+        {
+            // End-to-end mechanism check (scenario (a) + (b)): a parent-anchored
+            // debris recording whose only authored body-fixed sample is the seed at
+            // deltaUT=0.52s (outside the fresh-split window). The live-orbit fallback
+            // collapses to the body origin (alt ~= -599034). The fix accepts the
+            // body-fixed surface as authoritative and reseeds the extrapolation from
+            // its real lat/lon/alt + recorded (downward) velocity, producing a
+            // genuine terrain impact -> still Destroyed, but for the RIGHT reason
+            // (real body-fixed terminal), NOT the bogus -599034 origin-collapse.
+            var rec = new Recording
+            {
+                RecordingId = "parent-anchored-debris-bodyfixed",
+                ParentAnchorRecordingId = "parent-rec",
+                IsDebris = true,
+                ExplicitStartUT = 21.2,
+                ExplicitEndUT = 27.8
+            };
+            // Body-fixed seed: genuinely above ground (961.97 m), at ut=21.2.
+            var bodyFixedSeed = new TrajectoryPoint
+            {
+                ut = 21.2,
+                bodyName = "Kerbin",
+                latitude = -0.0976,
+                longitude = -74.5449,
+                altitude = 961.97,
+                velocity = new Vector3(-122.9f, -1.04f, 47.83f)
+            };
+            // Anchor-local metre offsets in frames (the misleading lat/lon/alt the
+            // bug used to read). alt ~= -0.61 m offset, NOT a real altitude.
+            var relativeFrame = new TrajectoryPoint
+            {
+                ut = 21.2,
+                bodyName = "Kerbin",
+                latitude = 1.06,
+                longitude = -15.21,
+                altitude = -0.61
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 21.2,
+                endUT = 27.8,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint> { relativeFrame },
+                bodyFixedFrames = new List<TrajectoryPoint> { bodyFixedSeed }
+            });
+
+            // Recovery start state mirrors what OrbitReseed would produce from the
+            // body-fixed seed: a genuinely sub-orbital ballistic descent that impacts
+            // the terrain (Destroyed for the right reason).
+            var recoveryStartState = new BallisticStateVector
+            {
+                ut = 21.2,
+                bodyName = "Kerbin",
+                position = new Vector3d(600961.97, 0.0, 0.0),
+                velocity = new Vector3d(-130.0, 5.0, 0.0),
+                orbitalFrameRotation = Quaternion.identity
+            };
+            IncompleteBallisticSceneExitFinalizer.TryBuildRecoveryStartStateOverrideForTesting =
+                (point, _) => point.ut == 21.2 ? recoveryStartState : (BallisticStateVector?)null;
+
+            int extrapolateCallCount = 0;
+            BallisticStateVector? capturedRecoveryStartState = null;
+            var impactSegment = new OrbitSegment
+            {
+                startUT = 21.2,
+                endUT = 95.0,
+                bodyName = "Kerbin",
+                inclination = 0.2,
+                eccentricity = 0.9,
+                semiMajorAxis = 350000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 3.0,
+                epoch = 21.2,
+                isPredicted = true
+            };
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    // Live-orbit fallback collapses to body origin (alt ~= -599034).
+                    startState = new BallisticStateVector
+                    {
+                        ut = 21.72,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(966.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolateCallCount++;
+                    if (extrapolateCallCount == 1)
+                    {
+                        // First call: bogus live-orbit fallback -> SubSurfaceStart.
+                        return BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false);
+                    }
+
+                    // Second call: recovery from the body-fixed seed -> genuine impact.
+                    capturedRecoveryStartState = startState;
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Destroyed,
+                        terminalUT = 95.0,
+                        terminalBodyName = "Kerbin",
+                        terminalPosition = new Vector3d(600000.0, 0.0, 0.0),
+                        terminalVelocity = new Vector3d(0.0, 0.0, 0.0),
+                        segments = new List<OrbitSegment> { impactSegment },
+                        failureReason = ExtrapolationFailureReason.None
+                    };
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            // Recovery ran (2 extrapolate calls): the body-fixed surface was used.
+            Assert.Equal(2, extrapolateCallCount);
+            Assert.True(capturedRecoveryStartState.HasValue);
+            Assert.Equal(21.2, capturedRecoveryStartState.Value.ut, 3);
+            // Genuine impact terminal, NOT the bogus -599034 origin-collapse verdict.
+            Assert.Equal(TerminalState.Destroyed, result.terminalState);
+            Assert.Equal(95.0, result.terminalUT, 1);
+            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.Null(result.subSurfaceDestroyedBodyName);
+            // The frame-resolution log shows the body-fixed altitude actually used.
+            Assert.Contains(logLines, l =>
+                l.Contains("Sub-surface contradiction accepted via parent-anchored body-fixed surface")
+                && l.Contains("parent-anchored-debris-bodyfixed")
+                && l.Contains("recordedAlt=962.0")
+                && l.Contains("liveAlt=-599034"));
+            Assert.Contains(logLines, l =>
+                l.Contains("recovered sub-surface live-orbit fallback")
+                && l.Contains("parent-anchored-debris-bodyfixed"));
+            // The bogus origin-collapse classification must NOT ship.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("parent-anchored-debris-bodyfixed"));
+        }
+
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredControlledChild_NotWronglyDestroyed()
+        {
+            // Scenario (c): a near-parent controlled-decoupled child (IsDebris=false)
+            // that does NOT crash. Same NullSolver origin-collapse on the live orbit,
+            // but its body-fixed surface + recorded velocity reseed to an alive
+            // (Orbiting) trajectory. The fix must classify it Orbiting, NOT Destroyed.
+            var rec = new Recording
+            {
+                RecordingId = "parent-anchored-controlled-child",
+                ParentAnchorRecordingId = "parent-rec",
+                IsDebris = false,
+                ExplicitStartUT = 21.2,
+                ExplicitEndUT = 27.8
+            };
+            var bodyFixedSeed = new TrajectoryPoint
+            {
+                ut = 21.4,
+                bodyName = "Kerbin",
+                latitude = -0.0976,
+                longitude = -74.5449,
+                altitude = 75000.0,
+                velocity = new Vector3(2300.0f, 0.0f, 0.0f)
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 21.2,
+                endUT = 27.8,
+                anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 21.4, bodyName = "Kerbin", latitude = 1.0, longitude = 2.0, altitude = -0.5 }
+                },
+                bodyFixedFrames = new List<TrajectoryPoint> { bodyFixedSeed }
+            });
+
+            var recoveryStartState = new BallisticStateVector
+            {
+                ut = 21.4,
+                bodyName = "Kerbin",
+                position = new Vector3d(675000.0, 0.0, 0.0),
+                velocity = new Vector3d(0.0, 2300.0, 0.0),
+                orbitalFrameRotation = Quaternion.identity
+            };
+            IncompleteBallisticSceneExitFinalizer.TryBuildRecoveryStartStateOverrideForTesting =
+                (point, _) => point.ut == 21.4 ? recoveryStartState : (BallisticStateVector?)null;
+
+            int extrapolateCallCount = 0;
+            var orbitingSegment = new OrbitSegment
+            {
+                startUT = 21.4,
+                endUT = 5000.0,
+                bodyName = "Kerbin",
+                inclination = 0.1,
+                eccentricity = 0.05,
+                semiMajorAxis = 700000.0,
+                longitudeOfAscendingNode = 1.0,
+                argumentOfPeriapsis = 2.0,
+                meanAnomalyAtEpoch = 3.0,
+                epoch = 21.4,
+                isPredicted = true
+            };
+
+            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                rec,
+                NullSolverSnapshot(),
+                KerbinBodies(),
+                delegate(out BallisticStateVector startState)
+                {
+                    startState = new BallisticStateVector
+                    {
+                        ut = 21.92,
+                        bodyName = "Kerbin",
+                        position = new Vector3d(966.0, 0.0, 0.0),
+                        velocity = new Vector3d(0.0, 0.0, 0.0),
+                        orbitalFrameRotation = Quaternion.identity
+                    };
+                    return true;
+                },
+                (startState, extrapolationBodies) =>
+                {
+                    extrapolateCallCount++;
+                    if (extrapolateCallCount == 1)
+                    {
+                        return BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false);
+                    }
+
+                    return new ExtrapolationResult
+                    {
+                        terminalState = TerminalState.Orbiting,
+                        terminalUT = 5000.0,
+                        terminalBodyName = "Kerbin",
+                        terminalPosition = new Vector3d(700000.0, 0.0, 0.0),
+                        terminalVelocity = new Vector3d(0.0, 2300.0, 0.0),
+                        segments = new List<OrbitSegment> { orbitingSegment },
+                        failureReason = ExtrapolationFailureReason.None
+                    };
+                },
+                out IncompleteBallisticFinalizationResult result);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            // Alive: classified Orbiting, NOT wrongly Destroyed off the bogus live alt.
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("parent-anchored-controlled-child"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Start rejected: sub-surface state rec=parent-anchored-controlled-child"));
+        }
+
         [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_NullSolver_RecentPointFromOlderRecordingSuppressesSubSurfaceDestroyed()
         {
