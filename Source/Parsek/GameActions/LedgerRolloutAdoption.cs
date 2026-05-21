@@ -192,11 +192,28 @@ namespace Parsek
             if (existing.IsLegacyBareKey)
                 return false;
 
+            // Distinct, known launch sites are never the same logical rollout,
+            // even with a shared persistentId. Revert-to-Launch always relaunches
+            // from the same site, so a genuine revert double-fire keeps the site
+            // constant. Two launches of the same craft from different sites (e.g.
+            // Launch Pad, then a Making History alternate site like Desert) reuse
+            // the vessel persistentId but are independent rollouts that KSP charges
+            // separately; collapsing them drops the second launch's cost and the
+            // next recalc refunds the player. The PID-only match below cannot see
+            // this, so reject it here first. Only acts on positive evidence (both
+            // sites present and differing); a missing site on either side falls
+            // through to the PID match unchanged.
+            if (!string.IsNullOrEmpty(existing.LaunchSiteName)
+                && !string.IsNullOrEmpty(candidate.LaunchSiteName)
+                && !existing.LaunchSiteName.Equals(candidate.LaunchSiteName, StringComparison.OrdinalIgnoreCase))
+                return false;
+
             // Strongest match: same KSP persistentId. KSP preserves the active
             // vessel's persistentId across Revert-to-Launch (the revert reloads the
             // launch quicksave, which serialized that PID), so the original rollout
-            // and the revert-relaunch rollout share a PID. Two genuinely independent
-            // vessel launches always have distinct PIDs.
+            // and the revert-relaunch rollout share a PID. A shared PID alone is not
+            // sufficient (relaunching the same craft reuses the PID), but combined
+            // with the same-site guard above it identifies the revert double-fire.
             if (existing.VesselPersistentId != 0 && candidate.VesselPersistentId != 0)
                 return existing.VesselPersistentId == candidate.VesselPersistentId;
 
