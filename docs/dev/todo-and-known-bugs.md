@@ -12,7 +12,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Logs did not distinguish Rewind-to-Launch from Re-Fly
+## Done - v0.10.0 Re-Fly merge dialog now offers Merge & Seal on a not-yet-sealable attempt
+
+- Player feedback: a Re-Fly attempt whose outcome does not auto-seal showed only "Commit to Timeline" (slot stays open) + "Discard". Closing the slot meant a separate trip to the Recordings window to click Seal.
+- **Change:** renamed the auto-seal button to "Merge & Seal"; for the not-yet-sealable case the dialog now stacks three buttons — "Commit (don't seal)" (keeps slot open), "Merge & Seal" (commits, then closes the slot), and "Discard". Permanent/auto-seal dialogs stay two buttons; non-Re-Fly merges stay "Merge to Timeline"; titles unchanged. "Merge & Seal" reuses `UnfinishedFlightSealHandler.TrySeal` (sets `slot.Sealed=true` only; `MergeState` stays `CommittedProvisional`, NOT forced Immutable), threaded via `playerRequestedSeal` through `MergeCommit` → `RunPreTransitionAction` → `TryCommitReFlySupersede` → `ApplyPlayerRequestedSeal` on the survivor-resolved provisional after the merge journal completes. Seal-resolution failure is non-fatal (merge already committed; player told to seal manually).
+- **Tests:** label/body unit tests updated in `ReFlyAutoSealPreviewTests.cs` (rename to "Commit (don't seal)", new "Merge & Seal" label + `BuildReFlyMergeAndSealButtonLabel`, two-option body copy).
+- **Test coverage follow-up (open):** the new `playerRequestedSeal:true` path (`MergeCommit`→…→`TrySeal`) has no automated coverage — `MergeReFlyToSubOrbitalKeepsSlotOpenTest` only exercises the auto path (asserts `slot.Sealed==false`), never the "Merge & Seal" button. Add an in-game test that drives `playerRequestedSeal:true` and asserts `slot.Sealed==true && rec.MergeState==CommittedProvisional` (and the marker-clear/RP-survival preconditions of the manual seal). Independent review flagged this as the one should-fix; deferred because in-game tests can't be authored/verified in the cloud session (no KSP runtime / no dotnet).
+- **Status:** CLOSED 2026-05-21 (test follow-up open).
+
+
 
 - Investigation 2026-05-20 (`logs/2026-05-20_2332_kerbalx-nospawn/`). A plain Rewind-to-Launch (the root recording "Rewind to launch" button, which loads a `parsek_rw_*` quicksave) read in the log like a Re-Fly (Rewind-to-Separation / Rewind-to-Staging). The `[Scenario] OnLoad: rewind-staging load: ... marker=False journal=False` line fires on every load to describe the persisted re-fly subsystem state, even when no re-fly happened, so scanning near a rewind made the plain launch rewind look like a re-fly. Both invocation paths also log under the same `[Rewind]` tag, with no "to Launch" vs "Re-Fly" stamp.
 - **Fix (logging only, no behavior change):**

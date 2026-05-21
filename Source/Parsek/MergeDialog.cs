@@ -2747,7 +2747,10 @@ namespace Parsek
             // Recordings-window Seal button uses (closes the slot only;
             // MergeState stays CommittedProvisional). Failure to resolve the
             // slot is non-fatal — the merge already committed, so warn and
-            // point the player at the manual Seal affordance.
+            // point the player at the manual Seal affordance. TrySeal does
+            // its own persist + RP reap, a second durable pass after the
+            // merge journal's; that redundancy is intentional and cheap for
+            // a one-off interactive action.
             if (playerRequestedSeal)
                 ApplyPlayerRequestedSeal(provisional);
 
