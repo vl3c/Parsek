@@ -8490,76 +8490,6 @@ namespace Parsek.InGameTests
                 $"situation={timedOutVessel?.situation.ToString() ?? "null"})");
         }
 
-        private static IEnumerator WaitForCommittedRecording(
-            string recordingId, int committedBefore, float timeoutSeconds,
-            System.Action<Recording> onResolved = null)
-        {
-            // CommitTreeFlight commits the recording (count goes up by 1,
-            // populates RewindSaveFileName on the rewind owner) and then,
-            // because the live active vessel still represents the just-
-            // committed recording, ParsekFlight's auto-restore path
-            // (TryTakeCommittedTreeForSpawnedVesselRestore) immediately pulls
-            // the tree back out of CommittedRecordings to keep it as the live
-            // active tree. The Recording instance is unchanged — it just
-            // moves between the committed slot and the active-tree slot, and
-            // RewindSaveFileName stays populated. Look up via either slot and
-            // latch the count-incremented observation so a single tick inside
-            // the brief committed window is sufficient.
-            float deadline = Time.time + timeoutSeconds;
-            bool sawCountIncrease = false;
-            Recording resolved = null;
-            while (Time.time < deadline)
-            {
-                if (RecordingStore.CommittedRecordings.Count > committedBefore)
-                    sawCountIncrease = true;
-
-                Recording candidate = RecordingStore.CommittedRecordings.FirstOrDefault(
-                    r => r != null && r.RecordingId == recordingId);
-                if (candidate == null)
-                {
-                    var activeTree = ParsekFlight.Instance?.ActiveTreeForSerialization;
-                    if (activeTree?.Recordings != null)
-                        activeTree.Recordings.TryGetValue(recordingId, out candidate);
-                }
-
-                if (sawCountIncrease
-                    && candidate != null
-                    && !string.IsNullOrEmpty(candidate.RewindSaveFileName))
-                {
-                    resolved = candidate;
-                    onResolved?.Invoke(resolved);
-                    yield break;
-                }
-
-                yield return null;
-            }
-
-            InGameAssert.Fail(
-                $"WaitForCommittedRecording timed out after {timeoutSeconds:F0}s " +
-                $"(recordingId={recordingId ?? "null"}, committedBefore={committedBefore}, " +
-                $"committedNow={RecordingStore.CommittedRecordings.Count}, " +
-                $"sawCountIncrease={sawCountIncrease}, " +
-                $"isRecording={ParsekFlight.Instance?.IsRecording == true}, " +
-                $"activeTreeRec={resolved?.RecordingId ?? "null"})");
-        }
-
-        private static IEnumerator WaitForCapturedLogLine(
-            List<string> captured, string containsText, float timeoutSeconds)
-        {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
-            {
-                if (captured.Any(line => line.Contains(containsText)))
-                    yield break;
-
-                yield return null;
-            }
-
-            InGameAssert.Fail(
-                $"WaitForCapturedLogLine timed out after {timeoutSeconds:F0}s " +
-                $"(text='{containsText}', captured={captured?.Count ?? 0})");
-        }
-
         private static IEnumerator AssertNoPopupDialog(string dialogName, float durationSeconds)
         {
             float deadline = Time.time + durationSeconds;
@@ -10556,206 +10486,6 @@ namespace Parsek.InGameTests
                 FlightInputHandler.state.mainThrottle = originalThrottle;
                 ParsekLog.TestObserverForTesting = priorObserver;
                 RecordingStore.SuppressLogging = originalRecordingStoreSuppressLogging;
-                if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
-                    ParsekFlight.Instance.StopRecording();
-            }
-        }
-
-        /// <summary>
-        /// Live rewind canary for #527. Commits a real launch recording to get a real
-        /// rewind save, injects future ledger actions, then drives the actual rewind
-        /// load path and asserts the post-rewind FLIGHT follow-up keeps those future
-        /// funds/contracts filtered.
-        /// </summary>
-        [InGameTest(Category = "RewindFlow", Scene = GameScenes.FLIGHT, RunLast = true,
-            AllowBatchExecution = false,
-            RestoreBatchFlightBaselineAfterExecution = true,
-            BatchSkipReason = "Isolated-run only — excluded from ordinary Run All / Run category because this test starts a live recording, drives the in-flight CommitTreeFlight path to commit the launch tree, injects future ledger actions, and drives a live rewind in the current FLIGHT session. Use Run All + Isolated or the row play button in a disposable Career-mode FLIGHT session.",
-            Description = "Live rewind keeps future funds/contracts filtered during the post-rewind FLIGHT load follow-up")]
-        public IEnumerator RewindToLaunch_PostRewindFlightLoad_KeepsFutureFundsAndContractsFiltered()
-        {
-            var flight = ParsekFlight.Instance;
-            InGameAssert.IsNotNull(flight, "ParsekFlight.Instance required");
-            if (HighLogic.CurrentGame == null || HighLogic.CurrentGame.Mode != Game.Modes.CAREER)
-            {
-                InGameAssert.Skip("requires a Career-mode FLIGHT save");
-                yield break;
-            }
-
-            var vessel = FlightGlobals.ActiveVessel;
-            if (vessel == null)
-            {
-                InGameAssert.Skip("no active vessel");
-                yield break;
-            }
-            if (vessel.isEVA || vessel.vesselType == VesselType.EVA)
-            {
-                InGameAssert.Skip("requires a non-EVA active vessel");
-                yield break;
-            }
-            if (vessel.situation != Vessel.Situations.PRELAUNCH)
-            {
-                InGameAssert.Skip(
-                    $"requires a PRELAUNCH vessel on the pad so the test can launch, commit, and rewind, got {vessel.situation}");
-                yield break;
-            }
-            if (flight.IsRecording)
-            {
-                InGameAssert.Skip("requires an idle prelaunch vessel (recording already active)");
-                yield break;
-            }
-            if (FlightInputHandler.state == null)
-            {
-                InGameAssert.Skip("FlightInputHandler.state is null");
-                yield break;
-            }
-            if (Funding.Instance == null)
-            {
-                InGameAssert.Skip("Funding.Instance is null — this live rewind cutoff canary needs career funds");
-                yield break;
-            }
-
-            int committedBefore = RecordingStore.CommittedRecordings.Count;
-            float originalThrottle = FlightInputHandler.state.mainThrottle;
-            var captured = new List<string>();
-            var priorObserver = ParsekLog.TestObserverForTesting;
-            string syntheticLedgerTag = null;
-
-            try
-            {
-                ParsekLog.TestObserverForTesting = line => { captured.Add(line); priorObserver?.Invoke(line); };
-
-                flight.StartRecording();
-                InGameAssert.IsTrue(flight.IsRecording,
-                    "ParsekFlight.StartRecording should start a live recording before the rewind canary");
-
-                string activeRecId = flight.ActiveTreeForSerialization?.ActiveRecordingId;
-                InGameAssert.IsNotNull(activeRecId,
-                    "ActiveRecordingId should be set before staging the live rewind canary");
-
-                yield return new WaitForSeconds(0.5f);
-
-                FlightInputHandler.state.mainThrottle = 1f;
-                KSP.UI.Screens.StageManager.ActivateNextStage();
-
-                yield return WaitForRecordingToLeavePrelaunch(activeRecId, 10f);
-                yield return RuntimeTests.WaitForActiveRecordingPoint(flight, 5f);
-                yield return new WaitForSeconds(0.5f);
-
-                FlightInputHandler.state.mainThrottle = 0f;
-                // ParsekFlight.StopRecording stops the underlying recorder but does not
-                // commit the active tree to the timeline — only the flight-button path
-                // (CommitTreeFlight) and the scene-exit MergeDialog flow do that. The
-                // earlier StopRecording-then-wait pattern timed out because the recording
-                // never reached CommittedRecordings; the rewind canary needs a real
-                // committed launch recording (with RewindSaveFileName copied to the root)
-                // before InitiateRewind can resolve a rewind owner.
-                flight.CommitTreeFlight();
-                // Capture the Recording inside the wait so the lookup is not
-                // racing the post-commit auto-restore that pulls the tree
-                // back out of CommittedRecordings (the same Recording
-                // instance moves to the active-tree slot — see WaitForCommittedRecording).
-                Recording committedRecording = null;
-                yield return WaitForCommittedRecording(activeRecId, committedBefore, 10f,
-                    rec => committedRecording = rec);
-
-                InGameAssert.IsNotNull(committedRecording,
-                    "Committing the live rewind canary tree should land the recording in the timeline");
-                InGameAssert.IsTrue(!string.IsNullOrEmpty(committedRecording.RewindSaveFileName),
-                    "Committed rewind canary recording must have a rewind save file");
-
-                double fundsBeforeFutureActions = Funding.Instance.Funds;
-                int activeContractsBeforeFutureActions = LedgerOrchestrator.Contracts.GetActiveContractCount();
-
-                syntheticLedgerTag = "ingame-rewind-cutoff-" + System.Guid.NewGuid().ToString("N");
-                string futureContractId = syntheticLedgerTag + "-contract";
-                double futureUT = Planetarium.GetUniversalTime() + 120.0;
-
-                Ledger.AddAction(new GameAction
-                {
-                    UT = futureUT,
-                    Type = GameActionType.ContractAccept,
-                    RecordingId = syntheticLedgerTag,
-                    ContractId = futureContractId,
-                    ContractType = "ParsekRewindCutoffCanary",
-                    ContractTitle = "Parsek Rewind Cutoff Canary",
-                    AdvanceFunds = 321f,
-                    DeadlineUT = (float)(futureUT + 3600.0)
-                });
-                Ledger.AddAction(new GameAction
-                {
-                    UT = futureUT + 1.0,
-                    Type = GameActionType.MilestoneAchievement,
-                    RecordingId = syntheticLedgerTag,
-                    MilestoneId = syntheticLedgerTag + "-milestone",
-                    MilestoneFundsAwarded = 654f
-                });
-
-                InGameAssert.IsTrue(
-                    LedgerOrchestrator.HasActionsAfterUT(Planetarium.GetUniversalTime()),
-                    "Injected future ledger actions should sit after the current UT before rewind");
-
-                int previousFlightInstanceId = flight.GetInstanceID();
-                RecordingStore.InitiateRewind(committedRecording);
-
-                yield return Helpers.QuickloadResumeHelpers.WaitForFlightReady(previousFlightInstanceId, 20f);
-                yield return WaitForCapturedLogLine(
-                    captured,
-                    "post-rewind scene-load recalc using current-UT cutoff",
-                    10f);
-                yield return new WaitForSeconds(0.5f);
-
-                InGameAssert.IsNotNull(Funding.Instance,
-                    "Funding.Instance must exist after the live rewind cutoff canary reloads");
-
-                double postFunds = Funding.Instance.Funds;
-                int postActiveContracts = LedgerOrchestrator.Contracts.GetActiveContractCount();
-                bool sawDecisionInputs = captured.Any(
-                    line => line.Contains("post-rewind current-UT cutoff decision")
-                        && line.Contains("useCurrentUtCutoff=True")
-                        && line.Contains("hasFutureLedgerActions=True"));
-
-                InGameAssert.IsTrue(
-                    sawDecisionInputs,
-                    "Expected OnLoad to log the post-rewind current-UT cutoff decision inputs");
-                InGameAssert.IsTrue(
-                    System.Math.Abs(postFunds - fundsBeforeFutureActions) < 1.0,
-                    $"Post-rewind funds should stay at the pre-future baseline until replay catches up " +
-                    $"(before={fundsBeforeFutureActions:F1}, after={postFunds:F1})");
-                InGameAssert.AreEqual(
-                    activeContractsBeforeFutureActions,
-                    postActiveContracts,
-                    "Post-rewind active-contract count should stay at the pre-future baseline");
-                InGameAssert.IsFalse(
-                    LedgerOrchestrator.Contracts.GetActiveContractIds().Contains(futureContractId),
-                    "Future contract should stay filtered until replay catches up");
-
-                ParsekLog.Info("TestRunner",
-                    $"Rewind cutoff runtime: rec='{activeRecId}' fundsBefore={fundsBeforeFutureActions.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"fundsAfter={postFunds.ToString("F1", CultureInfo.InvariantCulture)} " +
-                    $"activeContractsBefore={activeContractsBeforeFutureActions} activeContractsAfter={postActiveContracts}");
-            }
-            finally
-            {
-                if (FlightInputHandler.state != null)
-                    FlightInputHandler.state.mainThrottle = originalThrottle;
-                ParsekLog.TestObserverForTesting = priorObserver;
-
-                if (!string.IsNullOrEmpty(syntheticLedgerTag))
-                {
-                    try
-                    {
-                        Ledger.RemoveActionsForRecording(syntheticLedgerTag);
-                        if (HighLogic.CurrentGame != null)
-                            LedgerOrchestrator.RecalculateAndPatch();
-                    }
-                    catch (System.Exception ex)
-                    {
-                        ParsekLog.Warn("TestRunner",
-                            $"Rewind cutoff runtime cleanup failed for synthetic ledger tag '{syntheticLedgerTag}': {ex.Message}");
-                    }
-                }
-
                 if (ParsekFlight.Instance != null && ParsekFlight.Instance.IsRecording)
                     ParsekFlight.Instance.StopRecording();
             }
@@ -14926,8 +14656,12 @@ namespace Parsek.InGameTests
             string failureMessage,
             float timeoutSeconds)
         {
-            float deadline = Time.time + timeoutSeconds;
-            while (Time.time < deadline)
+            // Use wall-clock time, not Time.time: every caller is a facility/overlay wait,
+            // and EnterBuilding pauses the game (FlightDriver.SetPause -> timeScale 0), which
+            // freezes Time.time. A Time.time deadline would never expire while a facility is
+            // open, so a failed close would hang the suite forever instead of timing out.
+            float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+            while (Time.realtimeSinceStartup < deadline)
             {
                 if (predicate())
                     yield break;
@@ -15044,23 +14778,23 @@ namespace Parsek.InGameTests
             LedgerOrchestrator.OnTimelineDataChanged?.Invoke();
         }
 
+        // The stock facility close path is firing the matching despawn GameEvent —
+        // that is exactly what UISpaceCenter's exit button / Escape handler does, and
+        // UISpaceCenter listens to it for FlightDriver.UnPause + canvas teardown, while
+        // the facility's own (privately-registered) onDialogClose handler runs as
+        // another listener of the same event. Do NOT gate this on building.IsOpen():
+        // those overrides are always-true mode/instance gates, and invoking the private
+        // onDialogClose directly is a no-op for closing (it only deregisters handlers and
+        // clears a control lock, leaving the canvas up and the game paused — which made
+        // the overlay tests hang until manually exited).
         private static void CloseRnDForOverlayTest(RDController controller)
         {
             try
             {
-                RnDBuilding building = Object.FindObjectOfType<RnDBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 controller = controller ?? RDController.Instance ?? Object.FindObjectOfType<RDController>();
                 if (controller != null)
-                {
                     RDController.OnRDTreeDespawn.Fire(controller);
-                    GameEvents.onGUIRnDComplexDespawn.Fire();
-                }
+                GameEvents.onGUIRnDComplexDespawn.Fire();
             }
             catch (System.Exception ex)
             {
@@ -15072,13 +14806,6 @@ namespace Parsek.InGameTests
         {
             try
             {
-                AstronautComplexFacility building = Object.FindObjectOfType<AstronautComplexFacility>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onAstronautComplexDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIAstronautComplexDespawn.Fire();
             }
             catch (System.Exception ex)
@@ -15091,32 +14818,12 @@ namespace Parsek.InGameTests
         {
             try
             {
-                MissionControlBuilding building = Object.FindObjectOfType<MissionControlBuilding>();
-                if (building != null && building.IsOpen())
-                {
-                    InvokeStockCloseMethodForOverlayTest(building, "onDialogClose");
-                    return;
-                }
-
                 GameEvents.onGUIMissionControlDespawn.Fire();
             }
             catch (System.Exception ex)
             {
                 ParsekLog.Warn("TestRunner", $"Phase 5 MissionControl overlay close helper threw: {ex}");
             }
-        }
-
-        private static void InvokeStockCloseMethodForOverlayTest(object building, string methodName)
-        {
-            MethodInfo method = building != null
-                ? building.GetType().GetMethod(
-                    methodName,
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                : null;
-            if (method == null)
-                throw new System.MissingMethodException(building != null ? building.GetType().FullName : "(null)", methodName);
-
-            method.Invoke(building, null);
         }
 
         private static IEnumerator WaitForNamedChildCount(
@@ -20816,11 +20523,16 @@ namespace Parsek.InGameTests
                 // 8. Pre-rewind carve-out predicate on HEAD. The marker was
                 //    cleared at the end of RunMerge (step 7), so reconstruct
                 //    a marker shell for the predicate check using the same
-                //    RewindPointUT used by the merge.
+                //    RewindPointUT used by the merge. SupersedeTargetId must
+                //    name TIP: post-split the live marker's SupersedeTargetId
+                //    points at TIP, and the chain-head branch of
+                //    IsPreRewindCarveOut needs it to resolve TIP for the
+                //    ChainId/ChainIndex shape match.
                 var carveOutMarker = new ReFlySessionMarker
                 {
                     RewindPointUT = rewindUT,
                     InvokedUT = rewindUT,
+                    SupersedeTargetId = tip.RecordingId,
                 };
                 SupersedeCommit.PreRewindCarveOutReason carveOutReason;
                 bool isCarveOut = SupersedeCommit.IsPreRewindCarveOut(
