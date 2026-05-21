@@ -974,14 +974,15 @@ namespace Parsek
         /// <c>bodyFixedFrames</c>, never the anchor-local metre offsets in
         /// <c>frames</c>), so the altitude here is a real geocentric altitude.
         /// <para>
-        /// For a non-parent-anchored recording the live-orbit UT is meaningful, so
-        /// only the tight "fresh split" window admits the contradiction. For a
-        /// parent-anchored recording the live vessel orbit is the origin-collapse
-        /// NullSolver fingerprint (alt ~= -bodyRadius), so the live-orbit UT carries
-        /// no meaning: the body-fixed surface is authoritative and acceptance widens
-        /// to the recording's own authored coverage span. This is the mechanism fix
-        /// for parent-anchored debris being classified Destroyed off a -bodyRadius
-        /// live-orbit read instead of its genuine body-fixed altitude.
+        /// For a non-parent-anchored recording the live-orbit altitude is trustworthy,
+        /// so only the tight "fresh split" window admits the contradiction. For a
+        /// parent-anchored recording the live vessel orbit ALTITUDE/POSITION is the
+        /// origin-collapse NullSolver fingerprint (alt ~= -bodyRadius) and cannot be
+        /// trusted, even though the live-orbit UT (commitUT) is fine: the body-fixed
+        /// surface is authoritative and acceptance widens to the recording's own
+        /// authored coverage span. This is the mechanism fix for parent-anchored debris
+        /// being classified Destroyed off a -bodyRadius live-orbit read instead of its
+        /// genuine body-fixed altitude.
         /// </para>
         /// </summary>
         internal static bool IsRecordedSurfaceContradictionAccepted(
@@ -998,10 +999,15 @@ namespace Parsek
             if (recordedPointDeltaUT <= SubSurfaceRecordedPointContradictionWindowSeconds)
                 return true;
 
-            // Parent-anchored widening: the live-orbit start is the origin-collapse
-            // fingerprint, so the recorded body-fixed surface is authoritative even
-            // outside the tight fresh-split window. Bound only against pathological
-            // points that fall outside the recording's own authored coverage.
+            // Parent-anchored widening: the live-orbit start ALTITUDE/POSITION is the
+            // origin-collapse fingerprint, so the recorded body-fixed surface is
+            // authoritative even outside the tight fresh-split window. Bound only
+            // against pathological points that fall outside the recording's own
+            // authored coverage.
+            // Deliberately keyed on ParentAnchorRecordingId alone, NOT on IsDebris:
+            // the two are orthogonal (see CLAUDE.md), so this covers both genuine
+            // debris (IsDebris=true) and controlled-decoupled children (IsDebris=false)
+            // that come off a parent through a decoupler. Do not tighten to debris-only.
             bool parentAnchored = !string.IsNullOrEmpty(recording.ParentAnchorRecordingId);
             if (!parentAnchored)
                 return false;
