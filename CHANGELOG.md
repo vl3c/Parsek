@@ -62,6 +62,7 @@ All notable changes to Parsek are documented here.
 - STASH is now a mirror, not a destination. Unfinished Flight recordings stay in their natural mission tree group and also appear in the nested STASH subgroup that surfaces the Fly/Seal-eligible rows. Previously the regular-tree pre-filter stripped them out, leaving the main mission folder empty except for debris when every slot had open STASH affordances.
 - Controlled-decoupled child vessels (probes, landers, capsules that come off a parent through a decoupler) now anchor on their tree parent during ghost playback, fixing the mid-flight trajectory snap PR #872 / PR #874 worked around with a CoBubble selector tiebreaker. The lower-stage probe ghost during Kerbal X Re-Fly no longer rides through a sibling debris piece's trajectory and crossfades back when that debris crashes.
 - Debris of a re-fly fork that gets rewound out of the timeline no longer renders as a duplicate ghost alongside the restored recording's own debris. Existing saves with these duplicate ghosts are fixed automatically on the next load.
+- Undocking two vessels at a docking port during recording now splits the recording into the two correct vessels at the undock moment, instead of recording the departing pod as destroyed and only picking it up a few seconds later as a separate launch. Crew aboard the undocked vessel are no longer wrongly flagged as lost.
 
 ### Internals
 
