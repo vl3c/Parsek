@@ -5121,6 +5121,7 @@ namespace Parsek
         }
 
         IEnumerator DeferredUndockBranch(
+            uint oldVesselPid,
             uint newVesselPid,
             TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
@@ -5137,38 +5138,60 @@ namespace Parsek
 
                 double branchUT = Planetarium.GetUniversalTime();
 
-                // Deduplication check
-                if (!CheckBranchDeduplication(branchUT, newVesselPid))
+                // Resolve which side KSP gave focus to AFTER the one-frame yield. KSP keeps
+                // focus on oldVessel for a normal undock, but if the player kept controlling
+                // the pod that departed into the new vessel, KSP moves focus to it one frame
+                // later (Vessel.WaitAndSwitchFocus). Mirror DeferredEvaBranch: the recorder
+                // follows the focused side (active child), the OTHER side is backgrounded.
+                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                uint activePid = activeVessel.persistentId;
+                uint backgroundPid = SegmentBoundaryLogic.ResolveUndockBackgroundPid(
+                    activePid, oldVesselPid, newVesselPid);
+
+                if (activePid != oldVesselPid && activePid != newVesselPid)
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: active vessel pid={activePid} is neither undock side " +
+                        $"(old={oldVesselPid}, new={newVesselPid}); defaulting to background new, active stays current");
+                }
+                else
+                {
+                    ParsekLog.Verbose("Flight",
+                        $"DeferredUndockBranch: active vessel pid={activePid} (old={oldVesselPid}, " +
+                        $"new={newVesselPid}); backgrounding pid={backgroundPid}");
+                }
+
+                // Deduplication check keys on the backgrounded vessel (the new tree child).
+                if (!CheckBranchDeduplication(branchUT, backgroundPid))
                 {
                     ResumeSplitRecorder(pendingSplitRecorder, "undock dedup skip");
                     yield break;
                 }
 
-                // Find the new vessel
-                Vessel newVessel = FlightRecorder.FindVesselByPid(newVesselPid);
-                if (newVessel == null)
+                // Find the vessel that goes to background.
+                Vessel backgroundVessel = FlightRecorder.FindVesselByPid(backgroundPid);
+                if (backgroundVessel == null)
                 {
-                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={newVesselPid} not found — debris destroyed, resuming recording");
+                    ParsekLog.Verbose("Flight", $"DeferredUndockBranch: vessel pid={backgroundPid} not found, debris destroyed, resuming recording");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel not found");
                     yield break;
                 }
 
                 // Debris filter
-                if (!IsTrackableVessel(newVessel))
+                if (!IsTrackableVessel(backgroundVessel))
                 {
                     ParsekLog.Verbose("Flight",
-                        $"DeferredUndockBranch: vessel pid={newVesselPid} is not trackable (debris) — resuming recording " +
+                        $"DeferredUndockBranch: vessel pid={backgroundPid} is not trackable (debris), resuming recording " +
                         $"capturedSeed={backgroundInitialTrajectoryPoint.HasValue}");
                     ResumeSplitRecorder(pendingSplitRecorder, "undocked vessel is debris");
                     yield break;
                 }
 
-                // Player stays on remaining vessel (active), undocked vessel goes to background
-                Vessel activeVessel = FlightGlobals.ActiveVessel;
+                // Recorder follows the focused vessel (active child); the other goes to background.
                 CreateSplitBranch(
                     BranchPointType.Undock,
                     activeVessel,
-                    newVessel,
+                    backgroundVessel,
                     branchUT,
                     backgroundInitialTrajectoryPoint: backgroundInitialTrajectoryPoint);
             }
@@ -9898,28 +9921,21 @@ namespace Parsek
                 return;
             }
 
-            // The recorder follows whichever side keeps active focus (CreateSplitBranch's
-            // "activeVessel"); the other side goes to background. For the normal undock the
-            // recorded vessel == oldVessel (KSP keeps the active focus and pid on the old
-            // vessel). The rare SplitRecordedBecomesNew case swaps the roles.
-            Vessel activeChildVessel;
-            uint backgroundPid;
-            if (decision == UndockSplitDecision.SplitRecordedStaysActive)
-            {
-                activeChildVessel = oldVessel;
-                backgroundPid = newPid;
-            }
-            else // SplitRecordedBecomesNew
-            {
-                activeChildVessel = newVessel;
-                backgroundPid = oldPid;
-            }
+            // The recorder maps to KSP's oldVessel (which keeps its persistentId); the new
+            // vessel is the freshly split-off side. The deferred branch resolves which side
+            // KSP gives focus to and backgrounds the OTHER, so we pass both pids rather than
+            // pre-deciding the background here (focus can move to the departing vessel one
+            // frame later via WaitAndSwitchFocus when the player kept controlling that pod).
 
             // The undock event IS the authoritative split signal. Consume the recorder's
             // pending joint-break check (set by the synchronous onPartJointBreak that
             // KSP's attachJoint.DestroyJoint() fired earlier in the same Part.Undock() call)
             // so HandleJointBreakDeferredCheck does NOT also run next frame and misclassify
-            // the departing pod as within-segment PartDestroyed.
+            // the departing pod as within-segment PartDestroyed. Note: a genuine within-
+            // segment break in the SAME physics frame as the undock would also be swallowed
+            // here, but the broken part is still hidden on playback via its Decoupled
+            // PartEvent (recorded by FlightRecorder.OnPartJointBreak); only the PartDestroyed
+            // SegmentEvent label is lost, an acceptable trade for not double-processing.
             bool consumedJointBreak = recorder.ConsumePendingJointBreakCheck(out double jointBreakUT);
             if (consumedJointBreak)
             {
@@ -9937,9 +9953,8 @@ namespace Parsek
             recorder = null;
             pendingSplitInProgress = true;
             Log($"onVesselsUndocking: vessel split off (recordedPid={recordedPid}, " +
-                $"activePid={activeChildVessel.persistentId}, backgroundPid={backgroundPid}); " +
-                "starting deferred Undock branch");
-            StartCoroutine(DeferredUndockBranch(backgroundPid, undockRootPartSeed));
+                $"oldPid={oldPid}, newPid={newPid}); starting deferred Undock branch");
+            StartCoroutine(DeferredUndockBranch(oldPid, newPid, undockRootPartSeed));
         }
 
         private void ClearPendingUndockSeed()

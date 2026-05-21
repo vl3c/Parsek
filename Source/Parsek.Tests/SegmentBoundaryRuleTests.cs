@@ -542,16 +542,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyUndockSplit_RecordedIsNewVessel_ReturnsRecordedBecomesNew()
+        public void ClassifyUndockSplit_RecordedMatchesNewVessel_ReturnsNotRecordedVessel()
         {
-            // Rare: KSP rooted the freshly created vessel onto the recorded subtree, so the
-            // recorder's pid now belongs to the new vessel; the old vessel goes to background.
+            // Locks the contract: KSP's Part.Undock() always allocates a brand-new
+            // persistentId for the split-off vessel, so recordedPid == newPid can never hold
+            // at runtime. If a caller passes it anyway, the recorder is by definition NOT the
+            // new vessel, so the classifier returns NotRecordedVessel rather than branching.
             var decision = SegmentBoundaryLogic.ClassifyUndockSplit(
                 recordedVesselPid: 770162671,
                 oldVesselPid: 9871332,
                 newVesselPid: 770162671);
 
-            Assert.Equal(UndockSplitDecision.SplitRecordedBecomesNew, decision);
+            Assert.Equal(UndockSplitDecision.NotRecordedVessel, decision);
         }
 
         [Fact]
@@ -589,6 +591,59 @@ namespace Parsek.Tests
                 newVesselPid: 5000);
 
             Assert.Equal(UndockSplitDecision.NotRecordedVessel, decision);
+        }
+
+        #endregion
+
+        #region ResolveUndockBackgroundPid
+
+        [Fact]
+        public void ResolveUndockBackgroundPid_FocusOnOldVessel_BackgroundsNew()
+        {
+            // Normal undock: KSP keeps focus on oldVessel, so the new vessel is backgrounded.
+            uint background = SegmentBoundaryLogic.ResolveUndockBackgroundPid(
+                activeVesselPid: 9871332,
+                oldVesselPid: 9871332,
+                newVesselPid: 770162671);
+
+            Assert.Equal(770162671u, background);
+        }
+
+        [Fact]
+        public void ResolveUndockBackgroundPid_FocusOnNewVessel_BackgroundsOld()
+        {
+            // Player kept controlling the departing pod, so KSP moved focus to the new vessel
+            // one frame later; the recorder follows it and the old vessel is backgrounded.
+            uint background = SegmentBoundaryLogic.ResolveUndockBackgroundPid(
+                activeVesselPid: 770162671,
+                oldVesselPid: 9871332,
+                newVesselPid: 770162671);
+
+            Assert.Equal(9871332u, background);
+        }
+
+        [Fact]
+        public void ResolveUndockBackgroundPid_AmbiguousFocus_BackgroundsNew()
+        {
+            // Focus is on neither undock side (an unexpected third-vessel focus): default to
+            // backgrounding the freshly split vessel.
+            uint background = SegmentBoundaryLogic.ResolveUndockBackgroundPid(
+                activeVesselPid: 555,
+                oldVesselPid: 9871332,
+                newVesselPid: 770162671);
+
+            Assert.Equal(770162671u, background);
+        }
+
+        [Fact]
+        public void ResolveUndockBackgroundPid_NeverCollapsesActiveAndBackground()
+        {
+            // The whole point of focus-aware resolution: the backgrounded pid must never equal
+            // the focused (active) pid, in either focus orientation.
+            uint old = 100, fresh = 200;
+
+            Assert.NotEqual(old, SegmentBoundaryLogic.ResolveUndockBackgroundPid(old, old, fresh));
+            Assert.NotEqual(fresh, SegmentBoundaryLogic.ResolveUndockBackgroundPid(fresh, old, fresh));
         }
 
         #endregion
