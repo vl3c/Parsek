@@ -22,10 +22,11 @@ namespace Parsek.InGameTests
     ///   <item><description>the still-re-flyable slot survives the journal's
     ///     RP reap, so <c>TrySeal</c> can still resolve it from the recording
     ///     after the marker has been cleared;</description></item>
-    ///   <item><description>the seal closes the slot only
-    ///     (<c>slot.Sealed == true</c>) and does NOT promote the recording to
-    ///     <see cref="MergeState.Immutable"/> - it stays
-    ///     <see cref="MergeState.CommittedProvisional"/>.</description></item>
+    ///   <item><description>the seal closes the slot by flipping the slot's
+    ///     effective tip recording from
+    ///     <see cref="MergeState.CommittedProvisional"/> to
+    ///     <see cref="MergeState.Immutable"/> (the single open/closed source of
+    ///     truth after collapse-seal-into-mergestate).</description></item>
     /// </list>
     ///
     /// <para>
@@ -38,7 +39,7 @@ namespace Parsek.InGameTests
     public class MergeAndSealReFlyClosesSlotTest
     {
         [InGameTest(Category = "Rewind", Scene = GameScenes.FLIGHT,
-            Description = "Merge & Seal on a not-yet-sealable Re-Fly: slot sealed, MergeState stays CommittedProvisional")]
+            Description = "Merge & Seal on a not-yet-sealable Re-Fly: tip flips to Immutable (slot closed)")]
         public void MergeAndSealReFlyClosesSlot()
         {
             var scenario = ParsekScenario.Instance;
@@ -90,8 +91,6 @@ namespace Parsek.InGameTests
             }
             var slotBefore = rpBefore.ChildSlots[slotIndexBefore];
             InGameAssert.IsNotNull(slotBefore, "Resolved slot is null before merge");
-            InGameAssert.IsFalse(slotBefore.Sealed,
-                "Slot must start unsealed - this test exercises closing an open slot.");
 
             ParsekLog.Info("RewindTest",
                 $"MergeAndSealReFlyClosesSlot: sess={marker.SessionId} " +
@@ -120,12 +119,12 @@ namespace Parsek.InGameTests
                 && slotIndexAfterMerge >= 0
                 && slotIndexAfterMerge < rpAfterMerge.ChildSlots.Count,
                 "Slot must still resolve after the merge journal's RP reap (it is still re-flyable).");
-            InGameAssert.IsFalse(rpAfterMerge.ChildSlots[slotIndexAfterMerge].Sealed,
-                "Slot must still be open after the keep-open merge (the auto path does not seal it).");
+            InGameAssert.AreEqual(MergeState.CommittedProvisional, provisional.MergeState,
+                "Slot must still be open (tip CommittedProvisional) after the keep-open merge.");
 
             // Step 2: the new Merge & Seal post-merge step. After this the slot
-            // must be sealed but the recording must NOT be promoted to
-            // Immutable - seal closes the slot only.
+            // must be closed by flipping the slot's effective tip recording to
+            // Immutable - the single open/closed source of truth.
             MergeDialog.ApplyPlayerRequestedSeal(provisional);
 
             RewindPoint rpAfterSeal;
@@ -137,14 +136,12 @@ namespace Parsek.InGameTests
                 && slotIndexAfterSeal >= 0
                 && slotIndexAfterSeal < rpAfterSeal.ChildSlots.Count,
                 "Slot must still resolve after sealing.");
-            InGameAssert.IsTrue(rpAfterSeal.ChildSlots[slotIndexAfterSeal].Sealed,
-                "Merge & Seal must close the slot (slot.Sealed=true).");
-            InGameAssert.AreEqual(MergeState.CommittedProvisional, provisional.MergeState,
-                $"Merge & Seal must NOT promote the recording to Immutable; MergeState should stay CommittedProvisional, got {provisional.MergeState}");
+            InGameAssert.AreEqual(MergeState.Immutable, provisional.MergeState,
+                $"Merge & Seal must close the slot by flipping its effective tip to Immutable; got {provisional.MergeState}");
 
             ParsekLog.Info("RewindTest",
                 $"MergeAndSealReFlyClosesSlot: all assertions passed " +
-                $"(slot {slotIndexAfterSeal} sealed; MergeState stays CommittedProvisional).");
+                $"(slot {slotIndexAfterSeal} closed; tip MergeState flipped to Immutable).");
         }
 
         private static Recording FindRecording(string recordingId)

@@ -302,8 +302,11 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
-        public void IsUnfinishedFlight_ImmutableCrashedUnderRP_True()
+        public void IsUnfinishedFlight_OpenCrashedUnderRP_True()
         {
+            // Open crashed Unfinished Flight: its effective tip is
+            // CommittedProvisional (open) after promotion
+            // (collapse-seal-into-mergestate).
             var bp = new BranchPoint { Id = "bp_1", Type = BranchPointType.Launch };
             var tree = new RecordingTree
             {
@@ -311,7 +314,7 @@ namespace Parsek.Tests
                 TreeName = "Test",
                 BranchPoints = new List<BranchPoint> { bp }
             };
-            var rec = Rec("rec_A", MergeState.Immutable, TerminalState.Destroyed,
+            var rec = Rec("rec_A", MergeState.CommittedProvisional, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1", treeId: "tree_1");
             tree.AddOrReplaceRecording(rec);
             RecordingStore.CommittedTrees.Add(tree);
@@ -414,7 +417,10 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_exo",
                 VesselName = "Booster (exo)",
-                MergeState = MergeState.Immutable,
+                // The chain TIP is the slot's effective tip; an OPEN crashed
+                // Unfinished Flight has a CommittedProvisional tip after
+                // promotion (collapse-seal-into-mergestate).
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = null, // chain continuation, no RP link
                 TreeId = "tree_boost",
@@ -424,6 +430,11 @@ namespace Parsek.Tests
             tree.AddOrReplaceRecording(head);
             tree.AddOrReplaceRecording(tip);
             RecordingStore.CommittedTrees.Add(tree);
+            // The effective-tip walker resolves the chain HEAD -> TIP via the
+            // flat committed list, so both segments must be registered there
+            // (as in production) for the open/closed read to see the TIP.
+            RecordingStore.AddRecordingWithTreeForTesting(head);
+            RecordingStore.AddRecordingWithTreeForTesting(tip);
 
             var rp = Rp("rp_stage", "bp_stage", "rec_atmo");
             MakeScenario(rps: new List<RewindPoint> { rp });
@@ -562,7 +573,8 @@ namespace Parsek.Tests
             var tip = new Recording
             {
                 RecordingId = "rec_exo",
-                MergeState = MergeState.Immutable,
+                // Open crashed chain tip -> CommittedProvisional after promotion.
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = null,
                 TreeId = "tree_boost",
@@ -602,7 +614,8 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec_active_parent",
                 VesselName = "Kerbal X",
-                MergeState = MergeState.Immutable,
+                // Open crashed Unfinished Flight -> CommittedProvisional tip.
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ParentBranchPointId = null,          // no parent link
                 ChildBranchPointId = "bp_breakup",   // links as the branch parent

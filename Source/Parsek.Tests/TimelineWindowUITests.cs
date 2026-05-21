@@ -157,7 +157,8 @@ namespace Parsek.Tests
             {
                 RecordingId = "rec-active-parent",
                 VesselName = "Kerbal X",
-                MergeState = MergeState.Immutable,
+                // Open crashed Unfinished Flight -> CommittedProvisional tip.
+                MergeState = MergeState.CommittedProvisional,
                 TerminalStateValue = TerminalState.Destroyed,
                 ChildBranchPointId = branchPointId,
                 RewindSaveFileName = "rewind.sfs"

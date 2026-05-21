@@ -935,6 +935,25 @@ namespace Parsek
         {
             if (tree == null) return;
 
+            // First-commit guard data (collapse-seal-into-mergestate plan §4.1):
+            // snapshot recording ids already committed AS PART OF A TREE, taken at
+            // the LITERAL TOP of CommitTree, BEFORE the union/replace path
+            // (TryUnionActiveReFlyTreeIntoCommitted mutates committedTrees[i].Recordings)
+            // and BEFORE FinalizeTreeCommit swaps. ApplyRewindProvisionalMergeStates
+            // uses this (plus supersede-fork identity) so it never re-derives an
+            // already-concluded recording's MergeState. Keyed on committed-TREE
+            // membership, NOT the flat committedRecordings list (which is polluted
+            // mid-flight by CommitRecordingDirect).
+            var alreadyCommittedRecordingIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int ci = 0; ci < committedTrees.Count; ci++)
+            {
+                var ctSnapshot = committedTrees[ci];
+                if (ctSnapshot?.Recordings == null) continue;
+                foreach (var committedId in ctSnapshot.Recordings.Keys)
+                    if (!string.IsNullOrEmpty(committedId))
+                        alreadyCommittedRecordingIds.Add(committedId);
+            }
+
             int replaceCommittedTreeIndex = -1;
             for (int i = 0; i < committedTrees.Count; i++)
             {
@@ -1027,7 +1046,7 @@ namespace Parsek
             }
 
             ApplySessionMergeToRecordings(tree);
-            ApplyRewindProvisionalMergeStates(tree);
+            ApplyRewindProvisionalMergeStates(tree, alreadyCommittedRecordingIds);
             PromoteNormalStagingRewindPoints(tree);
             AutoGroupTreeRecordings(tree);
             AdoptOrphanedRecordingsIntoTreeGroup(tree);
@@ -1074,14 +1093,65 @@ namespace Parsek
         /// Legacy/default recordings are born Immutable, so stamp that precise
         /// shape during the normal tree commit path.
         /// </summary>
-        private static void ApplyRewindProvisionalMergeStates(RecordingTree tree)
+        /// <summary>
+        /// Test seam: re-runs the slot-driven MergeState promotion + clobber
+        /// guard (collapse-seal-into-mergestate) against the already-committed
+        /// trees, exactly as a later CommitTree would. Builds the committed-TREE
+        /// membership snapshot from the current committed trees so the
+        /// first-commit guard treats already-committed recordings as concluded.
+        /// </summary>
+        internal static void ApplyRewindProvisionalMergeStatesForTesting(RecordingTree tree)
+        {
+            var snapshot = new HashSet<string>(StringComparer.Ordinal);
+            for (int ci = 0; ci < committedTrees.Count; ci++)
+            {
+                var ct = committedTrees[ci];
+                if (ct?.Recordings == null) continue;
+                foreach (var id in ct.Recordings.Keys)
+                    if (!string.IsNullOrEmpty(id))
+                        snapshot.Add(id);
+            }
+            ApplyRewindProvisionalMergeStates(tree, snapshot);
+        }
+
+        private static void ApplyRewindProvisionalMergeStates(
+            RecordingTree tree, HashSet<string> alreadyCommittedRecordingIds)
         {
             if (tree == null || tree.Recordings == null || tree.Recordings.Count == 0)
                 return;
             if (tree.BranchPoints == null || tree.BranchPoints.Count == 0)
                 return;
 
+            var scenario = ParsekScenario.Instance;
+            IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                !object.ReferenceEquals(null, scenario) && scenario.RecordingSupersedes != null
+                    ? scenario.RecordingSupersedes
+                    : (IReadOnlyList<RecordingSupersedeRelation>)Array.Empty<RecordingSupersedeRelation>();
+
+            // Supersede forks (NewRecordingId) get their MergeState authoritatively from
+            // SupersedeCommit, never from promotion (plan §4.1). Skipping them also covers
+            // non-in-place forks that never enter a committed tree.
+            var supersedeForkIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int r = 0; r < supersedes.Count; r++)
+            {
+                string forkId = supersedes[r]?.NewRecordingId;
+                if (!string.IsNullOrEmpty(forkId)) supersedeForkIds.Add(forkId);
+            }
+
+            // First-commit guard: a recording is "already concluded as canon" (its
+            // MergeState must NOT be re-derived) if it was already committed as part of a
+            // tree, or it is a supersede fork. Open-UF tips committed mid-flight via
+            // CommitRecordingDirect are in neither set on their tree's first commit, so
+            // they ARE demoted here.
+            var committedSnapshot = alreadyCommittedRecordingIds
+                ?? new HashSet<string>(StringComparer.Ordinal);
+            Func<string, bool> isFirstCommit = id =>
+                !string.IsNullOrEmpty(id)
+                && !committedSnapshot.Contains(id)
+                && !supersedeForkIds.Contains(id);
+
             int promoted = 0;
+            int tipsPromoted = 0;
             int autoSealed = 0;
             foreach (var rec in tree.Recordings.Values)
             {
@@ -1108,7 +1178,7 @@ namespace Parsek
                 var slot = rp.ChildSlots[slotListIndex];
                 string qualifyReason;
                 if (!UnfinishedFlightClassifier.TryQualify(
-                        rec, slot, rp, true, out qualifyReason, tree))
+                        rec, slot, rp, out qualifyReason, tree))
                 {
                     ParsekLog.Verbose("UnfinishedFlights",
                         $"CommitTree: RP child rec={rec.RecordingId ?? "<no-id>"} " +
@@ -1126,17 +1196,52 @@ namespace Parsek
                     }
                 }
 
-                rec.MergeState = MergeState.CommittedProvisional;
-                rec.FilesDirty = true;
-                promoted++;
-                ParsekLog.Info("UnfinishedFlights",
-                    $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
-                    $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
-                    $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
-                    $"to CommittedProvisional");
+                // Demote the qualifying HEAD on first commit. The first-commit guard
+                // keeps a manually-sealed HEAD==tip (Immutable) from being re-opened on a
+                // later re-commit (plan §4.1).
+                if (isFirstCommit(rec.RecordingId))
+                {
+                    rec.MergeState = MergeState.CommittedProvisional;
+                    rec.FilesDirty = true;
+                    promoted++;
+                    ParsekLog.Info("UnfinishedFlights",
+                        $"CommitTree promoted rec={rec.RecordingId ?? "<no-id>"} " +
+                        $"vessel='{rec.VesselName ?? "<unnamed>"}' slot={slotListIndex} " +
+                        $"rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                        $"to CommittedProvisional");
+                }
+                else
+                {
+                    ParsekLog.Verbose("UnfinishedFlights",
+                        $"CommitTree: rec={rec.RecordingId ?? "<no-id>"} already committed/fork — " +
+                        $"not re-deriving MergeState (slot={slotListIndex} rp={rp.RewindPointId ?? "<no-rp>"})");
+                }
+
+                // Reach the slot's effective chain TIP. A continuation crash tip is born
+                // Immutable and may not itself resolve to the RP (no branch link), so the
+                // HEAD-driven demotion above misses it; the reaper's legacy
+                // Immutable-qualifies workaround currently compensates. Demote the tip so
+                // open/closed can be read directly from MergeState (plan §4.2). Tips are
+                // disjoint across slots, so this cannot cross-close another slot.
+                string tipId = slot.EffectiveRecordingId(supersedes);
+                if (!string.IsNullOrEmpty(tipId)
+                    && !string.Equals(tipId, rec.RecordingId, StringComparison.Ordinal)
+                    && tree.Recordings.TryGetValue(tipId, out var tipRec)
+                    && tipRec != null
+                    && tipRec.MergeState == MergeState.Immutable
+                    && isFirstCommit(tipId))
+                {
+                    tipRec.MergeState = MergeState.CommittedProvisional;
+                    tipRec.FilesDirty = true;
+                    tipsPromoted++;
+                    ParsekLog.Info("UnfinishedFlights",
+                        $"CommitTree promoted chain-tip rec={tipId} (head={rec.RecordingId ?? "<no-id>"}) " +
+                        $"slot={slotListIndex} rp={rp.RewindPointId ?? "<no-rp>"} reason={qualifyReason} " +
+                        $"to CommittedProvisional");
+                }
             }
 
-            if (promoted > 0 || autoSealed > 0)
+            if (promoted > 0 || tipsPromoted > 0 || autoSealed > 0)
                 BumpStateVersion();
         }
 
@@ -1165,7 +1270,7 @@ namespace Parsek
             RecordingTree tree,
             string qualifyReason)
         {
-            if (slot == null || slot.Sealed)
+            if (slot == null)
                 return false;
 
             Recording tip = EffectiveState.ResolveChainTerminalRecording(rec, tree);
@@ -1173,20 +1278,18 @@ namespace Parsek
                 ? tip.TerminalStateValue.Value.ToString()
                 : "<none>";
 
-            slot.Sealed = true;
-            slot.SealedRealTime =
-                DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-
-            // CommitTree is already inside the merge/save lifecycle. Unlike the
-            // manual Seal button, do not force a persistent save or RP reap here.
-            var scenario = ParsekScenario.Instance;
-            if (!object.ReferenceEquals(null, scenario))
-                scenario.BumpSupersedeStateVersion();
-
+            // A stable-EVA conclusion is closed by leaving the slot's effective
+            // tip Immutable (its born state). Open/closed is read from the tip
+            // MergeState (the single source of truth), so closing the slot
+            // means NOT demoting the first-commit tip to CommittedProvisional.
+            // The caller skips the CP demotion when this returns true. No slot
+            // bit and no state-version bump are needed: the tip never changes
+            // state, so no consumer's cached open/closed view goes stale.
             ParsekLog.Info("UnfinishedFlights",
                 $"CommitTree auto-sealed stable EVA slot={slotListIndex} " +
                 $"rec={rec?.RecordingId ?? "<no-id>"} vessel='{rec?.VesselName ?? "<unnamed>"}' " +
-                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason}");
+                $"rp={rp?.RewindPointId ?? "<no-rp>"} terminal={terminal} reason={qualifyReason} " +
+                $"(tip left Immutable = concluded)");
             return true;
         }
 

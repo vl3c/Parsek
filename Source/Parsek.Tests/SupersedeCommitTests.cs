@@ -426,8 +426,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -491,8 +489,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -537,8 +533,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -582,8 +576,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -633,8 +625,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -686,8 +676,6 @@ namespace Parsek.Tests
             // Auto-seal fires for stableTerminalFocusSlot regardless of
             // whether the player-chosen slot matched the static focus or
             // was promoted via the override.
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -704,8 +692,8 @@ namespace Parsek.Tests
         public void OrbitingFocusStableLeaf_StableTerminalFocusSlot_AutoSealsSlot()
         {
             // Static-focus orbit Re-Fly: same auto-seal trigger as the
-            // override path. Player flew the focus slot to stable orbit;
-            // slot.Sealed must be true so the row drops out of UF.
+            // override path. Player flew the focus slot to stable orbit; the
+            // slot's effective tip becomes Immutable so the row drops out of UF.
             const string bpId = "bp_stage_focus_seal";
             var origin = Rec("rec_origin", "tree_1");
             InstallTree("tree_1",
@@ -737,8 +725,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -787,8 +773,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -851,8 +835,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1359,8 +1341,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1412,8 +1392,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1467,8 +1445,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "rec_origin" && r.NewRecordingId == "rec_prior_tip");
             Assert.Contains(scenario.RecordingSupersedes,
@@ -1524,8 +1500,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1705,8 +1679,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1758,8 +1730,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
         }
 
         [Fact]
@@ -1800,8 +1770,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.Immutable, provisional.MergeState);
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")
@@ -1851,8 +1819,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -1904,8 +1870,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -1965,8 +1929,6 @@ namespace Parsek.Tests
             SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
 
             Assert.Equal(MergeState.CommittedProvisional, provisional.MergeState);
-            Assert.False(originSlot.Sealed);
-            Assert.Null(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=CommittedProvisional")
@@ -2011,8 +1973,6 @@ namespace Parsek.Tests
             // Re-Fly target reached stable Orbiting on the static focus
             // slot: per playtest contract the slot auto-seals, closing the
             // Unfinished-Flight row and preventing further re-fly retries.
-            Assert.True(originSlot.Sealed);
-            Assert.NotNull(originSlot.SealedRealTime);
             Assert.Contains(logLines, l =>
                 l.Contains("[Supersede]")
                 && l.Contains("mergeState=Immutable")

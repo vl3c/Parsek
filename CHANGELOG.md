@@ -13,6 +13,7 @@ All notable changes to Parsek are documented here.
 - Recording format bumped v0 -> v1; pre-1.0 saves are rejected with reason `format-version-mismatch`.
 - Tracking Station Fly, KSC marker Fly, and Map view "Switch To" clicks now immediately start a new auto-recording segment for the focused vessel instead of resuming an existing recording id.
 - Scene-exit after a stock switch/Fly opens a scoped Merge / Discard dialog. Discard removes the segment subtree (segment recording plus any in-segment debris and continuation children) and preserves committed history; Merge appends the segment under the committed timeline. The dialog body reads `"{TreeName} - {Duration}"` for both switch segments and whole launches — duration is the load-bearing distinguisher.
+- Sealing a re-fly / Unfinished Flight is now permanent and tracked entirely on the timeline (the separate per-slot seal flag is gone). A few older saves that hold an open Unfinished Flight whose underlying recording was already finalized may have that slot's rewind point reclaimed on first load.
 
 ### UI
 
@@ -23,6 +24,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Sealing one slot of a multi-slot rewind point (for example sealing a booster while its probe was still re-flyable) no longer reaps the whole rewind point and silently closes the still-open sibling slot. The reaper and disk-usage diagnostics now resolve each slot's recording tree-aware, so an open slot whose recording lives in a committed tree is never mistaken for a deleted one.
+- Re-flying one slot of a multi-slot rewind point (for example re-flying the booster) no longer seals an untouched sibling slot (for example the capsule). The re-fly restore rebuilds the tree from the rewind point's frozen snapshot, which still held the sibling at its pre-conclusion state; it now keeps the sibling's current open state instead of reverting it.
 - A recording that captured a parabolic or near-escape orbit (eccentricity exactly 1) no longer grows without bound and freezes the game on load. Such an orbit stored an undefined semi-major axis that defeated the duplicate-segment check, so the recording's orbit data doubled on every save until the file reached megabytes and the save would no longer open.
 - Reverting a flight (Revert to Launch, to the VAB, or to the Spaceplane Hangar, from any launch site) now correctly drops the science, funds, and milestones earned before liftoff. Previously this pre-launch currency was re-credited after the revert, so transmitting an experiment on the pad or runway and then reverting left the science points (and any milestone reward) in your career total. Reverting to the editor now also refunds the vessel build cost as stock does.
 - A committed vessel left in orbit (or otherwise landed/splashed) now re-materializes as a real vessel when playback reaches the end of its recording, even after you rewound its launch back to the pad. Previously such a payload silently failed to re-spawn and its orbit marker vanished, because its vessel snapshot had been dropped from memory during the session; Parsek now reloads the snapshot from disk at spawn time.

@@ -60,7 +60,7 @@ namespace Parsek
             public int RewindPointCount;
             public int CrashedOpenCount;
             public int StableOpenCount;
-            public int SealedPendingCount;
+            public int ConcludedCount;
         }
 
         /// <summary>Cache lifetime in wall-clock seconds (design §7.28).</summary>
@@ -210,9 +210,14 @@ namespace Parsek
                 var rp = scenario.RewindPoints[i];
                 if (rp == null) continue;
 
-                bool hasCrashedOpen = false;
+                // Bucket each RP by its slots' effective tip MergeState (the
+                // single open/closed source of truth after
+                // collapse-seal-into-mergestate). NotCommitted = a recorder is
+                // still live-crashing into this slot, CommittedProvisional =
+                // a re-flyable open slot, Immutable = concluded / sealed.
+                bool hasLiveCrashed = false;
                 bool hasStableOpen = false;
-                bool hasSealedPending = false;
+                bool hasConcluded = false;
 
                 var slots = rp.ChildSlots;
                 if (slots != null)
@@ -222,35 +227,32 @@ namespace Parsek
                         var slot = slots[s];
                         if (slot == null) continue;
 
-                        if (slot.Sealed)
-                        {
-                            hasSealedPending = true;
-                            continue;
-                        }
-
                         string effectiveId = slot.EffectiveRecordingId(supersedes);
                         var rec = FindRecordingById(effectiveId);
                         if (rec == null)
                             continue;
 
-                        string reason;
-                        if (!UnfinishedFlightClassifier.TryQualify(
-                                rec, slot, rp, considerSealed: true, out reason))
-                            continue;
-
-                        if (string.Equals(reason, "crashed", StringComparison.Ordinal))
-                            hasCrashedOpen = true;
-                        else
-                            hasStableOpen = true;
+                        switch (rec.MergeState)
+                        {
+                            case MergeState.NotCommitted:
+                                hasLiveCrashed = true;
+                                break;
+                            case MergeState.CommittedProvisional:
+                                hasStableOpen = true;
+                                break;
+                            case MergeState.Immutable:
+                                hasConcluded = true;
+                                break;
+                        }
                     }
                 }
 
-                if (hasCrashedOpen)
+                if (hasLiveCrashed)
                     result.CrashedOpenCount++;
                 if (hasStableOpen)
                     result.StableOpenCount++;
-                if (hasSealedPending)
-                    result.SealedPendingCount++;
+                if (hasConcluded)
+                    result.ConcludedCount++;
             }
 
             return result;
@@ -259,22 +261,12 @@ namespace Parsek
         private static Recording FindRecordingById(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return null;
-            // [ERS-exempt] Diagnostics resolve the slot's already-walked
-            // effective id against the raw committed list so the explicit
-            // scenario overload stays self-contained. ERS reads the global
-            // ParsekScenario.Instance, while this helper may be called with a
-            // test scenario supplied directly.
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null) return null;
-            for (int i = 0; i < committed.Count; i++)
-            {
-                var rec = committed[i];
-                if (rec == null) continue;
-                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
-                    return rec;
-            }
-
-            return null;
+            // Tree-aware lookup so a slot tip that lives only in a committed
+            // tree (not mirrored into the flat list, e.g. during a re-fly
+            // merge tail) is bucketed by its true MergeState rather than as a
+            // missing/concluded slot. Matches the reaper and seal/stash tip
+            // resolution; a flat-only scan would mis-bucket such a slot.
+            return EffectiveState.FindCommittedRecordingByIdRaw(recordingId);
         }
 
         /// <summary>Test-only: clears the cached snapshot and resets the clock override.</summary>
@@ -309,7 +301,7 @@ namespace Parsek
             return $"Rewind point disk usage: {DiagnosticsComputation.FormatBytes(s.TotalBytes)} " +
                 $"({s.FileCount} file{(s.FileCount == 1 ? "" : "s")}; " +
                 $"live={s.Live.RewindPointCount}, crashed={s.Live.CrashedOpenCount}, " +
-                $"stable={s.Live.StableOpenCount}, sealed-pending={s.Live.SealedPendingCount})";
+                $"stable={s.Live.StableOpenCount}, concluded={s.Live.ConcludedCount})";
         }
     }
 }

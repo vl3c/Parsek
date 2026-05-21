@@ -42,25 +42,13 @@ namespace Parsek
         public string DisabledReason;
 
         /// <summary>
-        /// True when the player explicitly closed this slot from the
-        /// Unfinished Flights row. Sealed slots no longer qualify for
-        /// Unfinished Flights and count as closed for RP reap eligibility
-        /// once their effective recording has committed.
-        /// </summary>
-        public bool Sealed;
-
-        /// <summary>
-        /// ISO-8601 UTC timestamp for the Seal action. Diagnostic only;
-        /// null when <see cref="Sealed"/> is false.
-        /// </summary>
-        public string SealedRealTime;
-
-        /// <summary>
         /// True when the player explicitly stashed a default-excluded stable
-        /// slot into Unfinished Flights. Stashed slots stay re-flyable until
-        /// the player Seals them; recovered, docked/merged, boarded, and
+        /// slot into Unfinished Flights. Stash opens the slot by demoting its
+        /// effective tip recording to CommittedProvisional; this bit is the
+        /// monotonic re-stash guard. Recovered, docked/merged, boarded, and
         /// downstream-branch outcomes still use the classifier's normal
-        /// closed-path rules.
+        /// closed-path rules. Open/closed itself is read from the slot's
+        /// effective tip MergeState, not from a slot bit.
         /// </summary>
         public bool Stashed;
 
@@ -85,10 +73,6 @@ namespace Parsek
                 node.AddValue("disabled", Disabled.ToString());
             if (!string.IsNullOrEmpty(DisabledReason))
                 node.AddValue("disabledReason", DisabledReason);
-            if (Sealed)
-                node.AddValue("sealed", Sealed.ToString());
-            if (!string.IsNullOrEmpty(SealedRealTime))
-                node.AddValue("sealedRealTime", SealedRealTime);
             if (Stashed)
                 node.AddValue("stashed", Stashed.ToString());
             if (!string.IsNullOrEmpty(StashedRealTime))
@@ -121,13 +105,6 @@ namespace Parsek
                 slot.Disabled = disabled;
 
             slot.DisabledReason = node.GetValue("disabledReason");
-
-            string sealedStr = node.GetValue("sealed");
-            bool sealedValue;
-            if (!string.IsNullOrEmpty(sealedStr) && bool.TryParse(sealedStr, out sealedValue))
-                slot.Sealed = sealedValue;
-
-            slot.SealedRealTime = node.GetValue("sealedRealTime");
 
             string stashedStr = node.GetValue("stashed");
             bool stashedValue;

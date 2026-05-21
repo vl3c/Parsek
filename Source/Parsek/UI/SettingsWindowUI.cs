@@ -462,7 +462,7 @@ namespace Parsek
             GUILayout.Label(new GUIContent(
                 RewindPointDiskUsage.FormatLine(rpSnap),
                 "Total size of rewind-point quicksaves under saves/<save>/Parsek/RewindPoints/. "
-                + "Also shows live RP counts split by crashed, stable, and sealed-pending slots. "
+                + "Also shows live RP counts split by crashed, stable, and concluded slots. "
                 + "Refreshed every 10 seconds or when RP state changes."));
         }
 
