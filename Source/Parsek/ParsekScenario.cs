@@ -5104,7 +5104,14 @@ namespace Parsek
                     loadedRec.TerminalOrbitBody,
                     committedRec.TerminalOrbitBody,
                     StringComparison.Ordinal)
-                || LastPointUTOrNaN(loadedRec) != LastPointUTOrNaN(committedRec);
+                || LastPointUTOrNaN(loadedRec) != LastPointUTOrNaN(committedRec)
+                // MergeState is the open/closed source of truth after
+                // collapse-seal-into-mergestate. A sibling slot can be promoted
+                // to CommittedProvisional (open) AFTER RP creation, while the
+                // RP-frozen loaded snapshot still has it Immutable; that
+                // divergence alone must trigger the refresh, or the open slot
+                // would silently seal when a different slot's re-fly re-commits.
+                || loadedRec.MergeState != committedRec.MergeState;
 
             if (!diverged)
                 return false;
@@ -5117,7 +5124,12 @@ namespace Parsek
             string recordingId = loadedRec.RecordingId;
             string treeId = loadedRec.TreeId;
             int treeOrder = loadedRec.TreeOrder;
-            MergeState mergeState = loadedRec.MergeState;
+            // MergeState is open/closed state, NOT identity: take it from the
+            // committed (post-merge truth) copy, not the stale RP-frozen loaded
+            // copy. Preserving the loaded Immutable would seal an open sibling
+            // slot (e.g. a capsule promoted to CommittedProvisional after RP
+            // creation) when an unrelated slot's re-fly re-commits the tree.
+            MergeState mergeState = committedRec.MergeState;
             string creatingSessionId = loadedRec.CreatingSessionId;
             string supersedeTargetId = loadedRec.SupersedeTargetId;
             string provisionalForRpId = loadedRec.ProvisionalForRpId;

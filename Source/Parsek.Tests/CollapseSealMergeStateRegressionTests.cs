@@ -510,5 +510,65 @@ namespace Parsek.Tests
                 + "reap-eligible, even when that slot's tip lives only in a "
                 + "committed tree (not the flat committed list).");
         }
+
+        // ---------- 8. Re-fly restore must not seal an open sibling ----------
+
+        [Fact]
+        public void SpliceRefresh_AdoptsCommittedMergeState_NotStaleLoadedImmutable()
+        {
+            // Playtest data-loss repro: re-flying one slot (the booster) sealed
+            // the OPEN sibling slot (the capsule). The re-fly restore rebuilds
+            // the tree from the RP-frozen save, where a sibling recording still
+            // has its separation-time MergeState (Immutable), while the live
+            // committed tree has it promoted to CommittedProvisional (open).
+            // SpliceMissingCommittedRecordingsIntoLoadedTree's same-id refresh
+            // must adopt the committed (post-merge truth) MergeState, not
+            // preserve the stale loaded Immutable, or the open sibling silently
+            // seals when the other slot's re-fly re-commits the tree.
+            var committedRec = new Recording
+            {
+                RecordingId = "sibling",
+                TreeId = "mission_tree",
+                VesselName = "Capsule",
+                MergeState = MergeState.CommittedProvisional, // promoted after RP creation
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = "mission_tree",
+                TreeName = "Mission",
+                RootRecordingId = "sibling",
+                ActiveRecordingId = "sibling",
+            };
+            committedTree.Recordings["sibling"] = committedRec;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            // The RP-frozen loaded copy: identical shape, but stale Immutable
+            // MergeState (so MergeState is the ONLY divergence -> exercises the
+            // diverged-on-MergeState path too).
+            var loadedRec = new Recording
+            {
+                RecordingId = "sibling",
+                TreeId = "mission_tree",
+                VesselName = "Capsule",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Destroyed,
+            };
+            var loadedTree = new RecordingTree
+            {
+                Id = "mission_tree",
+                TreeName = "Mission",
+                RootRecordingId = "sibling",
+                ActiveRecordingId = "sibling",
+            };
+            loadedTree.Recordings["sibling"] = loadedRec;
+
+            ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(
+                loadedTree, loadedTree.ActiveRecordingId);
+
+            Assert.Equal(
+                MergeState.CommittedProvisional,
+                loadedTree.Recordings["sibling"].MergeState);
+        }
     }
 }
