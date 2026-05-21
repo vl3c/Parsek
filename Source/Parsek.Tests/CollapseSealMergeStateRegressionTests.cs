@@ -570,5 +570,60 @@ namespace Parsek.Tests
                 MergeState.CommittedProvisional,
                 loadedTree.Recordings["sibling"].MergeState);
         }
+
+        // ---------- 9. Splice refresh must NOT seal a live NotCommitted rec ---
+
+        [Fact]
+        public void SpliceRefresh_PreservesNotCommittedLiveRecording_NotCommittedSource()
+        {
+            // The committed-MergeState adoption (test 8) must NOT clobber a live
+            // in-flight recording: a NotCommitted loaded copy (e.g. an active
+            // re-fly provisional / live recorder) stays NotCommitted even though
+            // the committed copy reads Immutable, or the splice would seal a
+            // recording that is still being flown.
+            var committedRec = new Recording
+            {
+                RecordingId = "live",
+                TreeId = "live_tree",
+                VesselName = "Active",
+                MergeState = MergeState.Immutable,
+                TerminalStateValue = TerminalState.Landed,
+            };
+            var committedTree = new RecordingTree
+            {
+                Id = "live_tree",
+                TreeName = "LiveMission",
+                RootRecordingId = "live",
+                ActiveRecordingId = "live",
+            };
+            committedTree.Recordings["live"] = committedRec;
+            RecordingStore.AddCommittedTreeForTesting(committedTree);
+
+            // Live loaded copy: NotCommitted, with a diverging shape (no terminal)
+            // so the structural refresh path runs.
+            var loadedRec = new Recording
+            {
+                RecordingId = "live",
+                TreeId = "live_tree",
+                VesselName = "Active",
+                MergeState = MergeState.NotCommitted,
+                TerminalStateValue = null,
+            };
+            var loadedTree = new RecordingTree
+            {
+                Id = "live_tree",
+                TreeName = "LiveMission",
+                RootRecordingId = "live",
+                ActiveRecordingId = "live",
+            };
+            loadedTree.Recordings["live"] = loadedRec;
+
+            ParsekScenario.SpliceMissingCommittedRecordingsIntoLoadedTree(
+                loadedTree, loadedTree.ActiveRecordingId);
+
+            Assert.Equal(
+                MergeState.NotCommitted,
+                loadedTree.Recordings["live"].MergeState);
+        }
     }
 }

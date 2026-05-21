@@ -5111,7 +5111,11 @@ namespace Parsek
                 // RP-frozen loaded snapshot still has it Immutable; that
                 // divergence alone must trigger the refresh, or the open slot
                 // would silently seal when a different slot's re-fly re-commits.
-                || loadedRec.MergeState != committedRec.MergeState;
+                // A NotCommitted loaded copy is a LIVE in-flight recording and is
+                // never overwritten (see the mergeState pick below), so it does
+                // not count as a MergeState divergence here.
+                || (loadedRec.MergeState != committedRec.MergeState
+                    && loadedRec.MergeState != MergeState.NotCommitted);
 
             if (!diverged)
                 return false;
@@ -5124,12 +5128,17 @@ namespace Parsek
             string recordingId = loadedRec.RecordingId;
             string treeId = loadedRec.TreeId;
             int treeOrder = loadedRec.TreeOrder;
-            // MergeState is open/closed state, NOT identity: take it from the
-            // committed (post-merge truth) copy, not the stale RP-frozen loaded
-            // copy. Preserving the loaded Immutable would seal an open sibling
-            // slot (e.g. a capsule promoted to CommittedProvisional after RP
-            // creation) when an unrelated slot's re-fly re-commits the tree.
-            MergeState mergeState = committedRec.MergeState;
+            // MergeState is open/closed state, NOT identity: for a CONCLUDED
+            // loaded copy (CommittedProvisional / Immutable) take the committed
+            // (post-merge truth) value, not the stale RP-frozen loaded one, so
+            // an open sibling slot (e.g. a capsule promoted to CommittedProvisional
+            // after RP creation) is not silently sealed when an unrelated slot's
+            // re-fly re-commits the tree. But PRESERVE a NotCommitted loaded copy:
+            // that is a live in-flight recording whose committed copy would
+            // wrongly seal/conclude it.
+            MergeState mergeState = loadedRec.MergeState == MergeState.NotCommitted
+                ? loadedRec.MergeState
+                : committedRec.MergeState;
             string creatingSessionId = loadedRec.CreatingSessionId;
             string supersedeTargetId = loadedRec.SupersedeTargetId;
             string provisionalForRpId = loadedRec.ProvisionalForRpId;
@@ -5328,7 +5337,16 @@ namespace Parsek
             string recordingId = target.RecordingId;
             string treeId = target.TreeId;
             int treeOrder = target.TreeOrder;
-            MergeState mergeState = target.MergeState;
+            // MergeState is open/closed state, NOT identity. Same rule as
+            // RefreshLoadedRecordingFromCommittedSplit (collapse-seal-into-mergestate):
+            // for a CONCLUDED target (CommittedProvisional / Immutable) take the
+            // committed (source) post-merge truth so a stale Immutable does not
+            // seal an open sibling slot; but PRESERVE a NotCommitted target,
+            // which is a live in-flight recording the committed copy must not
+            // seal.
+            MergeState mergeState = target.MergeState == MergeState.NotCommitted
+                ? target.MergeState
+                : source.MergeState;
             string creatingSessionId = target.CreatingSessionId;
             string supersedeTargetId = target.SupersedeTargetId;
             string provisionalForRpId = target.ProvisionalForRpId;
