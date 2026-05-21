@@ -297,7 +297,8 @@ namespace Parsek
             // were at 1x is a genuine dropped-sample signal (WARN). On-rails BG
             // samples never reach the per-frame tick (OnBackgroundPhysicsFrame
             // early-returns on bgVessel.packed), so physics warp is the only
-            // signal here. Reset on StartBackgroundTrackSection.
+            // signal here. Reset on StartBackgroundTrackSection, trimmed in
+            // lockstep with frames in TrimParentAtBranchBoundary.
             public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
             // Part destruction/decoupling tracking
@@ -1090,8 +1091,12 @@ namespace Parsek
             int bodyFixedFramesRemoved = 0;
             if (parentLoaded != null && parentLoaded.trackSectionActive)
             {
-                sectionFramesRemoved = TrimTrajectoryPointsAfterUT(
-                    parentLoaded.currentTrackSection.frames, branchUT);
+                // Trim the section frames and keep the per-section warp-flag list
+                // index-aligned with them in one step (see the helper for why).
+                sectionFramesRemoved = TrimSectionFramesAndWarpFlagsAfterUT(
+                    parentLoaded.currentTrackSection.frames,
+                    parentLoaded.sectionFrameWarpFlags,
+                    branchUT);
                 bodyFixedFramesRemoved = TrimTrajectoryPointsAfterUT(
                     parentLoaded.currentTrackSection.bodyFixedFrames, branchUT);
                 if (sectionFramesRemoved > 0 || bodyFixedFramesRemoved > 0)
@@ -1135,6 +1140,39 @@ namespace Parsek
             }
 
             return removed;
+        }
+
+        /// <summary>
+        /// Trims a section's <paramref name="frames"/> after <paramref name="maxUT"/>
+        /// and truncates the index-aligned <paramref name="warpFlags"/> list back to
+        /// the new frame count, restoring the 1:1 alignment the sparse-sampling
+        /// per-gap classifier relies on.
+        ///
+        /// Frames are appended in UT order, so <see cref="TrimTrajectoryPointsAfterUT"/>
+        /// removes a contiguous post-<paramref name="maxUT"/> tail; truncating the
+        /// flags down to <c>frames.Count</c> drops the warp flags for exactly those
+        /// removed tail samples. Without this the flags list stays longer than frames
+        /// for the rest of the section's life and
+        /// <see cref="FlightRecorder.ComputeSectionGapStats"/> falls back to its
+        /// length-mismatch path (every gap counted as 1x =&gt; over-WARN) instead of
+        /// per-gap warp classification. Mirrors the active-side
+        /// <see cref="FlightRecorder.TrimRecordingToUT"/> lockstep trim.
+        ///
+        /// Pure (no recorder/Unity state) for direct unit testing. Returns the number
+        /// of frames removed.
+        /// </summary>
+        internal static int TrimSectionFramesAndWarpFlagsAfterUT(
+            List<TrajectoryPoint> frames, List<bool> warpFlags, double maxUT)
+        {
+            int framesRemoved = TrimTrajectoryPointsAfterUT(frames, maxUT);
+            if (framesRemoved > 0 && warpFlags != null)
+            {
+                int frameCount = frames?.Count ?? 0;
+                if (warpFlags.Count > frameCount)
+                    warpFlags.RemoveRange(frameCount, warpFlags.Count - frameCount);
+            }
+
+            return framesRemoved;
         }
 
         private static void RecomputeCurrentTrackSectionAltitudeRange(BackgroundVesselState state)

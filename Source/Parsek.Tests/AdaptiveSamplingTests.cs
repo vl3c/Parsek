@@ -910,6 +910,74 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_TrimsTailAndKeepsFlagsAligned()
+        {
+            // The BG parent-trim lockstep: TrimParentAtBranchBoundary removes the
+            // post-branchUT tail of the parent section's frames; the warp-flag
+            // list must shrink with it so per-gap classification keeps working.
+            // frames:  100(1x) 101(1x) 102(warp) | 103(trimmed) 104(trimmed)
+            // After trim, gaps 100->101 (1x->1x) and 101->102 (1x->warp) survive.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 101.0 },
+                new TrajectoryPoint { ut = 102.0 }, // branchUT
+                new TrajectoryPoint { ut = 103.0 }, // trimmed
+                new TrajectoryPoint { ut = 104.0 }  // trimmed
+            };
+            var warpFlags = new List<bool> { false, false, true, true, true };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags, maxUT: 102.0);
+
+            Assert.Equal(2, removed);
+            Assert.Equal(3, frames.Count);
+            // Flags stay 1:1 with frames so ComputeSectionGapStats classifies
+            // per gap instead of falling into the length-mismatch fallback.
+            Assert.Equal(frames.Count, warpFlags.Count);
+            Assert.Equal(new List<bool> { false, false, true }, warpFlags);
+
+            // End-to-end through the aligned lists: 100->101 is 1x->1x (normal-rate
+            // large gap), 101->102 touches the warp sample at index 2 (not normal).
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+            Assert.Equal(2, stats.LargeGapCount);          // both 1s gaps are "large" vs 0.5s
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate); // only 100->101 is 1x->1x
+        }
+
+        [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_NoTailToTrim_LeavesListsUnchanged()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 50.0 },
+                new TrajectoryPoint { ut = 51.0 }
+            };
+            var warpFlags = new List<bool> { false, true };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags, maxUT: 100.0);
+
+            Assert.Equal(0, removed);
+            Assert.Equal(2, frames.Count);
+            Assert.Equal(2, warpFlags.Count);
+            Assert.Equal(new List<bool> { false, true }, warpFlags);
+        }
+
+        [Fact]
+        public void TrimSectionFramesAndWarpFlagsAfterUT_NullWarpFlags_DoesNotThrow()
+        {
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 10.0 },
+                new TrajectoryPoint { ut = 20.0 }
+            };
+
+            int removed = BackgroundRecorder.TrimSectionFramesAndWarpFlagsAfterUT(frames, warpFlags: null, maxUT: 10.0);
+
+            Assert.Equal(1, removed);
+            Assert.Single(frames);
+        }
+
+        [Fact]
         public void AttitudeSampling_AboveThreshold_Records()
         {
             bool result = FlightRecorder.ShouldRecordAttitudePoint(
