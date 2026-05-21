@@ -75,11 +75,14 @@ namespace Parsek
         private double surfaceMobileMaxClearanceThisSection = double.NaN;
         private double surfaceMobileClearanceSumThisSection;
 
-        // Latched true if any sample in the current section was committed while
-        // time-warp was active (physics warp rate > 1 or on-rails). Used to
-        // downgrade the sparse-sampling WARN to Verbose for structurally-
-        // expected warp gaps. Reset per section in StartNewTrackSection.
-        private bool warpObservedThisSection;
+        // Per-frame warp flags for the current section, index-aligned with
+        // currentTrackSection.frames (flag[i] == true means frame i was sampled
+        // under time-warp / on-rails). Used at section close to classify each
+        // large gap: a gap touching a warp sample is a structurally-expected
+        // jump (Verbose), a large gap whose both ends were at 1x is a genuine
+        // dropped-sample signal (WARN). Reset per section in StartNewTrackSection,
+        // trimmed in lockstep with frames in TrimRecordingToUT.
+        private readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
@@ -652,11 +655,35 @@ namespace Parsek
             public double AverageGapSeconds;
             public double MaxGapSeconds;
             public int LargeGapCount;
+
+            // Subset of LargeGapCount whose bounding samples were BOTH taken at
+            // normal (1x, not-on-rails) rate. A large gap at 1x is a genuine
+            // dropped / stalled-sampler signal worth a WARN; a large gap whose
+            // either bounding sample was under time-warp / on-rails is a
+            // structurally-expected jump that belongs at Verbose. When no
+            // per-sample warp data is supplied (warpFlags == null), this equals
+            // LargeGapCount so the WARN behaviour is unchanged.
+            public int LargeGapCountAtNormalRate;
         }
 
+        /// <summary>
+        /// Computes inter-sample gap statistics for a closed section.
+        /// </summary>
+        /// <param name="frames">The section's sampled points (UT-ordered).</param>
+        /// <param name="largeGapThresholdSeconds">Gap size above which a gap counts as "large".</param>
+        /// <param name="warpFlags">
+        /// Optional per-sample warp flags, index-aligned with <paramref name="frames"/>
+        /// (flag[i] == true means sample i was committed under time-warp / on-rails).
+        /// When supplied and aligned, a large gap is classified as "at normal rate"
+        /// only if BOTH bounding samples were at 1x; gaps touching a warp sample are
+        /// excluded from <see cref="SectionGapStats.LargeGapCountAtNormalRate"/>.
+        /// When null or length-mismatched, every large gap counts as normal-rate
+        /// (conservative -- preserves the unconditional-WARN behaviour).
+        /// </param>
         internal static SectionGapStats ComputeSectionGapStats(
             IList<TrajectoryPoint> frames,
-            double largeGapThresholdSeconds = SparseSectionGapWarningThresholdSeconds)
+            double largeGapThresholdSeconds = SparseSectionGapWarningThresholdSeconds,
+            IList<bool> warpFlags = null)
         {
             var stats = new SectionGapStats
             {
@@ -665,7 +692,8 @@ namespace Parsek
                 LastUT = double.NaN,
                 AverageGapSeconds = 0.0,
                 MaxGapSeconds = 0.0,
-                LargeGapCount = 0
+                LargeGapCount = 0,
+                LargeGapCountAtNormalRate = 0
             };
 
             if (frames == null || frames.Count == 0)
@@ -676,10 +704,17 @@ namespace Parsek
             if (frames.Count == 1)
                 return stats;
 
+            // Only trust the warp flags when they line up 1:1 with the frames;
+            // any mismatch (e.g. a frame-append path that bypassed the parallel
+            // list) falls back to "no warp data" so every large gap stays
+            // WARN-eligible rather than being silently downgraded.
+            bool haveWarpFlags = warpFlags != null && warpFlags.Count == frames.Count;
+
             double totalGap = 0.0;
             double maxGap = 0.0;
             int gapCount = 0;
             int largeGapCount = 0;
+            int largeGapCountAtNormalRate = 0;
             for (int i = 1; i < frames.Count; i++)
             {
                 double gap = frames[i].ut - frames[i - 1].ut;
@@ -691,12 +726,18 @@ namespace Parsek
                 if (gap > maxGap)
                     maxGap = gap;
                 if (gap > largeGapThresholdSeconds)
+                {
                     largeGapCount++;
+                    bool gapTouchesWarp = haveWarpFlags && (warpFlags[i - 1] || warpFlags[i]);
+                    if (!gapTouchesWarp)
+                        largeGapCountAtNormalRate++;
+                }
             }
 
             stats.AverageGapSeconds = gapCount > 0 ? totalGap / gapCount : 0.0;
             stats.MaxGapSeconds = maxGap;
             stats.LargeGapCount = largeGapCount;
+            stats.LargeGapCountAtNormalRate = largeGapCountAtNormalRate;
             return stats;
         }
 
@@ -708,21 +749,22 @@ namespace Parsek
         /// Time-warp (physics warp rate &gt; 1) and on-rails recording produce
         /// large UT jumps between physics frames by design -- dense sampling is
         /// impossible and the gap is harmless, not data loss. Flooding WARN with
-        /// these makes the genuine signal (sparse gaps at 1x, which indicate a
-        /// dropped sample or a stalled sampler) impossible to spot. When warp
-        /// was observed during the section we downgrade to Verbose; otherwise we
-        /// keep WARN so an unexpected 1x gap still surfaces.
+        /// these makes the genuine signal (a sparse gap at 1x, which indicates a
+        /// dropped sample or a stalled sampler) impossible to spot.
+        ///
+        /// Classification is per-gap, NOT per-section: a single section can hold
+        /// both a real 1x gap and a later warp gap (physics warp never goes
+        /// on-rails and does not close the section). We WARN whenever at least
+        /// one large gap had BOTH bounding samples at 1x
+        /// (<paramref name="largeGapCountAtNormalRate"/> &gt; 0), and downgrade
+        /// to Verbose only when every large gap touched a warp / on-rails sample.
         ///
         /// Pure static so the recorder hot path stays a one-line call and the
         /// decision is unit-testable. Returns true to WARN, false to log Verbose.
         /// </summary>
-        internal static bool ShouldWarnOnSparseSampling(
-            int largeGapCount,
-            bool warpObservedDuringSection)
+        internal static bool ShouldWarnOnSparseSampling(int largeGapCountAtNormalRate)
         {
-            if (largeGapCount <= 0)
-                return false;
-            return !warpObservedDuringSection;
+            return largeGapCountAtNormalRate > 0;
         }
 
         internal static bool IsHighFidelitySamplingActive(double currentUT, double highFidelityUntilUT)
@@ -5066,7 +5108,7 @@ namespace Parsek
             surfaceMobileMinClearanceThisSection = double.NaN;
             surfaceMobileMaxClearanceThisSection = double.NaN;
             surfaceMobileClearanceSumThisSection = 0.0;
-            warpObservedThisSection = false;
+            sectionFrameWarpFlags.Clear();
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -5101,7 +5143,9 @@ namespace Parsek
 
             int frameCount = currentTrackSection.frames?.Count ?? 0;
             int checkpointCount = currentTrackSection.checkpoints?.Count ?? 0;
-            SectionGapStats gapStats = ComputeSectionGapStats(currentTrackSection.frames);
+            SectionGapStats gapStats = ComputeSectionGapStats(
+                currentTrackSection.frames,
+                warpFlags: sectionFrameWarpFlags);
 
             // Skip degenerate zero-frame sections from brief RELATIVE/environment flickers
             // (e.g., debris triggers anchor for one frame then leaves). Only discard if
@@ -5185,13 +5229,13 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCount, warpObservedThisSection);
+                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCountAtNormalRate);
                 string message =
                     $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
                     $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} warp={warpObservedThisSection}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
                 if (warn)
                     ParsekLog.Warn("Recorder", message);
                 else
@@ -8652,13 +8696,6 @@ namespace Parsek
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
                 return;
 
-            // Latch whether warp was active for this sample so the sparse-
-            // sampling close-time check can downgrade structurally-expected
-            // warp gaps to Verbose. Cheap per-sample read; TimeWarp is wrapped
-            // defensively so xUnit (no Unity runtime) does not throw.
-            if (!warpObservedThisSection && (isOnRails || IsTimeWarpActiveForDiagnostics()))
-                warpObservedThisSection = true;
-
             if (object.ReferenceEquals(v, null))
             {
                 CommitRecordedPointWithoutVessel(point, bodyFixedPrimaryPoint);
@@ -8666,6 +8703,18 @@ namespace Parsek
             }
 
             CommitRecordedPointWithVessel(point, v, bodyFixedPrimaryPoint);
+        }
+
+        /// <summary>
+        /// Appends one entry to <see cref="sectionFrameWarpFlags"/> in lockstep
+        /// with a <c>currentTrackSection.frames.Add</c>. The flag records whether
+        /// the sample was taken under time-warp / on-rails so the section-close
+        /// sparse-sampling check can classify each gap. Reads warp state
+        /// defensively (TimeWarp may be absent under xUnit).
+        /// </summary>
+        private void AppendCurrentSectionFrameWarpFlag()
+        {
+            sectionFrameWarpFlags.Add(isOnRails || IsTimeWarpActiveForDiagnostics());
         }
 
         /// <summary>
@@ -8791,6 +8840,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                AppendCurrentSectionFrameWarpFlag();
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && bodyFixedPrimaryPoint.HasValue)
                 {
@@ -8861,6 +8911,7 @@ namespace Parsek
             if (trackSectionActive && currentTrackSection.frames != null)
             {
                 currentTrackSection.frames.Add(point);
+                AppendCurrentSectionFrameWarpFlag();
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && bodyFixedPrimaryPoint.HasValue)
                 {
@@ -8955,8 +9006,14 @@ namespace Parsek
                     }
                 }
                 if (frameTrimIdx < currentTrackSection.frames.Count)
-                    currentTrackSection.frames.RemoveRange(frameTrimIdx,
-                        currentTrackSection.frames.Count - frameTrimIdx);
+                {
+                    int framesToTrim = currentTrackSection.frames.Count - frameTrimIdx;
+                    currentTrackSection.frames.RemoveRange(frameTrimIdx, framesToTrim);
+                    // Keep the parallel warp-flag list index-aligned with frames.
+                    if (frameTrimIdx < sectionFrameWarpFlags.Count)
+                        sectionFrameWarpFlags.RemoveRange(frameTrimIdx,
+                            sectionFrameWarpFlags.Count - frameTrimIdx);
+                }
             }
             if (trackSectionActive && currentTrackSection.bodyFixedFrames != null)
             {
@@ -9523,6 +9580,7 @@ namespace Parsek
                 return;
             if (!trackSectionActive || currentTrackSection.frames == null) return;
             currentTrackSection.frames.Add(point.Value);
+            AppendCurrentSectionFrameWarpFlag();
             if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && bodyFixedPrimaryPoint.HasValue)
             {

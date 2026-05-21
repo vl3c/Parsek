@@ -807,31 +807,106 @@ namespace Parsek.Tests
             Assert.Equal(0.3, stats.AverageGapSeconds, precision: 6);
             Assert.Equal(0.6, stats.MaxGapSeconds, precision: 6);
             Assert.Equal(1, stats.LargeGapCount);
+            // No per-sample warp data supplied: every large gap counts as
+            // normal-rate so the WARN behaviour is unchanged.
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
         }
 
         [Fact]
-        public void ShouldWarnOnSparseSampling_NoLargeGaps_NeverWarns()
+        public void SectionGapStats_AllGapsUnderWarp_NoNormalRateLargeGap()
         {
-            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0, warpObservedDuringSection: false));
-            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0, warpObservedDuringSection: true));
+            // Two large gaps, every bounding sample taken under warp.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0 },
+                new TrajectoryPoint { ut = 110.0 }, // 10s gap
+                new TrajectoryPoint { ut = 125.0 }  // 15s gap
+            };
+            var warpFlags = new List<bool> { true, true, true };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
         }
 
         [Fact]
-        public void ShouldWarnOnSparseSampling_LargeGapsAtNormalRate_Warns()
+        public void SectionGapStats_MixedSection_OneNormalRateGapAndOneWarpGap()
         {
-            // Unexpected sparse sampling at 1x (no warp) is the genuine signal:
-            // a dropped or stalled sample. Keep it at WARN.
-            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(1, warpObservedDuringSection: false));
-            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11, warpObservedDuringSection: false));
+            // The reviewer's edge case: a single section holds BOTH a real 1x
+            // dropped-sample gap AND a later physics-warp gap. The 1x gap must
+            // still count toward LargeGapCountAtNormalRate so it WARNs; the warp
+            // gap must not.
+            // frames:  0     1(0.7s gap @1x)  2(warp on)  3(20s gap, warp->warp)
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 50.0 },
+                new TrajectoryPoint { ut = 50.7 },  // 0.7s gap, both ends 1x  -> normal-rate large gap
+                new TrajectoryPoint { ut = 51.0 },  // small gap (warp just engaged at this sample)
+                new TrajectoryPoint { ut = 71.0 }   // 20s gap, both ends warp -> warp gap
+            };
+            var warpFlags = new List<bool> { false, false, true, true };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+            // The mixed section still WARNs because a 1x gap is present.
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(stats.LargeGapCountAtNormalRate));
         }
 
         [Fact]
-        public void ShouldWarnOnSparseSampling_LargeGapsUnderWarp_DoesNotWarn()
+        public void SectionGapStats_LargeGapTouchingWarpSampleOnEitherEnd_NotNormalRate()
         {
-            // Warp / on-rails sections produce large UT jumps by design; those
-            // are downgraded to Verbose so WARN stays meaningful.
-            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(1, warpObservedDuringSection: true));
-            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(50, warpObservedDuringSection: true));
+            // A large gap with warp active at only ONE bounding sample (e.g. the
+            // frame straddling a warp transition) is still warp-attributable.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0.0 },
+                new TrajectoryPoint { ut = 5.0 },  // 5s gap: prev 1x, cur warp
+                new TrajectoryPoint { ut = 11.0 }  // 6s gap: prev warp, cur 1x
+            };
+            var warpFlags = new List<bool> { false, true, false };
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(2, stats.LargeGapCount);
+            Assert.Equal(0, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void SectionGapStats_MismatchedWarpFlagLength_TreatsAllAsNormalRate()
+        {
+            // Defensive: a length mismatch falls back to "no warp data" so every
+            // large gap stays WARN-eligible rather than being silently downgraded.
+            var frames = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 0.0 },
+                new TrajectoryPoint { ut = 10.0 }
+            };
+            var warpFlags = new List<bool> { true }; // wrong length
+
+            FlightRecorder.SectionGapStats stats =
+                FlightRecorder.ComputeSectionGapStats(frames, largeGapThresholdSeconds: 0.5, warpFlags: warpFlags);
+
+            Assert.Equal(1, stats.LargeGapCount);
+            Assert.Equal(1, stats.LargeGapCountAtNormalRate);
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_NoNormalRateLargeGaps_DoesNotWarn()
+        {
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0));
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_HasNormalRateLargeGap_Warns()
+        {
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(1));
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11));
         }
 
         [Fact]

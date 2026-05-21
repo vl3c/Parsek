@@ -289,11 +289,16 @@ namespace Parsek
             public double surfaceMobileMaxClearanceThisSection = double.NaN;
             public double surfaceMobileClearanceSumThisSection;
 
-            // Latched true if any sample in the current section was taken while
-            // time-warp was active (rate index > 0) or the vessel was on-rails.
-            // Used to downgrade the sparse-sampling WARN to Verbose for warp-
-            // induced gaps. Reset on StartBackgroundTrackSection.
-            public bool warpObservedThisSection;
+            // Per-frame warp flags for the current section, index-aligned with
+            // currentTrackSection.frames (flag[i] == true means frame i was
+            // sampled under physics time-warp). Used at section close to
+            // classify each large gap: a gap touching a warp sample is a
+            // structurally-expected jump (Verbose), a large gap whose both ends
+            // were at 1x is a genuine dropped-sample signal (WARN). On-rails BG
+            // samples never reach the per-frame tick (OnBackgroundPhysicsFrame
+            // early-returns on bgVessel.packed), so physics warp is the only
+            // signal here. Reset on StartBackgroundTrackSection.
+            public readonly List<bool> sectionFrameWarpFlags = new List<bool>();
 
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
@@ -2163,16 +2168,10 @@ namespace Parsek
             state.lastWorldRotation = currentWorldRotation;
             state.hasLastWorldRotation = true;
 
-            // Latch whether this sample was taken under warp / on-rails so the
-            // sparse-sampling close-time check downgrades structurally-expected
-            // warp gaps to Verbose instead of WARN.
-            if (!state.warpObservedThisSection
-                && (bgVessel.packed || FlightRecorder.IsTimeWarpActiveForDiagnostics()))
-            {
-                state.warpObservedThisSection = true;
-            }
-
-            // Dual-write: also add to current TrackSection's frames list
+            // Dual-write: also add to current TrackSection's frames list. The
+            // per-sample warp flag is appended in lockstep inside
+            // AddFrameToActiveTrackSection so each large gap is classified by the
+            // warp state at its bounding samples at section close.
             AddFrameToActiveTrackSection(
                 state,
                 point,
@@ -6653,10 +6652,23 @@ namespace Parsek
             state.surfaceMobileMinClearanceThisSection = double.NaN;
             state.surfaceMobileMaxClearanceThisSection = double.NaN;
             state.surfaceMobileClearanceSumThisSection = 0.0;
-            state.warpObservedThisSection = false;
+            state.sectionFrameWarpFlags.Clear();
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Appends one entry to <paramref name="state"/>'s per-section warp-flag
+        /// list in lockstep with a <c>currentTrackSection.frames.Add</c>. Records
+        /// whether the sample was taken under physics time-warp so the section-
+        /// close sparse-sampling check can classify each gap. On-rails BG samples
+        /// never reach these append paths (the per-frame tick early-returns on
+        /// <c>bgVessel.packed</c>), so physics warp is the only signal.
+        /// </summary>
+        private static void AppendSectionFrameWarpFlag(BackgroundVesselState state)
+        {
+            state?.sectionFrameWarpFlags.Add(FlightRecorder.IsTimeWarpActiveForDiagnostics());
         }
 
         private static void AppendFrameToCurrentTrackSection(
@@ -6668,6 +6680,7 @@ namespace Parsek
                 return;
 
             state.currentTrackSection.frames.Add(point);
+            AppendSectionFrameWarpFlag(state);
             if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
                 state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
@@ -6807,6 +6820,7 @@ namespace Parsek
                 return;
 
             state.currentTrackSection.frames.Add(point);
+            AppendSectionFrameWarpFlag(state);
             if (bodyFixedPrimaryPoint.HasValue && state.currentTrackSection.bodyFixedFrames != null)
                 state.currentTrackSection.bodyFixedFrames.Add(bodyFixedPrimaryPoint.Value);
             if (float.IsNaN(state.currentTrackSection.minAltitude)
@@ -6897,7 +6911,9 @@ namespace Parsek
             state.trackSectionActive = false;
 
             FlightRecorder.SectionGapStats gapStats =
-                FlightRecorder.ComputeSectionGapStats(state.currentTrackSection.frames);
+                FlightRecorder.ComputeSectionGapStats(
+                    state.currentTrackSection.frames,
+                    warpFlags: state.sectionFrameWarpFlags);
             if (state.currentTrackSection.referenceFrame == ReferenceFrame.Relative
                 && string.IsNullOrWhiteSpace(state.currentTrackSection.anchorRecordingId))
             {
@@ -6923,14 +6939,14 @@ namespace Parsek
             if (gapStats.LargeGapCount > 0)
             {
                 bool warn = FlightRecorder.ShouldWarnOnSparseSampling(
-                    gapStats.LargeGapCount, state.warpObservedThisSection);
+                    gapStats.LargeGapCountAtNormalRate);
                 string message =
                     $"TrackSection sparse sampling: pid={state.vesselPid} " +
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={FlightRecorder.SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount} warp={state.warpObservedThisSection}";
+                    $"largeGaps={gapStats.LargeGapCount} largeGaps1x={gapStats.LargeGapCountAtNormalRate}";
                 if (warn)
                     ParsekLog.Warn("BgRecorder", message);
                 else
