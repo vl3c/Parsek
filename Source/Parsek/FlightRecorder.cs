@@ -75,6 +75,12 @@ namespace Parsek
         private double surfaceMobileMaxClearanceThisSection = double.NaN;
         private double surfaceMobileClearanceSumThisSection;
 
+        // Latched true if any sample in the current section was committed while
+        // time-warp was active (physics warp rate > 1 or on-rails). Used to
+        // downgrade the sparse-sampling WARN to Verbose for structurally-
+        // expected warp gaps. Reset per section in StartNewTrackSection.
+        private bool warpObservedThisSection;
+
         // Anchor detection for RELATIVE frame (Phase 3a)
         private bool isRelativeMode;
         private uint currentAnchorPid;
@@ -692,6 +698,31 @@ namespace Parsek
             stats.MaxGapSeconds = maxGap;
             stats.LargeGapCount = largeGapCount;
             return stats;
+        }
+
+        /// <summary>
+        /// Decides whether a closed TrackSection's large inter-sample gaps are
+        /// worth a WARN or are a structurally-expected condition that belongs at
+        /// Verbose.
+        ///
+        /// Time-warp (physics warp rate &gt; 1) and on-rails recording produce
+        /// large UT jumps between physics frames by design -- dense sampling is
+        /// impossible and the gap is harmless, not data loss. Flooding WARN with
+        /// these makes the genuine signal (sparse gaps at 1x, which indicate a
+        /// dropped sample or a stalled sampler) impossible to spot. When warp
+        /// was observed during the section we downgrade to Verbose; otherwise we
+        /// keep WARN so an unexpected 1x gap still surfaces.
+        ///
+        /// Pure static so the recorder hot path stays a one-line call and the
+        /// decision is unit-testable. Returns true to WARN, false to log Verbose.
+        /// </summary>
+        internal static bool ShouldWarnOnSparseSampling(
+            int largeGapCount,
+            bool warpObservedDuringSection)
+        {
+            if (largeGapCount <= 0)
+                return false;
+            return !warpObservedDuringSection;
         }
 
         internal static bool IsHighFidelitySamplingActive(double currentUT, double highFidelityUntilUT)
@@ -5035,6 +5066,7 @@ namespace Parsek
             surfaceMobileMinClearanceThisSection = double.NaN;
             surfaceMobileMaxClearanceThisSection = double.NaN;
             surfaceMobileClearanceSumThisSection = 0.0;
+            warpObservedThisSection = false;
             ParsekLog.Info("Recorder",
                 $"TrackSection started: env={env} ref={refFrame} source={source} " +
                 $"at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -5153,12 +5185,17 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                ParsekLog.Warn("Recorder",
+                bool warn = ShouldWarnOnSparseSampling(gapStats.LargeGapCount, warpObservedThisSection);
+                string message =
                     $"TrackSection sparse sampling: env={currentTrackSection.environment} " +
                     $"ref={currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount}");
+                    $"largeGaps={gapStats.LargeGapCount} warp={warpObservedThisSection}";
+                if (warn)
+                    ParsekLog.Warn("Recorder", message);
+                else
+                    ParsekLog.Verbose("Recorder", message);
             }
 
             // Phase 7 (design doc §13, §19.2 Pipeline-Terrain row): when a
@@ -8615,6 +8652,13 @@ namespace Parsek
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point"))
                 return;
 
+            // Latch whether warp was active for this sample so the sparse-
+            // sampling close-time check can downgrade structurally-expected
+            // warp gaps to Verbose. Cheap per-sample read; TimeWarp is wrapped
+            // defensively so xUnit (no Unity runtime) does not throw.
+            if (!warpObservedThisSection && (isOnRails || IsTimeWarpActiveForDiagnostics()))
+                warpObservedThisSection = true;
+
             if (object.ReferenceEquals(v, null))
             {
                 CommitRecordedPointWithoutVessel(point, bodyFixedPrimaryPoint);
@@ -8622,6 +8666,18 @@ namespace Parsek
             }
 
             CommitRecordedPointWithVessel(point, v, bodyFixedPrimaryPoint);
+        }
+
+        /// <summary>
+        /// Reads the active time-warp rate index defensively. Returns false when
+        /// the Unity <c>TimeWarp</c> singleton is unavailable (xUnit / headless).
+        /// Rate index &gt; 0 means physics or rails warp is engaged. Used only
+        /// to classify sparse-sampling diagnostics, never to gate recording.
+        /// </summary>
+        internal static bool IsTimeWarpActiveForDiagnostics()
+        {
+            try { return TimeWarp.CurrentRateIndex > 0; }
+            catch { return false; }
         }
 
         internal static bool IsSurfaceClearanceEnvironment(SegmentEnvironment env)

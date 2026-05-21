@@ -62,6 +62,7 @@ All notable changes to Parsek are documented here.
 - STASH is now a mirror, not a destination. Unfinished Flight recordings stay in their natural mission tree group and also appear in the nested STASH subgroup that surfaces the Fly/Seal-eligible rows. Previously the regular-tree pre-filter stripped them out, leaving the main mission folder empty except for debris when every slot had open STASH affordances.
 - Controlled-decoupled child vessels (probes, landers, capsules that come off a parent through a decoupler) now anchor on their tree parent during ghost playback, fixing the mid-flight trajectory snap PR #872 / PR #874 worked around with a CoBubble selector tiebreaker. The lower-stage probe ghost during Kerbal X Re-Fly no longer rides through a sibling debris piece's trajectory and crossfades back when that debris crashes.
 - Debris of a re-fly fork that gets rewound out of the timeline no longer renders as a duplicate ghost alongside the restored recording's own debris. Existing saves with these duplicate ghosts are fixed automatically on the next load.
+- Switching control to the docking target mid-approach no longer drops the chaser's recording from precise relative tracking to body-fixed absolute for the rest of the close approach. The still-backgrounded chaser now keeps the target as its relative anchor (the target had become the active recording, which the anchor scan previously ignored), so two co-recorded ghosts stay aligned through docking instead of drifting apart at the sub-meter scale.
 
 ### Internals
 
@@ -79,6 +80,7 @@ All notable changes to Parsek are documented here.
 - Behavior-preserving refactor pass of the recording/rendering subsystem (dead-store removal, deduplication, helper extraction across `AnchorPropagator`, `RecordingTreeRecordCodec`, `RelativeAnchorResolver`, `GhostPlaybackEngine`, `SmoothingPipeline`, and `TrajectoryMath`). No user-facing or behavioral change; verified by the full test suite.
 - Behavior-preserving decomposition of `GhostPlaybackEngine`'s two per-frame hot-path methods (`UpdatePlayback`, `RenderInRangeGhost`) into six named helpers (`BuildPlaybackBudgetPhases`, `FireDeferredFrameEvents`, `TryUpdateLoopSyncedDebris`, `IsSpawnSuppressedDeadOnArrival`, `TryFirstSpawn`, `ApplyNonRetiredPostPosition`), with new unit tests for the two pure helpers. No behavioral change and no new per-frame allocation; verified by the full suite.
 - Second behavior-preserving extract-method pass across `RecordingStore`, `TrajectoryMath`, `IncompleteBallisticSceneExitFinalizer`, `RecordingTree`, `GhostVisualBuilder`, `FlightRecorder`, `SmoothingPipeline`, and `BackgroundRecorder`, plus new characterization tests for the extracted pure helpers. No user-facing or behavioral change; verified by the full test suite.
+- The "TrackSection sparse sampling" warning is now logged at Verbose (not WARN) when the section was recorded under time-warp or on-rails, where large inter-sample gaps are expected and harmless. Genuine sparse gaps at normal 1x rate still WARN, so the warning surfaces real data-loss risk instead of warp noise.
 
 ---
 

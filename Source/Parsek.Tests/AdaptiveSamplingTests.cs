@@ -810,6 +810,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldWarnOnSparseSampling_NoLargeGaps_NeverWarns()
+        {
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0, warpObservedDuringSection: false));
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(0, warpObservedDuringSection: true));
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_LargeGapsAtNormalRate_Warns()
+        {
+            // Unexpected sparse sampling at 1x (no warp) is the genuine signal:
+            // a dropped or stalled sample. Keep it at WARN.
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(1, warpObservedDuringSection: false));
+            Assert.True(FlightRecorder.ShouldWarnOnSparseSampling(11, warpObservedDuringSection: false));
+        }
+
+        [Fact]
+        public void ShouldWarnOnSparseSampling_LargeGapsUnderWarp_DoesNotWarn()
+        {
+            // Warp / on-rails sections produce large UT jumps by design; those
+            // are downgraded to Verbose so WARN stays meaningful.
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(1, warpObservedDuringSection: true));
+            Assert.False(FlightRecorder.ShouldWarnOnSparseSampling(50, warpObservedDuringSection: true));
+        }
+
+        [Fact]
         public void AttitudeSampling_AboveThreshold_Records()
         {
             bool result = FlightRecorder.ShouldRecordAttitudePoint(

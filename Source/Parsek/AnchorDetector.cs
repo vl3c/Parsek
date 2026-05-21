@@ -255,6 +255,61 @@ namespace Parsek
             return candidateRecording.TreeOrder < focusRecording.TreeOrder;
         }
 
+        /// <summary>
+        /// Resolves the anchor recording id for a loaded vessel as seen by a
+        /// background recorder's candidate scan. A loaded vessel maps to a
+        /// recording either because it is a background recording
+        /// (<paramref name="backgroundMap"/>) or because it is the currently
+        /// focused/active recording (<paramref name="activeRecordingId"/> with
+        /// matching <paramref name="activeRecordingVesselPid"/>).
+        ///
+        /// Background recorders historically only consulted the BackgroundMap,
+        /// so when the player switched control to a co-recorded anchor vessel
+        /// (e.g. flying the target during a docking approach) that anchor left
+        /// the BackgroundMap, became the active recording, and the still-
+        /// backgrounded chaser silently lost its only RELATIVE anchor and
+        /// dropped to ABSOLUTE for the rest of the close approach. Including the
+        /// active recording here lets the DAG-order rule (candidate.TreeOrder
+        /// &lt; focus.TreeOrder) decide eligibility instead of the focus state.
+        ///
+        /// Pure static -- maps injected for testability. <paramref name="isActiveRecording"/>
+        /// reports which surface resolved the id so callers can sanity-check it
+        /// against the re-fly provisional gate.
+        /// </summary>
+        internal static bool TryResolveLoadedAnchorRecordingId(
+            uint loadedVesselPid,
+            IReadOnlyDictionary<uint, string> backgroundMap,
+            string activeRecordingId,
+            uint activeRecordingVesselPid,
+            out string recordingId,
+            out bool isActiveRecording)
+        {
+            recordingId = null;
+            isActiveRecording = false;
+            if (loadedVesselPid == 0u)
+                return false;
+
+            if (backgroundMap != null
+                && backgroundMap.TryGetValue(loadedVesselPid, out recordingId)
+                && !string.IsNullOrWhiteSpace(recordingId))
+            {
+                return true;
+            }
+
+            recordingId = null;
+            if (!string.IsNullOrWhiteSpace(activeRecordingId)
+                && activeRecordingVesselPid != 0u
+                && activeRecordingVesselPid == loadedVesselPid)
+            {
+                recordingId = activeRecordingId;
+                isActiveRecording = true;
+                return true;
+            }
+
+            recordingId = null;
+            return false;
+        }
+
         internal static bool IsSealedRecordingAnchor(Recording recording)
         {
             return recording != null && recording.MergeState == MergeState.Immutable;

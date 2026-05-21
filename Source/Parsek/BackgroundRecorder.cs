@@ -289,6 +289,12 @@ namespace Parsek
             public double surfaceMobileMaxClearanceThisSection = double.NaN;
             public double surfaceMobileClearanceSumThisSection;
 
+            // Latched true if any sample in the current section was taken while
+            // time-warp was active (rate index > 0) or the vessel was on-rails.
+            // Used to downgrade the sparse-sampling WARN to Verbose for warp-
+            // induced gaps. Reset on StartBackgroundTrackSection.
+            public bool warpObservedThisSection;
+
             // Part destruction/decoupling tracking
             public HashSet<uint> decoupledPartIds = new HashSet<uint>();
 
@@ -2156,6 +2162,15 @@ namespace Parsek
             state.lastRecordedVelocity = point.velocity;
             state.lastWorldRotation = currentWorldRotation;
             state.hasLastWorldRotation = true;
+
+            // Latch whether this sample was taken under warp / on-rails so the
+            // sparse-sampling close-time check downgrades structurally-expected
+            // warp gaps to Verbose instead of WARN.
+            if (!state.warpObservedThisSection
+                && (bgVessel.packed || FlightRecorder.IsTimeWarpActiveForDiagnostics()))
+            {
+                state.warpObservedThisSection = true;
+            }
 
             // Dual-write: also add to current TrackSection's frames list
             AddFrameToActiveTrackSection(
@@ -5010,6 +5025,22 @@ namespace Parsek
             if (vessels == null)
                 return;
 
+            // Resolve the active recording's vessel pid so a still-backgrounded
+            // recording can anchor to the recording the player just switched to
+            // (e.g. the docking target). The active recording lives outside
+            // BackgroundMap, so without this it is invisible to the candidate
+            // scan and the RELATIVE anchor silently drops to ABSOLUTE mid-
+            // approach. DAG-order eligibility still decides whether the anchor
+            // is actually allowed.
+            string activeRecordingId = tree.ActiveRecordingId;
+            uint activeRecordingVesselPid =
+                !string.IsNullOrWhiteSpace(activeRecordingId)
+                && tree.Recordings != null
+                && tree.Recordings.TryGetValue(activeRecordingId, out Recording activeRec)
+                && activeRec != null
+                    ? activeRec.VesselPersistentId
+                    : 0u;
+
             for (int i = 0; i < vessels.Count; i++)
             {
                 Vessel vessel = vessels[i];
@@ -5023,8 +5054,16 @@ namespace Parsek
                     continue;
 
                 scanned++;
-                if (!tree.BackgroundMap.TryGetValue(vessel.persistentId, out string recordingId))
+                if (!AnchorDetector.TryResolveLoadedAnchorRecordingId(
+                        vessel.persistentId,
+                        tree.BackgroundMap,
+                        activeRecordingId,
+                        activeRecordingVesselPid,
+                        out string recordingId,
+                        out _))
+                {
                     continue;
+                }
                 if (!TryGetBackgroundEligibleAnchorRecording(
                         recordingId,
                         focusRecording,
@@ -5123,8 +5162,15 @@ namespace Parsek
             candidateRecording = null;
             if (tree?.Recordings == null || string.IsNullOrWhiteSpace(recordingId))
                 return false;
-            if (string.Equals(recordingId, tree.ActiveRecordingId, StringComparison.Ordinal))
-                return false;
+            // NOTE: the active recording is intentionally NOT blanket-excluded
+            // here. A still-backgrounded recording must be able to anchor to the
+            // recording the player just switched to (the docking target the
+            // player is now flying) to keep RELATIVE engaged through the close
+            // approach. Cycle safety is provided by IsRecordingAnchorDAGOrderEligible
+            // (candidate.TreeOrder < focus.TreeOrder) below: the active recording
+            // can only anchor a higher-TreeOrder background recording, never the
+            // reverse, so no A<->B anchor cycle can form. The re-fly provisional
+            // (still-being-appended fork) is still excluded by the marker gate.
             ReFlySessionMarker marker = ParsekScenario.Instance?.ActiveReFlySessionMarker;
             if (marker != null
                 && !string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
@@ -6607,6 +6653,7 @@ namespace Parsek
             state.surfaceMobileMinClearanceThisSection = double.NaN;
             state.surfaceMobileMaxClearanceThisSection = double.NaN;
             state.surfaceMobileClearanceSumThisSection = 0.0;
+            state.warpObservedThisSection = false;
             ParsekLog.Info("BgRecorder",
                 $"TrackSection started: env={env} ref={refFrame} source=Background " +
                 $"pid={state.vesselPid} at UT={ut.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -6875,13 +6922,19 @@ namespace Parsek
 
             if (gapStats.LargeGapCount > 0)
             {
-                ParsekLog.Warn("BgRecorder",
+                bool warn = FlightRecorder.ShouldWarnOnSparseSampling(
+                    gapStats.LargeGapCount, state.warpObservedThisSection);
+                string message =
                     $"TrackSection sparse sampling: pid={state.vesselPid} " +
                     $"env={state.currentTrackSection.environment} " +
                     $"ref={state.currentTrackSection.referenceFrame} frames={frameCount} " +
                     $"maxGap={gapStats.MaxGapSeconds.ToString("F3", CultureInfo.InvariantCulture)}s " +
                     $"threshold={FlightRecorder.SparseSectionGapWarningThresholdSeconds.ToString("F2", CultureInfo.InvariantCulture)}s " +
-                    $"largeGaps={gapStats.LargeGapCount}");
+                    $"largeGaps={gapStats.LargeGapCount} warp={state.warpObservedThisSection}";
+                if (warn)
+                    ParsekLog.Warn("BgRecorder", message);
+                else
+                    ParsekLog.Verbose("BgRecorder", message);
             }
 
             // Phase 7: per-surface-section clearance distribution
