@@ -20,6 +20,30 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Outcome of classifying a docking-port undock (<c>GameEvents.onVesselsUndocking</c>).
+    /// The undock fires authoritatively at the END of <c>Part.Undock()</c> with both
+    /// vessels already split and carrying their final persistentIds, so the recorder
+    /// can map the recorded side directly without deferring for a pid to settle.
+    /// </summary>
+    internal enum UndockSplitDecision
+    {
+        /// <summary>
+        /// The recorded vessel is KSP's <c>oldVessel</c>, which keeps its persistentId across
+        /// the undock; the freshly created vessel is the other side. Create an Undock branch.
+        /// (The recorder always maps to <c>oldVessel</c> because the new vessel is always
+        /// assigned a brand-new persistentId in <c>Part.Undock()</c>, so the recorder's id can
+        /// never equal the new vessel's id.)
+        /// </summary>
+        SplitRecordedStaysActive,
+
+        /// <summary>
+        /// Neither side of the undock matches the recorded vessel; the undock is unrelated
+        /// to what we are recording. Ignore it and let the recorder continue.
+        /// </summary>
+        NotRecordedVessel
+    }
+
+    /// <summary>
     /// Pure static logic for the segment boundary rule: only physical structural
     /// separation creates new tree events. Non-splitting breakage emits SegmentEvents instead.
     /// All methods are internal static for direct testability.
@@ -72,6 +96,100 @@ namespace Parsek
                 $"(originalPid={originalVesselPid}, postBreakCount={postBreakVesselPids.Count}) " +
                 $"=> DebrisSplit");
             return JointBreakResult.DebrisSplit;
+        }
+
+        /// <summary>
+        /// Classifies a docking-port undock (<c>GameEvents.onVesselsUndocking</c>) against the
+        /// recorded vessel. The undock fires at the end of <c>Part.Undock()</c> with
+        /// <paramref name="oldVesselPid"/> = the vessel that keeps the active focus (its
+        /// persistentId is unchanged across the undock) and <paramref name="newVesselPid"/> =
+        /// the freshly created split-off vessel.
+        ///
+        /// <para>
+        /// Unlike a stack/radial decoupler, a docking-port undock does NOT fire
+        /// <c>onPartDeCoupleNewVesselComplete</c>, so the joint-break fallback path cannot see
+        /// the new vessel and misclassifies the event as within-segment part loss; this
+        /// handler is the authoritative split signal for undocks.
+        /// </para>
+        ///
+        /// This helper is pure: no Unity / KSP / <c>ParsekLog</c> calls. The caller logs the
+        /// decision and the trackability of the new vessel.
+        ///
+        /// <para>
+        /// Only two outcomes are reachable. KSP's <c>Part.Undock()</c> always allocates a
+        /// brand-new <c>persistentId</c> for the split-off vessel (it does an
+        /// <c>AddComponent&lt;Vessel&gt;()</c> + <c>Guid.NewGuid()</c> for the new vessel while
+        /// the recorder's vessel keeps its existing id on <c>oldVessel</c>), so
+        /// <c>recordedVesselPid == newVesselPid</c> can never hold at runtime. A caller that
+        /// passes it anyway gets <see cref="UndockSplitDecision.NotRecordedVessel"/> (the
+        /// recorder follows <c>oldVessel</c> by definition, so a "new vessel matches recorder"
+        /// claim is treated as unrelated rather than branched on).
+        /// </para>
+        /// </summary>
+        /// <param name="recordedVesselPid">PersistentId of the vessel currently being recorded.</param>
+        /// <param name="oldVesselPid">PersistentId of the vessel that keeps active focus (KSP's <c>oldVessel</c>).</param>
+        /// <param name="newVesselPid">PersistentId of the newly split-off vessel (KSP's <c>vessel</c>).</param>
+        /// <returns>
+        /// <see cref="UndockSplitDecision.SplitRecordedStaysActive"/> when the recorded vessel is
+        /// <c>oldVessel</c>; otherwise <see cref="UndockSplitDecision.NotRecordedVessel"/> (any pid
+        /// zero, the two sides report the same pid, or the recorder is not <c>oldVessel</c>).
+        /// </returns>
+        internal static UndockSplitDecision ClassifyUndockSplit(
+            uint recordedVesselPid,
+            uint oldVesselPid,
+            uint newVesselPid)
+        {
+            if (recordedVesselPid == 0u || oldVesselPid == 0u || newVesselPid == 0u)
+                return UndockSplitDecision.NotRecordedVessel;
+
+            // Defensive: a degenerate undock that reports the same pid on both sides is
+            // not a real split, so treat it as unrelated and never branch on noise.
+            if (oldVesselPid == newVesselPid)
+                return UndockSplitDecision.NotRecordedVessel;
+
+            // The recorder always maps to oldVessel: the new vessel is allocated a fresh
+            // persistentId in Part.Undock(), so recordedVesselPid can only equal oldVesselPid.
+            if (recordedVesselPid == oldVesselPid)
+                return UndockSplitDecision.SplitRecordedStaysActive;
+
+            return UndockSplitDecision.NotRecordedVessel;
+        }
+
+        /// <summary>
+        /// Picks which side of an undock pair goes to the background tree child, given the
+        /// vessel that has active focus AFTER the deferred-branch frame. The recorder follows
+        /// the focused side (active child), so the OTHER side is backgrounded.
+        ///
+        /// <para>
+        /// KSP keeps focus on <paramref name="oldVesselPid"/> for a normal undock, but moves
+        /// focus to the freshly split vessel one frame later (<c>Vessel.WaitAndSwitchFocus</c>)
+        /// when the player kept controlling the pod that departed into the new vessel. Reading
+        /// the post-yield focus and backgrounding the other side keeps the recorder on the
+        /// focused vessel regardless of which side KSP chose, and prevents the active vessel
+        /// and the backgrounded pid from collapsing onto the same vessel.
+        /// </para>
+        ///
+        /// When the focused pid is neither undock side (an unexpected mid-undock focus jump to
+        /// a third vessel), this defaults to backgrounding the new vessel: the recorder stays
+        /// on whatever is currently focused and the freshly split vessel is captured as the
+        /// tree child, which is the correct outcome for the only realistic case (the recorded
+        /// old vessel briefly being non-focused). This helper is pure: no Unity / KSP calls.
+        /// </summary>
+        /// <param name="activeVesselPid">PersistentId of the vessel that has active focus after the deferral.</param>
+        /// <param name="oldVesselPid">PersistentId of KSP's <c>oldVessel</c> (recorder side for a normal undock).</param>
+        /// <param name="newVesselPid">PersistentId of the freshly split-off vessel.</param>
+        /// <returns>The persistentId of the vessel to background (the non-focused undock side).</returns>
+        internal static uint ResolveUndockBackgroundPid(
+            uint activeVesselPid,
+            uint oldVesselPid,
+            uint newVesselPid)
+        {
+            if (activeVesselPid == newVesselPid)
+                return oldVesselPid;
+            if (activeVesselPid == oldVesselPid)
+                return newVesselPid;
+            // Ambiguous focus (neither undock side is focused): background the new vessel.
+            return newVesselPid;
         }
 
         /// <summary>
