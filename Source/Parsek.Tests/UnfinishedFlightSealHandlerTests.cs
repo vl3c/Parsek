@@ -330,5 +330,50 @@ namespace Parsek.Tests
                 && l.Contains("Seal could not resolve slot")
                 && l.Contains("rec=rec_probe"));
         }
+
+        [Fact]
+        public void TrySeal_TipUnresolvable_ReturnsFalseAndLogsError()
+        {
+            // The slot resolves for rec (origin == rec.RecordingId), but a
+            // supersede edge points the slot's effective tip at a recording that
+            // is not in the committed store (dangling edge / reaped tip). With no
+            // tip there is nothing to flip to Immutable, so seal must report a
+            // hard failure instead of silently returning success and leaving the
+            // slot reading as open while the UI claims it sealed.
+            var rec = Rec("rec_probe");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+            var rp = new RewindPoint
+            {
+                RewindPointId = "rp_1",
+                BranchPointId = "bp_1",
+                FocusSlotIndex = 0,
+                ChildSlots = new List<ChildSlot> { Slot(0, "rec_probe") }
+            };
+            var scenario = InstallScenario(rp);
+            // rec_probe -> rec_probe_v2, but rec_probe_v2 is never added to the
+            // store, so the slot's effective tip cannot be resolved.
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_1",
+                OldRecordingId = "rec_probe",
+                NewRecordingId = "rec_probe_v2",
+                UT = 1000.0,
+            });
+            scenario.BumpSupersedeStateVersion();
+
+            bool ok = UnfinishedFlightSealHandler.TrySeal(rec, out string reason);
+
+            Assert.False(ok);
+            Assert.Equal("tip-unresolvable", reason);
+            // rec itself must not be sealed as a side effect of the failure.
+            Assert.Equal(MergeState.CommittedProvisional, rec.MergeState);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ERROR]")
+                && l.Contains("[UnfinishedFlights]")
+                && l.Contains("Seal could not resolve effective tip")
+                && l.Contains("rec=rec_probe")
+                && l.Contains("tip=rec_probe_v2")
+                && l.Contains("reason=tip-unresolvable"));
+        }
     }
 }

@@ -76,8 +76,23 @@ namespace Parsek
                     : null;
             string tipId = slot.EffectiveRecordingId(sealSupersedes);
             Recording tipRec = FindCommittedRecordingById(tipId);
-            MergeState oldState = tipRec != null ? tipRec.MergeState : MergeState.NotCommitted;
-            if (tipRec != null && tipRec.MergeState != MergeState.Immutable)
+            if (tipRec == null)
+            {
+                // The slot resolved to an RP child slot, but its effective
+                // chain+supersede tip recording is not in the committed store
+                // (dangling supersede edge, or the tip was reaped out from
+                // under the slot). Open/closed is read from the tip MergeState,
+                // so with no tip there is nothing to flip to Immutable. Report a
+                // hard failure instead of silently returning success: otherwise
+                // the slot keeps reading as open while the UI claims "Sealed".
+                reason = "tip-unresolvable";
+                ParsekLog.Error("UnfinishedFlights",
+                    $"Seal could not resolve effective tip for rec={rec.RecordingId ?? "<no-id>"} " +
+                    $"tip={tipId ?? "<no-tip>"} reason=tip-unresolvable");
+                return false;
+            }
+            MergeState oldState = tipRec.MergeState;
+            if (tipRec.MergeState != MergeState.Immutable)
             {
                 tipRec.MergeState = MergeState.Immutable;
                 tipRec.FilesDirty = true;
@@ -114,7 +129,7 @@ namespace Parsek
             string impact = willReap
                 ? "willReap"
                 : (reapEligible ? "deferredPersistence" : "stillBlocked");
-            MergeState newState = tipRec != null ? tipRec.MergeState : oldState;
+            MergeState newState = tipRec.MergeState;
 
             ParsekLog.Info("UnfinishedFlights",
                 $"Sealed slot={slotListIndex} rec={rec.RecordingId ?? "<no-id>"} " +

@@ -2766,10 +2766,21 @@ namespace Parsek
                 // Diagnostic: make "Commit (don't seal)" leave a positive trace
                 // so a log reader can tell it apart from "Merge & Seal" (which
                 // logs via ApplyPlayerRequestedSeal). Without this, only the
-                // seal path was visible.
+                // seal path was visible. The player declined to seal, but the
+                // merge's terminal classification may still have auto-sealed the
+                // tip to Immutable (e.g. a landed / destroyed outcome via
+                // SupersedeCommit), so report the provisional's actual resulting
+                // MergeState rather than assuming it stayed open — the tip
+                // MergeState is the single open/closed source of truth.
+                MergeState resultState = provisional != null
+                    ? provisional.MergeState
+                    : MergeState.NotCommitted;
+                string disposition = resultState == MergeState.Immutable
+                    ? "tip auto-sealed to Immutable by terminal classification"
+                    : $"slot left open at {resultState}";
                 ParsekLog.Info("MergeDialog",
-                    $"Re-Fly merge committed WITHOUT seal (player chose Commit-don't-seal); " +
-                    $"slot left open at CommittedProvisional rec={provisional?.RecordingId ?? "<no-id>"}");
+                    $"Re-Fly merge committed WITHOUT player seal (player chose Commit-don't-seal); " +
+                    $"{disposition} rec={provisional?.RecordingId ?? "<no-id>"}");
             }
 
             return ReFlyMergeCommitResult.Completed;
