@@ -660,8 +660,15 @@ namespace Parsek.Tests
         [Fact]
         public void BuildTimelineActionDialogTitle_NotPermanent_UsesCommitToTimeline()
         {
-            Assert.Equal("Confirm Commit to Timeline",
+            Assert.Equal("Confirm: Commit to Timeline",
                 MergeDialog.BuildTimelineActionDialogTitle(isPermanent: false));
+        }
+
+        [Fact]
+        public void BuildTimelineActionDialogTitle_Permanent_UsesMergeToTimeline()
+        {
+            Assert.Equal("Confirm: Merge to Timeline",
+                MergeDialog.BuildTimelineActionDialogTitle(isPermanent: true));
         }
 
         [Fact]

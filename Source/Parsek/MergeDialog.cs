@@ -375,7 +375,7 @@ namespace Parsek
             }
             else
             {
-                title = "Confirm Merge to Timeline";
+                title = "Confirm: Merge to Timeline";
                 mergeLabel = "Merge to Timeline";
                 discardLabel = "Discard";
                 // Bug 3 (post-#876 playtest 2026-05-17): unified body for both
@@ -916,7 +916,7 @@ namespace Parsek
 
         internal static string BuildTimelineActionDialogTitle(bool isPermanent)
         {
-            return isPermanent ? "Confirm Merge to Timeline" : "Confirm Commit to Timeline";
+            return isPermanent ? "Confirm: Merge to Timeline" : "Confirm: Commit to Timeline";
         }
 
         internal static bool DetermineReFlyTimelineActionIsPermanent(
