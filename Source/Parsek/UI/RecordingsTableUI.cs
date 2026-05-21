@@ -3560,7 +3560,7 @@ namespace Parsek
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog("ParsekDisbandGroupConfirm", msg,
-                    "Confirm Disband Group", HighLogic.UISkin,
+                    "Confirm: Disband Group", HighLogic.UISkin,
                     new DialogGUIButton("Disband Group", () =>
                     {
                         int updated = RecordingStore.ReplaceGroupOnAll(capturedName, capturedParent);
@@ -3604,7 +3604,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekRewindConfirm",
                     message,
-                    "Confirm Rewind",
+                    "Confirm: Rewind",
                     HighLogic.UISkin,
                     new DialogGUIButton("Rewind", () =>
                     {
@@ -3638,7 +3638,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekFastForwardConfirm",
                     message,
-                    "Confirm Fast-Forward",
+                    "Confirm: Fast-Forward",
                     HighLogic.UISkin,
                     new DialogGUIButton("Fast-Forward", () =>
                     {
@@ -3695,7 +3695,7 @@ namespace Parsek
                 new MultiOptionDialog(
                     "ParsekClearRecordingConfirm",
                     "Discard the current recording?\n\nThis cannot be undone.",
-                    "Confirm Clear Recording",
+                    "Confirm: Clear Recording",
                     HighLogic.UISkin,
                     new DialogGUIButton("Clear", () =>
                     {
