@@ -4834,10 +4834,26 @@ namespace Parsek
             {
                 return (false, "vessel destroyed");
             }
-            // Base condition: must have a snapshot
+            // Base condition: must have a vessel snapshot to materialize a real
+            // vessel. The in-memory copy is a transient cache that several sites
+            // null out in-session (vessel-gone debris, the crew-unreserve pass);
+            // the durable copy lives in the _vessel.craft sidecar. Re-hydrate it
+            // from disk for genuinely-spawnable, non-debris recordings only. The
+            // checks below reject debris / non-spawnable terminals / ghost-only /
+            // non-leaf recordings regardless, so they skip the disk probe and keep
+            // the cheap early-out (no per-frame I/O). Without this, a spawnable
+            // leaf whose snapshot was dropped (e.g. an orbital payload re-flown
+            // after a Rewind-to-Launch) would silently fail to re-materialize.
             if (rec.VesselSnapshot == null)
             {
-                return (false, "no vessel snapshot");
+                bool worthHydrating = !rec.IsDebris
+                    && rec.TerminalStateValue.HasValue
+                    && IsSpawnableTerminal(rec.TerminalStateValue.Value);
+                if (!worthHydrating
+                    || !RecordingStore.TryHydrateVesselSnapshotFromSidecar(rec))
+                {
+                    return (false, "no vessel snapshot");
+                }
             }
 
             // Gloops Flight Recorder recordings are ghost-only — never spawn a real vessel

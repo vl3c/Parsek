@@ -874,7 +874,7 @@ namespace Parsek
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
                 // only in Phase 1; no behavior wired to these collections yet.
-                savePhase = "rewind-staging";
+                savePhase = "refly-state-persist";
                 SaveRewindStagingState(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
@@ -1620,7 +1620,8 @@ namespace Parsek
                 $"session saved: {(segmentWritten ? (segmentSessionId ?? "<no-id>") : "none")}");
 
             ParsekLog.Info("Scenario",
-                $"OnSave: rewind-staging persist: rewindPoints={rpCount} supersedes={supersedeCount} " +
+                $"OnSave: Re-Fly subsystem state persisted (saved collections, not a rewind action; " +
+                $"reFlyInProgress={markerWritten}): rewindPoints={rpCount} supersedes={supersedeCount} " +
                 $"rewindRetirements={retirementCount} " +
                 $"tombstones={tombCount} marker={markerWritten} journal={journalWritten} " +
                 $"switchIntent={intentWritten} switchSegment={segmentWritten}");
@@ -1763,7 +1764,8 @@ namespace Parsek
                 $"session loaded summary: {(activeSwitchSegmentSession != null ? activeSwitchSegmentSession.SessionId.ToString("D") : "none")}");
 
             ParsekLog.Info("Scenario",
-                $"OnLoad: rewind-staging load: rewindPoints={RewindPoints.Count} " +
+                $"OnLoad: Re-Fly subsystem state loaded (restored collections, not a rewind action; " +
+                $"reFlyInProgress={(ActiveReFlySessionMarker != null)}): rewindPoints={RewindPoints.Count} " +
                 $"supersedes={RecordingSupersedes.Count} rewindRetirements={RecordingRewindRetirements.Count} " +
                 $"tombstones={LedgerTombstones.Count} " +
                 $"marker={(ActiveReFlySessionMarker != null)} journal={(ActiveMergeJournal != null)} " +
@@ -1878,7 +1880,7 @@ namespace Parsek
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Load runs
                 // on every OnLoad so a revert or scene change rebuilds the lists
                 // from .sfs rather than reusing stale in-memory state.
-                loadPhase = "rewind-staging";
+                loadPhase = "refly-state-load";
                 LoadRewindStagingState(node);
 
                 // PR #774 cross-LoadScene fix: re-apply the rewind-time supersede drop

@@ -6321,8 +6321,9 @@ namespace Parsek
 
             if (!SuppressLogging)
                 ParsekLog.Info("Rewind",
-                    $"Rewind initiated to UT {owner.StartUT} " +
-                    $"(save: {owner.RewindSaveFileName})");
+                    $"Rewind-to-Launch initiated to UT {owner.StartUT} " +
+                    $"(save: {owner.RewindSaveFileName}). Plain launch rewind via parsek_rw_* quicksave; " +
+                    $"this is NOT a Re-Fly (no RewindPoint / ReFlySessionMarker / MergeJournal)");
         }
 
         /// <summary>
@@ -7899,6 +7900,23 @@ namespace Parsek
         internal static SnapshotSidecarLoadSummary LoadSnapshotSidecarsFromPaths(Recording rec, string vesselPath, string ghostPath)
         {
             return RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
+        }
+
+        /// <summary>
+        /// Re-hydrates a recording's vessel snapshot from its <c>_vessel.craft</c>
+        /// sidecar when the transient in-memory copy was dropped. Used by the
+        /// terminal-spawn path so a spawnable leaf (e.g. an orbital payload) can
+        /// still materialize after its snapshot was nulled in-session. No-op when
+        /// already loaded; quiet when the sidecar is absent or unresolvable.
+        /// </summary>
+        internal static bool TryHydrateVesselSnapshotFromSidecar(Recording rec)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
+        }
+
+        internal static bool TryHydrateVesselSnapshotFromPath(Recording rec, string vesselPath)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, vesselPath);
         }
 
         #endregion

@@ -511,6 +511,75 @@ namespace Parsek
             return summary;
         }
 
+        /// <summary>
+        /// Re-hydrates <see cref="Recording.VesselSnapshot"/> from the on-disk
+        /// <c>_vessel.craft</c> sidecar at <paramref name="vesselPath"/> when the
+        /// transient in-memory copy was dropped. The in-memory snapshot is a
+        /// transient cache that several sites null out (vessel-gone debris at
+        /// ParsekFlight, the crew-unreserve pass, etc.); the sidecar is the
+        /// durable source of truth (see the SaveRecordingFiles "do NOT delete"
+        /// note). Returns true when a usable snapshot is present afterwards, and
+        /// is a no-op (returns true) when one is already loaded. Path-explicit
+        /// for unit testability.
+        /// </summary>
+        internal static bool TryHydrateVesselSnapshotFromPath(Recording rec, string vesselPath)
+        {
+            if (rec == null) return false;
+            if (rec.VesselSnapshot != null) return true;
+            // Negative cache: a prior call already confirmed no usable sidecar.
+            // The spawn gate calls this per-frame, so without this a spawnable
+            // leaf with a missing/unusable sidecar would stat disk every frame.
+            if (rec.VesselSnapshotHydrationFailed) return false;
+            // Empty path means the save context was unresolvable (e.g. mid scene
+            // transition, or outside KSP in tests). That can be transient, so do
+            // NOT poison the cache; let a later call retry once context exists.
+            if (string.IsNullOrEmpty(vesselPath)) return false;
+            if (!File.Exists(vesselPath))
+            {
+                rec.VesselSnapshotHydrationFailed = true;
+                return false;
+            }
+
+            SnapshotSidecarProbe probe;
+            bool loadOk = RecordingStore.TryLoadSnapshotSidecar(vesselPath, out ConfigNode node, out probe);
+            if (loadOk && probe.Supported && node != null)
+            {
+                rec.VesselSnapshot = node;
+                if (!RecordingStore.SuppressLogging)
+                    ParsekLog.Info("RecordingStore",
+                        $"Re-hydrated vessel snapshot from sidecar for spawn {FormatSidecarContext(rec)} " +
+                        $"(in-memory copy had been dropped; reloaded from _vessel.craft)");
+                return true;
+            }
+
+            // Present but unusable (unsupported generation / invalid): cache the
+            // failure too, since re-reading the same bad file every frame is pointless.
+            rec.VesselSnapshotHydrationFailed = true;
+            if (!RecordingStore.SuppressLogging)
+                ParsekLog.Warn("RecordingStore",
+                    $"Re-hydrate vessel snapshot failed: sidecar present but unusable " +
+                    $"{FormatSidecarContext(rec)} path='{FormatPathForSidecarLog(vesselPath)}' " +
+                    SnapshotSidecarCodec.DescribeProbe(probe));
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the recording's <c>_vessel.craft</c> path and re-hydrates the
+        /// snapshot from it. Returns false quietly when the path cannot be
+        /// resolved (e.g. outside KSP in unit tests, where the save context is
+        /// unavailable) or the sidecar is absent.
+        /// </summary>
+        internal static bool TryHydrateVesselSnapshotFromSidecar(Recording rec)
+        {
+            if (rec == null) return false;
+            if (rec.VesselSnapshot != null) return true;
+            if (string.IsNullOrEmpty(rec.RecordingId)) return false;
+
+            string vesselPath = RecordingPaths.ResolveSaveScopedPath(
+                RecordingPaths.BuildVesselSnapshotRelativePath(rec.RecordingId));
+            return TryHydrateVesselSnapshotFromPath(rec, vesselPath);
+        }
+
         private static RecordingStore.SnapshotSidecarLoadState TryLoadSnapshotSidecarIfPresent(
             string path, Recording rec, string label, out ConfigNode node)
         {
