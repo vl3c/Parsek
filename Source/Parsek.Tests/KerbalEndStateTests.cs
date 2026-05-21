@@ -83,6 +83,31 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// Undock-split crew survival contract: a kerbal who departs on the undocked pod
+        /// is captured in that pod's child recording snapshot, so on an intact terminal
+        /// state (Orbiting) the kerbal is Aboard, not Dead.
+        ///
+        /// Regression for the docking-port undock that was mis-recorded as within-segment
+        /// part loss: the departing pod was emitted as a PartDestroyed segment event, so the
+        /// crew member fell out of the recording's final snapshot and inference returned Dead
+        /// (and the kerbal was flagged permanently gone). Routing the undock through a proper
+        /// Undock branch keeps the crew in the child snapshot.
+        /// </summary>
+        [Fact]
+        public void InferCrewEndState_UndockedPodCrewInChildSnapshot_ReturnsAboard()
+        {
+            // Bill departs on the undocked pod; the pod's child recording ends Orbiting with
+            // Bill still in its snapshot. This is the correct post-fix outcome.
+            var result = KerbalsModule.InferCrewEndState(
+                "Bill Kerman",
+                TerminalState.Orbiting,
+                new HashSet<string> { "Bill Kerman" });
+
+            Assert.Equal(KerbalEndState.Aboard, result);
+            Assert.Contains(logLines, l => l.Contains("[KerbalsModule]") && l.Contains("Aboard") && l.Contains("Bill Kerman"));
+        }
+
+        /// <summary>
         /// Intact terminal state (Landed) with crew NOT in snapshot -> Dead (EVA'd and lost).
         /// Guards: crew missing from a landed vessel snapshot means they EVA'd and are presumed lost.
         /// </summary>

@@ -717,6 +717,15 @@ namespace Parsek
         // Used to avoid seeding breakup children from the later deferred-check frame.
         private Dictionary<uint, TrajectoryPoint> decoupleCreatedTrajectoryPoints;
 
+        // Docking-port undock handoff (onPartUndock -> onVesselsUndocking, same frame).
+        // onPartUndock fires FIRST inside Part.Undock(), while the combined vessel is still
+        // intact (ideal moment to capture the departing root part's pre-split origin seed and
+        // the structural-event snapshot), but the new vessel's persistentId is not assigned
+        // until KSP finishes the split and fires onVesselsUndocking at the end of the same
+        // call. We stash the pre-split seed here and let OnVesselsUndocking author the actual
+        // Undock branch with the final pids.
+        private TrajectoryPoint? pendingUndockRootPartSeed;
+
         // Crash coalescer: groups rapid structural splits into single BREAKUP events
         private CrashCoalescer crashCoalescer = new CrashCoalescer();
 
@@ -1055,6 +1064,7 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Add(OnVesselSOIChanged);
             GameEvents.onPartCouple.Add(OnPartCouple);
             GameEvents.onPartUndock.Add(OnPartUndock);
+            GameEvents.onVesselsUndocking.Add(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Add(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Add(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Add(OnVesselSwitchComplete);
@@ -1977,6 +1987,7 @@ namespace Parsek
             GameEvents.onVesselSOIChanged.Remove(OnVesselSOIChanged);
             GameEvents.onPartCouple.Remove(OnPartCouple);
             GameEvents.onPartUndock.Remove(OnPartUndock);
+            GameEvents.onVesselsUndocking.Remove(OnVesselsUndocking);
             GameEvents.onGroundSciencePartDeployed.Remove(OnGroundSciencePartDeployed);
             GameEvents.onGroundSciencePartRemoved.Remove(OnGroundSciencePartRemoved);
             GameEvents.onVesselChange.Remove(OnVesselSwitchComplete);
@@ -9765,10 +9776,12 @@ namespace Parsek
                 ParsekLog.Warn("Flight",
                     $"OnPartUndock: skipped — restore coroutine in progress " +
                     $"(part '{undockedPart?.partInfo?.name}')");
+                ClearPendingUndockSeed();
                 return;
             }
 
             ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
+            ClearPendingUndockSeed();
             if (recorder == null || !recorder.IsRecording) return;
             if (pendingSplitInProgress) return; // another split is already being processed
             if (undockedPart?.vessel == null)
@@ -9777,50 +9790,33 @@ namespace Parsek
                 return;
             }
 
-            uint newPid = undockedPart.vessel.persistentId;
-            if (newPid == recorder.RecordingVesselId) return; // transient state, ignore
-
-            // Phase 9 (design doc §12, §18 Phase 9): structural-event snapshot at the
-            // exact undock UT for the recorded vessel. Done BEFORE
-            // StopRecordingForChainBoundary so the snapshot lands in the active
-            // section. The split halves still share most state at the event UT; the
-            // focused recorder filters by RecordingVesselId and the background
-            // recorder filters by BackgroundMap membership.
+            // onPartUndock fires FIRST inside KSP's Part.Undock(), BEFORE the vessel is
+            // split (the part still reports the OLD combined vessel persistentId here, so
+            // we deliberately do NOT branch off this pid). KSP creates the new vessel and
+            // fires onVesselsUndocking(oldVessel, newVessel) at the END of the same call,
+            // where both pids are final. We capture the structural-event snapshot and the
+            // departing root part's pre-split origin seed NOW (combined vessel intact, part
+            // still attached, the ideal moment) and stash the seed for OnVesselsUndocking,
+            // which authors the actual Undock branch. See the undock-not-recorded fix.
             double undockEventUT = Planetarium.GetUniversalTime();
-            var undockInvolved = new List<Vessel>(2);
-            if (undockedPart.vessel != null) undockInvolved.Add(undockedPart.vessel);
-            // The pre-undock parent vessel is the one matching RecordingVesselId.
-            // Find it in FlightGlobals.Vessels to feed the helper symmetrically.
-            if (FlightGlobals.Vessels != null)
-            {
-                for (int i = 0; i < FlightGlobals.Vessels.Count; i++)
-                {
-                    Vessel candidate = FlightGlobals.Vessels[i];
-                    if (candidate != null
-                        && candidate.persistentId == recorder.RecordingVesselId
-                        && candidate != undockedPart.vessel)
-                    {
-                        undockInvolved.Add(candidate);
-                        break;
-                    }
-                }
-            }
+            var undockInvolved = new List<Vessel>(1) { undockedPart.vessel };
             recorder.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
             backgroundRecorder?.AppendStructuralEventSnapshot(undockEventUT, undockInvolved, "Undock");
+
             uint undockedPartPid = undockedPart.persistentId;
             uint undockedRootPartPid = undockedPart.vessel.rootPart?.persistentId ?? 0u;
-            TrajectoryPoint? undockRootPartSeed = null;
             if (ShouldUseUndockPartOriginSeed(undockedPartPid, undockedRootPartPid)
                 && FlightRecorder.TryCreateAbsoluteTrajectoryPointFromPartOrigin(
                     undockedPart,
                     undockEventUT,
                     out TrajectoryPoint capturedUndockSeed))
             {
-                undockRootPartSeed = capturedUndockSeed;
+                pendingUndockRootPartSeed = capturedUndockSeed;
                 ParsekLog.Verbose("Flight",
                     $"Undock root part-origin seed captured: part='{undockedPart.partInfo?.name}' " +
-                    $"pid={undockedPartPid} vesselPid={newPid} " +
-                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)}");
+                    $"pid={undockedPartPid} preSplitVesselPid={undockedPart.vessel.persistentId} " +
+                    $"ut={undockEventUT.ToString("F2", CultureInfo.InvariantCulture)} " +
+                    $"(deferring branch to onVesselsUndocking)");
             }
             else
             {
@@ -9830,17 +9826,125 @@ namespace Parsek
                 ParsekLog.Verbose("Flight",
                     $"Undock part-origin seed skipped: reason={reason} " +
                     $"undockedPartPid={undockedPartPid} rootPartPid={undockedRootPartPid} " +
-                    $"vesselPid={newPid}");
+                    $"preSplitVesselPid={undockedPart.vessel.persistentId} " +
+                    $"(deferring branch to onVesselsUndocking)");
+            }
+        }
+
+        /// <summary>
+        /// Authoritative docking-port undock handler. KSP fires
+        /// <c>onVesselsUndocking(oldVessel, newVessel)</c> at the end of <c>Part.Undock()</c>
+        /// with both vessels fully split and carrying their final persistentIds, so unlike a
+        /// stack/radial decoupler (which fires <c>onPartDeCoupleNewVesselComplete</c> and is
+        /// caught by the joint-break fallback) we can map the undock directly. This is the
+        /// fix for docking-port undocks being mis-recorded as within-segment part loss: the
+        /// joint-break fallback can never see the new vessel for an undock, so it classifies
+        /// the departing pod as PartDestroyed instead of branching an Undock.
+        /// </summary>
+        void OnVesselsUndocking(Vessel oldVessel, Vessel newVessel)
+        {
+            // #267: skip if restore coroutine is mid-yield; it owns activeTree/recorder.
+            if (restoringActiveTree)
+            {
+                ParsekLog.Warn("Flight",
+                    "OnVesselsUndocking: skipped, restore coroutine in progress");
+                ClearPendingUndockSeed();
+                return;
             }
 
-            // Tree mode: create branch instead of chain segment.
-            // Stop recorder synchronously to prevent OnPhysicsFrame interference.
+            ParsekLog.RecState("OnVesselsUndocking:entry", CaptureRecorderState());
+
+            // Snapshot + clear the pre-split seed stashed by OnPartUndock this same frame.
+            TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
+            ClearPendingUndockSeed();
+
+            if (recorder == null || !recorder.IsRecording)
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnVesselsUndocking: not recording, ignoring");
+                return;
+            }
+            if (pendingSplitInProgress)
+            {
+                ParsekLog.Verbose("Flight",
+                    "OnVesselsUndocking: another split is already being processed, ignoring");
+                return;
+            }
+            if (oldVessel == null || newVessel == null)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: null vessel (old={(oldVessel != null ? "set" : "null")}, " +
+                    $"new={(newVessel != null ? "set" : "null")}), ignoring");
+                return;
+            }
+
+            uint recordedPid = recorder.RecordingVesselId;
+            uint oldPid = oldVessel.persistentId;
+            uint newPid = newVessel.persistentId;
+
+            UndockSplitDecision decision =
+                SegmentBoundaryLogic.ClassifyUndockSplit(recordedPid, oldPid, newPid);
+
+            ParsekLog.Info("Flight",
+                $"OnVesselsUndocking: recordedPid={recordedPid} oldPid={oldPid} " +
+                $"(name='{oldVessel.vesselName}') newPid={newPid} (name='{newVessel.vesselName}') " +
+                $"decision={decision}");
+
+            if (decision == UndockSplitDecision.NotRecordedVessel)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: undock does not involve the recorded vessel " +
+                    $"(recordedPid={recordedPid}), leaving recorder running");
+                return;
+            }
+
+            // The recorder follows whichever side keeps active focus (CreateSplitBranch's
+            // "activeVessel"); the other side goes to background. For the normal undock the
+            // recorded vessel == oldVessel (KSP keeps the active focus and pid on the old
+            // vessel). The rare SplitRecordedBecomesNew case swaps the roles.
+            Vessel activeChildVessel;
+            uint backgroundPid;
+            if (decision == UndockSplitDecision.SplitRecordedStaysActive)
+            {
+                activeChildVessel = oldVessel;
+                backgroundPid = newPid;
+            }
+            else // SplitRecordedBecomesNew
+            {
+                activeChildVessel = newVessel;
+                backgroundPid = oldPid;
+            }
+
+            // The undock event IS the authoritative split signal. Consume the recorder's
+            // pending joint-break check (set by the synchronous onPartJointBreak that
+            // KSP's attachJoint.DestroyJoint() fired earlier in the same Part.Undock() call)
+            // so HandleJointBreakDeferredCheck does NOT also run next frame and misclassify
+            // the departing pod as within-segment PartDestroyed.
+            bool consumedJointBreak = recorder.ConsumePendingJointBreakCheck(out double jointBreakUT);
+            if (consumedJointBreak)
+            {
+                ParsekLog.Verbose("Flight",
+                    $"OnVesselsUndocking: consumed recorder pending joint-break check " +
+                    $"(ut={jointBreakUT.ToString("F2", CultureInfo.InvariantCulture)}); " +
+                    "undock owns this split, suppressing within-segment fallback");
+            }
+
+            // Tree mode: stop recorder synchronously to prevent OnPhysicsFrame interference,
+            // then defer one frame so KSP fully settles the freshly created vessel before we
+            // snapshot it (mirrors the proven decouple/EVA deferred-branch pattern).
             recorder.StopRecordingForChainBoundary();
             pendingSplitRecorder = recorder;
             recorder = null;
             pendingSplitInProgress = true;
-            Log($"onPartUndock: vessel split off (otherPid={newPid}) — starting deferred tree branch");
-            StartCoroutine(DeferredUndockBranch(newPid, undockRootPartSeed));
+            Log($"onVesselsUndocking: vessel split off (recordedPid={recordedPid}, " +
+                $"activePid={activeChildVessel.persistentId}, backgroundPid={backgroundPid}); " +
+                "starting deferred Undock branch");
+            StartCoroutine(DeferredUndockBranch(backgroundPid, undockRootPartSeed));
+        }
+
+        private void ClearPendingUndockSeed()
+        {
+            pendingUndockRootPartSeed = null;
         }
 
         void OnGroundSciencePartDeployed(ModuleGroundSciencePart deployedPart)

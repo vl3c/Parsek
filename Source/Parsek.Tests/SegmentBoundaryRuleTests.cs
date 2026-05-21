@@ -526,6 +526,73 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ClassifyUndockSplit
+
+        [Fact]
+        public void ClassifyUndockSplit_RecordedIsOldVessel_ReturnsRecordedStaysActive()
+        {
+            // Normal docking-port undock: KSP keeps active focus + pid on oldVessel, and the
+            // recorder is recording that vessel. The departing pod becomes the new vessel.
+            var decision = SegmentBoundaryLogic.ClassifyUndockSplit(
+                recordedVesselPid: 9871332,
+                oldVesselPid: 9871332,
+                newVesselPid: 770162671);
+
+            Assert.Equal(UndockSplitDecision.SplitRecordedStaysActive, decision);
+        }
+
+        [Fact]
+        public void ClassifyUndockSplit_RecordedIsNewVessel_ReturnsRecordedBecomesNew()
+        {
+            // Rare: KSP rooted the freshly created vessel onto the recorded subtree, so the
+            // recorder's pid now belongs to the new vessel; the old vessel goes to background.
+            var decision = SegmentBoundaryLogic.ClassifyUndockSplit(
+                recordedVesselPid: 770162671,
+                oldVesselPid: 9871332,
+                newVesselPid: 770162671);
+
+            Assert.Equal(UndockSplitDecision.SplitRecordedBecomesNew, decision);
+        }
+
+        [Fact]
+        public void ClassifyUndockSplit_UnrelatedUndock_ReturnsNotRecordedVessel()
+        {
+            // An undock of two vessels that have nothing to do with what we are recording
+            // (e.g. a nearby station undocking) must not branch the recorded timeline.
+            var decision = SegmentBoundaryLogic.ClassifyUndockSplit(
+                recordedVesselPid: 1000,
+                oldVesselPid: 2000,
+                newVesselPid: 3000);
+
+            Assert.Equal(UndockSplitDecision.NotRecordedVessel, decision);
+        }
+
+        [Theory]
+        [InlineData(0u, 2000u, 3000u)]
+        [InlineData(1000u, 0u, 3000u)]
+        [InlineData(1000u, 2000u, 0u)]
+        public void ClassifyUndockSplit_ZeroPid_ReturnsNotRecordedVessel(
+            uint recordedPid, uint oldPid, uint newPid)
+        {
+            var decision = SegmentBoundaryLogic.ClassifyUndockSplit(recordedPid, oldPid, newPid);
+
+            Assert.Equal(UndockSplitDecision.NotRecordedVessel, decision);
+        }
+
+        [Fact]
+        public void ClassifyUndockSplit_SamePidBothSides_ReturnsNotRecordedVessel()
+        {
+            // Degenerate "undock" that reports the same pid on both sides is not a real split.
+            var decision = SegmentBoundaryLogic.ClassifyUndockSplit(
+                recordedVesselPid: 5000,
+                oldVesselPid: 5000,
+                newVesselPid: 5000);
+
+            Assert.Equal(UndockSplitDecision.NotRecordedVessel, decision);
+        }
+
+        #endregion
+
         #region JointBreakResult enum values
 
         [Fact]

@@ -20,6 +20,35 @@ namespace Parsek
     }
 
     /// <summary>
+    /// Outcome of classifying a docking-port undock (<c>GameEvents.onVesselsUndocking</c>).
+    /// The undock fires authoritatively at the END of <c>Part.Undock()</c> with both
+    /// vessels already split and carrying their final persistentIds, so the recorder
+    /// can map the recorded side directly without deferring for a pid to settle.
+    /// </summary>
+    internal enum UndockSplitDecision
+    {
+        /// <summary>
+        /// The recorded vessel is the one that keeps the active focus after the undock
+        /// (the "old" vessel keeps its persistentId); the newly split vessel becomes the
+        /// background child. Create an Undock branch with the new vessel backgrounded.
+        /// </summary>
+        SplitRecordedStaysActive,
+
+        /// <summary>
+        /// The recorded vessel is the one that split off into the new vessel (rare: KSP
+        /// re-rooted the new Vessel onto the recorded subtree). The new vessel keeps the
+        /// active focus; the remaining old vessel becomes the background child.
+        /// </summary>
+        SplitRecordedBecomesNew,
+
+        /// <summary>
+        /// Neither side of the undock matches the recorded vessel; the undock is unrelated
+        /// to what we are recording. Ignore it and let the recorder continue.
+        /// </summary>
+        NotRecordedVessel
+    }
+
+    /// <summary>
     /// Pure static logic for the segment boundary rule: only physical structural
     /// separation creates new tree events. Non-splitting breakage emits SegmentEvents instead.
     /// All methods are internal static for direct testability.
@@ -72,6 +101,52 @@ namespace Parsek
                 $"(originalPid={originalVesselPid}, postBreakCount={postBreakVesselPids.Count}) " +
                 $"=> DebrisSplit");
             return JointBreakResult.DebrisSplit;
+        }
+
+        /// <summary>
+        /// Classifies a docking-port undock (<c>GameEvents.onVesselsUndocking</c>) against the
+        /// recorded vessel. The undock fires at the end of <c>Part.Undock()</c> with
+        /// <paramref name="oldVesselPid"/> = the vessel that keeps the active focus (its
+        /// persistentId is unchanged across the undock) and <paramref name="newVesselPid"/> =
+        /// the freshly created split-off vessel.
+        ///
+        /// <para>
+        /// Unlike a stack/radial decoupler, a docking-port undock does NOT fire
+        /// <c>onPartDeCoupleNewVesselComplete</c>, so the joint-break fallback path cannot see
+        /// the new vessel and misclassifies the event as within-segment part loss; this
+        /// handler is the authoritative split signal for undocks.
+        /// </para>
+        ///
+        /// This helper is pure: no Unity / KSP / <c>ParsekLog</c> calls. The caller logs the
+        /// decision and the trackability of the new vessel.
+        /// </summary>
+        /// <param name="recordedVesselPid">PersistentId of the vessel currently being recorded.</param>
+        /// <param name="oldVesselPid">PersistentId of the vessel that keeps active focus (KSP's <c>oldVessel</c>).</param>
+        /// <param name="newVesselPid">PersistentId of the newly split-off vessel (KSP's <c>vessel</c>).</param>
+        /// <returns>
+        /// How the undock maps onto the recorded side. <see cref="UndockSplitDecision.NotRecordedVessel"/>
+        /// when neither side is the recorded vessel (unrelated undock) or when any pid is zero.
+        /// </returns>
+        internal static UndockSplitDecision ClassifyUndockSplit(
+            uint recordedVesselPid,
+            uint oldVesselPid,
+            uint newVesselPid)
+        {
+            if (recordedVesselPid == 0u || oldVesselPid == 0u || newVesselPid == 0u)
+                return UndockSplitDecision.NotRecordedVessel;
+
+            // Defensive: a degenerate undock that reports the same pid on both sides is
+            // not a real split, so treat it as unrelated and never branch on noise.
+            if (oldVesselPid == newVesselPid)
+                return UndockSplitDecision.NotRecordedVessel;
+
+            if (recordedVesselPid == oldVesselPid)
+                return UndockSplitDecision.SplitRecordedStaysActive;
+
+            if (recordedVesselPid == newVesselPid)
+                return UndockSplitDecision.SplitRecordedBecomesNew;
+
+            return UndockSplitDecision.NotRecordedVessel;
         }
 
         /// <summary>

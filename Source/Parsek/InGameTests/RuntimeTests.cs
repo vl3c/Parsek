@@ -18546,12 +18546,13 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the four
+        /// Phase 9 review pass (P2-1): pin the GameEvents wiring contract for the
         /// structural-event handlers that drive
-        /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/>. The test does
-        /// NOT trigger live KSP events (which is hard to drive deterministically in
-        /// the runner) — instead it walks <c>GameEvents.onPartCouple</c>,
-        /// <c>onPartUndock</c>, <c>onCrewOnEva</c>, and <c>onPartJointBreak</c> via
+        /// <see cref="FlightRecorder.AppendStructuralEventSnapshot"/> and the undock split.
+        /// The test does NOT trigger live KSP events (which is hard to drive
+        /// deterministically in the runner); instead it walks <c>GameEvents.onPartCouple</c>,
+        /// <c>onPartUndock</c>, <c>onVesselsUndocking</c>, <c>onCrewOnEva</c>, and
+        /// <c>onPartJointBreak</c> via
         /// reflection on each <c>EventData&lt;T&gt;.events</c> internal listener
         /// list. The joint-break hook is recorder-scoped in production, so the test
         /// installs and removes one transient <see cref="FlightRecorder"/> subscription
@@ -18581,6 +18582,11 @@ namespace Parsek.InGameTests
 
                 AssertHandlerRegistered("onPartCouple", GameEvents.onPartCouple, ref totalAsserted);
                 AssertHandlerRegistered("onPartUndock", GameEvents.onPartUndock, ref totalAsserted);
+                // Authoritative docking-port undock split signal (undock-not-recorded fix):
+                // onPartUndock fires before KSP splits the vessel, so the branch is created
+                // from onVesselsUndocking which fires at the end of Part.Undock() with both
+                // final pids. A regression that drops the subscription fails here.
+                AssertHandlerRegistered("onVesselsUndocking", GameEvents.onVesselsUndocking, ref totalAsserted);
                 AssertHandlerRegistered("onCrewOnEva", GameEvents.onCrewOnEva, ref totalAsserted);
                 AssertHandlerRegistered("onPartJointBreak", GameEvents.onPartJointBreak, ref totalAsserted);
             }
@@ -18595,7 +18601,7 @@ namespace Parsek.InGameTests
 
             ParsekLog.Info("Pipeline-Smoothing",
                 "Pipeline_Smoothing_StructuralEvent_HandlersRegistered: "
-                + "asserted=" + totalAsserted + " of 4 GameEvents bindings resolved to "
+                + "asserted=" + totalAsserted + " of 5 GameEvents bindings resolved to "
                 + "FlightRecorder / ParsekFlight delegates");
         }
 
