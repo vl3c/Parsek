@@ -7902,6 +7902,23 @@ namespace Parsek
             return RecordingSidecarStore.LoadSnapshotSidecarsFromPaths(rec, vesselPath, ghostPath);
         }
 
+        /// <summary>
+        /// Re-hydrates a recording's vessel snapshot from its <c>_vessel.craft</c>
+        /// sidecar when the transient in-memory copy was dropped. Used by the
+        /// terminal-spawn path so a spawnable leaf (e.g. an orbital payload) can
+        /// still materialize after its snapshot was nulled in-session. No-op when
+        /// already loaded; quiet when the sidecar is absent or unresolvable.
+        /// </summary>
+        internal static bool TryHydrateVesselSnapshotFromSidecar(Recording rec)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromSidecar(rec);
+        }
+
+        internal static bool TryHydrateVesselSnapshotFromPath(Recording rec, string vesselPath)
+        {
+            return RecordingSidecarStore.TryHydrateVesselSnapshotFromPath(rec, vesselPath);
+        }
+
         #endregion
     }
 }
