@@ -500,6 +500,93 @@ namespace Parsek.Tests
             Assert.False(min.LoopPlayback);
         }
 
+        // --- TryResolveGroupLoopPeriodSeconds (shared parse/validate for group + per-row commit) ---
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_ValidSec_ConvertsViaUnit()
+        {
+            // Failure mode: a legal Sec value would not be accepted, or would be converted
+            // wrong (Sec is a 1:1 seconds unit, so "30" -> 30s exactly).
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("30", LoopTimeUnit.Sec, out seconds);
+
+            Assert.True(ok);
+            Assert.Equal(30.0, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_ValidMin_ConvertsViaUnit()
+        {
+            // Failure mode: the unit conversion is skipped or wrong; "2" Min must become
+            // 120 seconds, not 2 seconds.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("2", LoopTimeUnit.Min, out seconds);
+
+            Assert.True(ok);
+            Assert.Equal(120.0, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_InvariantCulture_DecimalMinParses()
+        {
+            // Failure mode: a comma-locale machine would parse "1.5" wrong (or reject it),
+            // so an InvariantCulture "1.5" Min must convert to 90 seconds regardless of locale.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("1.5", LoopTimeUnit.Min, out seconds);
+
+            Assert.True(ok);
+            Assert.Equal(90.0, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_Negative_Rejected()
+        {
+            // Failure mode: a negative period (#381 launch-to-launch must be >= 0) would be
+            // accepted instead of rejected. "-5" parses as a Sec value but must reject.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("-5", LoopTimeUnit.Sec, out seconds);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_BelowMin_ClampsToMinCycleDuration()
+        {
+            // Failure mode: a sub-minimum value passes through unclamped instead of being
+            // raised to MinCycleDuration (5s). "1" Sec must clamp up to 5s and still accept.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("1", LoopTimeUnit.Sec, out seconds);
+
+            Assert.True(ok);
+            Assert.Equal(LoopTiming.MinCycleDuration, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_NonNumeric_Rejected()
+        {
+            // Failure mode: garbage text would slip through and corrupt the period instead
+            // of being rejected with seconds = 0.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("abc", LoopTimeUnit.Sec, out seconds);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, seconds, 6);
+        }
+
+        [Fact]
+        public void TryResolveGroupLoopPeriodSeconds_FloatForSecUnit_Rejected()
+        {
+            // Failure mode: Sec is an integer-only unit; "1.5" Sec must be rejected (the
+            // per-unit numeric rules in TryParseLoopInput must be honored), not silently
+            // truncated or accepted.
+            double seconds;
+            bool ok = RecordingsTableUI.TryResolveGroupLoopPeriodSeconds("1.5", LoopTimeUnit.Sec, out seconds);
+
+            Assert.False(ok);
+            Assert.Equal(0.0, seconds, 6);
+        }
+
         // --- ApplyPersistenceArtifactsFrom ---
 
         [Fact]

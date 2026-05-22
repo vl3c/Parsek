@@ -1974,9 +1974,11 @@ namespace Parsek
 
             // Period (aggregate) — cascades the loop period to every descendant.
             // Wrapped to match the per-row Period cell's shifted-right layout.
+            // Focus key is "grp:" + groupName (group names are unique); the "grp:"/"blk:"
+            // prefix prevents collision with a chain block whose logId equals a group name.
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
             GUILayout.Space(BodyCellButtonLeftInset);
-            DrawGroupLoopPeriodCell(groupName, descendants, committed, readOnly: false);
+            DrawGroupLoopPeriodCell("grp:" + groupName, groupName, descendants, committed, readOnly: false);
             GUILayout.EndHorizontal();
 
             var flight = parentUI.Flight;
@@ -3403,9 +3405,14 @@ namespace Parsek
             }
             // Period (aggregate) — cascades the loop period to every block member.
             // Wrapped to match the per-row Period cell's shifted-right layout.
+            // Focus key is "blk:" + logId + first member index: the "blk:"/"grp:" prefix
+            // avoids group-vs-block collision, and appending the first member index
+            // disambiguates empty-name ("Block") blocks since distinct blocks have distinct
+            // member sets / first indices.
+            string blockFocusKey = "blk:" + logId + ":" + (members.Count > 0 ? members[0] : -1);
             GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
             GUILayout.Space(BodyCellButtonLeftInset);
-            DrawGroupLoopPeriodCell(logId, members, committed, readOnly: false);
+            DrawGroupLoopPeriodCell(blockFocusKey, logId, members, committed, readOnly: false);
             GUILayout.EndHorizontal();
             if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
@@ -4918,6 +4925,11 @@ namespace Parsek
                             rec.LoopIntervalSeconds, rec.LoopTimeUnit);
                         loopPeriodFocusedRi = ri;
                         loopPeriodEditRect = valueRect;
+                        // Per-row and group period edits are mutually exclusive: gaining
+                        // the per-row field drops any active group-header edit so a stale
+                        // group buffer + captured index set can't cascade on a later commit.
+                        loopPeriodFocusedGroup = null;
+                        loopPeriodFocusedGroupIndices = null;
                         ParsekLog.Verbose("UI",
                             $"Recording '{rec.VesselName}' loop period edit started: " +
                             $"value='{loopPeriodEditText}' unit={ParsekUI.UnitLabel(rec.LoopTimeUnit)}");
@@ -4970,9 +4982,15 @@ namespace Parsek
         /// <paramref name="descendantIndices"/> — never LoopPlayback (the group enable
         /// checkbox owns that). When <paramref name="readOnly"/> is true the same layout
         /// renders disabled and no cascade runs.
+        /// <paramref name="focusKey"/> is the UNIQUE per-header focus identity used for the
+        /// edit-buffer ownership check and the GUI control name; it is distinct from
+        /// <paramref name="displayName"/>, which is only used for log/diagnostic text.
+        /// Two headers must never share a focusKey (a user group whose name equals a chain
+        /// block's logId, or two empty-name "Block" headers would otherwise share one edit
+        /// buffer + captured index set and cascade a commit to the WRONG header's members).
         /// </summary>
         private void DrawGroupLoopPeriodCell(
-            string groupName, IReadOnlyCollection<int> descendantIndices,
+            string focusKey, string displayName, IReadOnlyCollection<int> descendantIndices,
             IReadOnlyList<Recording> committed, bool readOnly)
         {
             const float unitBtnW = 40f;
@@ -4981,7 +4999,7 @@ namespace Parsek
             var agg = DeriveGroupLoopPeriod(committed, descendantIndices);
             LoopTimeUnit commonUnit = agg.Unit;
             bool uniformUnit = agg.UniformUnit;
-            bool focused = !readOnly && loopPeriodFocusedGroup == groupName;
+            bool focused = !readOnly && loopPeriodFocusedGroup == focusKey;
 
             bool prevEnabled = GUI.enabled;
             if (readOnly) GUI.enabled = false;
@@ -5003,7 +5021,7 @@ namespace Parsek
             }
             else
             {
-                string controlName = "GrpLoopPeriod_" + groupName;
+                string controlName = "GrpLoopPeriod_" + focusKey;
                 if (!focused)
                 {
                     // Not editing: show the common value (uniform) or "-" (mixed). Seed the
@@ -5017,13 +5035,13 @@ namespace Parsek
                     if (!readOnly && uniformUnit && GUI.GetNameOfFocusedControl() == controlName)
                     {
                         loopPeriodEditText = FormatLoopPeriodEditStartText(agg.Seconds, commonUnit);
-                        loopPeriodFocusedGroup = groupName;
+                        loopPeriodFocusedGroup = focusKey;
                         loopPeriodFocusedGroupIndices = new List<int>(descendantIndices);
                         loopPeriodEditRect = valueRect;
                         // Per-row and group period edits are mutually exclusive.
                         loopPeriodFocusedRi = -1;
                         ParsekLog.Verbose("UI",
-                            $"Group '{groupName}' loop period edit started: " +
+                            $"Group '{displayName}' loop period edit started: " +
                             $"value='{loopPeriodEditText}' unit={ParsekUI.UnitLabel(commonUnit)} " +
                             $"({loopPeriodFocusedGroupIndices.Count} recordings)");
                     }
@@ -5056,14 +5074,14 @@ namespace Parsek
                 var targets = ResolveRecordings(committed, descendantIndices);
                 int changed = ApplyLoopUnitToRecordings(targets, newUnit);
                 // Clear any active group value-edit focus so a stale buffer doesn't linger.
-                if (loopPeriodFocusedGroup == groupName)
+                if (loopPeriodFocusedGroup == focusKey)
                 {
                     loopPeriodFocusedGroup = null;
                     loopPeriodFocusedGroupIndices = null;
                 }
                 GUIUtility.keyboardControl = 0;
                 ParsekLog.Info("UI",
-                    $"Group '{groupName}' loop unit cascaded to {newUnit} " +
+                    $"Group '{displayName}' loop unit cascaded to {newUnit} " +
                     $"({changed} of {agg.Count} recordings changed)");
             }
 
@@ -5092,53 +5110,68 @@ namespace Parsek
         /// </summary>
         private void CommitGroupLoopPeriodEdit(IReadOnlyList<Recording> committed)
         {
-            string groupName = loopPeriodFocusedGroup;
+            // loopPeriodFocusedGroup is the focus KEY (unique per header); it is only used
+            // for the focus-ownership identity here and for log text below. The descendant
+            // set captured at focus-gain drives the cascade.
+            string focusKey = loopPeriodFocusedGroup;
             var indices = loopPeriodFocusedGroupIndices;
             // Clear focus state up front so any early return still defocuses.
             loopPeriodFocusedGroup = null;
             loopPeriodFocusedGroupIndices = null;
             loopPeriodEditRect = default;
             GUIUtility.keyboardControl = 0;
-            if (groupName == null || indices == null) return;
+            if (focusKey == null || indices == null) return;
 
             var agg = DeriveGroupLoopPeriod(committed, indices);
             LoopTimeUnit unit = agg.Unit;
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double parsed;
-            if (!ParsekUI.TryParseLoopInput(loopPeriodEditText, unit, out parsed))
+            double newSeconds;
+            if (!TryResolveGroupLoopPeriodSeconds(loopPeriodEditText, unit, out newSeconds))
             {
                 ParsekLog.Warn("UI",
-                    $"Group '{groupName}' loop period edit rejected: " +
-                    $"invalid input '{loopPeriodEditText}' for unit {unit}");
+                    $"Group '{focusKey}' loop period edit rejected: " +
+                    $"invalid or negative input '{loopPeriodEditText}' for unit {unit}");
                 return;
-            }
-
-            double newSeconds = ParsekUI.ConvertToSeconds(parsed, unit);
-            // #381: period is launch-to-launch; negatives are rejected outright.
-            if (newSeconds < 0)
-            {
-                ParsekLog.Warn("UI",
-                    $"Group '{groupName}' loop period edit rejected: " +
-                    $"negative value {newSeconds.ToString("F1", ic)}s " +
-                    "(period must be >= 0 under launch-to-launch semantics #381)");
-                return;
-            }
-            if (newSeconds < LoopTiming.MinCycleDuration)
-            {
-                ParsekLog.Info("UI",
-                    $"Group '{groupName}' loop period clamped from " +
-                    $"{newSeconds.ToString("F1", ic)}s to " +
-                    $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
-                newSeconds = LoopTiming.MinCycleDuration;
             }
 
             var targets = ResolveRecordings(committed, indices);
             int changed = ApplyLoopIntervalToRecordings(targets, unit, newSeconds);
             ParsekLog.Info("UI",
-                $"Group '{groupName}' loop period cascaded to " +
+                $"Group '{focusKey}' loop period cascaded to " +
                 $"{newSeconds.ToString("F1", ic)}s (display: " +
                 $"{ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, unit), unit)} " +
                 $"{ParsekUI.UnitLabel(unit)}) ({changed} of {agg.Count} recordings changed)");
+        }
+
+        /// <summary>
+        /// Pure parse + validate of a typed loop-period value against <paramref name="unit"/>.
+        /// Parses via <see cref="ParsekUI.TryParseLoopInput"/> (InvariantCulture, unit's own
+        /// numeric rules), converts to seconds, REJECTS negatives outright (#381:
+        /// launch-to-launch period must be >= 0), and CLAMPS below-minimum values up to
+        /// <see cref="LoopTiming.MinCycleDuration"/>. Returns the resolved seconds in
+        /// <paramref name="seconds"/> and true on accept; false (with seconds = 0) on a
+        /// non-numeric / unit-illegal / negative reject. Used by both the group-header
+        /// cascade commit and the per-row period commit so they share one validation
+        /// contract.
+        /// </summary>
+        internal static bool TryResolveGroupLoopPeriodSeconds(
+            string text, LoopTimeUnit unit, out double seconds)
+        {
+            seconds = 0;
+            double parsed;
+            if (!ParsekUI.TryParseLoopInput(text, unit, out parsed))
+                return false;
+
+            double newSeconds = ParsekUI.ConvertToSeconds(parsed, unit);
+            // #381: period is launch-to-launch; negatives are rejected outright.
+            if (newSeconds < 0)
+                return false;
+            // Defensively clamp below-minimum to MinCycleDuration.
+            if (newSeconds < LoopTiming.MinCycleDuration)
+                newSeconds = LoopTiming.MinCycleDuration;
+
+            seconds = newSeconds;
+            return true;
         }
 
         internal static double ComputeDisplayedLoopPeriod(
@@ -5240,43 +5273,24 @@ namespace Parsek
             if (loopPeriodFocusedRi < 0 || loopPeriodFocusedRi >= committed.Count) { loopPeriodFocusedRi = -1; return; }
             var rec = committed[loopPeriodFocusedRi];
             var ic = System.Globalization.CultureInfo.InvariantCulture;
-            double parsed;
-            if (ParsekUI.TryParseLoopInput(loopPeriodEditText, rec.LoopTimeUnit, out parsed))
+            // Shared parse/validate contract with the group-header cascade: parse against the
+            // unit, reject negatives (#381), clamp below MinCycleDuration. Only the
+            // focus/state handling below is per-row specific.
+            double newSeconds;
+            if (TryResolveGroupLoopPeriodSeconds(loopPeriodEditText, rec.LoopTimeUnit, out newSeconds))
             {
-                double newSeconds = ParsekUI.ConvertToSeconds(parsed, rec.LoopTimeUnit);
-                // #381: period is launch-to-launch; negatives are rejected outright.
-                if (newSeconds < 0)
-                {
-                    ParsekLog.Warn("UI",
-                        $"Recording '{rec.VesselName}' loop period edit rejected: " +
-                        $"negative value {newSeconds.ToString("F1", ic)}s " +
-                        "(period must be >= 0 under launch-to-launch semantics #381)");
-                }
-                else
-                {
-                    // Defensively clamp below-minimum to MinCycleDuration.
-                    if (newSeconds < LoopTiming.MinCycleDuration)
-                    {
-                        ParsekLog.Info("UI",
-                            $"Recording '{rec.VesselName}' loop period clamped from " +
-                            $"{newSeconds.ToString("F1", ic)}s to " +
-                            $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s " +
-                            "(MinCycleDuration)");
-                        newSeconds = LoopTiming.MinCycleDuration;
-                    }
-                    rec.LoopIntervalSeconds = newSeconds;
-                    ParsekLog.Info("UI",
-                        $"Recording '{rec.VesselName}' loop period updated to " +
-                        rec.LoopIntervalSeconds.ToString("F1", ic) +
-                        $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
-                        $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
-                }
+                rec.LoopIntervalSeconds = newSeconds;
+                ParsekLog.Info("UI",
+                    $"Recording '{rec.VesselName}' loop period updated to " +
+                    rec.LoopIntervalSeconds.ToString("F1", ic) +
+                    $"s (display: {ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, rec.LoopTimeUnit), rec.LoopTimeUnit)} " +
+                    $"{ParsekUI.UnitLabel(rec.LoopTimeUnit)})");
             }
             else
             {
                 ParsekLog.Warn("UI",
                     $"Recording '{rec.VesselName}' loop period edit rejected: " +
-                    $"invalid input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
+                    $"invalid or negative input '{loopPeriodEditText}' for unit {rec.LoopTimeUnit}");
             }
             loopPeriodFocusedRi = -1;
             loopPeriodEditRect = default;
