@@ -14,6 +14,11 @@ All notable changes to Parsek are documented here.
 - Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
 - The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.
 
+### Bug Fixes
+
+- Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
+- Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
+
 ---
 
 ## 0.9.3

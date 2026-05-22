@@ -206,6 +206,132 @@ namespace Parsek.Tests
             Assert.Equal(ParsekFlight.AutoRecordLaunchDecision.SkipAlreadyRecording, decision);
         }
 
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_RecordingInProgress_SkipsAlreadyRecording()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: true,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: true,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: false);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipAlreadyRecording, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_SkipsBeforePadCheck()
+        {
+            // Mirror the launch path: the time-jump guard runs before the vessel/pad
+            // checks so a synthetic spawn vessel staging during an FF / warp window
+            // cannot spuriously start a recording.
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: true,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipTimeJumpTransient, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_AlreadyRecording_TakesPrecedenceOverTimeJumpTransient()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: true,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: true,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipAlreadyRecording, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_NoActiveVessel_SkipsNoActiveVessel()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: false,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: false);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipNoActiveVessel, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_NotPrelaunch_SkipsNotOnPad()
+        {
+            // In-flight staging is left to the already-running recorder / launch trigger.
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: false);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipNotOnPad, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_PrelaunchButDisabled_SkipsDisabled()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: true,
+                autoRecordOnLaunchEnabled: false,
+                suppressForTimeJumpTransient: false);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipDisabled, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_PrelaunchStagingAndEnabled_Starts()
+        {
+            // The bug fix: staging while still on the pad (e.g. igniting SRBs that then
+            // decouple and fly off before the main lifts off) starts the recorder now so
+            // the separated debris is captured as a branch of the recorded vessel.
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: true,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: false);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.StartFromPrelaunchStaging, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNoActiveVessel()
+        {
+            // The time-jump guard runs before the active-vessel / on-pad checks, so a
+            // jump-window flicker is reported as the transient even with no active vessel.
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: false,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipTimeJumpTransient, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNotOnPad()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipTimeJumpTransient, decision);
+        }
+
         [Theory]
         [InlineData(true, true, true)]
         [InlineData(false, true, false)]
