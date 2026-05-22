@@ -205,9 +205,8 @@ namespace Parsek
                 if (inFlight)
                     return $"{flightPrefix}then fast-forward to {targetDate}?";
                 double delta = targetUT - currentUT;
-                return string.Format(IC,
-                    "Fast-forward to {0}?\n\nTime will advance by {1:F0} seconds.",
-                    targetDate, delta);
+                return $"Fast-forward to {targetDate}?\n\nTime will advance by " +
+                       $"{ParsekTimeFormat.FormatDurationFull(delta)}.";
             }
 
             // RewindThenForward
