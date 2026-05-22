@@ -2193,5 +2193,33 @@ namespace Parsek.Tests
                 RecordingsTableUI.TreeConnector(true),
                 RecordingsTableUI.TreeConnector(false));
         }
+
+        // The internal TreeChildSection enum cannot appear in a public xUnit
+        // signature (CS0051), so the precedence table is asserted inline rather
+        // than via [Theory] InlineData. Order tested: virtual > child group >
+        // block, and None when nothing renders.
+        [Fact]
+        public void ResolveLastChildSection_FollowsPrecedence()
+        {
+            // Single-section cases.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.None,
+                RecordingsTableUI.ResolveLastChildSection(false, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Block,
+                RecordingsTableUI.ResolveLastChildSection(true, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(false, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, false, true));
+
+            // Precedence: virtual beats child group beats block.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(true, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, false, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, true, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, true, true));
+        }
     }
 }
