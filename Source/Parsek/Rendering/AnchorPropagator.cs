@@ -232,7 +232,7 @@ namespace Parsek.Rendering
             // §7.6 / §7.7 / §7.10 the world-frame resolver computes a real ε;
             // for §7.9 (deferred source, see the class docstring) the slot is
             // reserved with ε = 0 so the §7.11 priority resolver still runs.
-            // §7.8 (CoBubblePeer) was retired in v0.10.0 along with the
+            // §7.8 (CoBubblePeer) was retired in v0.9.3 along with the
             // co-bubble subsystem; the enum slot remains as Reserved7 to
             // preserve the persisted AnchorCandidate type-byte layout, but no
             // producer ever emits an AnchorSource.Reserved7 candidate.

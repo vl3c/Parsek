@@ -1,4 +1,4 @@
-# Remove co-bubble subsystem (v0.10.0)
+# Remove co-bubble subsystem (v0.9.3)
 
 Status: in progress.
 Branch: `remove-co-bubble`.
@@ -11,7 +11,7 @@ float-precision noise between two vessels in the same physics bubble via
 per-pair offset traces in `.pann`, with the peer rendered as
 `primary_standalone + offset`. After four iterations of scar-tissue fixes
 (controlled-child snap, exit crossfade, adjacent-window blend, debris-peer
-preference) v0.10.0 fixed the underlying issues at a deeper contract level
+preference) v0.9.3 fixed the underlying issues at a deeper contract level
 (parent-anchored debris `bodyFixedFrames`) and co-bubble was demoted to a
 default-off diagnostic toggle.
 
@@ -206,7 +206,7 @@ to be recovered.
   "Co-Bubble", "co-bubble", "Phase 5" and delete the co-bubble-specific
   passages; keep adjacent text on smoothing, anchors, terrain).
 - `docs/dev/todo-and-known-bugs.md`: strike-through any open co-bubble
-  bugs / TODOs with a "removed in v0.10.0 co-bubble retirement" note;
+  bugs / TODOs with a "removed in v0.9.3 co-bubble retirement" note;
   do not move them.
 - `docs/dev/done/todo-and-known-bugs-v5.md`: leave as-is (historical
   archive).
@@ -244,8 +244,8 @@ to be recovered.
 
 ### CHANGELOG
 
-- One v0.10.0 entry, one line, under 2 sentences, user-facing only.
-  Match the verbose-paragraph style of the existing v0.10.0 entries.
+- One v0.9.3 entry, one line, under 2 sentences, user-facing only.
+  Match the verbose-paragraph style of the existing v0.9.3 entries.
 
 ## Schema impact
 

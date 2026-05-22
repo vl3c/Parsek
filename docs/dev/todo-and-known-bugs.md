@@ -21,7 +21,10 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Fix:** When `tree.ActiveRecordingId` is null/empty, `CollectSourcePathRecordingIds` now returns all recordings in the tree instead of falling back to `RootRecordingId`. For v0 single-route eligibility we just need to find any recording with a complete `RouteConnectionWindow`; the source-path filter is a refinement for multi-route trees (post-v0). Committed trees never carry orphaned debris that would misclassify, so the permissive fallback is safe. `CollectSourcePathRecordingIds` was promoted from `private` to `internal static` for direct test reachability.
 
 **Coverage:** 3 new xUnit tests in `RouteAnalysisEngineTests.cs`: `CollectSourcePathRecordingIds_NoActiveRecordingId_IncludesAllRecordings` pins the all-recordings fallback; `CollectSourcePathRecordingIds_ActiveSet_WalksLeafToRoot` pins the existing walk-up contract for the active-set case; `AnalyzeTree_DockUndockOnTreeWithoutActiveRecordingId_FindsWindowOnMergedChild` is the end-to-end regression replicating the playtest-6 tree topology and asserting `Eligible`. Failure mode verified by temporarily restoring the buggy `RootRecordingId` fallback in production — both `CollectSourcePathRecordingIds_NoActiveRecordingId_IncludesAllRecordings` (got `HashSet ["root"]`, expected merged-child) and `AnalyzeTree_DockUndockOnTreeWithoutActiveRecordingId_FindsWindowOnMergedChild` (got `MissingRouteProof`, expected `Eligible`) failed deterministically, then passed once the fallback was restored.
-## Done - v0.10.0 Relative frame dropped to Absolute when switching control to the docking target mid-approach
+
+---
+
+## Done - v0.9.3 Relative frame dropped to Absolute when switching control to the docking target mid-approach
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/`, save `x8`). During a rendezvous the chaser `Kerbal X` (pid 9871332, rec `91a6d717`, TreeOrder 8) recorded `ReferenceFrame.Relative` against the target (pid 1963925040, rec `b2685b5e`, TreeOrder 0) for only ~2 s (UT 16783.18-16785.28, ~9 m apart), then recorded the entire final 57 s close approach to docking (UT 16785.28-16842.31) in `Absolute`, despite staying within ~4-10 m of the target the whole time. Dock at UT 16842.26 recorded fine. Log: `RELATIVE exit: pid=9871332 no eligible recording anchor candidates liveCandidates=0/1` then `RELATIVE mode exited ... reason=distance-or-missing-anchor` while `dist=4m`.
 - **Root cause:** the drop coincided exactly with the player switching control from the chaser to the target at UT 16785. On that switch the chaser transitioned to a background recording and the target was promoted from background to the **active** recording (`tree.ActiveRecordingId`), which removed the target's pid from `tree.BackgroundMap` (`Vessel removed from background: pid=1963925040`). The chaser's background anchor scan (`BackgroundRecorder.AddBackgroundLiveAnchorCandidates`) resolved each loaded vessel's recording id only through `tree.BackgroundMap`, and `TryGetBackgroundEligibleAnchorRecording` additionally blanket-rejected `recordingId == tree.ActiveRecordingId`. So the only DAG-eligible anchor (target order 0 < chaser order 8) became invisible the instant it became the focused vessel, and the chaser fell back to Absolute. The reverse direction (target anchoring to chaser) is correctly blocked by the DAG-order rule (8 < 0 is false), so during the approach neither vessel anchored to the other, contradicting the docking-approach Relative rule (`docs/parsek-flight-recorder-design.md`, "Docking approach rule").
@@ -31,7 +34,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Sparse-sampling WARN flooded by expected warp / on-rails gaps
+## Done - v0.9.3 Sparse-sampling WARN flooded by expected warp / on-rails gaps
 
 - Same playtest (`logs/2026-05-21_2050_rendezvous-docking/`). ~50 `TrackSection sparse sampling: ... maxGap=...s threshold=0.50s largeGaps=...` WARN lines fired (both `[Recorder]` and `[BgRecorder]`). Many had maxGap 11-15 s (rails warp) or 1-3 s during atmospheric descent (physics warp) where dense sampling is impossible and the large gap is expected, not data loss. This drowned the genuine signal (an unexpected sparse gap at 1x indicating a dropped or stalled sample).
 - **Fix (per-gap classification, post-review):** classification is per gap, not per section. The first cut used a per-section `warpObservedThisSection` bool that downgraded the whole section's WARN to Verbose if warp was seen anywhere in it. That is a false negative: a single Absolute section can hold BOTH a real 1x dropped-sample gap AND a later physics-warp gap (physics warp never goes on-rails and does not close the section), so the bool silently downgraded the genuine 1x WARN. Now both recorders keep a per-section `sectionFrameWarpFlags` `List<bool>` index-aligned with `currentTrackSection.frames` (appended in lockstep at every frame-Add via `AppendCurrentSectionFrameWarpFlag` / `AppendSectionFrameWarpFlag`, trimmed in lockstep at every frame-trim site: active-side `TrimRecordingToUT` and BG-side `TrimParentAtBranchBoundary`, reset in `StartNewTrackSection` / `StartBackgroundTrackSection`). `ComputeSectionGapStats(frames, threshold, warpFlags)` now also returns `LargeGapCountAtNormalRate` = large gaps whose BOTH bounding samples were at 1x; a gap touching a warp/on-rails sample is excluded. `ShouldWarnOnSparseSampling(largeGapCountAtNormalRate)` WARNs iff that count > 0, so a mixed section still WARNs. When `warpFlags` is null or length-mismatched, every large gap counts as normal-rate (conservative: never silently downgrade). The close-time message gains a `largeGaps1x=` field. Active-recorder warp signal is `isOnRails || IsTimeWarpActiveForDiagnostics()`; BG signal is physics warp only (`IsTimeWarpActiveForDiagnostics()`) because `OnBackgroundPhysicsFrame` early-returns on `bgVessel.packed`, so on-rails BG samples never reach the per-frame tick (the dead `bgVessel.packed` term from the first cut was dropped). `TimeWarp.CurrentRateIndex` is read defensively so xUnit (no Unity runtime) does not throw.
@@ -41,7 +44,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Docking-port undock during recording was mis-recorded as part destruction
+## Done - v0.9.3 Docking-port undock during recording was mis-recorded as part destruction
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/`, save `x8`). During a rendezvous + docking session the player undocked two command pods at UT 16897.46. Instead of an Undock branch, Parsek recorded the departing `mk1-3pod` + `dockingPort2` as `PartDestroyed` segment events in the docked recording `cff2`, then picked the real undocked vessel up ~3.5 s later (UT 16901) via the post-switch outsider auto-record path, producing a recording `8eec` with a Launch-type branch point (`BranchPointType.Launch`) instead of Undock, RELATIVE-anchored to `cff2`. Downstream, crew member Bill Kerman was recorded `endState=1` (Dead) in `cff2` and `endState=0` (Aboard) in `8eec` for the same UT window, and ended up flagged `permanentlyGone=True` in KERBAL_SLOTS, so he appeared permanently dead despite surviving.
 - **Root cause:** `ParsekFlight.OnPartUndock` captured the new vessel pid synchronously from `undockedPart.vessel.persistentId` and early-returned at `if (newPid == recorder.RecordingVesselId) return;`. KSP's `Part.Undock()` fires `onPartUndock(this)` FIRST, BEFORE it splits the vessel, so the part still reports the OLD combined pid (= the recorder's pid), the guard was always true, and the intended `DeferredUndockBranch(...)` coroutine never ran (the "vessel split off" log appeared 0 times the whole session). The joint-break fallback then ran (`attachJoint.DestroyJoint()` fires `onPartJointBreak` synchronously inside the same `Undock()` call), but docking-port undocks do NOT fire `onPartDeCoupleNewVesselComplete` (only stack/radial decouplers do), so `DeferredJointBreakCheck` saw no new vessel and `ClassifyJointBreakResult` returned `WithinSegment`, emitting `PartDestroyed` for the departing pod. The Dead end-state was a direct consequence: with the pod recorded as destroyed, Bill fell out of `cff2`'s final snapshot, and `KerbalsModule.InferCrewEndState` maps intact-terminal + not-in-snapshot to `KerbalEndState.Dead`.
@@ -52,7 +55,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 In-game test failures from the 2026-05-21 run (facility auto-exit, carve-out canary marker, dead Rewind-to-Launch canary)
+## Done - v0.9.3 In-game test failures from the 2026-05-21 run (facility auto-exit, carve-out canary marker, dead Rewind-to-Launch canary)
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2021_failed-tests-investigation/`). The `StockUiOverlay` in-game tests (Astronaut Complex / Mission Control / R&D) opened a facility window and then hung until the tester manually clicked exit. KSP.log showed overlays decorated at 20:15:30 but the facility despawn / `Game Unpaused!` only at 20:16:18 (48 s of manual wait), then the test passed within 46 ms of the manual exit.
 - **Root cause (auto-exit):** the three close helpers (`CloseAstronautForOverlayTest` / `CloseMissionControlForOverlayTest` / `CloseRnDForOverlayTest`) gated on `building.IsOpen()` and then invoked the building's private `onDialogClose` via reflection. All three `SpaceCenterBuilding.IsOpen()` overrides are always-true gates (career mode / `ContractSystem.Instance != null` / `ResearchAndDevelopment.Instance != null`), so the helper always took the reflection branch and never reached the `GameEvents.onGUI<Facility>Despawn.Fire()` line. The private `onDialogClose` only deregisters handlers + clears a control lock; it does not fire the despawn event, unpause, or remove the canvas. The real close (what `UISpaceCenter`'s exit button does) is simply firing the despawn GameEvent, which `UISpaceCenter` listens to for `FlightDriver.UnPause` + canvas teardown. Compounding it, `EnterBuilding` pauses the game (`timeScale = 0`), which freezes `Time.time`; `WaitUntilTrue`'s `Time.time` deadline never expired while paused, so a failed close hung the suite forever instead of timing out.
@@ -63,7 +66,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Parabolic-orbit recording exploded and froze the game on load
+## Done - v0.9.3 Parabolic-orbit recording exploded and froze the game on load
 
 - Playtest 2026-05-21 (`logs/2026-05-21_1937_freeze/`, save `x7`). The game froze during scenario `OnLoad`. KSP.log (buffered) ended at milestone-patching, but `Player.log` (real-time) ran further and stopped hard at `RecordingStore Loop sync: linked 34 debris recording(s)`, inside `RunOptimizationPass` -> `FlushDirtyFiles` -> sidecar serialization. No scene-ready marker was logged. Recording `e03138a3db1f4414924ee123348640fe` was persisted at `.prec` = 1.1 MB / `.prec.txt` = 6.1 MB (vs ~10-50 KB for every other recording) holding 8192 ORBIT_SEGMENT nodes, all bit-identical (same startUT `40586.88094970557`).
 - **Root cause:** `OrbitSegmentCheckpointBridge.OrbitSegmentNearlyEquals` compared orbit-segment fields with `NearlyEqual` = `Math.Abs(a - b) <= tol`. A parabolic / near-escape orbit segment recorded around the Mun stored `eccentricity = 1` and `semiMajorAxis = NaN`, and `Math.Abs(NaN - NaN) <= tol` is false, so the segment never equalled itself. `EnsureCheckpointSectionsForTopLevelOrbitSegments` therefore failed its dedup (`AnyCheckpointMatches` always missed, every log line showed `skippedExisting=0`), re-added the segment, and `RebuildFlatOrbitCacheFromCheckpointSectionsPreservingPredictedTail` fed the bloated checkpoint sections back into `Recording.OrbitSegments`. The count doubled on every operation that touched the recording (load-read, optimizer split-candidate scan, and each of three write codecs): the captured growth curve was `added=256 -> 512 -> 1024 -> 2048 -> 4096`. The bloat was written to disk, so it compounded across loads. Compounded by O(n^2) clipping (`BuildSegmentsOutsidePhysicalSections` is O(sections) per orbit segment) plus one Verbose log line per section, the recording eventually froze load.
@@ -74,7 +77,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Scene-exit finalizer classified parent-anchored Relative debris Destroyed off an origin-collapsed live altitude
+## Done - v0.9.3 Scene-exit finalizer classified parent-anchored Relative debris Destroyed off an origin-collapsed live altitude
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/KSP.log`). At scene exit the finalizer logged `Start rejected: sub-surface state … alt=-599034.5 … classifying recording as Destroyed` 12 times for parent-anchored launch debris (recordings flagged `IsDebris=True` with `ParentAnchorRecordingId` set, e.g. `00e10d57…`). The altitude -599034 is the tell: Kerbin radius is 600000 m and the debris was genuinely ~966 m above ground (its body-fixed seed `lla=(-0.0976,-74.5449,961.97)`). The booster outcome was coincidentally correct (launch boosters do crash), but the **mechanism** was wrong: it would also wrongly destroy a non-crashing parent-anchored child (a controlled-decoupled probe coasting near its parent).
 - **Root cause:** these recordings have no patched-conic solver at scene exit (`PatchedConicSnapshotFailureReason.NullSolver`), so `IncompleteBallisticSceneExitFinalizer` builds the extrapolation start state from the live vessel orbit (`TryBuildStartStateFromVessel` -> `vessel.orbit.getPositionAtUT`), which collapses to origin-adjacent coordinates (alt ~= -bodyRadius) for a torn-down solver. `BallisticExtrapolator.Extrapolate` rejects that as `SubSurfaceStart`. The existing recorded-point suppression/recovery path (`ShouldSuppressSubSurfaceDestroyedFromRecordedPoint` -> `TryBuildRecoveryStartStateFromRecordedPoint`) is the correct mechanism and already resolves the frame contract (for a `ReferenceFrame.Relative` `TrackSection` it reads `bodyFixedFrames`, the real geocentric lat/lon/alt, never the anchor-local metre offsets in `frames`). But it was gated by `SubSurfaceRecordedPointContradictionWindowSeconds = 0.5`, a tight "fresh split" window timed against the live-orbit UT. The UT (commitUT) itself is fine; it is the live-orbit ALTITUDE/POSITION that is the origin-collapse fingerprint. For parent-anchored debris at scene exit the only authored body-fixed sample is the seed at deltaUT 0.52 s (commit UT 21.72 vs seed UT 21.20), just 0.02 s outside the window, so suppression/recovery never ran and the origin-collapse verdict shipped.
@@ -84,7 +87,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Same-craft launches from different sites within 60s dropped the second launch's cost
+## Done - v0.9.3 Same-craft launches from different sites within 60s dropped the second launch's cost
 
 - Career repro 2026-05-21 (`logs/2026-05-21_1830_revert-altsite-verify/`, save `c6`). The player launched the same auto-saved craft (vessel pid 1706764493) from Launch Pad (UT 72.24), then 59.578 s later from the Desert alternate launch site (UT 131.82). KSP charged both rollouts (`FundsChanged -3805 (VesselRollout)` for each, funds 41195 -> 37390 on the Desert charge), but Parsek recorded only the Launch Pad row and skipped the Desert row with `OnVesselRolloutSpending: skipping duplicate rollout - kept existing row`. The dropped cost made the next recalc refund the player: `PatchFunds: 42190.0 -> 45995.0 (delta=3805.0)`, and `c6`'s save persisted the inflated `funds = 45995`.
 - **Root cause:** the #710 revert-double-rollout guard `LedgerRolloutAdoption.RolloutDuplicateMatches` matched two rollouts on persistentId alone when both PIDs were present, ignoring the launch site. Its assumption "two genuinely independent launches always have distinct PIDs" is false: relaunching the same craft reuses the vessel persistentId. With same PID + equal cost + UTs 59.578 s apart (inside `RolloutDuplicateWindowSeconds = 60`), a Launch Pad rollout and a Desert rollout collapsed into one. The defect is symmetric across any two same-craft different-site launches inside the window, not alternate-site specific.
@@ -95,7 +98,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Revert kept launch-pad science/funds/milestones earned before liftoff
+## Done - v0.9.3 Revert kept launch-pad science/funds/milestones earned before liftoff
 
 - Playtest 2026-05-20 (`logs/2026-05-20_2152_revert-science-not-reverted/`, save `c2`). Player ran experiments on the pad, transmitted science (`mysteryGoo@KerbinSrfLandedLaunchPad`, +1.5 at UT 32.9), then Reverted to Launch (back to UT 7.34). After the revert the science was still credited.
 - **Root cause:** auto-record only starts at the PRELAUNCH->FLYING transition (UT 36.9 in the log), so the pad science transmitted at UT 32.9 was written to the ledger with `recordingId=(none)`, as were its Kerbin/Science milestone and the +1600 milestone funds reward. On revert, `RecordingStore.UnstashPendingTreeOnRevert` only filters recording-id-tied actions, and `Ledger.Reconcile` treats null-recordingId rows as permanent KSC-scope actions. The post-revert `LedgerOrchestrator.RecalculateAndPatch()` runs with no UT cutoff (`ShouldUseCurrentUtCutoffForPostRewindFlightLoad` returns false on `isRevert`), so it re-applied the orphans, overriding KSP's correct revert. Log shows `KspStatePatcher PatchScience: 0.0 -> 1.5` immediately after stock zeroed it.
@@ -112,7 +115,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Re-Fly merge dialog now offers Merge & Seal on a not-yet-sealable attempt
+## Done - v0.9.3 Re-Fly merge dialog now offers Merge & Seal on a not-yet-sealable attempt
 
 - Player feedback: a Re-Fly attempt whose outcome does not auto-seal showed only "Commit to Timeline" (slot stays open) + "Discard". Closing the slot meant a separate trip to the Recordings window to click Seal.
 - **Change:** renamed the auto-seal button to "Merge & Seal"; for the not-yet-sealable case the dialog now stacks three buttons: "Commit (don't seal)" (keeps slot open), "Merge & Seal" (commits, then closes the slot), and "Discard". Permanent/auto-seal dialogs stay two buttons; non-Re-Fly merges stay "Merge to Timeline". All "Confirm X" confirmation-dialog titles now carry a colon ("Confirm: Merge to Timeline", "Confirm: Commit to Timeline", "Confirm: Re-Fly", "Confirm: Rewind", "Confirm: Fast-Forward", "Confirm: Wipe Recordings", "Confirm: Wipe Game Actions", "Confirm: Disband Group", "Confirm: Clear Recording", "Confirm: Seal Unfinished Flight"). "Merge & Seal" reuses `UnfinishedFlightSealHandler.TrySeal` (sets `slot.Sealed=true` only; `MergeState` stays `CommittedProvisional`, NOT forced Immutable), threaded via `playerRequestedSeal` through `MergeCommit` → `RunPreTransitionAction` → `TryCommitReFlySupersede` → `ApplyPlayerRequestedSeal` on the survivor-resolved provisional after the merge journal completes. Seal-resolution failure is non-fatal (merge already committed; player told to seal manually).
@@ -121,7 +124,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Orbital payload did not re-spawn after Rewind-to-Launch (dropped vessel snapshot)
+## Done - v0.9.3 Orbital payload did not re-spawn after Rewind-to-Launch (dropped vessel snapshot)
 
 - Investigation 2026-05-20 (`logs/2026-05-20_2332_kerbalx-nospawn/`). After a plain Rewind-to-Launch of "Kerbal X", the slot-1 "Kerbal X Probe" leaf (terminal=Orbiting, rec 69780fcd) failed to re-materialize as a real vessel when warp playback reached its endpoint, and its orbit ghost was destroyed at past-end so the orbit line vanished too. The Mun lander (#48) and Valentina EVA (#49) at the chain tip re-spawned fine.
 - **Root cause:** the terminal-spawn gate `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd` rejected the probe with "no vessel snapshot" because `rec.VesselSnapshot` was null in memory, and neither the gate nor `VesselSpawner` ever re-loaded it from the on-disk `_vessel.craft` sidecar (which existed and was valid). The in-memory snapshot is a transient cache that several sites intentionally null in-session (vessel-gone debris at `ParsekFlight.cs`, the crew-unreserve pass) with the sidecar kept as the durable source of truth (see the SaveRecordingFiles "do NOT delete" note). The lander/EVA still had their snapshots only because they were finalized late in the same session; the probe's had been dropped, so the spawn was suppressed every frame and the ghost retired at past-end.
@@ -133,7 +136,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Logs did not distinguish Rewind-to-Launch from Re-Fly
+## Done - v0.9.3 Logs did not distinguish Rewind-to-Launch from Re-Fly
 
 - Investigation 2026-05-20 (`logs/2026-05-20_2332_kerbalx-nospawn/`). A plain Rewind-to-Launch (the root recording "Rewind to launch" button, which loads a `parsek_rw_*` quicksave) read in the log like a Re-Fly (Rewind-to-Separation / Rewind-to-Staging). The `[Scenario] OnLoad: rewind-staging load: ... marker=False journal=False` line fires on every load to describe the persisted re-fly subsystem state, even when no re-fly happened, so scanning near a rewind made the plain launch rewind look like a re-fly. Both invocation paths also log under the same `[Rewind]` tag, with no "to Launch" vs "Re-Fly" stamp.
 - **Fix (logging only, no behavior change):**
@@ -147,7 +150,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Re-controlled EVA kerbal never promoted back to foreground recording after a vessel switch
+## Done - v0.9.3 Re-controlled EVA kerbal never promoted back to foreground recording after a vessel switch
 
 - Follow-up to the flag-capture fix (`logs/2026-05-20_2333_flag-spawn-mun/`). After EVA'ing a kerbal, switching to a nearby vessel, and switching back to the kerbal, the kerbal stayed tracked only in the tree's `BackgroundMap` with the foreground recorder idle. `HandleMissedVesselSwitchRecovery` warn-rate-limited `recorderPid=0 ... trackedInBackground=True` every frame for the whole stay and never promoted her, so her controlled actions were only recorded at background fidelity.
 - **Root cause:** the post-switch auto-record watcher (#546) is the mechanism that promotes a switched-to background member to foreground on its first real physical change. `ParsekFlight.ShouldArmPostSwitchAutoRecord` ended with `&& !newVesselIsEva`, excluding EVA kerbals from arming **entirely**. That exclusion is correct for a fresh EVA (owned by the dedicated `OnCrewOnEva` / `DeferredEvaBranch` + "Auto-record on EVA" path) but too broad: it also blocked the tracked-background-member arm path. With no arm, `ShouldRecoverMissedVesselSwitch` returns `trackedInBackground && !alreadyArmed` = true every frame, so the recovery looped forever and never promoted.
@@ -158,7 +161,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Flag planted by a background-tracked EVA kerbal was silently dropped
+## Done - v0.9.3 Flag planted by a background-tracked EVA kerbal was silently dropped
 
 - Playtest 2026-05-20 (`logs/2026-05-20_2333_flag-spawn-mun/`). Player EVA'd Valentina Kerman on the Mun, switched to a nearby vessel and back to the kerbal, then planted a flag while controlling her (the plaque text edit requires control). During later watch the flag never re-planted because it was never recorded: the 22 MB KSP.log has one `Flag planted: 'a' by 'Valentina Kerman'` line and no `Flag event captured` line at all.
 - **Root cause:** the EVA created a deferred tree branch whose `DeferredEvaBranch` ran one frame before KSP completed the switch to the kerbal, so the ship became the foreground `activeChild` and Valentina became the background `bgChild` (tree `BackgroundMap`). The re-control switch back to her never promoted her to a foreground recording (`HandleMissedVesselSwitchRecovery` warn-rate-limited `recorderPid=0 ... trackedInBackground=True` for the whole stay). `ParsekFlight.OnAfterFlagPlanted` captured a `FlagEvent` only into the foreground `recorder`, so with the recorder idle the early `if (recorder == null || !recorder.IsRecording) return;` dropped the plant.
@@ -169,7 +172,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Bail-Out Grant currency exchange silently reverted by the ledger
+## Done - v0.9.3 Bail-Out Grant currency exchange silently reverted by the ledger
 
 - Investigation 2026-05-20 (follow-up to the reputation-reservation study, `docs/dev/research/reputation-reservation-not-warranted.md`). Stock KSP's Bail-Out Grant is a one-shot Administration strategy whose `CurrencyExchanger` effect runs a real Reputation-to-Funds wallet swap on `Strategy.Activate()`: `Reputation.Instance.AddReputation(-(rep+1000)*share, StrategyInput)` and `Funding.Instance.AddFunds(that*rate, StrategyOutput)`. All `initialCost*` are 0.
 - **Root cause:** `GameStateRecorder.OnStrategyActivated` reads only `InitialCost*` (all 0 for Bail-Out Grant), so the strategy action carried no exchange amount. The two wallet mutations fired `OnFundsChanged` / `OnReputationChanged` and were recorded as `FundsChanged(StrategyOutput)` / `ReputationChanged(StrategyInput)` events, but `GameStateEventConverter.ConvertEvent` dropped both event types to null. The exchange never entered the ledger, so the next recalc patched funds to `seed + tracked - tracked` (missing the credit) and reputation to `runningRep` (missing the debit), reverting the strategy. This was the one stock case #439's income-diversion analysis (ongoing `CurrencyConverter`) did not cover; `CurrencyExchanger` is a genuine one-time direct debit under the distinct `StrategyInput` / `StrategyOutput` reasons.
@@ -180,7 +183,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Science total flickered to zero for a frame on the first experiment recovery/transmission
+## Done - v0.9.3 Science total flickered to zero for a frame on the first experiment recovery/transmission
 
 - Playtest 2026-05-20 (`logs/2026-05-20_1817_game-actions-playtest/`). On the first science recovery (`PatchScience: 1.2 -> 0.0` then `0.0 -> 1.2` within ~11ms at 18:09:43), KSP's science pool was transiently clawed to zero before the next recalc restored it. Self-healing and INFO-level, but a visible flicker and a wasted patch.
 - **Root cause:** when KSP credits recovery/transmission science live, the matching `ScienceEarning` ledger action is added a few ms later by `LedgerOrchestrator.TryRecordKscScienceSubject`. A recalc triggered in that gap by a co-incident event (here the first `Kerbin/Science` milestone) ran `KspStatePatcher.PatchScience` against a ledger that did not yet contain the earning, so `science.GetAvailableScience()` returned the stale pre-credit total and the patch pulled KSP's pool down to it. `PatchScience` already had a guard for the opposite (spending) race, `AdjustSciencePatchTargetForPendingRecentTechResearch`, but none for the earning race.
@@ -190,7 +193,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
+## Done - v0.9.3 Timeline Details tab flooded with duplicate and no-op part/tech/contract rows
 
 - Investigation 2026-05-20 (`logs/2026-05-20_1833_timeline-investigation/`). The Details tab listed 50 rows for a short two-launch career, dominated by noise: a VAB build burst at one UT produced ~20 rows. Two distinct causes.
 - **Cause 1 (duplication):** the timeline merges ledger game-actions and the legacy milestone-store events, but the legacy de-dup (`TimelineBuilder.GetLegacyDuplicateKey`) only covered `MilestoneAchievement` / `StrategyActivate` / `StrategyDeactivate`. `PartPurchased`, `TechResearched`, and the contract lifecycle events exist in BOTH stores and were rendered twice (once as a ledger row, once as a legacy row).
@@ -201,7 +204,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Live Re-Fly fork floated at the recordings-table root instead of nesting in its mission folder
+## Done - v0.9.3 Live Re-Fly fork floated at the recordings-table root instead of nesting in its mission folder
 
 - Playtest 2026-05-20 (`logs/2026-05-20_1737_refly-orphan-recording/`). During an in-place Rewind-to-Separation on "Kerbal X" (tree `e7ca34dc...`), the in-flight fork `rec_77dbe31a...` showed in the recordings list as a row outside any mission folder; it vanished when the user discarded the re-fly attempt.
 - **Root cause:** `RewindInvoker.BuildProvisionalRecording` creates the fork with `TreeId` set but no `RecordingGroups`. Auto-grouping (`RecordingGroupStore.AutoGroupTreeRecordings`) only runs at commit time, and the recordings table groups strictly by `Recording.RecordingGroups` (`RecordingsTableUI` draws group-less recordings at the root). So the provisional fork rendered detached from the "Kerbal X" folder its committed siblings already sit in, for the whole live session.
@@ -211,7 +214,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Orphan parent-anchored debris remained visible after re-fly fork retirement
+## Open - v0.9.3 Orphan parent-anchored debris remained visible after re-fly fork retirement
 
 - Playtest 2026-05-19 (`logs/2026-05-19_2329_pr909-narrowed-gate-playtest/saves/x4/persistent.sfs`). User did a Rewind-to-Separation on a Kerbal X re-fly attempt; the active fork `rec_2c68978d` was retired with `reason=rewound-out-supersede-fork` (`rrt_33919eadcd674138baef970cb3e7b5b7`) and `ab1f54b0` was restored. The fork's parent-anchored debris child `3d4713df` (Kerbal X Debris, `mergeState=CommittedProvisional`, `debrisParentRecordingId = rec_2c68978d`) carried no retirement of its own and continued to render as a ghost alongside the restored recording's own debris children, producing visible duplicate upper-stage debris ghosts.
 - **Root cause:** `RecordingStore.EnsureRewindRetirementsForRollback` writes one `RecordingRewindRetirement` row per dropped supersede fork (Pass 1) and per priorTip (Pass 2); neither pass walks `Recording.DebrisParentRecordingId`. Downstream visibility computation (`EffectiveState.ComputeRewindRetiredRecordingIds`, `ComputeTimelineInactiveRecordingIds`, `ComputeERS`, `IsRewindRetired`) treats retirement as a per-row predicate, so orphan children stayed in ERS, in the timeline inactive map's complement, in the ghost playback skip-state gate, in the KSC marker gate, in the tracking-station suppression set, and in the recordings-table inactive-row predicate.
@@ -226,7 +229,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Rolled-back re-fly fork chain continuation rendered as a duplicate ghost
+## Done - v0.9.3 Rolled-back re-fly fork chain continuation rendered as a duplicate ghost
 
 - ~~Playtest 2026-05-20 (`logs/2026-05-20_2046_refly-watch-underground`). After a Rewind-to-Separation re-fly was itself rewound back out of existence, the same physical "Kerbal X Probe" (`vesselPersistentId=1418997309`) rendered as TWO ghosts over the same post-152s window: the restored original `49538b60` (chain `59a82c8e`) AND `982d6dee` (chain `2856611e`, idx 1, carrying its own predicted orbit tail). The fork chain `2856611e` is `rec_e0f42b57` (idx 0, HEAD) -> `982d6dee` (idx 1, TIP); `rec_e0f42b57` was correctly `rewind-retired` but `982d6dee` was not.~~
 
@@ -238,7 +241,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Schema reset to generation 3 (clean-slate, no backwards compat)
+## Done - v0.9.3 Schema reset to generation 3 (clean-slate, no backwards compat)
 
 - `RecordingStore.CurrentRecordingSchemaGeneration` bumped 2 -> 3. `IsRecordingSchemaCompatible` now rejects generation 2 and older with reason `generation-older`; the threshold is read symbolically by every downstream gate, so no gate change was needed. `CurrentRecordingFormatVersion` stays 1.
 - Deleted the last pre-reset compatibility seams (all dead under the no-backwards-compat policy, verified by reachability before deletion):
@@ -255,7 +258,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Experiment: force-Absolute toggle for re-fly provisional recordings
+## Done - v0.9.3 Experiment: force-Absolute toggle for re-fly provisional recordings
 
 > Experiment concluded. The narrowed-gate filter (next section) is the validated default; the `forceAbsoluteForReFlyProvisional` toggle and the supersede-target bypass it gated were deleted in Parsek-remove-refly-bypass. The notes below are kept for historical context.
 
@@ -280,7 +283,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Narrowed-gate re-fly Relative anchor selection (follow-up to PR 901)
+## Open - v0.9.3 Narrowed-gate re-fly Relative anchor selection (follow-up to PR 901)
 
 - PR 901's `forceAbsoluteForReFlyProvisional` toggle validated that Absolute is the right contract for re-fly forks with no nearby real anchor, but the toggle's all-or-nothing shape lost Relative-against-real-station precision in two narrow cases (docking-mid-rewind, loop-anchored re-fly fork). The user's clarification on the second case: orbital looped ghosts cannot replay correctly against absolute body-fixed positions because body rotation has continued for `N * loop_period` between recording and playback; the loop must anchor to a real persistent vessel via `Recording.LoopAnchorVesselId` so the timing skew cancels. That implies the "500m Relative-against-real-anchor" recorder behavior is load-bearing for orbital loops and must be preserved across re-fly too.
 - Fix: replace the `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor` supersede-target bypass at both recorder gate sites with a narrowed-gate filter `ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional`. While a re-fly session is active and the active recording is the provisional, the filter drops every nearest-search candidate whose recording id is a member of the same `RecordingTree.Recordings` keyset as the provisional. Real persistent vessels / stations / bases live in other trees (or no tree at all), so they pass through and remain eligible. The supersede target, supersede-chain ancestors, and parent-anchored debris from the original launch are all in-tree by construction; the filter drops them, and the nearest-search either finds a real out-of-tree anchor (-> Relative-against-real-anchor) or finds nothing (-> Absolute). Single rule covers both regression cases.
@@ -292,7 +295,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 STASH duplicated each Re-Fly slot when the supersede target carried no ChainId, and stripped UF rows out of the regular tree
+## Open - v0.9.3 STASH duplicated each Re-Fly slot when the supersede target carried no ChainId, and stripped UF rows out of the regular tree
 
 - Playtest 2026-05-19 (`logs/2026-05-19_2055_pr901-stash-organization/`). User reported two "Kerbal X" rows in the STASH subgroup plus the natural "Kerbal X" / "Kerbal X Probe" mission folder showing no rows besides the Debris subfolder. Save state breakdown: tree had a two-recording chain `2d8a6f06... (chainIndex 0) -> 7cc628a9... (chainIndex 1)` for slot 0, and the Re-Fly merge wrote `rec_0eb2638a...` (no ChainId) superseding the chain tip `7cc628a9`, plus `rec_ca116476...` (no ChainId) for slot 1 superseding the launch row `622f2c96...`. KSP.log lines confirmed three UF members per recompute: `2d8a6f06... reason=crashed side=origin-only`, `rec_0eb2638a... reason=crashed side=child`, `rec_ca116476... reason=crashed side=child`, plus `DrawGroupTree: filtered 3 UF row(s) from regular tree 'Kerbal X'`.
 
@@ -311,9 +314,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Retire the Phase 5 co-bubble peer blending subsystem
+## Done - v0.9.3 Retire the Phase 5 co-bubble peer blending subsystem
 
-- ~~`Co-bubble peer blending default flipped to off + Diagnostics toggle added` (closed 2026-05-17, above) demoted the subsystem to a default-off rollout gate after the playtest established that standalone Absolute trajectories are visually acceptable for stage-separation re-fly. Earlier in v0.10.0 the controlled-decoupled child parent-anchor contract took over the close-formation case that PR #872 / #874 worked around with co-bubble selector tiebreakers. PR 901 (force-Absolute re-fly toggle) and PR 909 (narrowed-gate re-fly Relative anchor selection) covered the remaining re-fly anchor questions. The subsystem is now genuinely unused: setting defaults off, no production code path enters its branch when off, no public users (pre-1.0 mod).~~
+- ~~`Co-bubble peer blending default flipped to off + Diagnostics toggle added` (closed 2026-05-17, above) demoted the subsystem to a default-off rollout gate after the playtest established that standalone Absolute trajectories are visually acceptable for stage-separation re-fly. Earlier in v0.9.3 the controlled-decoupled child parent-anchor contract took over the close-formation case that PR #872 / #874 worked around with co-bubble selector tiebreakers. PR 901 (force-Absolute re-fly toggle) and PR 909 (narrowed-gate re-fly Relative anchor selection) covered the remaining re-fly anchor questions. The subsystem is now genuinely unused: setting defaults off, no production code path enters its branch when off, no public users (pre-1.0 mod).~~
 
 **Fix:**
 - Deleted `CoBubbleBlender`, `CoBubbleOverlapDetector`, `CoBubblePrimarySelector`, `CoBubbleOffsetTrace` (production), all five `CoBubble*Tests` xUnit files, the two `Pipeline_CoBubble_*` in-game tests, and the `phase5-cobubble-blend.md` design doc.
@@ -329,7 +332,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Scene-exit finalizer leaves sub-orbital recordings stale when vessel solver is torn down
+## Done - v0.9.3 Scene-exit finalizer leaves sub-orbital recordings stale when vessel solver is torn down
 
 - ~~Sub-orbital recordings whose vessel orbit solver is torn down at scene exit (the destroyed-vessel `PatchedConicSnapshotFailureReason.NullSolver` fingerprint) stayed at their recorder-stamped `terminalState = SubOrbital` even when their `termOrbit.periR` was well inside the planet — so the eventual impact never propagated to the STASH / Unfinished Flights gate. Repro: launch Kerbal X, separate the SRBs and lower-stage probe booster, end the recording. The upper stage + 6 SRB debris all kept `terminalState = SubOrbital` despite trajectories that crash; only the lower-stage probe (which had a populated `PatchedConicSnapshot` chain to reseed from) was reclassified to Destroyed. Playtest log `logs/2026-05-19_1802_pr897-chain-seam-validation/KSP.log` lines 15399-15435 walk the failure: every leaf logs `Extrapolator] Start rejected: sub-surface state … alt=-599888m`, the suppression branch fires correctly (recorded sample contradicts the live-orbit fallback), and the recording is then left with no terminal verdict update.~~
 
@@ -342,7 +345,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Predicted sub-orbital orbit tail runs underground on playback (atmospheric body)
+## Done - v0.9.3 Predicted sub-orbital orbit tail runs underground on playback (atmospheric body)
 
 - ~~A re-flown vessel whose flight ends above the atmosphere on a sub-orbital arc (e.g. the Kerbal X capsule captured at the 70 km Karman line, ascending) gets a predicted orbit tail that playback flies straight through the planet. The vessel "hits the ground but is not destroyed and continues underground on a weird trajectory." Repro: re-fly Kerbal X, watch the upper stage past its recorded points. Readable trajectory `5248d7f0...prec.txt` shows the predicted `ORBIT_SEGMENT`s carrying `sma=350210.76 ecc=0.99519589` (periapsis radius ~1683 m, ~598 km below Kerbin's surface; apoapsis ~98.7 km), `endUT` running to 866 then 1024 s, far past the descent's ground crossing. Same defect produced an underground tail on the probe fork `982d6dee` (`tOrbSma=343148 ecc=0.9953`).~~
 
@@ -357,7 +360,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Re-Fly auto-sealed the rewind slot on a suborbital arc, which is not a stable terminal
+## Open - v0.9.3 Re-Fly auto-sealed the rewind slot on a suborbital arc, which is not a stable terminal
 
 - Playtest report 2026-05-19: user re-flew a slot, the vessel reached a suborbital arc, the merge dialog claimed it would auto-seal ("reached a sub-orbital arc"), but the slot stayed open after Merge. Two problems compounded: (a) the seal contract treated `TerminalState.SubOrbital` as a stable terminal alongside Orbiting / Landed / Splashed, even though a suborbital arc is by definition still in flight (the vessel will crash, land, splash, or with a burn reach orbit), and (b) the preview path's reasons-for-seal list lights up on the recording terminal alone while the production seal path requires several more guards to actually fire, so the preview and production disagreed depending on which production gate the player happened to hit (`IsInPlaceContinuation` v0.9 fallback, terminal flip between dialog and finalize, merge orchestrator interrupted, etc.). Either way the user got a misleading dialog warning AND in the typical case the slot was not actually sealed.
 - **Fix:** dropped SubOrbital from the auto-seal contract at four production touch points. (1) `UnfinishedFlightClassifier.IsReFlyOverrideStableTerminal` no longer lists SubOrbital, so the Re-Fly merge focus override does not fire on a suborbital arc and the classifier returns `stableLeafUnconcluded` (qualifies=true; slot kept open). (2) The non-Re-Fly static-focus seal branch in `TerminalOutcomeQualifiesInternal` narrowed from "Orbiting or SubOrbital + slot==FocusSlot → stableTerminalFocusSlot" to "Orbiting + slot==FocusSlot → stableTerminalFocusSlot"; SubOrbital falls through to the same `stableLeafUnconcluded` branch the non-focus path uses. (3) `ReFlyAutoSealPreview` dropped the `SubOrbitalArc` enum value entirely (with the `PhraseFor` and `GroupOrdinal` switch cases), the live-vessel `SUB_ORBITAL` situation case, the ORBITING-with-PeR-in-atmosphere fallback that previously also mapped to `SubOrbitalArc`, and the recorded-terminal `SubOrbital` case; the preview now correctly reports no seal reason for a suborbital arc. (4) `SupersedeCommit.RequiresSlotAwareMergeClassification` no longer includes SubOrbital; a SubOrbital provisional whose slot lookup happens to fail now falls back through the v0.9 `TerminalKindClassifier` (routes SubOrbital → InFlight) instead of throwing. SubOrbital remains in `StashedTerminalQualifies` so manual Stash + Seal stays available; SubOrbital also remains in the orbital-endpoint / ghost-map eligibility lists (display, not seal, contracts).
@@ -368,7 +371,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Ghost map marker ProtoVessel exploded mid-Re-Fly from atmospheric heating
+## Open - v0.9.3 Ghost map marker ProtoVessel exploded mid-Re-Fly from atmospheric heating
 
 - Playtest 2026-05-19 (`logs/2026-05-19_1847_refly-booster-explosion/`). User re-flew "Kerbal X Probe" (slot 1, rp_faba2361) at UT≈125s, alt≈67839m. At UT≈133.7 (alt≈76 km, vel≈1273 m/s on the ghost's recorded reentry trajectory) KSP logged `sensorBarometer (Ghost: Kerbal X) Exploded!! - blast awesomeness: 0.5`, followed by two `[GhostMap][ERROR] update-state-vector-miss: ... reason=no-orbit-driver` lines on rec=00c6a097 (ghostPid=340696403). The exploding vessel is the Parsek **map-presence ProtoVessel** (`GhostMapPresence.BuildGhostProtoVesselNode` builds a single-`sensorBarometer` ProtoVessel as a transient orbit/icon marker), not the visual ghost (which is just cloned MeshRenderers and has no real parts).
 - **Root cause:** the marker ProtoVessel uses a real KSP `sensorBarometer` part. The prefab is `PhysicsSignificance = 1` (physicsless) but KSP's `Part` body (decompile `Part.cs:3164-3176`) forces any single-root-part vessel's root back to `PhysicalSignificance.FULL`. The runtime Part inherits prefab `maxTemp=1200` / `crashTolerance=8` and is subject to aero/thermal sim. The thermal explode site (`Part.cs:_CheckPartTemperature` ~line 10783) fires `Part.explode()` whenever `temperature > maxTemp` regardless of physical significance. At low altitude / orbital speed during the active Re-Fly, the marker's barometer overheats and disassembles the vessel mid-session, taking the orbit driver with it.
@@ -378,7 +381,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Watch camera freezes at chain seam (stage separation) before the successor ghost is ready to take the camera
+## Open - v0.9.3 Watch camera freezes at chain seam (stage separation) before the successor ghost is ready to take the camera
 
 - Playtest 2026-05-19 (`logs/2026-05-19_1937_watch-freeze-handoff/`). User reported a visible freeze at the Watch camera handoff between the launch configuration of Kerbal X and the upper-stage half at the stage-separation point. KSP.log timeline at lines 10729-10805 decomposes the freeze into three overlapping components: (1) the launch ghost finishes playback at 19:28:09.019 (`PlaybackCompleted index=0 watched=True`) and the camera stays glued to its motionless terminal frame for ~26 ms while the successor ghost's snapshot build progresses across multiple physics frames at the default 4 ms-per-frame budget (`Ghost #8 "Kerbal X" build split across frames: 23/72 snapshot parts built (first spawn, budget=4.0ms)`, `Auto-follow target #8 has no active ghost - deferring transfer`, `Mid-chain watch transfer deferred: #0 → #8 target ghost not active yet, retrying for 30s`); (2) at 19:28:09.045 the watch transfer eventually succeeds and the camera target snaps from `(-74957,-884,12574)` (predecessor terminal) to `(-75743,-898,12552)` (successor first frame), a ~800 m world-space teleport; (3) at 19:28:09.034 the successor logs `initial activation hidden: reason=activation-settle … minFrames=2` so the new ghost is invisible for the first two physics frames after the transfer (~14 ms). Net composite hold is ~40 ms of unmoving / teleporting / invisible camera at every chain seam where the watched chain crosses a structural-event boundary (decoupling, fairing-jettison, etc.).
 - **Root cause:** the two seam mechanisms are individually correct but stacked at the same point in time. The time-sliced build (`GhostPlayback.MaxSpawnBuildMillisecondsPerAdvance = 4ms`) is a #414 scene-load warm-up budget intended to spread first-spawn cost across frames so a cold-load doesn't land every eligible ghost's mesh build in one frame. At an in-session chain seam there is no warm-up burst — exactly one successor is spawning, and the camera is actively waiting for it. The `activation-settle` fall-through in `GhostPlaybackEngine.ShouldHoldInitialActivationHiddenThisFrame` exists to mask the fresh first-appearance race (visual construction + anchor resolution against the engine's first positioning call). At a chain seam the predecessor's last pose is by construction continuous with the successor's first pose (same vessel id, same chain, same body, same physics tick), so there is no race for the settle window to suppress.
@@ -388,7 +391,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Done - v0.10.0 Watch-mode shortcuts fire while typing into a text field
+## Done - v0.9.3 Watch-mode shortcuts fire while typing into a text field
 
 - ~~Watch-mode shortcuts in `ParsekFlight.HandleInput` (`[` / `]` exit, V camera-mode toggle, W cycle-to-next-watchable) use raw `Input.GetKeyDown` and ignore UI keyboard focus. Pre-existing for `[` / `]` / V; the new W binding from PR #895 made it acute because W is a common letter, so typing "Kerbal X Probe" into the RecordingsTableUI rename field or any settings text field cycled the watch camera between every keystroke.~~
 
@@ -412,7 +415,10 @@ When referencing prior item numbers from source comments or plans, consult the r
 **Fix:** Mirrored the merge-dialog's deferred-retry pattern. New `pendingTreeId` field on `RouteCreationDialog` set by `TryShow` when a tree is route-eligible. The field is preserved through `DismissIfOpen("scene-change")` but cleared on every other terminal reason (`confirmed`, `user-canceled`, `source-no-longer-eligible`, etc.). New `TryShowDeferredIfPendingForScene(GameScenes)` method (called from `ParsekScenario.Update`, which already runs in every scene at every frame) checks the pending field, re-resolves the tree from `RecordingStore.CommittedTrees`, and re-spawns the dialog in the destination scene. Restricted to FLIGHT / SPACECENTER / TRACKSTATION; clears pending if the tree has been retired (revert, discard).
 
 **Coverage:** 8 new xUnit tests in `RouteCreationDialogTests.cs` (`TryShow_EligibleTree_SetsPendingTreeId`, `TryShow_IneligibleTree_ClearsPendingTreeId`, `DismissIfOpen_SceneChange_PreservesPendingTreeId`, `DismissIfOpen_UserCanceled_ClearsPendingTreeId`, `TryShowDeferredIfPending_NullPending_NoOp`, `TryShowDeferredIfPending_WrongScene_DoesNotRetry`, `TryShowDeferredIfPending_TreeNotInCommittedTrees_ClearsPending`, `TryShowDeferredIfPending_TreeStillCommitted_ReSpawns`). Failure-mode verified by toggling the preservation predicate in `DismissIfOpen` to always-clear — both `DismissIfOpen_SceneChange_PreservesPendingTreeId` and `TryShowDeferredIfPending_TreeStillCommitted_ReSpawns` failed deterministically with `Expected: tree-1, Actual: (null)` (exact playtest-5 bug shape), then passed once restored.
-## Done - v0.10.0 W key cycles watch mode through watchable ghosts
+
+---
+
+## Done - v0.9.3 W key cycles watch mode through watchable ghosts
 
 - ~~Watching a ghost via the group W button required leaving the watch overlay, scrolling through the recordings table, and pressing another group W to switch targets. There was no keyboard affordance to advance the camera to the next visible ghost without leaving watch mode. Stock W (pitch-down) was also still bleeding through to the unattended active vessel.~~
 
@@ -491,7 +497,10 @@ The previous helpers `TryScheduleDeferredRouteWindowCompletionOnUndock` and `Def
 **Open risk:** the dock-side `TransferTargetVesselPid` validation gate (yesterday's `IsKnownDockPartnerForRoute`) requires the partner to have an existing Parsek recording. If the partner is genuinely foreign (no recording anywhere), the gate now correctly rejects, but in the cross-tree case where the partner has a committed recording from a prior tree AND `data.from.vessel.persistentId` reflects a freshly-rebound merged PID (different from the committed recording's `VesselPersistentId`), the gate may falsely reject. Not observed in either playtest so far; track here for follow-up if it surfaces.
 
 **Status:** CLOSED 2026-05-18.
-## Done - v0.10.0 Watch W-cycle onto an out-of-coverage controlled-child froze the game (regression from PR #895)
+
+---
+
+## Done - v0.9.3 Watch W-cycle onto an out-of-coverage controlled-child froze the game (regression from PR #895)
 
 - ~~Playtest 2026-05-20 (`logs/2026-05-20_2005_watch-freeze/`). Cycling the in-flight watch camera (W) onto ghost #14 "Kerbal X Probe" semi-froze the game for ~22 s. KSP.log shows ~9,700 stock NullReferenceExceptions (8,819 `FlightGlobals.UpdateInformation` throws alone) starting at 19:55:13.243 in active-vessel-bound stock systems (`FlightGlobals.UpdateInformation`, `Sun.LateUpdate`, `AmbienceControl.Update`, `CrewHatchController.LateUpdate`, `UIPartActionController.UpdateFlight`). The storm survived a Revert to Launch and only ended when the player force-quit.~~
 
@@ -509,7 +518,7 @@ The previous helpers `TryScheduleDeferredRouteWindowCompletionOnUndock` and `Def
 
 ---
 
-## Open - v0.10.0 Watch camera froze on rewind-origin end-frame instead of following the canon re-fly fork
+## Open - v0.9.3 Watch camera froze on rewind-origin end-frame instead of following the canon re-fly fork
 
 - Playtest 2026-05-18 (`logs/2026-05-18_1953_watch-cam-stuck-upper-stage/`). User did a Rewind-to-Separation on a two-stage launch at UT≈387.84 and entered watch mode on the new rewind-origin recording `3ab1661a` (#26, chainId `8d8370c0...`, chainIndex 0). When playback reached the user's stage-separation point at UT 414.55 (end of #26), the watch camera held on the frozen end-frame of the rewound recording until manual exit ~29s later (`Exiting watch mode for recording #26 ... — returning to #autoLOC_501224`). Expected: the camera transitions to the currently-rendering upper-stage continuation `rec_923e04` (#36, "Kerbal X", Immutable canon fork, UT 414.92 → 477.47, same `VesselPersistentId=2708531065` as #26).
 - **Root cause:** `GhostPlaybackLogic.FindNextWatchTarget` Case 1 (chain continuation) correctly located the chain-next at `chainIndex=1` — recording `af548511` (#27, "Kerbal X", same PID, UT 414.55 → 427.09). But `af548511` had been superseded by `rec_923e04` via `RECORDING_SUPERSEDES` row `rsr_022ae56a` and was therefore skipped from playback (`skip=superseded-by-relation`). The chain slot's `isGhostActive(j)` returned false and Case 1 dropped through to Case 2 (`ChildBranchPointId` walk) which couldn't fire because `#26.ChildBranchPointId` is unset; FindNextWatchTarget returned -1 every retry and `ProcessWatchEndHoldTimer` ran the hold to expiry. `TryGetPendingWatchActivationUT` had the same gap, so the hold timer also could not extend to wait for the fork's actual activation UT.
@@ -519,7 +528,7 @@ The previous helpers `TryScheduleDeferredRouteWindowCompletionOnUndock` and `Def
 
 ---
 
-## Done - v0.10.0 STASH listed every chain half from the optimizer's phase-change split, doubling each Re-Fly slot
+## Done - v0.9.3 STASH listed every chain half from the optimizer's phase-change split, doubling each Re-Fly slot
 
 - ~~Playtest 2026-05-18 (`logs/2026-05-18_1853_stash-4-recordings/`): a two-stage launch crashed both stages and surfaced 4 STASH rows for a 2-slot rewind point. The user expected one row per controllable PID (upper / lower stage). The four rows were `847b9b53` Kerbal X + `a54896` Kerbal X (origin-only) for slot 0, and `c059aabfd4` Kerbal X Probe + `3d059f9c` Kerbal X Probe (origin-only) for slot 1, with both pairs sharing a ChainId.~~
 
@@ -550,7 +559,7 @@ The route target PID is now persisted on a new pending field (`pendingDockRouteT
 
 ---
 
-## Done - v0.10.0 Map Switch-To to a previously committed fresh-launched vessel fragmented it into a standalone tree
+## Done - v0.9.3 Map Switch-To to a previously committed fresh-launched vessel fragmented it into a standalone tree
 
 - ~~Post-#876 playtest 2026-05-17 (`logs/2026-05-17_2122_kerbalx-grouping-bug/`). Player launched Kerbal X (NEW_FROM_FILE rollout), flew it to orbit, the mission committed (tree `6c70ac3ed4aa498aaa64ba407adb1ebf` with root recording `79663bae...` carrying `VesselPersistentId=2708531065`). Player launched a second mission (GDLV3), then Map Switch-To'd back to Kerbal X. The new 28 s switch-segment recording (`fab1cd54...`) landed in a brand-new standalone tree `c0f6063d-9d20-48d5-bed5-b17a15d13b7b` (also named "Kerbal X") instead of attaching as a continuation under the original mission tree. The auto-grouping then placed the segment outside the existing "Kerbal X" group.~~
 
@@ -618,7 +627,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Done - v0.10.0 Pre-switch dialog showed 0s segment duration and leaked the prior session marker on Merge
+## Done - v0.9.3 Pre-switch dialog showed 0s segment duration and leaked the prior session marker on Merge
 
 - ~~Post-#876 playtest (`logs/2026-05-17_1944_switch-fly-edge-case/KSP.log`) exposed two bugs in the new pre-switch Merge/Discard dialog flow. **Bug A**: the dialog body rendered "Kerbal X Probe - 0s" for a switch segment that had been recording for ~40 seconds. **Bug B**: clicking Merge committed the prior tree but did NOT clear the `SwitchSegmentSession` marker — the marker survived a save/load round-trip and was only collected by the defensive `superseded-by-new-switch` branch in `ParsekFlight.TryConsumeStockActionIntent` two seconds later when the next switch fired.~~
 
@@ -636,7 +645,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Done - v0.10.0 Switch/Fly auto-record started recordings with raw #autoLOC vessel-name token
+## Done - v0.9.3 Switch/Fly auto-record started recordings with raw #autoLOC vessel-name token
 
 - ~~Stock UI Fly / Switch-To clicks on a stock craft (Jumping Flea, Kerbal X, etc.) stored the recording's `VesselName` and the fresh tree's `TreeName` as the raw KSP localization key (e.g. `#autoLOC_501224`) instead of the readable craft name. Reproduced in `logs/2026-05-17_1738_autoloc-name-bug/saves/s14/persistent.sfs:1605-1645` — root recording `d612a4bc…` has `vesselName = #autoLOC_501224` and tree `7e91f96d…` has `treeName = #autoLOC_501224`, while the EVA-split child recording 11 s later correctly shows `vesselName = Jumping Flea`.~~
 
@@ -648,7 +657,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Done - v0.10.0 RewindPointReaper dropped the RP for crashed chain-tip slots, silently stripping Re-Fly
+## Done - v0.9.3 RewindPointReaper dropped the RP for crashed chain-tip slots, silently stripping Re-Fly
 
 - ~~User playtest `logs/2026-05-17_1728_kerbalx-probe-stash-refly/` (switch-fly-autorecord build; bug is in shared code on main). Player launched Kerbal X, decoupled "Kerbal X Probe", vessel-switched between probe and parent, eventually let the probe crash on rails at UT 1307.7. The classifier correctly marked the probe's chain-head recording `50560293…` as `IsUnfinishedFlight=true reason=crashed` (KSP.log line 20547) and `ApplyRewindProvisionalMergeStates` promoted it to `CommittedProvisional`. Two seconds later, on the FLIGHT->SPACECENTER scene change, `RewindPointReaper.ReapOrphanedRPs` deleted `rp_e2ce2420…` (line 22132). From that point on the recording stayed visible in the timeline but no longer matched any RP, so neither Re-Fly nor manual Stash was available.~~
 
@@ -690,7 +699,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Done - v0.10.0 Parsek-spawned terminal-orbit vessels cascade-exploded on first Switch-To / Watch / TS-Fly
+## Done - v0.9.3 Parsek-spawned terminal-orbit vessels cascade-exploded on first Switch-To / Watch / TS-Fly
 
 - ~~A vessel spawned at a recording's terminal orbit (canonical case: the stock Kerbal X with three `ForceHeaviest`-autostrutted `landingLeg1-2` legs surface-attached to the Rockomax fuel tank) cascade-exploded within ~40 ms of being focused. The central stack (pod, heatshield, parachute, tank, decoupler, antenna) blew up while the legs detached cleanly. Reproduced in `logs/2026-05-17_1437_switch-fly-test/` against a Parsek-spawned Kerbal X at alt 418 km.~~
 
@@ -704,7 +713,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Done - v0.10.0 rb.mass seeder relocated to Part.MassivePartCheck (PR #885 + two PR #890 iterations were no-ops)
+## Done - v0.9.3 rb.mass seeder relocated to Part.MassivePartCheck (PR #885 + two PR #890 iterations were no-ops)
 
 - ~~PR #885's "spawn-time rb.mass seeder" never wrote any rb.mass value in production. Every seeder log line in the captured logs (`logs/2026-05-17_1840_logistics-v0-dock-test/`, `logs/2026-05-17_1944_switch-fly-edge-case/`) reports `updated=0`, meaning `vessel.parts` was empty at every call site. The cascade-explode bug PR #885 claimed to fix was therefore still present.~~
 
@@ -724,7 +733,7 @@ The hook fires before the dispatch evaluator so a tick where delivery + dispatch
 
 ---
 
-## Closed - v0.10.0 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
+## Closed - v0.9.3 Re-Fly abandon-and-retry leaks NotCommitted provisional + closure walk poisons it
 
 **Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — `rec_675a9193` (Kerbal X #2) and `rec_3cdedee5` (Kerbal X #3) appear as `NotCommitted` provisional recordings in `persistent.sfs:1646` and `:2558`, each with `creatingSessionId` naming a session whose marker was cleared at retry time. The next session's `AppendRelations` closure walk found them as PID peers of the new TIP and wrote invalid supersede rows `oldRecordingId=rec_675a9193 → newRecordingId=rec_3993fbe2` (`:3046`) and `oldRecordingId=rec_3cdedee5 → newRecordingId=rec_f944e1e4` (`:3086`). NotCommitted is the in-progress-provisional state and must never appear as a supersede source — an invariant violation of the data model.
 
@@ -741,7 +750,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Closed - v0.10.0 In-place-continuation fork dropped from RECORDING_TREE on save
+## Closed - v0.9.3 In-place-continuation fork dropped from RECORDING_TREE on save
 
 **Evidence:** `logs/2026-05-16_2226_pr872-groups-investigation/s11-save-evidence/` — fork `rec_12b7252f…` (the post-rewind continuation of Kerbal X #1, committed `Immutable` at runtime and referenced by the supersede table + tombstones) has all four sidecar files on disk (`.prec`, `.pann`, `_vessel.craft`, `_ghost.craft`) but zero RECORDING nodes anywhere in `persistent.sfs`. Tree `cde7313f…` has `activeRecordingId = 575240c7…` (the HEAD launch) instead of pointing at the fork. The user sees the launch row but no post-rewind continuation in the recordings table — and the cited evidence's `[Anchor] recorded-relative-unresolved: reason=focus-tree-missing recordingId=rec_12b7252f` confirms downstream consumers couldn't find it either.
 
@@ -757,7 +766,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Done - v0.10.0 Timeline W button passed an ERS index to ghost-engine APIs keyed on the raw committed list
+## Done - v0.9.3 Timeline W button passed an ERS index to ghost-engine APIs keyed on the raw committed list
 
 - ~~User flew Kerbal X mission 1, Re-Flew it to commit a supersede subtree, then launched Kerbal X mission 2 in a separate slot. Both launches showed up in the Timeline window in flight, but only the later launch (rec id `4b1d249f…`) had a working Watch button — the earlier launch (rec id `ab25e241…`) rendered as a disabled "no ghost" button even after its ghost spawned. The recordings-table Watch button worked for the same recording, so the divergence was strictly the Timeline path.~~
 
@@ -769,7 +778,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Open - v0.10.0 Switch/Fly auto-record: in-FLIGHT committed-clone restore + multi-segment scene-exit
+## Open - v0.9.3 Switch/Fly auto-record: in-FLIGHT committed-clone restore + multi-segment scene-exit
 
 **Context:** PR #876 added a pre-switch Merge/Discard dialog on Map Switch-To when a switch-segment session is already active (the Path 1 fix from in-game playtest). This handles the rapid-switch case cleanly: each Switch-To consciously commits or discards the prior segment. Two architectural gaps remain.
 
@@ -788,7 +797,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Done - v0.10.0 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
+## Done - v0.9.3 `_vessel.craft` ProtoVessel snapshot still carries the raw `#autoLOC_...` token in the `name` field
 
 - ~~`logs/2026-05-17_1738_autoloc-name-bug/saves/s14/Parsek/Recordings/20b37b69460e42e2a862ad112539de68_vessel.craft.txt:3` — `name = #autoLOC_501224` even after the recording-metadata fix (PR #887) resolved `Recording.VesselName` and `RecordingTree.TreeName` to "Jumping Flea". The companion `.sfs` row has `vesselName = Jumping Flea`, but the ProtoVessel snapshot used to re-spawn the ghost / restore the vessel still ships the raw localization key.~~
 
@@ -800,7 +809,7 @@ Plan: `docs/dev/plans/fix-refly-abandon-and-fork-persist.md`.
 
 ---
 
-## Done - v0.10.0 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
+## Done - v0.9.3 Re-fly provisional Relative section anchored to fast-separating sibling causes chaotic ghost playback during watch mode
 
 **Evidence:** Discovered during PR #874 validation playtest, `logs/2026-05-16_2258_pr874-validate/KSP.log`. User entered watch mode at 22:56:02 after committing three nested re-flies on the same save. During the 27-second watch window (until 22:56:29), `GhostRenderTrace` fired **281 `reason=large-delta` events** — all concentrated on the three re-fly provisional recordings:
 
@@ -858,9 +867,9 @@ Crucially, **this is NOT a CoBubble bug.** Every chaotic frame logs `mode=Record
 
 ---
 
-## Done - v0.10.0 Chain-continuation recordings co-render as duplicated ghost on watch mode
+## Done - v0.9.3 Chain-continuation recordings co-render as duplicated ghost on watch mode
 
-- ~~Watch-mode playtest on the v0.10.0 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces (ghost #17 = chain HEAD `c059aabf...`, ghost #25 = chain CONTINUATION `3d059f9c...`, shared `chainId=9cf2bb0709dc426096ec687f2fbbac37`). Both passed the engine's skip-state filter with `skip=False` and the engine-frame-iter showed them as independent ghost spawn slots.~~
+- ~~Watch-mode playtest on the v0.9.3 build, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. User reported "duplication of the Kerbal X Probe booster ghost" during watch. Two ghosts for "Kerbal X Probe" coexist visually from UT 335.567 to UT 375.047 (~40 seconds), playing the same physical vessel along different surfaces (ghost #17 = chain HEAD `c059aabf...`, ghost #25 = chain CONTINUATION `3d059f9c...`, shared `chainId=9cf2bb0709dc426096ec687f2fbbac37`). Both passed the engine's skip-state filter with `skip=False` and the engine-frame-iter showed them as independent ghost spawn slots.~~
 
 **Root cause:** Chain-continuation recordings were treated by the playback engine as fully independent recordings. `EffectiveState.IsUnfinishedFlight` collapsed the chain in the UI (Timeline / STASH groups) and supersede / rewind-retired filters stripped out the right rows, but no analogous "chain continuation shadows its head's UT range" filter existed in the ghost spawn / render path. `GhostPlaybackEngine` allocated one slot per committed recording without coordinating slots that belonged to the same chain.
 
@@ -877,7 +886,7 @@ The engine stays Recording-agnostic: the chain-next lookup callback is injected 
 
 ---
 
-## Done - v0.10.0 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
+## Done - v0.9.3 Per-debris chain seam destroys and respawns each booster ghost, flickering for 100-200ms per slot
 
 - ~~Same watch-mode playtest, `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. After Kerbal X separated 6 radial booster debris pieces at UT 285.18 (pids 3027027466, 2130796824, 2057942744, 1009856088, 3271565278, 633147235; root part `radialDecoupler1-2`), each debris recording was itself chain-continued at UT ~336.7. When the watch transferred from rec #10 -> rec #18 around real-time 20:07:39.527, every one of the six debris ghosts was destroyed (`stale past-end ghost (no longer held)`) and re-spawned as a brand-new ghost slot 100-200 ms later. Section 1 ended at `336.65/336.71` and section 2 started at `336.77` (a 0.06-0.12 s UT discontinuity, ~70-150 m of spatial step at 1.2-1.5 km/s). User-visible result: six boosters all flickered off and reappeared slightly displaced in the same one-second window the watch crossed the chain seam.~~
 
@@ -891,7 +900,7 @@ The engine stays Recording-agnostic: the chain-next lookup callback is injected 
 
 ---
 
-## Open - v0.10.0 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
+## Open - v0.9.3 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
 
 **Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. Before the watch transfer (frame 36484 / real-time 20:06:49.066), the six radial booster debris pieces render cleanly anchored to rec #10 ("Kerbal X", `parentRecId=847b9b53...`):
 
@@ -932,7 +941,7 @@ The recorded anchor-local distance (~345 m) is by itself plausible ballistic sep
 
 ---
 
-## Done - v0.10.0 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
+## Done - v0.9.3 Watch auto-follow fires before chain continuation's primary ghost is active, deferring 3 retries
 
 - ~~Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log` lines 62710 / 62718 / 62744: three rapid `WARN][CameraFollow] Auto-follow target #18 has no active ghost - deferring transfer` lines in ~17 ms before the rec #18 primary ghost finally activates at 20:07:39.524 and the transfer completes at 20:07:39.526. No user-visible regression (the deferral retries succeed within one or two physics frames), but the warn-level cascade was noisy and looked like a runtime fault.~~
 
@@ -946,7 +955,7 @@ The recorded anchor-local distance (~345 m) is by itself plausible ballistic sep
 
 ---
 
-## Open - v0.10.0 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
+## Open - v0.9.3 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
 
 **Evidence:** Same watch-mode playtest log, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. Recording `c059aabf` (Kerbal X Probe) carries 43 seconds of authored payload up to UT 335.57 followed by an orbit segment covering UT 359.64 to 1364.71 (segmentIndex=0, cacheKey=170000). At frame 45241 (UT 359.659, ~24 seconds after `payloadEndUT`) the playback engine transitions from "hold last-payload position" to "orbital-frame propagation" and the ghost teleports **34,651 m in a single frame**:
 
@@ -984,7 +993,7 @@ The rotation channel also jumps across the transition (`(0.673,-0.199,-0.233,-0.
 
 ---
 
-## Open - v0.10.0 PR #889 supersede-target anchor can be out-of-range, cascading thousands of force-transitions to Absolute
+## Open - v0.9.3 PR #889 supersede-target anchor can be out-of-range, cascading thousands of force-transitions to Absolute
 
 **Evidence:** Surfaced in two PR #889-build playtest logs (`logs/2026-05-18_1904_pr889-validate-rotation-slerp/KSP.log` with 4115 `WARN][Anchor] anchor-out-of-recorded-range` lines, and `logs/2026-05-18_1953_pr889-rotation-trace/KSP.log` with 108 of the same). In both runs the cascade fired on the most-recent re-fly fork's supersede-target anchor (e.g. anchor `a54896f5...` and `3d059f9c...`), with one warning per physics tick over multi-second windows:
 
@@ -1018,7 +1027,7 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 ---
 
-## Done - v0.10.0 Controlled-decoupled child vessels lack a parent-anchored recording surface (deeper fix for the CoBubble debris-anchor snap)
+## Done - v0.9.3 Controlled-decoupled child vessels lack a parent-anchored recording surface (deeper fix for the CoBubble debris-anchor snap)
 
 - ~~User-reported visual seam in PR #872 build, `logs/2026-05-16_2010_pr872-kerbalx-ghost-switch/KSP.log`. During Re-Fly of the Kerbal X upper stage, the lower-stage probe ghost (`b11ef3d4…`, type=Probe, hasController=True) visibly snapped mid-flight at UT 34.74 onto the trajectory of a sibling radial-booster debris piece (`fa429137…`) and crossfaded back at UT 38.76 when that debris crashed. Root cause is that controlled-decoupled children are recorded as plain Absolute by `BgRecorder` with no `DebrisParentRecordingId` and no relative-to-parent track surface; the only formation-coherence mechanism available to them is CoBubble peer-blend, which pairs them opportunistically with whichever Absolute neighbor happens to win the primary selector. PR #874 added a short-term selector guard ("non-debris-over-debris" Rule 6) so a sibling debris can never be promoted to primary against a controlled peer. The deeper fix below removes the dependence on CoBubble peer-blend for this case entirely.~~
 
@@ -1034,9 +1043,9 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 ---
 
-## Done - v0.10.0 Re-Fly merge dialog auto-seal preview reported "landed" after the player crashed the upper stage
+## Done - v0.9.3 Re-Fly merge dialog auto-seal preview reported "landed" after the player crashed the upper stage
 
-- ~~User-reported during the v0.10.0 co-bubble-off playtest (`logs/2026-05-17_1529_cobubble-disabled-refly/KSP.log`). The user crashed the upper stage of Kerbal X on Re-Fly and the post-merge confirmation dialog claimed it would auto-seal because the vessel had "landed". `KSP.log:16844`: `Re-Fly auto-seal preview: willSeal=True actionPermanent=False button='Commit to Timeline' labelSource=classifier:crashed reasons=[Landed]`. The button classifier (UnfinishedFlightClassifier via chain-tip terminal) correctly tagged the outcome "crashed", but `ReFlyAutoSealPreviewer.CollectRecordedTerminalReasons` read the provisional's own `TerminalStateValue` and got `Landed` - two contradictory verdicts on the same recording surfaced together in the same dialog.~~
+- ~~User-reported during the v0.9.3 co-bubble-off playtest (`logs/2026-05-17_1529_cobubble-disabled-refly/KSP.log`). The user crashed the upper stage of Kerbal X on Re-Fly and the post-merge confirmation dialog claimed it would auto-seal because the vessel had "landed". `KSP.log:16844`: `Re-Fly auto-seal preview: willSeal=True actionPermanent=False button='Commit to Timeline' labelSource=classifier:crashed reasons=[Landed]`. The button classifier (UnfinishedFlightClassifier via chain-tip terminal) correctly tagged the outcome "crashed", but `ReFlyAutoSealPreviewer.CollectRecordedTerminalReasons` read the provisional's own `TerminalStateValue` and got `Landed` - two contradictory verdicts on the same recording surfaced together in the same dialog.~~
 
 **Root cause:** `RecordingFinalizationCacheProducer.TryBuildFromLiveVessel` ran `TryBuildSurfaceTerminalCache` before any destroy-aware branch (`RecordingFinalizationCacheProducer.cs:176`). KSP flips a ground-impacting vessel's `Vessel.Situation` to `LANDED` for a moment before the destroy event fires; the producer's surface-terminal short-circuit accepted that transient situation and stamped `TerminalState.Landed`. The subsequent `destroy_event` refresh saw the prior cache as `Landed` (not `Destroyed`), so `TryBuildAlreadyClassifiedDestroyedSkip` did not fire and the same surface-terminal branch re-stamped `Landed`. Same root cause on the BG path: `BackgroundRecorder.OnBackgroundVesselWillDestroy` calls `RefreshFinalizationCache` with reason `background_destroy`, which raced the BG vessel's last sampled `LANDED` situation.
 
@@ -1048,9 +1057,9 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 ---
 
-## Done - v0.10.0 Co-bubble peer blending default flipped to off + Diagnostics toggle added
+## Done - v0.9.3 Co-bubble peer blending default flipped to off + Diagnostics toggle added
 
-- ~~v0.9.2 shipped with co-bubble peer-blend on by default. Co-bubble has produced three separate v0.9.2 fix passes (entry snap, crossfade-tail jump, multi-tier recursion guard) and contributes to the controlled-child snap class (PR #872 / #874). User playtest with the flag forced off (`logs/2026-05-17_1529_cobubble-disabled-refly`) showed clean Re-Fly rendering on stage separations with no nearby formation peers, suggesting standalone Absolute trajectories are visually acceptable in the common case. Flip the default to off for the v0.10 playtest cycle so the player base exercises the standalone-only path and surfaces any cases where co-bubble is actually load-bearing.~~
+- ~~v0.9.2 shipped with co-bubble peer-blend on by default. Co-bubble has produced three separate v0.9.2 fix passes (entry snap, crossfade-tail jump, multi-tier recursion guard) and contributes to the controlled-child snap class (PR #872 / #874). User playtest with the flag forced off (`logs/2026-05-17_1529_cobubble-disabled-refly`) showed clean Re-Fly rendering on stage separations with no nearby formation peers, suggesting standalone Absolute trajectories are visually acceptable in the common case. Flip the default to off for the v0.9.3 playtest cycle so the player base exercises the standalone-only path and surfaces any cases where co-bubble is actually load-bearing.~~
 
 **Change:** `ParsekSettings._useCoBubbleBlend` default flipped from `true` to `false`. The new Settings window > Diagnostics > "Use co-bubble peer blending" toggle lets the player opt back in. `UseCoBubbleBlendSettingTests.UseCoBubbleBlend_DefaultsFalse` pins the new default; `UseCoBubbleBlend_DirectAssignThroughProperty_LogsInfo` was inverted to assign `true` (the value-changing direction now). The `.pann` ConfigurationHash continues to gate on the flag, so any cached pannotations sidecars hashed against the old default are invalidated on first load under the new default.
 
@@ -1114,7 +1123,7 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 ---
 
-## Done - v0.10.0 Stock Fly / Switch-To buttons should auto-start a segment-scoped continuation
+## Done - v0.9.3 Stock Fly / Switch-To buttons should auto-start a segment-scoped continuation
 
 - ~~PR #866 fixed the data-loss bug by making committed spawned-vessel restore copy-on-write, but the stock UI button clicks that move focus to another vessel still need a better recording model. The three in-scope sources, all confirmed by decompiling `Assembly-CSharp.dll`, are Tracking Station Fly (`SpaceTracking.FlyVessel`), KSC nearby-vessel marker Fly (`KSCVesselMarkers.FlyVessel`), and Map view Switch-To (`MapContextMenuOptions.FocusObject.OnSelect` OwnedVessel branch; internal name `FocusObject`, visible label `#autoLOC_465671 = "Switch To"`). All three should immediately start a new recording segment with a distinct ID instead of resuming an existing committed/background recording ID. The merge dialog should be scoped to that new segment; choosing Discard must remove only the attempt and preserve committed timeline recordings, sidecars, and game-state history. `[` / `]` keyboard cycling and other generic focus changes remain on the existing first-modification watcher and must not trigger this, even though Map Switch-To and `[` / `]` share `FlightGlobals.SetActiveVessel` at the lower level — the patch surfaces are the three UI handlers, not `SetActiveVessel`.~~
 
@@ -1806,7 +1815,7 @@ Based on the answers, the fix shape is one of: back-step only `part.transform.po
 
 ## Done (superseded) - reset recording/rendering schema versions and delete pre-release compatibility
 
-> Superseded: this planning section described the original v0 / generation-1 reset. That reset shipped, and the schema was subsequently bumped to `CurrentRecordingFormatVersion = 1` / `CurrentRecordingSchemaGeneration = 3` in PR #916 (see the "## Done - v0.10.0 Schema reset to generation 3" section near the top of this file, which is the authoritative current record). The "generation 1" / "version 0" / "Branch B is the next deliverable" language below is the historical first plan; the per-feature `*FormatVersion` ladder has been deleted and the loader rejects any pre-reset recording. Kept for historical context.
+> Superseded: this planning section described the original v0 / generation-1 reset. That reset shipped, and the schema was subsequently bumped to `CurrentRecordingFormatVersion = 1` / `CurrentRecordingSchemaGeneration = 3` in PR #916 (see the "## Done - v0.9.3 Schema reset to generation 3" section near the top of this file, which is the authoritative current record). The "generation 1" / "version 0" / "Branch B is the next deliverable" language below is the historical first plan; the per-feature `*FormatVersion` ladder has been deleted and the loader rejects any pre-reset recording. Kept for historical context.
 
 - After the ghost rendering / Re-Fly Phase D cleanup lands, reset Parsek's recording and rendering sidecar version baselines to zero. We have no public users yet, so do not preserve the old v1-v11 compatibility ladder or spend effort migrating older saves. The goal is a cleaner codebase where "v0" means the current post-redesign recording contract, not the historic pre-v6 legacy format.
 
@@ -1964,7 +1973,7 @@ before this overlay could extend to the reputation widget.
 
 ## Phase 5 known gaps (obsolete: Phase 5 co-bubble retired)
 
-> Obsolete: the Phase 5 co-bubble peer blending subsystem was retired in PR #912 (v0.10.0). The first two gaps below (commit-time detector batch coverage, `CoBubbleBlender` primary-spline fallback) no longer apply because `CoBubbleBlender` / `CoBubbleOverlapDetector` and the `.pann` `CoBubbleOffsetTraces` block are deleted. Kept for historical record.
+> Obsolete: the Phase 5 co-bubble peer blending subsystem was retired in PR #912 (v0.9.3). The first two gaps below (commit-time detector batch coverage, `CoBubbleBlender` primary-spline fallback) no longer apply because `CoBubbleBlender` / `CoBubbleOverlapDetector` and the `.pann` `CoBubbleOffsetTraces` block are deleted. Kept for historical record.
 
 - ~~The Phase 5 commit-time detector runs against `RecordingStore.CommittedRecordings` only; recordings persisted as part of the same commit batch but not yet appended to the live store at the time of `PersistAfterCommit` are added to the snapshot list explicitly. Multi-recording commit batches that span more than one persistence call still rely on the next `PersistAfterCommit` (or load-time lazy recompute) to populate the missing-side trace.~~ Obsolete: co-bubble retired in PR #912.
 - ~~The `CoBubbleBlender` evaluates the offset against the primary's RECORDING for HR-15 compliance; if both the primary and peer have splines fitted, the peer's render aligns to the primary's smoothed position. If the primary's spline is missing, the blender still returns the recorded offset against the primary's raw lerp.~~ Obsolete: `CoBubbleBlender` deleted in PR #912.
@@ -1973,7 +1982,7 @@ before this overlay could extend to the reputation widget.
 ## Phase 6 known gaps (deferred to later phases)
 
 - ~~§7.7 BubbleEntry / BubbleExit candidates are not emitted by the Phase 6 builder.~~ Shipped: `AnchorCandidateBuilder.EmitBubbleEntryExitCandidates` walks adjacent `TrackSection` pairs and emits at every `Active|Background ↔ Checkpoint` source-class transition; `IAnchorWorldFrameResolver.TryResolveBubbleEntryExitWorldPos` reads the LAST/FIRST physics-active sample as the high-fidelity world reference. Mainline shipped this at `AlgorithmStampVersion=5`; on the Phase 5 stack it lands inside the v8 alg-stamp window. Residual gap: RELATIVE-frame physics-active sections adjacent to a Checkpoint segment are deferred with a `bubble-entry-exit-relative-section-deferred` Verbose (uncommon in practice — vessel docked to its anchor while a Checkpoint splices in).
-- ~~§7.8 CoBubblePeer anchors are reserved in the enum but emit no candidates.~~ Obsolete: the co-bubble subsystem was retired in PR #912 (v0.10.0). The enum slot 7 (formerly `CoBubblePeer`) is now `Reserved7`, kept only to preserve the persisted `.pann` `AnchorCandidatesList` byte layout; there is no co-bubble pipeline. Close-formation accuracy is delivered by the parent-anchored debris contract instead.
+- ~~§7.8 CoBubblePeer anchors are reserved in the enum but emit no candidates.~~ Obsolete: the co-bubble subsystem was retired in PR #912 (v0.9.3). The enum slot 7 (formerly `CoBubblePeer`) is now `Reserved7`, kept only to preserve the persisted `.pann` `AnchorCandidatesList` byte layout; there is no co-bubble pipeline. Close-formation accuracy is delivered by the parent-anchored debris contract instead.
 - The 2.5 km bubble-radius HR-9 Warn (`RenderSessionState.cs:836-848`) only fires from the LiveSeparation path inside `RebuildFromMarker`. Anchors written via `AnchorPropagator.TryWriteAnchor → PutAnchorWithPriority` (§7.4 / §7.5 / §7.6 / §7.7 / §7.10) skip the magnitude check, so a non-LiveSeparation ε of, say, 12 km lands silently. Lift the magnitude check into `PutAnchorWithPriority` (or the per-source dispatch) in a follow-up PR so all anchor types are uniformly guarded — pre-existing gap, not introduced by §7.7.
 - §7.9 SurfaceContinuous emits a marker only with ε = 0; the per-frame terrain raycast that resolves ε is Phase 7 work. Phase 6 demoted the rank from 2 to 6 to prevent the zero stub from winning ties against real OrbitalCheckpoint ε; Phase 7 must promote back to rank 2 once the resolver ships and bump `AlgorithmStampVersion` so existing `.pann` re-resolve.
 - The split anchor sources (Undock / EVA / JointBreak) currently share the `DockOrMerge` enum byte (priority rank 4 either way). Logs label them by `BranchPointType` rather than by enum value to preserve telemetry granularity. If a future phase needs to differentiate split priorities from dock priorities, expand the `AnchorSource` enum and bump `AlgorithmStampVersion`.

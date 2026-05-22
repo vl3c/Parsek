@@ -1,6 +1,6 @@
 # Extend the parent-anchored contract to controlled-decoupled children
 
-**Status:** SHIPPED (v0.10.0), partially superseded. The recorder-side fix landed; see the "## Done - v0.10.0 Controlled-decoupled child vessels lack a parent-anchored recording surface" entry in `docs/dev/todo-and-known-bugs.md`. Two parts of this plan are now stale: (1) the proposed `RecordingStore.ControlledChildParentAnchorSchemaGeneration = 2` named constant and the gen 1 -> 2 bump were superseded by the PR #916 schema reset (`CurrentRecordingSchemaGeneration = 3`, no per-cell named constant); (2) the CoBubble references throughout describe the now-retired co-bubble subsystem (removed in PR #912). The body below is preserved as the historical implementation plan; treat the parent-anchored contract as the live mechanism and ignore the co-bubble framing.
+**Status:** SHIPPED (v0.9.3), partially superseded. The recorder-side fix landed; see the "## Done - v0.9.3 Controlled-decoupled child vessels lack a parent-anchored recording surface" entry in `docs/dev/todo-and-known-bugs.md`. Two parts of this plan are now stale: (1) the proposed `RecordingStore.ControlledChildParentAnchorSchemaGeneration = 2` named constant and the gen 1 -> 2 bump were superseded by the PR #916 schema reset (`CurrentRecordingSchemaGeneration = 3`, no per-cell named constant); (2) the CoBubble references throughout describe the now-retired co-bubble subsystem (removed in PR #912). The body below is preserved as the historical implementation plan; treat the parent-anchored contract as the live mechanism and ignore the co-bubble framing.
 
 **Scope:** narrow recorder-side fix that closes the CoBubble debris-anchor snap bug class for controlled-decoupled child vessels (probes, landers, capsules that come off a parent through a decoupler). The fix gives those recordings a parent-anchored Relative surface (`bodyFixedFrames` primary, `frames` secondary) anchored on the focused parent at split time, so playback resolves the child through the existing parent-anchored body-fixed primary path instead of needing CoBubble peer-blend with an opportunistic sibling.
 
@@ -309,7 +309,7 @@ Allowlist file: `scripts/parent-anchor-proxy-audit-allowlist.txt`. CI gate `scri
 
 **Consequences if bumped:**
 - All pre-fix recordings reject on load with reason `"generation-older"` via `RecordingStore.IsRecordingSchemaCompatible` at `RecordingStore.cs:150-156`. Consistent with project policy "no backwards compatibility for old recordings" (`memory/feedback_no_recording_compat.md`).
-- One CHANGELOG line: "Recordings authored before v0.10.0 are no longer loaded; export-replay them in the prior version first if needed." (Identical to prior format-version-bump CHANGELOG entries.)
+- One CHANGELOG line: "Recordings authored before v0.9.3 are no longer loaded; export-replay them in the prior version first if needed." (Identical to prior format-version-bump CHANGELOG entries.)
 - The named constant `ControlledChildParentAnchorSchemaGeneration = 2` (or whichever name) lives in `RecordingStore.cs` next to `CurrentRecordingFormatVersion = 1` and `CurrentRecordingSchemaGeneration` (today `= 1`). New behavior in the recorder gates on the named constant per the project convention.
 - Test literals flip at the bump. Find them via grep recipe (line numbers will have drifted; do NOT trust hard-coded line citations):
   - `grep -rn "CurrentRecordingSchemaGeneration\|recordingSchemaGeneration" Source/Parsek.Tests/` - every literal `1` paired with this constant becomes `2`; every `[InlineData(... , 2, "generation-newer")]` row becomes `(... , 3, "generation-newer")`; every `node.AddValue("recordingSchemaGeneration", "2")` becomes `"3"`.
@@ -498,7 +498,7 @@ If user picks bump:
 - Bump `RecordingStore.CurrentRecordingSchemaGeneration` 1 -> 2.
 - Update `FormatVersionTests.cs:36, 91, 288` and `FormatRoundtripTests.cs:45` hardcoded literals.
 - Add `IsRecordingSchemaCompatible_LegacyGenerationRejected` regression test.
-- CHANGELOG line under v0.10.0 noting pre-bump recordings are rejected on load.
+- CHANGELOG line under v0.9.3 noting pre-bump recordings are rejected on load.
 
 If user picks defer:
 - Skip this phase. The sibling superset plan absorbs the bump.
@@ -506,7 +506,7 @@ If user picks defer:
 ### Phase 7: Documentation + CHANGELOG (one commit)
 
 - `.claude/CLAUDE.md`: update the "Parent-anchored debris contract" section to note the contract now covers two populations (genuine debris and controlled-decoupled children). No rename (rename is sibling-plan scope).
-- `CHANGELOG.md`: one line under v0.10.0 per `memory/feedback_changelog_style.md`. Suggested wording: "Controlled-decoupled child vessels now anchor on their tree parent during ghost playback, fixing the mid-flight trajectory snap when a sibling debris piece crashed."
+- `CHANGELOG.md`: one line under v0.9.3 per `memory/feedback_changelog_style.md`. Suggested wording: "Controlled-decoupled child vessels now anchor on their tree parent during ghost playback, fixing the mid-flight trajectory snap when a sibling debris piece crashed."
 - `docs/dev/todo-and-known-bugs.md`: mark the Open entry "Controlled-decoupled child vessels lack a parent-anchored recording surface" as CLOSED with a Fix paragraph and date. Leave the related "Re-fly provisional Relative section anchored to fast-separating sibling" and "Rotation Slerp wraparound" entries unchanged.
 
 **Per-commit doc updates** (per `.claude/CLAUDE.md` "Documentation Updates - Per Commit, Not Per PR"): if the CHANGELOG or todo wording changes during Phase 3 / Phase 5, update those doc entries in the same commit that changes the approach.

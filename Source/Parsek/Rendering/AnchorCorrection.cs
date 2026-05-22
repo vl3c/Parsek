@@ -27,7 +27,7 @@ namespace Parsek.Rendering
         BubbleEntry        = 5,
         BubbleExit         = 6,
         // Slot 7 was AnchorSource.CoBubblePeer (retired with the co-bubble
-        // subsystem in v0.10.0). Kept reserved so the persisted type-byte
+        // subsystem in v0.9.3). Kept reserved so the persisted type-byte
         // layout of AnchorCandidate stays stable across the cleanup.
         Reserved7          = 7,
         SurfaceContinuous  = 8,
