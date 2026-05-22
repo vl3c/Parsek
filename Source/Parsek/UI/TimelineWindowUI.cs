@@ -86,6 +86,9 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
+        // Thin gray rule for the "now" divider's second column (expands with window width).
+        private GUIStyle nowDividerLineStyle;
+        private Texture2D nowDividerLineTex;
 
         // Warp-to-time row state. Committed Year/Day/Hour/Minute (KSP calendar; Year 1 /
         // Day 1 = game start). One draft buffer + focused-field sentinel drive the
@@ -332,6 +335,18 @@ namespace Parsek
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+
+            // "Now" divider rule: a 1x1 gray texture stretched by an ExpandWidth box, so the
+            // current-time line shows a separator filling the description column that grows
+            // with the window. Top margin nudges the 2px bar down to roughly center it on the
+            // adjacent date label's row. Created once (EnsureStyles is guarded).
+            nowDividerLineTex = new Texture2D(1, 1);
+            nowDividerLineTex.SetPixel(0, 0, new Color(0.5f, 0.5f, 0.5f, 0.85f));
+            nowDividerLineTex.Apply();
+            nowDividerLineStyle = new GUIStyle();
+            nowDividerLineStyle.normal.background = nowDividerLineTex;
+            nowDividerLineStyle.margin = new RectOffset(0, 0, 9, 0);
+            nowDividerLineStyle.padding = new RectOffset(0, 0, 0, 0);
         }
 
         /// <summary>
@@ -1000,7 +1015,17 @@ namespace Parsek
                 currentUT, currentUT, showCountdownTime: false);
 
             GUILayout.Space(3);
-            GUILayout.Label($"\u2500\u2500 {utText} (now) \u2500\u2500", timelineGrayStyle);
+            GUILayout.BeginHorizontal();
+            // First column: the current-time label, sized to the UT column so the rule starts
+            // where the entry rows' description column does.
+            GUILayout.Label($"\u2500\u2500 {utText} (now)", timelineGrayStyle,
+                GUILayout.Width(TimeColumnWidth));
+            GUILayout.Space(14f);
+            // Second column: a thin rule that fills the remaining width and grows on resize,
+            // so the "now" line is unmistakable across the whole window.
+            GUILayout.Box(GUIContent.none, nowDividerLineStyle,
+                GUILayout.ExpandWidth(true), GUILayout.Height(2f));
+            GUILayout.EndHorizontal();
             GUILayout.Space(3);
         }
 
