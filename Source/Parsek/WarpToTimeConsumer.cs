@@ -54,6 +54,12 @@ namespace Parsek
         {
             if (scene != GameScenes.SPACECENTER)
                 return;
+
+            // Capture the career-start snapshot once for a brand-new career (independent of any
+            // pending warp). Idempotent: skips if a snapshot already exists or this is not a
+            // fresh career (see CareerStartSnapshot.ShouldCapture).
+            StartCoroutine(MaybeCaptureCareerStart());
+
             if (!WarpToTimeRequest.HasPending)
                 return;
 
@@ -71,6 +77,32 @@ namespace Parsek
                     "Space Center loaded with pending warp targetUT={0:F1} — starting consumer",
                     WarpToTimeRequest.TargetUT));
             StartCoroutine(ConsumePendingWarp());
+        }
+
+        private IEnumerator MaybeCaptureCareerStart()
+        {
+            // Defer a frame so the recording store + Planetarium are settled.
+            yield return null;
+
+            bool exists = CareerStartSnapshot.Exists();
+            // ERS-routed recording count (raw CommittedRecordings reads trip the grep audit);
+            // a fresh career has 0 visible recordings either way.
+            int recCount = EffectiveState.ComputeERS()?.Count ?? 0;
+            double now = Planetarium.GetUniversalTime();
+            if (!CareerStartSnapshot.ShouldCapture(exists, recCount, now, ParsekTimeFormat.SecsPerDay))
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Career-start snapshot not captured (exists={0} recordings={1} now={2:F1})",
+                        exists, recCount, now));
+                yield break;
+            }
+
+            ParsekLog.Info(Tag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Capturing career-start snapshot for new career (recordings={0} now={1:F1})",
+                    recCount, now));
+            CareerStartSnapshot.Capture();
         }
 
         private IEnumerator ConsumePendingWarp()

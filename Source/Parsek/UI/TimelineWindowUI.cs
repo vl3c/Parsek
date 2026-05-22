@@ -460,9 +460,9 @@ namespace Parsek
             // current UT, so the cheap DecideWarpPlan below can run every frame.
             if (warpResolveDirty || targetUT != warpCachedTargetUT)
             {
-                var owner = WarpToTimeController.ResolveRewindTargetLaunch(targetUT, out bool landsAtStart);
+                var target = WarpToTimeController.ResolveRewindTarget(targetUT, out bool landsAtStart);
                 warpCachedTargetUT = targetUT;
-                warpCachedHasRewindTarget = owner != null;
+                warpCachedHasRewindTarget = target.Kind != WarpToTimeController.RewindTargetKind.None;
                 warpCachedLandsAtStart = landsAtStart;
                 warpResolveDirty = false;
             }

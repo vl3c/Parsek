@@ -200,7 +200,31 @@ never disagree):
   recording as part of the exit. (This differs from the existing R/FF buttons, which
   disable while recording. The new control's whole premise is "save & exit, then warp".)
 
-### Reaching the start of the game (Year 1, Day 1)
+### Career-start snapshot (true Year 1 / Day 1 reset)
+
+A one-time pristine quicksave (`parsek_career_start`, stored beside the rewind saves under
+`saves/<save>/Parsek/Saves/`) is captured the first time a brand-new career reaches the
+Space Center (`CareerStartSnapshot`; capture decision `ShouldCapture` = no snapshot yet AND
+zero ERS recordings AND clock within the first day). The deferred capture is hosted in
+`WarpToTimeConsumer.OnLevelWasLoaded(SPACECENTER)`. Saves created before this feature never
+get one and keep the earliest-launch fallback below.
+
+When the warp target precedes the first launch, `ResolveRewindTarget` treats the snapshot as
+a virtual launch at UT 0, so `SelectRewindTargetIndex` picks it as the nearest-prior target:
+the reload (`RecordingStore.InitiateRewindToCareerStart`) reloads the pristine snapshot
+(true UT 0, initial resources/facilities), then the deferred consumer fast-forwards to the
+exact target. It reuses the rewind machinery (`RewindContext` + `HandleRewindOnLoad`), so the
+in-memory recordings are KEPT as future ghosts (consistent with Rewind-to-Launch) and the
+ledger recalc at UT 0 restores pristine resources. It skips `PreProcessRewindSave` (the
+snapshot is pristine, no strip and no sub-zero windback) and uses no owner/baseline.
+
+**Supersede guard:** the career-start snapshot is only offered when there are NO re-fly
+supersede relations. A UT-0 reset has no owner to scope the supersede drop, and leaving
+supersedes in place would hide superseded originals. When supersedes exist, the resolver
+falls back to the earliest-launch rewind (whose owner-keyed supersede drop is the tested
+path). `InitiateRewindToCareerStart` also refuses defensively if supersedes are present.
+
+### Reaching the start of the game when no career-start snapshot exists (earliest-launch fallback)
 
 The user requirement: entering 1/1/0/0 (= UT 0) must take you back to "the start of the
 game", with everything reset. There is normally no rewind save AT UT 0 - the earliest
@@ -444,7 +468,11 @@ across the flight->KSC transition and a coroutine started there would die mid-wa
   confirmation dialog, on-confirm dispatch (paths 1-4), pending-warp set.
 - `WarpToTimeRequest.cs` (new) - session-scoped pending-warp holder with session-id stamp.
 - `WarpToTimeConsumer.cs` (new) - process-lifetime `[KSPAddon(Instantly,true)]` addon
-  hosting the `onLevelWasLoaded` subscription + `ConsumePendingWarp` coroutine.
+  hosting the `onLevelWasLoaded` subscription + `ConsumePendingWarp` coroutine + the
+  one-time career-start snapshot capture.
+- `CareerStartSnapshot.cs` (new) - career-start quicksave capture / existence / pure
+  `ShouldCapture` decision.
+- `RecordingStore.InitiateRewindToCareerStart` (new) - no-owner UT-0 reset reload.
 - `ParsekSettingsPersistence.cs` - four stored ints + `RecordWarpDate` + getters + test
   hooks.
 - `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md` - feature entry.

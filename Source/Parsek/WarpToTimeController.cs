@@ -5,23 +5,43 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Orchestrates the Timeline "Warp to time" action: resolves the rewind target,
-    /// shows the confirmation dialog (same style as the Rewind / Fast-Forward dialogs),
-    /// and dispatches one of four execution paths. Backward warps are achieved by rewinding
-    /// to the nearest launch save at/before the target (or the earliest launch when the
-    /// target precedes all launches) and then fast-forwarding to the exact target via the
-    /// deferred <see cref="WarpToTimeConsumer"/>.
+    /// Orchestrates the Timeline "Warp to time" action: resolves the rewind target, shows the
+    /// confirmation dialog (same style as the Rewind / Fast-Forward dialogs), and dispatches
+    /// the execution paths. Backward warps rewind to the nearest reachable point at/before the
+    /// target then fast-forward to the exact target via the deferred <see cref="WarpToTimeConsumer"/>.
+    /// The rewind point is the career-start snapshot (true UT-0 reset) when the target precedes
+    /// the first launch and the snapshot exists, otherwise the nearest / earliest launch save.
     /// </summary>
     internal static class WarpToTimeController
     {
         private const string Tag = "WarpTime";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
+        internal enum RewindTargetKind { None, CareerStart, Launch }
+
+        internal readonly struct RewindTarget
+        {
+            internal RewindTarget(RewindTargetKind kind, string ownerId, double startUT, string label)
+            {
+                Kind = kind;
+                OwnerId = ownerId;
+                StartUT = startUT;
+                Label = label;
+            }
+
+            internal RewindTargetKind Kind { get; }
+            internal string OwnerId { get; }   // Launch only
+            internal double StartUT { get; }
+            internal string Label { get; }     // vessel name (Launch) / "the start of the game" (CareerStart)
+
+            internal static readonly RewindTarget None =
+                new RewindTarget(RewindTargetKind.None, null, 0, null);
+        }
+
         /// <summary>
-        /// Resolves the warp plan for the given inputs at the current UT. The Timeline UI
-        /// calls this each frame to drive the button's enabled state and tooltip; the
-        /// rewind-target resolution here is disk-free (it only checks for a non-empty rewind
-        /// save filename), so the authoritative file-existence / precondition checks run on
+        /// Resolves the warp plan for the given inputs at the current UT. Called each frame by
+        /// the Timeline UI for the button's enabled state and tooltip. Disk-free except for the
+        /// career-start snapshot existence check; the authoritative rewind preconditions run on
         /// click in <see cref="Execute"/>.
         /// </summary>
         internal static WarpToTimeMath.WarpPlan ResolvePlan(
@@ -29,9 +49,9 @@ namespace Parsek
         {
             targetUT = WarpToTimeMath.ComputeTargetUT(year, day, hour, minute);
             double currentUT = SafeCurrentUT();
-            Recording owner = ResolveRewindTargetLaunch(targetUT, out bool landsAtStart);
+            RewindTarget target = ResolveRewindTarget(targetUT, out bool landsAtStart);
             return WarpToTimeMath.DecideWarpPlan(
-                targetUT, currentUT, inFlight, owner != null, landsAtStart);
+                targetUT, currentUT, inFlight, target.Kind != RewindTargetKind.None, landsAtStart);
         }
 
         /// <summary>Entry point from the Timeline "Warp to time" button.</summary>
@@ -40,18 +60,17 @@ namespace Parsek
         {
             double targetUT = WarpToTimeMath.ComputeTargetUT(year, day, hour, minute);
             double currentUT = SafeCurrentUT();
-            Recording owner = ResolveRewindTargetLaunch(targetUT, out bool landsAtStart);
+            RewindTarget target = ResolveRewindTarget(targetUT, out bool landsAtStart);
             var plan = WarpToTimeMath.DecideWarpPlan(
-                targetUT, currentUT, inFlight, owner != null, landsAtStart);
+                targetUT, currentUT, inFlight, target.Kind != RewindTargetKind.None, landsAtStart);
 
             ParsekLog.Info(Tag, string.Format(IC,
                 "RequestWarp: input Y{0} D{1} {2}:{3:00} -> targetUT={4:F1} currentUT={5:F1} " +
                 "inFlight={6} recording={7} plan={8} flightExit={9} landsAtStart={10} " +
-                "rewindOwner={11} ownerStartUT={12}",
+                "rewindKind={11} rewindStartUT={12:F1} rewindLabel={13}",
                 year, day, hour, minute, targetUT, currentUT, inFlight,
                 flight != null && flight.IsRecording, plan.Kind, plan.RequiresFlightExit,
-                plan.LandsAtTimelineStart, owner?.RecordingId ?? "<none>",
-                owner != null ? owner.StartUT.ToString("F1", IC) : "<none>"));
+                plan.LandsAtTimelineStart, target.Kind, target.StartUT, target.Label ?? "<none>"));
 
             switch (plan.Kind)
             {
@@ -62,46 +81,71 @@ namespace Parsek
                     ParsekLog.ScreenMessage(plan.Reason, 3f);
                     return;
                 default:
-                    ShowConfirmation(plan, targetUT, currentUT, owner, flight, inFlight);
+                    ShowConfirmation(plan, targetUT, currentUT, target, flight, inFlight);
                     return;
             }
         }
 
         /// <summary>
-        /// Resolves the recording to rewind to for a past target. Prefers the rewind-owner
-        /// with the greatest StartUT &lt;= targetUT (nearest prior launch); if none qualifies
-        /// (target precedes every launch, e.g. 1/1/0/0 game start), falls back to the owner
-        /// with the smallest StartUT (earliest launch = start of the timeline) and sets
-        /// <paramref name="landsAtTimelineStart"/>. Returns null when no recording owns a
-        /// rewind save. ERS-routed (no raw CommittedRecordings / Ledger reads).
+        /// Resolves where a past target rewinds to. Candidates are the distinct launch rewind
+        /// saves plus, when the target precedes the first launch can be made exact, the
+        /// career-start snapshot (a virtual launch at UT 0). The career-start snapshot is only a
+        /// candidate when it exists AND no re-fly supersede relations are present (a UT-0 reset
+        /// would otherwise hide superseded originals; the launch path handles supersedes). Picks
+        /// the greatest StartUT &lt;= target (nearest prior), or the earliest when the target
+        /// precedes all candidates (sets <paramref name="landsAtTimelineStart"/> - only possible
+        /// for the launch fallback when no career-start snapshot exists). ERS-routed.
         /// </summary>
-        internal static Recording ResolveRewindTargetLaunch(double targetUT, out bool landsAtTimelineStart)
+        internal static RewindTarget ResolveRewindTarget(double targetUT, out bool landsAtTimelineStart)
         {
             landsAtTimelineStart = false;
-            var ers = EffectiveState.ComputeERS();
-            if (ers == null) return null;
 
-            // Distinct rewind owners that have a save filename (disk-free check).
-            var owners = new Dictionary<string, Recording>();
-            for (int i = 0; i < ers.Count; i++)
+            var kinds = new List<RewindTargetKind>();
+            var ownerIds = new List<string>();
+            var startUTs = new List<double>();
+            var labels = new List<string>();
+
+            // Career-start snapshot = a virtual launch at UT 0 (true reset), gated on no supersedes.
+            int supersedeCount = ParsekScenario.Instance?.RecordingSupersedes?.Count ?? 0;
+            if (supersedeCount == 0 && CareerStartSnapshot.Exists())
             {
-                var rec = ers[i];
-                if (rec == null) continue;
-                var ownerRec = RecordingStore.GetRewindRecording(rec);
-                if (ownerRec == null || string.IsNullOrEmpty(ownerRec.RewindSaveFileName))
-                    continue;
-                if (string.IsNullOrEmpty(ownerRec.RecordingId)) continue;
-                owners[ownerRec.RecordingId] = ownerRec;
+                kinds.Add(RewindTargetKind.CareerStart);
+                ownerIds.Add(null);
+                startUTs.Add(0.0);
+                labels.Add("the start of the game");
             }
-            if (owners.Count == 0) return null;
 
-            var ownerList = new List<Recording>(owners.Values);
-            var startUTs = new List<double>(ownerList.Count);
-            for (int i = 0; i < ownerList.Count; i++)
-                startUTs.Add(ownerList[i].StartUT);
+            var ers = EffectiveState.ComputeERS();
+            if (ers != null)
+            {
+                var owners = new Dictionary<string, Recording>();
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var rec = ers[i];
+                    if (rec == null) continue;
+                    var ownerRec = RecordingStore.GetRewindRecording(rec);
+                    if (ownerRec == null || string.IsNullOrEmpty(ownerRec.RewindSaveFileName))
+                        continue;
+                    if (string.IsNullOrEmpty(ownerRec.RecordingId)) continue;
+                    owners[ownerRec.RecordingId] = ownerRec;
+                }
+                foreach (var ownerRec in owners.Values)
+                {
+                    kinds.Add(RewindTargetKind.Launch);
+                    ownerIds.Add(ownerRec.RecordingId);
+                    startUTs.Add(ownerRec.StartUT);
+                    labels.Add(ownerRec.VesselName);
+                }
+            }
+
+            if (startUTs.Count == 0)
+                return RewindTarget.None;
 
             int idx = WarpToTimeMath.SelectRewindTargetIndex(startUTs, targetUT, out landsAtTimelineStart);
-            return idx >= 0 ? ownerList[idx] : null;
+            if (idx < 0)
+                return RewindTarget.None;
+
+            return new RewindTarget(kinds[idx], ownerIds[idx], startUTs[idx], labels[idx]);
         }
 
         private static Recording ResolveOwnerById(string ownerId)
@@ -120,10 +164,9 @@ namespace Parsek
 
         private static void ShowConfirmation(
             WarpToTimeMath.WarpPlan plan, double targetUT, double currentUT,
-            Recording owner, ParsekFlight flight, bool inFlight)
+            RewindTarget target, ParsekFlight flight, bool inFlight)
         {
-            string message = BuildConfirmMessage(plan, targetUT, currentUT, owner, inFlight);
-            string ownerId = owner?.RecordingId;
+            string message = BuildConfirmMessage(plan, targetUT, currentUT, target, inFlight);
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -136,8 +179,9 @@ namespace Parsek
                     new DialogGUIButton("Warp", () =>
                     {
                         ParsekLog.Info(Tag, string.Format(IC,
-                            "User confirmed warp: plan={0} targetUT={1:F1}", plan.Kind, targetUT));
-                        Execute(plan, targetUT, ownerId, flight, inFlight);
+                            "User confirmed warp: plan={0} targetUT={1:F1} rewindKind={2}",
+                            plan.Kind, targetUT, target.Kind));
+                        Execute(plan, targetUT, target, flight, inFlight);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
@@ -149,7 +193,7 @@ namespace Parsek
 
         private static string BuildConfirmMessage(
             WarpToTimeMath.WarpPlan plan, double targetUT, double currentUT,
-            Recording owner, bool inFlight)
+            RewindTarget target, bool inFlight)
         {
             string targetDate = SafePrintDate(targetUT);
             string flightPrefix = inFlight
@@ -167,8 +211,18 @@ namespace Parsek
             }
 
             // RewindThenForward
-            string ownerName = owner?.VesselName ?? "the earliest launch";
-            string launchDate = owner != null ? SafePrintDate(owner.StartUT) : "?";
+            if (target.Kind == RewindTargetKind.CareerStart)
+            {
+                string tail = targetUT > WarpToTimeMath.AtTargetEpsilonSeconds
+                    ? $"reset to the start of the game, then fast-forward to {targetDate}?"
+                    : "reset to the start of the game (Year 1, Day 1)?";
+                return $"{Capitalize(flightPrefix)}{tail}\n\n" +
+                       "Resources, facilities and the clock return to career start; your recordings " +
+                       "are kept and replay as time advances.";
+            }
+
+            string ownerName = target.Label ?? "the earliest launch";
+            string launchDate = SafePrintDate(target.StartUT);
             if (plan.LandsAtTimelineStart)
             {
                 return $"{Capitalize(flightPrefix)}Rewind to the earliest launch \"{ownerName}\" at " +
@@ -186,7 +240,7 @@ namespace Parsek
         }
 
         private static void Execute(
-            WarpToTimeMath.WarpPlan plan, double targetUT, string ownerId,
+            WarpToTimeMath.WarpPlan plan, double targetUT, RewindTarget target,
             ParsekFlight flight, bool inFlight)
         {
             if (plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly)
@@ -206,36 +260,52 @@ namespace Parsek
                 return;
             }
 
-            // RewindThenForward
+            // RewindThenForward: commit in flight, then defer the rewind/scene-load one frame so
+            // the commit's spawned leaves are not materialized into a scene the reload discards.
             if (inFlight)
             {
-                // Commit in-frame, then defer the rewind one frame so the commit's spawned
-                // leaves are not materialized into a scene the reload is about to discard.
-                // StartRewind arms the pending warp only after it re-validates the rewind, so
-                // we deliberately do NOT pre-arm here.
                 CommitActiveRecordingIfAny(flight);
                 ParsekLog.Info(Tag,
-                    "Rewind-then-forward (flight): committed recording, deferring rewind one frame");
-                WarpToTimeConsumer.RunNextFrame(() => StartRewind(ownerId, targetUT));
+                    $"Rewind-then-forward (flight, {target.Kind}): committed recording, deferring one frame");
+                WarpToTimeConsumer.RunNextFrame(() => StartRewind(target, targetUT));
             }
             else
             {
-                // KSC: nothing to commit / spawn, so no need to defer.
-                StartRewind(ownerId, targetUT);
+                StartRewind(target, targetUT);
             }
         }
 
         /// <summary>
-        /// Re-resolves the rewind owner by id (the in-flight commit may have mutated committed
-        /// state), re-validates the rewind preconditions, then arms the pending forward warp
-        /// and initiates the rewind. Clears any armed pending warp if the rewind cannot run.
+        /// Arms the pending forward warp and initiates the rewind (career-start snapshot or a
+        /// launch save), re-validating preconditions first. Clears the pending warp if the
+        /// rewind cannot run, so a later Space Center load cannot fire a stale jump.
         /// </summary>
-        private static void StartRewind(string ownerId, double targetUT)
+        private static void StartRewind(RewindTarget target, double targetUT)
         {
-            Recording ownerNow = ResolveOwnerById(ownerId);
+            if (target.Kind == RewindTargetKind.CareerStart)
+            {
+                if (!CareerStartSnapshot.Exists())
+                {
+                    ParsekLog.Warn(Tag, "Career-start reset aborted: snapshot no longer present");
+                    ParsekLog.ScreenMessage("Game-start snapshot not available", 3f);
+                    return;
+                }
+                WarpToTimeRequest.Set(targetUT);
+                ParsekLog.Info(Tag, string.Format(IC,
+                    "Initiating career-start reset (pending forward warp targetUT={0:F1})", targetUT));
+                if (!RecordingStore.InitiateRewindToCareerStart(CareerStartSnapshot.SaveFileName))
+                {
+                    ParsekLog.Warn(Tag, "Career-start reset refused — clearing pending warp");
+                    WarpToTimeRequest.Clear();
+                }
+                return;
+            }
+
+            // Launch: re-resolve the owner by id (the in-flight commit may have mutated state).
+            Recording ownerNow = ResolveOwnerById(target.OwnerId);
             if (ownerNow == null)
             {
-                ParsekLog.Warn(Tag, $"Rewind aborted: owner id={ownerId ?? "<none>"} no longer resolves");
+                ParsekLog.Warn(Tag, $"Rewind aborted: owner id={target.OwnerId ?? "<none>"} no longer resolves");
                 ParsekLog.ScreenMessage("Rewind target no longer available", 3f);
                 WarpToTimeRequest.Clear();
                 return;
@@ -251,11 +321,7 @@ namespace Parsek
                 return;
             }
 
-            // Arm the pending forward warp (consumed at Space Center after the rewind settles)
-            // only once we know the rewind will actually run.
-            if (!WarpToTimeRequest.HasPending)
-                WarpToTimeRequest.Set(targetUT);
-
+            WarpToTimeRequest.Set(targetUT);
             ParsekLog.Info(Tag, string.Format(IC,
                 "Initiating rewind to \"{0}\" id={1} StartUT={2:F1} (pending forward warp targetUT={3:F1})",
                 ownerNow.VesselName, ownerNow.RecordingId, ownerNow.StartUT, targetUT));

@@ -17,7 +17,8 @@ All notable changes to Parsek are documented here.
 
 ### UI
 
-- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward, past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time (1/1/0/0 returns to the start of the game), and in flight you are first prompted to save the recording and return to the Space Center.
+- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward, past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time, and in flight you are first prompted to save the recording and return to the Space Center.
+- Warping to Year 1 / Day 1 (1/1/0/0) resets a new career to its true starting state (resources, facilities, clock), keeping your recordings as future ghosts. New careers get a one-time start snapshot for this; saves created before this version instead land at your earliest launch.
 - Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
 - Watch mode now cycles to the next watchable ghost on W. Stock pitch input (W and S) is locked out on the unattended active vessel while watching, and the watch overlay hint reads `[ ] return  |  V camera  |  W cycle`.
 - Hovering the funds or science widget in the top resource bar now shows a Total / Reserved breakdown, so you can see how much of your balance Parsek has set aside for committed future playback. Reputation is not decorated because it is never reserved.
