@@ -82,6 +82,21 @@ namespace Parsek.Logistics
                 };
             }
 
+            // Origin info (launch-site for KSC, or the start-docked depot proof)
+            // lives on the FIRST recording of the flight - the tree root - not on
+            // the window-carrying merged child that analysis.SourceRecording
+            // points at (that child started mid-flight at the dock, so it has no
+            // launch site). Resolve the root recording for origin discovery; fall
+            // back to the source recording when the tree has no resolvable root.
+            Recording originRec = source;
+            if (committedTree?.Recordings != null
+                && !string.IsNullOrEmpty(committedTree.RootRecordingId)
+                && committedTree.Recordings.TryGetValue(committedTree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                originRec = rootRec;
+            }
+
             // v0 single-recording transit duration: leaf EndUT - root StartUT.
             // The analysis surface only carries one source recording; future
             // multi-recording paths will walk committedTree's active path here.
@@ -126,8 +141,8 @@ namespace Parsek.Logistics
             // the non-KSC path we cannot recover the origin vessel's
             // body-fixed position here in v0, so leave zero with a comment.
             bool isKscOrigin =
-                !string.IsNullOrEmpty(source.LaunchSiteName)
-                && string.Equals(source.StartBodyName, "Kerbin", StringComparison.Ordinal);
+                !string.IsNullOrEmpty(originRec.LaunchSiteName)
+                && string.Equals(originRec.StartBodyName, "Kerbin", StringComparison.Ordinal);
 
             RouteEndpoint origin;
             string originLabel;
@@ -148,13 +163,13 @@ namespace Parsek.Logistics
                 };
                 originLabel = "ksc";
             }
-            else if (source.RouteOriginProof != null
-                && source.RouteOriginProof.StartDockedOriginVesselPid != 0)
+            else if (originRec.RouteOriginProof != null
+                && originRec.RouteOriginProof.StartDockedOriginVesselPid != 0)
             {
                 origin = new RouteEndpoint
                 {
-                    VesselPersistentId = source.RouteOriginProof.StartDockedOriginVesselPid,
-                    BodyName = source.StartBodyName ?? string.Empty,
+                    VesselPersistentId = originRec.RouteOriginProof.StartDockedOriginVesselPid,
+                    BodyName = originRec.StartBodyName ?? string.Empty,
                     // v0: depot vessel coords are not captured in the origin
                     // proof; scheduler resolves them from the live vessel at
                     // dispatch time. Leave zero so the saved data is honest.
@@ -169,9 +184,10 @@ namespace Parsek.Logistics
             else
             {
                 ParsekLog.Info(Tag,
-                    $"BuildRoute rejected: endpoint-missing source={source.RecordingId ?? "<none>"} " +
-                    $"launchSite={(string.IsNullOrEmpty(source.LaunchSiteName) ? "<none>" : source.LaunchSiteName)} " +
-                    $"startBody={source.StartBodyName ?? "<none>"} originProof={(source.RouteOriginProof != null ? "yes" : "no")}");
+                    $"BuildRoute rejected: endpoint-missing (origin unresolvable) source={source.RecordingId ?? "<none>"} " +
+                    $"originRec={originRec.RecordingId ?? "<none>"} " +
+                    $"launchSite={(string.IsNullOrEmpty(originRec.LaunchSiteName) ? "<none>" : originRec.LaunchSiteName)} " +
+                    $"startBody={originRec.StartBodyName ?? "<none>"} originProof={(originRec.RouteOriginProof != null ? "yes" : "no")}");
                 return new RouteBuildOutcome { RejectReason = "endpoint-missing" };
             }
 

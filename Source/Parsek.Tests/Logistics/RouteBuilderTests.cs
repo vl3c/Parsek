@@ -395,6 +395,50 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
+        public void Build_OriginResolvedFromTreeRoot_WhenWindowChildHasNoLaunchSite()
+        {
+            // Regression (2026-05-22 playtest): the window-carrying recording is
+            // the dock-merged CHILD, which started mid-flight at the dock and so
+            // has no LaunchSiteName. Origin must come from the tree ROOT (the
+            // launch). Before the fix, Create Route rejected with endpoint-missing
+            // because BuildRoute read launch-site from the child.
+            var windowChild = new Recording
+            {
+                RecordingId = "merged-child",
+                TreeId = "tree-x",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null, // child started at the dock, not at launch
+                RouteConnectionWindows = new List<RouteConnectionWindow> { MakeCompleteWindow() },
+                RouteOriginProof = null
+            }.WithUtSpan(1200.0, 1300.0);
+            var root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree-x",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Runway", // the launch carries the origin
+                RouteOriginProof = null
+            }.WithUtSpan(1000.0, 1200.0);
+            var tree = new RecordingTree { Id = "tree-x", RootRecordingId = "root" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(windowChild);
+
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            Assert.True(outcome.Route.IsKscOrigin);
+            Assert.Equal("Kerbin", outcome.Route.Origin.BodyName);
+            Assert.Equal(RouteStatus.Paused, outcome.Route.Status);
+        }
+
+        [Fact]
         public void Build_LogsRouteTagOnBuildAndOnReject()
         {
             // catches: the [Route] subsystem tag or the "Built route" /
