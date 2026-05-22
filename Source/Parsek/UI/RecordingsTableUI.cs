@@ -1764,6 +1764,43 @@ namespace Parsek
             return isLast ? TreeConnectorLast : TreeConnectorMid;
         }
 
+        // Marginal pixel width the connector glyphs add inside a label, measured
+        // once and cached. The per-level indent step equals this width so a
+        // child's connector sits exactly under its parent's caret at every depth:
+        // the connector occupies one indent step, the parent's caret is the first
+        // glyph after the parent's own connector, and both land at the same x.
+        // The legacy fixed 15px step did not match the glyph width and drifted
+        // a few pixels per level in deeper subgroups.
+        private static float cachedConnectorWidth = -1f;
+
+        internal static float ConnectorWidth()
+        {
+            if (cachedConnectorWidth > 0f) return cachedConnectorWidth;
+            if (GUI.skin == null) return 15f; // skin only valid inside OnGUI
+            GUIStyle style = GUI.skin.label;
+            float w = style.CalcSize(new GUIContent(TreeConnectorMid)).x
+                    - style.CalcSize(GUIContent.none).x;
+            if (w <= 0f) return 15f;
+            cachedConnectorWidth = w;
+            return w;
+        }
+
+        // Blank indent before a connector item's OWN label (group / chain /
+        // virtual header). A depth-D item leaves D-1 connector-width steps blank;
+        // the connector itself fills the Dth step. Depth 0 (top level) has no
+        // connector and no indent.
+        private static float SelfConnectorIndent(int depth)
+        {
+            return Math.Max(0, depth - 1) * ConnectorWidth();
+        }
+
+        // Blank indent to pass to a child drawn at parentDepth + 1 so the child's
+        // connector lands under the parent's caret.
+        private static float ChildConnectorIndent(int parentDepth)
+        {
+            return parentDepth * ConnectorWidth();
+        }
+
         /// <summary>
         /// Which of a group's three child sections owns the corner connector.
         /// Render order is blocks then child sub-groups then the nested
@@ -1870,7 +1907,7 @@ namespace Parsek
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
             int memberCount = descendants.Count;
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
             GUILayout.BeginHorizontal();
@@ -2335,7 +2372,7 @@ namespace Parsek
                             block.Members, depth + 1, committed, now, supersedes, connector))
                             return true;
                     }
-                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f, supersedes, connector))
+                    else if (DrawRecordingRow(block.Members[0], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }
@@ -2445,7 +2482,7 @@ namespace Parsek
                 return false;
 
             string groupName = UnfinishedFlightsGroup.GroupName;
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // Build descendants set (committed-list indices) so the shared
             // group helpers (status / earliest / duration) can work unchanged.
@@ -2626,7 +2663,7 @@ namespace Parsek
             unfinishedFlightRowDepth++;
             try
             {
-                float memberIndent = (depth + 1) * 15f;
+                float memberIndent = ChildConnectorIndent(depth);
                 int lastVisibleMember = -1;
                 for (int i = 0; i < sortedMembers.Count; i++)
                     if (IsRowVisible(committed[sortedMembers[i]], supersedes))
@@ -3410,7 +3447,7 @@ namespace Parsek
                 if (!anyVisible) return false;
             }
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             GUILayout.BeginHorizontal();
 
@@ -3577,7 +3614,7 @@ namespace Parsek
                 for (int m = 0; m < members.Count; m++)
                 {
                     string connector = TreeConnector(m == lastVisibleMember);
-                    if (DrawRecordingRow(members[m], committed, now, (depth + 1) * 15f, supersedes, connector))
+                    if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }
