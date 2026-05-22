@@ -493,7 +493,12 @@ namespace Parsek
                 ? "Rewind or fast-forward the game clock to the entered date"
                 : plan.Reason;
 
-            GUI.enabled = actionable && !WarpToTimeRequest.HasPending;
+            // Disable while a warp is already in flight (pending forward jump) or a flight
+            // warp has been deferred to the Space Center, so a second click can't double-arm
+            // it during the one frame before the scene exit takes over.
+            GUI.enabled = actionable
+                && !WarpToTimeRequest.HasPending
+                && !WarpToTimeRequest.HasDeferredKscWarp;
             if (GUILayout.Button(new GUIContent("Warp to time", tooltip),
                 GUILayout.Width(FilterButtonWidth * 2f)))
             {
