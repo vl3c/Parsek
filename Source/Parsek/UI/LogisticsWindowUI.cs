@@ -67,6 +67,12 @@ namespace Parsek
         private GUIStyle sectionHeaderStyle;
         private GUIStyle detailStyle;
 
+        // Tab bar (GUILayout.Toolbar splits the window width across buttons).
+        // Only Supply Routes today; reserved for future Schedule / Resources tabs.
+        private GUIStyle toggleButtonStyle;
+        private int selectedTab;
+        private static readonly string[] TabLabels = new[] { "Supply Routes" };
+
         // Column widths.
         private const float ColW_Origin = 120f;
         private const float ColW_Destination = 190f;
@@ -174,11 +180,10 @@ namespace Parsek
                 else activeRoutes.Add(r);
             }
 
-            // Tab strip (only Routes is live in v0; reserved for Schedule / Resources).
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Supply Routes", parentUI.GetColumnHeaderStyle());
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
+            // Tab bar. GUILayout.Toolbar splits the full window width across the
+            // buttons; with one label it is a single full-width button, and
+            // future Schedule / Resources tabs split the width automatically.
+            selectedTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
             GUILayout.Space(SpacingSmall);
 
             // Column header.
@@ -664,6 +669,18 @@ namespace Parsek
 
             sectionHeaderStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
             sectionHeaderStyle.normal.textColor = new Color(0.85f, 0.9f, 1f);
+
+            // Tab-bar button: selected tab looks pressed via onNormal.background
+            // copied from GUI.skin.button.active (matches Kerbals/Career idiom).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
             detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
