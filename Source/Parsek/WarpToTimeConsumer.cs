@@ -1,0 +1,147 @@
+using System;
+using System.Collections;
+using System.Globalization;
+using UnityEngine;
+
+namespace Parsek
+{
+    /// <summary>
+    /// Process-lifetime addon that consumes a pending <see cref="WarpToTimeRequest"/> once
+    /// the Space Center scene has loaded and settled, running the final forward time-jump.
+    /// Also hosts a one-frame defer helper used by the flight warp paths so the in-flight
+    /// commit's spawned leaves are not materialized into a scene that the follow-up rewind
+    /// / scene-load is about to discard.
+    ///
+    /// <para>Hosted as <c>[KSPAddon(Instantly, true)]</c> + <c>DontDestroyOnLoad</c> so it
+    /// survives the flight->Space Center transition and is alive in the Space Center scene
+    /// (mirrors <see cref="InGameTests.TestRunnerShortcut"/>). It must NOT live on a
+    /// scene-scoped component (ParsekScenario / ParsekFlight / ParsekKSC), which would be
+    /// destroyed mid-warp.</para>
+    /// </summary>
+    [KSPAddon(KSPAddon.Startup.Instantly, true)]
+    public class WarpToTimeConsumer : MonoBehaviour
+    {
+        private const string Tag = "WarpTime";
+        // ~5s at 60fps: upper bound on waiting for the rewind UT adjustment to settle.
+        private const int RewindSettleGuardFrames = 300;
+
+        private static WarpToTimeConsumer instance;
+        internal static WarpToTimeConsumer Instance => instance;
+
+        void Awake()
+        {
+            if (instance != null)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            instance = this;
+            DontDestroyOnLoad(gameObject);
+            GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
+            ParsekLog.Verbose(Tag, "WarpToTimeConsumer initialized");
+        }
+
+        void OnDestroy()
+        {
+            if (instance == this)
+            {
+                instance = null;
+                GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
+            }
+        }
+
+        private void OnLevelWasLoaded(GameScenes scene)
+        {
+            if (scene != GameScenes.SPACECENTER)
+                return;
+            if (!WarpToTimeRequest.HasPending)
+                return;
+
+            if (WarpToTimeRequest.IsStale())
+            {
+                ParsekLog.Info(Tag,
+                    "Pending warp ignored: armed by a different process session " +
+                    "(orphaned across restart) — clearing");
+                WarpToTimeRequest.Clear();
+                return;
+            }
+
+            ParsekLog.Verbose(Tag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Space Center loaded with pending warp targetUT={0:F1} — starting consumer",
+                    WarpToTimeRequest.TargetUT));
+            StartCoroutine(ConsumePendingWarp());
+        }
+
+        private IEnumerator ConsumePendingWarp()
+        {
+            // Let new-scene singletons (Planetarium, resource singletons) spin up.
+            yield return null;
+
+            // Sequence AFTER any in-flight rewind UT adjustment: the plain Rewind-to-Launch
+            // path (InitiateRewind -> HandleRewindOnLoad) sets RewindUTAdjustmentPending and
+            // clears it only once ApplyRewindResourceAdjustment has set Planetarium UT to the
+            // post-rewind (launch lead-time) point. For the non-rewind flight->KSC forward
+            // case the flag is already false, so this loop falls through immediately.
+            int guard = RewindSettleGuardFrames;
+            while (RecordingStore.RewindUTAdjustmentPending && guard-- > 0)
+                yield return null;
+
+            double target = WarpToTimeRequest.TargetUT;
+            WarpToTimeRequest.Clear();
+
+            double now = Planetarium.GetUniversalTime();
+            if (now < target - WarpToTimeMath.AtTargetEpsilonSeconds)
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Consuming pending warp: forward jump now={0:F1} -> target={1:F1} (delta={2:F1}s)",
+                        now, target, target - now));
+                TimeJumpManager.ExecuteForwardJump(target);
+            }
+            else
+            {
+                ParsekLog.Info(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Consuming pending warp: already at/after target (now={0:F1} target={1:F1}) — no forward jump",
+                        now, target));
+            }
+        }
+
+        /// <summary>
+        /// Runs <paramref name="action"/> after one frame. Used by the flight warp paths to
+        /// defer the rewind / scene-load until after the in-flight commit's synchronous work
+        /// (including throwaway leaf spawns) is past. Falls back to running immediately if no
+        /// addon instance exists (should not happen in a normal game).
+        /// </summary>
+        internal static void RunNextFrame(Action action)
+        {
+            if (action == null) return;
+            if (instance == null)
+            {
+                ParsekLog.Warn(Tag, "RunNextFrame: no consumer instance — running immediately");
+                action();
+                return;
+            }
+            instance.StartCoroutine(instance.DeferOneFrame(action));
+        }
+
+        private IEnumerator DeferOneFrame(Action action)
+        {
+            yield return null;
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag, $"Deferred warp action failed: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+
+        internal static void ResetForTesting()
+        {
+            instance = null;
+        }
+    }
+}

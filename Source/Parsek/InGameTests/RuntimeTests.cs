@@ -12481,6 +12481,66 @@ namespace Parsek.InGameTests
 
         #region ResourceReconciliation (Phase F)
 
+        [InGameTest(Category = "WarpToTime", Scene = GameScenes.SPACECENTER,
+            Description = "WarpToTimeController.ResolvePlan runs against live ERS/RecordingStore: " +
+                "a far-future date yields ForwardOnly; the 1/1/0/0 game-start date maps to UT 0 and " +
+                "yields a defined plan kind (RewindThenForward+landsAtTimelineStart when a rewind save " +
+                "exists). Read-only — does not change the clock.")]
+        public void WarpToTime_ResolvePlan_LiveScene()
+        {
+            double now = Planetarium.GetUniversalTime();
+
+            // Far-future target -> ForwardOnly regardless of save state.
+            var futurePlan = WarpToTimeController.ResolvePlan(
+                9999, 1, 0, 0, inFlight: false, out double futureUT);
+            InGameAssert.IsTrue(futureUT > now,
+                $"far-future targetUT {futureUT} should exceed now {now}");
+            InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.ForwardOnly, futurePlan.Kind,
+                "far-future date should resolve to ForwardOnly");
+
+            // Game start (1/1/0/0 = UT 0). Exercises the live ResolveRewindTargetLaunch path
+            // (ERS enumeration + GetRewindRecording). The exact kind depends on save state,
+            // so first assert the call returns a defined plan without throwing.
+            var startPlan = WarpToTimeController.ResolvePlan(
+                1, 1, 0, 0, inFlight: false, out double startUT);
+            InGameAssert.AreEqual(0.0, startUT, "1/1/0/0 should map to UT 0");
+            bool definedKind = startPlan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.AtTarget
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.Unreachable;
+            InGameAssert.IsTrue(definedKind,
+                $"game-start plan kind should be defined, got {startPlan.Kind}");
+
+            // With a rewind save present and now meaningfully past UT 0, the game start must be
+            // reachable via rewind to the earliest launch (landsAtTimelineStart), not Unreachable.
+            var ers = EffectiveState.ComputeERS();
+            bool anyRewindSave = false;
+            if (ers != null)
+            {
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var owner = RecordingStore.GetRewindRecording(ers[i]);
+                    if (owner != null && !string.IsNullOrEmpty(owner.RewindSaveFileName))
+                    {
+                        anyRewindSave = true;
+                        break;
+                    }
+                }
+            }
+            if (anyRewindSave && now > WarpToTimeMath.AtTargetEpsilonSeconds)
+            {
+                InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.RewindThenForward, startPlan.Kind,
+                    "with a rewind save present and now>0, game start must be reachable via rewind");
+                InGameAssert.IsTrue(startPlan.LandsAtTimelineStart,
+                    "game-start target precedes all launches -> landsAtTimelineStart");
+            }
+            else
+            {
+                InGameAssert.Skip("no rewind save present (or already at game start) — " +
+                    "rewind-reachability assertion not applicable");
+            }
+        }
+
         [InGameTest(Category = "ResourceReconciliation", Scene = GameScenes.SPACECENTER,
             Description = "Phase F: ApplyTreeLumpSum / ApplyTreeResourceDeltas / ApplyResourceDeltas " +
                 "are gone — neither method emits its old log shape during normal SPACECENTER lifecycle. " +

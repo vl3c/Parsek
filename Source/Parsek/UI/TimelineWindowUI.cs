@@ -91,6 +91,17 @@ namespace Parsek
         private string cachedStatsText;
         private bool filterDirty = true;
 
+        // Warp-to-time row state. Committed Year/Day/Hour/Minute (KSP calendar; Year 1 /
+        // Day 1 = game start). One draft buffer + focused-field sentinel drive the
+        // commit-on-Enter / commit-on-click-away idiom (mirrors loop-period editing).
+        private enum WarpField { None, Year, Day, Hour, Minute }
+        private WarpField warpFocusedField = WarpField.None;
+        private string warpEditDraft = "";
+        private Rect warpEditRect;
+        private int warpYear = 1, warpDay = 1, warpHour = 0, warpMinute = 0;
+        private bool warpValuesLoaded;
+        private const float WarpInputWidth = 36f;
+
         // Time-range filter UI state
         private bool showCustomRange;
         private float sliderMin;
@@ -158,7 +169,17 @@ namespace Parsek
         public bool IsOpen
         {
             get { return showTimelineWindow; }
-            set { showTimelineWindow = value; }
+            set
+            {
+                if (!value)
+                {
+                    if (showTimelineWindow) CloseWindow();
+                }
+                else
+                {
+                    showTimelineWindow = true;
+                }
+            }
         }
 
         internal TimelineWindowUI(ParsekUI parentUI)
@@ -335,6 +356,18 @@ namespace Parsek
         {
             EnsureStyles();
 
+            if (!warpValuesLoaded)
+                LoadWarpInputs();
+
+            // Commit an in-progress warp field edit when the user clicks outside its box.
+            if (Event.current.type == EventType.MouseDown
+                && warpFocusedField != WarpField.None
+                && warpEditRect.width > 0
+                && !warpEditRect.Contains(Event.current.mousePosition))
+            {
+                CommitWarpField();
+            }
+
             // Zone 1: Resource Budget
             DrawResourceBudget();
 
@@ -424,18 +457,180 @@ namespace Parsek
                 cachedStatsText = stats.ToString();
                 filterDirty = false;
             }
+            // Stats footer — right-aligned.
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
             GUILayout.Label(cachedStatsText, timelineGrayStyle);
+            GUILayout.EndHorizontal();
+
+            // Warp-to-time row (above Close).
+            DrawWarpRow();
 
             if (GUILayout.Button("Close"))
             {
-                showTimelineWindow = false;
-                ParsekLog.Verbose("UI", "Timeline window closed via button");
+                CloseWindow();
             }
 
             ParsekUI.DrawResizeHandle(timelineWindowRect, ref isResizingTimelineWindow,
                 "Timeline window");
 
             GUI.DragWindow();
+        }
+
+        /// <summary>
+        /// Draws the "Warp to time" button (2x the filter-button width) plus the four
+        /// integer inputs (Year/Day/Hour/Minute). The button's enabled state and tooltip
+        /// reflect the resolved warp plan; the inputs commit on Enter / click-away.
+        /// </summary>
+        private void DrawWarpRow()
+        {
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+
+            var flight = parentUI.Flight;
+            bool inFlight = parentUI.InFlightMode && flight != null;
+            var plan = WarpToTimeController.ResolvePlan(
+                warpYear, warpDay, warpHour, warpMinute, inFlight, out _);
+
+            bool actionable = plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || plan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward;
+            string tooltip = actionable
+                ? "Rewind or fast-forward the game clock to the entered date"
+                : plan.Reason;
+
+            GUI.enabled = actionable && !WarpToTimeRequest.HasPending;
+            if (GUILayout.Button(new GUIContent("Warp to time", tooltip),
+                GUILayout.Width(FilterButtonWidth * 2f)))
+            {
+                CommitWarpField();
+                WarpToTimeController.RequestWarp(warpYear, warpDay, warpHour, warpMinute, flight, inFlight);
+            }
+            GUI.enabled = true;
+
+            GUILayout.Space(8f);
+            DrawWarpField(WarpField.Year, "Year", warpYear);
+            DrawWarpField(WarpField.Day, "Day", warpDay);
+            DrawWarpField(WarpField.Hour, "Hour", warpHour);
+            DrawWarpField(WarpField.Minute, "Minute", warpMinute);
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawWarpField(WarpField kind, string label, int committedValue)
+        {
+            string controlName = "WarpField_" + kind;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            if (warpFocusedField != kind)
+            {
+                GUI.SetNextControlName(controlName);
+                GUILayout.TextField(committedValue.ToString(ic), GUILayout.Width(WarpInputWidth));
+                Rect r = GUILayoutUtility.GetLastRect();
+                if (GUI.GetNameOfFocusedControl() == controlName)
+                {
+                    // This field just gained focus: seed the draft from the committed value.
+                    warpFocusedField = kind;
+                    warpEditDraft = committedValue.ToString(ic);
+                    warpEditRect = r;
+                }
+            }
+            else
+            {
+                // Enter -> commit, Escape -> cancel (check before TextField consumes KeyDown).
+                bool submit = Event.current.type == EventType.KeyDown
+                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancel = Event.current.type == EventType.KeyDown
+                    && Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(warpEditDraft, GUILayout.Width(WarpInputWidth));
+                warpEditRect = GUILayoutUtility.GetLastRect();
+                if (newText != warpEditDraft) warpEditDraft = newText;
+
+                if (submit) { CommitWarpField(); Event.current.Use(); }
+                else if (cancel) { CancelWarpField(); Event.current.Use(); }
+            }
+
+            GUILayout.Label(label);
+            GUILayout.Space(6f);
+        }
+
+        private void CommitWarpField()
+        {
+            if (warpFocusedField == WarpField.None) return;
+
+            WarpToTimeMath.WarpFieldKind kind = MapWarpField(warpFocusedField);
+            if (WarpToTimeMath.TryParseField(kind, warpEditDraft, out int value))
+            {
+                AssignWarpField(warpFocusedField, value);
+                ParsekLog.Verbose("WarpTime", $"Warp field {warpFocusedField} committed: {value}");
+            }
+            else
+            {
+                ParsekLog.Verbose("WarpTime",
+                    $"Warp field {warpFocusedField} edit rejected: '{warpEditDraft}'");
+            }
+            warpFocusedField = WarpField.None;
+            warpEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        private void CancelWarpField()
+        {
+            warpFocusedField = WarpField.None;
+            warpEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        private void AssignWarpField(WarpField field, int value)
+        {
+            switch (field)
+            {
+                case WarpField.Year: warpYear = value; break;
+                case WarpField.Day: warpDay = value; break;
+                case WarpField.Hour: warpHour = value; break;
+                case WarpField.Minute: warpMinute = value; break;
+            }
+        }
+
+        private static WarpToTimeMath.WarpFieldKind MapWarpField(WarpField field)
+        {
+            switch (field)
+            {
+                case WarpField.Day: return WarpToTimeMath.WarpFieldKind.Day;
+                case WarpField.Hour: return WarpToTimeMath.WarpFieldKind.Hour;
+                case WarpField.Minute: return WarpToTimeMath.WarpFieldKind.Minute;
+                default: return WarpToTimeMath.WarpFieldKind.Year;
+            }
+        }
+
+        private void LoadWarpInputs()
+        {
+            warpYear = ParsekSettingsPersistence.GetStoredWarpYear() ?? 1;
+            warpDay = ParsekSettingsPersistence.GetStoredWarpDay() ?? 1;
+            warpHour = ParsekSettingsPersistence.GetStoredWarpHour() ?? 0;
+            warpMinute = ParsekSettingsPersistence.GetStoredWarpMinute() ?? 0;
+            if (warpYear < 1) warpYear = 1;
+            if (warpDay < 1) warpDay = 1;
+            if (warpHour < 0) warpHour = 0;
+            if (warpMinute < 0) warpMinute = 0;
+            warpValuesLoaded = true;
+            ParsekLog.Verbose("WarpTime",
+                $"Loaded warp inputs Y{warpYear} D{warpDay} {warpHour}:{warpMinute:00}");
+        }
+
+        /// <summary>
+        /// Closes the window: flush any in-progress field edit, persist the warp inputs so a
+        /// special date survives across sessions, then hide. Routed through here from both
+        /// the Close button and the IsOpen setter.
+        /// </summary>
+        private void CloseWindow()
+        {
+            CommitWarpField();
+            ParsekSettingsPersistence.RecordWarpDate(warpYear, warpDay, warpHour, warpMinute);
+            showTimelineWindow = false;
+            ParsekLog.Verbose("UI", "Timeline window closed");
         }
 
         private static Game.Modes? GetCurrentGameMode()
