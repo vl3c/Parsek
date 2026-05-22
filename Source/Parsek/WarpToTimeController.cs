@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using UnityEngine;
@@ -6,11 +7,15 @@ namespace Parsek
 {
     /// <summary>
     /// Orchestrates the Timeline "Warp to time" action: resolves the rewind target, shows the
-    /// confirmation dialog (same style as the Rewind / Fast-Forward dialogs), and dispatches
-    /// the execution paths. Backward warps rewind to the nearest reachable point at/before the
-    /// target then fast-forward to the exact target via the deferred <see cref="WarpToTimeConsumer"/>.
-    /// The rewind point is the career-start snapshot (true UT-0 reset) when the target precedes
-    /// the first launch and the snapshot exists, otherwise the nearest / earliest launch save.
+    /// confirmation dialog (same simple text in flight and at KSC), and dispatches the warp.
+    /// Backward warps rewind to the nearest reachable point at/before the target then
+    /// fast-forward to the exact target via the deferred <see cref="WarpToTimeConsumer"/>.
+    ///
+    /// <para>In flight the warp is NOT executed in place and the recording is NOT auto-saved:
+    /// the whole warp is deferred to the next Space Center arrival via a plain
+    /// <c>LoadScene(SPACECENTER)</c>, so the existing <see cref="SceneExitInterceptor"/> shows
+    /// its Merge / Discard dialog for the active recording first. On arrival the warp is
+    /// re-resolved and executed KSC-side (<see cref="ExecuteAtKsc"/>) with no further prompt.</para>
     /// </summary>
     internal static class WarpToTimeController
     {
@@ -40,9 +45,7 @@ namespace Parsek
 
         /// <summary>
         /// Resolves the warp plan for the given inputs at the current UT. Called each frame by
-        /// the Timeline UI for the button's enabled state and tooltip. Disk-free except for the
-        /// career-start snapshot existence check; the authoritative rewind preconditions run on
-        /// click in <see cref="Execute"/>.
+        /// the Timeline UI for the button's enabled state and tooltip.
         /// </summary>
         internal static WarpToTimeMath.WarpPlan ResolvePlan(
             int year, int day, int hour, int minute, bool inFlight, out double targetUT)
@@ -66,11 +69,11 @@ namespace Parsek
 
             ParsekLog.Info(Tag, string.Format(IC,
                 "RequestWarp: input Y{0} D{1} {2}:{3:00} -> targetUT={4:F1} currentUT={5:F1} " +
-                "inFlight={6} recording={7} plan={8} flightExit={9} landsAtStart={10} " +
-                "rewindKind={11} rewindStartUT={12:F1} rewindLabel={13}",
+                "inFlight={6} recording={7} plan={8} landsAtStart={9} rewindKind={10} " +
+                "rewindStartUT={11:F1} rewindLabel={12}",
                 year, day, hour, minute, targetUT, currentUT, inFlight,
-                flight != null && flight.IsRecording, plan.Kind, plan.RequiresFlightExit,
-                plan.LandsAtTimelineStart, target.Kind, target.StartUT, target.Label ?? "<none>"));
+                flight != null && flight.IsRecording, plan.Kind, plan.LandsAtTimelineStart,
+                target.Kind, target.StartUT, target.Label ?? "<none>"));
 
             switch (plan.Kind)
             {
@@ -81,20 +84,70 @@ namespace Parsek
                     ParsekLog.ScreenMessage(plan.Reason, 3f);
                     return;
                 default:
-                    ShowConfirmation(plan, targetUT, currentUT, target, flight, inFlight);
+                    // Confirm dialog uses the same simple text in flight and at KSC. On confirm:
+                    //  - KSC: execute now.
+                    //  - flight: defer the whole warp to the Space Center (the scene-exit
+                    //    Merge / Discard dialog handles the active recording; no auto-save).
+                    Action onConfirm = inFlight
+                        ? (Action)(() => DeferWarpToSpaceCenter(year, day, hour, minute))
+                        : () => Execute(plan, targetUT, target);
+                    ShowConfirmation(plan, targetUT, currentUT, target, onConfirm);
                     return;
             }
         }
 
         /// <summary>
+        /// Re-resolves and executes a warp at the Space Center with NO confirmation (the player
+        /// already confirmed in flight). Invoked by <see cref="WarpToTimeConsumer"/> after a
+        /// flight->KSC exit (and its Merge / Discard dialog) settles. State may have changed via
+        /// that dialog (commit / discard), so the plan is recomputed from the entered date.
+        /// </summary>
+        internal static void ExecuteAtKsc(int year, int day, int hour, int minute)
+        {
+            double targetUT = WarpToTimeMath.ComputeTargetUT(year, day, hour, minute);
+            double currentUT = SafeCurrentUT();
+            RewindTarget target = ResolveRewindTarget(targetUT, out bool landsAtStart);
+            var plan = WarpToTimeMath.DecideWarpPlan(
+                targetUT, currentUT, inFlight: false,
+                target.Kind != RewindTargetKind.None, landsAtStart);
+
+            ParsekLog.Info(Tag, string.Format(IC,
+                "ExecuteAtKsc: Y{0} D{1} {2}:{3:00} -> targetUT={4:F1} currentUT={5:F1} " +
+                "plan={6} rewindKind={7}", year, day, hour, minute, targetUT, currentUT,
+                plan.Kind, target.Kind));
+
+            switch (plan.Kind)
+            {
+                case WarpToTimeMath.WarpPlanKind.AtTarget:
+                    ParsekLog.ScreenMessage("Already at this time", 3f);
+                    return;
+                case WarpToTimeMath.WarpPlanKind.Unreachable:
+                    ParsekLog.ScreenMessage(plan.Reason, 3f);
+                    return;
+                default:
+                    Execute(plan, targetUT, target);
+                    return;
+            }
+        }
+
+        private static void DeferWarpToSpaceCenter(int year, int day, int hour, int minute)
+        {
+            WarpToTimeRequest.SetDeferredKscWarp(year, day, hour, minute);
+            ParsekLog.Info(Tag,
+                "Flight warp confirmed: returning to the Space Center; the scene-exit " +
+                "Merge / Discard dialog will handle the active recording, then the warp runs.");
+            // Defer one frame so we are not spawning the scene-exit dialog from inside the warp
+            // dialog's button handler. The SceneExitInterceptor prefix on LoadScene shows the
+            // Merge / Discard dialog when an active recording exists.
+            WarpToTimeConsumer.RunNextFrame(() => HighLogic.LoadScene(GameScenes.SPACECENTER));
+        }
+
+        /// <summary>
         /// Resolves where a past target rewinds to. Candidates are the distinct launch rewind
-        /// saves plus, when the target precedes the first launch can be made exact, the
-        /// career-start snapshot (a virtual launch at UT 0). The career-start snapshot is only a
-        /// candidate when it exists AND no re-fly supersede relations are present (a UT-0 reset
-        /// would otherwise hide superseded originals; the launch path handles supersedes). Picks
-        /// the greatest StartUT &lt;= target (nearest prior), or the earliest when the target
-        /// precedes all candidates (sets <paramref name="landsAtTimelineStart"/> - only possible
-        /// for the launch fallback when no career-start snapshot exists). ERS-routed.
+        /// saves plus, when no re-fly supersedes exist and the snapshot exists, the career-start
+        /// snapshot (a virtual launch at UT 0 = a true reset). Picks the greatest StartUT &lt;=
+        /// target (nearest prior), or the earliest when the target precedes all candidates (sets
+        /// <paramref name="landsAtTimelineStart"/>). ERS-routed.
         /// </summary>
         internal static RewindTarget ResolveRewindTarget(double targetUT, out bool landsAtTimelineStart)
         {
@@ -105,7 +158,6 @@ namespace Parsek
             var startUTs = new List<double>();
             var labels = new List<string>();
 
-            // Career-start snapshot = a virtual launch at UT 0 (true reset), gated on no supersedes.
             int supersedeCount = ParsekScenario.Instance?.RecordingSupersedes?.Count ?? 0;
             if (supersedeCount == 0 && CareerStartSnapshot.Exists())
             {
@@ -164,9 +216,9 @@ namespace Parsek
 
         private static void ShowConfirmation(
             WarpToTimeMath.WarpPlan plan, double targetUT, double currentUT,
-            RewindTarget target, ParsekFlight flight, bool inFlight)
+            RewindTarget target, Action onConfirm)
         {
-            string message = BuildConfirmMessage(plan, targetUT, currentUT, target, inFlight);
+            string message = BuildConfirmMessage(plan, targetUT, currentUT, target);
 
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
@@ -181,7 +233,7 @@ namespace Parsek
                         ParsekLog.Info(Tag, string.Format(IC,
                             "User confirmed warp: plan={0} targetUT={1:F1} rewindKind={2}",
                             plan.Kind, targetUT, target.Kind));
-                        Execute(plan, targetUT, target, flight, inFlight);
+                        onConfirm?.Invoke();
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
@@ -192,18 +244,12 @@ namespace Parsek
         }
 
         private static string BuildConfirmMessage(
-            WarpToTimeMath.WarpPlan plan, double targetUT, double currentUT,
-            RewindTarget target, bool inFlight)
+            WarpToTimeMath.WarpPlan plan, double targetUT, double currentUT, RewindTarget target)
         {
             string targetDate = SafePrintDate(targetUT);
-            string flightPrefix = inFlight
-                ? "Save your recording and return to the Space Center, "
-                : "";
 
             if (plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly)
             {
-                if (inFlight)
-                    return $"{flightPrefix}then fast-forward to {targetDate}?";
                 double delta = targetUT - currentUT;
                 return $"Fast-forward to {targetDate}?\n\nTime will advance by " +
                        $"{ParsekTimeFormat.FormatDurationFull(delta)}.";
@@ -212,69 +258,43 @@ namespace Parsek
             // RewindThenForward
             if (target.Kind == RewindTargetKind.CareerStart)
             {
-                // Lowercase "reset" mid-sentence after the flight prefix; capitalized at the
-                // start of the sentence in the KSC case (no prefix).
-                string verb = inFlight ? "reset" : "Reset";
                 string tail = targetUT > WarpToTimeMath.AtTargetEpsilonSeconds
-                    ? $"{verb} to the start of the game, then fast-forward to {targetDate}?"
-                    : $"{verb} to the start of the game (Year 1, Day 1)?";
-                return $"{Capitalize(flightPrefix)}{tail}\n\n" +
-                       "Resources, facilities and the clock return to career start; your recordings " +
-                       "are kept and replay as time advances.";
+                    ? $"Reset to the start of the game, then fast-forward to {targetDate}?"
+                    : "Reset to the start of the game (Year 1, Day 1)?";
+                return $"{tail}\n\nResources, facilities and the clock return to career start; " +
+                       "your recordings are kept and replay as time advances.";
             }
 
             string ownerName = target.Label ?? "the earliest launch";
             string launchDate = SafePrintDate(target.StartUT);
             if (plan.LandsAtTimelineStart)
             {
-                return $"{Capitalize(flightPrefix)}Rewind to the earliest launch \"{ownerName}\" at " +
-                       $"{launchDate} (the start of your timeline)?\n\nAny uncommitted progress will be lost.";
+                return $"Rewind to the earliest launch \"{ownerName}\" at {launchDate} " +
+                       "(the start of your timeline)?\n\nAny uncommitted progress will be lost.";
             }
 
-            return $"{Capitalize(flightPrefix)}{(inFlight ? "rewind" : "Rewind")} to \"{ownerName}\" " +
-                   $"launch at {launchDate}, then fast-forward to {targetDate}?" +
-                   "\n\nAny uncommitted progress will be lost.";
+            return $"Rewind to \"{ownerName}\" launch at {launchDate}, then fast-forward to " +
+                   $"{targetDate}?\n\nAny uncommitted progress will be lost.";
         }
 
-        private static string Capitalize(string s)
-        {
-            return string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s.Substring(1);
-        }
-
-        private static void Execute(
-            WarpToTimeMath.WarpPlan plan, double targetUT, RewindTarget target,
-            ParsekFlight flight, bool inFlight)
+        /// <summary>
+        /// Executes a confirmed warp at the Space Center. Forward = a single time jump; backward
+        /// = rewind to the resolved target (career-start snapshot or a launch save) then a
+        /// deferred forward jump. Never called in flight (the flight path defers here via
+        /// <see cref="ExecuteAtKsc"/>).
+        /// </summary>
+        private static void Execute(WarpToTimeMath.WarpPlan plan, double targetUT, RewindTarget target)
         {
             if (plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly)
             {
-                if (!inFlight)
-                {
-                    ParsekLog.Info(Tag, string.Format(IC,
-                        "Forward warp (KSC): jumping to targetUT={0:F1}", targetUT));
-                    TimeJumpManager.ExecuteForwardJump(targetUT);
-                    return;
-                }
-
-                CommitActiveRecordingIfAny(flight);
-                WarpToTimeRequest.Set(targetUT);
-                ParsekLog.Info(Tag, "Forward warp (flight): committed recording, exiting to Space Center");
-                WarpToTimeConsumer.RunNextFrame(() => HighLogic.LoadScene(GameScenes.SPACECENTER));
+                ParsekLog.Info(Tag, string.Format(IC,
+                    "Forward warp: jumping to targetUT={0:F1}", targetUT));
+                TimeJumpManager.ExecuteForwardJump(targetUT);
                 return;
             }
 
-            // RewindThenForward: commit in flight, then defer the rewind/scene-load one frame so
-            // the commit's spawned leaves are not materialized into a scene the reload discards.
-            if (inFlight)
-            {
-                CommitActiveRecordingIfAny(flight);
-                ParsekLog.Info(Tag,
-                    $"Rewind-then-forward (flight, {target.Kind}): committed recording, deferring one frame");
-                WarpToTimeConsumer.RunNextFrame(() => StartRewind(target, targetUT));
-            }
-            else
-            {
-                StartRewind(target, targetUT);
-            }
+            // RewindThenForward
+            StartRewind(target, targetUT);
         }
 
         /// <summary>
@@ -303,7 +323,6 @@ namespace Parsek
                 return;
             }
 
-            // Launch: re-resolve the owner by id (the in-flight commit may have mutated state).
             Recording ownerNow = ResolveOwnerById(target.OwnerId);
             if (ownerNow == null)
             {
@@ -328,15 +347,6 @@ namespace Parsek
                 "Initiating rewind to \"{0}\" id={1} StartUT={2:F1} (pending forward warp targetUT={3:F1})",
                 ownerNow.VesselName, ownerNow.RecordingId, ownerNow.StartUT, targetUT));
             RecordingStore.InitiateRewind(ownerNow);
-        }
-
-        private static void CommitActiveRecordingIfAny(ParsekFlight flight)
-        {
-            if (flight != null && flight.IsRecording)
-            {
-                ParsekLog.Info(Tag, "Committing active recording before warp");
-                flight.CommitTreeFlight();
-            }
         }
 
         private static double SafeCurrentUT()

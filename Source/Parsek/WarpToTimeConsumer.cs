@@ -60,6 +60,23 @@ namespace Parsek
             // fresh career (see CareerStartSnapshot.ShouldCapture).
             StartCoroutine(MaybeCaptureCareerStart());
 
+            // A flight warp deferred the whole operation here (after the scene-exit
+            // Merge / Discard dialog). Execute it KSC-side once; it takes priority over and is
+            // distinct from the post-rewind forward-jump below (a backward deferred warp arms
+            // that for the rewind reload's later arrival).
+            if (WarpToTimeRequest.HasDeferredKscWarp)
+            {
+                if (WarpToTimeRequest.IsDeferredKscWarpStale())
+                {
+                    ParsekLog.Info(Tag,
+                        "Deferred flight warp ignored: armed by a different process session — clearing");
+                    WarpToTimeRequest.ClearDeferredKscWarp();
+                    return;
+                }
+                StartCoroutine(ConsumeDeferredKscWarp());
+                return;
+            }
+
             if (!WarpToTimeRequest.HasPending)
                 return;
 
@@ -77,6 +94,22 @@ namespace Parsek
                     "Space Center loaded with pending warp targetUT={0:F1} — starting consumer",
                     WarpToTimeRequest.TargetUT));
             StartCoroutine(ConsumePendingWarp());
+        }
+
+        private IEnumerator ConsumeDeferredKscWarp()
+        {
+            // Let the Space Center scene + singletons settle before re-resolving the warp.
+            yield return null;
+
+            int year = WarpToTimeRequest.DeferYear;
+            int day = WarpToTimeRequest.DeferDay;
+            int hour = WarpToTimeRequest.DeferHour;
+            int minute = WarpToTimeRequest.DeferMinute;
+            WarpToTimeRequest.ClearDeferredKscWarp();
+
+            ParsekLog.Info(Tag,
+                $"Consuming deferred flight warp at Space Center: Y{year} D{day} {hour}:{minute:00}");
+            WarpToTimeController.ExecuteAtKsc(year, day, hour, minute);
         }
 
         private IEnumerator MaybeCaptureCareerStart()

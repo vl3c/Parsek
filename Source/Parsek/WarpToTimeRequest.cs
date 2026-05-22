@@ -50,11 +50,53 @@ namespace Parsek
             return HasPending && SessionId != ParsekProcess.ProcessSessionId;
         }
 
+        // ---- Deferred flight warp ------------------------------------------------------
+        // The flight path defers the WHOLE warp to the next Space Center arrival so the
+        // scene-exit Merge/Discard dialog (SceneExitInterceptor) handles the active recording
+        // first - we never auto-commit. The entered date is re-resolved and executed KSC-side
+        // (WarpToTimeController.ExecuteAtKsc) with no further confirmation.
+
+        internal static bool HasDeferredKscWarp { get; private set; }
+        internal static int DeferYear { get; private set; }
+        internal static int DeferDay { get; private set; }
+        internal static int DeferHour { get; private set; }
+        internal static int DeferMinute { get; private set; }
+        private static Guid deferSessionId;
+
+        internal static void SetDeferredKscWarp(int year, int day, int hour, int minute)
+        {
+            HasDeferredKscWarp = true;
+            DeferYear = year;
+            DeferDay = day;
+            DeferHour = hour;
+            DeferMinute = minute;
+            deferSessionId = ParsekProcess.ProcessSessionId;
+            ParsekLog.Info(Tag,
+                $"Deferred flight warp armed: Y{year} D{day} {hour}:{minute:00} session={deferSessionId}");
+        }
+
+        internal static void ClearDeferredKscWarp()
+        {
+            if (!HasDeferredKscWarp) return;
+            ParsekLog.Verbose(Tag, "Deferred flight warp cleared");
+            HasDeferredKscWarp = false;
+            DeferYear = DeferDay = DeferHour = DeferMinute = 0;
+            deferSessionId = Guid.Empty;
+        }
+
+        internal static bool IsDeferredKscWarpStale()
+        {
+            return HasDeferredKscWarp && deferSessionId != ParsekProcess.ProcessSessionId;
+        }
+
         internal static void ResetForTesting()
         {
             HasPending = false;
             TargetUT = 0;
             SessionId = Guid.Empty;
+            HasDeferredKscWarp = false;
+            DeferYear = DeferDay = DeferHour = DeferMinute = 0;
+            deferSessionId = Guid.Empty;
         }
     }
 }
