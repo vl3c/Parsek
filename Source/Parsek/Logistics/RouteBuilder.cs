@@ -54,7 +54,9 @@ namespace Parsek.Logistics
             RecordingTree committedTree,
             RouteCreationInputs inputs,
             Game.Modes mode,
-            Func<string> idFactory = null)
+            Func<string> idFactory = null,
+            RouteStatus initialStatus = RouteStatus.Active,
+            bool allowIntervalBelowTransit = false)
         {
             if (analysis == null || !analysis.IsEligible)
             {
@@ -91,7 +93,7 @@ namespace Parsek.Logistics
                     $"BuildRoute rejected: interval-invalid interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}");
                 return new RouteBuildOutcome { RejectReason = "interval-invalid" };
             }
-            if (inputs.DispatchIntervalSeconds < transitDuration)
+            if (!allowIntervalBelowTransit && inputs.DispatchIntervalSeconds < transitDuration)
             {
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: interval-below-transit interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
@@ -208,7 +210,7 @@ namespace Parsek.Logistics
             {
                 Id = routeId,
                 Name = routeName,
-                Status = RouteStatus.Active,
+                Status = initialStatus,
                 RecordingIds = new List<string> { source.RecordingId },
                 SourceRefs = sourceRefs,
                 Origin = origin,

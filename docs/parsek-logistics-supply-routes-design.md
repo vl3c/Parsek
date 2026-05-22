@@ -49,7 +49,7 @@ Before each cycle, the route evaluates whether dispatch is possible. It checks t
 | Supply Route confirmed | Route analysis extracts the endpoint and cargo manifest from the committed chain. Player sees summary, sets interval, confirms. |
 | Route dispatches on schedule | Proven non-KSC origin cargo is deducted, or KSC dispatch cost is charged in Career. Ghost begins chain-sequential replay. |
 | Route delivers | Cargo (resources, inventory) appears at the resolved endpoint vessel as the ghost reaches the recorded transfer point. |
-| Destination tanks full | Dispatch waits on the same scheduled cycle. Origin NOT deducted. No ghost replay until capacity returns. |
+| Destination tanks full | Dispatch waits on the same scheduled cycle. Origin NOT deducted, nothing delivered. The ghost still flies the route (the world looks busy) but transfers/charges nothing; the route status names the blocking reason. |
 | Origin runs out of resources | Dispatch delayed until resources available. Route resumes automatically. |
 | Destination destroyed (surface) | Nearest-compatible vessel fallback can reconnect to a rebuilt base at the same location. |
 | Destination destroyed (orbital) | Route halted (`EndpointLost`). Player must re-target to new station. |
@@ -925,7 +925,7 @@ Future design intent:
 
 ### 10.4 Destination tanks full
 **Scenario:** Route delivers 200 LF. Base has 200/200 LF.
-**Behavior:** `Status = DestinationFull`. No ghost replay, no origin deduction, no ROUTE_DISPATCHED event, and `NextDispatchUT` is not advanced. Set `NextEligibilityCheckUT` for a rate-limited retry. The same scheduled dispatch resumes when player use or another stock process creates capacity. `SkippedCycles` is not incremented for repeated capacity-poll attempts against the same scheduled dispatch.
+**Behavior:** `Status = DestinationFull`. No origin deduction, no delivery, no ROUTE_DISPATCHED event, and `NextDispatchUT` is not advanced. The ghost still flies the route so the world looks busy (a route that just stopped spawning ghosts reads as broken); it is purely visual this cycle and moves/charges nothing. The route status text names the blocking reason. Set `NextEligibilityCheckUT` for a rate-limited retry. The same scheduled dispatch resumes when player use or another stock process creates capacity. `SkippedCycles` is not incremented for repeated capacity-poll attempts against the same scheduled dispatch.
 
 ### 10.5 Destination partially full
 **Scenario:** Base has room for 100 LF, full on Ox. Delivery: 150 LF + 183 Ox.

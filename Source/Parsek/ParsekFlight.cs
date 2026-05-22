@@ -11286,15 +11286,15 @@ namespace Parsek
 
         /// <summary>
         /// Called when the merge dialog commits a tree. Re-evaluates ghost chains
-        /// so newly committed recordings get ghost map ProtoVessels immediately,
-        /// then offers route creation if the committed tree carries a completed
-        /// route proof (handled by <see cref="RouteCreationDialog.TryShow"/>).
+        /// so newly committed recordings get ghost map ProtoVessels immediately.
+        /// Route creation is no longer offered here: eligible Supply Runs surface
+        /// as derived candidates in the Logistics window (see
+        /// <see cref="Logistics.RouteCandidateFinder"/>) instead of a commit-time popup.
         /// </summary>
         private void OnTreeCommittedFromMergeDialog(RecordingTree tree)
         {
-            ParsekLog.Info("GhostMap", "Tree committed from merge dialog — re-evaluating ghost chains");
+            ParsekLog.Info("GhostMap", "Tree committed from merge dialog - re-evaluating ghost chains");
             EvaluateAndApplyGhostChains();
-            RouteCreationDialog.TryShow(tree);
         }
 
         /// <summary>
