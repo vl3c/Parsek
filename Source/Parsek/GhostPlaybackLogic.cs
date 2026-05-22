@@ -1131,6 +1131,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Edge 10 decision: should the engine fire a unit-handoff camera retarget this frame?
+        /// Returns true ONLY when (a) the watched index is a member of <paramref name="unit"/> (the
+        /// camera is following this unit), AND (b) the live member just changed
+        /// (<paramref name="prevSelectedSlot"/> != <paramref name="newSelectedSlot"/>) to a real
+        /// member slot. A chain-loop unit advances its visible ghost at unit-internal segment
+        /// boundaries and at the span wrap WITHOUT the chain-seam PlaybackCompleted handoff (unit
+        /// members `continue` at the loop dispatch), so a watched camera would otherwise stick to a
+        /// now-hidden ghost. When this returns true the engine fires
+        /// <c>CameraActionType.UnitHandoffRetarget</c> carrying the new live member index, and the
+        /// host transfers the camera to it. Pure; the FlightCamera transfer itself is verified
+        /// in-game (P8). Both -1 slots (no member / span clock unresolved) and a same-slot frame
+        /// return false so the handoff fires once per boundary, not every frame.
+        /// </summary>
+        internal static bool ShouldRetargetWatchOnUnitHandoff(
+            int watchedIndex, int prevSelectedSlot, int newSelectedSlot, LoopUnit unit)
+        {
+            if (watchedIndex < 0)
+                return false;
+            // The camera must be following a member of THIS unit.
+            bool watchingThisUnit = false;
+            int[] members = unit.MemberIndices;
+            if (members != null)
+            {
+                for (int m = 0; m < members.Length; m++)
+                {
+                    if (members[m] == watchedIndex)
+                    {
+                        watchingThisUnit = true;
+                        break;
+                    }
+                }
+            }
+            if (!watchingThisUnit)
+                return false;
+            // The live member must have actually changed to a real slot (not a gap / unresolved
+            // clock, and not the same member as last frame).
+            if (newSelectedSlot < 0 || prevSelectedSlot == newSelectedSlot)
+                return false;
+            return true;
+        }
+
+        /// <summary>
         /// Determines whether a looped ghost should be spawned for a recording
         /// whose anchor vessel just loaded. Returns false if:
         /// - Recording is not looping

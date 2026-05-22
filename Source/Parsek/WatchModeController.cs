@@ -799,6 +799,25 @@ namespace Parsek
 
         internal void HandleLoopCameraAction(CameraActionEvent evt)
         {
+            // Edge 10 (chain-loop unit watch transfer): a unit-internal segment boundary / span wrap
+            // moves the visible ghost to a DIFFERENT (sibling) member index. The engine fires this
+            // only when the camera is already watching a member of the unit, so evt.Index is the NEW
+            // live member, which is != watchedRecordingIndex (the OLD member). This branch MUST run
+            // BEFORE the watched-index early-return below — that guard is precisely the
+            // evt.Index != watchedRecordingIndex case, so it would otherwise drop the handoff.
+            // Reuses the proven cross-index TransferWatchToNextSegment (camera-state preserving). If
+            // the new live ghost is not spawned yet, the transfer defers (returns false); the
+            // keep-watched-owner-alive fallback (KeepWatchedUnitGhostAlive on the engine) holds the
+            // currently-watched member's ghost so the camera never targets a deactivated ghost even
+            // if this single event is dropped.
+            if (evt.Action == CameraActionType.UnitHandoffRetarget)
+            {
+                if (watchedRecordingIndex < 0) return; // not watching anything
+                if (watchedRecordingIndex == evt.Index) return; // already on the live member
+                TransferWatchToNextSegment(evt.Index);
+                return;
+            }
+
             if (watchedRecordingIndex != evt.Index) return; // not watching this recording
 
             switch (evt.Action)

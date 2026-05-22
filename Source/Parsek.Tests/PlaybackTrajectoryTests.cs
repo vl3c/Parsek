@@ -683,6 +683,9 @@ namespace Parsek.Tests
             Assert.Equal(1, (int)CameraActionType.ExplosionHoldEnd);
             Assert.Equal(2, (int)CameraActionType.RetargetToNewGhost);
             Assert.Equal(3, (int)CameraActionType.ExitWatch);
+            // UnitHandoffRetarget (chain-loop unit watch transfer, edge 10) is appended last so the
+            // existing ordinals above are unchanged.
+            Assert.Equal(4, (int)CameraActionType.UnitHandoffRetarget);
         }
 
         #endregion

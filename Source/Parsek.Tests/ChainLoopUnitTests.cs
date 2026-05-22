@@ -959,5 +959,81 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: -1, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
         }
+
+        // ─── Phase 7: watch-transfer decision on unit handoff (edge 10) ─────────
+
+        // A 3-member unit (committed indices 5,6,7) for the watch-transfer decision tests. The
+        // indices are arbitrary (not 0,1,2) to catch a slot-vs-index confusion: the predicate keys
+        // off the WATCHED committed index and the SELECTED SLOT, not their numeric coincidence.
+        private static GhostPlaybackLogic.LoopUnit ThreeMemberUnit() =>
+            new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 5, memberIndices: new[] { 5, 6, 7 },
+                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150);
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_WatchedUnitAndSlotChanged_True()
+        {
+            // The camera watches member #6 (a member of the unit) and the live slot advances 0->1
+            // (a segment boundary). The retarget must fire so the camera follows the new live member.
+            // WHAT MAKES IT FAIL: returning false here would leave the camera stuck on a now-hidden
+            // member after the unit advances to the next segment.
+            var unit = ThreeMemberUnit();
+            Assert.True(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 6, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+        }
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_WrapSlotChange_True()
+        {
+            // The span wrap moves the live slot from the last member (2) back to the first (0). That
+            // is still a slot change for a watched unit, so the retarget fires (transfers the camera
+            // back to the owner member). Fails if the wrap is not treated as a handoff.
+            var unit = ThreeMemberUnit();
+            Assert.True(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 7, prevSelectedSlot: 2, newSelectedSlot: 0, unit));
+        }
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_WatchedIndexNotInUnit_False()
+        {
+            // The camera watches a recording (#99) that is NOT a member of this unit. Even though the
+            // unit's live slot changed, the retarget must NOT fire — that camera is following an
+            // unrelated ghost. Fails if a non-watched unit retargets the camera (would yank it).
+            var unit = ThreeMemberUnit();
+            Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 99, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+        }
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_SameSlot_False()
+        {
+            // No live-member change this frame (the steady state inside one segment): the predicate
+            // must return false so the retarget fires once per boundary, not every frame. Fails if it
+            // fires on a same-member frame (the camera would re-transfer to itself every frame).
+            var unit = ThreeMemberUnit();
+            Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 5, prevSelectedSlot: 1, newSelectedSlot: 1, unit));
+        }
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_NewSlotNoMember_False()
+        {
+            // The new selection is -1 (an inter-member gap or the span clock could not resolve): the
+            // retarget must not fire to a non-member. Fails if a gap frame retargets the camera to a
+            // bogus -1 member index.
+            var unit = ThreeMemberUnit();
+            Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 6, prevSelectedSlot: 0, newSelectedSlot: -1, unit));
+        }
+
+        [Fact]
+        public void ShouldRetargetWatchOnUnitHandoff_NotWatching_False()
+        {
+            // No watch active (watchedIndex == -1): never fire. Fails if a unit handoff retargets the
+            // camera when nothing is being watched.
+            var unit = ThreeMemberUnit();
+            Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: -1, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+        }
     }
 }

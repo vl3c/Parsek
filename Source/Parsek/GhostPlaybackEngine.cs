@@ -1731,8 +1731,13 @@ namespace Parsek
 
             // Boundary-handoff / cycle-wrap diagnostics: the first member of the unit to run this
             // frame observes the (cycle, slot) transition and logs it once (rate-limited per unit).
+            // It also fires the watch-transfer (edge 10) when the live member changed AND the watched
+            // index belongs to this unit, so a camera following the unit advances with the live
+            // member instead of sticking to the now-hidden ghost.
             bool inGap = decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap;
-            LogUnitTransitionIfChanged(unit, unitKey, selectedSlot, unitCycle, spanLoopUT, ctx.currentUT, inGap);
+            LogUnitTransitionIfChanged(
+                unit, unitKey, selectedSlot, unitCycle, spanLoopUT, ctx.currentUT, inGap,
+                ctx.protectedIndex);
 
             if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
             {
@@ -1771,6 +1776,29 @@ namespace Parsek
                         5.0);
                 }
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "chain-loop-unit-inactive");
+                // Keep-watched-owner-alive fallback (edge 10, design D5): if this hidden member is the
+                // one the camera is watching, hide its ghost WITHOUT destroying it so the camera never
+                // ends up parented to a deactivated/destroyed ghost — even if the UnitHandoffRetarget
+                // transfer to the new live member is dropped or deferred a frame. The watched member's
+                // ghost is the camera's anchor until the transfer lands; once the camera moves to the
+                // new live member, this member is no longer protectedIndex and the normal destroy path
+                // applies. Treats the watched member like the IsGhostHeld case (hide, do not destroy).
+                if (ghostActive && i == ctx.protectedIndex)
+                {
+                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        ParsekLog.VerboseRateLimited(
+                            "CameraFollow", unitKey + "-keep-owner-alive-" + i.ToString(CultureInfo.InvariantCulture),
+                            "unit watch fallback: holding watched member #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " ghost alive (hidden) until camera transfers to the live member",
+                            5.0);
+                    }
+                    DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                    return;
+                }
                 if (ghostActive)
                 {
                     DestroyGhost(i, traj, f, reason: "chain-loop unit member not selected");
@@ -1868,7 +1896,7 @@ namespace Parsek
         /// </summary>
         private void LogUnitTransitionIfChanged(
             GhostPlaybackLogic.LoopUnit unit, string unitKey, int selectedSlot, long cycle,
-            double spanLoopUT, double currentUT, bool inGap)
+            double spanLoopUT, double currentUT, bool inGap, int watchedIndex)
         {
             if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
             {
@@ -1900,6 +1928,33 @@ namespace Parsek
                         + "->#" + newIdx.ToString(CultureInfo.InvariantCulture)
                         + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
                     5.0);
+            }
+
+            // Edge 10: when the live member changed (handoff or wrap) AND the camera is watching a
+            // member of this unit, fire the unit-handoff retarget so the host transfers the camera to
+            // the new live member. The pure decision (ShouldRetargetWatchOnUnitHandoff) gates on the
+            // watched index belonging to this unit and a real slot change; firing here keys off the
+            // SAME single per-frame transition detector this log uses, so the event fires once per
+            // boundary, not every frame. The host's UnitHandoffRetarget handler runs BEFORE its
+            // watched-index early-return so the cross-index (sibling member) transfer is not dropped.
+            if (GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                    watchedIndex, prev.slot, selectedSlot, unit))
+            {
+                int newLiveIdx = selectedSlot < unit.MemberIndices.Length
+                    ? unit.MemberIndices[selectedSlot] : -1;
+                if (newLiveIdx >= 0)
+                {
+                    ParsekLog.Info("CameraFollow",
+                        "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                            + "->#" + newLiveIdx.ToString(CultureInfo.InvariantCulture)
+                            + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                    OnLoopCameraAction?.Invoke(new CameraActionEvent
+                    {
+                        Index = newLiveIdx,
+                        Action = CameraActionType.UnitHandoffRetarget,
+                    });
+                }
             }
 
             lastUnitSelection[unit.OwnerIndex] = (cycle, selectedSlot);

@@ -303,7 +303,18 @@ namespace Parsek
         RetargetToNewGhost,
 
         /// <summary>Ghost gone with no successor — exit watch mode.</summary>
-        ExitWatch
+        ExitWatch,
+
+        /// <summary>
+        /// Chain-loop unit advanced to a new live member at a unit-internal segment boundary or the
+        /// span wrap (edge 10). The camera, currently watching this unit, must transfer to the new
+        /// live member (a DIFFERENT recording index carried in <see cref="CameraActionEvent.Index"/>).
+        /// Distinct from <see cref="RetargetToNewGhost"/> (the explosion-bridge loop-cycle retarget,
+        /// gated on watchedOverlapCycleIndex == -1 and consuming GhostPivot): a unit handoff targets
+        /// a sibling member index, not a new cycle of the same index. Appended last so the existing
+        /// ordinals (ExplosionHoldStart..ExitWatch) are unchanged.
+        /// </summary>
+        UnitHandoffRetarget
     }
 
     /// <summary>
