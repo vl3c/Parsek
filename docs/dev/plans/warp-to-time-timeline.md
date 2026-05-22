@@ -15,24 +15,15 @@ Two cosmetic/layout changes ship in the same PR:
 
 ## UI changes (`UI/TimelineWindowUI.cs`)
 
-### A. Right-align the stats footer
+### A. Remove the stats footer
 
-Current (`TimelineWindowUI.cs:427`):
+The bottom stats line ("n Recordings, m Actions, p Events") is removed entirely
+(per follow-up feedback: it adds little once a timeline has many entries). This
+deletes the footer label, the per-frame stats computation block, the
+`cachedStatsText` field, and the now-unused `filterDirty` recompute flag and all
+its assignments (a write-only private field would otherwise trip CS0414).
 
-```csharp
-GUILayout.Label(cachedStatsText, timelineGrayStyle);
-```
-
-Replace with a horizontal row that pushes the label to the right:
-
-```csharp
-GUILayout.BeginHorizontal();
-GUILayout.FlexibleSpace();
-GUILayout.Label(cachedStatsText, timelineGrayStyle);
-GUILayout.EndHorizontal();
-```
-
-No other footer logic changes; `cachedStatsText` computation stays as-is.
+(The original plan right-aligned this line; that was superseded by removing it.)
 
 ### B. "Warp to time" row (above Close)
 

@@ -87,10 +87,6 @@ namespace Parsek
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
 
-        // Cached stats text — refreshed on cache rebuild or filter change
-        private string cachedStatsText;
-        private bool filterDirty = true;
-
         // Warp-to-time row state. Committed Year/Day/Hour/Minute (KSP calendar; Year 1 /
         // Day 1 = game start). One draft buffer + focused-field sentinel drive the
         // commit-on-Enter / commit-on-click-away idiom (mirrors loop-period editing).
@@ -281,7 +277,6 @@ namespace Parsek
         {
             sliderMin = sliderBoundMin;
             sliderMax = sliderBoundMax;
-            filterDirty = true;
         }
 
         /// <summary>
@@ -291,8 +286,6 @@ namespace Parsek
         public void InvalidateCache()
         {
             timelineDirty = true;
-            filterDirty = true;
-            cachedStatsText = null;
             recordingById = null;
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
@@ -399,7 +392,6 @@ namespace Parsek
                     GameStateStore.IsEventVisibleToCurrentTimeline,
                     GetCurrentGameMode());
                 timelineDirty = false;
-                filterDirty = true;
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
                 // navigation only resolves to visible recordings).
@@ -434,43 +426,6 @@ namespace Parsek
             DrawEntryList();
 
             GUILayout.FlexibleSpace();
-
-            // Stats footer — count only visible (filtered) entries. Rewind/FF mode
-            // depends on live currentUT, so its counts can change without any
-            // explicit filter toggle.
-            bool statsDependOnCurrentUT = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-            if (filterDirty || cachedStatsText == null || statsDependOnCurrentUT)
-            {
-                double currentUT = 0;
-                try { currentUT = Planetarium.GetUniversalTime(); } catch { }
-
-                int recCount = 0;
-                int playerActionCount = 0;
-                int eventCount = 0;
-                if (cachedTimeline != null)
-                {
-                    for (int i = 0; i < cachedTimeline.Count; i++)
-                    {
-                        var e = cachedTimeline[i];
-                        if (!IsEntryVisible(e, currentUT)) continue;
-                        if (e.Source == TimelineSource.Recording) recCount++;
-                        else if (e.IsPlayerAction) playerActionCount++;
-                        else eventCount++;
-                    }
-                }
-
-                var stats = new System.Text.StringBuilder();
-                stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
-                stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
-                stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
-                cachedStatsText = stats.ToString();
-                filterDirty = false;
-            }
-            // Stats footer — right-aligned.
-            GUILayout.BeginHorizontal();
-            GUILayout.FlexibleSpace();
-            GUILayout.Label(cachedStatsText, timelineGrayStyle);
-            GUILayout.EndHorizontal();
 
             // Warp-to-time row (above Close).
             DrawWarpRow();
@@ -691,15 +646,11 @@ namespace Parsek
 
             if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
-                tierFilterMode = TimelineTierFilterMode.Overview;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Overview");
+                tierFilterMode = TimelineTierFilterMode.Overview;                ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
             if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
-                tierFilterMode = TimelineTierFilterMode.Details;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Details");
+                tierFilterMode = TimelineTierFilterMode.Details;                ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
             // Empty column 3 — keeps source-group buttons at col 4/5/6. Must be a
@@ -713,9 +664,7 @@ namespace Parsek
                 || tierFilterMode == TimelineTierFilterMode.ReFly;
             if (actionFilterMode && !showRecordingEntries)
             {
-                showRecordingEntries = true;
-                filterDirty = true;
-            }
+                showRecordingEntries = true;            }
 
             // Source toggles (columns 4-6).
             bool previousGuiEnabled = GUI.enabled;
@@ -723,24 +672,18 @@ namespace Parsek
             bool newShowRec = GUILayout.Toggle(showRecordingEntries, "Recordings", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowRec != showRecordingEntries)
             {
-                showRecordingEntries = newShowRec;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
+                showRecordingEntries = newShowRec;                ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
             bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
-                showActionEntries = newShowAct;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
+                showActionEntries = newShowAct;                ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
             bool newShowEvt = GUILayout.Toggle(showEventEntries, "Events", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowEvt != showEventEntries)
             {
-                showEventEntries = newShowEvt;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
+                showEventEntries = newShowEvt;                ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
             GUI.enabled = previousGuiEnabled;
 
@@ -756,9 +699,7 @@ namespace Parsek
                 !rewindOrFastForwardActive)
             {
                 tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
-                showRecordingEntries = true;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
+                showRecordingEntries = true;                ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
             }
 
             bool reFlyActive = tierFilterMode == TimelineTierFilterMode.ReFly;
@@ -770,9 +711,7 @@ namespace Parsek
                 !reFlyActive)
             {
                 tierFilterMode = TimelineTierFilterMode.ReFly;
-                showRecordingEntries = true;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
+                showRecordingEntries = true;                ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
             }
             GUILayout.EndHorizontal();
         }
@@ -836,9 +775,7 @@ namespace Parsek
             {
                 filter.Clear();
                 sliderMin = sliderBoundMin;
-                sliderMax = sliderBoundMax;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
+                sliderMax = sliderBoundMax;                ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
             }
 
             // "Custom" toggle at the end of the preset row — reveals the sliders underneath.
@@ -900,9 +837,7 @@ namespace Parsek
                 {
                     sliderMin = newMin;
                     sliderMax = newMax;
-                    filter.SetRange(sliderMin, sliderMax);
-                    filterDirty = true;
-                }
+                    filter.SetRange(sliderMin, sliderMax);                }
             }
         }
 
@@ -918,9 +853,7 @@ namespace Parsek
                 if (clampedMax < clampedMin) clampedMax = clampedMin;
                 filter.SetRange(clampedMin, clampedMax, name);
                 sliderMin = (float)clampedMin;
-                sliderMax = (float)clampedMax;
-                filterDirty = true;
-                ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
+                sliderMax = (float)clampedMax;                ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
                     $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
                     $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
             }
