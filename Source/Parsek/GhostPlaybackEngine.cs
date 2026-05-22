@@ -1559,11 +1559,46 @@ namespace Parsek
                 var parent = trajectories[traj.LoopSyncParentIdx];
                 if (ShouldLoopPlayback(parent))
                 {
+                    int parentIdx = traj.LoopSyncParentIdx;
                     double parentLoopUT;
                     long parentCycle;
                     bool parentPaused;
-                    if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                            out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+
+                    // Edge 9: when the loop-sync parent is itself a chain-loop unit member, its timing
+                    // is governed by the unit's SHARED span clock, not its own per-recording loop
+                    // clock. Sourcing TryComputeLoopPlaybackUT here would resolve the parent's
+                    // standalone phase (wrong: a unit member's loop clock never sweeps past its own
+                    // EndUT into a sibling's window). Instead source the span clock for the parent's
+                    // owner so the debris rides the same clock the live parent member does. The span
+                    // clock has no inter-cycle pause (cadence == span), so parentPaused is always
+                    // false on this branch. The rest of the block (cycle-change rebuild, debrisInRange
+                    // test, RenderInRangeGhost) is unchanged — it keys off parentLoopUT / parentCycle.
+                    if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                            parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
+                    {
+                        if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
+                                ctx.currentUT, parentUnit.SpanStartUT, parentUnit.SpanEndUT,
+                                parentUnit.CadenceSeconds, out parentLoopUT, out parentCycle))
+                        {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
+                            if (ghostActive)
+                                DestroyGhost(i, traj, f, reason: "parent unit span clock unresolved");
+                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                            return true;
+                        }
+                        parentPaused = false; // span clock has no pause window (cadence == span)
+                        ParsekLog.VerboseOnChange(
+                            "Engine",
+                            "loop-sync-debris-unit-" + i.ToString(CultureInfo.InvariantCulture),
+                            parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture),
+                            "loop-sync debris #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
+                                + " is unit member (owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                                + ") - sourcing span clock");
+                    }
+                    else if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                            out parentLoopUT, out parentCycle, out parentPaused, parentIdx))
                     {
                         GhostRenderTrace.EmitGuardSkip(
                             traj, i, ctx.currentUT, "parent-loop-sync-failed");

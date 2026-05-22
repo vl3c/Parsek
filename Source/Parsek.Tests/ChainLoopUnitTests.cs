@@ -904,5 +904,60 @@ namespace Parsek.Tests
             for (int i = 0; i < committed.Count; i++)
                 Assert.Equal(flightSet.IsMember(i), kscSet.IsMember(i));
         }
+
+        // ─── Phase 6: debris-on-unit-member branch predicate (edge 9) ───────────
+
+        [Fact]
+        public void ShouldSourceDebrisFromUnitSpan_ParentIsUnitMember_TrueAndResolvesOwnerUnit()
+        {
+            // Edge 9: a debris's loop-sync parent is a chain-loop unit member. The branch predicate
+            // must return true (so TryUpdateLoopSyncedDebris sources the unit's SHARED span clock
+            // instead of the parent's own per-recording loop clock) and resolve the owning unit so
+            // the engine can read its span. Fails if the predicate misses a unit-member parent.
+            CommitChainMember("debA", 0, 100, 150); // index 0 — unit owner
+            CommitChainMember("debA", 1, 150, 200); // index 1 — unit member
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            Assert.True(set.IsMember(1));
+
+            // Parent index 1 is a unit member -> source the span clock.
+            bool source = GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: 1, set, out var unit);
+            Assert.True(source);
+            Assert.Equal(0, unit.OwnerIndex);                 // resolved to the owning unit
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            Assert.Equal(100.0, unit.SpanStartUT, 6);
+            Assert.Equal(200.0, unit.SpanEndUT, 6);
+        }
+
+        [Fact]
+        public void ShouldSourceDebrisFromUnitSpan_ParentNotAUnitMember_False()
+        {
+            // Control: a standalone auto looper (not a chain member) is the debris parent. The
+            // predicate returns false, so the engine keeps the existing per-recording loop-clock
+            // path byte-for-byte (no regression for non-unit debris). Fails if a non-unit parent is
+            // wrongly routed to the span clock.
+            CommitStandaloneAuto(100, 160); // index 0 — standalone, never a unit
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            Assert.Equal(0, set.Count); // no unit formed
+
+            bool source = GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: 0, set, out var unit);
+            Assert.False(source);
+            Assert.Equal(default(GhostPlaybackLogic.LoopUnit).OwnerIndex, unit.OwnerIndex);
+        }
+
+        [Fact]
+        public void ShouldSourceDebrisFromUnitSpan_EmptySetOrNegativeParent_False()
+        {
+            // Defensive: an Empty set (the dormant common case) and a negative parent index (no
+            // loop-sync parent) both return false so the predicate never throws and never sources a
+            // span clock that does not exist.
+            Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: 3, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
+            Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                parentIdx: -1, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
+        }
     }
 }

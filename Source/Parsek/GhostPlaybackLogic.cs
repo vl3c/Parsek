@@ -1112,6 +1112,25 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Edge 9 branch predicate for <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>: returns
+        /// true when a loop-synced debris's parent (<paramref name="parentIdx"/>) is itself a
+        /// chain-loop unit member, in which case the debris must source the unit's SHARED span clock
+        /// (resolving the owner unit via <paramref name="resolvedUnit"/>) instead of the parent's own
+        /// per-recording loop clock — a unit member's standalone loop clock never sweeps into a
+        /// sibling's window, so it is the wrong phase for the debris. Returns false (and the engine
+        /// keeps the existing per-recording loop-clock path) when the parent is not a unit member or
+        /// the set is empty. Pure: the GameObject render decision downstream is verified in-game (P8).
+        /// </summary>
+        internal static bool ShouldSourceDebrisFromUnitSpan(
+            int parentIdx, LoopUnitSet units, out LoopUnit resolvedUnit)
+        {
+            resolvedUnit = default;
+            if (units == null || parentIdx < 0)
+                return false;
+            return units.TryGetUnitForMember(parentIdx, out resolvedUnit);
+        }
+
+        /// <summary>
         /// Determines whether a looped ghost should be spawned for a recording
         /// whose anchor vessel just loaded. Returns false if:
         /// - Recording is not looping
