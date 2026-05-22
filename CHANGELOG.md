@@ -8,7 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### UI
 
-- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward, past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time. In flight, after you confirm, the usual Merge / Discard dialog asks what to do with the in-progress recording (it is never auto-saved) before returning to the Space Center to warp.
+- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward; past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time.
+- Warping in flight first asks (via the usual Merge / Discard dialog) what to do with the in-progress recording before returning to the Space Center; it is never auto-saved.
 - Warping to Year 1 / Day 1 (1/1/0/0) resets a new career to its true starting state (resources, facilities, clock), keeping your recordings as future ghosts. New careers get a one-time start snapshot for this; saves created before this version instead land at your earliest launch.
 - Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
 - The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.

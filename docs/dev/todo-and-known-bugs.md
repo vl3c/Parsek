@@ -12,16 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.9.3 Warp-to-time: in-flight paths not yet playtested
+## Done - v0.10.0 Warp-to-time: in-flight paths validated
 
-- "Warp to time" (Timeline window, PR #947) was playtested only from the Space Center: the 2026-05-22 run (`logs/2026-05-22_2011_warp-playtest/`, save `s10`) confirmed career-start capture, the 1/1/0/0 reset (UT 7748 -> 0.1), forward jumps (3600s, 46800s), and a career-start reset + exact fast-forward to 120s. No warp/rewind/ledger errors; recordings were kept as future ghosts (`recordings=2` post-reset); the consumer's `rewindPending` settle-wait observed the post-rewind UT in every case.
-- NOT exercised: the in-flight flow that commits the active recording (`CommitTreeFlight`) and routes the warp through the Space Center. Two sub-paths need a live test: (a) Flight + ForwardOnly (commit -> `LoadScene(SPACECENTER)` -> deferred `ExecuteForwardJump`), (b) Flight + RewindThenForward (commit -> deferred `InitiateRewind` / `InitiateRewindToCareerStart` -> consumer forward jump). Verify: the recording is saved, the scene exits cleanly, the pending warp is consumed exactly once (no leak), and the clock lands correctly.
-- Also unexercised at runtime: the consumer guard-expiry abort (`ConsumePendingWarp` refuses to jump if `RewindUTAdjustmentPending` does not clear within ~5s) — only fires if a rewind reload stalls.
-- **Status:** OPEN — needs in-flight playtest.
+- "Warp to time" (Timeline window, PR #947) in-flight flow validated in the 2026-05-22 run (`logs/2026-05-22_2123_warp-inflight-v2/`, save `s10`). The in-flight warp no longer auto-commits: it uses the simple KSC confirm text, then defers through the Space Center so the existing scene-exit Merge / Discard dialog handles the active recording first.
+- Exercised, all correct: Flight + ForwardOnly (Y1 D2 -> forward jump 223->21600s), Flight + RewindThenForward to a pre-launch time (Y1 D1 0:03 -> career-start reset UT 24376->0.1 then forward jump to exactly 180s, across two Space Center arrivals), and Flight + game start (Y1 D1 0:00 -> reset to 0.1, no forward jump). The Merge / Discard dialog (`Pre-transition tree merge dialog: tree='Butterfly Rover'`) appeared every time; Discard dropped the recording (committed trees stayed 2), Merge committed it (`CommitTree` / `MarkTreeAsApplied`, trees 2->3->4) keeping it as a future ghost. No warp/rewind/scene-exit/merge errors.
+- Still unexercised at runtime (rare, acceptable): the consumer guard-expiry abort (`ConsumePendingWarp` refuses to jump if `RewindUTAdjustmentPending` does not clear within ~5s) — only fires if a rewind reload stalls.
+- **Status:** CLOSED 2026-05-22.
 
 ---
 
-## Open - v0.9.3 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
+## Open - v0.10.0 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
 
 - `RecordingStore.InitiateRewindToCareerStart` (PR #947) repeats ~25 lines of the load sequence from `InitiateRewind` (copy temp save to root -> `GamePersistence.LoadGame` -> temp delete -> `SetAdjustedUT` -> `HighLogic.CurrentGame = game` -> `LoadScene(SPACECENTER)`, plus the try/catch + `ResetRewindFlags` + `DeleteTemporaryRewindSaveCopy` failure path). The behavior-critical parts (RewindContext setup, `HandleRewindOnLoad`, ledger recalc) are already shared; only this mechanical wrapper is duplicated.
 - **Fix (deferred):** extract a shared private helper parameterized by whether to run `PreProcessRewindSave` (strip + lead-time windback) and whether to drop supersedes for an owner, so both entries call it. Deferred from PR #947 because it edits the proven `InitiateRewind` path, which xUnit cannot cover end-to-end (needs the Unity `LoadGame` round-trip) — land it as a separately-reviewed change with a fresh Rewind-to-Launch playtest, not bundled with the warp feature.
@@ -29,7 +29,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.9.3 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
+## Open - v0.10.0 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
 
 - `FlightRecorder.CaptureRewindSave` and `CareerStartSnapshot.Capture` (PR #947) both `GamePersistence.SaveGame` to the save root then `File.Move` only the `.sfs` into `Parsek/Saves/`, leaving the sidecar `.loadmeta` (`parsek_rw_*.loadmeta`, `parsek_career_start.loadmeta`) orphaned in the save root (observed in save `s10`). Pre-existing for the rewind saves; career-start adds one more.
 - **Fix:** delete (or move) the matching `.loadmeta` after moving the `.sfs` in both capture sites. Cosmetic — the orphan is harmless, it just litters the save folder.
