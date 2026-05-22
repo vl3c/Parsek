@@ -492,5 +492,143 @@ namespace Parsek.Tests
                 l.Contains("[Loop]") && l.Contains("chain logD")
                 && l.Contains("not a unit: branch>0"));
         }
+
+        // ─── Phase 3: global-queue exclusion in the engine schedule rebuild ─────
+
+        /// <summary>
+        /// Materializes the committed recordings as an IPlaybackTrajectory list in committed-index
+        /// order (Recording implements IPlaybackTrajectory). The committed index == trajectory
+        /// index == descriptor key invariant the LoopUnitSet relies on.
+        /// </summary>
+        private static List<IPlaybackTrajectory> TrajectoriesFromCommitted()
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            var list = new List<IPlaybackTrajectory>(committed.Count);
+            for (int i = 0; i < committed.Count; i++)
+                list.Add(committed[i]);
+            return list;
+        }
+
+        private static Recording CommitStandaloneAuto(double startUT, double endUT)
+        {
+            var rec = new Recording
+            {
+                VesselName = "standalone",
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopTimeUnit = LoopTimeUnit.Auto,
+            };
+            rec.Points.Add(MakePoint(startUT));
+            rec.Points.Add(MakePoint(endUT));
+            RecordingStore.CommitRecordingDirect(rec);
+            return rec;
+        }
+
+        [Fact]
+        public void RebuildSchedule_UnitMembersExcludedFromGlobalQueue()
+        {
+            // Members {0,1} form a unit; index 2 is a standalone auto recording. After the engine
+            // rebuilds the global auto-launch schedule with the unit pushed in, index 2 keeps its
+            // global slot but the two unit members do NOT (they are scheduled by their span clock).
+            // Fails if a unit member also receives a global slot (double-scheduling regression).
+            CommitChainMember("schedA", 0, 100, 150);
+            CommitChainMember("schedA", 1, 150, 200);
+            CommitStandaloneAuto(300, 360); // index 2
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            Assert.True(set.IsMember(0));
+            Assert.True(set.IsMember(1));
+            Assert.False(set.IsMember(2));
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetLoopUnitsForTesting(set);
+            engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
+                TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
+
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(0)); // unit member excluded
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(1)); // unit member excluded
+            Assert.True(engine.TryGetAutoLoopScheduleForTesting(2));  // standalone keeps its slot
+        }
+
+        [Fact]
+        public void RebuildSchedule_NoUnits_StandaloneAutosAllScheduled()
+        {
+            // Control: with an Empty LoopUnitSet, every eligible auto-loop recording keeps its
+            // global slot. This pins the exclusion to the unit membership, not to a blanket change
+            // in the rebuild. Fails if the rebuild drops standalone autos when no unit exists.
+            CommitStandaloneAuto(100, 160); // index 0
+            CommitStandaloneAuto(300, 360); // index 1
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetLoopUnitsForTesting(GhostPlaybackLogic.LoopUnitSet.Empty);
+            engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
+                TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
+
+            Assert.True(engine.TryGetAutoLoopScheduleForTesting(0));
+            Assert.True(engine.TryGetAutoLoopScheduleForTesting(1));
+        }
+
+        [Fact]
+        public void RebuildSchedule_MixedList_StandaloneStaysInParade()
+        {
+            // Mixed: a standalone auto (index 0) + a 3-member auto chain (indices 1,2,3). The
+            // standalone keeps its parade slot; all three chain members are excluded. Fails if
+            // either population leaks into the other's scheduling.
+            CommitStandaloneAuto(50, 110); // index 0
+            CommitChainMember("schedM", 0, 200, 250); // index 1
+            CommitChainMember("schedM", 1, 250, 300); // index 2
+            CommitChainMember("schedM", 2, 300, 350); // index 3
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(1, out var unit));
+            Assert.Equal(new[] { 1, 2, 3 }, unit.MemberIndices);
+
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetLoopUnitsForTesting(set);
+            engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
+                TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
+
+            Assert.True(engine.TryGetAutoLoopScheduleForTesting(0));  // standalone parade slot
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(1)); // chain member excluded
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(2)); // chain member excluded
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(3)); // chain member excluded
+        }
+
+        [Fact]
+        public void RebuildSchedule_ExclusionLogsReason()
+        {
+            // The exclusion is observable: each excluded member logs its owner once (VerboseOnChange).
+            // Fails if the global-queue / unit split is silent (protects the design's diagnostic).
+            CommitChainMember("schedL", 0, 100, 150);
+            CommitChainMember("schedL", 1, 150, 200);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            // VerboseOnChange emits only on the first observation of an (identity, stateKey) pair;
+            // reset so a prior test's exclusion state does not suppress this one's first emit.
+            ParsekLog.ResetRateLimitsForTesting();
+
+            var captured = new List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                var engine = new GhostPlaybackEngine(positioner: null);
+                engine.SetLoopUnitsForTesting(set);
+                engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
+                    TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("chain-loop member recIdx=0")
+                && l.Contains("excluded from global auto queue") && l.Contains("unit owner=0"));
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("chain-loop member recIdx=1")
+                && l.Contains("excluded from global auto queue") && l.Contains("unit owner=0"));
+        }
     }
 }

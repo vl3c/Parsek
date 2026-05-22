@@ -18154,6 +18154,13 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
                 cachedTrajectories.Add(committed[i]);
 
+            // Chain-loop units: detect once per frame from the SAME committed list cachedTrajectories
+            // was built from (preserving the committed-index == trajectory-index alignment the
+            // descriptors are keyed on) and push the frozen snapshot to the engine before
+            // UpdatePlayback. The same value object would feed the tracking-station scheduler in
+            // Phase 5. Empty for saves with no consecutive auto-loop chain members (feature dormant).
+            engine.SetLoopUnits(RecordingStore.DetectChainLoopUnits(committed));
+
             if (HasAnchorReFlyUnstableFlag(flags))
             {
                 reFlySettlePoseLogActiveFrame = Time.frameCount;

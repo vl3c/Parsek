@@ -64,6 +64,13 @@ namespace Parsek
             autoLoopLaunchSchedules = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>();
         private readonly List<AutoLoopQueueCandidate> autoLoopQueueScratch = new List<AutoLoopQueueCandidate>();
 
+        // Chain-loop unit descriptors for THIS frame (host-detected, opaque to the engine).
+        // Pushed once per frame via SetLoopUnits before UpdatePlayback, exactly the lifetime of
+        // autoLoopLaunchSchedules. Empty (LoopUnitSet.Empty) means no consecutive auto-loop chain
+        // members exist, which keeps the whole chain-loop-unit feature dormant. The engine never
+        // reads Recording / ChainId — it consumes the index-keyed descriptors as opaque sets.
+        private GhostPlaybackLogic.LoopUnitSet currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
         // buffers used below.
@@ -220,6 +227,21 @@ namespace Parsek
         /// behaviour falls back to the pre-handoff destroy-and-respawn shape.
         /// </summary>
         internal System.Func<int, int> ResolveChainNextIndex;
+
+        /// <summary>
+        /// Pushes the host-detected chain-loop unit descriptors for the upcoming frame. Mirrors
+        /// the <see cref="ResolveChainNextIndex"/> / <see cref="IsGhostHeld"/> host-injection
+        /// pattern, but as a per-frame snapshot (not a recompute-on-demand delegate) so detection
+        /// runs exactly once per frame and both schedulers (flight engine + tracking station)
+        /// consume an identical frozen view (design D1). Called by the host once per frame, right
+        /// before <see cref="UpdatePlayback"/>, alongside building the trajectory list. A null
+        /// argument is normalized to <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> so the
+        /// feature stays dormant when the host has no units.
+        /// </summary>
+        internal void SetLoopUnits(GhostPlaybackLogic.LoopUnitSet units)
+        {
+            currentLoopUnits = units ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+        }
 
         /// <summary>
         /// Per-slot bookkeeping for the chain-bridge hold: the playback UT at
@@ -4018,6 +4040,22 @@ namespace Parsek
                 if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(traj))
                     continue;
 
+                // Chain-loop unit members are scheduled by their unit's span clock, not the flat
+                // global stagger, so they must never receive a staggered global slot (design
+                // 215-221). Excluding them here is the single global-queue exclusion point; the
+                // span-clock render dispatch (Phase 4) takes over their playback.
+                if (currentLoopUnits.OwnerByIndex.TryGetValue(i, out int unitOwner))
+                {
+                    ParsekLog.VerboseOnChange(
+                        "Loop",
+                        "chain-loop-exclude-" + i.ToString(CultureInfo.InvariantCulture),
+                        unitOwner.ToString(CultureInfo.InvariantCulture),
+                        "chain-loop member recIdx=" + i.ToString(CultureInfo.InvariantCulture)
+                            + " excluded from global auto queue (unit owner="
+                            + unitOwner.ToString(CultureInfo.InvariantCulture) + ")");
+                    continue;
+                }
+
                 autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
                     i,
                     EffectiveLoopStartUT(traj),
@@ -5306,6 +5344,16 @@ namespace Parsek
         // exercise the decision directly without constructing a full FrameContext.
         internal bool TryReserveSpawnSlotForTesting(int index, string site)
             => TryReserveSpawnSlot(index, site);
+        // Chain-loop scheduling test seam: drives the schedule rebuild directly (UpdatePlayback
+        // early-returns when positioner == null, before the rebuild runs) so the global-queue
+        // exclusion can be asserted structurally without a live scene.
+        internal void SetLoopUnitsForTesting(GhostPlaybackLogic.LoopUnitSet units)
+            => SetLoopUnits(units);
+        internal void RebuildAutoLoopLaunchScheduleCacheForTesting(
+            IReadOnlyList<IPlaybackTrajectory> trajectories, double autoLoopIntervalSeconds)
+            => RebuildAutoLoopLaunchScheduleCache(trajectories, autoLoopIntervalSeconds);
+        internal bool TryGetAutoLoopScheduleForTesting(int index)
+            => autoLoopLaunchSchedules.ContainsKey(index);
         internal void IncrementFrameSpawnCountForTesting()
             => frameSpawnCount++;
         internal int FrameSpawnCountForTesting => frameSpawnCount;
