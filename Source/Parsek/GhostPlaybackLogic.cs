@@ -1055,6 +1055,62 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>The render outcome for one member of a chain-loop unit on a given frame.</summary>
+        internal enum UnitMemberRenderDecision
+        {
+            /// <summary>The span clock could not resolve (before span start or degenerate span).</summary>
+            SpanClockUnresolved,
+            /// <summary>This member's window covers the span loopUT — render it at <c>SpanLoopUT</c>.</summary>
+            Render,
+            /// <summary>A sibling member is selected for this loopUT — hide this member.</summary>
+            HiddenSiblingSelected,
+            /// <summary>The span clock sits in an inter-member gap — hide this member (edge 6).</summary>
+            HiddenInGap,
+            /// <summary>The span clock is outside the unit span entirely — hide this member.</summary>
+            HiddenOutsideSpan,
+        }
+
+        /// <summary>
+        /// Pure composite decision for the engine's per-member follower dispatch: given the unit
+        /// span/cadence, this member's slot, and the members' raw windows, returns whether THIS
+        /// member should render (and at what span loopUT / unit cycle) or be hidden, and why. This
+        /// is the testable seam for <c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c> — the
+        /// GameObject activation itself is verified in-game (Phase 8). Composes
+        /// <see cref="TryComputeSpanLoopUT"/> and <see cref="TrySelectSpanMember"/>; applies edge-5
+        /// overlap precedence and edge-6 gap handling through the latter. Pure: no logging.
+        /// </summary>
+        internal static UnitMemberRenderDecision DecideUnitMemberRender(
+            double currentUT,
+            double spanStartUT,
+            double spanEndUT,
+            double cadenceSeconds,
+            int memberSlot,
+            IReadOnlyList<(double startUT, double endUT)> memberWindows,
+            out double spanLoopUT,
+            out long unitCycle,
+            out int selectedSlot)
+        {
+            spanLoopUT = spanStartUT;
+            unitCycle = 0;
+            selectedSlot = -1;
+
+            if (!TryComputeSpanLoopUT(
+                    currentUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT, out unitCycle))
+                return UnitMemberRenderDecision.SpanClockUnresolved;
+
+            bool covered = TrySelectSpanMember(
+                spanLoopUT, memberWindows, out selectedSlot, out bool inGap);
+
+            if (!covered)
+                return inGap
+                    ? UnitMemberRenderDecision.HiddenInGap
+                    : UnitMemberRenderDecision.HiddenOutsideSpan;
+
+            return selectedSlot == memberSlot
+                ? UnitMemberRenderDecision.Render
+                : UnitMemberRenderDecision.HiddenSiblingSelected;
+        }
+
         /// <summary>
         /// Determines whether a looped ghost should be spawned for a recording
         /// whose anchor vessel just loaded. Returns false if:

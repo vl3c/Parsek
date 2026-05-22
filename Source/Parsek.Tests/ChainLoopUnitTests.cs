@@ -630,5 +630,125 @@ namespace Parsek.Tests
                 l.Contains("[Loop]") && l.Contains("chain-loop member recIdx=1")
                 && l.Contains("excluded from global auto queue") && l.Contains("unit owner=0"));
         }
+
+        // ─── Phase 4: DecideUnitMemberRender (follower dispatch decision) ───────
+
+        // Three contiguous members tiling the span [100, 250]: slot 0 [100,150], slot 1 [150,200],
+        // slot 2 [200,250]. Cadence == span (150s, above MinCycleDuration so no clamp).
+        private static List<(double startUT, double endUT)> ThreeContiguousWindows() =>
+            new List<(double, double)> { (100, 150), (150, 200), (200, 250) };
+
+        [Fact]
+        public void DecideUnitMemberRender_SelectedMemberRenders_AtSpanLoopUT()
+        {
+            // currentUT 175 sits in cycle 0 at loopUT 175, which is inside slot 1's window. Slot 1
+            // renders; slots 0 and 2 are hidden because a sibling is selected. spanLoopUT == 175.
+            var w = ThreeContiguousWindows();
+
+            var d1 = GhostPlaybackLogic.DecideUnitMemberRender(
+                175, 100, 250, 150, memberSlot: 1, w,
+                out double loopUT, out long cycle, out int sel);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d1);
+            Assert.Equal(175.0, loopUT, 6);
+            Assert.Equal(0, cycle);
+            Assert.Equal(1, sel);
+
+            var d0 = GhostPlaybackLogic.DecideUnitMemberRender(
+                175, 100, 250, 150, memberSlot: 0, w, out _, out _, out int sel0);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d0);
+            Assert.Equal(1, sel0); // slot 1 is the live member
+
+            var d2 = GhostPlaybackLogic.DecideUnitMemberRender(
+                175, 100, 250, 150, memberSlot: 2, w, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d2);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_ExactlyOneMemberRendersAcrossTheSpan()
+        {
+            // Sample one interior loopUT per member; exactly that slot renders and the other two
+            // are hidden. Fails if two members render simultaneously outside an overlap.
+            var w = ThreeContiguousWindows();
+            double[] samples = { 120, 175, 230 };
+            for (int live = 0; live < 3; live++)
+            {
+                for (int slot = 0; slot < 3; slot++)
+                {
+                    var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                        samples[live], 100, 250, 150, slot, w, out _, out _, out _);
+                    if (slot == live)
+                        Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
+                    else
+                        Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d);
+                }
+            }
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_OverlapPrecedence_HigherIndexRendersLowerHidden()
+        {
+            // Edge 5: slots 0 [100,150.5] and 1 [150,200] overlap by 0.5s. At loopUT 150.25 the
+            // higher-index slot 1 renders and slot 0 is hidden (continuation is authoritative).
+            var w = new List<(double, double)> { (100, 150.5), (150, 200) };
+
+            // currentUT == 150.25, span [100,200], cadence 100 -> loopUT 150.25 in cycle 0.
+            var dHigh = GhostPlaybackLogic.DecideUnitMemberRender(
+                150.25, 100, 200, 100, memberSlot: 1, w, out double loopUT, out _, out int sel);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dHigh);
+            Assert.Equal(1, sel);
+            Assert.Equal(150.25, loopUT, 6);
+
+            var dLow = GhostPlaybackLogic.DecideUnitMemberRender(
+                150.25, 100, 200, 100, memberSlot: 0, w, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, dLow);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_GapHidesAllMembers()
+        {
+            // Edge 6: a UT gap between slot 0 end (150) and slot 1 start (160). A loopUT in the gap
+            // (155) hides every member with HiddenInGap. Fails if it clamps to the stale slot 0.
+            var w = new List<(double, double)> { (100, 150), (160, 210) };
+
+            // span [100,210], cadence 110; currentUT 155 -> loopUT 155 (cycle 0) in the gap.
+            var d0 = GhostPlaybackLogic.DecideUnitMemberRender(
+                155, 100, 210, 110, memberSlot: 0, w, out double loopUT, out _, out int sel);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap, d0);
+            Assert.Equal(-1, sel);     // no member selected
+            Assert.Equal(155.0, loopUT, 6);
+
+            var d1 = GhostPlaybackLogic.DecideUnitMemberRender(
+                155, 100, 210, 110, memberSlot: 1, w, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap, d1);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_BeforeSpanStart_SpanClockUnresolved()
+        {
+            // currentUT before spanStart: the span clock cannot resolve, so the member is hidden
+            // with SpanClockUnresolved (distinct from the in-span hide reasons).
+            var w = ThreeContiguousWindows();
+
+            var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                50, 100, 250, 150, memberSlot: 0, w, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved, d);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_CycleIndexAdvancesAfterWrap()
+        {
+            // After one full cadence the span clock wraps to cycle 1. At currentUT 275 (175s past
+            // spanStart, one 150s cadence + 25s) loopUT folds to 125 in cycle 1, selecting slot 0.
+            // The returned unitCycle == 1 is what the engine writes to state.loopCycleIndex to
+            // trigger the per-cycle ghost rebuild.
+            var w = ThreeContiguousWindows();
+
+            var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                275, 100, 250, 150, memberSlot: 0, w, out double loopUT, out long cycle, out int sel);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
+            Assert.Equal(1, cycle);          // wrapped into cycle 1
+            Assert.Equal(125.0, loopUT, 6);  // 25s into the span, inside slot 0
+            Assert.Equal(0, sel);
+        }
     }
 }

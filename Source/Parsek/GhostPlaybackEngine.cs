@@ -71,6 +71,14 @@ namespace Parsek
         // reads Recording / ChainId — it consumes the index-keyed descriptors as opaque sets.
         private GhostPlaybackLogic.LoopUnitSet currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
+        // Last (cycleIndex, selectedSlot) the span clock resolved for each unit owner. Each unit
+        // member computes the span clock independently (no shared mutable state per design D3), so
+        // this is purely for the boundary-handoff / cycle-wrap diagnostic log: the FIRST member of
+        // a unit to run this frame observes the transition and logs it once. Keyed by owner index;
+        // pruned implicitly because only members write it and membership self-heals each frame.
+        private readonly Dictionary<int, (long cycle, int slot)> lastUnitSelection
+            = new Dictionary<int, (long, int)>();
+
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
         // buffers used below.
@@ -106,6 +114,9 @@ namespace Parsek
         private int frameSkipAnchorReFlyUnstable;
         private int frameSkipChainShadowed;
         private int frameSkipChainBridgeHeld;
+        // Chain-loop unit follower: per-frame count of unit members hidden because the shared span
+        // clock selected a different member (or a gap, or the clock failed). See UpdateUnitMemberPlayback.
+        private int frameSkipChainLoopUnitInactive;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -577,6 +588,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.ChainBridgeHeld:
                     frameSkipChainBridgeHeld++;
                     break;
+                case GhostPlaybackSkipReason.ChainLoopUnitInactive:
+                    frameSkipChainLoopUnitInactive++;
+                    break;
             }
         }
 
@@ -601,7 +615,8 @@ namespace Parsek
                 || counters.anchorRotationUnreliable > 0
                 || counters.anchorReFlyUnstable > 0
                 || counters.chainShadowed > 0
-                || counters.chainBridgeHeld > 0;
+                || counters.chainBridgeHeld > 0
+                || counters.chainLoopUnitInactive > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -613,7 +628,8 @@ namespace Parsek
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
-                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19}] " +
+                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19} " +
+                "chainLoopUnitInactive={21}] " +
                 "active={20}",
                 counters.spawned,
                 counters.destroyed,
@@ -635,7 +651,8 @@ namespace Parsek
                 counters.anchorReFlyUnstable,
                 counters.chainShadowed,
                 counters.chainBridgeHeld,
-                counters.active);
+                counters.active,
+                counters.chainLoopUnitInactive);
         }
 
         private GhostPlaybackFrameCounters BuildCurrentFrameCounters()
@@ -662,6 +679,7 @@ namespace Parsek
                 anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
                 chainShadowed = frameSkipChainShadowed,
                 chainBridgeHeld = frameSkipChainBridgeHeld,
+                chainLoopUnitInactive = frameSkipChainLoopUnitInactive,
                 active = ghostStates.Count
             };
         }
@@ -966,6 +984,22 @@ namespace Parsek
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
                 {
+                    // === Chain-loop unit follower interception (Phase 4) ===
+                    // If this index is a member of a chain-loop unit, it is driven by the unit's
+                    // shared span clock, NOT its own per-recording loop clock. Route it through
+                    // UpdateUnitMemberPlayback (which re-checks anchor gating + warp suppression
+                    // per-member) and skip the standalone loop dispatch below. Gated entirely on
+                    // unit membership, which is empty until two consecutive auto-loop members
+                    // exist, so non-members fall straight through to the standalone loop path.
+                    if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                    {
+                        UpdateUnitMemberPlayback(
+                            i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                            hasPointData, hasInterpolatedPoints,
+                            hasSurfaceData, hasOrbitData, ref state, ref ghostActive);
+                        continue;
+                    }
+
                     // Anchor gating: if anchor configured but not loaded, skip ghost
                     if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
                     {
@@ -1425,6 +1459,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
+            frameSkipChainLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -1588,6 +1623,218 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Chain-loop unit follower dispatch (Phase 4). Routes a unit member onto the unit's
+        /// SHARED span clock instead of its own per-recording loop clock. Each member runs this
+        /// independently per frame (no shared mutable cache, design D3): it computes the span
+        /// loopUT, asks which member's window covers it (<see cref="GhostPlaybackLogic.TrySelectSpanMember"/>,
+        /// higher-ChainIndex wins an overlap), and either renders THIS member at the span loopUT
+        /// (when it is the selected one) or hides / destroys its ghost (when a sibling is selected,
+        /// the clock sits in an inter-member gap, or the clock could not resolve). Because members
+        /// tile the span contiguously, exactly one is visible at a time and the visible ghost
+        /// changes at each segment boundary — reproducing the seamless chain handoff under looping.
+        ///
+        /// Re-checks anchor gating (edge 17) and warp suppression (edge 12) per-member so the unit
+        /// only supplies the clock; the member still resolves its own anchor / surface at loopUT.
+        /// On a unit cycle change the ghost is rebuilt for a clean per-cycle visual (design 257-262).
+        /// <paramref name="state"/> / <paramref name="ghostActive"/> are by ref because the
+        /// cycle-change path nulls state and the inner RenderInRangeGhost reassigns both.
+        /// </summary>
+        private void UpdateUnitMemberPlayback(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, GhostPlaybackLogic.LoopUnit unit,
+            bool suppressGhosts, bool suppressVisualFx,
+            bool hasPointData, bool hasInterpolatedPoints,
+            bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            string unitKey = "unit-" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture);
+
+            // (1) Per-member anchor gating (edge 17): the unit only supplies the clock; each member
+            // still short-circuits if its own anchor is configured but unloaded.
+            if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT,
+                    "unit-member-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: $"unit member anchor {traj.LoopAnchorVesselId} unloaded");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
+                return;
+            }
+
+            // (2/3) Span clock + member selection, composed in the pure (xUnit-tested) decision
+            // helper. Build the member windows (raw StartUT/EndUT in ChainIndex order, decision D2)
+            // and locate THIS member's slot. Defensive: the descriptor is keyed on the same
+            // committed/trajectory list, so memberIdx is in range; NaN-fill any stale entry so a
+            // bad descriptor cannot index OOB and cannot spuriously cover spanLoopUT.
+            int mySlot = -1;
+            var windows = new List<(double startUT, double endUT)>(unit.MemberIndices.Length);
+            for (int m = 0; m < unit.MemberIndices.Length; m++)
+            {
+                int memberIdx = unit.MemberIndices[m];
+                if (memberIdx == i)
+                    mySlot = m;
+                if (memberIdx >= 0 && memberIdx < trajectories.Count && trajectories[memberIdx] != null)
+                {
+                    var member = trajectories[memberIdx];
+                    windows.Add((member.StartUT, member.EndUT));
+                }
+                else
+                {
+                    windows.Add((double.NaN, double.NaN));
+                }
+            }
+
+            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                ctx.currentUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                mySlot, windows, out double spanLoopUT, out long unitCycle, out int selectedSlot);
+
+            // Boundary-handoff / cycle-wrap diagnostics: the first member of the unit to run this
+            // frame observes the (cycle, slot) transition and logs it once (rate-limited per unit).
+            bool inGap = decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap;
+            LogUnitTransitionIfChanged(unit, unitKey, selectedSlot, unitCycle, spanLoopUT, ctx.currentUT, inGap);
+
+            if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
+            {
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-span-clock-unresolved");
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "unit span clock unresolved");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                return;
+            }
+
+            // (4) Not the selected member (a sibling is live, an inter-member gap, or outside the
+            // span): hide / destroy THIS member's ghost for the frame.
+            if (decision != GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+            {
+                if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "Engine", unitKey + "-hide-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " hidden: span member slot=" + selectedSlot.ToString(CultureInfo.InvariantCulture)
+                            + " is live at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                        5.0);
+                }
+                else if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap)
+                {
+                    // Edge 6: the span clock landed in an inter-member UT gap; no member renders.
+                    ParsekLog.VerboseRateLimited(
+                        "Engine", unitKey + "-gap",
+                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " in inter-member gap, no member visible",
+                        5.0);
+                }
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "chain-loop-unit-inactive");
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "chain-loop unit member not selected");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                return;
+            }
+
+            // (5) This member IS selected. Warp suppression on the live member (edge 12): the unit
+            // uses the same per-frame render path, so the same warp gate applies at spanLoopUT.
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                    ctx.warpRate, traj, spanLoopUT))
+            {
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-warp-hidden");
+                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                DestroyAllOverlapGhosts(i);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                return;
+            }
+
+            // The span clock never produces overlap cycles (cadence == span, one cycle live), so a
+            // unit member should never carry overlap ghosts. Clear any stale ones left over from a
+            // prior standalone overlap-loop life (e.g. the member was just toggled into the unit
+            // mid-flight). Cheap no-op when the slot has no overlap entry.
+            if (overlapGhosts.ContainsKey(i))
+                DestroyAllOverlapGhosts(i);
+
+            // (6) Cycle change: rebuild the ghost for a clean per-cycle visual (same shape the
+            // loop-synced-debris path uses) and clear the completed-event dedup so it can replay.
+            if (state != null && state.loopCycleIndex != unitCycle)
+            {
+                DestroyGhost(i, traj, f, reason: "chain-loop unit cycle change");
+                ghostActive = false;
+                state = null;
+                completedEventFired.Remove(i);
+            }
+
+            // (7) Render THIS member at the span loopUT via the normal in-range path. Override the
+            // frame UT for positioning (same technique as TryUpdateLoopSyncedDebris).
+            var syncCtx = ctx;
+            syncCtx.currentUT = spanLoopUT;
+            if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
+                    hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                    allowEarlyDestroyedDebrisCompletion: false,
+                    ref state, ref ghostActive))
+            {
+                if (state != null)
+                    state.loopCycleIndex = unitCycle;
+            }
+        }
+
+        /// <summary>
+        /// Logs the unit's segment-boundary handoff and cycle wrap once per transition
+        /// (rate-limited per unit owner). Called by every member of the unit; only the first
+        /// member to run this frame sees a CHANGE versus the last recorded (cycle, slot) and logs.
+        /// Records the new (cycle, slot) so siblings later in the same frame see no change.
+        /// </summary>
+        private void LogUnitTransitionIfChanged(
+            GhostPlaybackLogic.LoopUnit unit, string unitKey, int selectedSlot, long cycle,
+            double spanLoopUT, double currentUT, bool inGap)
+        {
+            if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
+            {
+                lastUnitSelection[unit.OwnerIndex] = (cycle, selectedSlot);
+                return;
+            }
+            if (prev.cycle == cycle && prev.slot == selectedSlot)
+                return;
+
+            if (cycle != prev.cycle)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-wrap",
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " wrapped cycle " + prev.cycle.ToString(CultureInfo.InvariantCulture)
+                        + "->" + cycle.ToString(CultureInfo.InvariantCulture)
+                        + " at UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+            else if (selectedSlot != prev.slot && !inGap && prev.slot >= 0 && selectedSlot >= 0)
+            {
+                int prevIdx = prev.slot < unit.MemberIndices.Length ? unit.MemberIndices[prev.slot] : -1;
+                int newIdx = selectedSlot < unit.MemberIndices.Length ? unit.MemberIndices[selectedSlot] : -1;
+                string verb = selectedSlot > prev.slot ? "handoff" : "overlap";
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-handoff",
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " " + verb + " member #" + prevIdx.ToString(CultureInfo.InvariantCulture)
+                        + "->#" + newIdx.ToString(CultureInfo.InvariantCulture)
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+
+            lastUnitSelection[unit.OwnerIndex] = (cycle, selectedSlot);
         }
 
         /// <summary>
@@ -5397,6 +5644,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
+            frameSkipChainLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -7540,6 +7788,11 @@ namespace Parsek
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
             chainBridgeOpenedUT.Clear();
+            // Chain-loop unit state is per-frame (rebuilt from host detection on the next
+            // SetLoopUnits), but drop the cached transition log state so a re-spawned unit logs
+            // its first handoff fresh rather than against a stale prior-session selection.
+            currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+            lastUnitSelection.Clear();
 
             // Drop cached structural-event UT lists and per-ghost trace
             // cursors so a re-spawned ghost computes its first delta
@@ -7557,6 +7810,9 @@ namespace Parsek
         {
             autoLoopLaunchSchedules.Clear();
             autoLoopQueueScratch.Clear();
+            // Owner indices shift on delete; the unit set + transition log are rebuilt next frame
+            // from host detection, so clear the stale transition-log keys here.
+            lastUnitSelection.Clear();
             ReindexDict(ghostStates, removedIndex);
             ReindexDict(overlapGhosts, removedIndex);
             ReindexDict(loopPhaseOffsets, removedIndex);

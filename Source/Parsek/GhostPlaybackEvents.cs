@@ -40,6 +40,12 @@ namespace Parsek
         // it via the stale-past-end cleanup. Bounded by a real-time bridge
         // window so a continuation that never spawns still tears down.
         ChainBridgeHeld = 17,
+        // Chain-loop unit follower: this index is a unit member but the shared
+        // span clock currently selects a DIFFERENT member (or sits in an
+        // inter-member gap, or the span clock could not resolve this frame), so
+        // this member's ghost is hidden. Exactly one unit member renders at a
+        // time; the others count this skip. See UpdateUnitMemberPlayback.
+        ChainLoopUnitInactive = 18,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -84,6 +90,8 @@ namespace Parsek
                     return "chain-shadowed";
                 case GhostPlaybackSkipReason.ChainBridgeHeld:
                     return "chain-bridge-held";
+                case GhostPlaybackSkipReason.ChainLoopUnitInactive:
+                    return "chain-loop-unit-inactive";
                 default:
                     return "unknown";
             }
@@ -112,6 +120,7 @@ namespace Parsek
         public int anchorReFlyUnstable;
         public int chainShadowed;
         public int chainBridgeHeld;
+        public int chainLoopUnitInactive;
         public int active;
     }
 
