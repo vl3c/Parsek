@@ -1343,8 +1343,9 @@ namespace Parsek
 
                 if (ghost != null)
                     ghost.SetActive(false);
-                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-pose-unresolved",
-                    $"KSC ghost positioning skipped: branch={pose.Branch ?? "unknown"} " +
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-pose-unresolved-{rec?.RecordingId}",
+                    $"KSC ghost positioning skipped: recording={rec?.DebugName ?? "null"} " +
+                    $"branch={pose.Branch ?? "unknown"} " +
                     $"reason={pose.FailureReason ?? "unknown"} targetUT={targetUT:F2}");
                 return false;
             }
@@ -1610,8 +1611,8 @@ namespace Parsek
                     DescribeKscBranch(section, useBodyFixedPrimary),
                     "non-kerbin",
                     section.HasValue ? NormalizeKscAnchorRecordingId(section.Value) : null);
-                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-point-non-kerbin",
-                    $"KSC point skipped: body={point.bodyName ?? "null"} ut={point.ut:F2}");
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-point-non-kerbin-{rec.RecordingId}",
+                    $"KSC point skipped: recording={rec.DebugName} body={point.bodyName ?? "null"} ut={point.ut:F2}");
                 return false;
             }
 
@@ -1642,8 +1643,8 @@ namespace Parsek
                     out bodyWorldRot))
             {
                 pose = KscPoseResolution.Failure("absolute", "body-not-found", null);
-                ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
-                    $"Body not found: {point.bodyName ?? "null"}");
+                ParsekLog.VerboseRateLimited("KSCGhost", $"interp-no-body-{rec.RecordingId}",
+                    $"Body not found: recording={rec.DebugName} {point.bodyName ?? "null"}");
                 return false;
             }
 
@@ -1655,7 +1656,7 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
                 $"ut={point.ut:F2} body={point.bodyName} branch={pose.Branch}",
                 2.0);
@@ -1729,8 +1730,8 @@ namespace Parsek
                     out bodyRotAfter))
             {
                 pose = KscPoseResolution.Failure("absolute", "body-not-found", null);
-                ParsekLog.VerboseRateLimited("KSCGhost", "interp-no-body",
-                    $"Body not found: before={before.bodyName ?? "null"} after={after.bodyName ?? "null"}");
+                ParsekLog.VerboseRateLimited("KSCGhost", $"interp-no-body-{rec.RecordingId}",
+                    $"Body not found: recording={rec.DebugName} before={before.bodyName ?? "null"} after={after.bodyName ?? "null"}");
                 return false;
             }
 
@@ -1753,7 +1754,7 @@ namespace Parsek
                 worldRot,
                 DescribeKscBranch(section, useBodyFixedPrimary),
                 null);
-            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-surface-position",
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-surface-position-{rec.RecordingId}",
                 $"KSC SURFACE playback resolved: recording={rec.DebugName} " +
                 $"targetUT={targetUT:F2} branch={pose.Branch}",
                 2.0);
@@ -1779,7 +1780,7 @@ namespace Parsek
                     "relative",
                     "relative-anchor-unresolved",
                     anchorRecordingId);
-                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-relative-anchor-unresolved-{rec.RecordingId}",
                     $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
                     $"anchorRec={anchorRecordingId ?? "(missing)"} reason=no-recorded-anchor-lookup");
                 return false;
@@ -1792,7 +1793,7 @@ namespace Parsek
                     "relative",
                     "relative-anchor-unresolved",
                     anchorRecordingId);
-                ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-anchor-unresolved",
+                ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-relative-anchor-unresolved-{rec.RecordingId}",
                     $"RELATIVE KSC playback skipped: recording={rec.DebugName} " +
                     $"anchorRec={anchorRecordingId} reason=anchor-recording-unresolved");
                 return false;
@@ -1816,7 +1817,7 @@ namespace Parsek
                 anchor.WorldRot,
                 storedRot);
             pose = KscPoseResolution.Success(worldPos, worldRot, "relative", anchorRecordingId);
-            ParsekLog.VerboseRateLimited("KSCGhost", "ksc-relative-position",
+            ParsekLog.VerboseRateLimited("KSCGhost", $"ksc-relative-position-{rec.RecordingId}",
                 $"RELATIVE KSC playback resolved: recording={rec.DebugName} " +
                 $"contract=anchor-local " +
                 $"version={rec.RecordingFormatVersion} dx={dx:F2} dy={dy:F2} dz={dz:F2} " +
