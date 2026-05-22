@@ -7,11 +7,13 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// v0 Logistics window — single Supply Routes tab listing every committed
-    /// route with a "Send Once" button to immediately nudge a one-time dispatch
-    /// (the orchestrator still dispatches automatically when the route's
-    /// scheduling / orbital-alignment conditions are met; Send Once is a
-    /// player override for the current cycle only).
+    /// v0 Logistics window: single Supply Routes tab listing every committed
+    /// route with a "Send Once" button. Send Once arms a single dispatch and
+    /// fires it at the next moment the route's per-cycle conditions allow
+    /// (funds, resources, endpoint resolved, orbital alignment / transfer
+    /// window); after that cycle delivers, the route transitions to Paused
+    /// (auto-cycle off). It is not an immediate force-dispatch and does not
+    /// re-enable the recurring auto-cycle.
     /// Available in both FLIGHT and SPACECENTER (the main UI toggles it from
     /// either scene). Mirrors the minimal-window pattern from
     /// <see cref="SpawnControlUI"/>: ClickThruBlocker window, resize handle,
