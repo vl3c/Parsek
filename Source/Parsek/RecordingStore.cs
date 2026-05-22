@@ -5008,11 +5008,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Detects chain-loop units: maximal runs of >= 2 consecutive primary-path
-        /// (ChainBranch == 0) chain members that are ALL loop-enabled with period
-        /// <see cref="LoopTimeUnit.Auto"/> and carry a renderable window. Such a run loops as
-        /// one virtual recording over its whole span instead of each member relaunching on the
-        /// flat global stagger. See docs/dev/design-chain-sequential-auto-looping.
+        /// Detects chain-loop units by CHRONOLOGICAL ADJACENCY: within one tree, every maximal
+        /// connected component (>= 2 members) of unit-eligible recordings whose [StartUT, EndUT]
+        /// windows are back-to-back (overlapping or touching within
+        /// <see cref="LoopTiming.BoundaryEpsilon"/>) becomes one virtual recording that loops over
+        /// its whole span instead of each member relaunching on the flat global stagger. This is
+        /// the playtest fix: a real mission stored as separate recordings that do NOT share a
+        /// ChainId (e.g. a launch recording with no ChainId followed by a separate descent chain)
+        /// is still contiguous in time, so it now loops as one sequence. Grouping no longer keys
+        /// off ChainId. See docs/dev/design-chain-sequential-auto-loop.md.
+        ///
+        /// A recording is unit-eligible iff: <c>LoopPlayback</c> AND
+        /// <c>LoopTimeUnit == Auto</c> AND <c>Points.Count >= 2</c> AND <c>ChainBranch == 0</c>
+        /// (primary path only) AND <c>ParentAnchorRecordingId == null</c> (parent-anchored
+        /// side-tracks like debris / EVA run concurrently, not in sequence) AND a non-empty
+        /// <c>TreeId</c> with a positive-duration window.
         ///
         /// Pure with respect to Unity: reads only Recording fields off the supplied list, keyed
         /// by committed-list index (the index-alignment invariant the descriptors rely on).
@@ -5027,49 +5037,51 @@ namespace Parsek
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
             // Dormant-path fast-out (efficiency): this runs every frame from both the flight scene
-            // and KSC, but the overwhelmingly common save has NO chains at all. A unit needs >= 2
-            // members carrying a non-empty ChainId AND LoopPlayback AND LoopTimeUnit.Auto, and only
-            // recordings with a non-empty ChainId ever feed the per-chain grouping (and its
-            // per-member "not a unit" diagnostics) below. So when ZERO recordings carry a ChainId
-            // the whole loop is a guaranteed no-op: it allocates the grouping dictionary, finds it
-            // empty, and returns Empty with no logs. Skip straight to Empty in that case via this
-            // cheap O(n) pre-scan with no allocation (bails on the first chain member seen). Any
-            // save with one or more chain members falls through to the full detection unchanged,
-            // preserving the exact result AND the exact diagnostic logs (including the lone-member
-            // length<2 rejection).
-            bool anyChainMember = false;
+            // and KSC, but the overwhelmingly common save has < 2 unit-eligible recordings. A unit
+            // needs >= 2 unit-eligible members, and only unit-eligible recordings ever feed the
+            // per-tree grouping (and its per-component diagnostics) below. So when fewer than 2
+            // unit-eligible recordings exist the whole detection is a guaranteed no-op. Skip
+            // straight to Empty in that case via this cheap O(n) pre-scan with no allocation
+            // (bails as soon as a second eligible recording is seen). Any save with two or more
+            // eligible recordings falls through to the full detection unchanged.
+            int eligibleSeen = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
-                var rec = recordings[i];
-                if (rec != null && !string.IsNullOrEmpty(rec.ChainId))
+                if (IsUnitEligible(recordings[i], out _))
                 {
-                    anyChainMember = true;
-                    break;
+                    eligibleSeen++;
+                    if (eligibleSeen >= 2)
+                        break;
                 }
             }
-            if (!anyChainMember)
+            if (eligibleSeen < 2)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
-            // Group committed indices by ChainId; skip null/empty ChainId (standalone).
-            // Dictionary preserves the chain key for deterministic per-chain processing.
-            var indicesByChain = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+            // Group unit-eligible committed indices by TreeId; skip ineligible recordings.
+            // Dictionary preserves the tree key for deterministic per-tree processing. A
+            // null/empty TreeId is treated as ineligible (in always-tree mode every recording
+            // carries a TreeId; a missing one cannot form a connected component anyway).
+            var indicesByTree = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int i = 0; i < recordings.Count; i++)
             {
-                var rec = recordings[i];
-                if (rec == null || string.IsNullOrEmpty(rec.ChainId))
-                    continue;
-                if (rec.ChainBranch != 0)
+                if (!IsUnitEligible(recordings[i], out string reason))
                 {
-                    // Edge 8: parallel ghost-only continuations never join a primary-path unit.
-                    ParsekLog.Verbose("Loop",
-                        $"chain {rec.ChainId} run member recIdx={i} " +
-                        $"(ChainIndex={rec.ChainIndex} ChainBranch={rec.ChainBranch}) not a unit: branch>0");
+                    // Log only ELIGIBILITY rejections that the player can act on (a recording that
+                    // could have joined but for one disqualifier). Skip the noisy not-looping /
+                    // not-auto / null-tree cases that simply never opt in.
+                    if (reason == "member-zero-duration")
+                    {
+                        ParsekLog.Verbose("Loop",
+                            $"recIdx={i} (ChainIndex={recordings[i]?.ChainIndex}) not a unit: {reason}");
+                    }
                     continue;
                 }
-                if (!indicesByChain.TryGetValue(rec.ChainId, out var list))
+
+                string treeId = recordings[i].TreeId;
+                if (!indicesByTree.TryGetValue(treeId, out var list))
                 {
                     list = new List<int>();
-                    indicesByChain[rec.ChainId] = list;
+                    indicesByTree[treeId] = list;
                 }
                 list.Add(i);
             }
@@ -5079,44 +5091,44 @@ namespace Parsek
             int unitsBuilt = 0;
             int runsRejected = 0;
 
-            foreach (var kvp in indicesByChain)
+            foreach (var kvp in indicesByTree)
             {
-                string chainId = kvp.Key;
-                List<int> chainIndices = kvp.Value;
+                string treeId = kvp.Key;
+                List<int> treeIndices = kvp.Value;
 
-                // Sort by ChainIndex (branch is already 0 for all of these), mirroring the
-                // GetChainRecordings comparator shape.
-                chainIndices.Sort((a, b) =>
-                    recordings[a].ChainIndex.CompareTo(recordings[b].ChainIndex));
-
-                // Walk consecutive members; a disqualified member breaks the current run.
-                var currentRun = new List<int>();
-                for (int k = 0; k <= chainIndices.Count; k++)
+                // Sort by StartUT (tie-break by committed index) so a single forward sweep finds
+                // every maximal UT-interval-connected component.
+                treeIndices.Sort((a, b) =>
                 {
-                    bool atEnd = k == chainIndices.Count;
-                    int committedIdx = atEnd ? -1 : chainIndices[k];
-                    string disqualReason = null;
-                    bool qualifies = !atEnd && QualifiesForChainLoopUnit(
-                        recordings[committedIdx], chainId, out disqualReason);
+                    int c = recordings[a].StartUT.CompareTo(recordings[b].StartUT);
+                    return c != 0 ? c : a.CompareTo(b);
+                });
 
-                    if (qualifies)
+                // Connected-component sweep: extend the current run while the next member's
+                // StartUT touches/overlaps the running max EndUT (within BoundaryEpsilon). A UT
+                // gap larger than the epsilon closes the run and starts a new component.
+                var currentRun = new List<int>();
+                double runMaxEndUT = double.NegativeInfinity;
+                for (int k = 0; k <= treeIndices.Count; k++)
+                {
+                    bool atEnd = k == treeIndices.Count;
+                    int committedIdx = atEnd ? -1 : treeIndices[k];
+
+                    bool connected = !atEnd
+                        && (currentRun.Count == 0
+                            || recordings[committedIdx].StartUT
+                                <= runMaxEndUT + LoopTiming.BoundaryEpsilon);
+
+                    if (connected)
                     {
                         currentRun.Add(committedIdx);
+                        double endUT = recordings[committedIdx].EndUT;
+                        if (endUT > runMaxEndUT)
+                            runMaxEndUT = endUT;
                         continue;
                     }
 
-                    // Member breaks the run (or we reached the chain end): close out the run.
-                    if (!atEnd)
-                    {
-                        // This member is the run-breaker, so it is disqualified; log why
-                        // (edges 2,3,4,7 reasons: member-not-looping / member-not-auto /
-                        // member-zero-duration). Branch>0 members (edge 8) never reach here:
-                        // they are filtered out of the per-chain index list entirely.
-                        ParsekLog.Verbose("Loop",
-                            $"chain {chainId} run member recIdx={committedIdx} " +
-                            $"(ChainIndex={recordings[committedIdx].ChainIndex}) not a unit: {disqualReason}");
-                    }
-
+                    // Member is non-contiguous (gap) or we reached the end: close out the run.
                     if (currentRun.Count >= 2)
                     {
                         var unit = BuildLoopUnit(recordings, currentRun);
@@ -5127,14 +5139,35 @@ namespace Parsek
                     }
                     else if (currentRun.Count == 1)
                     {
-                        // Edge 1: a lone qualifying member is not a unit.
+                        // A lone eligible member is not a unit (the UT gap to its neighbor, or no
+                        // neighbor at all, isolated it).
                         runsRejected++;
                         ParsekLog.Verbose("Loop",
-                            $"chain {chainId} run [{currentRun[0]}..{currentRun[0]}] " +
+                            $"tree {treeId} run [{currentRun[0]}..{currentRun[0]}] " +
                             "not a unit: length<2");
                     }
 
-                    currentRun.Clear();
+                    if (!atEnd)
+                    {
+                        // Log the non-contiguous break (the UT gap is why the prior run did not
+                        // absorb this member). Helps answer "why didn't these loop as one".
+                        if (currentRun.Count > 0)
+                        {
+                            ParsekLog.Verbose("Loop",
+                                $"tree {treeId} member recIdx={committedIdx} " +
+                                $"(StartUT={recordings[committedIdx].StartUT.ToString("R", CultureInfo.InvariantCulture)}) " +
+                                "not contiguous: UT gap");
+                        }
+
+                        // Start a new component at this member.
+                        currentRun.Clear();
+                        currentRun.Add(committedIdx);
+                        runMaxEndUT = recordings[committedIdx].EndUT;
+                    }
+                    else
+                    {
+                        currentRun.Clear();
+                    }
                 }
             }
 
@@ -5142,7 +5175,7 @@ namespace Parsek
             {
                 ParsekLog.Verbose("RecordingStore",
                     $"Chain-loop units: built {unitsBuilt} unit(s), rejected {runsRejected} run(s) " +
-                    $"from {indicesByChain.Count} chain(s)");
+                    $"from {indicesByTree.Count} tree(s)");
 
                 if (unitsBuilt > 0)
                 {
@@ -5166,12 +5199,15 @@ namespace Parsek
 
         /// <summary>
         /// True if a recording can be a member of a chain-loop unit: loop-enabled, period auto,
-        /// at least two trajectory points, and a positive-duration window. A disqualified member
-        /// breaks the consecutive run (edges 2,3,4,7). <paramref name="reason"/> is one of the
-        /// design's reason strings (member-not-looping / member-not-auto / member-zero-duration)
-        /// for the diagnostic log. Pure.
+        /// at least two trajectory points and a positive-duration window, on the primary path
+        /// (ChainBranch == 0), NOT parent-anchored (parent-anchored side-tracks like debris / EVA
+        /// run concurrently, not in sequence), and carrying a non-empty TreeId. Eligible
+        /// recordings are then grouped by TreeId and chronological adjacency. <paramref name="reason"/>
+        /// is one of the design's reason strings (member-not-looping / member-not-auto /
+        /// member-zero-duration / member-branch / member-parent-anchored / member-no-tree) for the
+        /// diagnostic log. Pure.
         /// </summary>
-        internal static bool QualifiesForChainLoopUnit(Recording rec, string chainId, out string reason)
+        internal static bool IsUnitEligible(Recording rec, out string reason)
         {
             reason = null;
             if (rec == null)
@@ -5189,6 +5225,24 @@ namespace Parsek
                 reason = "member-not-auto";
                 return false;
             }
+            if (rec.ChainBranch != 0)
+            {
+                // Parallel ghost-only continuations never join a primary-path unit.
+                reason = "member-branch";
+                return false;
+            }
+            if (rec.ParentAnchorRecordingId != null)
+            {
+                // Debris / EVA / controlled-decoupled children run alongside their parent, not in
+                // a back-to-back sequence; they must not tile a unit span.
+                reason = "member-parent-anchored";
+                return false;
+            }
+            if (string.IsNullOrEmpty(rec.TreeId))
+            {
+                reason = "member-no-tree";
+                return false;
+            }
             if (rec.Points == null || rec.Points.Count < 2)
             {
                 reason = "member-zero-duration";
@@ -5203,17 +5257,24 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds a <see cref="GhostPlaybackLogic.LoopUnit"/> from a run of >= 2 qualifying
-        /// committed indices sorted in ChainIndex order. Span = first.StartUT..last.EndUT;
+        /// Builds a <see cref="GhostPlaybackLogic.LoopUnit"/> from a connected component of >= 2
+        /// unit-eligible committed indices sorted by StartUT. Span = min StartUT..max EndUT;
         /// cadence = span duration clamped to MinCycleDuration (edge 14, the clamp also lives in
-        /// the span-clock helper); owner = the lowest-ChainIndex (first) member's index.
+        /// the span-clock helper); owner = the lowest-StartUT (first) member's index (tie-broken
+        /// by the committed-index sort).
         /// </summary>
         private static GhostPlaybackLogic.LoopUnit BuildLoopUnit(
             IReadOnlyList<Recording> recordings, List<int> runIndices)
         {
             int ownerIndex = runIndices[0];
             double spanStartUT = recordings[runIndices[0]].StartUT;
-            double spanEndUT = recordings[runIndices[runIndices.Count - 1]].EndUT;
+            double spanEndUT = double.NegativeInfinity;
+            for (int m = 0; m < runIndices.Count; m++)
+            {
+                double endUT = recordings[runIndices[m]].EndUT;
+                if (endUT > spanEndUT)
+                    spanEndUT = endUT;
+            }
             double cadenceSeconds = Math.Max(spanEndUT - spanStartUT, LoopTiming.MinCycleDuration);
             return new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, runIndices.ToArray(), spanStartUT, spanEndUT, cadenceSeconds);

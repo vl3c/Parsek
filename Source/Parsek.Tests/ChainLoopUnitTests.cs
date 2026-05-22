@@ -238,13 +238,17 @@ namespace Parsek.Tests
         // ─── Phase 2: RecordingStore.DetectChainLoopUnits ───────────────────────
 
         /// <summary>
-        /// Builds and commits a chain-member recording. StartUT/EndUT derive from the first and
+        /// Builds and commits a tree-member recording. StartUT/EndUT derive from the first and
         /// last point UT, so [startUT, endUT] is the member window. branch defaults to primary.
+        /// Grouping is by chronological adjacency within a TreeId (the playtest fix), so the
+        /// member needs a TreeId; <paramref name="treeId"/> defaults to <paramref name="chainId"/>
+        /// so a single chainId argument keeps same-tree members together. ChainId/ChainIndex are
+        /// still set (they no longer drive grouping but remain on the recording).
         /// </summary>
         private static Recording CommitChainMember(
             string chainId, int chainIndex, double startUT, double endUT,
             bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0,
-            int pointCount = 2)
+            int pointCount = 2, string treeId = null, string parentAnchorRecordingId = null)
         {
             var rec = new Recording
             {
@@ -255,6 +259,8 @@ namespace Parsek.Tests
                 ChainId = chainId,
                 ChainIndex = chainIndex,
                 ChainBranch = branch,
+                TreeId = treeId ?? chainId,
+                ParentAnchorRecordingId = parentAnchorRecordingId,
             };
             if (pointCount >= 1)
             {
@@ -289,12 +295,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_TwoConsecutiveAuto_FormsOneUnit()
+        public void DetectChainLoopUnits_TwoContiguousDifferentChainId_FormsOneUnit()
         {
-            // Edge 18 headline: two consecutive auto-loop primary members form one unit spanning
-            // first.Start..last.End with both committed indices as members.
-            CommitChainMember("chA", 0, 100, 150);
-            CommitChainMember("chA", 1, 150, 200);
+            // HEADLINE / the playtest bug: two contiguous, same-tree, loop+auto recordings with
+            // DIFFERENT ChainIds form ONE unit. A real flight (launch rocket -> descent capsule)
+            // is stored as separate recordings that do NOT share a ChainId, yet they tile the same
+            // mission window. Grouping by chronological adjacency within the tree must merge them.
+            // REGRESSION GUARD: fails if ChainId is still required for grouping (the old behavior
+            // looped the two segments separately).
+            CommitChainMember("launch", 0, 100, 150, treeId: "mission");
+            CommitChainMember("descent", 0, 150, 200, treeId: "mission"); // different ChainId, same tree
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -302,18 +312,42 @@ namespace Parsek.Tests
             Assert.True(set.IsMember(0));
             Assert.True(set.IsMember(1));
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(0, unit.OwnerIndex);
+            Assert.Equal(0, unit.OwnerIndex);                 // lowest StartUT
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices); // sorted by StartUT
+            Assert.Equal(100.0, unit.SpanStartUT, 6);         // min StartUT
+            Assert.Equal(200.0, unit.SpanEndUT, 6);           // max EndUT
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_ChainNoneAndChainId_StillMergeWhenContiguous()
+        {
+            // The exact playtest topology: a chain=none launch recording (no ChainId at all) and a
+            // separate descent recording that DOES carry a ChainId, contiguous in the same tree,
+            // merge into one unit. REGRESSION GUARD: fails if a null ChainId is treated as
+            // standalone-ineligible-for-grouping (the old per-chain dictionary skipped null ChainId).
+            CommitChainMember(null, -1, 100, 150, treeId: "flight"); // chain=none launch
+            CommitChainMember("desc", 0, 150, 200, treeId: "flight"); // 2-segment descent chain head
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.IsMember(0));
+            Assert.True(set.IsMember(1));
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
-            Assert.Equal(100.0, unit.SpanStartUT, 6); // first.Start
-            Assert.Equal(200.0, unit.SpanEndUT, 6);   // last.End
+            Assert.Equal(100.0, unit.SpanStartUT, 6);
+            Assert.Equal(200.0, unit.SpanEndUT, 6);
         }
 
         [Fact]
         public void DetectChainLoopUnits_SingleAutoMember_NotAUnit()
         {
-            // Edge 1: a lone auto-loop chain member is run length 1, so it is NOT unitized and
-            // its index is absent from the set (keeps today's global-stagger behavior).
-            CommitChainMember("solo", 0, 100, 150);
+            // A lone eligible recording is a component of size 1, so it is NOT unitized and its
+            // index is absent from the set (keeps today's global-stagger behavior). Add an
+            // ineligible sibling so the list has >= 2 entries (the singleton early-return would
+            // otherwise short-circuit before detection); only one is unit-eligible.
+            CommitChainMember("solo", 0, 100, 150, treeId: "soloTree");
+            CommitChainMember("notLoop", 0, 300, 350, loop: false, treeId: "soloTree"); // ineligible
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -322,54 +356,127 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_ManualMemberBreaksRun()
+        public void DetectChainLoopUnits_ManualMemberLeavesGap_NoMergeAcrossIt()
         {
-            // Edges 3,4: [auto, manual, auto, auto]. The manual member breaks the run. The
-            // leading lone auto (idx 0) is not a unit; the trailing auto pair (idx 2,3) is one
-            // unit; the manual member (idx 1) is in neither.
-            CommitChainMember("chB", 0, 100, 150, unit: LoopTimeUnit.Auto);
-            CommitChainMember("chB", 1, 150, 200, unit: LoopTimeUnit.Sec);  // manual period
-            CommitChainMember("chB", 2, 200, 250, unit: LoopTimeUnit.Auto);
-            CommitChainMember("chB", 3, 250, 300, unit: LoopTimeUnit.Auto);
+            // [auto, manual, auto] all contiguous in time. The manual-period member is ineligible,
+            // so it is removed from the tree's eligible set, leaving a UT GAP (the manual member's
+            // window [150,200]) between the two autos. The gap means the two autos on either side
+            // are NOT connected and do NOT merge across it. REGRESSION GUARD: fails if an
+            // ineligible member were silently bridged (collapsing the gap).
+            CommitChainMember("chB", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "chB");
+            CommitChainMember("chB", 1, 150, 200, unit: LoopTimeUnit.Sec, treeId: "chB"); // manual period
+            CommitChainMember("chB", 2, 200, 250, unit: LoopTimeUnit.Auto, treeId: "chB");
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
-            Assert.Equal(1, set.Count);
-            Assert.False(set.IsMember(0)); // lone leading auto
-            Assert.False(set.IsMember(1)); // manual breaker
-            Assert.True(set.IsMember(2));
-            Assert.True(set.IsMember(3));
-            Assert.True(set.TryGetUnitForMember(2, out var unit));
-            Assert.Equal(2, unit.OwnerIndex);
-            Assert.Equal(new[] { 2, 3 }, unit.MemberIndices);
-            Assert.Equal(200.0, unit.SpanStartUT, 6);
-            Assert.Equal(300.0, unit.SpanEndUT, 6);
+            Assert.Equal(0, set.Count);  // the gap isolates both autos into length-1 components
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1)); // manual, ineligible
+            Assert.False(set.IsMember(2));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_ManualMemberBetweenContiguousAutos_AdjacentAutosStillMerge()
+        {
+            // [auto, auto, manual, auto, auto] contiguous in time. The manual member (idx 2) is
+            // ineligible and leaves a gap, so the two autos before it (0,1) form one unit and the
+            // two after it (3,4) form a second unit; the manual is in neither. This confirms
+            // adjacency, not chain index, drives grouping AND that a gap correctly splits runs.
+            CommitChainMember("m", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "m");
+            CommitChainMember("m", 1, 150, 200, unit: LoopTimeUnit.Auto, treeId: "m");
+            CommitChainMember("m", 2, 200, 250, unit: LoopTimeUnit.Sec, treeId: "m");  // manual gap
+            CommitChainMember("m", 3, 250, 300, unit: LoopTimeUnit.Auto, treeId: "m");
+            CommitChainMember("m", 4, 300, 350, unit: LoopTimeUnit.Auto, treeId: "m");
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(2, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var u0));
+            Assert.Equal(new[] { 0, 1 }, u0.MemberIndices);
+            Assert.False(set.IsMember(2)); // manual breaker
+            Assert.True(set.TryGetUnitForMember(3, out var u1));
+            Assert.Equal(new[] { 3, 4 }, u1.MemberIndices);
         }
 
         [Fact]
         public void DetectChainLoopUnits_NonContiguousAuto_DoesNotMerge()
         {
-            // Edge 2: [auto, not-looping, auto]. The non-looping member splits the chain into
-            // two length-1 runs; neither forms a unit.
-            CommitChainMember("chC", 0, 100, 150, loop: true, unit: LoopTimeUnit.Auto);
-            CommitChainMember("chC", 1, 150, 200, loop: false, unit: LoopTimeUnit.Auto); // not looping
-            CommitChainMember("chC", 2, 200, 250, loop: true, unit: LoopTimeUnit.Auto);
+            // Two same-tree eligible autos separated by a UT GAP ([100,150] then [160,210]) do NOT
+            // merge: the connectivity sweep sees StartUT 160 > runMaxEndUT 150 + epsilon, so the
+            // first run closes as length 1 and the second starts fresh, also length 1. Neither is
+            // a unit. REGRESSION GUARD: fails if a UT gap were ignored and the two were grouped.
+            CommitChainMember("chC", 0, 100, 150, treeId: "chC");
+            CommitChainMember("chC", 1, 160, 210, treeId: "chC"); // 10s gap
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(0, set.Count);
             Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_DifferentTreeId_NotMergedEvenIfContiguous()
+        {
+            // Two contiguous loop+auto recordings in DIFFERENT trees do NOT merge: grouping is
+            // scoped per TreeId. REGRESSION GUARD: fails if contiguity alone (ignoring the tree)
+            // pulled unrelated missions into one unit.
+            CommitChainMember("a", 0, 100, 150, treeId: "treeA");
+            CommitChainMember("b", 0, 150, 200, treeId: "treeB"); // contiguous but other tree
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_OverlappingWindows_StillJoinSameComponent()
+        {
+            // Adjacent members with overlapping UT windows (post-optimizer splits routinely leave a
+            // sub-second overlap) still join the same connected component. Member 1 starts at 140
+            // < member 0's end 150, so they overlap by 10s and are connected. The span clock's
+            // overlap precedence handles which renders; detection just groups them.
+            CommitChainMember("ovl", 0, 100, 150, treeId: "ovl");
+            CommitChainMember("ovl", 1, 140, 200, treeId: "ovl"); // overlaps [140,150]
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            Assert.Equal(100.0, unit.SpanStartUT, 6);
+            Assert.Equal(200.0, unit.SpanEndUT, 6); // max EndUT across overlapping members
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_NotLoopingMemberExcluded_BreaksContiguity()
+        {
+            // LoopPlayback==false is ineligible. A non-looping member sitting between two autos
+            // leaves a gap, so the autos do not merge across it (same gap logic as the manual case).
+            CommitChainMember("chL", 0, 100, 150, loop: true, treeId: "chL");
+            CommitChainMember("chL", 1, 150, 200, loop: false, treeId: "chL"); // not looping
+            CommitChainMember("chL", 2, 200, 250, loop: true, treeId: "chL");
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
             Assert.False(set.IsMember(2));
         }
 
         [Fact]
         public void DetectChainLoopUnits_Branch1MembersExcluded()
         {
-            // Edge 8: a branch-0 auto pair forms a unit; a branch-1 auto member at the same
-            // ChainIndex is NOT pulled in (only the primary path forms a unit).
-            CommitChainMember("chD", 0, 100, 150, branch: 0);
-            CommitChainMember("chD", 1, 150, 200, branch: 0);
-            CommitChainMember("chD", 1, 150, 200, branch: 1); // parallel continuation, idx 2
+            // ChainBranch > 0 (parallel ghost-only continuation) is ineligible. A branch-0 auto
+            // pair forms a unit; a branch-1 auto member is NOT pulled in. The branch-1 member shares
+            // the same UT window as branch-0 idx 1 but is excluded by the eligibility predicate
+            // before connectivity runs.
+            CommitChainMember("chD", 0, 100, 150, branch: 0, treeId: "chD");
+            CommitChainMember("chD", 1, 150, 200, branch: 0, treeId: "chD");
+            CommitChainMember("chD", 1, 150, 200, branch: 1, treeId: "chD"); // parallel continuation, idx 2
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -382,12 +489,49 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void DetectChainLoopUnits_ParentAnchoredMemberExcluded()
+        {
+            // ParentAnchorRecordingId != null (debris / EVA / controlled-decoupled child) is
+            // ineligible: those run CONCURRENTLY with their parent, not in a back-to-back sequence,
+            // so they must not tile a unit span. A contiguous auto pair forms a unit; a
+            // parent-anchored auto member sharing the same window is excluded.
+            CommitChainMember("chP", 0, 100, 150, treeId: "chP");
+            CommitChainMember("chP", 1, 150, 200, treeId: "chP");
+            CommitChainMember("chP", 2, 150, 200, treeId: "chP", parentAnchorRecordingId: "parent-rec"); // debris, idx 2
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.IsMember(0));
+            Assert.True(set.IsMember(1));
+            Assert.False(set.IsMember(2)); // parent-anchored never joins the unit
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+        }
+
+        [Fact]
         public void DetectChainLoopUnits_ZeroDurationMemberExcluded_DissolvesIfBelowTwo()
         {
-            // Edge 7: [auto, zero-duration-auto] -> the zero-duration member is disqualified,
-            // which drops the run to length 1, so NO unit forms (it dissolves).
-            CommitChainMember("chE", 0, 100, 150, unit: LoopTimeUnit.Auto);
-            CommitChainMember("chE", 1, 200, 200, unit: LoopTimeUnit.Auto, pointCount: 1); // single point
+            // A single-point (< 2 trajectory points / zero-duration) member is ineligible. [auto,
+            // zero-duration-auto] -> the zero-duration member is dropped, leaving one eligible
+            // member, so NO unit forms (it dissolves).
+            CommitChainMember("chE", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "chE");
+            CommitChainMember("chE", 1, 200, 200, unit: LoopTimeUnit.Auto, pointCount: 1, treeId: "chE"); // single point
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_NullTreeId_NotEligible()
+        {
+            // A null/empty TreeId is ineligible for grouping (shouldn't happen in always-tree mode,
+            // but guard it): two contiguous loop+auto recordings with NO TreeId never form a unit.
+            CommitStandaloneAuto(100, 150); // no TreeId
+            CommitStandaloneAuto(150, 200); // no TreeId, contiguous
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -400,8 +544,8 @@ namespace Parsek.Tests
         public void DetectChainLoopUnits_SpanAndCadence_FromWindowsNotGlobalGap()
         {
             // Cadence == span duration (150s for a 100..250 span), NOT the 30s/10s global gap.
-            CommitChainMember("chF", 0, 100, 200);
-            CommitChainMember("chF", 1, 200, 250);
+            CommitChainMember("chF", 0, 100, 200, treeId: "chF");
+            CommitChainMember("chF", 1, 200, 250, treeId: "chF");
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -413,9 +557,9 @@ namespace Parsek.Tests
         [Fact]
         public void DetectChainLoopUnits_TinySpanCadenceClampedToMinCycleDuration()
         {
-            // Edge 14: a sub-MinCycleDuration span (2s total) clamps cadence to MinCycleDuration.
-            CommitChainMember("chG", 0, 100, 101);
-            CommitChainMember("chG", 1, 101, 102);
+            // A sub-MinCycleDuration span (2s total) clamps cadence to MinCycleDuration.
+            CommitChainMember("chG", 0, 100, 101, treeId: "chG");
+            CommitChainMember("chG", 1, 101, 102, treeId: "chG");
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -430,22 +574,21 @@ namespace Parsek.Tests
             // Defensive: null and under-2-element lists return the shared Empty (no allocation).
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, RecordingStore.DetectChainLoopUnits(null));
 
-            CommitChainMember("chH", 0, 100, 150);
+            CommitChainMember("chH", 0, 100, 150, treeId: "chH");
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty,
                 RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_NoChainMembers_ReturnsEmptyViaFastPath()
+        public void DetectChainLoopUnits_FewerThanTwoEligible_ReturnsEmptyViaFastPath()
         {
-            // Dormant-path fast-out: the per-frame common case has NO chains. Here two standalone
-            // auto-loop recordings carry no ChainId, so zero recordings feed the per-chain grouping.
-            // The O(n) pre-scan finds no chain member and returns the shared Empty before allocating
-            // the grouping dictionary. Asserts the result is the no-unit Empty (no allocation, no
-            // mis-detection): would regress if the fast path mis-counted a chainless save as a unit
-            // or fell through and allocated needlessly.
-            CommitStandaloneAuto(50, 90);  // no ChainId
-            CommitStandaloneAuto(95, 130); // no ChainId
+            // Dormant-path fast-out: the per-frame common case has < 2 unit-eligible recordings.
+            // Here two standalone auto-loop recordings carry no TreeId, so neither is unit-eligible.
+            // The O(n) pre-scan counts fewer than 2 eligible and returns the shared Empty before
+            // allocating the grouping dictionary. REGRESSION GUARD: fails if the fast path
+            // mis-counted an ineligible save as eligible, or fell through and allocated needlessly.
+            CommitStandaloneAuto(50, 90);  // no TreeId -> ineligible
+            CommitStandaloneAuto(95, 130); // no TreeId -> ineligible
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -460,8 +603,8 @@ namespace Parsek.Tests
         [Fact]
         public void DetectChainLoopUnits_EmitsUnitBuiltSummary()
         {
-            CommitChainMember("logA", 0, 100, 150);
-            CommitChainMember("logA", 1, 150, 200);
+            CommitChainMember("logA", 0, 100, 150, treeId: "logA");
+            CommitChainMember("logA", 1, 150, 200, treeId: "logA");
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
@@ -474,7 +617,8 @@ namespace Parsek.Tests
                 ParsekLog.TestSinkForTesting = null;
             }
 
-            // Summary count line (protects observability of how many units were built).
+            // Summary count line (protects observability of how many units were built; the source
+            // counts trees now, not chains).
             Assert.Contains(captured, l =>
                 l.Contains("[RecordingStore]") && l.Contains("Chain-loop units: built 1 unit"));
             // Per-unit detail with member indices and span (the design's detection log).
@@ -486,23 +630,18 @@ namespace Parsek.Tests
         [Fact]
         public void DetectChainLoopUnits_RejectedRunLogsReason_LengthLtTwo()
         {
-            CommitChainMember("logB", 0, 100, 150); // lone auto -> rejected length<2
+            // A lone eligible member in its own tree is a length-1 component and logs the per-tree
+            // length<2 rejection. A SECOND tree carries a contiguous eligible pair, so the global
+            // eligible count is >= 2 and the dormant fast-out does not short-circuit detection
+            // (which it would if "logB" were the only eligible recording).
+            CommitChainMember("logB", 0, 100, 150, treeId: "logB"); // lone eligible in its own tree
+            CommitChainMember("pair", 0, 500, 550, treeId: "pair"); // eligible pair in another tree
+            CommitChainMember("pair", 1, 550, 600, treeId: "pair");
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
             try
             {
-                // Add a sibling so the list has >= 2 entries (the singleton early-return would
-                // otherwise skip detection entirely). The sibling is a standalone (no chain).
-                var standalone = new Recording
-                {
-                    VesselName = "standalone", PlaybackEnabled = true,
-                    LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto,
-                };
-                standalone.Points.Add(MakePoint(300));
-                standalone.Points.Add(MakePoint(350));
-                RecordingStore.CommitRecordingDirect(standalone);
-
                 RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
             }
             finally
@@ -511,15 +650,17 @@ namespace Parsek.Tests
             }
 
             Assert.Contains(captured, l =>
-                l.Contains("[Loop]") && l.Contains("chain logB") && l.Contains("not a unit: length<2"));
+                l.Contains("[Loop]") && l.Contains("tree logB") && l.Contains("not a unit: length<2"));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_RejectedRunLogsReason_MemberNotAuto()
+        public void DetectChainLoopUnits_RejectedRunLogsReason_NonContiguousGap()
         {
-            // A manual-period member breaking a run logs reason member-not-auto.
-            CommitChainMember("logC", 0, 100, 150, unit: LoopTimeUnit.Auto);
-            CommitChainMember("logC", 1, 150, 200, unit: LoopTimeUnit.Sec); // manual
+            // Two eligible same-tree autos separated by a UT gap log the non-contiguity break: the
+            // sweep closes the first run and logs why the second member did not join (the UT gap).
+            // This makes "why didn't these loop as one" answerable from the log alone.
+            CommitChainMember("logC", 0, 100, 150, treeId: "logC");
+            CommitChainMember("logC", 1, 200, 250, treeId: "logC"); // 50s gap
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
@@ -533,17 +674,23 @@ namespace Parsek.Tests
             }
 
             Assert.Contains(captured, l =>
-                l.Contains("[Loop]") && l.Contains("chain logC")
-                && l.Contains("recIdx=1") && l.Contains("not a unit: member-not-auto"));
+                l.Contains("[Loop]") && l.Contains("tree logC")
+                && l.Contains("recIdx=1") && l.Contains("not contiguous: UT gap"));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_RejectedRunLogsReason_BranchGtZero()
+        public void DetectChainLoopUnits_RejectedRunLogsReason_ZeroDurationEligibility()
         {
-            // A branch>0 member logs reason branch>0 (edge 8).
-            CommitChainMember("logD", 0, 100, 150, branch: 0);
-            CommitChainMember("logD", 1, 150, 200, branch: 0);
-            CommitChainMember("logD", 1, 150, 200, branch: 1); // branch>0
+            // An eligibility rejection the player can act on (a zero-duration / single-point member
+            // that would otherwise have joined) logs its reason. not-looping / not-auto / branch /
+            // parent-anchored / no-tree are intentionally NOT logged (they simply never opt in);
+            // member-zero-duration is, because the member looks like a unit candidate otherwise.
+            // A second tree carries a contiguous eligible pair so the dormant fast-out (>= 2
+            // eligible) does not short-circuit before the per-recording eligibility scan logs.
+            CommitChainMember("logD", 0, 100, 150, treeId: "logD");
+            CommitChainMember("logD", 1, 200, 200, pointCount: 1, treeId: "logD"); // single point, recIdx 1
+            CommitChainMember("pair", 0, 500, 550, treeId: "pair"); // eligible pair in another tree
+            CommitChainMember("pair", 1, 550, 600, treeId: "pair");
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
@@ -557,8 +704,8 @@ namespace Parsek.Tests
             }
 
             Assert.Contains(captured, l =>
-                l.Contains("[Loop]") && l.Contains("chain logD")
-                && l.Contains("not a unit: branch>0"));
+                l.Contains("[Loop]") && l.Contains("recIdx=1")
+                && l.Contains("not a unit: member-zero-duration"));
         }
 
         // ─── Phase 3: global-queue exclusion in the engine schedule rebuild ─────

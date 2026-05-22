@@ -1,10 +1,14 @@
 # Design: Chain-Sequential Auto Looping
 
-*When two or more consecutive recordings in the same chain are loop-enabled with
-period set to `auto`, they should loop as a single unit: the end of one segment
-syncs with the start of the next, and the whole multi-segment span loops back to
-the beginning. The chain looks like one continuous looping flight, not a set of
-independently relaunching ghosts.*
+*When two or more recordings in the same tree are back-to-back in time (their UT
+windows are contiguous or overlapping) and loop-enabled with period set to
+`auto`, they should loop as a single unit: the end of one segment syncs with the
+start of the next, and the whole multi-segment span loops back to the beginning.
+The mission looks like one continuous looping flight, not a set of independently
+relaunching ghosts. Grouping is by chronological adjacency, NOT by a shared
+`ChainId`: a real flight (launch rocket -> descent capsule) is often stored as
+separate recordings that do not share a `ChainId`, yet they tile the same
+mission window and must loop as one sequence.*
 
 ---
 
@@ -40,21 +44,33 @@ of mistimed relaunches.
 
 ## Terminology
 
+- **Tree**: a set of recordings sharing a `TreeId` (always-tree mode gives every
+  recording one), capturing one mission. A tree can contain several chains and
+  chainless recordings; grouping into loop units is scoped per tree.
 - **Chain**: a set of recordings sharing a `ChainId`, ordered by `ChainIndex`,
   capturing one continuous flight split into segments. `ChainBranch == 0` is the
-  primary path; `ChainBranch > 0` are parallel ghost-only continuations.
-- **Chain-loop unit** (new): a maximal run of consecutive primary-path
-  (`ChainBranch == 0`) chain members that are ALL loop-enabled AND have period
-  `auto`. A unit must contain at least 2 members. The unit is the thing that
-  loops as a whole.
-- **Unit span**: `[spanStart, spanEnd]` = the first member's `StartUT` to the
-  last member's `EndUT` in the unit. The shared loop clock walks this span.
+  primary path; `ChainBranch > 0` are parallel ghost-only continuations. NOTE:
+  `ChainId` no longer drives loop-unit grouping (chronological adjacency does);
+  `ChainBranch` is still read (branch > 0 members are ineligible).
+- **Unit-eligible recording**: a recording that can join a loop unit. ALL of:
+  `LoopPlayback`, `LoopTimeUnit == Auto`, `Points.Count >= 2` (positive
+  duration), `ChainBranch == 0` (primary path), `ParentAnchorRecordingId == null`
+  (NOT a parent-anchored side-track like debris / EVA, which run concurrently
+  with the parent rather than in sequence), and a non-empty `TreeId`.
+- **Chain-loop unit** (new): a maximal connected component (>= 2 members) of
+  unit-eligible recordings, within one tree, whose `[StartUT, EndUT]` windows are
+  back-to-back in time (overlapping or touching within `BoundaryEpsilon`). The
+  unit is the thing that loops as a whole. (The name is historical; grouping is
+  by chronological adjacency, not `ChainId`.)
+- **Unit span**: `[spanStart, spanEnd]` = the minimum `StartUT` to the maximum
+  `EndUT` across the unit's members. The shared loop clock walks this span.
 - **Span loop clock**: a single loop phase computed over the unit span. At any
   real UT, it resolves to a `loopUT` inside `[spanStart, spanEnd]`. Exactly one
   member (the one whose recorded sub-window covers `loopUT`) is rendered.
-- **Unit anchor / owner**: the member with the lowest `ChainIndex` in the unit.
-  It owns the span loop clock; the other members read it. (An implementation
-  detail surfaced here only because the data model below references it.)
+- **Unit anchor / owner**: the member with the lowest `StartUT` in the unit
+  (tie-broken by committed index). It owns the span loop clock; the other members
+  read it. (An implementation detail surfaced here only because the data model
+  below references it.)
 - **Global launch queue**: today's flat, save-wide auto stagger
   (`AutoLoopLaunchSchedule`). Standalone auto-looped recordings keep using it;
   chain-loop units are removed from it.
@@ -157,13 +173,17 @@ trajectory list on both sides. Unit descriptors are keyed by this shared index.
 ### Existing fields detection reads (all already serialized)
 
 ```
-Recording.ChainId          string        // unit membership key
-Recording.ChainIndex       int           // ordering within chain
-Recording.ChainBranch      int           // 0 = primary path (only branch 0 forms a unit)
-Recording.LoopPlayback     bool          // must be true for every member of a unit
-Recording.LoopTimeUnit     LoopTimeUnit  // must be Auto for every member of a unit
-Recording.StartUT/EndUT    double        // member window; span = [first.Start, last.End]
+Recording.TreeId                  string        // grouping scope (one tree's recordings)
+Recording.LoopPlayback            bool          // must be true for every member of a unit
+Recording.LoopTimeUnit            LoopTimeUnit  // must be Auto for every member of a unit
+Recording.ChainBranch             int           // 0 = primary path (only branch 0 is eligible)
+Recording.ParentAnchorRecordingId string        // null = top-level; non-null = side-track (ineligible)
+Recording.StartUT/EndUT           double        // member window; UT-interval connectivity + span
 ```
+
+`Recording.ChainId` / `Recording.ChainIndex` are NO LONGER read by detection
+(grouping is by `TreeId` + chronological adjacency). They remain on the recording
+for chain topology / non-loop chain playback.
 
 ### New transient types (not persisted)
 
@@ -171,10 +191,10 @@ Host-built descriptor, one per unit, keyed by owner index:
 
 ```
 struct LoopUnit {
-    int    ownerIndex;       // lowest-ChainIndex member's committed/trajectory index
-    int[]  memberIndices;    // committed indices of all members, ChainIndex order
-    double spanStartUT;      // first member StartUT
-    double spanEndUT;        // last member EndUT
+    int    ownerIndex;       // lowest-StartUT member's committed/trajectory index
+    int[]  memberIndices;    // committed indices of all members, StartUT order
+    double spanStartUT;      // min member StartUT
+    double spanEndUT;        // max member EndUT
     double cadenceSeconds;   // v1: spanEndUT - spanStartUT (seamless wrap), clamped to MinCycleDuration
 }
 ```
@@ -194,13 +214,30 @@ Note: do NOT model this on `LoopSyncParentIdx`, which is a serializable
 player toggles loop/period) and must be recomputed on the schedule rebuild, so it
 belongs in transient engine state, not on the persisted recording.
 
-### Detection (new host-side helper in `RecordingStore`)
+### Detection (host-side helper `RecordingStore.DetectChainLoopUnits`)
 
-Group committed recordings by `ChainId`; within each chain, take primary-path
-(`ChainBranch == 0`) members sorted by `ChainIndex`; find every maximal run of
->= 2 consecutive members that are all `LoopPlayback && LoopTimeUnit == Auto` and
-have >= 2 trajectory points; emit one `LoopUnit` per run. Members not in any unit
-are absent from `loopUnitOwnerByIdx` and behave exactly as today.
+Grouping is by chronological adjacency, scoped per tree:
+
+1. Filter to unit-eligible recordings (see Terminology: `LoopPlayback` AND
+   `LoopTimeUnit == Auto` AND `Points.Count >= 2` AND positive duration AND
+   `ChainBranch == 0` AND `ParentAnchorRecordingId == null` AND non-empty
+   `TreeId`). A dormant fast-out returns `Empty` when fewer than 2 eligible
+   recordings exist (the common save), with no allocation.
+2. Group eligible indices by `TreeId`.
+3. Within each tree, sort by `StartUT` (tie-break by committed index) and sweep:
+   start a run, keep extending while the next member's
+   `StartUT <= currentRunMaxEndUT + BoundaryEpsilon` (tracking the running max
+   `EndUT`); a larger UT gap closes the run and starts a new connected component.
+4. Each connected component with >= 2 members becomes one `LoopUnit`:
+   `ownerIndex` = lowest-`StartUT` member, `memberIndices` = members sorted by
+   `StartUT`, `spanStartUT` = min `StartUT`, `spanEndUT` = max `EndUT`,
+   `cadenceSeconds` = span duration clamped to `MinCycleDuration`.
+
+Members not in any unit are absent from `loopUnitOwnerByIdx` and behave exactly as
+today. Two recordings with different (or no) `ChainId` but contiguous UT windows
+in the same tree DO form one unit (the playtest fix). Overlapping eligible
+recordings within a tree still join the same component (concurrent, not tiling);
+the span clock's overlap precedence already handles which renders.
 
 ---
 
@@ -285,35 +322,46 @@ driven by the engine positioning ghosts, so no third scheduler is involved
 
 Each: scenario -> expected behavior -> v1 disposition.
 
-1. **Only one auto-looped member in a chain.** Run length 1. -> Not a unit;
-   behaves exactly as today (global stagger). v1.
-2. **Non-contiguous auto members** (index 0 auto, 1 manual/not-looping, 2 auto).
-   -> Two separate runs of length 1; neither forms a unit; both behave as today.
-   The manual/non-looping member 1 plays per its own setting. v1.
-3. **Mixed contiguous run** (0 auto-loop, 1 auto-loop, 2 manual-loop). -> Members
-   0 and 1 form one unit (length 2); member 2 loops independently on its manual
-   period. v1.
-4. **Member with a manual period inside an otherwise-auto run.** Breaks the run
-   into the sub-runs on either side. Each sub-run of length >= 2 is its own unit.
-   v1.
+1. **Only one eligible member in a tree.** Connected component of size 1. -> Not
+   a unit; behaves exactly as today (global stagger). v1.
+2. **Non-contiguous auto members** (a UT gap between two eligible autos, e.g.
+   because a manual / not-looping member's window sits between them, or an edit
+   left a gap). -> The gap closes the first component and starts a new one; each
+   is length 1; neither forms a unit; both behave as today. The intervening
+   member plays per its own setting. v1.
+3. **Two contiguous autos with different (or no) `ChainId`** (the playtest case:
+   a chainless launch recording followed by a separate descent chain head, tiling
+   the same mission window in one tree). -> They form ONE unit by chronological
+   adjacency. v1, the fix this revision adds.
+4. **An ineligible member (manual period / not looping) between two contiguous
+   autos.** It is removed from the eligible set, leaving a UT gap where its window
+   was. The autos on either side are NOT connected across that gap; each side of
+   length >= 2 is its own unit. v1.
 5. **Adjacent members with overlapping UT windows** (post-optimizer splits
-   routinely leave a sub-second overlap). When `loopUT` is in both member i and
-   i+1 windows, render the higher `ChainIndex` member (i+1). This re-applies the
-   same precedence rule as the existing chain-shadow ("continuation is
-   authoritative during overlap"), but it is a small REIMPLEMENTATION inside the
-   span-clock member-selection, not a call into `ChainHandoffLogic.DecideShadow`
-   (that lives on the non-loop path the unit bypasses). v1.
+   routinely leave a sub-second overlap). They join the same connected component
+   (the later member's `StartUT` is within the running max `EndUT`). When `loopUT`
+   is in both member i and i+1 windows, render the higher-`StartUT` member (the
+   later one). This re-applies the same precedence rule as the existing
+   chain-shadow ("continuation is authoritative during overlap"), but it is a
+   small REIMPLEMENTATION inside the span-clock member-selection, not a call into
+   `ChainHandoffLogic.DecideShadow` (that lives on the non-loop path the unit
+   bypasses). v1.
 6. **Gap between member i end and member i+1 start** (UT discontinuity from
-   edits/splits). When `loopUT` lands in the gap, no member renders for that
-   sliver (brief invisible moment), then the next member picks up. -> Log the gap
-   once per unit; accept the brief invisibility. v1.
-7. **A member has < 2 trajectory points / zero duration.** It cannot render a
-   window. Exclude it from the unit; if exclusion drops the run below 2, the unit
+   edits/splits). A gap larger than `BoundaryEpsilon` splits the component (see
+   edge 2), so two eligible autos across a real gap simply form separate
+   length-1 components and do not unitize. Within a single unit's span (members
+   that ARE connected), if `loopUT` lands in a sub-gap no member renders for that
+   sliver, then the next member picks up. -> Accept the brief invisibility. v1.
+7. **A member has < 2 trajectory points / zero duration.** It is ineligible
+   (cannot render a window). If excluding it drops a component below 2, the unit
    dissolves and the remaining member behaves as today. v1.
-8. **Branch > 0 members** (parallel ghost-only continuations). Units are built
-   over the primary path (branch 0) only, consistent with `GetChainEndUT`.
-   Branch > 0 members are not unit members in v1 and play per their own loop
-   setting. v1 (defer branch-aware units).
+8. **Branch > 0 members** (parallel ghost-only continuations). They are
+   ineligible: units are built over the primary path (branch 0) only, consistent
+   with `GetChainEndUT`. Branch > 0 members play per their own loop setting. v1
+   (defer branch-aware units). Parent-anchored side-tracks
+   (`ParentAnchorRecordingId != null`: debris / EVA / controlled-decoupled
+   children) are likewise ineligible, since they run concurrently with their
+   parent rather than in a back-to-back sequence.
 9. **Debris loop-synced to a member that is now a unit member**
    (`LoopSyncParentIdx` points at a unit member). `TryUpdateLoopSyncedDebris`
    currently calls `TryComputeLoopPlaybackUT(parent, ...)`, which gives the
@@ -425,14 +473,18 @@ per-frame render dispatch (rate-limited).
 
 Detection (one-shot per rebuild, `Verbose` with a summary count, per
 batch-counting convention):
-- `RecordingStore`/`Loop`: "Chain-loop units: built N unit(s) from chain
-  <chainId> [members=i,j,k span=spanStart..spanEnd cadence=Xs]". One summary
-  line per rebuild; per-unit detail only when units exist.
-- `Loop`: when a candidate run is rejected, log why: "chain <chainId> run
-  [i..j] not a unit: <reason>" where reason is one of `length<2`,
-  `member-not-auto`, `member-not-looping`, `member-zero-duration`,
-  `branch>0`. This makes "why didn't my chain loop as a unit" answerable from
-  the log alone.
+- `RecordingStore`/`Loop`: "Chain-loop units: built N unit(s), rejected M run(s)
+  from K tree(s)", plus a per-unit detail line "Chain-loop unit: owner=o
+  members=i,j,k span=spanStart..spanEnd cadence=Xs". One summary line per
+  rebuild; per-unit detail only when units exist.
+- `Loop`: a length-1 component logs "tree <treeId> run [i..i] not a unit:
+  length<2". A non-contiguous break logs "tree <treeId> member recIdx=j
+  (StartUT=...) not contiguous: UT gap" so the player can see WHY two autos did
+  not merge. A would-be candidate that fails eligibility on duration logs
+  "recIdx=i ... not a unit: member-zero-duration". The simply-never-opt-in
+  reasons (not-looping / not-auto / branch / parent-anchored / no-tree) are not
+  logged (they are not actionable noise). This makes "why didn't these loop as
+  one" answerable from the log alone.
 
 Scheduling:
 - `Loop`: "chain-loop member recIdx=i excluded from global auto queue (unit
@@ -458,24 +510,32 @@ debugging blind spots" rule.
 Pure-logic and serialization tests are xUnit; anything needing live KSP (ghost
 GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
 
-### Unit detection (xUnit, new `ChainLoopUnitTests`)
-- **Two consecutive auto-loop members form one unit.** Fails if detection does
-  not group them or computes the wrong span.
-- **Run length 1 is not a unit.** A lone auto-loop chain member -> no unit, its
+### Unit detection (xUnit, `ChainLoopUnitTests`)
+- **Two contiguous auto-loop recordings with DIFFERENT (or no) `ChainId` form one
+  unit** (the headline / playtest fix). Fails if `ChainId` is still required for
+  grouping (the old behavior looped them separately).
+- **Component of size 1 is not a unit.** A lone eligible recording -> no unit, its
   index absent from `loopUnitOwnerByIdx`. Fails if a single member is wrongly
   unitized (which would change today's behavior).
-- **Manual-period member breaks the run** into two sub-runs; each >= 2 sub-run
-  is its own unit; the manual member is in neither. Fails if the run is not
-  split at the non-auto member (edge 3/4).
-- **Non-contiguous auto members do not merge** (edge 2). Fails if a
-  non-consecutive pair is treated as one unit.
-- **Branch > 0 members excluded** (edge 8). Fails if a parallel continuation
-  joins the primary-path unit.
+- **An ineligible (manual / not-looping) member between two contiguous autos
+  leaves a UT gap**, so the autos on either side do NOT merge across it; each
+  side of length >= 2 is its own unit (edge 3/4). Fails if an ineligible member
+  is silently bridged.
+- **Non-contiguous auto members do not merge** (edge 2). A real UT gap splits the
+  component. Fails if a gap is ignored and the pair is grouped.
+- **Different `TreeId` -> not merged even if contiguous.** Fails if contiguity
+  alone (ignoring the tree) pulled unrelated missions into one unit.
+- **Branch > 0 members excluded; parent-anchored members excluded** (edge 8).
+  Fails if a parallel continuation or a debris / EVA side-track joins the unit.
+- **`LoopPlayback == false` excluded; < 2 points excluded; null `TreeId`
+  excluded.** Each disqualifier drops the member from eligibility.
 - **Zero-duration member excluded; unit dissolves if that drops below 2**
   (edge 7). Fails if a degenerate member produces an invalid span.
-- **Span and cadence**: span = first.Start..last.End, cadence = span duration
+- **Span and cadence**: span = min Start..max End, cadence = span duration
   (clamped to `MinCycleDuration` for tiny spans, edge 14). Fails if cadence is
   taken from the global gap instead of the span.
+- **Overlapping eligible windows still join the same component.** Fails if a
+  sub-second overlap split them.
 
 ### Span loop-phase math (xUnit, extend loop-phase tests)
 - **Member visibility windows tile the span**: for sampled `loopUT` across one

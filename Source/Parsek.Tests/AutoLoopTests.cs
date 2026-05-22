@@ -688,7 +688,8 @@ namespace Parsek.Tests
         static Recording MakeChainMember(
             string recordingId, string chainId, int chainIndex,
             double startUT, double endUT,
-            bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0)
+            bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0,
+            string treeId = null)
         {
             var rec = new Recording
             {
@@ -700,6 +701,9 @@ namespace Parsek.Tests
                 ChainId = chainId,
                 ChainIndex = chainIndex,
                 ChainBranch = branch,
+                // Chain-loop units now group by TreeId + chronological adjacency, so the member
+                // needs a tree id (defaults to chainId so same-chain members share a tree).
+                TreeId = treeId ?? chainId,
             };
             rec.Points.Add(new TrajectoryPoint
             {
@@ -773,6 +777,7 @@ namespace Parsek.Tests
                 rec.ChainId = source.ChainId;
                 rec.ChainIndex = source.ChainIndex;
                 rec.ChainBranch = source.ChainBranch;
+                rec.TreeId = source.TreeId; // TreeId lives on the RecordingTree, re-apply like ChainId
                 rec.Points.Clear();
                 rec.Points.AddRange(source.Points);
                 loaded.Add(rec);

@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Looping
 
-- Consecutive chain segments all set to Loop with period `auto` now play back as one continuous looping unit: each segment hands off to the next and the whole chain wraps, instead of relaunching on the per-recording stagger.
+- Recordings of one mission that are back-to-back in time and set to Loop with period `auto` now play back as one continuous looping unit, even when they are separate recordings that were never formally chained (for example a launch followed by a descent capsule): each segment hands off to the next and the whole sequence wraps, instead of each relaunching on the per-recording stagger.
 
 ### UI
 
