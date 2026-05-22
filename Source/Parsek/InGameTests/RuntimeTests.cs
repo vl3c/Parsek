@@ -10922,7 +10922,11 @@ namespace Parsek.InGameTests
 
                 flight.FastForwardToRecording(recording);
 
-                yield return WaitForActiveTimelineGhost(flight, recordingIndex, 4f);
+                // FastForwardToRecording now lands RewindToLaunchLeadTimeSeconds (15s) before
+                // the recording start (matching Rewind's pre-launch lead), so the ghost only
+                // becomes active after that lead elapses at 1x. Wait past the lead plus a buffer.
+                yield return WaitForActiveTimelineGhost(flight, recordingIndex,
+                    (float)RecordingStore.RewindToLaunchLeadTimeSeconds + 6f);
                 yield return WaitForRecordingSpawn(recording, 10f);
 
                 spawnedPid = recording.SpawnedVesselPersistentId;
