@@ -249,7 +249,14 @@ namespace Parsek
                     result.terminalBodyName = currentBody.Name;
                     result.terminalPosition = currentState.position;
                     result.terminalVelocity = currentState.velocity;
-                    ParsekLog.Error(LogTag, string.Format(
+                    // Recoverable terminal, not an error: callers handle
+                    // failureReason=DegenerateStateVector (the finalizer reseeds from
+                    // the recorded surface point). The common trigger is a
+                    // near-stationary seed -- e.g. a booster the moment it separates on
+                    // the pad -- where no two-body orbit exists from ~0 velocity. Logged
+                    // at Warn to match the other "couldn't fully extrapolate" terminal
+                    // reasons (horizon-cap, soi-transition-cap) rather than Error.
+                    ParsekLog.Warn(LogTag, string.Format(
                         CultureInfo.InvariantCulture,
                         "Terminal reason=degenerate-state: body={0} ut={1:F3} pos=({2:F1},{3:F1},{4:F1}) vel=({5:F3},{6:F3},{7:F3})",
                         currentBody.Name,

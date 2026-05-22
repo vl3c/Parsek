@@ -854,7 +854,13 @@ namespace Parsek.Tests
             Assert.Empty(result.segments);
             Assert.Equal(123.0, result.terminalUT, 6);
             Assert.Equal("Kerbin", result.terminalBodyName);
-            Assert.Contains(logLines, l => l.Contains("Terminal reason=degenerate-state"));
+            // Recoverable terminal (callers handle the failure reason), so it is logged
+            // at Warn, not Error -- matching the other "couldn't fully extrapolate"
+            // terminal reasons.
+            Assert.Contains(logLines, l =>
+                l.Contains("Terminal reason=degenerate-state") && l.Contains("[WARN]"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Terminal reason=degenerate-state") && l.Contains("[ERROR]"));
         }
 
         [Fact]
