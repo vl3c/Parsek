@@ -86,10 +86,28 @@ namespace Parsek
         private GUIStyle timelineStrikethroughStyle;
         private GUIStyle timelineBlueStyle;
         private GUIStyle toggleButtonStyle;
+        // Thin gray rule for the "now" divider's second column (expands with window width).
+        private GUIStyle nowDividerLineStyle;
+        private Texture2D nowDividerLineTex;
 
-        // Cached stats text — refreshed on cache rebuild or filter change
-        private string cachedStatsText;
-        private bool filterDirty = true;
+        // Warp-to-time row state. Committed Year/Day/Hour/Minute (KSP calendar; Year 1 /
+        // Day 1 = game start). One draft buffer + focused-field sentinel drive the
+        // commit-on-Enter / commit-on-click-away idiom (mirrors loop-period editing).
+        private enum WarpField { None, Year, Day, Hour, Minute }
+        private WarpField warpFocusedField = WarpField.None;
+        private string warpEditDraft = "";
+        private Rect warpEditRect;
+        private int warpYear = 1, warpDay = 1, warpHour = 0, warpMinute = 0;
+        private bool warpValuesLoaded;
+        private const float WarpInputWidth = 36f;
+        // Cached rewind-target resolution (ERS enumeration is the expensive part). Depends
+        // only on the entered date + the ERS set, NOT on current UT, so we recompute it only
+        // when the date changes or the timeline cache is invalidated. The cheap, UT-dependent
+        // DecideWarpPlan still runs every frame.
+        private double warpCachedTargetUT = double.NaN;
+        private bool warpCachedHasRewindTarget;
+        private bool warpCachedLandsAtStart;
+        private bool warpResolveDirty = true;
 
         // Time-range filter UI state
         private bool showCustomRange;
@@ -158,7 +176,17 @@ namespace Parsek
         public bool IsOpen
         {
             get { return showTimelineWindow; }
-            set { showTimelineWindow = value; }
+            set
+            {
+                if (!value)
+                {
+                    if (showTimelineWindow) CloseWindow();
+                }
+                else
+                {
+                    showTimelineWindow = true;
+                }
+            }
         }
 
         internal TimelineWindowUI(ParsekUI parentUI)
@@ -252,7 +280,6 @@ namespace Parsek
         {
             sliderMin = sliderBoundMin;
             sliderMax = sliderBoundMax;
-            filterDirty = true;
         }
 
         /// <summary>
@@ -262,11 +289,10 @@ namespace Parsek
         public void InvalidateCache()
         {
             timelineDirty = true;
-            filterDirty = true;
-            cachedStatsText = null;
             recordingById = null;
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
+            warpResolveDirty = true;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -309,6 +335,19 @@ namespace Parsek
             toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
             toggleButtonStyle.onNormal.textColor = Color.white;
             toggleButtonStyle.onHover.textColor = Color.white;
+
+            // "Now" divider rule: a 1x1 gray texture stretched by an ExpandWidth box, so the
+            // current-time line shows a separator filling the description column that grows
+            // with the window. Top margin nudges the 2px bar down to roughly center it on the
+            // adjacent date label's row. Created once (EnsureStyles is guarded).
+            nowDividerLineTex = new Texture2D(1, 1);
+            // A bit darker than the divider's gray label text (Color.gray = 0.5).
+            nowDividerLineTex.SetPixel(0, 0, new Color(0.4f, 0.4f, 0.4f, 1f));
+            nowDividerLineTex.Apply();
+            nowDividerLineStyle = new GUIStyle();
+            nowDividerLineStyle.normal.background = nowDividerLineTex;
+            nowDividerLineStyle.margin = new RectOffset(0, 0, 12, 0);
+            nowDividerLineStyle.padding = new RectOffset(0, 0, 0, 0);
         }
 
         /// <summary>
@@ -335,6 +374,18 @@ namespace Parsek
         {
             EnsureStyles();
 
+            if (!warpValuesLoaded)
+                LoadWarpInputs();
+
+            // Commit an in-progress warp field edit when the user clicks outside its box.
+            if (Event.current.type == EventType.MouseDown
+                && warpFocusedField != WarpField.None
+                && warpEditRect.width > 0
+                && !warpEditRect.Contains(Event.current.mousePosition))
+            {
+                CommitWarpField();
+            }
+
             // Zone 1: Resource Budget
             DrawResourceBudget();
 
@@ -357,7 +408,6 @@ namespace Parsek
                     GameStateStore.IsEventVisibleToCurrentTimeline,
                     GetCurrentGameMode());
                 timelineDirty = false;
-                filterDirty = true;
 
                 // Rebuild recording lookup cache (ERS-scoped so cross-link
                 // navigation only resolves to visible recordings).
@@ -393,49 +443,196 @@ namespace Parsek
 
             GUILayout.FlexibleSpace();
 
-            // Stats footer — count only visible (filtered) entries. Rewind/FF mode
-            // depends on live currentUT, so its counts can change without any
-            // explicit filter toggle.
-            bool statsDependOnCurrentUT = tierFilterMode == TimelineTierFilterMode.RewindOrFastForward;
-            if (filterDirty || cachedStatsText == null || statsDependOnCurrentUT)
-            {
-                double currentUT = 0;
-                try { currentUT = Planetarium.GetUniversalTime(); } catch { }
-
-                int recCount = 0;
-                int playerActionCount = 0;
-                int eventCount = 0;
-                if (cachedTimeline != null)
-                {
-                    for (int i = 0; i < cachedTimeline.Count; i++)
-                    {
-                        var e = cachedTimeline[i];
-                        if (!IsEntryVisible(e, currentUT)) continue;
-                        if (e.Source == TimelineSource.Recording) recCount++;
-                        else if (e.IsPlayerAction) playerActionCount++;
-                        else eventCount++;
-                    }
-                }
-
-                var stats = new System.Text.StringBuilder();
-                stats.Append($"{recCount} Recording{(recCount == 1 ? "" : "s")}");
-                stats.Append($", {playerActionCount} Action{(playerActionCount == 1 ? "" : "s")}");
-                stats.Append($", {eventCount} Event{(eventCount == 1 ? "" : "s")}");
-                cachedStatsText = stats.ToString();
-                filterDirty = false;
-            }
-            GUILayout.Label(cachedStatsText, timelineGrayStyle);
+            // Warp-to-time row (above Close).
+            DrawWarpRow();
 
             if (GUILayout.Button("Close"))
             {
-                showTimelineWindow = false;
-                ParsekLog.Verbose("UI", "Timeline window closed via button");
+                CloseWindow();
             }
 
             ParsekUI.DrawResizeHandle(timelineWindowRect, ref isResizingTimelineWindow,
                 "Timeline window");
 
             GUI.DragWindow();
+        }
+
+        /// <summary>
+        /// Draws the "Warp to time" button (2x the filter-button width) plus the four
+        /// integer inputs (Year/Day/Hour/Minute). The button's enabled state and tooltip
+        /// reflect the resolved warp plan; the inputs commit on Enter / click-away.
+        /// </summary>
+        private void DrawWarpRow()
+        {
+            GUILayout.Space(2);
+            GUILayout.BeginHorizontal();
+
+            var flight = parentUI.Flight;
+            bool inFlight = parentUI.InFlightMode && flight != null;
+
+            double targetUT = WarpToTimeMath.ComputeTargetUT(warpYear, warpDay, warpHour, warpMinute);
+            // Recompute the (expensive, ERS-enumerating) rewind-target resolution only when the
+            // entered date changes or the timeline cache is invalidated. It does not depend on
+            // current UT, so the cheap DecideWarpPlan below can run every frame.
+            if (warpResolveDirty || targetUT != warpCachedTargetUT)
+            {
+                var target = WarpToTimeController.ResolveRewindTarget(targetUT, out bool landsAtStart);
+                warpCachedTargetUT = targetUT;
+                warpCachedHasRewindTarget = target.Kind != WarpToTimeController.RewindTargetKind.None;
+                warpCachedLandsAtStart = landsAtStart;
+                warpResolveDirty = false;
+            }
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+            var plan = WarpToTimeMath.DecideWarpPlan(
+                targetUT, currentUT, inFlight, warpCachedHasRewindTarget, warpCachedLandsAtStart);
+
+            bool actionable = plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || plan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward;
+            string tooltip = actionable
+                ? "Rewind or fast-forward the game clock to the entered date"
+                : plan.Reason;
+
+            // Disable while a warp is already in flight (pending forward jump) or a flight
+            // warp has been deferred to the Space Center, so a second click can't double-arm
+            // it during the one frame before the scene exit takes over.
+            GUI.enabled = actionable
+                && !WarpToTimeRequest.HasPending
+                && !WarpToTimeRequest.HasDeferredKscWarp;
+            if (GUILayout.Button(new GUIContent("Warp to time", tooltip),
+                GUILayout.Width(FilterButtonWidth * 2f)))
+            {
+                CommitWarpField();
+                WarpToTimeController.RequestWarp(warpYear, warpDay, warpHour, warpMinute, flight, inFlight);
+            }
+            GUI.enabled = true;
+
+            GUILayout.Space(8f);
+            DrawWarpField(WarpField.Year, "Year", warpYear);
+            DrawWarpField(WarpField.Day, "Day", warpDay);
+            DrawWarpField(WarpField.Hour, "Hour", warpHour);
+            DrawWarpField(WarpField.Minute, "Minute", warpMinute);
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+        }
+
+        private void DrawWarpField(WarpField kind, string label, int committedValue)
+        {
+            string controlName = "WarpField_" + kind;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+
+            if (warpFocusedField != kind)
+            {
+                GUI.SetNextControlName(controlName);
+                GUILayout.TextField(committedValue.ToString(ic), GUILayout.Width(WarpInputWidth));
+                Rect r = GUILayoutUtility.GetLastRect();
+                if (GUI.GetNameOfFocusedControl() == controlName)
+                {
+                    // This field just gained focus: seed the draft from the committed value.
+                    warpFocusedField = kind;
+                    warpEditDraft = committedValue.ToString(ic);
+                    warpEditRect = r;
+                }
+            }
+            else
+            {
+                // Enter -> commit, Escape -> cancel (check before TextField consumes KeyDown).
+                bool submit = Event.current.type == EventType.KeyDown
+                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancel = Event.current.type == EventType.KeyDown
+                    && Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(warpEditDraft, GUILayout.Width(WarpInputWidth));
+                warpEditRect = GUILayoutUtility.GetLastRect();
+                if (newText != warpEditDraft) warpEditDraft = newText;
+
+                if (submit) { CommitWarpField(); Event.current.Use(); }
+                else if (cancel) { CancelWarpField(); Event.current.Use(); }
+            }
+
+            GUILayout.Label(label);
+            GUILayout.Space(6f);
+        }
+
+        private void CommitWarpField()
+        {
+            if (warpFocusedField == WarpField.None) return;
+
+            WarpToTimeMath.WarpFieldKind kind = MapWarpField(warpFocusedField);
+            if (WarpToTimeMath.TryParseField(kind, warpEditDraft, out int value))
+            {
+                AssignWarpField(warpFocusedField, value);
+                ParsekLog.Verbose("WarpTime", $"Warp field {warpFocusedField} committed: {value}");
+            }
+            else
+            {
+                ParsekLog.Verbose("WarpTime",
+                    $"Warp field {warpFocusedField} edit rejected: '{warpEditDraft}'");
+            }
+            warpFocusedField = WarpField.None;
+            warpEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        private void CancelWarpField()
+        {
+            if (warpFocusedField != WarpField.None)
+                ParsekLog.Verbose("WarpTime", $"Warp field {warpFocusedField} edit cancelled (Escape)");
+            warpFocusedField = WarpField.None;
+            warpEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        private void AssignWarpField(WarpField field, int value)
+        {
+            switch (field)
+            {
+                case WarpField.Year: warpYear = value; break;
+                case WarpField.Day: warpDay = value; break;
+                case WarpField.Hour: warpHour = value; break;
+                case WarpField.Minute: warpMinute = value; break;
+            }
+        }
+
+        private static WarpToTimeMath.WarpFieldKind MapWarpField(WarpField field)
+        {
+            switch (field)
+            {
+                case WarpField.Day: return WarpToTimeMath.WarpFieldKind.Day;
+                case WarpField.Hour: return WarpToTimeMath.WarpFieldKind.Hour;
+                case WarpField.Minute: return WarpToTimeMath.WarpFieldKind.Minute;
+                default: return WarpToTimeMath.WarpFieldKind.Year;
+            }
+        }
+
+        private void LoadWarpInputs()
+        {
+            warpYear = ParsekSettingsPersistence.GetStoredWarpYear() ?? 1;
+            warpDay = ParsekSettingsPersistence.GetStoredWarpDay() ?? 1;
+            warpHour = ParsekSettingsPersistence.GetStoredWarpHour() ?? 0;
+            warpMinute = ParsekSettingsPersistence.GetStoredWarpMinute() ?? 0;
+            if (warpYear < 1) warpYear = 1;
+            if (warpDay < 1) warpDay = 1;
+            if (warpHour < 0) warpHour = 0;
+            if (warpMinute < 0) warpMinute = 0;
+            warpValuesLoaded = true;
+            ParsekLog.Verbose("WarpTime",
+                $"Loaded warp inputs Y{warpYear} D{warpDay} {warpHour}:{warpMinute:00}");
+        }
+
+        /// <summary>
+        /// Closes the window: flush any in-progress field edit, persist the warp inputs so a
+        /// special date survives across sessions, then hide. Routed through here from both
+        /// the Close button and the IsOpen setter.
+        /// </summary>
+        private void CloseWindow()
+        {
+            CommitWarpField();
+            ParsekSettingsPersistence.RecordWarpDate(warpYear, warpDay, warpHour, warpMinute);
+            showTimelineWindow = false;
+            ParsekLog.Verbose("UI", "Timeline window closed");
         }
 
         private static Game.Modes? GetCurrentGameMode()
@@ -471,13 +668,11 @@ namespace Parsek
             if (GUILayout.Toggle(overviewActive, "Overview", toggleButtonStyle, GUILayout.Width(btnW)) && !overviewActive)
             {
                 tierFilterMode = TimelineTierFilterMode.Overview;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
             }
             if (GUILayout.Toggle(detailActive, "Details", toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
             {
                 tierFilterMode = TimelineTierFilterMode.Details;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Details");
             }
 
@@ -493,7 +688,6 @@ namespace Parsek
             if (actionFilterMode && !showRecordingEntries)
             {
                 showRecordingEntries = true;
-                filterDirty = true;
             }
 
             // Source toggles (columns 4-6).
@@ -503,14 +697,12 @@ namespace Parsek
             if (newShowRec != showRecordingEntries)
             {
                 showRecordingEntries = newShowRec;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Recordings={showRecordingEntries}");
             }
             bool newShowAct = GUILayout.Toggle(showActionEntries, "Actions", toggleButtonStyle, GUILayout.Width(btnW));
             if (newShowAct != showActionEntries)
             {
                 showActionEntries = newShowAct;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Actions={showActionEntries}");
             }
 
@@ -518,7 +710,6 @@ namespace Parsek
             if (newShowEvt != showEventEntries)
             {
                 showEventEntries = newShowEvt;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Timeline source toggle: Events={showEventEntries}");
             }
             GUI.enabled = previousGuiEnabled;
@@ -536,7 +727,6 @@ namespace Parsek
             {
                 tierFilterMode = TimelineTierFilterMode.RewindOrFastForward;
                 showRecordingEntries = true;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Rewind/FF");
             }
 
@@ -550,7 +740,6 @@ namespace Parsek
             {
                 tierFilterMode = TimelineTierFilterMode.ReFly;
                 showRecordingEntries = true;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", "Timeline filter: Re-Fly");
             }
             GUILayout.EndHorizontal();
@@ -616,7 +805,6 @@ namespace Parsek
                 filter.Clear();
                 sliderMin = sliderBoundMin;
                 sliderMax = sliderBoundMax;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", "Time-range filter: cleared (All)");
             }
 
@@ -680,7 +868,6 @@ namespace Parsek
                     sliderMin = newMin;
                     sliderMax = newMax;
                     filter.SetRange(sliderMin, sliderMax);
-                    filterDirty = true;
                 }
             }
         }
@@ -698,7 +885,6 @@ namespace Parsek
                 filter.SetRange(clampedMin, clampedMax, name);
                 sliderMin = (float)clampedMin;
                 sliderMax = (float)clampedMax;
-                filterDirty = true;
                 ParsekLog.Verbose("UI", $"Time-range filter: preset '{name}' " +
                     $"[{TimeRangeFilterLogic.FormatSliderLabel(clampedMin)} - " +
                     $"{TimeRangeFilterLogic.FormatSliderLabel(clampedMax)}]");
@@ -846,7 +1032,17 @@ namespace Parsek
                 currentUT, currentUT, showCountdownTime: false);
 
             GUILayout.Space(3);
-            GUILayout.Label($"\u2500\u2500 {utText} (now) \u2500\u2500", timelineGrayStyle);
+            GUILayout.BeginHorizontal();
+            // First column: the current-time label, sized to the UT column so the rule starts
+            // where the entry rows' description column does.
+            GUILayout.Label($"\u2500\u2500 {utText} (now)", timelineGrayStyle,
+                GUILayout.Width(TimeColumnWidth));
+            GUILayout.Space(14f);
+            // Second column: a thin rule that fills the remaining width and grows on resize,
+            // so the "now" line is unmistakable across the whole window.
+            GUILayout.Box(GUIContent.none, nowDividerLineStyle,
+                GUILayout.ExpandWidth(true), GUILayout.Height(2f));
+            GUILayout.EndHorizontal();
             GUILayout.Space(3);
         }
 
