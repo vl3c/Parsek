@@ -232,7 +232,10 @@ are absent from `loopUnitOwnerByIdx` and behave exactly as today.
   `[spanStart, spanEnd]` plus the unit cycle index. v1 cadence = span duration,
   so the wrap from `spanEnd` back to `spanStart` is seamless. The cadence is
   clamped to `LoopTiming.MinCycleDuration` inside this helper (the span clock
-  does NOT get `ResolveLoopInterval`'s clamp for free).
+  does NOT get `ResolveLoopInterval`'s clamp for free). The helper also returns
+  `isInInterCycleTail` (always false for the loop feature since cadence = span)
+  so future `cadence > span` producers can hide the ghost during the parked tail
+  instead of freezing it at `spanEnd`.
 - Each member renders only when the shared `loopUT` falls in its own
   `[StartUT, EndUT]`, positioned at `loopUT` via the normal in-range render path.
   When `loopUT` is outside its window, the member is hidden / destroyed for that

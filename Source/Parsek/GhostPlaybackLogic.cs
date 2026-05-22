@@ -943,6 +943,17 @@ namespace Parsek
         /// Returns false (loopUT = spanStartUT, cycleIndex = 0) when currentUT is before the
         /// span start or the span has zero/negative duration, so callers never see a negative
         /// phase. Pure: no logging (per-frame callers own rate-limiting).
+        ///
+        /// <paramref name="isInInterCycleTail"/> (mirrors <see cref="ComputeLoopPhaseFromUT"/>'s
+        /// isInPause) is true exactly when the phase has run past the span and the clock is parked
+        /// at spanEndUT waiting for the next cycle: the idle "tail" that only exists when
+        /// cadence > span. For the loop feature cadence == span, so the phase never reaches the
+        /// span in the play branch and the boundary-rollback branch reports false — the flag is
+        /// ALWAYS false there (zero behavior change). A future cadence > span producer (logistics
+        /// supply routes: dispatch interval >= transit) reads this to HIDE the ghost during the
+        /// parked tail (vessel delivered, nothing in transit) instead of freezing the last
+        /// segment's ghost at the dock. False on both early return paths and at the legitimate
+        /// end-of-cycle / wrap boundary.
         /// </summary>
         internal static bool TryComputeSpanLoopUT(
             double currentUT,
@@ -950,10 +961,12 @@ namespace Parsek
             double spanEndUT,
             double cadenceSeconds,
             out double loopUT,
-            out long cycleIndex)
+            out long cycleIndex,
+            out bool isInInterCycleTail)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
+            isInInterCycleTail = false;
 
             if (currentUT < spanStartUT)
                 return false;
@@ -979,14 +992,20 @@ namespace Parsek
             {
                 cycleIndex -= 1;
                 loopUT = spanEndUT;
+                // NOT the parked idle tail: this is the legitimate end-of-cycle final frame at the
+                // back-to-back wrap boundary (cadence == span). The ghost is still mid-loop, just
+                // showing the prior cycle's last frame, so the tail flag stays false.
+                isInInterCycleTail = false;
                 return true;
             }
 
             // Park at spanEnd once the phase reaches the span (cadence > span clamp leaves a tail
             // parked at spanEnd; cadence == span never reaches span except at the rolled-back
-            // boundary handled above).
+            // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
+            // the phase ran past the span and we are idling at spanEnd until the next cycle.
             double clampedPhase = phaseInCycle >= span ? span : phaseInCycle;
             loopUT = spanStartUT + clampedPhase;
+            isInInterCycleTail = (phaseInCycle >= span);
             return true;
         }
 
@@ -1094,8 +1113,14 @@ namespace Parsek
             unitCycle = 0;
             selectedSlot = -1;
 
+            // The loop feature always uses cadence == span, so the parked inter-cycle tail never
+            // engages here (isInInterCycleTail is always false) — discard it. Future cadence > span
+            // producers (logistics supply routes) consume the tail to hide the ghost by calling
+            // TryComputeSpanLoopUT directly; that tail-handling is the host's concern, not this
+            // loop-only render path.
             if (!TryComputeSpanLoopUT(
-                    currentUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT, out unitCycle))
+                    currentUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT, out unitCycle,
+                    out _))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             bool covered = TrySelectSpanMember(

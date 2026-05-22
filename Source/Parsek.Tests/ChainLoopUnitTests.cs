@@ -42,19 +42,25 @@ namespace Parsek.Tests
             double spanStart = 100, spanEnd = 200, cadence = 100;
 
             bool atEnd = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                200, spanStart, spanEnd, cadence, out double loopAtEnd, out long cycleAtEnd);
+                200, spanStart, spanEnd, cadence, out double loopAtEnd, out long cycleAtEnd,
+                out bool tailAtEnd);
             Assert.True(atEnd);
             Assert.Equal(200.0, loopAtEnd, 6);
             Assert.Equal(0, cycleAtEnd);
+            // At spanEnd with cadence == span this is the legitimate end-of-cycle final frame, NOT
+            // the parked idle tail (which only exists when cadence > span).
+            Assert.False(tailAtEnd);
 
             // Just past the cycle-0 boundary (spanStart + cadence + a sliver = 200.0001): wraps to
             // spanStart in cycle 1. A pause window would have delayed the wrap, leaving the clock
             // parked at spanEnd (loopUT == 200) at this UT instead of restarting near spanStart.
             bool afterWrap = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                200.0001, spanStart, spanEnd, cadence, out double loopAfter, out long cycleAfter);
+                200.0001, spanStart, spanEnd, cadence, out double loopAfter, out long cycleAfter,
+                out bool tailAfterWrap);
             Assert.True(afterWrap);
             Assert.Equal(1, cycleAfter);
             Assert.Equal(100.0001, loopAfter, 4); // spanStart + tiny phase, NOT parked at spanEnd
+            Assert.False(tailAfterWrap); // back in the play region of cycle 1, not a tail
         }
 
         [Fact]
@@ -68,7 +74,7 @@ namespace Parsek.Tests
             double spanStart = 100, spanEnd = 102, cadence = 2; // raw cadence below MinCycleDuration
 
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                103, spanStart, spanEnd, cadence, out double loopUT, out long cycleIndex);
+                103, spanStart, spanEnd, cadence, out double loopUT, out long cycleIndex, out _);
             Assert.True(ok);
             Assert.Equal(0, cycleIndex);          // clamped to 5s cadence: still cycle 0 at +3s
             Assert.Equal(102.0, loopUT, 6);       // phase 3 clamped to span 2 => parked at spanEnd
@@ -77,7 +83,7 @@ namespace Parsek.Tests
             // sliver past the boundary avoids the epsilon-tolerant boundary rollback (which keeps
             // the exact boundary UT showing the prior cycle's final frame).
             bool wrapped = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                105.0001, spanStart, spanEnd, cadence, out double loopWrap, out long cycleWrap);
+                105.0001, spanStart, spanEnd, cadence, out double loopWrap, out long cycleWrap, out _);
             Assert.True(wrapped);
             Assert.Equal(1, cycleWrap);
             Assert.Equal(100.0001, loopWrap, 4); // spanStart + tiny phase, not clamped to spanEnd
@@ -89,11 +95,12 @@ namespace Parsek.Tests
             // currentUT before the span start: no negative phase. Returns false and parks
             // loopUT at spanStart (never spanStart - something).
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                50, 100, 200, 100, out double loopUT, out long cycleIndex);
+                50, 100, 200, 100, out double loopUT, out long cycleIndex, out bool tail);
             Assert.False(ok);
             Assert.Equal(100.0, loopUT, 6);
             Assert.Equal(0, cycleIndex);
             Assert.True(loopUT >= 100.0); // never a negative phase
+            Assert.False(tail);           // early return path always reports no tail
         }
 
         [Fact]
@@ -101,10 +108,51 @@ namespace Parsek.Tests
         {
             // Degenerate span (spanEnd <= spanStart): false, parked at spanStart, no divide.
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                150, 100, 100, 100, out double loopUT, out long cycleIndex);
+                150, 100, 100, 100, out double loopUT, out long cycleIndex, out bool tail);
             Assert.False(ok);
             Assert.Equal(100.0, loopUT, 6);
             Assert.Equal(0, cycleIndex);
+            Assert.False(tail);           // span <= 0 early return path always reports no tail
+        }
+
+        [Fact]
+        public void TryComputeSpanLoopUT_CadenceGreaterThanSpan_FlagsParkedTail()
+        {
+            // Span [100, 200] (span = 100), cadence 300 (> span): each cycle plays for the first
+            // 100s then idles parked at spanEnd for the remaining 200s before the next dispatch.
+            // This is the logistics common case (dispatch interval >= transit). The flag must
+            // distinguish the parked idle tail from a legitimate at-spanEnd play frame, so a
+            // future host can HIDE the ghost during the gap instead of freezing it at the dock.
+            double spanStart = 100, spanEnd = 200, cadence = 300; // span = 100
+
+            // PLAY region: currentUT 150, phaseInCycle 50 < 100 — ghost advancing, no tail.
+            bool play = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                150, spanStart, spanEnd, cadence, out double loopPlay, out long cyclePlay,
+                out bool tailPlay);
+            Assert.True(play);
+            Assert.Equal(150.0, loopPlay, 6); // loopUT advancing with the phase
+            Assert.Equal(0, cyclePlay);
+            Assert.False(tailPlay);
+
+            // TAIL region: currentUT 250, phaseInCycle 150 >= 100 — parked at spanEnd, tail engaged.
+            bool tailRegion = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                250, spanStart, spanEnd, cadence, out double loopTail, out long cycleTail,
+                out bool tailFlag);
+            Assert.True(tailRegion);
+            Assert.Equal(200.0, loopTail, 6); // parked at spanEnd
+            Assert.Equal(0, cycleTail);
+            Assert.True(tailFlag);
+
+            // Second cycle TAIL: currentUT 450 (elapsed 350, phaseInCycle 50 into cycle 1... but
+            // 450 is elapsed 350 => cycle 1, phase 50 < 100 = play). Use 550 for cycle 1 tail
+            // (elapsed 450 => cycle 1, phase 150 >= 100 = tail).
+            bool secondTail = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                550, spanStart, spanEnd, cadence, out double loopSecond, out long cycleSecond,
+                out bool tailSecond);
+            Assert.True(secondTail);
+            Assert.Equal(200.0, loopSecond, 6); // parked at spanEnd again
+            Assert.Equal(1, cycleSecond);
+            Assert.True(tailSecond);
         }
 
         // ─── Phase 1: TrySelectSpanMember ───────────────────────────────────────

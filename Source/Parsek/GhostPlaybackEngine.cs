@@ -1576,9 +1576,13 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                             parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
                     {
+                        // Discard isInInterCycleTail: a unit member uses cadence == span, so the
+                        // parked tail never engages (always false). Future cadence > span producers
+                        // consume the tail directly.
                         if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                                 ctx.currentUT, parentUnit.SpanStartUT, parentUnit.SpanEndUT,
-                                parentUnit.CadenceSeconds, out parentLoopUT, out parentCycle))
+                                parentUnit.CadenceSeconds, out parentLoopUT, out parentCycle,
+                                out _))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
