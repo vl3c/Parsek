@@ -1061,6 +1061,22 @@ namespace Parsek
                             + " in inter-member gap, no member visible",
                         5.0);
                 }
+                else if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
+                {
+                    // The span clock could not resolve a phase (currentUT before spanStart, or a
+                    // degenerate span). Mirror the engine's explicit SpanClockUnresolved diagnostic
+                    // so a tracking-station-only "unit not showing yet" is answerable from the log
+                    // rather than falling into a silent destroy.
+                    ParsekLog.VerboseRateLimited(
+                        "KSCGhost", unitKey + "-span-unresolved",
+                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " hidden: span clock unresolved at currentUT="
+                            + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " (span=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + ".." + unit.SpanEndUT.ToString("F2", CultureInfo.InvariantCulture) + ")",
+                        5.0);
+                }
                 DestroyUnitMemberKscGhostIfActive(i, rec);
                 return;
             }

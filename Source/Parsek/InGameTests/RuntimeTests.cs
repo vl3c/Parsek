@@ -19411,6 +19411,538 @@ namespace Parsek.InGameTests
         }
 
         #endregion
+
+        #region Chain-loop unit (Phase 8): span-clock follower dispatch, watch transfer, debris
+
+        // ===================================================================
+        // Chain-sequential auto looping (docs/dev/design-chain-sequential-auto-loop.md).
+        // These pin the RUNTIME behavior the xUnit suite structurally cannot:
+        // real ghost GameObject activation across the span clock, the watch
+        // retarget event + no-dead-ghost invariant, and the debris-on-unit
+        // span-clock sourcing. All drive the engine's real UpdatePlayback with a
+        // controllable FrameContext.currentUT and a pushed LoopUnitSet, using
+        // sphere-fallback ghosts (GhostVisualSnapshot==null) so spawning is cheap
+        // and deterministic.
+        // ===================================================================
+
+        // Three contiguous unit members tiling the span [100, 250]:
+        //   slot 0 [100,150], slot 1 [150,200], slot 2 [200,250].
+        // Cadence == span (150s, above MinCycleDuration). owner == index 0.
+        private GhostPlaybackLogic.LoopUnitSet BuildThreeMemberUnitSet()
+        {
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0,
+                memberIndices: new[] { 0, 1, 2 },
+                spanStartUT: 100.0, spanEndUT: 250.0, cadenceSeconds: 150.0);
+            var byOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var byIndex = new Dictionary<int, int> { { 0, 0 }, { 1, 0 }, { 2, 0 } };
+            return new GhostPlaybackLogic.LoopUnitSet(byOwner, byIndex);
+        }
+
+        private static IPlaybackTrajectory[] BuildThreeMemberTrajectories(string body, double lat, double lon, double alt)
+        {
+            return new IPlaybackTrajectory[]
+            {
+                new ChainLoopUnitTestTrajectory("clu-mem-0", "ChainLoopUnitMember0", 100.0, 150.0, body, lat, lon, alt),
+                new ChainLoopUnitTestTrajectory("clu-mem-1", "ChainLoopUnitMember1", 150.0, 200.0, body, lat, lon, alt),
+                new ChainLoopUnitTestTrajectory("clu-mem-2", "ChainLoopUnitMember2", 200.0, 250.0, body, lat, lon, alt),
+            };
+        }
+
+        private static TrajectoryPlaybackFlags[] BuildLoopFlags(IPlaybackTrajectory[] trajectories)
+        {
+            var flags = new TrajectoryPlaybackFlags[trajectories.Length];
+            for (int i = 0; i < trajectories.Length; i++)
+            {
+                flags[i] = new TrajectoryPlaybackFlags
+                {
+                    // chainEndUT == +inf so the past-effective-end / dead-on-arrival suppression never
+                    // fires for a looping unit member (the unit governs visibility via the span clock).
+                    chainEndUT = double.PositiveInfinity,
+                    recordingId = trajectories[i].RecordingId,
+                    segmentLabel = trajectories[i].VesselName,
+                };
+            }
+            return flags;
+        }
+
+        // Counts how many of the given member indices currently have an ACTIVE ghost GameObject in
+        // the engine. A destroyed ghost is absent from ghostStates; a hidden ghost is present but
+        // SetActive(false). Both are "not active" for the one-visible-at-a-time invariant.
+        private static int CountActiveUnitGhosts(
+            GhostPlaybackEngine engine, int memberCount, out int activeIndex)
+        {
+            activeIndex = -1;
+            int active = 0;
+            for (int i = 0; i < memberCount; i++)
+            {
+                if (engine.ghostStates.TryGetValue(i, out var s)
+                    && s != null && s.ghost != null && s.ghost.activeSelf)
+                {
+                    active++;
+                    activeIndex = i;
+                }
+            }
+            return active;
+        }
+
+        [InGameTest(Category = "ChainLoopUnit", Scene = GameScenes.FLIGHT,
+            Description = "Phase 8 (design 515-519): a 3-segment auto-loop chain plays as one unit; exactly one member ghost is active at a time, the live member advances in ChainIndex order, then wraps")]
+        public IEnumerator ChainLoopUnit_SingleGhostAdvancesAndWraps()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs an active vessel with a main body");
+                yield break;
+            }
+
+            var positioner = new ChainLoopUnitTestPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0; // always in LOD range
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0;
+
+            var trajectories = BuildThreeMemberTrajectories(
+                activeVessel.mainBody.name, activeVessel.latitude, activeVessel.longitude,
+                System.Math.Max(0.0, activeVessel.altitude));
+            var flags = BuildLoopFlags(trajectories);
+            engine.SetLoopUnits(BuildThreeMemberUnitSet());
+
+            try
+            {
+                // Walk the span clock forward through cycle 0: one sample inside each member's
+                // window, in order. Exactly the covering member must be active each frame, and the
+                // active index must advance 0 -> 1 -> 2. Two active ghosts at once would mean two
+                // unit members rendered simultaneously (the bug this feature prevents).
+                double[] cycle0Samples = { 125.0, 175.0, 225.0 };
+                int[] expectedActive = { 0, 1, 2 };
+                int lastActive = -1;
+                for (int s = 0; s < cycle0Samples.Length; s++)
+                {
+                    var ctx = MakeUnitFrameContext(cycle0Samples[s]);
+                    // Pump a few frames so the selected member's sphere ghost finishes spawning
+                    // (TryReserveSpawnSlot throttles to MaxSpawnsPerFrame=2, but only the one
+                    // selected member spawns per frame, so 3 frames is ample headroom).
+                    for (int f = 0; f < 3; f++)
+                    {
+                        engine.UpdatePlayback(trajectories, flags, ctx);
+                        yield return null;
+                    }
+
+                    int active = CountActiveUnitGhosts(engine, trajectories.Length, out int activeIdx);
+                    InGameAssert.AreEqual(1, active,
+                        $"at currentUT={cycle0Samples[s]} exactly one unit member ghost must be active " +
+                        $"(got {active}); >1 means multiple unit segments rendered at once");
+                    InGameAssert.AreEqual(expectedActive[s], activeIdx,
+                        $"at currentUT={cycle0Samples[s]} the live member must be slot {expectedActive[s]} " +
+                        $"(span clock selection), got {activeIdx}");
+                    InGameAssert.IsTrue(activeIdx > lastActive,
+                        $"the live member must ADVANCE in ChainIndex order across the span " +
+                        $"(prev={lastActive}, now={activeIdx}); a missing handoff would repeat the same member");
+                    lastActive = activeIdx;
+                }
+
+                // Wrap: one cadence past spanStart (currentUT = 100 + 150 + 25 = 275) folds the span
+                // clock back to loopUT 125 in cycle 1, so member 0 is live again. currentUT is now
+                // past every member's real EndUT, proving the SPAN clock (not a per-recording clock,
+                // which could never sweep a sibling member past its own EndUT) drove the wrap.
+                var wrapCtx = MakeUnitFrameContext(275.0);
+                for (int f = 0; f < 3; f++)
+                {
+                    engine.UpdatePlayback(trajectories, flags, wrapCtx);
+                    yield return null;
+                }
+                int wrapActive = CountActiveUnitGhosts(engine, trajectories.Length, out int wrapIdx);
+                InGameAssert.AreEqual(1, wrapActive,
+                    $"after the wrap exactly one member ghost must be active (got {wrapActive})");
+                InGameAssert.AreEqual(0, wrapIdx,
+                    "the wrap must hand the live member back to the owner (slot 0); a non-wrapping " +
+                    "clock would leave no member active past the last member's EndUT");
+                InGameAssert.AreEqual(1L, engine.ghostStates[0].loopCycleIndex,
+                    "the owner ghost must be on cycle 1 after the wrap; a stale cycle 0 would mean " +
+                    "the span clock did not advance the unit cycle index across the seamless wrap");
+            }
+            finally
+            {
+                CleanupUnitEngineGhosts(engine, trajectories.Length);
+            }
+        }
+
+        [InGameTest(Category = "ChainLoopUnit", Scene = GameScenes.FLIGHT,
+            Description = "Phase 8 / edge 10 (design 520-524): watching a unit advances the camera target with the live member and survives the wrap; the watch camera target is NEVER a destroyed or SetActive(false) ghost")]
+        public IEnumerator ChainLoopUnit_WatchFollowsLiveMember()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs an active vessel with a main body");
+                yield break;
+            }
+
+            var positioner = new ChainLoopUnitTestPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0;
+
+            // The host's WatchModeController consumes UnitHandoffRetarget and moves the camera; here
+            // we capture the retarget events the engine fires and model the host's transfer (which
+            // index the camera follows) so the no-dead-ghost invariant can be checked against the
+            // engine's real ghost lifecycle without standing up the full camera stack.
+            var retargets = new List<CameraActionEvent>();
+            engine.OnLoopCameraAction += e =>
+            {
+                if (e.Action == CameraActionType.UnitHandoffRetarget)
+                    retargets.Add(e);
+            };
+
+            var trajectories = BuildThreeMemberTrajectories(
+                activeVessel.mainBody.name, activeVessel.latitude, activeVessel.longitude,
+                System.Math.Max(0.0, activeVessel.altitude));
+            var flags = BuildLoopFlags(trajectories);
+            engine.SetLoopUnits(BuildThreeMemberUnitSet());
+
+            // The "camera" follows this member. Start watching the owner (slot 0). The host moves
+            // this on each UnitHandoffRetarget; we mirror that here so protectedIndex tracks the
+            // camera, exactly as ParsekFlight feeds WatchedRecordingIndex into FrameContext.
+            int watchedIndex = 0;
+
+            try
+            {
+                // Sample the span clock across cycle 0 then the wrap. At each member boundary the
+                // live member changes; because we are watching the unit, the engine must fire a
+                // UnitHandoffRetarget naming the new live member, and the previously-watched member
+                // must NOT be left active-and-watched (it is held alive but hidden until the camera
+                // transfers, or destroyed once the camera has moved off it).
+                double[] samples = { 125.0, 175.0, 225.0, 275.0 };
+                int[] expectedLive = { 0, 1, 2, 0 }; // wrap returns to the owner
+                for (int s = 0; s < samples.Length; s++)
+                {
+                    int retargetsBefore = retargets.Count;
+                    var ctx = MakeUnitFrameContext(samples[s], protectedIndex: watchedIndex);
+                    for (int f = 0; f < 3; f++)
+                    {
+                        engine.UpdatePlayback(trajectories, flags, ctx);
+                        yield return null;
+                    }
+
+                    // The live member this frame.
+                    int liveActive = CountActiveUnitGhosts(engine, trajectories.Length, out int liveIdx);
+                    InGameAssert.AreEqual(1, liveActive,
+                        $"at currentUT={samples[s]} exactly one member ghost must be active (got {liveActive})");
+                    InGameAssert.AreEqual(expectedLive[s], liveIdx,
+                        $"at currentUT={samples[s]} the live member must be slot {expectedLive[s]}, got {liveIdx}");
+
+                    if (s > 0)
+                    {
+                        // A boundary was crossed since the previous sample: the engine must have fired
+                        // exactly one retarget naming the new live member (handoff or wrap). Without it
+                        // the camera would stay glued to the now-hidden previous member.
+                        InGameAssert.IsTrue(retargets.Count > retargetsBefore,
+                            $"crossing into slot {expectedLive[s]} while watching the unit must fire a " +
+                            "UnitHandoffRetarget; none fired means the camera would stick to the old member");
+                        var latest = retargets[retargets.Count - 1];
+                        InGameAssert.AreEqual(expectedLive[s], latest.Index,
+                            $"the retarget must name the new live member slot {expectedLive[s]}, got {latest.Index}");
+                        // Model the host transfer: the camera now follows the new live member.
+                        watchedIndex = latest.Index;
+                    }
+
+                    // HARD INVARIANT (design 522-524): the watch camera target is NEVER a destroyed or
+                    // SetActive(false) ghost. The camera follows watchedIndex; assert that index's ghost
+                    // exists AND is active. (After the transfer above, watchedIndex == the live member,
+                    // whose ghost the assertions just confirmed is active; this re-checks it explicitly
+                    // by the watched-index path, the exact thing that would regress if a transfer were
+                    // dropped and the camera left on a hidden member.)
+                    bool watchedPresent = engine.ghostStates.TryGetValue(watchedIndex, out var watchedState);
+                    InGameAssert.IsTrue(watchedPresent && watchedState != null && watchedState.ghost != null,
+                        $"watch camera target (member #{watchedIndex}) must have a live ghost GameObject: " +
+                        "the camera must never target a destroyed ghost");
+                    InGameAssert.IsTrue(watchedState.ghost.activeSelf,
+                        $"watch camera target (member #{watchedIndex}) must be SetActive(true): " +
+                        "the camera must never target a SetActive(false) ghost");
+                }
+            }
+            finally
+            {
+                CleanupUnitEngineGhosts(engine, trajectories.Length);
+            }
+        }
+
+        [InGameTest(Category = "ChainLoopUnit", Scene = GameScenes.FLIGHT,
+            Description = "Phase 8 / edge 9 (design 525-527): debris loop-synced to a unit member renders on the unit SPAN clock, not the parent member's raw window; visible at a span loopUT outside the parent's own [Start,End]")]
+        public IEnumerator ChainLoopUnit_DebrisFollowsSpanClock()
+        {
+            var activeVessel = FlightGlobals.ActiveVessel;
+            if (activeVessel == null || activeVessel.mainBody == null)
+            {
+                InGameAssert.Skip("needs an active vessel with a main body");
+                yield break;
+            }
+
+            var positioner = new ChainLoopUnitTestPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            engine.ResolvePlaybackDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0;
+            engine.ResolvePlaybackActiveVesselDistanceOverride =
+                (recordingIndex, traj, ghostState, playbackUT) => 0.0;
+
+            string body = activeVessel.mainBody.name;
+            double lat = activeVessel.latitude;
+            double lon = activeVessel.longitude;
+            double alt = System.Math.Max(0.0, activeVessel.altitude);
+
+            // Two unit members [100,150] and [150,200] (span [100,200], cadence 100s), plus a debris
+            // (index 2) whose own window is [110,140] and whose LoopSyncParentIdx points at member 0.
+            // The debris is NOT a unit member itself (it has no chain fields), so it takes the
+            // loop-synced-debris path; that path must source the OWNER's span clock (edge 9).
+            var member0 = new ChainLoopUnitTestTrajectory("clu-deb-m0", "DebrisParentMember0", 100.0, 150.0, body, lat, lon, alt);
+            var member1 = new ChainLoopUnitTestTrajectory("clu-deb-m1", "DebrisParentMember1", 150.0, 200.0, body, lat, lon, alt);
+            var debris = new ChainLoopUnitTestTrajectory("clu-deb-d", "UnitDebris", 110.0, 140.0, body, lat, lon, alt)
+            {
+                LoopSyncParentIdxOverride = 0, // loop-synced to member 0 (the unit owner)
+                LoopPlaybackOverride = false,   // debris does not loop on its own; it rides the parent
+            };
+            var trajectories = new IPlaybackTrajectory[] { member0, member1, debris };
+            var flags = BuildLoopFlags(trajectories);
+
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0, 1 },
+                spanStartUT: 100.0, spanEndUT: 200.0, cadenceSeconds: 100.0);
+            var byOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var byIndex = new Dictionary<int, int> { { 0, 0 }, { 1, 0 } }; // debris (2) is NOT a unit member
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(byOwner, byIndex));
+
+            try
+            {
+                // currentUT 125 -> span loopUT 125 (cycle 0). The debris window [110,140] CONTAINS
+                // span loopUT 125, so the debris must be active. Member 1 (slot 1, [150,200]) is NOT
+                // the live member at loopUT 125, so the debris is genuinely riding the OWNER's clock.
+                var ctx = MakeUnitFrameContext(125.0);
+                for (int f = 0; f < 4; f++)
+                {
+                    engine.UpdatePlayback(trajectories, flags, ctx);
+                    yield return null;
+                }
+                bool debrisPresent = engine.ghostStates.TryGetValue(2, out var debrisState);
+                InGameAssert.IsTrue(debrisPresent && debrisState != null && debrisState.ghost != null
+                        && debrisState.ghost.activeSelf,
+                    "loop-synced debris must be ACTIVE when the unit span clock (loopUT 125) is inside " +
+                    "the debris window [110,140], proving it rides the parent unit's span clock");
+
+                // Advance the span clock to loopUT 175 (currentUT 175): now PAST the debris window
+                // [110,140], so the debris must hide. If the debris were (wrongly) using member 0's
+                // OWN per-recording loop clock, member 0's clock would have wrapped back inside its own
+                // [100,150] window long before now and the debris could spuriously re-show; the span
+                // clock keeps a single monotonic phase across the whole span, so 175 is unambiguously
+                // past 140 and the debris is correctly retired.
+                var ctxPast = MakeUnitFrameContext(175.0);
+                for (int f = 0; f < 4; f++)
+                {
+                    engine.UpdatePlayback(trajectories, flags, ctxPast);
+                    yield return null;
+                }
+                bool debrisActiveNow = engine.ghostStates.TryGetValue(2, out var debrisState2)
+                    && debrisState2 != null && debrisState2.ghost != null && debrisState2.ghost.activeSelf;
+                InGameAssert.IsFalse(debrisActiveNow,
+                    "loop-synced debris must be hidden when the unit span clock (loopUT 175) is past the " +
+                    "debris window [110,140]; it must not render on its own raw window or a stale parent clock");
+            }
+            finally
+            {
+                CleanupUnitEngineGhosts(engine, trajectories.Length);
+            }
+        }
+
+        private static FrameContext MakeUnitFrameContext(double currentUT, int protectedIndex = -1)
+        {
+            return new FrameContext
+            {
+                currentUT = currentUT,
+                warpRate = 1f,
+                warpRateIndex = 0,
+                activeVesselPos = Vector3d.zero,
+                protectedIndex = protectedIndex,
+                protectedLoopCycleIndex = -1,
+                externalGhostCount = 0,
+                mapViewEnabled = false,
+                autoLoopIntervalSeconds = 10.0,
+            };
+        }
+
+        private void CleanupUnitEngineGhosts(GhostPlaybackEngine engine, int memberCount)
+        {
+            for (int i = 0; i < memberCount; i++)
+            {
+                if (engine.ghostStates.TryGetValue(i, out var s) && s?.ghost != null)
+                    runner.TrackForCleanup(s.ghost);
+                engine.ghostStates.Remove(i);
+            }
+        }
+
+        // Positioner for the chain-loop unit in-game tests: activates the ghost GameObject when the
+        // engine asks it to be positioned (via any of the absolute/point/loop paths the synthetic
+        // members route through), mirroring the production positioner's "place + show" behavior
+        // without depending on real surface/orbit resolution. ApplyZoneRendering returns a neutral
+        // result (never hidden-by-zone) so visibility is governed solely by the span-clock dispatch.
+        private sealed class ChainLoopUnitTestPositioner : IGhostPositioner
+        {
+            private static void Show(GhostPlaybackState state)
+            {
+                if (state?.ghost == null) return;
+                if (!state.ghost.activeSelf)
+                    state.ghost.SetActive(true);
+            }
+
+            public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx) => Show(state);
+
+            public void InterpolateAndPositionRelative(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx,
+                RelativeSectionPlaybackTarget target) => Show(state);
+
+            public bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double playbackUT, RelativeSectionPlaybackTarget target,
+                out double bracketBeforeUT, out double bracketAfterUT)
+            {
+                bracketBeforeUT = double.NaN;
+                bracketAfterUT = double.NaN;
+                return false;
+            }
+
+            public void PositionAtPoint(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, TrajectoryPoint point) => Show(state);
+
+            public void PositionAtSurface(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state) => Show(state);
+
+            public void PositionFromOrbit(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut) => Show(state);
+
+            public void PositionLoop(int index, IPlaybackTrajectory traj,
+                GhostPlaybackState state, double ut, bool suppressFx) => Show(state);
+
+            public bool TryResolveExplosionAnchorPosition(int index,
+                IPlaybackTrajectory traj, GhostPlaybackState state, out Vector3 worldPosition)
+            {
+                worldPosition = state?.ghost != null ? state.ghost.transform.position : Vector3.zero;
+                return state?.ghost != null;
+            }
+
+            public ZoneRenderingResult ApplyZoneRendering(int index, GhostPlaybackState state,
+                IPlaybackTrajectory traj, double distance, double playbackUT, int protectedIndex)
+            {
+                return new ZoneRenderingResult();
+            }
+
+            public void ClearOrbitCache() { }
+        }
+
+        #endregion
+    }
+
+    /// <summary>
+    /// Minimal looping IPlaybackTrajectory for the chain-loop unit in-game tests. A two-point
+    /// absolute recording over [startUT, endUT] with no ghost snapshot (sphere fallback spawn),
+    /// LoopPlayback + Auto period so the engine takes the loop dispatch and the pushed LoopUnitSet
+    /// routes it through the span clock. LoopSyncParentIdxOverride / LoopPlaybackOverride let the
+    /// debris test build a non-looping child synced to a unit member.
+    /// </summary>
+    internal class ChainLoopUnitTestTrajectory : IPlaybackTrajectory
+    {
+        private readonly string _recordingId;
+        private readonly string _vesselName;
+        private readonly double _startUT;
+        private readonly double _endUT;
+
+        internal ChainLoopUnitTestTrajectory(
+            string recordingId, string vesselName, double startUT, double endUT,
+            string bodyName, double latitude, double longitude, double altitude)
+        {
+            _recordingId = recordingId;
+            _vesselName = vesselName;
+            _startUT = startUT;
+            _endUT = endUT;
+            Points = new List<TrajectoryPoint>
+            {
+                new TrajectoryPoint
+                {
+                    ut = startUT, latitude = latitude, longitude = longitude, altitude = altitude,
+                    rotation = Quaternion.identity, velocity = Vector3.zero, bodyName = bodyName,
+                },
+                new TrajectoryPoint
+                {
+                    ut = endUT, latitude = latitude, longitude = longitude + 0.001, altitude = altitude + 10.0,
+                    rotation = Quaternion.identity, velocity = Vector3.zero, bodyName = bodyName,
+                },
+            };
+            TrackSections = new List<TrackSection>
+            {
+                new TrackSection
+                {
+                    environment = SegmentEnvironment.ExoBallistic,
+                    referenceFrame = ReferenceFrame.Absolute,
+                    source = TrackSectionSource.Active,
+                    startUT = startUT, endUT = endUT,
+                    anchorVesselId = 0u,
+                    frames = new List<TrajectoryPoint>(Points),
+                    checkpoints = new List<OrbitSegment>(),
+                    sampleRateHz = 1f,
+                    boundaryDiscontinuityMeters = 0,
+                    minAltitude = float.NaN, maxAltitude = float.NaN,
+                },
+            };
+        }
+
+        /// <summary>Set to a parent member index to make this trajectory loop-synced debris.</summary>
+        internal int LoopSyncParentIdxOverride { get; set; } = -1;
+
+        /// <summary>Override LoopPlayback (debris children are non-looping; they ride the parent).</summary>
+        internal bool LoopPlaybackOverride { get; set; } = true;
+
+        public List<TrajectoryPoint> Points { get; }
+        public List<OrbitSegment> OrbitSegments { get; } = new List<OrbitSegment>();
+        public bool HasOrbitSegments => false;
+        public List<TrackSection> TrackSections { get; }
+        public double StartUT => _startUT;
+        public double EndUT => _endUT;
+        public int RecordingFormatVersion => RecordingStore.CurrentRecordingFormatVersion;
+        public List<PartEvent> PartEvents { get; } = new List<PartEvent>();
+        public List<FlagEvent> FlagEvents { get; } = new List<FlagEvent>();
+        public ConfigNode GhostVisualSnapshot => null;
+        public ConfigNode VesselSnapshot => null;
+        public string VesselName => _vesselName;
+        public string RecordingId => _recordingId;
+        public bool LoopPlayback => LoopPlaybackOverride;
+        public double LoopIntervalSeconds => 0;
+        public LoopTimeUnit LoopTimeUnit => LoopTimeUnit.Auto;
+        public uint LoopAnchorVesselId => 0;
+        public double LoopStartUT => double.NaN;
+        public double LoopEndUT => double.NaN;
+        public TerminalState? TerminalStateValue => null;
+        public SurfacePosition? SurfacePos => null;
+        public double TerrainHeightAtEnd => double.NaN;
+        public bool PlaybackEnabled => true;
+        public bool IsDebris => LoopSyncParentIdxOverride >= 0;
+        public string ParentAnchorRecordingId => null;
+        public int LoopSyncParentIdx
+        {
+            get => LoopSyncParentIdxOverride;
+            set => LoopSyncParentIdxOverride = value;
+        }
+        public string TerminalOrbitBody => null;
+        public double TerminalOrbitSemiMajorAxis => 0;
+        public double TerminalOrbitEccentricity => 0;
+        public double TerminalOrbitInclination => 0;
+        public double TerminalOrbitLAN => 0;
+        public double TerminalOrbitArgumentOfPeriapsis => 0;
+        public double TerminalOrbitMeanAnomalyAtEpoch => 0;
+        public double TerminalOrbitEpoch => 0;
+        public RecordingEndpointPhase EndpointPhase => RecordingEndpointPhase.Unknown;
+        public string EndpointBodyName => null;
     }
 
     // Bug #613 in-game-test trajectory: a 5-second non-looping recording

@@ -425,5 +425,121 @@ namespace Parsek.Tests
             double result = GhostPlaybackLogic.ResolveLoopInterval(rec, 42.0, 10.0, 1.0);
             Assert.Equal(10.0, result);
         }
+
+        // --- Chain-loop unit serialization no-leak (Phase 8, design 508-513) ---
+
+        /// <summary>
+        /// Builds a chain-member recording carrying the loop / period / chain fields a chain-loop
+        /// unit is detected from. Window [startUT, endUT] comes from the first / last point.
+        /// </summary>
+        static Recording MakeChainMember(
+            string recordingId, string chainId, int chainIndex,
+            double startUT, double endUT,
+            bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = $"{chainId}-{chainIndex}",
+                PlaybackEnabled = true,
+                LoopPlayback = loop,
+                LoopTimeUnit = unit,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                ChainBranch = branch,
+            };
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = startUT, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero,
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = endUT, latitude = 0, longitude = 0, altitude = 0,
+                bodyName = "Kerbin", rotation = Quaternion.identity, velocity = Vector3.zero,
+            });
+            return rec;
+        }
+
+        [Fact]
+        public void ChainLoopUnit_RoundTrip_NoUnitStatePersisted()
+        {
+            // Phase 8 (design 508-513): chain-loop units are RUNTIME-only, derived each schedule
+            // rebuild by RecordingStore.DetectChainLoopUnits, never written to the save. This test
+            // round-trips a 3-member auto-loop chain through ParsekScenario metadata save/load and
+            // asserts:
+            //   (1) NO unit-membership / span / cadence key leaks into the serialized ConfigNode.
+            //       WHAT MAKES IT FAIL: if a future change started persisting any unit descriptor
+            //       field (spanStart/spanEnd/cadence/owner/member list/"chainLoopUnit"/"loopUnit"),
+            //       the vocabulary scan below would catch the new key. A leaked unit key is a schema
+            //       change the design explicitly forbids (no generation bump, no on-disk unit).
+            //   (2) the unit RECONSTITUTES purely from the loaded loop/period/chain state on the
+            //       next detection pass, proving the round-tripped save carries everything the
+            //       runtime detector needs and nothing it doesn't.
+            RecordingStore.ResetForTesting();
+
+            var sources = new[]
+            {
+                MakeChainMember("clu-0", "cluChain", 0, 100, 150),
+                MakeChainMember("clu-1", "cluChain", 1, 150, 200),
+                MakeChainMember("clu-2", "cluChain", 2, 200, 250),
+            };
+
+            // The unit vocabulary that must NEVER appear as a serialized key. These are the field
+            // names of the transient LoopUnit / LoopUnitSet descriptors plus the design's terms.
+            string[] forbiddenKeyFragments =
+            {
+                "loopunit", "chainloopunit", "spanstart", "spanend", "spanut",
+                "cadence", "unitowner", "unitmember", "ownerbyindex", "memberindices",
+            };
+
+            var loaded = new List<Recording>();
+            foreach (var source in sources)
+            {
+                var node = new ConfigNode("RECORDING");
+                ParsekScenario.SaveRecordingMetadata(node, source);
+
+                // (1) No unit state in any serialized key (case-insensitive substring scan).
+                for (int v = 0; v < node.values.Count; v++)
+                {
+                    string key = node.values[v].name.ToLowerInvariant();
+                    foreach (var forbidden in forbiddenKeyFragments)
+                    {
+                        Assert.False(key.Contains(forbidden),
+                            $"serialized recording metadata leaked chain-loop unit state via key '" +
+                            $"{node.values[v].name}' (matched forbidden fragment '{forbidden}'); units are runtime-only");
+                    }
+                }
+
+                // Load the metadata back into a fresh recording (loop / period / points round-trip).
+                var rec = new Recording();
+                ParsekScenario.LoadRecordingMetadataForTests(node, rec);
+                // Metadata save/load round-trips loop+period but NOT the chain topology (that lives on
+                // the RecordingTree). Re-apply the chain fields exactly as the tree load does, plus the
+                // points the window derives from, so the reconstituted recording matches a real load.
+                rec.ChainId = source.ChainId;
+                rec.ChainIndex = source.ChainIndex;
+                rec.ChainBranch = source.ChainBranch;
+                rec.Points.Clear();
+                rec.Points.AddRange(source.Points);
+                loaded.Add(rec);
+                RecordingStore.CommitRecordingDirect(rec);
+            }
+
+            // Sanity: the saved metadata DID carry the loop + period the detector keys off.
+            Assert.True(loaded[0].LoopPlayback, "loaded member should round-trip LoopPlayback=true");
+            Assert.Equal(LoopTimeUnit.Auto, loaded[0].LoopTimeUnit);
+
+            // (2) The unit reconstitutes from the loaded state alone: same owner / members / span
+            // a fresh recording set would produce. If any loop/period field failed to round-trip,
+            // the run would break and no unit would form (this assertion would fail).
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(0, unit.OwnerIndex);
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices);
+            Assert.Equal(100.0, unit.SpanStartUT, 6);
+            Assert.Equal(250.0, unit.SpanEndUT, 6);
+        }
     }
 }

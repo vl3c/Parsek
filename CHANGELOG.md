@@ -6,6 +6,8 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+- Consecutive chain segments all set to Loop with period `auto` now play back as one continuous looping unit: each segment hands off to the next and the whole chain wraps, instead of relaunching on the per-recording stagger.
+
 ---
 
 ## 0.9.3
