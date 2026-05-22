@@ -6430,6 +6430,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resets the game to its career-start snapshot (UT 0): reloads the pristine
+        /// snapshot captured at career creation, restoring initial resources/facilities/clock
+        /// while KEEPING the in-memory recordings as future ghosts (the OnLoad rewind branch
+        /// skips the .sfs recording reload). Used by "Warp to time" for targets at/before the
+        /// first launch so Year 1 / Day 1 is a true reset rather than landing at the earliest
+        /// launch. Mirrors <see cref="InitiateRewind"/> minus the strip / lead-time windback
+        /// (the snapshot is pristine) and minus owner-specific budget / replay scope.
+        ///
+        /// <para>Refuses when re-fly supersede relations exist: a UT-0 reset would otherwise
+        /// leave superseded originals hidden. The caller selects the earliest-launch rewind
+        /// path instead in that case (its owner-keyed supersede drop is the tested route).</para>
+        /// </summary>
+        internal static bool InitiateRewindToCareerStart(string saveFileName)
+        {
+            if (string.IsNullOrEmpty(saveFileName))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind", "InitiateRewindToCareerStart: null/empty save name");
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (scenario?.ActiveMergeJournal != null
+                && scenario.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind",
+                        $"Cannot warp to game start during an active re-fly merge " +
+                        $"(journalPhase={scenario.ActiveMergeJournal.Phase})");
+                ParsekLog.ScreenMessage("Cannot warp to game start during an active re-fly merge", 3f);
+                return false;
+            }
+
+            int supersedeCount = scenario?.RecordingSupersedes?.Count ?? 0;
+            if (supersedeCount > 0)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("Rewind",
+                        $"InitiateRewindToCareerStart refused: {supersedeCount} supersede relation(s) present " +
+                        "(UT-0 reset would hide superseded originals); caller should use earliest-launch rewind");
+                return false;
+            }
+
+            // UT-0 reset: no owner, no reserved budget, no baseline. ApplyRewindResourceAdjustment
+            // recalcs the ledger at the adjusted UT (~0), which restores pristine career resources.
+            RewindContext.BeginRewind(0.0, default(BudgetSummary), 0, 0, 0f);
+            RewindContext.SetQuicksaveVesselPids(null);   // no PreProcessRewindSave -> no whitelist
+            ClearRewindReplayTargetScope();               // no specific owner to replay-scope
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Warp-to-game-start initiated to UT 0 (snapshot: {saveFileName}). Keeps in-memory " +
+                    "recordings as future ghosts; NOT a Re-Fly.");
+
+            string tempCopyName = null;
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
+                string sourcePath = Path.Combine(savesDir,
+                    RecordingPaths.BuildRewindSaveRelativePath(saveFileName));
+                tempCopyName = saveFileName;
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+
+                // Copy from Parsek/Saves/ to the root saves dir so LoadGame can find it.
+                File.Copy(sourcePath, tempPath, true);
+
+                // No PreProcessRewindSave: the snapshot is pristine (no future vessels to
+                // strip) and must NOT be wound back below UT 0.
+                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
+                TryDeleteFileQuietly(tempPath);
+
+                if (game == null)
+                {
+                    ResetRewindFlags();
+                    if (!SuppressLogging)
+                        ParsekLog.Error("Rewind",
+                            $"Warp-to-game-start failed: LoadGame returned null for snapshot '{saveFileName}'");
+                    return false;
+                }
+
+                RewindContext.SetAdjustedUT(game.flightState.universalTime);
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind", $"Warp-to-game-start: adjustedUT={RewindAdjustedUT:F1}");
+
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetRewindFlags();
+                DeleteTemporaryRewindSaveCopy(tempCopyName);
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind", $"Warp-to-game-start failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Looks up a committed recording by id. Returns null when the id is null/empty
         /// or no committed recording matches. O(N); used by post-LoadScene rewind
         /// hooks where the owner reference doesn't survive but its id does

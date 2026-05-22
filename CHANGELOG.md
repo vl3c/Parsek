@@ -6,6 +6,14 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### UI
+
+- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward; past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time.
+- Warping in flight first asks (via the usual Merge / Discard dialog) what to do with the in-progress recording before returning to the Space Center; it is never auto-saved.
+- Warping to Year 1 / Day 1 (1/1/0/0) resets a new career to its true starting state (resources, facilities, clock), keeping your recordings as future ghosts. New careers get a one-time start snapshot for this; saves created before this version instead land at your earliest launch.
+- Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
+- The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.
+
 ---
 
 ## 0.9.3
@@ -72,6 +80,7 @@ All notable changes to Parsek are documented here.
 - Debris of a re-fly fork that gets rewound out of the timeline no longer renders as a duplicate ghost alongside the restored recording's own debris. Existing saves with these duplicate ghosts are fixed automatically on the next load.
 - Switching control to the docking target mid-approach no longer drops the chaser's recording from precise relative tracking to body-fixed absolute for the rest of the close approach. The still-backgrounded chaser now keeps the target as its relative anchor (the target had become the active recording, which the anchor scan previously ignored), so two co-recorded ghosts stay aligned through docking instead of drifting apart at the sub-meter scale.
 - Undocking two vessels at a docking port during recording now splits the recording into the two correct vessels at the undock moment, instead of recording the departing pod as destroyed and only picking it up a few seconds later as a separate launch. Crew aboard the undocked vessel are no longer wrongly flagged as lost.
+- Fast-Forward and Warp to Departure now land 15 seconds before the event (the same pre-launch lead Rewind uses) instead of exactly at it, so you arrive with a moment to get oriented. Warp to Spawn still lands precisely at the spawn moment.
 
 ### Internals
 
