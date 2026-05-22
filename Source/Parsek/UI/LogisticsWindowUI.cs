@@ -73,17 +73,20 @@ namespace Parsek
         private int selectedTab;
         private static readonly string[] TabLabels = new[] { "Supply Routes" };
 
-        // Column widths.
+        // Column widths. Header and rows use the same constants and live in the
+        // same per-section box, so columns line up like the Recordings window.
+        private const float ColW_Num = 30f;        // "#" row-index column (per section)
         private const float ColW_Origin = 120f;
-        private const float ColW_Destination = 190f;
+        private const float ColW_Destination = 180f;
         private const float ColW_Interval = 70f;
         private const float ColW_Transit = 70f;
         private const float ColW_Cycles = 45f;
-        private const float ColW_Status = 150f;
+        private const float ColW_Status = 140f;
+        private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
-        private const float MinWindowWidth = 820f;
+        private const float MinWindowWidth = 980f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -108,7 +111,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 920, 320);
+                windowRect = new Rect(x, mainWindowRect.y, 1000, 340);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -186,18 +189,6 @@ namespace Parsek
             selectedTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
             GUILayout.Space(SpacingSmall);
 
-            // Column header.
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Name", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
-            GUILayout.Label("Origin", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Origin));
-            GUILayout.Label("Destination", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Destination));
-            GUILayout.Label("Interval", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Interval));
-            GUILayout.Label("Transit", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Transit));
-            GUILayout.Label("Cyc", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Cycles));
-            GUILayout.Label("Status", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Status));
-            GUILayout.Label("Actions", parentUI.GetColumnHeaderStyle(), GUILayout.Width(220f));
-            GUILayout.EndHorizontal();
-
             // Reset deferred actions for this frame.
             pendingPause = null;
             pendingActivate = null;
@@ -206,36 +197,17 @@ namespace Parsek
             pendingCreate = null;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
-            GUILayout.BeginVertical(GUI.skin.box);
 
-            DrawSectionHeader($"Active Routes ({activeRoutes.Count})");
-            if (activeRoutes.Count == 0)
-                GUILayout.Label("  (none)", detailStyle);
-            for (int i = 0; i < activeRoutes.Count; i++)
-                DrawRouteRow(activeRoutes[i], RouteSection.Active, currentUT);
+            // Each section is its own gray bubble with its own header row, so the
+            // header and data columns share the box and line up exactly.
+            DrawRouteSectionBubble($"Active Routes ({activeRoutes.Count})", activeRoutes, RouteSection.Active, currentUT);
+            DrawRouteSectionBubble($"Paused Routes ({pausedRoutes.Count})", pausedRoutes, RouteSection.Paused, currentUT);
+            DrawCandidateSectionBubble($"Candidates ({candidates.Count})", candidates);
 
-            GUILayout.Space(SpacingSmall);
-            DrawSectionHeader($"Paused Routes ({pausedRoutes.Count})");
-            if (pausedRoutes.Count == 0)
-                GUILayout.Label("  (none)", detailStyle);
-            for (int i = 0; i < pausedRoutes.Count; i++)
-                DrawRouteRow(pausedRoutes[i], RouteSection.Paused, currentUT);
-
-            GUILayout.Space(SpacingSmall);
-            DrawSectionHeader($"Candidates ({candidates.Count})");
-            if (candidates.Count == 0)
-                GUILayout.Label("  No eligible Supply Runs. Fly a one-way transport that docks, transfers cargo to the destination, and undocks, then commit and seal the recording.", detailStyle);
-            for (int i = 0; i < candidates.Count; i++)
-                DrawCandidateRow(candidates[i]);
-
-            GUILayout.EndVertical();
             GUILayout.EndScrollView();
 
-            // Bottom bar.
-            GUILayout.Space(SpacingSmall);
-            GUILayout.Label($"Active: {activeRoutes.Count}   Paused: {pausedRoutes.Count}   Candidates: {candidates.Count}");
-
             // Full-width Close button at the bottom (matches Kerbals / Settings windows).
+            GUILayout.Space(SpacingSmall);
             if (GUILayout.Button("Close"))
             {
                 showWindow = false;
@@ -249,15 +221,59 @@ namespace Parsek
             ApplyPendingActions(currentUT);
         }
 
+        private void DrawRouteSectionBubble(string title, List<Route> rows, RouteSection section, double currentUT)
+        {
+            DrawSectionHeader(title);
+            GUILayout.BeginVertical(GUI.skin.box);
+            DrawColumnHeader();
+            if (rows.Count == 0)
+                GUILayout.Label("  (none)", detailStyle);
+            for (int i = 0; i < rows.Count; i++)
+                DrawRouteRow(rows[i], section, i + 1, currentUT);
+            GUILayout.EndVertical();
+            GUILayout.Space(SpacingSmall);
+        }
+
+        private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows)
+        {
+            DrawSectionHeader(title);
+            GUILayout.BeginVertical(GUI.skin.box);
+            DrawColumnHeader();
+            if (rows.Count == 0)
+                GUILayout.Label("  No eligible Supply Runs. Fly a one-way transport that docks, transfers cargo to the destination, and undocks, then commit and seal the recording.", detailStyle);
+            for (int i = 0; i < rows.Count; i++)
+                DrawCandidateRow(rows[i], i + 1);
+            GUILayout.EndVertical();
+            GUILayout.Space(SpacingSmall);
+        }
+
+        private void DrawColumnHeader()
+        {
+            GUIStyle h = parentUI.GetColumnHeaderStyle();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("#", h, GUILayout.Width(ColW_Num));
+            GUILayout.Label("Name", h, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Origin", h, GUILayout.Width(ColW_Origin));
+            GUILayout.Label("Destination", h, GUILayout.Width(ColW_Destination));
+            GUILayout.Label("Interval", h, GUILayout.Width(ColW_Interval));
+            GUILayout.Label("Transit", h, GUILayout.Width(ColW_Transit));
+            GUILayout.Label("Cyc", h, GUILayout.Width(ColW_Cycles));
+            GUILayout.Label("Status", h, GUILayout.Width(ColW_Status));
+            GUILayout.Label("Actions", h, GUILayout.Width(ColW_Actions));
+            GUILayout.EndHorizontal();
+        }
+
         private enum RouteSection { Active, Paused }
 
-        private void DrawRouteRow(Route route, RouteSection section, double currentUT)
+        private void DrawRouteRow(Route route, RouteSection section, int rowNum, double currentUT)
         {
             if (route == null) return;
             string rowKey = route.Id ?? "<no-id>";
             bool expanded = expandedRows.Contains(rowKey);
 
             GUILayout.BeginHorizontal();
+
+            GUILayout.Label(rowNum.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Num));
 
             // Name with caret (Recordings-window style).
             string arrow = expanded ? "\u25bc" : "\u25b6";
@@ -273,25 +289,29 @@ namespace Parsek
             GUILayout.Label(new GUIContent(route.Status.ToString(), StatusReason(route.Status)),
                 StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
 
-            // Action buttons by section.
+            // Fixed-width action cell so every row's Name-expand is identical and
+            // the data columns stay aligned across sections and the header.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
             if (section == RouteSection.Active)
             {
-                if (GUILayout.Button("Pause", GUILayout.Width(62)))
+                if (GUILayout.Button("Pause", GUILayout.Width(58)))
                     pendingPause = route;
             }
             else // Paused
             {
                 if (GUILayout.Button(new GUIContent("Send Once",
                         "Fire one cycle at the next moment conditions allow (funds, resources, endpoint, alignment), then stay Paused."),
-                        GUILayout.Width(78)))
+                        GUILayout.Width(74)))
                     pendingSendOnce = route;
                 if (GUILayout.Button(new GUIContent("Activate",
                         "Turn on periodic auto-dispatch on this route's interval."),
-                        GUILayout.Width(70)))
+                        GUILayout.Width(64)))
                     pendingActivate = route;
             }
-            if (GUILayout.Button(new GUIContent("X", "Delete this route"), GUILayout.Width(24)))
+            if (GUILayout.Button(new GUIContent("X", "Delete this route"), GUILayout.Width(22)))
                 pendingDeleteRouteId = route.Id;
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
 
@@ -299,7 +319,7 @@ namespace Parsek
                 DrawRouteDetail(route, currentUT);
         }
 
-        private void DrawCandidateRow(RouteCandidate candidate)
+        private void DrawCandidateRow(RouteCandidate candidate, int rowNum)
         {
             if (candidate?.Analysis == null) return;
             string treeId = candidate.Tree?.Id ?? "<no-tree>";
@@ -309,6 +329,8 @@ namespace Parsek
             string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis);
 
             GUILayout.BeginHorizontal();
+
+            GUILayout.Label(rowNum.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Num));
 
             string arrow = expanded ? "\u25bc" : "\u25b6";
             if (GUILayout.Button($"{arrow} {name}", GUI.skin.label, GUILayout.ExpandWidth(true)))
@@ -322,10 +344,13 @@ namespace Parsek
             GUILayout.Label(new GUIContent("eligible", "A sealed, valid Supply Run. Create Route promotes it to a Paused route you can Send Once / Activate."),
                 statusStyleCyan, GUILayout.Width(ColW_Status));
 
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
             if (GUILayout.Button(new GUIContent("Create Route",
                     "Promote this Supply Run to a stored route (created Paused; use Send Once to test, then Activate)."),
-                    GUILayout.Width(110)))
+                    GUILayout.Width(100)))
                 pendingCreate = candidate;
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
 
