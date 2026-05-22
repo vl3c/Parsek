@@ -153,6 +153,13 @@ namespace Parsek
         private int loopPeriodFocusedRi = -1;
         private string loopPeriodEditText = "";
         private Rect loopPeriodEditRect;
+        // Group-header loop period editing — when set (non-null), the period value
+        // field on this group's header owns the shared loopPeriodEditText/Rect buffer.
+        // Mutually exclusive with loopPeriodFocusedRi (only one period field edits at
+        // a time). Carries the descendant set captured when focus was gained so a
+        // commit can cascade the typed value to the same recordings.
+        private string loopPeriodFocusedGroup;
+        private List<int> loopPeriodFocusedGroupIndices;
 
         private const float ColW_Period = 90f;
         private const float SpacingSmall = 3f;
@@ -786,6 +793,17 @@ namespace Parsek
                 if (loopPeriodEditRect.width > 0 && !loopPeriodEditRect.Contains(Event.current.mousePosition))
                 {
                     CommitLoopPeriodEdit(committed);
+                }
+            }
+
+            // Click outside active GROUP loop period field -> commit and defocus.
+            // Per-row and group period edits share loopPeriodEditRect and are mutually
+            // exclusive, so only one of these two branches can fire on a given click.
+            if (Event.current.type == EventType.MouseDown && loopPeriodFocusedGroup != null)
+            {
+                if (loopPeriodEditRect.width > 0 && !loopPeriodEditRect.Contains(Event.current.mousePosition))
+                {
+                    CommitGroupLoopPeriodEdit(committed);
                 }
             }
         }
@@ -1954,8 +1972,12 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({descendants.Count} recordings)");
             }
 
-            // Period placeholder
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            // Period (aggregate) — cascades the loop period to every descendant.
+            // Wrapped to match the per-row Period cell's shifted-right layout.
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+            GUILayout.Space(BodyCellButtonLeftInset);
+            DrawGroupLoopPeriodCell(groupName, descendants, committed, readOnly: false);
+            GUILayout.EndHorizontal();
 
             var flight = parentUI.Flight;
 
@@ -2428,6 +2450,11 @@ namespace Parsek
 
             // Period placeholder — paired with the suppressed loop aggregate
             // above so the virtual group exposes no playback configuration.
+            // The group-Period cascade (added with the group loop-period control)
+            // is deliberately NOT surfaced here: this is the re-fly TODO surface,
+            // and a cascade would write loop-period config back to every member,
+            // re-opening the configuration the suppressed loop toggle was meant to
+            // hide. Members stay editable from their real (mission) group rows.
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
 
             // Watch placeholder (flight only) — Unfinished Flights row does
@@ -3374,7 +3401,12 @@ namespace Parsek
                 }
                 ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({members.Count} recordings)");
             }
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
+            // Period (aggregate) — cascades the loop period to every block member.
+            // Wrapped to match the per-row Period cell's shifted-right layout.
+            GUILayout.BeginHorizontal(bodyCellWrapStyle, GUILayout.Width(ColW_Period));
+            GUILayout.Space(BodyCellButtonLeftInset);
+            DrawGroupLoopPeriodCell(logId, members, committed, readOnly: false);
+            GUILayout.EndHorizontal();
             if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
 
             // Rewind / Forward button for chain and grouped recording blocks.
@@ -4660,12 +4692,140 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Clears any active loop-period text-edit focus. Called by TimelineWindowUI
-        /// when the L button toggles loop off, so a stale edit field doesn't linger.
+        /// Aggregate loop-period state of a set of recordings, used by the group-header
+        /// Period control to decide whether the group shows a single common value (uniform)
+        /// or a mixed "-" placeholder. Mirrors the loop-enable aggregate (all-or-mixed) but
+        /// for the loop PERIOD (unit + value), never LoopPlayback.
+        /// </summary>
+        internal struct GroupLoopPeriod
+        {
+            // True when every recording in the set shares the same LoopTimeUnit.
+            public bool UniformUnit;
+            // The shared unit when UniformUnit; LoopTimeUnit.Sec otherwise (so callers
+            // have a defined value to seed an edit/cycle from).
+            public LoopTimeUnit Unit;
+            // True when every recording shares the same LoopIntervalSeconds AND a uniform
+            // unit. Always false for an empty set or a mixed-unit set.
+            public bool UniformValue;
+            // The shared LoopIntervalSeconds when UniformValue; otherwise the first
+            // recording's value (or the loop-timing default for an empty set).
+            public double Seconds;
+            // Number of recordings the aggregate was derived from.
+            public int Count;
+        }
+
+        /// <summary>
+        /// Derives the aggregate loop-period state (uniform unit, uniform value, common
+        /// values) of the recordings at <paramref name="indices"/> in <paramref name="recs"/>.
+        /// Out-of-range / null indices are skipped. An empty effective set returns
+        /// not-uniform with loop-timing defaults so the group header renders a defined
+        /// "-" mixed placeholder rather than throwing.
+        /// </summary>
+        internal static GroupLoopPeriod DeriveGroupLoopPeriod(
+            IReadOnlyList<Recording> recs, IEnumerable<int> indices)
+        {
+            var result = new GroupLoopPeriod
+            {
+                UniformUnit = false,
+                Unit = LoopTimeUnit.Sec,
+                UniformValue = false,
+                Seconds = LoopTiming.DefaultLoopIntervalSeconds,
+                Count = 0,
+            };
+            if (recs == null || indices == null)
+                return result;
+
+            bool first = true;
+            LoopTimeUnit commonUnit = LoopTimeUnit.Sec;
+            double commonSeconds = LoopTiming.DefaultLoopIntervalSeconds;
+            bool unitUniform = true;
+            bool valueUniform = true;
+            foreach (int idx in indices)
+            {
+                if (idx < 0 || idx >= recs.Count) continue;
+                var rec = recs[idx];
+                if (rec == null) continue;
+                if (first)
+                {
+                    commonUnit = rec.LoopTimeUnit;
+                    commonSeconds = rec.LoopIntervalSeconds;
+                    first = false;
+                }
+                else
+                {
+                    if (rec.LoopTimeUnit != commonUnit) unitUniform = false;
+                    if (rec.LoopIntervalSeconds != commonSeconds) valueUniform = false;
+                }
+                result.Count++;
+            }
+
+            if (result.Count == 0)
+                return result;
+
+            result.UniformUnit = unitUniform;
+            result.Unit = unitUniform ? commonUnit : LoopTimeUnit.Sec;
+            // Value is only "uniform" when both the unit AND the raw seconds agree;
+            // a uniform 30s across Sec and Min recordings is not a single editable value.
+            result.UniformValue = unitUniform && valueUniform;
+            // Seconds is the first member's value either way: it seeds the editable field
+            // when uniform and is a harmless placeholder otherwise (the unit shows "-").
+            result.Seconds = commonSeconds;
+            return result;
+        }
+
+        /// <summary>
+        /// Cascades a loop UNIT to every recording in <paramref name="recs"/>, preserving
+        /// each recording's LoopIntervalSeconds. Does NOT touch LoopPlayback. Returns the
+        /// number of recordings whose unit actually changed. Null entries are skipped.
+        /// </summary>
+        internal static int ApplyLoopUnitToRecordings(IEnumerable<Recording> recs, LoopTimeUnit unit)
+        {
+            if (recs == null) return 0;
+            int changed = 0;
+            foreach (var rec in recs)
+            {
+                if (rec == null) continue;
+                if (rec.LoopTimeUnit == unit) continue;
+                rec.LoopTimeUnit = unit;
+                changed++;
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// Cascades a loop UNIT and interval (seconds) to every recording in
+        /// <paramref name="recs"/> for a manual-value group edit. Does NOT touch
+        /// LoopPlayback. Returns the number of recordings whose unit or seconds actually
+        /// changed. Null entries are skipped.
+        /// </summary>
+        internal static int ApplyLoopIntervalToRecordings(
+            IEnumerable<Recording> recs, LoopTimeUnit unit, double seconds)
+        {
+            if (recs == null) return 0;
+            int changed = 0;
+            foreach (var rec in recs)
+            {
+                if (rec == null) continue;
+                bool unitDiff = rec.LoopTimeUnit != unit;
+                bool secondsDiff = rec.LoopIntervalSeconds != seconds;
+                if (!unitDiff && !secondsDiff) continue;
+                rec.LoopTimeUnit = unit;
+                rec.LoopIntervalSeconds = seconds;
+                changed++;
+            }
+            return changed;
+        }
+
+        /// <summary>
+        /// Clears any active loop-period text-edit focus (per-row and group-header).
+        /// Called by TimelineWindowUI when the L button toggles loop off, so a stale
+        /// edit field doesn't linger.
         /// </summary>
         internal void ClearLoopPeriodFocus()
         {
             loopPeriodFocusedRi = -1;
+            loopPeriodFocusedGroup = null;
+            loopPeriodFocusedGroupIndices = null;
         }
 
         // --- Loop period cell ---
@@ -4798,6 +4958,187 @@ namespace Parsek
                 ParsekLog.Info("UI",
                     $"Recording '{rec.VesselName}' loop unit changed to {newUnit}");
             }
+        }
+
+        // --- Group-header loop period cell (cascades to all descendants) ---
+
+        /// <summary>
+        /// Draws the Period control on a GROUP header. Mirrors DrawLoopPeriodCell's
+        /// [value area][unit button] layout so the cell aligns with sibling recording
+        /// rows. Changing the unit or value cascades the loop PERIOD (LoopTimeUnit and,
+        /// for manual units, LoopIntervalSeconds) to every recording in
+        /// <paramref name="descendantIndices"/> — never LoopPlayback (the group enable
+        /// checkbox owns that). When <paramref name="readOnly"/> is true the same layout
+        /// renders disabled and no cascade runs.
+        /// </summary>
+        private void DrawGroupLoopPeriodCell(
+            string groupName, IReadOnlyCollection<int> descendantIndices,
+            IReadOnlyList<Recording> committed, bool readOnly)
+        {
+            const float unitBtnW = 40f;
+            float valueBtnW = ColW_Period - unitBtnW - 4f - BodyCellButtonLeftInset;
+
+            var agg = DeriveGroupLoopPeriod(committed, descendantIndices);
+            LoopTimeUnit commonUnit = agg.Unit;
+            bool uniformUnit = agg.UniformUnit;
+            bool focused = !readOnly && loopPeriodFocusedGroup == groupName;
+
+            bool prevEnabled = GUI.enabled;
+            if (readOnly) GUI.enabled = false;
+
+            // Value area (left): auto -> disabled global value; else editable group buffer.
+            if (uniformUnit && commonUnit == LoopTimeUnit.Auto)
+            {
+                var settings = ParsekSettings.Current;
+                double globalVal = settings != null
+                    ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
+                    : LoopTiming.DefaultLoopIntervalSeconds;
+                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
+                bool wasEnabled = GUI.enabled;
+                GUI.enabled = false;
+                GUILayout.TextField(
+                    ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit) + UnitSuffix(globalDisplayUnit),
+                    bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                GUI.enabled = wasEnabled;
+            }
+            else
+            {
+                string controlName = "GrpLoopPeriod_" + groupName;
+                if (!focused)
+                {
+                    // Not editing: show the common value (uniform) or "-" (mixed). Seed the
+                    // buffer + capture the descendant set when the field gains focus.
+                    string displayText = uniformUnit
+                        ? ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(agg.Seconds, commonUnit), commonUnit)
+                        : "-";
+                    GUI.SetNextControlName(controlName);
+                    GUILayout.TextField(displayText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                    Rect valueRect = GUILayoutUtility.GetLastRect();
+                    if (!readOnly && uniformUnit && GUI.GetNameOfFocusedControl() == controlName)
+                    {
+                        loopPeriodEditText = FormatLoopPeriodEditStartText(agg.Seconds, commonUnit);
+                        loopPeriodFocusedGroup = groupName;
+                        loopPeriodFocusedGroupIndices = new List<int>(descendantIndices);
+                        loopPeriodEditRect = valueRect;
+                        // Per-row and group period edits are mutually exclusive.
+                        loopPeriodFocusedRi = -1;
+                        ParsekLog.Verbose("UI",
+                            $"Group '{groupName}' loop period edit started: " +
+                            $"value='{loopPeriodEditText}' unit={ParsekUI.UnitLabel(commonUnit)} " +
+                            $"({loopPeriodFocusedGroupIndices.Count} recordings)");
+                    }
+                }
+                else
+                {
+                    bool submitPeriod = Event.current.type == EventType.KeyDown &&
+                        (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                    GUI.SetNextControlName(controlName);
+                    string newText = GUILayout.TextField(loopPeriodEditText, bodyCellTextFieldFlush, GUILayout.Width(valueBtnW));
+                    loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                    if (newText != loopPeriodEditText)
+                        loopPeriodEditText = newText;
+                    if (submitPeriod)
+                    {
+                        CommitGroupLoopPeriodEdit(committed);
+                        Event.current.Use();
+                    }
+                }
+            }
+
+            // Unit button (right): label = uniform unit, "-" when mixed. Click cascades.
+            GUILayout.Space(4f);
+            string unitLabel = uniformUnit ? ParsekUI.UnitLabel(commonUnit) : "-";
+            if (GUILayout.Button(unitLabel, bodyCellButtonFlush, GUILayout.Width(unitBtnW)) && !readOnly)
+            {
+                // Mixed groups normalize to Sec on the first click (a defined unit to
+                // cycle from); uniform groups cycle sec -> min -> hr -> auto.
+                LoopTimeUnit newUnit = uniformUnit ? CycleRecordingUnit(commonUnit) : LoopTimeUnit.Sec;
+                var targets = ResolveRecordings(committed, descendantIndices);
+                int changed = ApplyLoopUnitToRecordings(targets, newUnit);
+                // Clear any active group value-edit focus so a stale buffer doesn't linger.
+                if (loopPeriodFocusedGroup == groupName)
+                {
+                    loopPeriodFocusedGroup = null;
+                    loopPeriodFocusedGroupIndices = null;
+                }
+                GUIUtility.keyboardControl = 0;
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' loop unit cascaded to {newUnit} " +
+                    $"({changed} of {agg.Count} recordings changed)");
+            }
+
+            if (readOnly) GUI.enabled = prevEnabled;
+        }
+
+        private static List<Recording> ResolveRecordings(
+            IReadOnlyList<Recording> committed, IEnumerable<int> indices)
+        {
+            var list = new List<Recording>();
+            if (committed == null || indices == null) return list;
+            foreach (int idx in indices)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var rec = committed[idx];
+                if (rec != null) list.Add(rec);
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Commits the group-header loop-period text edit: parses the typed value against
+        /// the group's common unit and cascades both unit and seconds to the captured
+        /// descendant set via ApplyLoopIntervalToRecordings. Mirrors CommitLoopPeriodEdit's
+        /// validation (reject negative, clamp below-minimum). Never touches LoopPlayback.
+        /// </summary>
+        private void CommitGroupLoopPeriodEdit(IReadOnlyList<Recording> committed)
+        {
+            string groupName = loopPeriodFocusedGroup;
+            var indices = loopPeriodFocusedGroupIndices;
+            // Clear focus state up front so any early return still defocuses.
+            loopPeriodFocusedGroup = null;
+            loopPeriodFocusedGroupIndices = null;
+            loopPeriodEditRect = default;
+            GUIUtility.keyboardControl = 0;
+            if (groupName == null || indices == null) return;
+
+            var agg = DeriveGroupLoopPeriod(committed, indices);
+            LoopTimeUnit unit = agg.Unit;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            double parsed;
+            if (!ParsekUI.TryParseLoopInput(loopPeriodEditText, unit, out parsed))
+            {
+                ParsekLog.Warn("UI",
+                    $"Group '{groupName}' loop period edit rejected: " +
+                    $"invalid input '{loopPeriodEditText}' for unit {unit}");
+                return;
+            }
+
+            double newSeconds = ParsekUI.ConvertToSeconds(parsed, unit);
+            // #381: period is launch-to-launch; negatives are rejected outright.
+            if (newSeconds < 0)
+            {
+                ParsekLog.Warn("UI",
+                    $"Group '{groupName}' loop period edit rejected: " +
+                    $"negative value {newSeconds.ToString("F1", ic)}s " +
+                    "(period must be >= 0 under launch-to-launch semantics #381)");
+                return;
+            }
+            if (newSeconds < LoopTiming.MinCycleDuration)
+            {
+                ParsekLog.Info("UI",
+                    $"Group '{groupName}' loop period clamped from " +
+                    $"{newSeconds.ToString("F1", ic)}s to " +
+                    $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
+                newSeconds = LoopTiming.MinCycleDuration;
+            }
+
+            var targets = ResolveRecordings(committed, indices);
+            int changed = ApplyLoopIntervalToRecordings(targets, unit, newSeconds);
+            ParsekLog.Info("UI",
+                $"Group '{groupName}' loop period cascaded to " +
+                $"{newSeconds.ToString("F1", ic)}s (display: " +
+                $"{ParsekUI.FormatLoopValue(ParsekUI.ConvertFromSeconds(newSeconds, unit), unit)} " +
+                $"{ParsekUI.UnitLabel(unit)}) ({changed} of {agg.Count} recordings changed)");
         }
 
         internal static double ComputeDisplayedLoopPeriod(

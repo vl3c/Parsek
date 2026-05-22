@@ -334,6 +334,172 @@ namespace Parsek.Tests
             Assert.Equal(expected, ParsekUI.ConvertToSeconds(value, unit), 6);
         }
 
+        // --- Group loop-period cascade (group-header Period control) ---
+
+        // Builds a recording carrying just the loop period fields the cascade reads/writes.
+        static Recording MakePeriodRec(LoopTimeUnit unit, double seconds, string name = "TestVessel")
+        {
+            return new Recording
+            {
+                VesselName = name,
+                LoopPlayback = true,
+                LoopTimeUnit = unit,
+                LoopIntervalSeconds = seconds,
+            };
+        }
+
+        [Fact]
+        public void DeriveGroupLoopPeriod_AllSameUnitAndValue_IsUniform()
+        {
+            // Regression: a group whose members all share the same unit AND seconds must
+            // report UniformUnit + UniformValue so the header shows that single value, not "-".
+            var recs = new List<Recording>
+            {
+                MakePeriodRec(LoopTimeUnit.Min, 120.0),
+                MakePeriodRec(LoopTimeUnit.Min, 120.0),
+                MakePeriodRec(LoopTimeUnit.Min, 120.0),
+            };
+            var agg = RecordingsTableUI.DeriveGroupLoopPeriod(recs, new[] { 0, 1, 2 });
+            Assert.True(agg.UniformUnit);
+            Assert.Equal(LoopTimeUnit.Min, agg.Unit);
+            Assert.True(agg.UniformValue);
+            Assert.Equal(120.0, agg.Seconds, 6);
+            Assert.Equal(3, agg.Count);
+        }
+
+        [Fact]
+        public void DeriveGroupLoopPeriod_DifferentUnits_NotUniform()
+        {
+            // Regression: mixed units must report UniformUnit=false so the header renders "-"
+            // and the unit button normalizes to Sec on first click instead of pretending the
+            // group has one unit (which would silently misrepresent the members).
+            var recs = new List<Recording>
+            {
+                MakePeriodRec(LoopTimeUnit.Sec, 30.0),
+                MakePeriodRec(LoopTimeUnit.Hour, 30.0),
+            };
+            var agg = RecordingsTableUI.DeriveGroupLoopPeriod(recs, new[] { 0, 1 });
+            Assert.False(agg.UniformUnit);
+            Assert.Equal(LoopTimeUnit.Sec, agg.Unit); // defined fallback for cycle-from
+            Assert.False(agg.UniformValue);
+            Assert.Equal(2, agg.Count);
+        }
+
+        [Fact]
+        public void DeriveGroupLoopPeriod_SameSecondsDifferentUnits_ValueNotUniform()
+        {
+            // Regression: 30s stored under Sec and 30 (seconds) under Min are NOT the same
+            // editable value (one displays as "30 sec", one as "0.5 min"); UniformValue must
+            // be false whenever the unit differs even if the raw seconds happen to match.
+            var recs = new List<Recording>
+            {
+                MakePeriodRec(LoopTimeUnit.Sec, 30.0),
+                MakePeriodRec(LoopTimeUnit.Min, 30.0),
+            };
+            var agg = RecordingsTableUI.DeriveGroupLoopPeriod(recs, new[] { 0, 1 });
+            Assert.False(agg.UniformUnit);
+            Assert.False(agg.UniformValue);
+        }
+
+        [Fact]
+        public void DeriveGroupLoopPeriod_EmptySet_NotUniformDefaults()
+        {
+            // Regression: an empty descendant set must not throw and must report not-uniform
+            // with loop-timing defaults so the group header draws a defined "-" placeholder.
+            var recs = new List<Recording> { MakePeriodRec(LoopTimeUnit.Hour, 7200.0) };
+            var agg = RecordingsTableUI.DeriveGroupLoopPeriod(recs, new int[0]);
+            Assert.False(agg.UniformUnit);
+            Assert.False(agg.UniformValue);
+            Assert.Equal(0, agg.Count);
+            Assert.Equal(LoopTiming.DefaultLoopIntervalSeconds, agg.Seconds, 6);
+        }
+
+        [Fact]
+        public void DeriveGroupLoopPeriod_SkipsOutOfRangeAndNull()
+        {
+            // Regression: stale / null indices must be skipped, not counted or dereferenced,
+            // so a group whose membership list briefly contains a removed index still derives
+            // a correct aggregate from the surviving members.
+            var recs = new List<Recording>
+            {
+                MakePeriodRec(LoopTimeUnit.Sec, 10.0),
+                null,
+                MakePeriodRec(LoopTimeUnit.Sec, 10.0),
+            };
+            var agg = RecordingsTableUI.DeriveGroupLoopPeriod(recs, new[] { 0, 1, 2, 99 });
+            Assert.Equal(2, agg.Count);
+            Assert.True(agg.UniformUnit);
+            Assert.True(agg.UniformValue);
+            Assert.Equal(10.0, agg.Seconds, 6);
+        }
+
+        [Fact]
+        public void ApplyLoopUnitToRecordings_SetsUnitPreservesValue_ReturnsCount()
+        {
+            // Regression: cascading a unit must change LoopTimeUnit on every member while
+            // preserving each member's LoopIntervalSeconds (the unit button is value-preserving,
+            // mirroring the per-row unit button), and must NOT touch LoopPlayback. The returned
+            // count is only the members whose unit actually changed.
+            var alreadyHr = MakePeriodRec(LoopTimeUnit.Hour, 3600.0);
+            var sec = MakePeriodRec(LoopTimeUnit.Sec, 45.0);
+            var min = MakePeriodRec(LoopTimeUnit.Min, 600.0);
+            min.LoopPlayback = false; // distinct enable state must survive the cascade
+            var recs = new List<Recording> { alreadyHr, sec, min };
+
+            int changed = RecordingsTableUI.ApplyLoopUnitToRecordings(recs, LoopTimeUnit.Hour);
+
+            Assert.Equal(2, changed); // sec + min changed; alreadyHr was already Hour
+            Assert.All(recs, r => Assert.Equal(LoopTimeUnit.Hour, r.LoopTimeUnit));
+            Assert.Equal(3600.0, alreadyHr.LoopIntervalSeconds, 6);
+            Assert.Equal(45.0, sec.LoopIntervalSeconds, 6);   // value preserved
+            Assert.Equal(600.0, min.LoopIntervalSeconds, 6);  // value preserved
+            Assert.True(alreadyHr.LoopPlayback);
+            Assert.True(sec.LoopPlayback);
+            Assert.False(min.LoopPlayback); // LoopPlayback untouched by a period cascade
+        }
+
+        [Fact]
+        public void ApplyLoopIntervalToRecordings_SetsUnitAndSeconds_ReturnsCount()
+        {
+            // Regression: a manual-value group edit must write BOTH unit and seconds to every
+            // member (so a "set this whole group to 2 min" edit lands), without touching
+            // LoopPlayback, and report the number of members that actually changed.
+            var a = MakePeriodRec(LoopTimeUnit.Sec, 30.0);
+            var b = MakePeriodRec(LoopTimeUnit.Hour, 7200.0);
+            var c = MakePeriodRec(LoopTimeUnit.Min, 120.0); // already 2 min -> no change
+            var recs = new List<Recording> { a, b, c };
+
+            int changed = RecordingsTableUI.ApplyLoopIntervalToRecordings(recs, LoopTimeUnit.Min, 120.0);
+
+            Assert.Equal(2, changed); // a + b changed; c already matched
+            Assert.All(recs, r => Assert.Equal(LoopTimeUnit.Min, r.LoopTimeUnit));
+            Assert.All(recs, r => Assert.Equal(120.0, r.LoopIntervalSeconds, 6));
+            Assert.All(recs, r => Assert.True(r.LoopPlayback)); // LoopPlayback untouched
+        }
+
+        [Fact]
+        public void ApplyLoopUnitToRecordings_CascadeMixedGroupToAuto_AllBecomeAuto()
+        {
+            // Headline use case: a group of mixed-unit recordings, cascade Auto -> every member
+            // becomes LoopTimeUnit.Auto in one action (the "set auto on the whole mission group
+            // at once" ergonomics the feature exists for), without enabling/disabling looping.
+            var sec = MakePeriodRec(LoopTimeUnit.Sec, 30.0);
+            var min = MakePeriodRec(LoopTimeUnit.Min, 600.0);
+            var hr = MakePeriodRec(LoopTimeUnit.Hour, 3600.0);
+            var alreadyAuto = MakePeriodRec(LoopTimeUnit.Auto, 30.0);
+            sec.LoopPlayback = true;
+            min.LoopPlayback = false;
+            var recs = new List<Recording> { sec, min, hr, alreadyAuto };
+
+            int changed = RecordingsTableUI.ApplyLoopUnitToRecordings(recs, LoopTimeUnit.Auto);
+
+            Assert.Equal(3, changed); // sec + min + hr; alreadyAuto unchanged
+            Assert.All(recs, r => Assert.Equal(LoopTimeUnit.Auto, r.LoopTimeUnit));
+            // Loop enable state is independent of the period cascade.
+            Assert.True(sec.LoopPlayback);
+            Assert.False(min.LoopPlayback);
+        }
+
         // --- ApplyPersistenceArtifactsFrom ---
 
         [Fact]
