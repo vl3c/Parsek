@@ -213,9 +213,12 @@ namespace Parsek
             // RewindThenForward
             if (target.Kind == RewindTargetKind.CareerStart)
             {
+                // Lowercase "reset" mid-sentence after the flight prefix; capitalized at the
+                // start of the sentence in the KSC case (no prefix).
+                string verb = inFlight ? "reset" : "Reset";
                 string tail = targetUT > WarpToTimeMath.AtTargetEpsilonSeconds
-                    ? $"reset to the start of the game, then fast-forward to {targetDate}?"
-                    : "reset to the start of the game (Year 1, Day 1)?";
+                    ? $"{verb} to the start of the game, then fast-forward to {targetDate}?"
+                    : $"{verb} to the start of the game (Year 1, Day 1)?";
                 return $"{Capitalize(flightPrefix)}{tail}\n\n" +
                        "Resources, facilities and the clock return to career start; your recordings " +
                        "are kept and replay as time advances.";
