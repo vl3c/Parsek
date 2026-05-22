@@ -458,9 +458,9 @@ GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
 ### Unit detection (xUnit, new `ChainLoopUnitTests`)
 - **Two consecutive auto-loop members form one unit.** Fails if detection does
   not group them or computes the wrong span.
-- **Run length 1 is not a unit.** A lone auto-loop chain member -> no unit,
-  `ChainLoopOwnerIdx == -1`. Fails if a single member is wrongly unitized
-  (which would change today's behavior).
+- **Run length 1 is not a unit.** A lone auto-loop chain member -> no unit, its
+  index absent from `loopUnitOwnerByIdx`. Fails if a single member is wrongly
+  unitized (which would change today's behavior).
 - **Manual-period member breaks the run** into two sub-runs; each >= 2 sub-run
   is its own unit; the manual member is in neither. Fails if the run is not
   split at the non-auto member (edge 3/4).
