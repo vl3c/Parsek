@@ -12,6 +12,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## In Progress - Chain-sequential auto looping
+
+- Feature: when >= 2 consecutive primary-path chain members are loop-enabled with period auto, they should loop as one unit over the whole chain span instead of each relaunching on the flat global stagger. Design: `docs/dev/design-chain-sequential-auto-loop.md`; plan: `docs/dev/plan-chain-sequential-auto-loop.md` (8 phases).
+- **Landed (Phases 1-2, not yet wired into runtime):** Phase 1 added the transient `GhostPlaybackLogic.LoopUnit` / `LoopUnitSet` descriptor types and the pure span-clock helpers `TryComputeSpanLoopUT` (seamless wrap, MinCycleDuration clamp inside the helper) and `TrySelectSpanMember` (higher-ChainIndex overlap precedence, inter-member gap detection). Phase 2 added the host-side `RecordingStore.DetectChainLoopUnits` detection helper (groups by ChainId, primary-path only, maximal runs of >= 2 auto-loop members with renderable windows) plus `QualifiesForChainLoopUnit`. Both are unused by runtime code until Phase 3 wires the descriptors into the engine / KSC schedulers.
+- **Tests:** `ChainLoopUnitTests` (21 cases): span-clock wrap / clamp / before-span / zero-span, member tiling / overlap / gap; detection edges 1-8/14/18 plus log-assertion tests for the unit-built summary and the length<2 / member-not-auto / branch>0 rejection reasons. Full suite green (12357).
+- **Status:** OPEN - Phases 3-8 (engine dispatch, global-queue exclusion, follower interception, KSC parity, debris-on-unit, watch transfer, in-game tests) remaining.
+
+---
+
 ## Done - v0.9.3 Fast-Forward / Warp to Departure landed exactly at the event instead of before it
 
 - Request 2026-05-22. Fast-Forward (recordings table + timeline) jumped to a recording's launch UT exactly, and Warp to Departure (Real Spawn Control) jumped to the ghost's departure UT exactly, dropping the player into the event with no setup time. Rewind already restores `RewindToLaunchLeadTimeSeconds` (15 s) of pre-launch lead; the forward jumps should match. Warp to Spawn must stay precise at the spawn moment.

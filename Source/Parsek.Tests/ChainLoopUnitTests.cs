@@ -186,5 +186,311 @@ namespace Parsek.Tests
             Assert.Equal(-1, sAfter);
             Assert.False(gAfter);
         }
+
+        // ─── Phase 2: RecordingStore.DetectChainLoopUnits ───────────────────────
+
+        /// <summary>
+        /// Builds and commits a chain-member recording. StartUT/EndUT derive from the first and
+        /// last point UT, so [startUT, endUT] is the member window. branch defaults to primary.
+        /// </summary>
+        private static Recording CommitChainMember(
+            string chainId, int chainIndex, double startUT, double endUT,
+            bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0,
+            int pointCount = 2)
+        {
+            var rec = new Recording
+            {
+                VesselName = $"{chainId}-{chainIndex}",
+                PlaybackEnabled = true,
+                LoopPlayback = loop,
+                LoopTimeUnit = unit,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                ChainBranch = branch,
+            };
+            if (pointCount >= 1)
+            {
+                // First point at startUT, last at endUT; interior points are evenly spaced and
+                // do not affect the bounds. pointCount==1 yields a single point (zero-duration).
+                if (pointCount == 1)
+                {
+                    rec.Points.Add(MakePoint(startUT));
+                }
+                else
+                {
+                    for (int i = 0; i < pointCount; i++)
+                    {
+                        double ut = startUT + (endUT - startUT) * i / (pointCount - 1);
+                        rec.Points.Add(MakePoint(ut));
+                    }
+                }
+            }
+            RecordingStore.CommitRecordingDirect(rec);
+            return rec;
+        }
+
+        private static TrajectoryPoint MakePoint(double ut)
+        {
+            return new TrajectoryPoint
+            {
+                ut = ut,
+                latitude = 0, longitude = 0, altitude = 100,
+                rotation = Quaternion.identity, velocity = Vector3.zero,
+                bodyName = "Kerbin",
+            };
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_TwoConsecutiveAuto_FormsOneUnit()
+        {
+            // Edge 18 headline: two consecutive auto-loop primary members form one unit spanning
+            // first.Start..last.End with both committed indices as members.
+            CommitChainMember("chA", 0, 100, 150);
+            CommitChainMember("chA", 1, 150, 200);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.IsMember(0));
+            Assert.True(set.IsMember(1));
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(0, unit.OwnerIndex);
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            Assert.Equal(100.0, unit.SpanStartUT, 6); // first.Start
+            Assert.Equal(200.0, unit.SpanEndUT, 6);   // last.End
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_SingleAutoMember_NotAUnit()
+        {
+            // Edge 1: a lone auto-loop chain member is run length 1, so it is NOT unitized and
+            // its index is absent from the set (keeps today's global-stagger behavior).
+            CommitChainMember("solo", 0, 100, 150);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_ManualMemberBreaksRun()
+        {
+            // Edges 3,4: [auto, manual, auto, auto]. The manual member breaks the run. The
+            // leading lone auto (idx 0) is not a unit; the trailing auto pair (idx 2,3) is one
+            // unit; the manual member (idx 1) is in neither.
+            CommitChainMember("chB", 0, 100, 150, unit: LoopTimeUnit.Auto);
+            CommitChainMember("chB", 1, 150, 200, unit: LoopTimeUnit.Sec);  // manual period
+            CommitChainMember("chB", 2, 200, 250, unit: LoopTimeUnit.Auto);
+            CommitChainMember("chB", 3, 250, 300, unit: LoopTimeUnit.Auto);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.False(set.IsMember(0)); // lone leading auto
+            Assert.False(set.IsMember(1)); // manual breaker
+            Assert.True(set.IsMember(2));
+            Assert.True(set.IsMember(3));
+            Assert.True(set.TryGetUnitForMember(2, out var unit));
+            Assert.Equal(2, unit.OwnerIndex);
+            Assert.Equal(new[] { 2, 3 }, unit.MemberIndices);
+            Assert.Equal(200.0, unit.SpanStartUT, 6);
+            Assert.Equal(300.0, unit.SpanEndUT, 6);
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_NonContiguousAuto_DoesNotMerge()
+        {
+            // Edge 2: [auto, not-looping, auto]. The non-looping member splits the chain into
+            // two length-1 runs; neither forms a unit.
+            CommitChainMember("chC", 0, 100, 150, loop: true, unit: LoopTimeUnit.Auto);
+            CommitChainMember("chC", 1, 150, 200, loop: false, unit: LoopTimeUnit.Auto); // not looping
+            CommitChainMember("chC", 2, 200, 250, loop: true, unit: LoopTimeUnit.Auto);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(2));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_Branch1MembersExcluded()
+        {
+            // Edge 8: a branch-0 auto pair forms a unit; a branch-1 auto member at the same
+            // ChainIndex is NOT pulled in (only the primary path forms a unit).
+            CommitChainMember("chD", 0, 100, 150, branch: 0);
+            CommitChainMember("chD", 1, 150, 200, branch: 0);
+            CommitChainMember("chD", 1, 150, 200, branch: 1); // parallel continuation, idx 2
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.IsMember(0));
+            Assert.True(set.IsMember(1));
+            Assert.False(set.IsMember(2)); // branch>0 never joins the unit
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_ZeroDurationMemberExcluded_DissolvesIfBelowTwo()
+        {
+            // Edge 7: [auto, zero-duration-auto] -> the zero-duration member is disqualified,
+            // which drops the run to length 1, so NO unit forms (it dissolves).
+            CommitChainMember("chE", 0, 100, 150, unit: LoopTimeUnit.Auto);
+            CommitChainMember("chE", 1, 200, 200, unit: LoopTimeUnit.Auto, pointCount: 1); // single point
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_SpanAndCadence_FromWindowsNotGlobalGap()
+        {
+            // Cadence == span duration (150s for a 100..250 span), NOT the 30s/10s global gap.
+            CommitChainMember("chF", 0, 100, 200);
+            CommitChainMember("chF", 1, 200, 250);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(150.0, unit.CadenceSeconds, 6); // 250 - 100, not a global stagger gap
+            Assert.Equal(150.0, unit.SpanEndUT - unit.SpanStartUT, 6);
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_TinySpanCadenceClampedToMinCycleDuration()
+        {
+            // Edge 14: a sub-MinCycleDuration span (2s total) clamps cadence to MinCycleDuration.
+            CommitChainMember("chG", 0, 100, 101);
+            CommitChainMember("chG", 1, 101, 102);
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(2.0, unit.SpanEndUT - unit.SpanStartUT, 6); // raw span is 2s
+            Assert.Equal(LoopTiming.MinCycleDuration, unit.CadenceSeconds, 6); // clamped up
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_NullOrSingletonList_ReturnsEmpty()
+        {
+            // Defensive: null and under-2-element lists return the shared Empty (no allocation).
+            Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, RecordingStore.DetectChainLoopUnits(null));
+
+            CommitChainMember("chH", 0, 100, 150);
+            Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty,
+                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings));
+        }
+
+        // ─── Phase 2: log-assertion tests ───────────────────────────────────────
+
+        [Fact]
+        public void DetectChainLoopUnits_EmitsUnitBuiltSummary()
+        {
+            CommitChainMember("logA", 0, 100, 150);
+            CommitChainMember("logA", 1, 150, 200);
+
+            var captured = new List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            // Summary count line (protects observability of how many units were built).
+            Assert.Contains(captured, l =>
+                l.Contains("[RecordingStore]") && l.Contains("Chain-loop units: built 1 unit"));
+            // Per-unit detail with member indices and span (the design's detection log).
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("Chain-loop unit: owner=0")
+                && l.Contains("members=0,1") && l.Contains("span=100..200"));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_RejectedRunLogsReason_LengthLtTwo()
+        {
+            CommitChainMember("logB", 0, 100, 150); // lone auto -> rejected length<2
+
+            var captured = new List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                // Add a sibling so the list has >= 2 entries (the singleton early-return would
+                // otherwise skip detection entirely). The sibling is a standalone (no chain).
+                var standalone = new Recording
+                {
+                    VesselName = "standalone", PlaybackEnabled = true,
+                    LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto,
+                };
+                standalone.Points.Add(MakePoint(300));
+                standalone.Points.Add(MakePoint(350));
+                RecordingStore.CommitRecordingDirect(standalone);
+
+                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("chain logB") && l.Contains("not a unit: length<2"));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_RejectedRunLogsReason_MemberNotAuto()
+        {
+            // A manual-period member breaking a run logs reason member-not-auto.
+            CommitChainMember("logC", 0, 100, 150, unit: LoopTimeUnit.Auto);
+            CommitChainMember("logC", 1, 150, 200, unit: LoopTimeUnit.Sec); // manual
+
+            var captured = new List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("chain logC")
+                && l.Contains("recIdx=1") && l.Contains("not a unit: member-not-auto"));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_RejectedRunLogsReason_BranchGtZero()
+        {
+            // A branch>0 member logs reason branch>0 (edge 8).
+            CommitChainMember("logD", 0, 100, 150, branch: 0);
+            CommitChainMember("logD", 1, 150, 200, branch: 0);
+            CommitChainMember("logD", 1, 150, 200, branch: 1); // branch>0
+
+            var captured = new List<string>();
+            ParsekLog.TestSinkForTesting = captured.Add;
+            try
+            {
+                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            }
+            finally
+            {
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            Assert.Contains(captured, l =>
+                l.Contains("[Loop]") && l.Contains("chain logD")
+                && l.Contains("not a unit: branch>0"));
+        }
     }
 }
