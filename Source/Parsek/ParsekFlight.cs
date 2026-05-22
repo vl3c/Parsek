@@ -44,6 +44,22 @@ namespace Parsek
             StartFromSettledLanded
         }
 
+        // Auto-record trigger for staging while still on the pad. The launch trigger
+        // (EvaluateAutoRecordLaunchDecision) only fires on the ACTIVE vessel's
+        // PRELAUNCH->FLYING transition, so a stage that detaches debris (e.g. SRBs
+        // that fly off the pad) before the main stage lifts off is never recorded.
+        // Triggering on the first staging action while PRELAUNCH starts the recorder
+        // before that decouple so the debris is captured as a branch of the main.
+        internal enum AutoRecordStagingDecision
+        {
+            SkipAlreadyRecording,
+            SkipTimeJumpTransient,
+            SkipNoActiveVessel,
+            SkipNotOnPad,
+            SkipDisabled,
+            StartFromPrelaunchStaging
+        }
+
         internal enum CommittedSpawnedVesselRestoreAction
         {
             None,
@@ -1055,6 +1071,7 @@ namespace Parsek
             GameEvents.onFlightReady.Add(OnFlightReady);
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Add(OnVesselSituationChange);
+            GameEvents.onStageActivate.Add(OnStageActivate);
             GameEvents.onCrewOnEva.Add(OnCrewOnEva);
             GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
@@ -1978,6 +1995,7 @@ namespace Parsek
             GameEvents.onFlightReady.Remove(OnFlightReady);
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
+            GameEvents.onStageActivate.Remove(OnStageActivate);
             GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
             GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
@@ -6857,7 +6875,9 @@ namespace Parsek
 
                 case AutoRecordLaunchDecision.SkipInactiveVessel:
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
-                        $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
+                        $"OnVesselSituationChange: ignoring non-active vessel " +
+                        $"'{data.host?.vesselName ?? "null"}' pid={data.host?.persistentId ?? 0u} " +
+                        $"({data.from} → {data.to})");
                     return;
 
                 case AutoRecordLaunchDecision.SkipBounce:
@@ -6887,6 +6907,64 @@ namespace Parsek
 
             StartRecording(suppressStartScreenMessage: true);
             Log($"Auto-record started ({data.from} → {data.to})");
+            ScreenMessage("Recording STARTED (auto)", 2f);
+        }
+
+        // First-staging-on-pad auto-record trigger. A stage activated while the active
+        // vessel is still PRELAUNCH (e.g. igniting SRBs that then decouple and fly off
+        // the pad before the main stage lifts off) must start the recorder NOW so the
+        // subsequent decouple is captured as a debris branch of the recorded vessel.
+        // Without this the recorder only starts on the main stage's PRELAUNCH->FLYING
+        // transition, by which point the separated debris is already a foreign vessel
+        // and is dropped by the decouple capture gate.
+        void OnStageActivate(int stage)
+        {
+            Vessel av = FlightGlobals.ActiveVessel;
+            if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
+
+            bool suppressLaunchAutoRecordForTimeJump =
+                TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
+
+            var stagingDecision = EvaluateAutoRecordStagingDecision(
+                isRecording: IsRecording,
+                hasActiveVessel: av != null,
+                activeVesselIsPrelaunch: av != null && av.situation == Vessel.Situations.PRELAUNCH,
+                autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
+                suppressForTimeJumpTransient: suppressLaunchAutoRecordForTimeJump);
+
+            switch (stagingDecision)
+            {
+                case AutoRecordStagingDecision.SkipAlreadyRecording:
+                    return;
+
+                case AutoRecordStagingDecision.SkipTimeJumpTransient:
+                    ParsekLog.Info("Flight",
+                        $"OnStageActivate: suppressing time-jump transient (stage={stage}) " +
+                        $"for '{av?.vesselName ?? "null"}' frame={Time.frameCount} " +
+                        $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame}");
+                    return;
+
+                case AutoRecordStagingDecision.SkipNoActiveVessel:
+                    ParsekLog.VerboseRateLimited("Flight", "stage-no-active",
+                        $"OnStageActivate: no active vessel (stage={stage})");
+                    return;
+
+                case AutoRecordStagingDecision.SkipNotOnPad:
+                    ParsekLog.VerboseRateLimited("Flight", "stage-not-prelaunch",
+                        $"OnStageActivate: active vessel '{av?.vesselName ?? "null"}' not PRELAUNCH " +
+                        $"(stage={stage}, situation={av?.situation}) — in-flight staging left to recorder/launch trigger");
+                    return;
+
+                case AutoRecordStagingDecision.SkipDisabled:
+                    ParsekLog.Verbose("Flight", "OnStageActivate: auto-record disabled in settings");
+                    return;
+            }
+
+            StartRecording(suppressStartScreenMessage: true);
+            Log($"Auto-record started (first staging on pad, stage={stage})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
 
@@ -7200,6 +7278,39 @@ namespace Parsek
             }
 
             return AutoRecordLaunchDecision.SkipNotLaunchTransition;
+        }
+
+        // Decision for the first-staging-on-pad auto-record trigger (OnStageActivate).
+        // Mirrors EvaluateAutoRecordLaunchDecision's guard ordering: an already-running
+        // recorder short-circuits first, then the time-jump transient suppression, so a
+        // synthetic spawn vessel staging during an FF / warp-to-time window cannot
+        // spuriously start a recording. Only fires while the active vessel is PRELAUNCH
+        // (still on the pad); in-flight staging is left to the existing recorder, and the
+        // normal clamp-release launch is still covered by the PRELAUNCH->FLYING trigger
+        // (whichever fires first wins via the isRecording guard).
+        internal static AutoRecordStagingDecision EvaluateAutoRecordStagingDecision(
+            bool isRecording,
+            bool hasActiveVessel,
+            bool activeVesselIsPrelaunch,
+            bool autoRecordOnLaunchEnabled,
+            bool suppressForTimeJumpTransient)
+        {
+            if (isRecording)
+                return AutoRecordStagingDecision.SkipAlreadyRecording;
+
+            if (suppressForTimeJumpTransient)
+                return AutoRecordStagingDecision.SkipTimeJumpTransient;
+
+            if (!hasActiveVessel)
+                return AutoRecordStagingDecision.SkipNoActiveVessel;
+
+            if (!activeVesselIsPrelaunch)
+                return AutoRecordStagingDecision.SkipNotOnPad;
+
+            if (!autoRecordOnLaunchEnabled)
+                return AutoRecordStagingDecision.SkipDisabled;
+
+            return AutoRecordStagingDecision.StartFromPrelaunchStaging;
         }
 
         internal static bool ShouldQueueAutoRecordOnEva(

@@ -46,6 +46,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.10.0 Boosters that separate on the pad before liftoff were never recorded
+
+- Playtest 2026-05-22 (`logs/2026-05-22_2153_ksc-debris-norender/`, save `s11`). On-pad sequence: throttle 0, stage to ignite SRBs, stage again to detach the SRBs (they fly off the pad), then throttle the main stage up and lift off. The detached SRBs were never recorded, so they did not render as ghosts at the Space Center. The only debris recorded was the main stage's later crash breakup, which got a single seed point and was pruned by `PruneSinglePointDebrisLeaves`.
+- **Root cause:** auto-record only fires on the active (main) vessel's `PRELAUNCH -> FLYING` transition (`EvaluateAutoRecordLaunchDecision`, gated on `isActiveVessel`). The SRBs detach and fly while the main stage is still `PRELAUNCH` on the pad, so the recorder is not running yet; their situation change is logged as `ignoring non-active vessel`. By the time the main lifts off and recording starts, the SRBs are already separate foreign vessels and are dropped by the decouple capture gate (`ShouldCaptureDecoupleCreatedVessel` requires `originalPid == recordedPid`).
+- **Fix:** new first-staging auto-record trigger. `GameEvents.onStageActivate` -> `OnStageActivate(int)` -> pure `EvaluateAutoRecordStagingDecision` starts the recorder when the active vessel stages while `PRELAUNCH` (guard order mirrors the launch decision: already-recording, then time-jump-transient, then no-active-vessel / not-on-pad / disabled). Recording then begins before the SRB decouple, so the detachment is captured as a debris branch of the main and the SRBs record from separation to their endpoint. The normal clamp-release launch is unaffected (the `isRecording` guard makes whichever trigger fires first win). Also added the vessel name + pid to the `ignoring non-active vessel` log so a debris flying off the pad is unambiguous in future logs.
+- **Tests:** 7 new `AutoRecordDecisionTests.EvaluateAutoRecordStagingDecision_*` cases. Full suite green (12386).
+- **Status:** Fix implemented + unit-tested 2026-05-22; pending in-game playtest validation (clean booster separation on the pad -> SRBs recorded and rendered as ghosts at the Space Center).
+
+---
+
 ## Done - v0.9.3 Relative frame dropped to Absolute when switching control to the docking target mid-approach
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/`, save `x8`). During a rendezvous the chaser `Kerbal X` (pid 9871332, rec `91a6d717`, TreeOrder 8) recorded `ReferenceFrame.Relative` against the target (pid 1963925040, rec `b2685b5e`, TreeOrder 0) for only ~2 s (UT 16783.18-16785.28, ~9 m apart), then recorded the entire final 57 s close approach to docking (UT 16785.28-16842.31) in `Absolute`, despite staying within ~4-10 m of the target the whole time. Dock at UT 16842.26 recorded fine. Log: `RELATIVE exit: pid=9871332 no eligible recording anchor candidates liveCandidates=0/1` then `RELATIVE mode exited ... reason=distance-or-missing-anchor` while `dist=4m`.
