@@ -12,6 +12,31 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Open - v0.9.3 Warp-to-time: in-flight paths not yet playtested
+
+- "Warp to time" (Timeline window, PR #947) was playtested only from the Space Center: the 2026-05-22 run (`logs/2026-05-22_2011_warp-playtest/`, save `s10`) confirmed career-start capture, the 1/1/0/0 reset (UT 7748 -> 0.1), forward jumps (3600s, 46800s), and a career-start reset + exact fast-forward to 120s. No warp/rewind/ledger errors; recordings were kept as future ghosts (`recordings=2` post-reset); the consumer's `rewindPending` settle-wait observed the post-rewind UT in every case.
+- NOT exercised: the in-flight flow that commits the active recording (`CommitTreeFlight`) and routes the warp through the Space Center. Two sub-paths need a live test: (a) Flight + ForwardOnly (commit -> `LoadScene(SPACECENTER)` -> deferred `ExecuteForwardJump`), (b) Flight + RewindThenForward (commit -> deferred `InitiateRewind` / `InitiateRewindToCareerStart` -> consumer forward jump). Verify: the recording is saved, the scene exits cleanly, the pending warp is consumed exactly once (no leak), and the clock lands correctly.
+- Also unexercised at runtime: the consumer guard-expiry abort (`ConsumePendingWarp` refuses to jump if `RewindUTAdjustmentPending` does not clear within ~5s) — only fires if a rewind reload stalls.
+- **Status:** OPEN — needs in-flight playtest.
+
+---
+
+## Open - v0.9.3 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
+
+- `RecordingStore.InitiateRewindToCareerStart` (PR #947) repeats ~25 lines of the load sequence from `InitiateRewind` (copy temp save to root -> `GamePersistence.LoadGame` -> temp delete -> `SetAdjustedUT` -> `HighLogic.CurrentGame = game` -> `LoadScene(SPACECENTER)`, plus the try/catch + `ResetRewindFlags` + `DeleteTemporaryRewindSaveCopy` failure path). The behavior-critical parts (RewindContext setup, `HandleRewindOnLoad`, ledger recalc) are already shared; only this mechanical wrapper is duplicated.
+- **Fix (deferred):** extract a shared private helper parameterized by whether to run `PreProcessRewindSave` (strip + lead-time windback) and whether to drop supersedes for an owner, so both entries call it. Deferred from PR #947 because it edits the proven `InitiateRewind` path, which xUnit cannot cover end-to-end (needs the Unity `LoadGame` round-trip) — land it as a separately-reviewed change with a fresh Rewind-to-Launch playtest, not bundled with the warp feature.
+- **Status:** OPEN — low-priority cleanup.
+
+---
+
+## Open - v0.9.3 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
+
+- `FlightRecorder.CaptureRewindSave` and `CareerStartSnapshot.Capture` (PR #947) both `GamePersistence.SaveGame` to the save root then `File.Move` only the `.sfs` into `Parsek/Saves/`, leaving the sidecar `.loadmeta` (`parsek_rw_*.loadmeta`, `parsek_career_start.loadmeta`) orphaned in the save root (observed in save `s10`). Pre-existing for the rewind saves; career-start adds one more.
+- **Fix:** delete (or move) the matching `.loadmeta` after moving the `.sfs` in both capture sites. Cosmetic — the orphan is harmless, it just litters the save folder.
+- **Status:** OPEN — cosmetic.
+
+---
+
 ## Done - v0.9.3 Relative frame dropped to Absolute when switching control to the docking target mid-approach
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/`, save `x8`). During a rendezvous the chaser `Kerbal X` (pid 9871332, rec `91a6d717`, TreeOrder 8) recorded `ReferenceFrame.Relative` against the target (pid 1963925040, rec `b2685b5e`, TreeOrder 0) for only ~2 s (UT 16783.18-16785.28, ~9 m apart), then recorded the entire final 57 s close approach to docking (UT 16785.28-16842.31) in `Absolute`, despite staying within ~4-10 m of the target the whole time. Dock at UT 16842.26 recorded fine. Log: `RELATIVE exit: pid=9871332 no eligible recording anchor candidates liveCandidates=0/1` then `RELATIVE mode exited ... reason=distance-or-missing-anchor` while `dist=4m`.
