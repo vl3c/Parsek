@@ -81,28 +81,41 @@ namespace Parsek
 
         private IEnumerator MaybeCaptureCareerStart()
         {
-            // Defer a frame so the recording store + Planetarium are settled.
+            // Defer a frame so the recording store + Planetarium are settled, then run the
+            // (yield-free) capture check in a try/catch — yield cannot live inside a try/catch.
             yield return null;
+            DoMaybeCaptureCareerStart();
+        }
 
-            bool exists = CareerStartSnapshot.Exists();
-            // ERS-routed recording count (raw CommittedRecordings reads trip the grep audit);
-            // a fresh career has 0 visible recordings either way.
-            int recCount = EffectiveState.ComputeERS()?.Count ?? 0;
-            double now = Planetarium.GetUniversalTime();
-            if (!CareerStartSnapshot.ShouldCapture(exists, recCount, now, ParsekTimeFormat.SecsPerDay))
+        private static void DoMaybeCaptureCareerStart()
+        {
+            try
             {
-                ParsekLog.Verbose(Tag,
-                    string.Format(CultureInfo.InvariantCulture,
-                        "Career-start snapshot not captured (exists={0} recordings={1} now={2:F1})",
-                        exists, recCount, now));
-                yield break;
-            }
+                bool exists = CareerStartSnapshot.Exists();
+                // ERS-routed recording count (raw CommittedRecordings reads trip the grep audit);
+                // a fresh career has 0 visible recordings either way.
+                int recCount = EffectiveState.ComputeERS()?.Count ?? 0;
+                double now = Planetarium.GetUniversalTime();
+                if (!CareerStartSnapshot.ShouldCapture(exists, recCount, now, ParsekTimeFormat.SecsPerDay))
+                {
+                    ParsekLog.Verbose(Tag,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Career-start snapshot not captured (exists={0} recordings={1} now={2:F1})",
+                            exists, recCount, now));
+                    return;
+                }
 
-            ParsekLog.Info(Tag,
-                string.Format(CultureInfo.InvariantCulture,
-                    "Capturing career-start snapshot for new career (recordings={0} now={1:F1})",
-                    recCount, now));
-            CareerStartSnapshot.Capture();
+                ParsekLog.Info(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Capturing career-start snapshot for new career (recordings={0} now={1:F1})",
+                        recCount, now));
+                CareerStartSnapshot.Capture();
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error(Tag,
+                    $"Career-start capture check failed: {ex.GetType().Name}: {ex.Message}");
+            }
         }
 
         private IEnumerator ConsumePendingWarp()
