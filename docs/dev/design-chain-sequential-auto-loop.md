@@ -98,63 +98,109 @@ span duration `spanEnd - spanStart`, so cycles are back-to-back: no gap, no
 overlap, seamless wrap. That is the literal meaning of "the whole segment is
 looped."
 
-This is the same shape as the existing loop-synced-debris mechanism
-(`LoopSyncParentIdx` / `TryUpdateLoopSyncedDebris`), where a debris recording
-renders on its parent's loop clock whenever that clock enters the debris's own
-UT range. The difference is only the geometry of the windows: debris windows
-overlap their parent's window (they co-exist in time); chain members tile their
-parent's span end-to-end (they succeed each other in time). The clock-sharing
-and "render only when the shared clock is inside my window" rule are identical.
+The loop-synced-debris mechanism (`LoopSyncParentIdx` /
+`TryUpdateLoopSyncedDebris`) is conceptual inspiration, NOT a code path we can
+reuse. It shares the idea "render only when a shared clock is inside my window,"
+but it does not wire up the same way, for two concrete reasons that this design
+must own as new work:
+
+1. **The span clock is new computation.** The engine's loop clock is strictly
+   per-recording: `TryComputeLoopPlaybackUT` sets
+   `playbackStartUT = EffectiveLoopStartUT(traj)` and bounds `loopUT` by
+   `EffectiveLoopEndUT(traj)` (`GhostPlaybackEngine.cs`), and those derive from
+   the recording's own `LoopStartUT/LoopEndUT/EndUT`. A recording's loop clock
+   can never sweep past its own `EndUT` into a sibling's window. So the unit
+   span clock (walking `[spanStart, spanEnd]` across multiple members' windows)
+   is a genuinely new phase computation, not the owner's existing loop phase.
+2. **Followers are loop-enabled, so the debris path never runs for them.** A
+   recording that satisfies `ShouldLoopPlayback` takes the loop dispatch and
+   `continue`s in the per-frame update BEFORE the loop-synced-debris block is
+   reached. `TryUpdateLoopSyncedDebris` only runs for NON-looping recordings
+   whose parent loops. Chain-loop members are all loop-enabled, so a NEW
+   interception must run at (or before) the loop dispatch site to route unit
+   members through the span clock instead of their own independent loop clock.
+
+In short: same idea, new route. The doc treats the span clock and the unit
+dispatch as new code throughout.
 
 ---
 
 ## Data Model
 
-No new persisted fields. Chain-loop units are derived at playback-schedule build
-time from existing serialized state, exactly as `LoopSyncParentIdx` is derived
-by `PopulateLoopSyncParentIndices`. This keeps the recording schema
-(`CurrentRecordingSchemaGeneration`) unchanged and adds no save-compat surface.
+No new persisted fields and no recording-schema change
+(`CurrentRecordingSchemaGeneration` unchanged). Units are computed at runtime and
+held in transient engine-side state, not on `Recording`.
 
-Existing fields the detection reads (all already serialized):
+### Why detection is host-side and the descriptor is opaque to the engine
+
+`GhostPlaybackEngine` is deliberately chain-agnostic: it has zero `Recording`
+references and reads only `IPlaybackTrajectory`, which exposes `LoopSyncParentIdx`
+but NOT `ChainId` / `ChainIndex` / `ChainBranch` (those live on `Recording`). The
+engine is the seed of a future standalone mod where "chain" is a consumer
+(Parsek) concept, not an engine concept. Therefore:
+
+- **Detection runs host-side** (in `RecordingStore`, which owns
+  `committedRecordings` and the chain fields), producing index-keyed unit
+  descriptors.
+- **The engine consumes opaque "loop units"** - a set of member indices with a
+  shared span schedule and per-member windows - without knowing they came from a
+  chain. `IPlaybackTrajectory` does NOT gain chain fields.
+- This keeps the chain concept on the consumer side and lets the same descriptor
+  feed both schedulers (flight engine and tracking station; see Behavior).
+
+### Index alignment (the invariant the descriptors rely on)
+
+The host builds `cachedTrajectories` 1:1 in `committedRecordings` order before
+handing them to the engine, so a committed index is a valid key into the
+trajectory list on both sides. Unit descriptors are keyed by this shared index.
+
+### Existing fields detection reads (all already serialized)
 
 ```
-Recording.ChainId          string   // unit membership key
-Recording.ChainIndex       int      // ordering within chain
-Recording.ChainBranch      int      // 0 = primary path (only branch 0 forms a unit)
-Recording.LoopPlayback     bool     // must be true for all members of a unit
-Recording.LoopTimeUnit     LoopTimeUnit // must be Auto for all members of a unit
-Recording.StartUT/EndUT    double   // member sub-window; span = [first.Start, last.End]
+Recording.ChainId          string        // unit membership key
+Recording.ChainIndex       int           // ordering within chain
+Recording.ChainBranch      int           // 0 = primary path (only branch 0 forms a unit)
+Recording.LoopPlayback     bool          // must be true for every member of a unit
+Recording.LoopTimeUnit     LoopTimeUnit  // must be Auto for every member of a unit
+Recording.StartUT/EndUT    double        // member window; span = [first.Start, last.End]
 ```
 
-New transient (NonSerialized) per-recording field, populated each schedule
-rebuild (mirrors the existing `LoopSyncParentIdx` pattern):
+### New transient types (not persisted)
+
+Host-built descriptor, one per unit, keyed by owner index:
 
 ```
-[NonSerialized] internal int ChainLoopOwnerIdx = -1;
-// -1  = not a chain-loop-unit member (use existing behavior)
-// == own committed index  => this recording is the unit owner/anchor
-// other index             => follow that owner's span loop clock
-```
-
-New transient unit descriptor, computed once per rebuild and keyed by owner
-index (held by the engine alongside `autoLoopLaunchSchedules`, not persisted):
-
-```
-struct ChainLoopUnit {
-    int    ownerIndex;       // committed index of the lowest-ChainIndex member
+struct LoopUnit {
+    int    ownerIndex;       // lowest-ChainIndex member's committed/trajectory index
+    int[]  memberIndices;    // committed indices of all members, ChainIndex order
     double spanStartUT;      // first member StartUT
     double spanEndUT;        // last member EndUT
-    double cadenceSeconds;   // v1: spanEndUT - spanStartUT (seamless wrap)
-    int[]  memberIndices;    // committed indices of all members, ChainIndex order
+    double cadenceSeconds;   // v1: spanEndUT - spanStartUT (seamless wrap), clamped to MinCycleDuration
 }
 ```
 
-Detection (new helper, analogous to `RecordingStore.PopulateLoopSyncParentIndices`):
-walk committed recordings grouped by `ChainId`; within each chain, sort
-primary-path members by `ChainIndex`; find every maximal run of >= 2 consecutive
-members that are all `LoopPlayback && LoopTimeUnit == Auto`; emit one
-`ChainLoopUnit` per run and set each member's `ChainLoopOwnerIdx`. Members not in
-any unit keep `ChainLoopOwnerIdx == -1` and behave exactly as today.
+Engine-side per-rebuild state (mirrors how `autoLoopLaunchSchedules` is held -
+a per-index dictionary rebuilt each schedule pass, NOT a field written onto
+`Recording` every frame):
+
+```
+Dictionary<int, LoopUnit> loopUnits;          // keyed by ownerIndex
+Dictionary<int, int>      loopUnitOwnerByIdx;  // memberIndex -> ownerIndex (-1 / absent = not a unit member)
+```
+
+Note: do NOT model this on `LoopSyncParentIdx`, which is a serializable
+`{ get; set; }` property populated once at load by
+`PopulateLoopSyncParentIndices`. Unit membership is volatile (it flips when the
+player toggles loop/period) and must be recomputed on the schedule rebuild, so it
+belongs in transient engine state, not on the persisted recording.
+
+### Detection (new host-side helper in `RecordingStore`)
+
+Group committed recordings by `ChainId`; within each chain, take primary-path
+(`ChainBranch == 0`) members sorted by `ChainIndex`; find every maximal run of
+>= 2 consecutive members that are all `LoopPlayback && LoopTimeUnit == Auto` and
+have >= 2 trajectory points; emit one `LoopUnit` per run. Members not in any unit
+are absent from `loopUnitOwnerByIdx` and behave exactly as today.
 
 ---
 
@@ -162,27 +208,50 @@ any unit keep `ChainLoopOwnerIdx == -1` and behave exactly as today.
 
 ### Forming the unit
 
-- At playback schedule rebuild (the same point that builds
-  `autoLoopLaunchSchedules`), detect chain-loop units as described above.
-- Members of a chain-loop unit are EXCLUDED from the flat global launch queue
-  (`ShouldUseGlobalAutoLaunchQueue` is suppressed for them, or they are filtered
-  out when the queue is built). They are scheduled by their unit instead.
+- The host detects units (host-side helper, above) and rebuilds the descriptors
+  on each playback schedule rebuild, the same pass that builds
+  `autoLoopLaunchSchedules`. The descriptors are handed to both the flight engine
+  and the tracking-station scheduler (see below).
+- Members of a unit are EXCLUDED from the flat global launch queue: the
+  global-queue eligibility check skips any index present in
+  `loopUnitOwnerByIdx`, so unit members never receive a staggered global slot.
+  They are scheduled by their unit instead.
 - A standalone auto-looped recording, or a single auto-looped chain member that
   has no auto-looped neighbor, is NOT a unit (run length 1) and keeps today's
   global-stagger behavior.
 
-### Playing the unit
+### Playing the unit (new interception + span clock)
 
-- The unit owner computes the span loop phase: a `loopUT` inside
-  `[spanStart, spanEnd]` repeating every `cadenceSeconds` (v1 = span duration,
-  so the wrap from `spanEnd` back to `spanStart` is seamless).
-- Each member (owner included) renders only when the shared `loopUT` falls in
-  its own `[StartUT, EndUT]`, positioned at `loopUT` via the normal in-range
-  render path. When `loopUT` is outside its window, the member is hidden /
-  destroyed for that frame.
+- A NEW dispatch runs at the loop dispatch site, BEFORE the standalone loop
+  dispatch that would otherwise route each looping recording onto its own clock.
+  If the current index is a unit member, it is routed through the span clock and
+  the standalone loop path is skipped for it.
+- A new pure helper (in `GhostPlaybackLogic`, alongside the existing loop-phase
+  math) computes the span loop phase: given `currentUT`, `spanStartUT`,
+  `spanEndUT`, and `cadenceSeconds`, it returns a `loopUT` inside
+  `[spanStart, spanEnd]` plus the unit cycle index. v1 cadence = span duration,
+  so the wrap from `spanEnd` back to `spanStart` is seamless. The cadence is
+  clamped to `LoopTiming.MinCycleDuration` inside this helper (the span clock
+  does NOT get `ResolveLoopInterval`'s clamp for free).
+- Each member renders only when the shared `loopUT` falls in its own
+  `[StartUT, EndUT]`, positioned at `loopUT` via the normal in-range render path.
+  When `loopUT` is outside its window, the member is hidden / destroyed for that
+  frame.
 - Because members tile the span contiguously, exactly one member is visible at a
   time, and the visible ghost changes exactly at each segment boundary -
   reproducing the seamless chain handoff under looping.
+
+### Tracking-station scheduler (scoped IN)
+
+`ParsekKSC` has its own copy of the auto-loop machinery (its own
+`autoLoopLaunchSchedules` dict, its own `RebuildAutoLoopLaunchScheduleCache`, its
+own loop-UT math). If units were implemented only in `GhostPlaybackEngine`, a
+looped chain would replay as a unit in flight but as the old independent parade
+in the tracking station - a visible inconsistency. v1 scopes both schedulers in
+by sharing code: unit detection and the span-clock helper are pure/host-side and
+consumed by BOTH `GhostPlaybackEngine` and `ParsekKSC`. Map-marker positioning is
+driven by the engine positioning ghosts, so no third scheduler is involved
+(`GhostMapPresence` only makes spawn/lifecycle decisions, e.g. `IsChainLooping`).
 
 ### Cycle transitions
 
@@ -226,9 +295,11 @@ Each: scenario -> expected behavior -> v1 disposition.
    v1.
 5. **Adjacent members with overlapping UT windows** (post-optimizer splits
    routinely leave a sub-second overlap). When `loopUT` is in both member i and
-   i+1 windows, render the higher `ChainIndex` member (i+1). -> Matches the
-   existing chain-shadow precedence ("continuation is authoritative during
-   overlap"). v1.
+   i+1 windows, render the higher `ChainIndex` member (i+1). This re-applies the
+   same precedence rule as the existing chain-shadow ("continuation is
+   authoritative during overlap"), but it is a small REIMPLEMENTATION inside the
+   span-clock member-selection, not a call into `ChainHandoffLogic.DecideShadow`
+   (that lives on the non-loop path the unit bypasses). v1.
 6. **Gap between member i end and member i+1 start** (UT discontinuity from
    edits/splits). When `loopUT` lands in the gap, no member renders for that
    sliver (brief invisible moment), then the next member picks up. -> Log the gap
@@ -241,30 +312,43 @@ Each: scenario -> expected behavior -> v1 disposition.
    Branch > 0 members are not unit members in v1 and play per their own loop
    setting. v1 (defer branch-aware units).
 9. **Debris loop-synced to a member that is now a unit member**
-   (`LoopSyncParentIdx` points at a unit member). The debris should follow the
-   unit's span clock when its parent member is the live one. -> v1: debris reads
-   the owner's span `loopUT` (the owner is the parent's clock source). Verify the
-   existing debris dispatch resolves the owner, not the raw member, when the
-   member is in a unit. Flagged as the highest-risk integration point.
-10. **Watch mode on a unit.** Watching a chain follows the live ghost and hands
-    off at boundaries via `WatchModeController`. The camera should follow whichever
-    member is currently visible and hand off at each segment boundary and at the
-    wrap. -> v1: confirm watch transfer keys off the currently-rendered member;
-    the wrap is treated as a normal boundary handoff back to the first member.
-11. **Terminal vessel spawn at loop end.** Looping recordings can spawn a real
-    vessel at their end. A chain has one terminal (the chain's end), not one per
-    segment. -> Intermediate member ends inside the unit do NOT trigger spawns;
-    only the chain terminal's existing spawn semantics apply, and only if already
-    configured. The unit changes ghost timing, not spawn policy. v1.
+   (`LoopSyncParentIdx` points at a unit member). `TryUpdateLoopSyncedDebris`
+   currently calls `TryComputeLoopPlaybackUT(parent, ...)`, which gives the
+   parent's OWN per-recording loop clock - wrong once the parent is a unit member
+   whose timing is governed by the span clock. -> v1: when the debris's parent is
+   a unit member, the debris must read the unit span `loopUT` (resolved via the
+   parent's `ownerIndex` in `loopUnitOwnerByIdx`) and render when that span
+   `loopUT` is in the debris's own `[StartUT, EndUT]`. This requires editing the
+   debris dispatch to detect unit-member parents and source the span clock. This
+   is the highest-risk integration point - call it out in the plan as its own
+   task.
+10. **Watch mode on a unit.** For NON-loop chains, watch hands off by the
+    chain-seam handoff destroying the head and `WatchModeController` transferring
+    to the continuation. Unit members are loop-enabled and bypass the chain-seam
+    path entirely (they take the new span-clock route), so that transfer never
+    fires. Under the unit the visible ghost changes at member boundaries WITHOUT
+    the chain-seam handoff. -> v1 requires a NEW watch-transfer trigger at
+    unit-internal boundaries (and at the wrap) that moves the camera to the
+    newly-live member. This is real work, not a "confirm." If it cannot land in
+    v1, the acceptable fallback is: watching a unit follows the owner member only
+    and the camera does not auto-advance across segments (documented limitation).
+11. **Terminal vessel spawn at loop end.** A looping chain spawns NOTHING:
+    `ShouldSpawnAtRecordingEnd` returns `(false, "chain looping")` for the whole
+    chain whenever any branch-0 member loops (via `IsChainLooping`). There is no
+    per-segment spawn and no terminal spawn while the chain loops. The unit
+    changes ghost timing only; it does not touch spawn policy, and the existing
+    "chain looping -> no spawn" guard already covers it. v1, no new code needed.
 12. **Time warp.** Warp suppression hides moving ghosts at high warp today. The
     unit uses the same per-frame render path, so warp suppression applies to the
     currently-live member unchanged. v1.
 13. **Member edited / chain re-topologized at runtime** (rare; merges, reverts).
     The unit is rebuilt from scratch on the next schedule rebuild, so membership
     self-heals. No persisted unit state to go stale. v1.
-14. **Very short span** (sum of segments below `MinCycleDuration`). Clamp cadence
-    to `LoopTiming.MinCycleDuration` defensively, same as `ResolveLoopInterval`.
-    v1.
+14. **Very short span** (sum of segments below `MinCycleDuration`). The new
+    span-clock helper clamps `cadenceSeconds` to `LoopTiming.MinCycleDuration`
+    itself (it does NOT route through `ResolveLoopInterval` / `ComputeLoopPhaseFromUT`,
+    which is where the existing clamp lives). State the clamp lives in the new
+    helper. v1.
 15. **Very long span / many cycles live.** Because cadence = span duration, only
     one cycle's worth of one ghost is ever live at a time (no overlap), so the
     `MaxOverlapGhostsPerRecording` cap is not stressed by the unit itself. v1.
@@ -285,6 +369,9 @@ Each: scenario -> expected behavior -> v1 disposition.
 
 - The recording schema and all serialization. No new persisted fields, no
   generation bump.
+- `IPlaybackTrajectory` stays chain-agnostic - no `ChainId` / `ChainIndex` /
+  `ChainBranch` added to the engine interface. The engine consumes opaque loop
+  units; chain detection stays host-side.
 - Standalone (non-chain) auto-loop behavior and the global launch queue for
   standalone recordings.
 - Manual-period looping (`Sec`/`Min`/`Hour`) for any recording.
@@ -292,9 +379,28 @@ Each: scenario -> expected behavior -> v1 disposition.
   logic (the unit is a looping construct; non-loop chains are untouched).
 - Ghost mesh construction, trajectory interpolation, per-member positioning
   surfaces (absolute / relative / orbit), part-event and FX replay.
-- Spawn policy, resource ledger, rewind, merge, and timeline semantics.
-- Loop-synced debris mechanics, except for the owner-resolution clarification in
-  edge case 9.
+- Spawn policy, resource ledger, rewind, merge, and timeline semantics. A
+  looping chain already spawns nothing (the `"chain looping"` guard), so the unit
+  needs no spawn-side change.
+
+## Risk and Hardest Part
+
+The hard part is NOT the span-clock arithmetic (that is a small pure helper).
+The risk concentrates in three new code routes that the loop-synced-debris
+analogy does NOT give us for free:
+
+1. **Follower interception** at the loop dispatch site: loop-enabled unit members
+   must be pulled out of the standalone loop dispatch and onto the span clock,
+   in BOTH `GhostPlaybackEngine` and `ParsekKSC`. (Highest structural risk.)
+2. **Debris-on-unit-member** (edge 9): the existing debris dispatch reads the
+   parent's own loop clock and must be taught to read the span clock when the
+   parent is a unit member.
+3. **Watch transfer at unit-internal boundaries** (edge 10): the chain-seam
+   transfer the camera relies on is bypassed for loopers, so a new transfer
+   trigger is needed (or the documented owner-only-follow fallback).
+
+The plan should make each of these its own task and order them after the pure
+helper + detection land and are unit-tested.
 
 ---
 
@@ -388,6 +494,10 @@ GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
 - **Mixed list**: standalone auto + a 3-member auto chain -> standalone stays in
   the parade, chain forms one unit. Fails if either leaks into the other's
   scheduling.
+- **Dual-scheduler parity**: feed the identical recording set to the flight
+  detection/schedule path and the tracking-station path; both must produce the
+  same unit (same owner, members, span, cadence). Fails if the two schedulers
+  diverge (the inconsistency the KSC scoping exists to prevent).
 
 ### Log-assertion tests (xUnit, via test sink)
 - Detection emits the unit-built summary with member indices and span. Fails if
@@ -397,17 +507,21 @@ GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
 
 ### Serialization (xUnit, extend `AutoLoopTests`)
 - Round-trip a chain of auto-loop members through `ParsekScenario` save/load and
-  confirm `ChainLoopOwnerIdx` is NOT persisted (transient) and is recomputed on
-  the next rebuild. Fails if a transient field leaks into the ConfigNode or
-  survives load stale.
+  confirm NO new ConfigNode keys are written for unit membership (units are
+  computed at runtime, never persisted), and that the unit is reconstituted from
+  the loaded loop/period state on the next detection pass. Fails if any unit
+  state leaks into the save or fails to recompute after load.
 
 ### In-game (RuntimeTests.cs, FLIGHT)
 - Inject a synthetic 3-segment auto-loop chain; over several frames assert
   exactly one ghost GameObject of the unit is active at a time and that the
   active one advances through the members in order, then wraps. Fails if
   multiple unit ghosts are visible at once or the handoff/wrap does not occur.
-- Watch a unit and confirm the camera target advances with the live member and
-  survives the wrap (edge 10). Fails if the camera sticks to a hidden ghost.
+- Watch a unit (edge 10). If the unit-internal transfer lands: the camera target
+  advances with the live member and survives the wrap. If the documented fallback
+  is taken: the camera follows the owner only. Either way the invariant is the
+  camera target is NEVER a deactivated/destroyed ghost. Fails if the camera
+  sticks to a hidden ghost.
 - Debris loop-synced to a unit member follows the unit clock (edge 9). Fails if
   the debris renders on the raw member window instead of the owner's span clock.
 
