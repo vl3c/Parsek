@@ -12485,6 +12485,77 @@ namespace Parsek.InGameTests
 
         #region ResourceReconciliation (Phase F)
 
+        [InGameTest(Category = "WarpToTime", Scene = GameScenes.SPACECENTER,
+            Description = "WarpToTimeController.ResolvePlan runs against live ERS/RecordingStore: " +
+                "a far-future date yields ForwardOnly; 1/1/0/0 maps to UT 0 and, when any rewind " +
+                "target exists, yields RewindThenForward (landing at the career-start snapshot when " +
+                "present, else the earliest launch). Read-only — does not change the clock.")]
+        public void WarpToTime_ResolvePlan_LiveScene()
+        {
+            double now = Planetarium.GetUniversalTime();
+
+            // Far-future target -> ForwardOnly regardless of save state.
+            var futurePlan = WarpToTimeController.ResolvePlan(
+                9999, 1, 0, 0, inFlight: false, out double futureUT);
+            InGameAssert.IsTrue(futureUT > now,
+                $"far-future targetUT {futureUT} should exceed now {now}");
+            InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.ForwardOnly, futurePlan.Kind,
+                "far-future date should resolve to ForwardOnly");
+
+            // Game start (1/1/0/0 = UT 0). Exercises the live ResolveRewindTarget path
+            // (ERS enumeration + GetRewindRecording + career-start snapshot check). The exact
+            // kind depends on save state, so first assert the call returns a defined plan.
+            var startPlan = WarpToTimeController.ResolvePlan(
+                1, 1, 0, 0, inFlight: false, out double startUT);
+            InGameAssert.AreEqual(0.0, startUT, "1/1/0/0 should map to UT 0");
+            bool definedKind = startPlan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.AtTarget
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.Unreachable;
+            InGameAssert.IsTrue(definedKind,
+                $"game-start plan kind should be defined, got {startPlan.Kind}");
+
+            // With any rewind target present and now meaningfully past UT 0, the game start must
+            // be reachable via rewind (RewindThenForward), not Unreachable. The target is the
+            // career-start snapshot when one exists (and no supersedes), else the earliest launch.
+            var ers = EffectiveState.ComputeERS();
+            bool anyRewindSave = false;
+            if (ers != null)
+            {
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var owner = RecordingStore.GetRewindRecording(ers[i]);
+                    if (owner != null && !string.IsNullOrEmpty(owner.RewindSaveFileName))
+                    {
+                        anyRewindSave = true;
+                        break;
+                    }
+                }
+            }
+            int supersedeCount = ParsekScenario.Instance?.RecordingSupersedes?.Count ?? 0;
+            bool careerStartAvailable = CareerStartSnapshot.Exists() && supersedeCount == 0;
+
+            if ((anyRewindSave || careerStartAvailable) && now > WarpToTimeMath.AtTargetEpsilonSeconds)
+            {
+                InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.RewindThenForward, startPlan.Kind,
+                    "with a rewind target present and now>0, game start must be reachable via rewind");
+                // landsAtTimelineStart is the earliest-LAUNCH fallback (no candidate at/before
+                // UT 0). A career-start snapshot sits AT UT 0 = the target, so it's the
+                // nearest-prior, not a fallback -> the flag is false when the snapshot is chosen.
+                if (careerStartAvailable)
+                    InGameAssert.IsFalse(startPlan.LandsAtTimelineStart,
+                        "career-start snapshot at UT 0 is the nearest-prior target, not the earliest-launch fallback");
+                else
+                    InGameAssert.IsTrue(startPlan.LandsAtTimelineStart,
+                        "no career-start snapshot -> game start lands at the earliest launch (fallback)");
+            }
+            else
+            {
+                InGameAssert.Skip("no rewind target present (or already at game start) — " +
+                    "rewind-reachability assertion not applicable");
+            }
+        }
+
         [InGameTest(Category = "ResourceReconciliation", Scene = GameScenes.SPACECENTER,
             Description = "Phase F: ApplyTreeLumpSum / ApplyTreeResourceDeltas / ApplyResourceDeltas " +
                 "are gone — neither method emits its old log shape during normal SPACECENTER lifecycle. " +

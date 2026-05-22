@@ -1485,5 +1485,109 @@ namespace Parsek.Tests
             Assert.Contains("AlsoValid", GroupHierarchyStore.hiddenGroups);
             Assert.DoesNotContain("", GroupHierarchyStore.hiddenGroups);
         }
+
+        // A folder is the per-mission abstraction: every launch gets its own folder,
+        // including single-recording launches.
+        [Fact]
+        public void CommitTree_SingleRecordingLaunch_GetsItsOwnMissionFolder()
+        {
+            var root = MakeTreeRecording("solo", "GDLV3", "tree-solo");
+            var tree = new RecordingTree
+            {
+                Id = "tree-solo",
+                TreeName = "GDLV3",
+                RootRecordingId = root.RecordingId,
+                Recordings = new Dictionary<string, Recording>
+                {
+                    [root.RecordingId] = root
+                }
+            };
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.NotNull(root.RecordingGroups);
+            Assert.Single(root.RecordingGroups);
+            Assert.Equal("GDLV3", root.RecordingGroups[0]);
+        }
+
+        [Fact]
+        public void CommitTree_SecondSameNamedSingleRecordingLaunch_GetsDistinctFolder()
+        {
+            var first = MakeTreeRecording("first", "GDLV3", "tree-first");
+            RecordingStore.CommitTree(new RecordingTree
+            {
+                Id = "tree-first",
+                TreeName = "GDLV3",
+                RootRecordingId = first.RecordingId,
+                Recordings = new Dictionary<string, Recording> { [first.RecordingId] = first }
+            });
+
+            var second = MakeTreeRecording("second", "GDLV3", "tree-second");
+            RecordingStore.CommitTree(new RecordingTree
+            {
+                Id = "tree-second",
+                TreeName = "GDLV3",
+                RootRecordingId = second.RecordingId,
+                Recordings = new Dictionary<string, Recording> { [second.RecordingId] = second }
+            });
+
+            // Two single-recording launches of the same craft are distinct missions,
+            // so they get distinct folders rather than collapsing into one group.
+            Assert.Equal("GDLV3", first.RecordingGroups[0]);
+            Assert.Equal("GDLV3 #2", second.RecordingGroups[0]);
+        }
+
+        // Orphan-adoption PID fallback must require a real time overlap, not the old
+        // +/-60s containment that folded a distinct earlier mission (which reused the
+        // same vessel PID) into a later mission's group.
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_SeparateEarlierMission_DoesNotMatch()
+        {
+            // Regression repro: prior GDLV3 flight [18,41] vs new GDLV3 tree
+            // [57.78, 87.82]; the prior mission ends ~16s before the new tree begins.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                18.06, 41.22, 57.78, 87.82, 2.0);
+
+            Assert.False(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_SeparateLaterMission_DoesNotMatch()
+        {
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                200.0, 260.0, 57.78, 87.82, 2.0);
+
+            Assert.False(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_ContiguousPrefixSegment_Matches()
+        {
+            // A split segment committed standalone before the tree ends exactly where
+            // the tree's first recorded section begins.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                40.0, 57.78, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_FrameGapWithinTolerance_Matches()
+        {
+            // One-frame gap between segment end and tree start stays within tolerance.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                40.0, 57.74, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_OverlappingRanges_Matches()
+        {
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                50.0, 70.0, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
     }
 }

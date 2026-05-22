@@ -6,7 +6,22 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### Looping
+
 - Consecutive chain segments all set to Loop with period `auto` now play back as one continuous looping unit: each segment hands off to the next and the whole chain wraps, instead of relaunching on the per-recording stagger.
+
+### UI
+
+- New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward; past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time.
+- Warping in flight first asks (via the usual Merge / Discard dialog) what to do with the in-progress recording before returning to the Space Center; it is never auto-saved.
+- Warping to Year 1 / Day 1 (1/1/0/0) resets a new career to its true starting state (resources, facilities, clock), keeping your recordings as future ghosts. New careers get a one-time start snapshot for this; saves created before this version instead land at your earliest launch.
+- Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
+- The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.
+
+### Bug Fixes
+
+- Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
+- Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
 
 ---
 

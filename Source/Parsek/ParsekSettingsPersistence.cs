@@ -48,6 +48,10 @@ namespace Parsek
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
         private const string UseOutlierRejectionKey = "useOutlierRejection";
+        private const string WarpYearKey = "warpYear";
+        private const string WarpDayKey = "warpDay";
+        private const string WarpHourKey = "warpHour";
+        private const string WarpMinuteKey = "warpMinute";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
@@ -60,6 +64,12 @@ namespace Parsek
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
         private static bool? storedUseOutlierRejection;
+        // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
+        // sessions so the user need not re-type a frequently-used target date.
+        private static int? storedWarpYear;
+        private static int? storedWarpDay;
+        private static int? storedWarpHour;
+        private static int? storedWarpMinute;
         private static bool loaded;
 
         /// <summary>
@@ -222,6 +232,11 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
                 }
 
+                storedWarpYear = ParseStoredInt(root, WarpYearKey);
+                storedWarpDay = ParseStoredInt(root, WarpDayKey);
+                storedWarpHour = ParseStoredInt(root, WarpHourKey);
+                storedWarpMinute = ParseStoredInt(root, WarpMinuteKey);
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
@@ -237,6 +252,42 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag, $"Failed to load settings file '{path}': {ex.Message}");
+            }
+        }
+
+        private static int? ParseStoredInt(ConfigNode root, string key)
+        {
+            string raw = root.GetValue(key);
+            if (!string.IsNullOrEmpty(raw)
+                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
+                return v;
+            return null;
+        }
+
+        /// <summary>
+        /// Records the Timeline warp-to-time draft inputs and writes them to disk. Called
+        /// when the Timeline window closes. Guards against the xUnit / non-Unity context
+        /// where KSPUtil.ApplicationRootPath throws (the in-memory store is still updated).
+        /// </summary>
+        internal static void RecordWarpDate(int year, int day, int hour, int minute)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordWarpDate: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            storedWarpYear = year;
+            storedWarpDay = day;
+            storedWarpHour = hour;
+            storedWarpMinute = minute;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordWarpDate: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
 
@@ -595,6 +646,14 @@ namespace Parsek
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
                 if (storedUseOutlierRejection.HasValue)
                     root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
+                if (storedWarpYear.HasValue)
+                    root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpDay.HasValue)
+                    root.AddValue(WarpDayKey, storedWarpDay.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpHour.HasValue)
+                    root.AddValue(WarpHourKey, storedWarpHour.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpMinute.HasValue)
+                    root.AddValue(WarpMinuteKey, storedWarpMinute.Value.ToString(CultureInfo.InvariantCulture));
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
@@ -631,6 +690,10 @@ namespace Parsek
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
             storedUseOutlierRejection = null;
+            storedWarpYear = null;
+            storedWarpDay = null;
+            storedWarpHour = null;
+            storedWarpMinute = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -699,6 +762,21 @@ namespace Parsek
         internal static bool? GetStoredUseAnchorTaxonomy() => storedUseAnchorTaxonomy;
 
         internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
+
+        internal static int? GetStoredWarpYear() => storedWarpYear;
+        internal static int? GetStoredWarpDay() => storedWarpDay;
+        internal static int? GetStoredWarpHour() => storedWarpHour;
+        internal static int? GetStoredWarpMinute() => storedWarpMinute;
+
+        /// <summary>Test-only: directly sets the stored warp inputs without disk I/O.</summary>
+        internal static void SetStoredWarpDateForTesting(int? year, int? day, int? hour, int? minute)
+        {
+            storedWarpYear = year;
+            storedWarpDay = day;
+            storedWarpHour = hour;
+            storedWarpMinute = minute;
+            loaded = true;
+        }
 
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.

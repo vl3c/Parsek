@@ -27,12 +27,68 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Warp-to-time: in-flight paths validated
+
+- "Warp to time" (Timeline window, PR #947) in-flight flow validated in the 2026-05-22 run (`logs/2026-05-22_2123_warp-inflight-v2/`, save `s10`). The in-flight warp no longer auto-commits: it uses the simple KSC confirm text, then defers through the Space Center so the existing scene-exit Merge / Discard dialog handles the active recording first.
+- Exercised, all correct: Flight + ForwardOnly (Y1 D2 -> forward jump 223->21600s), Flight + RewindThenForward to a pre-launch time (Y1 D1 0:03 -> career-start reset UT 24376->0.1 then forward jump to exactly 180s, across two Space Center arrivals), and Flight + game start (Y1 D1 0:00 -> reset to 0.1, no forward jump). The Merge / Discard dialog (`Pre-transition tree merge dialog: tree='Butterfly Rover'`) appeared every time; Discard dropped the recording (committed trees stayed 2), Merge committed it (`CommitTree` / `MarkTreeAsApplied`, trees 2->3->4) keeping it as a future ghost. No warp/rewind/scene-exit/merge errors.
+- Still unexercised at runtime (rare, acceptable): the consumer guard-expiry abort (`ConsumePendingWarp` refuses to jump if `RewindUTAdjustmentPending` does not clear within ~5s) — only fires if a rewind reload stalls.
+- **Status:** CLOSED 2026-05-22.
+
+---
+
 ## Done - v0.9.3 Fast-Forward / Warp to Departure landed exactly at the event instead of before it
 
 - Request 2026-05-22. Fast-Forward (recordings table + timeline) jumped to a recording's launch UT exactly, and Warp to Departure (Real Spawn Control) jumped to the ghost's departure UT exactly, dropping the player into the event with no setup time. Rewind already restores `RewindToLaunchLeadTimeSeconds` (15 s) of pre-launch lead; the forward jumps should match. Warp to Spawn must stay precise at the spawn moment.
 - **Fix:** new pure helper `TimeJumpManager.ApplyJumpLead(eventUT, currentUT)` returns `eventUT - RecordingStore.RewindToLaunchLeadTimeSeconds`, clamped to `eventUT` when that would land at or before now (already inside the lead window) so the jump stays forward. `FastForwardToRecording` (flight) and the non-flight FF path in `RecordingsTableUI.ShowFastForwardConfirmation` apply it to `rec.StartUT`; `WarpToDeparture` applies it to `departureUT`. `WarpToRecordingEnd` (Warp to Spawn) is intentionally left precise. `WarpToNextCraftSpawn` inherits both behaviors via its dispatch. Constant is shared so FF and Rewind stay equal.
 - **Tests:** 5 new `TimeJumpManagerTests.ApplyJumpLead*` cases (ample-room subtracts lead, lead matches the Rewind constant, inside-lead-window clamps to event, exact-boundary clamps, logs). Full suite green (12336).
 - **Status:** CLOSED 2026-05-22.
+
+---
+
+## Open - v0.10.0 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
+
+- `RecordingStore.InitiateRewindToCareerStart` (PR #947) repeats ~25 lines of the load sequence from `InitiateRewind` (copy temp save to root -> `GamePersistence.LoadGame` -> temp delete -> `SetAdjustedUT` -> `HighLogic.CurrentGame = game` -> `LoadScene(SPACECENTER)`, plus the try/catch + `ResetRewindFlags` + `DeleteTemporaryRewindSaveCopy` failure path). The behavior-critical parts (RewindContext setup, `HandleRewindOnLoad`, ledger recalc) are already shared; only this mechanical wrapper is duplicated.
+- **Fix (deferred):** extract a shared private helper parameterized by whether to run `PreProcessRewindSave` (strip + lead-time windback) and whether to drop supersedes for an owner, so both entries call it. Deferred from PR #947 because it edits the proven `InitiateRewind` path, which xUnit cannot cover end-to-end (needs the Unity `LoadGame` round-trip) — land it as a separately-reviewed change with a fresh Rewind-to-Launch playtest, not bundled with the warp feature.
+- **Status:** OPEN — low-priority cleanup.
+
+---
+
+## Open - v0.10.0 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
+
+- `FlightRecorder.CaptureRewindSave` and `CareerStartSnapshot.Capture` (PR #947) both `GamePersistence.SaveGame` to the save root then `File.Move` only the `.sfs` into `Parsek/Saves/`, leaving the sidecar `.loadmeta` (`parsek_rw_*.loadmeta`, `parsek_career_start.loadmeta`) orphaned in the save root (observed in save `s10`). Pre-existing for the rewind saves; career-start adds one more.
+- **Fix:** delete (or move) the matching `.loadmeta` after moving the `.sfs` in both capture sites. Cosmetic — the orphan is harmless, it just litters the save folder.
+- **Status:** OPEN — cosmetic.
+
+---
+
+## Done - v0.10.0 Boosters that separate on the pad before liftoff were never recorded
+
+- Playtest 2026-05-22 (`logs/2026-05-22_2153_ksc-debris-norender/`, save `s11`). On-pad sequence: throttle 0, stage to ignite SRBs, stage again to detach the SRBs (they fly off the pad), then throttle the main stage up and lift off. The detached SRBs were never recorded, so they did not render as ghosts at the Space Center. The only debris recorded was the main stage's later crash breakup, which got a single seed point and was pruned by `PruneSinglePointDebrisLeaves`.
+- **Root cause:** auto-record only fires on the active (main) vessel's `PRELAUNCH -> FLYING` transition (`EvaluateAutoRecordLaunchDecision`, gated on `isActiveVessel`). The SRBs detach and fly while the main stage is still `PRELAUNCH` on the pad, so the recorder is not running yet; their situation change is logged as `ignoring non-active vessel`. By the time the main lifts off and recording starts, the SRBs are already separate foreign vessels and are dropped by the decouple capture gate (`ShouldCaptureDecoupleCreatedVessel` requires `originalPid == recordedPid`).
+- **Fix:** new first-staging auto-record trigger. `GameEvents.onStageActivate` -> `OnStageActivate(int)` -> pure `EvaluateAutoRecordStagingDecision` starts the recorder when the active vessel stages while `PRELAUNCH` (guard order mirrors the launch decision: already-recording, then time-jump-transient, then no-active-vessel / not-on-pad / disabled). Recording then begins before the SRB decouple, so the detachment is captured as a debris branch of the main and the SRBs record from separation to their endpoint. The normal clamp-release launch is unaffected (the `isRecording` guard makes whichever trigger fires first win). Also added the vessel name + pid to the `ignoring non-active vessel` log so a debris flying off the pad is unambiguous in future logs.
+- **Tests:** 7 new `AutoRecordDecisionTests.EvaluateAutoRecordStagingDecision_*` cases. Full suite green (12386).
+- **Status:** CLOSED 2026-05-22. Playtest (`logs/2026-05-22_2250_staging-merge-block/`, save `s11`) confirmed `Auto-record started (first staging on pad, stage=2)` fires and the SRBs are captured as 5 `GDLV3 Debris` recordings anchored to the main; the tree merge committed all 7 recordings. (Surfaced a separate group-collision regression, tracked in the next entry, and a benign extrapolator log-severity follow-up below.)
+
+---
+
+## Done - v0.10.0 Degenerate-state extrapolator terminal logged at ERROR for just-separated on-pad debris
+
+- Follow-up to the first-staging fix above. Validation playtest (`logs/2026-05-22_2353_staging-folders-validated/`) showed four `[Parsek][ERROR][Extrapolator] Terminal reason=degenerate-state ... vel=(0.01...)` lines at UT 9.6. Root cause: by capturing on-pad booster separation, the staging fix now sends a near-stationary seed (a booster the instant it decouples on the pad, velocity ~0.01 m/s) into the scene-exit finalizer's recovery path; `BallisticExtrapolator` then calls `TwoBodyOrbit.TryCreate`, which cannot build an orbit from ~0 velocity, and logged the recoverable terminal at ERROR. The finalizer recovers correctly (reseeds from the recorded surface point, classifies the recording), and the live recorder captures the booster's actual fall, so the only problem was the misleading ERROR severity.
+- **Fix:** downgraded `BallisticExtrapolator.cs` degenerate-state terminal from `ParsekLog.Error` to `ParsekLog.Warn`, matching the other recoverable "couldn't fully extrapolate" terminal reasons (`horizon-cap`, `soi-transition-cap`). Callers already handle `failureReason=DegenerateStateVector`; no behavior change.
+- **Tests:** strengthened `BallisticExtrapolatorTests.Extrapolate_DegenerateStateVector_ReturnsFailureReason` to assert the line is `[WARN]` and not `[ERROR]`. Full suite green (12395).
+- **Status:** CLOSED 2026-05-23.
+
+---
+
+## Done - v0.10.0 Second launch of the same craft merged into the first launch's recordings group
+
+- Found during the staging-fix playtest above (`logs/2026-05-22_2250_staging-merge-block/`, save `s11`). After the first GDLV3 flight (single recording, debris pruned) and a second GDLV3 flight (now multi-recording thanks to the staging fix), the recordings window showed only one "GDLV3" group: the new mission's recordings were folded into the prior mission's group instead of appearing as a separate group. ERS held all 8 recordings, so it was a grouping/visibility regression, not lost data.
+- **Root cause:** the new multi-recording tree auto-grouped under "GDLV3", then `RecordingGroupStore.AdoptOrphanedRecordingsIntoTreeGroup` adopted the prior mission's recording (`441f1459`, an orphan because single-recording trees are never auto-grouped) into that group. The adoption's PID fallback matched on shared `vesselPersistentId` (the relaunch reused the same PID) plus a `cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60` window. That is containment within a +/-60s pad, not the "overlapping time range" the method's doc-comment intends, so a distinct earlier flight (ended UT 41) was swept into a later tree (started UT 57.78). This only became visible once the staging fix made the second flight multi-recording (a single-recording second flight is never auto-grouped, so no group existed to adopt into).
+- **Fix (two parts):**
+  1. **Folder per mission (primary, design decision).** A group/folder is the UI abstraction for one mission, so every committed tree now gets its own folder — single-recording launches included. `AutoGroupTreeRecordings` and `RepairAutoGeneratedTreeGroups` no longer early-return on `Recordings.Count <= 1` (only on an empty/nameless tree). The prior single-recording launch now owns a "GDLV3" folder, so `GenerateUniqueGroupName` sees it and the second launch becomes "GDLV3 #2"; the prior launch is no longer a groupless orphan, so the adoption matcher's `ShouldAdoptRecordingIntoTreeGroup` rejects it. This reverses the earlier deliberate "don't spawn a folder of one" behavior at the user's direction (folders are per-mission). Stale `RecordingGroupStore` doc-comments updated, and the Recordings Manager grouping model is now documented in `docs/parsek-timeline-design.md` §1.4.
+  2. **Adoption requires real time overlap (defense in depth).** Replaced the containment check with `RecordingGroupStore.AdoptionTimeRangeOverlaps(recStart, recEnd, treeStart, treeEnd, tol)` (`recEnd >= treeStart - tol && recStart <= treeEnd + tol`), `AdoptionContiguityToleranceSeconds = 2.0`. Even if a prior mission were groupless, a distinct earlier flight (ended UT 41) no longer matches a later tree (started UT 57.78); genuine contiguous split-segments still adopt.
+- **Tests:** 2 new `GroupManagementTests.CommitTree_*` cases (single-recording launch gets its own folder; second same-named launch gets "GDLV3 #2") + 5 `AdoptionTimeRangeOverlaps_*` cases. Full suite green (12393).
+- **Status:** CLOSED 2026-05-22. Pending in-game playtest validation (fly the same craft twice -> two separate folders).
 
 ---
 

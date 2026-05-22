@@ -63,6 +63,8 @@ There are no branches and no hidden future — the player recorded that future a
 
 Both windows can be open simultaneously. The GoTo button on timeline entries opens the Recordings Manager and scrolls to the recording.
 
+**Recordings Manager grouping — a folder per mission.** In the Recordings Manager a group (folder) is the UI abstraction for one mission, i.e. one launch / one committed tree. Every committed tree gets its own auto-generated folder, **including single-recording launches** — a lone launch is still its own mission and renders as its own folder, not a bare root row. Folder names come from the vessel name and are de-duplicated with a `#N` suffix (`RecordingGroupStore.GenerateUniqueGroupName`), so flying the same craft twice produces two separate folders (`GDLV3`, `GDLV3 #2`) instead of merging both launches into one. Debris and EVA crew of a mission nest in `.../ Debris` and `.../ Crew` subfolders under their mission's folder. Auto-grouping runs at commit (`RecordingGroupStore.AutoGroupTreeRecordings`); the orphan-adoption helper only folds genuinely tree-less, time-overlapping split-segments into a mission folder and never adopts a separate prior mission that merely reused the same vessel id.
+
 ### 1.5 Data sources
 
 **1. Recordings** (`RecordingStore.CommittedRecordings`)
