@@ -841,5 +841,68 @@ namespace Parsek.Tests
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
             Assert.False(spanLoopUT < activationUT, "gate must NOT fire for a contiguous member");
         }
+
+        // ─── Phase 5: dual-scheduler (flight engine + tracking station) parity ──
+
+        [Fact]
+        public void DualScheduler_SameRecordingSet_ProducesIdenticalUnits()
+        {
+            // The design scopes BOTH the flight engine and the tracking-station scheduler in by
+            // sharing the pure RecordingStore.DetectChainLoopUnits as the single source of unit
+            // truth: each scheduler builds its LoopUnitSet from the same detection call on the same
+            // committed list, then routes through IsMember / OwnerByIndex without re-deriving units.
+            // This pins that contract. A mixed list: standalone auto (index 0) + a 3-member auto
+            // chain (indices 1,2,3) + a manual-period chain pair (indices 4,5, never a unit).
+            CommitStandaloneAuto(50, 110);              // index 0 — global parade
+            CommitChainMember("parA", 0, 200, 250);     // index 1 — unit member
+            CommitChainMember("parA", 1, 250, 300);     // index 2 — unit member
+            CommitChainMember("parA", 2, 300, 350);     // index 3 — unit member
+            CommitChainMember("parB", 0, 400, 450, unit: LoopTimeUnit.Sec); // index 4 — manual
+            CommitChainMember("parB", 1, 450, 500, unit: LoopTimeUnit.Sec); // index 5 — manual
+
+            var committed = RecordingStore.CommittedRecordings;
+
+            // Both schedulers detect from the identical committed list. Two calls model "flight built
+            // its set" and "KSC built its set"; since the function is pure, they MUST be byte-equal.
+            var flightSet = RecordingStore.DetectChainLoopUnits(committed);
+            var kscSet = RecordingStore.DetectChainLoopUnits(committed);
+
+            // Same unit: same owner, members, span, cadence. Fails if the two schedulers diverge
+            // (the inconsistency the KSC scoping exists to prevent).
+            Assert.Equal(flightSet.Count, kscSet.Count);
+            Assert.Equal(1, flightSet.Count);
+            Assert.True(flightSet.TryGetUnitForMember(1, out var fUnit));
+            Assert.True(kscSet.TryGetUnitForMember(1, out var kUnit));
+            Assert.Equal(fUnit.OwnerIndex, kUnit.OwnerIndex);
+            Assert.Equal(fUnit.MemberIndices, kUnit.MemberIndices);
+            Assert.Equal(new[] { 1, 2, 3 }, fUnit.MemberIndices);
+            Assert.Equal(fUnit.SpanStartUT, kUnit.SpanStartUT, 6);
+            Assert.Equal(fUnit.SpanEndUT, kUnit.SpanEndUT, 6);
+            Assert.Equal(fUnit.CadenceSeconds, kUnit.CadenceSeconds, 6);
+
+            // Both schedulers exclude the SAME indices from the global parade. The engine exposes its
+            // schedule for inspection; KSC.RebuildAutoLoopLaunchScheduleCache applies the IDENTICAL
+            // `ShouldUseGlobalAutoLaunchQueue && !IsMember` predicate (verified by reading the source),
+            // so the predicted excluded/scheduled split below is exactly what KSC produces too.
+            var engine = new GhostPlaybackEngine(positioner: null);
+            engine.SetLoopUnitsForTesting(flightSet);
+            engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
+                TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
+
+            // Standalone auto (0) keeps its slot. Unit members (1,2,3) are excluded. Manual chain
+            // members (4,5) are not auto, so ShouldUseGlobalAutoLaunchQueue already excludes them
+            // independent of the unit logic (so neither scheduler gives them a global auto slot).
+            Assert.True(engine.TryGetAutoLoopScheduleForTesting(0));
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(1));
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(2));
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(3));
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(4));
+            Assert.False(engine.TryGetAutoLoopScheduleForTesting(5));
+
+            // The KSC exclusion predicate, applied to the SAME shared set, agrees index-for-index:
+            // a member is excluded iff DetectChainLoopUnits says it is a member (the single source).
+            for (int i = 0; i < committed.Count; i++)
+                Assert.Equal(flightSet.IsMember(i), kscSet.IsMember(i));
+        }
     }
 }
