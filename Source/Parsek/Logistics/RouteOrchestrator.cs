@@ -128,6 +128,79 @@ namespace Parsek.Logistics
             return true;
         }
 
+        /// <summary>
+        /// Player-driven "Activate" — turns a Paused route into an auto-dispatching
+        /// Active route. Routes are created Paused; Activate is how the player opts
+        /// in to periodic dispatch after verifying the run (typically via Send Once).
+        /// Clears any stale one-shot arm and any wait backoff. If the stored
+        /// <see cref="Route.NextDispatchUT"/> is already in the past, it is pulled up
+        /// to <paramref name="currentUT"/> so a freshly-activated route dispatches
+        /// promptly instead of immediately firing a backlog of missed cycles.
+        /// Returns false (Info-logged) for a null route or a route that is not
+        /// currently <see cref="RouteStatus.Paused"/>.
+        /// </summary>
+        internal static bool TryActivate(Route route, double currentUT)
+        {
+            if (route == null)
+            {
+                ParsekLog.Info(Tag, "TryActivate: route=null");
+                return false;
+            }
+            if (route.Status != RouteStatus.Paused)
+            {
+                ParsekLog.Info(Tag,
+                    $"TryActivate: route={ShortIdForLog(route)} status={route.Status} — only a Paused route can be activated");
+                return false;
+            }
+
+            route.PauseAfterCurrentCycle = false;
+            route.NextEligibilityCheckUT = null;
+            if (route.NextDispatchUT < currentUT)
+                route.NextDispatchUT = currentUT;
+            route.TransitionTo(RouteStatus.Active, "player-activate");
+            ParsekLog.Info(Tag,
+                $"TryActivate: route={ShortIdForLog(route)} now Active nextDispatchUT={route.NextDispatchUT.ToString("R", IC)}");
+            return true;
+        }
+
+        /// <summary>
+        /// Player-driven "Pause" — stops auto-dispatch on a route. A route that is
+        /// not in transit transitions to <see cref="RouteStatus.Paused"/> immediately
+        /// (including blocked-but-active waits and the hard-broken states, so the
+        /// player can quiet a failing route). A route that is mid-cycle
+        /// (<see cref="RouteStatus.InTransit"/>) instead arms
+        /// <see cref="Route.PauseAfterCurrentCycle"/> so the current delivery still
+        /// completes, then the route lands in Paused via the delivery applier rather
+        /// than being abandoned in flight. Returns false (Info-logged) for a null
+        /// route or one already Paused.
+        /// </summary>
+        internal static bool TryPause(Route route)
+        {
+            if (route == null)
+            {
+                ParsekLog.Info(Tag, "TryPause: route=null");
+                return false;
+            }
+            if (route.Status == RouteStatus.Paused)
+            {
+                ParsekLog.Info(Tag, $"TryPause: route={ShortIdForLog(route)} already Paused");
+                return false;
+            }
+
+            if (route.Status == RouteStatus.InTransit)
+            {
+                route.PauseAfterCurrentCycle = true;
+                ParsekLog.Info(Tag,
+                    $"TryPause: route={ShortIdForLog(route)} InTransit — armed PauseAfterCurrentCycle " +
+                    "(current cycle finishes, then route pauses)");
+                return true;
+            }
+
+            route.PauseAfterCurrentCycle = false;
+            route.TransitionTo(RouteStatus.Paused, "player-pause");
+            return true;
+        }
+
         // ==================================================================
         // Tick entry points
         // ==================================================================

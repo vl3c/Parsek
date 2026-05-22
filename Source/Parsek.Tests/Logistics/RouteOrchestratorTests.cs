@@ -657,5 +657,112 @@ namespace Parsek.Tests.Logistics
             // → WaitingForResources path; un-pausing is only for Paused).
             Assert.Equal(RouteStatus.WaitingForResources, route.Status);
         }
+
+        // ==================================================================
+        // TryActivate / TryPause lifecycle (Create→Paused→Active→Paused)
+        // ==================================================================
+
+        [Fact]
+        public void TryActivate_Null_ReturnsFalse()
+        {
+            Assert.False(RouteOrchestrator.TryActivate(null, 100.0));
+        }
+
+        [Fact]
+        public void TryActivate_PausedRoute_TransitionsToActive()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 50.0);
+            route.Status = RouteStatus.Paused;
+
+            bool ok = RouteOrchestrator.TryActivate(route, 100.0);
+
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+            // Stale (past) NextDispatchUT pulled up to currentUT so we don't fire a backlog.
+            Assert.Equal(100.0, route.NextDispatchUT);
+        }
+
+        [Fact]
+        public void TryActivate_PausedRoute_FutureNextDispatch_NotPulledBackward()
+        {
+            var route = BuildActiveDueKscRoute(nextDispatchUT: 5000.0);
+            route.Status = RouteStatus.Paused;
+
+            bool ok = RouteOrchestrator.TryActivate(route, 100.0);
+
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Active, route.Status);
+            Assert.Equal(5000.0, route.NextDispatchUT);
+        }
+
+        [Fact]
+        public void TryActivate_NonPausedRoute_ReturnsFalseAndKeepsStatus()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Active;
+
+            bool ok = RouteOrchestrator.TryActivate(route, 100.0);
+
+            Assert.False(ok);
+            Assert.Equal(RouteStatus.Active, route.Status);
+        }
+
+        [Fact]
+        public void TryPause_Null_ReturnsFalse()
+        {
+            Assert.False(RouteOrchestrator.TryPause(null));
+        }
+
+        [Fact]
+        public void TryPause_ActiveRoute_TransitionsToPaused()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Active;
+
+            bool ok = RouteOrchestrator.TryPause(route);
+
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.False(route.PauseAfterCurrentCycle);
+        }
+
+        [Fact]
+        public void TryPause_BlockedActiveRoute_TransitionsToPaused()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.WaitingForResources;
+
+            bool ok = RouteOrchestrator.TryPause(route);
+
+            Assert.True(ok);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+        }
+
+        [Fact]
+        public void TryPause_InTransitRoute_ArmsPauseAfterCurrentCycle()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.InTransit;
+
+            bool ok = RouteOrchestrator.TryPause(route);
+
+            Assert.True(ok);
+            // Mid-cycle: route keeps running but will pause after delivery.
+            Assert.Equal(RouteStatus.InTransit, route.Status);
+            Assert.True(route.PauseAfterCurrentCycle);
+        }
+
+        [Fact]
+        public void TryPause_AlreadyPaused_ReturnsFalse()
+        {
+            var route = BuildActiveDueKscRoute();
+            route.Status = RouteStatus.Paused;
+
+            bool ok = RouteOrchestrator.TryPause(route);
+
+            Assert.False(ok);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+        }
     }
 }
