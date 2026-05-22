@@ -390,6 +390,15 @@ namespace Parsek
         /// </summary>
         internal static void ExecuteForwardJump(double targetUT)
         {
+            // Stop time warp before jumping — SetUniversalTime during warp can cause desync
+            // (mirrors ExecuteJump). Matters for the KSC warp-to-time path, which may be
+            // invoked while the player is at high warp.
+            if (TimeWarp.CurrentRateIndex > 0)
+            {
+                TimeWarp.SetRate(0, true);
+                ParsekLog.Info(Tag, "ExecuteForwardJump: stopped time warp before jump");
+            }
+
             double t0 = Planetarium.GetUniversalTime();
             double jumpDelta = targetUT - t0;
 

@@ -101,6 +101,14 @@ namespace Parsek
         private int warpYear = 1, warpDay = 1, warpHour = 0, warpMinute = 0;
         private bool warpValuesLoaded;
         private const float WarpInputWidth = 36f;
+        // Cached rewind-target resolution (ERS enumeration is the expensive part). Depends
+        // only on the entered date + the ERS set, NOT on current UT, so we recompute it only
+        // when the date changes or the timeline cache is invalidated. The cheap, UT-dependent
+        // DecideWarpPlan still runs every frame.
+        private double warpCachedTargetUT = double.NaN;
+        private bool warpCachedHasRewindTarget;
+        private bool warpCachedLandsAtStart;
+        private bool warpResolveDirty = true;
 
         // Time-range filter UI state
         private bool showCustomRange;
@@ -288,6 +296,7 @@ namespace Parsek
             recordingById = null;
             committedIndexById = null;
             rewindSaveExistsByRecordingId = null;
+            warpResolveDirty = true;
             ParsekLog.Verbose("Timeline", "Cache invalidated");
         }
 
@@ -489,8 +498,23 @@ namespace Parsek
 
             var flight = parentUI.Flight;
             bool inFlight = parentUI.InFlightMode && flight != null;
-            var plan = WarpToTimeController.ResolvePlan(
-                warpYear, warpDay, warpHour, warpMinute, inFlight, out _);
+
+            double targetUT = WarpToTimeMath.ComputeTargetUT(warpYear, warpDay, warpHour, warpMinute);
+            // Recompute the (expensive, ERS-enumerating) rewind-target resolution only when the
+            // entered date changes or the timeline cache is invalidated. It does not depend on
+            // current UT, so the cheap DecideWarpPlan below can run every frame.
+            if (warpResolveDirty || targetUT != warpCachedTargetUT)
+            {
+                var owner = WarpToTimeController.ResolveRewindTargetLaunch(targetUT, out bool landsAtStart);
+                warpCachedTargetUT = targetUT;
+                warpCachedHasRewindTarget = owner != null;
+                warpCachedLandsAtStart = landsAtStart;
+                warpResolveDirty = false;
+            }
+            double currentUT = 0;
+            try { currentUT = Planetarium.GetUniversalTime(); } catch { }
+            var plan = WarpToTimeMath.DecideWarpPlan(
+                targetUT, currentUT, inFlight, warpCachedHasRewindTarget, warpCachedLandsAtStart);
 
             bool actionable = plan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
                 || plan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward;
@@ -578,6 +602,8 @@ namespace Parsek
 
         private void CancelWarpField()
         {
+            if (warpFocusedField != WarpField.None)
+                ParsekLog.Verbose("WarpTime", $"Warp field {warpFocusedField} edit cancelled (Escape)");
             warpFocusedField = WarpField.None;
             warpEditRect = default;
             GUIUtility.keyboardControl = 0;

@@ -171,18 +171,18 @@ namespace Parsek
             string launchDate = owner != null ? SafePrintDate(owner.StartUT) : "?";
             if (plan.LandsAtTimelineStart)
             {
-                string lead = inFlight ? char.ToUpper(flightPrefix[0]) + flightPrefix.Substring(1) : "";
-                return $"{lead}Rewind to the earliest launch \"{ownerName}\" at {launchDate} " +
-                       "(the start of your timeline)?\n\nAny uncommitted progress will be lost.";
+                return $"{Capitalize(flightPrefix)}Rewind to the earliest launch \"{ownerName}\" at " +
+                       $"{launchDate} (the start of your timeline)?\n\nAny uncommitted progress will be lost.";
             }
 
-            if (inFlight)
-                return $"{char.ToUpper(flightPrefix[0])}{flightPrefix.Substring(1)}rewind to " +
-                       $"\"{ownerName}\" launch at {launchDate}, then fast-forward to {targetDate}?" +
-                       "\n\nAny uncommitted progress will be lost.";
+            return $"{Capitalize(flightPrefix)}{(inFlight ? "rewind" : "Rewind")} to \"{ownerName}\" " +
+                   $"launch at {launchDate}, then fast-forward to {targetDate}?" +
+                   "\n\nAny uncommitted progress will be lost.";
+        }
 
-            return $"Rewind to \"{ownerName}\" launch at {launchDate}, then fast-forward to " +
-                   $"{targetDate}?\n\nAny uncommitted progress will be lost.";
+        private static string Capitalize(string s)
+        {
+            return string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s.Substring(1);
         }
 
         private static void Execute(
@@ -209,8 +209,11 @@ namespace Parsek
             // RewindThenForward
             if (inFlight)
             {
+                // Commit in-frame, then defer the rewind one frame so the commit's spawned
+                // leaves are not materialized into a scene the reload is about to discard.
+                // StartRewind arms the pending warp only after it re-validates the rewind, so
+                // we deliberately do NOT pre-arm here.
                 CommitActiveRecordingIfAny(flight);
-                WarpToTimeRequest.Set(targetUT);
                 ParsekLog.Info(Tag,
                     "Rewind-then-forward (flight): committed recording, deferring rewind one frame");
                 WarpToTimeConsumer.RunNextFrame(() => StartRewind(ownerId, targetUT));

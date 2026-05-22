@@ -78,16 +78,39 @@ namespace Parsek
             // Let new-scene singletons (Planetarium, resource singletons) spin up.
             yield return null;
 
-            // Sequence AFTER any in-flight rewind UT adjustment: the plain Rewind-to-Launch
-            // path (InitiateRewind -> HandleRewindOnLoad) sets RewindUTAdjustmentPending and
-            // clears it only once ApplyRewindResourceAdjustment has set Planetarium UT to the
-            // post-rewind (launch lead-time) point. For the non-rewind flight->KSC forward
-            // case the flag is already false, so this loop falls through immediately.
-            int guard = RewindSettleGuardFrames;
-            while (RecordingStore.RewindUTAdjustmentPending && guard-- > 0)
-                yield return null;
-
             double target = WarpToTimeRequest.TargetUT;
+            ParsekLog.Verbose(Tag,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Consumer entry: target={0:F1} now={1:F1} rewindPending={2}",
+                    target, Planetarium.GetUniversalTime(), RecordingStore.RewindUTAdjustmentPending));
+
+            // Sequence AFTER any in-flight rewind UT adjustment. The plain Rewind-to-Launch
+            // path (InitiateRewind -> HandleRewindOnLoad) sets RewindUTAdjustmentPending
+            // synchronously in OnLoad (before any yield), and ApplyRewindResourceAdjustment
+            // clears it ONLY after it has set Planetarium UT to the post-rewind (launch
+            // lead-time) point. So flag==false is a reliable "UT is settled" signal: we never
+            // observe it false while the UT is still pre-rewind. For the non-rewind
+            // flight->KSC forward case the flag is already false and this loop is a no-op.
+            int guard = RewindSettleGuardFrames;
+            int waited = 0;
+            while (RecordingStore.RewindUTAdjustmentPending && guard-- > 0)
+            {
+                waited++;
+                yield return null;
+            }
+
+            if (RecordingStore.RewindUTAdjustmentPending)
+            {
+                // Guard expired with the rewind still unsettled — refuse to jump from a stale
+                // (pre-rewind) UT rather than risk landing at the wrong time.
+                ParsekLog.Error(Tag,
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Pending warp aborted: rewind UT adjustment did not settle within {0} frames (target={1:F1})",
+                        RewindSettleGuardFrames, target));
+                WarpToTimeRequest.Clear();
+                yield break;
+            }
+
             WarpToTimeRequest.Clear();
 
             double now = Planetarium.GetUniversalTime();
@@ -95,16 +118,16 @@ namespace Parsek
             {
                 ParsekLog.Info(Tag,
                     string.Format(CultureInfo.InvariantCulture,
-                        "Consuming pending warp: forward jump now={0:F1} -> target={1:F1} (delta={2:F1}s)",
-                        now, target, target - now));
+                        "Consuming pending warp: forward jump now={0:F1} -> target={1:F1} (delta={2:F1}s, waited={3} frames)",
+                        now, target, target - now, waited));
                 TimeJumpManager.ExecuteForwardJump(target);
             }
             else
             {
                 ParsekLog.Info(Tag,
                     string.Format(CultureInfo.InvariantCulture,
-                        "Consuming pending warp: already at/after target (now={0:F1} target={1:F1}) — no forward jump",
-                        now, target));
+                        "Consuming pending warp: already at/after target (now={0:F1} target={1:F1}, waited={2} frames) — no forward jump",
+                        now, target, waited));
             }
         }
 
