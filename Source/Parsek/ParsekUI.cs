@@ -208,6 +208,15 @@ namespace Parsek
             if (GUILayout.Button($"Recordings ({committedCount})"))
                 ToggleRecordingsWindow();
 
+            // --- Logistics (v0, available in both Flight and KSC) ---
+            // Grouped with Timeline + Recordings as the primary navigation set.
+            if (GUILayout.Button("Logistics"))
+            {
+                logisticsUI.IsOpen = !logisticsUI.IsOpen;
+                ParsekLog.Verbose("UI",
+                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
+            }
+
             GUILayout.Space(SpacingLarge);
 
             // Keep top-level launch-surface labels short; detailed counts stay inside the window.
@@ -221,14 +230,6 @@ namespace Parsek
             {
                 careerStateUI.IsOpen = !careerStateUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Career window toggled: {(careerStateUI.IsOpen ? "open" : "closed")}");
-            }
-
-            // --- Logistics (v0 — available in both Flight and KSC) ---
-            if (GUILayout.Button("Logistics"))
-            {
-                logisticsUI.IsOpen = !logisticsUI.IsOpen;
-                ParsekLog.Verbose("UI",
-                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
             }
 
             GUILayout.Space(SpacingLarge);
