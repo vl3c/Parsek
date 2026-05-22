@@ -110,6 +110,104 @@ namespace Parsek
             internal string RecordingId { get; }
         }
 
+        // ─── Chain-loop unit descriptors (chain-sequential auto looping) ─────────
+        // Transient, host-built (RecordingStore.DetectChainLoopUnits), index-keyed.
+        // Never persisted: see docs/dev/design-chain-sequential-auto-loop.md "Data
+        // Model". The engine consumes these opaquely; chain detection stays host-side.
+
+        /// <summary>
+        /// One chain-loop unit: a maximal run of >= 2 consecutive primary-path
+        /// (ChainBranch == 0) chain members that are all loop-enabled with period auto.
+        /// The whole span [SpanStartUT, SpanEndUT] loops as one virtual recording at
+        /// <see cref="CadenceSeconds"/> (= span duration, clamped to MinCycleDuration).
+        /// Indices are committed/trajectory-list indices (the alignment invariant).
+        /// </summary>
+        internal readonly struct LoopUnit
+        {
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds)
+            {
+                OwnerIndex = ownerIndex;
+                MemberIndices = memberIndices ?? System.Array.Empty<int>();
+                SpanStartUT = spanStartUT;
+                SpanEndUT = spanEndUT;
+                CadenceSeconds = cadenceSeconds;
+            }
+
+            /// <summary>Lowest-ChainIndex member's committed/trajectory index (owns the span clock).</summary>
+            internal int OwnerIndex { get; }
+
+            /// <summary>Committed indices of all members, in ChainIndex order.</summary>
+            internal int[] MemberIndices { get; }
+
+            /// <summary>First member StartUT.</summary>
+            internal double SpanStartUT { get; }
+
+            /// <summary>Last member EndUT.</summary>
+            internal double SpanEndUT { get; }
+
+            /// <summary>Span duration (= SpanEndUT - SpanStartUT), clamped to MinCycleDuration.</summary>
+            internal double CadenceSeconds { get; }
+        }
+
+        /// <summary>
+        /// Immutable per-frame snapshot of every chain-loop unit. Built once per schedule
+        /// rebuild and handed to both schedulers (flight engine + tracking station) so they
+        /// consume an identical frozen view. <see cref="Empty"/> means no unit formed, which
+        /// keeps the entire feature dormant for saves with no consecutive auto-loop members.
+        /// </summary>
+        internal sealed class LoopUnitSet
+        {
+            internal static readonly LoopUnitSet Empty = new LoopUnitSet(
+                new Dictionary<int, LoopUnit>(), new Dictionary<int, int>());
+
+            private readonly Dictionary<int, LoopUnit> unitsByOwner;
+            private readonly Dictionary<int, int> ownerByIndex;
+
+            internal LoopUnitSet(
+                Dictionary<int, LoopUnit> unitsByOwner,
+                Dictionary<int, int> ownerByIndex)
+            {
+                this.unitsByOwner = unitsByOwner ?? new Dictionary<int, LoopUnit>();
+                this.ownerByIndex = ownerByIndex ?? new Dictionary<int, int>();
+            }
+
+            /// <summary>Owner index -> unit descriptor.</summary>
+            internal IReadOnlyDictionary<int, LoopUnit> UnitsByOwner => unitsByOwner;
+
+            /// <summary>Member index -> owning unit's owner index (absent = not a unit member).</summary>
+            internal IReadOnlyDictionary<int, int> OwnerByIndex => ownerByIndex;
+
+            /// <summary>Number of distinct units in this set.</summary>
+            internal int Count => unitsByOwner.Count;
+
+            /// <summary>True if the given committed index is a member of any unit.</summary>
+            internal bool IsMember(int index)
+            {
+                return ownerByIndex.ContainsKey(index);
+            }
+
+            /// <summary>
+            /// Resolves the unit that owns <paramref name="memberIndex"/>. Returns false when
+            /// the index is not a unit member (the common case until two consecutive auto-loop
+            /// members exist).
+            /// </summary>
+            internal bool TryGetUnitForMember(int memberIndex, out LoopUnit unit)
+            {
+                if (ownerByIndex.TryGetValue(memberIndex, out int ownerIndex)
+                    && unitsByOwner.TryGetValue(ownerIndex, out unit))
+                {
+                    return true;
+                }
+                unit = default;
+                return false;
+            }
+        }
+
         #region Warp / Loop Policy
 
         /// <summary>
@@ -827,6 +925,134 @@ namespace Parsek
                 ParsekLog.Verbose("Loop", $"ComputeLoopPhaseFromUT: cycleIndex={cycleIndex}, loopUT={recordingEndUT:R}, isInPause=true (phase={phaseInCycle:R}/{duration:R})");
                 return (recordingEndUT, cycleIndex, true);
             }
+        }
+
+        /// <summary>
+        /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
+        /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
+        /// returns the <paramref name="loopUT"/> inside that span plus the 0-based unit cycle
+        /// index. v1 cadence == span duration, so the wrap from spanEnd back to spanStart is
+        /// seamless (no pause window): unlike <see cref="ComputeLoopPhaseFromUT"/> there is no
+        /// inter-cycle pause to report.
+        ///
+        /// The cadence is clamped to <see cref="LoopTiming.MinCycleDuration"/> INSIDE this
+        /// helper (edge 14): the span clock does NOT route through ResolveLoopInterval, so it
+        /// does not inherit that clamp for free. A clamped cadence longer than the span leaves
+        /// the clock parked at spanEndUT for the tail of each cycle.
+        ///
+        /// Returns false (loopUT = spanStartUT, cycleIndex = 0) when currentUT is before the
+        /// span start or the span has zero/negative duration, so callers never see a negative
+        /// phase. Pure: no logging (per-frame callers own rate-limiting).
+        /// </summary>
+        internal static bool TryComputeSpanLoopUT(
+            double currentUT,
+            double spanStartUT,
+            double spanEndUT,
+            double cadenceSeconds,
+            out double loopUT,
+            out long cycleIndex)
+        {
+            loopUT = spanStartUT;
+            cycleIndex = 0;
+
+            if (currentUT < spanStartUT)
+                return false;
+
+            double span = spanEndUT - spanStartUT;
+            if (span <= 0)
+                return false;
+
+            // Edge 14: clamp the cadence here. The span clock has no ResolveLoopInterval clamp.
+            double cycleDuration = Math.Max(cadenceSeconds, LoopTiming.MinCycleDuration);
+
+            double elapsed = currentUT - spanStartUT;
+            cycleIndex = (long)(elapsed / cycleDuration);
+            double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
+
+            // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
+            // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
+            // final frame (spanEnd), not the next cycle's first frame. This makes "currentUT ==
+            // spanEnd" report spanEnd in cycle 0 when cadence == span, and the wrap to spanStart
+            // happen one sliver later in cycle+1 (seamless, no pause). Without this, a UT landing
+            // exactly on a back-to-back boundary would flicker to spanStart a frame early.
+            if (cycleIndex > 0 && phaseInCycle <= LoopTiming.BoundaryEpsilon)
+            {
+                cycleIndex -= 1;
+                loopUT = spanEndUT;
+                return true;
+            }
+
+            // Park at spanEnd once the phase reaches the span (cadence > span clamp leaves a tail
+            // parked at spanEnd; cadence == span never reaches span except at the rolled-back
+            // boundary handled above).
+            double clampedPhase = phaseInCycle >= span ? span : phaseInCycle;
+            loopUT = spanStartUT + clampedPhase;
+            return true;
+        }
+
+        /// <summary>
+        /// Selects which unit member's window covers <paramref name="loopUT"/>.
+        /// <paramref name="memberWindows"/> are the members' raw [startUT, endUT] windows in
+        /// ChainIndex order (decision D2: raw windows, not EffectiveLoop*). Returns the slot
+        /// (index INTO memberWindows) of the covering member.
+        ///
+        /// Edge 5 (overlap precedence): when two contiguous windows overlap and loopUT falls in
+        /// both, the higher-ChainIndex member (later slot) wins — matching the chain-shadow
+        /// "continuation is authoritative" rule, reimplemented here because the unit bypasses
+        /// the non-loop chain-shadow path. Edge 6 (gap): when loopUT falls in a UT gap between
+        /// member i's end and member i+1's start, returns false with
+        /// <paramref name="inInterMemberGap"/> = true so the caller hides every member for that
+        /// sliver instead of clamping to a stale member. Uses
+        /// <see cref="LoopTiming.BoundaryEpsilon"/> so boundary handling agrees with the rest of
+        /// the loop math. Pure: no logging.
+        /// </summary>
+        internal static bool TrySelectSpanMember(
+            double loopUT,
+            IReadOnlyList<(double startUT, double endUT)> memberWindows,
+            out int selectedSlot,
+            out bool inInterMemberGap)
+        {
+            selectedSlot = -1;
+            inInterMemberGap = false;
+
+            if (memberWindows == null || memberWindows.Count == 0)
+                return false;
+
+            // Walk in ChainIndex order; keep the LAST covering slot so a higher-index member
+            // wins an overlap (edge 5). Members tile contiguously, so outside an overlap exactly
+            // one slot covers loopUT.
+            bool anyCovers = false;
+            bool insideAnySpan = false;
+            for (int slot = 0; slot < memberWindows.Count; slot++)
+            {
+                var w = memberWindows[slot];
+                if (loopUT >= w.startUT - LoopTiming.BoundaryEpsilon)
+                    insideAnySpan = true;
+
+                if (loopUT >= w.startUT - LoopTiming.BoundaryEpsilon
+                    && loopUT <= w.endUT + LoopTiming.BoundaryEpsilon)
+                {
+                    selectedSlot = slot;
+                    anyCovers = true;
+                }
+            }
+
+            if (anyCovers)
+                return true;
+
+            // No window covers loopUT. Distinguish an inter-member gap (loopUT sits between the
+            // first member's start and the last member's end, in a discontinuity) from being
+            // entirely before/after the unit span. Both yield "no member"; only the interior
+            // case is the edge-6 gap the caller logs.
+            var first = memberWindows[0];
+            var last = memberWindows[memberWindows.Count - 1];
+            if (insideAnySpan
+                && loopUT >= first.startUT - LoopTiming.BoundaryEpsilon
+                && loopUT <= last.endUT + LoopTiming.BoundaryEpsilon)
+            {
+                inInterMemberGap = true;
+            }
+            return false;
         }
 
         /// <summary>
