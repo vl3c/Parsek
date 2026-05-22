@@ -6955,7 +6955,7 @@ namespace Parsek
                 case AutoRecordStagingDecision.SkipNotOnPad:
                     ParsekLog.VerboseRateLimited("Flight", "stage-not-prelaunch",
                         $"OnStageActivate: active vessel '{av?.vesselName ?? "null"}' not PRELAUNCH " +
-                        $"(stage={stage}, situation={av?.situation}) — in-flight staging left to recorder/launch trigger");
+                        $"(stage={stage}, situation={av?.situation}): in-flight staging left to recorder/launch trigger");
                     return;
 
                 case AutoRecordStagingDecision.SkipDisabled:

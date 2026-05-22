@@ -2045,7 +2045,7 @@ namespace Parsek.Tests
                 Id = "t3", TreeName = "Rocket",
                 Recordings = new Dictionary<string, Recording>
                 {
-                    // Need >1 recording for auto-grouping to kick in
+                    // Two recordings so the adopted orphan nests under the tree's mission folder
                     { "root", MakeRec("root", "Rocket", treeId: "t3", startUT: 100, endUT: 200) },
                     { "cont", MakeRec("cont", "Rocket", treeId: "t3", startUT: 200, endUT: 300) }
                 }

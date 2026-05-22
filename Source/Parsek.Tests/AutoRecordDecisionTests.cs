@@ -304,6 +304,34 @@ namespace Parsek.Tests
             Assert.Equal(ParsekFlight.AutoRecordStagingDecision.StartFromPrelaunchStaging, decision);
         }
 
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNoActiveVessel()
+        {
+            // The time-jump guard runs before the active-vessel / on-pad checks, so a
+            // jump-window flicker is reported as the transient even with no active vessel.
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: false,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipTimeJumpTransient, decision);
+        }
+
+        [Fact]
+        public void EvaluateAutoRecordStagingDecision_TimeJumpTransient_TakesPrecedenceOverNotOnPad()
+        {
+            var decision = ParsekFlight.EvaluateAutoRecordStagingDecision(
+                isRecording: false,
+                hasActiveVessel: true,
+                activeVesselIsPrelaunch: false,
+                autoRecordOnLaunchEnabled: true,
+                suppressForTimeJumpTransient: true);
+
+            Assert.Equal(ParsekFlight.AutoRecordStagingDecision.SkipTimeJumpTransient, decision);
+        }
+
         [Theory]
         [InlineData(true, true, true)]
         [InlineData(false, true, false)]
