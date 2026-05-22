@@ -513,7 +513,8 @@ if (currentLoopUnits.TryGetUnitForMember(parentIdx, out LoopUnit parentUnit))
 }
 else
 {
-    // existing per-recording path (TryComputeLoopPlaybackUT)
+    // existing per-recording path: the engine instance wrapper
+    // TryComputeLoopPlaybackUT (`:4117`, 3 out-params incl. parentPaused)
 }
 ```
 
@@ -548,12 +549,19 @@ Risk 3 (design 325-334, 392-394). Highest behavioral uncertainty.
 
 ### Files
 
-- MODIFY `Source/Parsek/WatchModeController.cs` (new trigger near
-  `ProcessWatchEndHoldTimer` `:3205` / reuse `TransferWatchToNextSegment` `:2728`;
-  new branch in `HandleLoopCameraAction` `:800`).
-- Possibly MODIFY `Source/Parsek/GhostPlaybackEngine.cs` to fire a camera event on
-  unit-internal handoff (reuse `OnLoopCameraAction` /
-  `CameraActionType.RetargetToNewGhost`).
+- MODIFY `Source/Parsek/WatchModeController.cs`: new branch in
+  `HandleLoopCameraAction` `:800` that calls the existing cross-index
+  `TransferWatchToNextSegment` `:2728`. The new branch must run BEFORE the existing
+  `if (watchedRecordingIndex != evt.Index) return;` early-return `:802` (a
+  unit-internal handoff is precisely the `evt.Index != watchedRecordingIndex` case,
+  so the existing guard would otherwise drop it).
+- MODIFY `Source/Parsek/GhostPlaybackEvents.cs`: add a new
+  `CameraActionType.UnitHandoffRetarget` (preferred over overloading the existing
+  `RetargetToNewGhost`, which is gated on `watchedOverlapCycleIndex == -1` for the
+  explosion-bridge and consumes `evt.GhostPivot`, not a sibling index). The new
+  type carries the new live member index in `CameraActionEvent.Index`.
+- MODIFY `Source/Parsek/GhostPlaybackEngine.cs` to fire the new event on
+  unit-internal handoff via `OnLoopCameraAction`.
 
 ### Problem
 
@@ -567,17 +575,20 @@ now-hidden ghost.
 ### Approach (preferred): engine-driven retarget on unit handoff
 
 When `UpdateUnitMemberPlayback` detects the selected member changed from the previous
-frame (the boundary handoff at design 240-242), and that member or the unit is being
-watched, fire `OnLoopCameraAction(CameraActionEvent{ Action = RetargetToNewGhost,
-Index = newSelectedMemberIndex, ... })`. The host
-`WatchModeController.HandleLoopCameraAction` (`:800`) already handles
-`RetargetToNewGhost` (`:840`). New wrinkle: the retarget target is a DIFFERENT
-recording index (a sibling member), not a new cycle of the same index.
-`TransferWatchToNextSegment(newIndex)` (`:2728`) already does cross-index transfer
-with camera-state preservation - reuse it. The host handler maps the unit-handoff
-event to `TransferWatchToNextSegment(evt.Index)` when
-`evt.Index != watchedRecordingIndex`. On the wrap (last member to first member), the
-same mechanism transfers back to the owner.
+frame (the boundary handoff at design 240-242), and the watched index belongs to this
+unit, fire `OnLoopCameraAction(CameraActionEvent{ Action = UnitHandoffRetarget,
+Index = newSelectedMemberIndex, ... })`. This requires NEW code on both sides, not
+reuse:
+- NEW `CameraActionType.UnitHandoffRetarget` (the existing `RetargetToNewGhost` case
+  `:840` is gated on `watchedOverlapCycleIndex == -1` and consumes `evt.GhostPivot`,
+  so it is the wrong vehicle).
+- NEW branch in `HandleLoopCameraAction`, placed BEFORE the
+  `watchedRecordingIndex != evt.Index` early-return `:802`, that calls the existing
+  cross-index `TransferWatchToNextSegment(evt.Index)` `:2728` (this method already
+  does cross-index transfer with camera-state preservation - that part IS reused).
+The retarget target is a DIFFERENT recording index (a sibling member), not a new
+cycle of the same index. On the wrap (last member to first member), the same
+mechanism transfers back to the owner.
 
 ### Fallback (documented limitation)
 
