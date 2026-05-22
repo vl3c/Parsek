@@ -808,7 +808,11 @@ Real vessel unloads
 
 ### 10.3 Segment Looping
 
-The player marks which segments to loop. Multiple segments can be looped together as a sequence (e.g., powered descent + approach = complete arrival visual). The loop restarts from the first selected segment after the last completes.
+The player marks which segments to loop (per-row toggle in the recordings window). Multiple consecutive segments can loop together as one sequence (e.g., powered descent + approach = complete arrival visual): the end of each segment hands off to the start of the next, and the whole span wraps back to the first segment.
+
+This sequencing is the **chain-loop unit** behavior and engages when two or more consecutive primary-path (`ChainBranch == 0`) chain members are all loop-enabled with period `auto`. Such a run is scheduled as one unit on a shared span clock over `[firstStart, lastEnd]` with cadence equal to the span (seamless wrap); each member is the visible ghost only while the shared loop position is inside its own `[StartUT, EndUT]` window. Overlapping member windows pick the higher `ChainIndex`; gaps hide all members. Unit members are excluded from the flat per-recording global auto-launch stagger (where each `auto` recording otherwise relaunches independently on the global interval); a manual-period or non-looping member breaks the run, and a lone auto member just loops itself.
+
+Detection is host-side (`RecordingStore.DetectChainLoopUnits`) and produces opaque, index-keyed unit descriptors; the `GhostPlaybackEngine` and the tracking-station scheduler both consume them via the shared span-clock helpers, keeping `IPlaybackTrajectory` chain-agnostic. Units are computed at runtime each frame and persist nothing (no schema change). Full design: `docs/dev/design-chain-sequential-auto-loop.md`.
 
 ### 10.4 Looped Segments Are Always Relative
 
