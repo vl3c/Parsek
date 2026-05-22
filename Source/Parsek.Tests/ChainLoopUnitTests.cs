@@ -387,6 +387,26 @@ namespace Parsek.Tests
                 RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings));
         }
 
+        [Fact]
+        public void DetectChainLoopUnits_NoChainMembers_ReturnsEmptyViaFastPath()
+        {
+            // Dormant-path fast-out: the per-frame common case has NO chains. Here two standalone
+            // auto-loop recordings carry no ChainId, so zero recordings feed the per-chain grouping.
+            // The O(n) pre-scan finds no chain member and returns the shared Empty before allocating
+            // the grouping dictionary. Asserts the result is the no-unit Empty (no allocation, no
+            // mis-detection): would regress if the fast path mis-counted a chainless save as a unit
+            // or fell through and allocated needlessly.
+            CommitStandaloneAuto(50, 90);  // no ChainId
+            CommitStandaloneAuto(95, 130); // no ChainId
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, set);
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+        }
+
         // ─── Phase 2: log-assertion tests ───────────────────────────────────────
 
         [Fact]

@@ -1828,6 +1828,31 @@ namespace Parsek
                         + " below member activation UT=" + memberActivationStartUT.ToString("F2", CultureInfo.InvariantCulture),
                     5.0);
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-before-activation");
+                // Keep-watched-owner-alive guard (edge 10, design D5): mirror every other hide path
+                // in this method. If the pre-activation member is the one the camera is watching,
+                // hide its ghost WITHOUT destroying it so ValidateWatchedGhostStillActive never drops
+                // watch and the camera stays anchored until the unit-handoff retarget lands. Without
+                // this, an ExplicitStartUT-widened watched member would be destroyed here (the only
+                // remaining unconditional DestroyGhost in the unit path), breaking the never-destroy-
+                // the-watched-ghost invariant. Edge-of-an-edge: ExplicitStartUT widened StartUT below
+                // the first payload sample AND that member is watched. Runtime coverage is the
+                // existing in-game watch-retarget test; behavior for non-watched members is unchanged.
+                if (ghostActive && i == ctx.protectedIndex)
+                {
+                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        ParsekLog.VerboseRateLimited(
+                            "CameraFollow", unitKey + "-keep-owner-alive-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
+                            "unit watch fallback: holding watched member #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " ghost alive (hidden) below activation UT until camera transfers to the live member",
+                            5.0);
+                    }
+                    DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                    return;
+                }
                 if (ghostActive)
                 {
                     DestroyGhost(i, traj, f, reason: "chain-loop unit member before activation UT");

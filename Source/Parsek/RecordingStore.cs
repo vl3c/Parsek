@@ -5026,6 +5026,30 @@ namespace Parsek
             if (recordings == null || recordings.Count < 2)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
+            // Dormant-path fast-out (efficiency): this runs every frame from both the flight scene
+            // and KSC, but the overwhelmingly common save has NO chains at all. A unit needs >= 2
+            // members carrying a non-empty ChainId AND LoopPlayback AND LoopTimeUnit.Auto, and only
+            // recordings with a non-empty ChainId ever feed the per-chain grouping (and its
+            // per-member "not a unit" diagnostics) below. So when ZERO recordings carry a ChainId
+            // the whole loop is a guaranteed no-op: it allocates the grouping dictionary, finds it
+            // empty, and returns Empty with no logs. Skip straight to Empty in that case via this
+            // cheap O(n) pre-scan with no allocation (bails on the first chain member seen). Any
+            // save with one or more chain members falls through to the full detection unchanged,
+            // preserving the exact result AND the exact diagnostic logs (including the lone-member
+            // length<2 rejection).
+            bool anyChainMember = false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec != null && !string.IsNullOrEmpty(rec.ChainId))
+                {
+                    anyChainMember = true;
+                    break;
+                }
+            }
+            if (!anyChainMember)
+                return GhostPlaybackLogic.LoopUnitSet.Empty;
+
             // Group committed indices by ChainId; skip null/empty ChainId (standalone).
             // Dictionary preserves the chain key for deterministic per-chain processing.
             var indicesByChain = new Dictionary<string, List<int>>(StringComparer.Ordinal);
