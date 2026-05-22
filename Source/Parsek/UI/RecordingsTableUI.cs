@@ -1334,7 +1334,7 @@ namespace Parsek
         /// Draws a single recording row. Returns true if the list was modified (break iteration).
         /// </summary>
         private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null, string treeConnector = null)
         {
             var rec = committed[ri];
             if (IsInactiveForDisplay(
@@ -1379,7 +1379,7 @@ namespace Parsek
             GUILayout.Space(NameColumnLeadGap);
 
             // Name (double-click to rename, deferred to next frame)
-            DrawRecordingNameCell(ri, rec, committed, indentPx);
+            DrawRecordingNameCell(ri, rec, committed, indentPx, treeConnector);
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
             // Phase label
@@ -1673,7 +1673,7 @@ namespace Parsek
         /// inline rename text field, double-click-to-rename, and auto-focus.
         /// </summary>
         private void DrawRecordingNameCell(int ri, Recording rec,
-            IReadOnlyList<Recording> committed, float indentPx)
+            IReadOnlyList<Recording> committed, float indentPx, string treeConnector = null)
         {
             // Uniform 2px nudge so rows (which have a "#" number in col 1) line up
             // their Name text with the group/chain header Name text above. Group/
@@ -1715,7 +1715,11 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                // Tree connector prefix (├─ / └─) for rows rendered as a subentry
+                // under an expanded group/chain caret. Mirrors the Kerbals window
+                // roster-tree style. Top-level rows pass a null connector.
+                string nameLabel = (treeConnector ?? "") + name;
+                if (GUILayout.Button(nameLabel, GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float now2 = Time.realtimeSinceStartup;
                     if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
@@ -1741,6 +1745,133 @@ namespace Parsek
 
         // --- Group tree rendering helpers ---
 
+        // Box-drawing tree-branch prefixes built from char codes so the source
+        // stays ASCII (matching the \u arrow constants in this file and the
+        // Kerbals roster tree). U+251C "├" + U+2500 "─" = tee; U+2514 "└" = corner.
+        private static readonly string TreeConnectorMid =
+            new string(new[] { (char)0x251C, (char)0x2500, ' ' });
+        private static readonly string TreeConnectorLast =
+            new string(new[] { (char)0x2514, (char)0x2500, ' ' });
+
+        /// <summary>
+        /// Tree-branch glyph prefix for a subentry rendered under an expanded
+        /// group/chain caret. <paramref name="isLast"/> picks the corner glyph;
+        /// every other sibling gets the tee glyph. Mirrors the Kerbals roster
+        /// window style (see KerbalsWindowUI.FormatRosterChainMemberText).
+        /// </summary>
+        internal static string TreeConnector(bool isLast)
+        {
+            return isLast ? TreeConnectorLast : TreeConnectorMid;
+        }
+
+        // Marginal pixel width the connector glyphs add inside a label, measured
+        // once and cached. The per-level indent step equals this width so a
+        // child's connector sits exactly under its parent's caret at every depth:
+        // the connector occupies one indent step, the parent's caret is the first
+        // glyph after the parent's own connector, and both land at the same x.
+        // The legacy fixed 15px step did not match the glyph width and drifted
+        // a few pixels per level in deeper subgroups.
+        private static float cachedConnectorWidth = -1f;
+
+        internal static float ConnectorWidth()
+        {
+            if (cachedConnectorWidth > 0f) return cachedConnectorWidth;
+            if (GUI.skin == null) return 15f; // skin only valid inside OnGUI
+            GUIStyle style = GUI.skin.label;
+            float w = style.CalcSize(new GUIContent(TreeConnectorMid)).x
+                    - style.CalcSize(GUIContent.none).x;
+            if (w <= 0f) return 15f;
+            cachedConnectorWidth = w;
+            return w;
+        }
+
+        // Blank indent before a connector item's OWN label (group / chain /
+        // virtual header). A depth-D item leaves D-1 connector-width steps blank;
+        // the connector itself fills the Dth step. Depth 0 (top level) has no
+        // connector and no indent.
+        private static float SelfConnectorIndent(int depth)
+        {
+            return Math.Max(0, depth - 1) * ConnectorWidth();
+        }
+
+        // Blank indent to pass to a child drawn at parentDepth + 1 so the child's
+        // connector lands under the parent's caret.
+        private static float ChildConnectorIndent(int parentDepth)
+        {
+            return parentDepth * ConnectorWidth();
+        }
+
+        /// <summary>
+        /// Which of a group's three child sections owns the corner connector.
+        /// Render order is blocks then child sub-groups then the nested
+        /// Unfinished Flights group, so the last section that renders anything
+        /// owns the corner and everything before it draws tees. Pure, so the
+        /// precedence table is unit-testable independent of IMGUI.
+        /// </summary>
+        internal enum TreeChildSection { None, Block, ChildGroup, Virtual }
+
+        internal static TreeChildSection ResolveLastChildSection(
+            bool hasVisibleBlock, bool hasRenderableChildGroup, bool hasRenderableVirtual)
+        {
+            if (hasRenderableVirtual) return TreeChildSection.Virtual;
+            if (hasRenderableChildGroup) return TreeChildSection.ChildGroup;
+            if (hasVisibleBlock) return TreeChildSection.Block;
+            return TreeChildSection.None;
+        }
+
+        /// <summary>
+        /// Mirrors the two early-returns at the top of <see cref="DrawRecordingRow"/>:
+        /// a row renders only when it is neither inactive-for-display nor hidden
+        /// under an active hide filter. Used to land the corner connector on the
+        /// last *visible* sibling rather than the last by raw index.
+        /// </summary>
+        private static bool IsRowVisible(Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null) return false;
+            if (IsInactiveForDisplay(
+                    rec,
+                    supersedes ?? CurrentRecordingSupersedesForDisplay(),
+                    CurrentRecordingRewindRetirementsForDisplay())) return false;
+            if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// True when a display block would render at least its header row.
+        /// Single-member blocks render iff the row is visible; multi-member
+        /// (chain/grouped) blocks render the header unless the hide filter is
+        /// active and every member is hidden, mirroring <see cref="DrawRecordingBlock"/>.
+        /// </summary>
+        private static bool DisplayBlockRendersAnything(
+            GroupDisplayBlock block,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (block.Members == null || block.Members.Count == 0) return false;
+            if (block.Members.Count == 1)
+                return IsRowVisible(committed[block.Members[0]], supersedes);
+            if (!GroupHierarchyStore.HideActive) return true;
+            for (int m = 0; m < block.Members.Count; m++)
+                if (!committed[block.Members[m]].Hidden) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True when a child sub-group would render anything. A visible group
+        /// always renders its header row; a hidden group (under an active hide
+        /// filter) renders only its nested Unfinished Flights escape hatch, if
+        /// any. Mirrors the hide-escape early-return in <see cref="DrawGroupTree"/>.
+        /// </summary>
+        private static bool ChildGroupRendersAnything(string childGroupName)
+        {
+            if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(childGroupName))
+            {
+                var nested = CollectUnfinishedFlightsForTreeGroup(childGroupName);
+                return nested != null && nested.Count > 0;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Recursively draws a group and its children. Returns true if the recording list was modified.
         /// </summary>
@@ -1749,7 +1880,8 @@ namespace Parsek
             Dictionary<string, List<int>> grpToRecs,
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             // Compute this tree's unfinished-flight members up front so the
             // nested virtual subgroup can be rendered even when the mission
@@ -1775,7 +1907,7 @@ namespace Parsek
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
             int memberCount = descendants.Count;
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
             GUILayout.BeginHorizontal();
@@ -1836,7 +1968,7 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button($"{arrow} {groupName} ({memberCount})",
+                if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float t = Time.realtimeSinceStartup;
@@ -2179,8 +2311,43 @@ namespace Parsek
             if (!expanded) return false;
 
             // -- Draw children --
+            // Children render in three sections, in order: display blocks
+            // (chain/grouped blocks + single recording rows), child sub-groups,
+            // then the nested Unfinished Flights virtual group. Exactly one
+            // section owns the corner (└─) connector; the last child in that
+            // section that actually renders gets the corner, every earlier
+            // sibling gets the tee (├─). Sections / rows that render nothing
+            // (filtered out under the hide filter, inactive-for-display, or a
+            // hidden child group with no escape hatch) are excluded from the
+            // "last visible" computation so the corner never lands on a row
+            // that draws nothing.
             List<int> directMembers;
             grpToRecs.TryGetValue(groupName, out directMembers);
+
+            List<GroupDisplayBlock> displayBlocks = null;
+            int lastVisibleBlockIdx = -1;
+            if (directMembers != null)
+            {
+                displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
+                for (int i = 0; i < displayBlocks.Count; i++)
+                    if (DisplayBlockRendersAnything(displayBlocks[i], committed, supersedes))
+                        lastVisibleBlockIdx = i;
+            }
+
+            List<string> children;
+            grpChildren.TryGetValue(groupName, out children);
+            int lastRenderableChildGroupIdx = -1;
+            if (children != null)
+            {
+                for (int c = 0; c < children.Count; c++)
+                    if (ChildGroupRendersAnything(children[c]))
+                        lastRenderableChildGroupIdx = c;
+            }
+
+            TreeChildSection cornerSection = ResolveLastChildSection(
+                hasVisibleBlock: lastVisibleBlockIdx >= 0,
+                hasRenderableChildGroup: lastRenderableChildGroupIdx >= 0,
+                hasRenderableVirtual: hasNestedUnfinished);
 
             // STASH is a mirror, not a destination: when this tree owns
             // Unfinished Flight members (rendered below as the nested
@@ -2189,34 +2356,36 @@ namespace Parsek
             // group too. The nested STASH subgroup just surfaces the
             // Fly/Seal-eligible rows so they're easy to act on without
             // hunting through the tree.
-            if (directMembers != null)
+            if (displayBlocks != null)
             {
-                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                 {
                     var block = displayBlocks[i];
                     if (block.Members == null || block.Members.Count == 0)
                         continue;
 
+                    string connector = TreeConnector(
+                        cornerSection == TreeChildSection.Block && i == lastVisibleBlockIdx);
                     if (block.Members.Count > 1)
                     {
                         if (DrawGroupedRecordingBlock(block.Key, block.DisplayName,
-                            block.Members, depth + 1, committed, now, supersedes))
+                            block.Members, depth + 1, committed, now, supersedes, connector))
                             return true;
                     }
-                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f, supersedes))
+                    else if (DrawRecordingRow(block.Members[0], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }
 
             // Draw child groups
-            List<string> children;
-            if (grpChildren.TryGetValue(groupName, out children))
+            if (children != null)
             {
                 for (int c = 0; c < children.Count; c++)
                 {
+                    string connector = TreeConnector(
+                        cornerSection == TreeChildSection.ChildGroup && c == lastRenderableChildGroupIdx);
                     if (DrawGroupTree(children[c], depth + 1, committed, now,
-                        grpToRecs, chainToRecs, grpChildren, supersedes))
+                        grpToRecs, chainToRecs, grpChildren, supersedes, connector))
                         return true;
                 }
             }
@@ -2229,7 +2398,8 @@ namespace Parsek
             // `nestedUnfinished` was already computed at the top of
             // DrawGroupTree so the hide-escape path can use it too.
             if (hasNestedUnfinished
-                && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished))
+                && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished,
+                    TreeConnector(cornerSection == TreeChildSection.Virtual)))
                 return true;
 
             return false;
@@ -2304,14 +2474,15 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double now,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             int depth = 0,
-            IReadOnlyList<Recording> filteredMembers = null)
+            IReadOnlyList<Recording> filteredMembers = null,
+            string treeConnector = null)
         {
             var members = filteredMembers ?? UnfinishedFlightsGroup.ComputeMembers();
             if (members == null || members.Count == 0)
                 return false;
 
             string groupName = UnfinishedFlightsGroup.GroupName;
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // Build descendants set (committed-list indices) so the shared
             // group helpers (status / earliest / duration) can work unchanged.
@@ -2361,7 +2532,7 @@ namespace Parsek
             bool expanded = expandedGroups.Contains(groupName);
             string arrow = expanded ? "\u25bc" : "\u25b6";
             var ufGroupContent = new GUIContent(
-                $"{arrow} {groupName} ({memberCount})",
+                $"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
                 UnfinishedFlightsGroup.Tooltip);
             if (GUILayout.Button(ufGroupContent, GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
@@ -2492,10 +2663,15 @@ namespace Parsek
             unfinishedFlightRowDepth++;
             try
             {
-                float memberIndent = (depth + 1) * 15f;
+                float memberIndent = ChildConnectorIndent(depth);
+                int lastVisibleMember = -1;
+                for (int i = 0; i < sortedMembers.Count; i++)
+                    if (IsRowVisible(committed[sortedMembers[i]], supersedes))
+                        lastVisibleMember = i;
                 for (int i = 0; i < sortedMembers.Count; i++)
                 {
-                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent, supersedes))
+                    string connector = TreeConnector(i == lastVisibleMember);
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent, supersedes, connector))
                         return true;
                 }
             }
@@ -3238,24 +3414,27 @@ namespace Parsek
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             string chainName = members.Count > 0 ? committed[members[0]].VesselName : null;
             return DrawRecordingBlock(chainId, chainName, members, depth,
-                committed, now, chainId, "Chain", supersedes);
+                committed, now, chainId, "Chain", supersedes, treeConnector);
         }
 
         private bool DrawGroupedRecordingBlock(string blockKey, string blockName, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             return DrawRecordingBlock(blockKey, blockName, members, depth,
-                committed, now, null, "Block", supersedes);
+                committed, now, null, "Block", supersedes, treeConnector);
         }
 
         private bool DrawRecordingBlock(string blockId, string blockName, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now, string chainIdForPopup, string logKind,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             if (members == null || members.Count == 0)
                 return false;
@@ -3268,7 +3447,7 @@ namespace Parsek
                 if (!anyVisible) return false;
             }
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             GUILayout.BeginHorizontal();
 
@@ -3307,7 +3486,7 @@ namespace Parsek
                 if (mr.EndUT > blockEnd) blockEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{arrow} {blockName} ({members.Count})",
+            if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {blockName} ({members.Count})",
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedChains.Remove(blockId);
@@ -3428,9 +3607,14 @@ namespace Parsek
 
             if (expanded)
             {
+                int lastVisibleMember = -1;
+                for (int m = 0; m < members.Count; m++)
+                    if (IsRowVisible(committed[members[m]], supersedes))
+                        lastVisibleMember = m;
                 for (int m = 0; m < members.Count; m++)
                 {
-                    if (DrawRecordingRow(members[m], committed, now, (depth + 1) * 15f, supersedes))
+                    string connector = TreeConnector(m == lastVisibleMember);
+                    if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }

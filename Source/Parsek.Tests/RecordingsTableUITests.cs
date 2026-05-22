@@ -2163,5 +2163,63 @@ namespace Parsek.Tests
                 }
             }
         }
+
+        [Fact]
+        public void TreeConnector_LastSibling_IsCornerBranch()
+        {
+            // Last sibling => U+2514 (corner) + U+2500 (horizontal) + space.
+            string last = RecordingsTableUI.TreeConnector(true);
+            Assert.Equal(3, last.Length);
+            Assert.Equal((char)0x2514, last[0]);
+            Assert.Equal((char)0x2500, last[1]);
+            Assert.Equal(' ', last[2]);
+        }
+
+        [Fact]
+        public void TreeConnector_EarlierSibling_IsTeeBranch()
+        {
+            // Non-last sibling => U+251C (tee) + U+2500 (horizontal) + space.
+            string mid = RecordingsTableUI.TreeConnector(false);
+            Assert.Equal(3, mid.Length);
+            Assert.Equal((char)0x251C, mid[0]);
+            Assert.Equal((char)0x2500, mid[1]);
+            Assert.Equal(' ', mid[2]);
+        }
+
+        [Fact]
+        public void TreeConnector_CornerAndTeeDiffer()
+        {
+            Assert.NotEqual(
+                RecordingsTableUI.TreeConnector(true),
+                RecordingsTableUI.TreeConnector(false));
+        }
+
+        // The internal TreeChildSection enum cannot appear in a public xUnit
+        // signature (CS0051), so the precedence table is asserted inline rather
+        // than via [Theory] InlineData. Order tested: virtual > child group >
+        // block, and None when nothing renders.
+        [Fact]
+        public void ResolveLastChildSection_FollowsPrecedence()
+        {
+            // Single-section cases.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.None,
+                RecordingsTableUI.ResolveLastChildSection(false, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Block,
+                RecordingsTableUI.ResolveLastChildSection(true, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(false, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, false, true));
+
+            // Precedence: virtual beats child group beats block.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(true, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, false, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, true, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, true, true));
+        }
     }
 }
