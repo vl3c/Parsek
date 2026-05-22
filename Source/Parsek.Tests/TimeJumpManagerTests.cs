@@ -503,6 +503,86 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region ApplyJumpLead
+
+        /// <summary>
+        /// With ample room before the event, the target is shifted back by exactly the
+        /// rewind lead time so fast-forward / warp-to-departure land before the event.
+        /// </summary>
+        [Fact]
+        public void ApplyJumpLead_AmpleRoom_SubtractsLeadTime()
+        {
+            double eventUT = 10000.0;
+            double currentUT = 1000.0;
+
+            double target = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            Assert.Equal(eventUT - RecordingStore.RewindToLaunchLeadTimeSeconds, target);
+        }
+
+        /// <summary>
+        /// The lead time matches Rewind's pre-launch lead constant (currently 15s) so
+        /// fast-forward and rewind land the same distance before the event.
+        /// </summary>
+        [Fact]
+        public void ApplyJumpLead_LeadMatchesRewindConstant()
+        {
+            double eventUT = 5000.0;
+            double currentUT = 0.0;
+
+            double target = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            Assert.Equal(15.0, RecordingStore.RewindToLaunchLeadTimeSeconds);
+            Assert.Equal(eventUT - 15.0, target);
+        }
+
+        /// <summary>
+        /// When now is already inside the lead window (less than the lead before the event),
+        /// the target clamps to the exact event UT so the jump stays forward.
+        /// </summary>
+        [Fact]
+        public void ApplyJumpLead_InsideLeadWindow_ClampsToEventUT()
+        {
+            double eventUT = 1000.0;
+            // 5s before the event — closer than the 15s lead.
+            double currentUT = 995.0;
+
+            double target = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            Assert.Equal(eventUT, target);
+            Assert.True(target > currentUT, "Clamped target must remain a forward jump");
+        }
+
+        /// <summary>
+        /// At exactly the lead-time boundary the shifted target equals currentUT, which is
+        /// not a forward jump, so it clamps to the event UT.
+        /// </summary>
+        [Fact]
+        public void ApplyJumpLead_ExactlyAtLeadBoundary_ClampsToEventUT()
+        {
+            double eventUT = 1000.0;
+            double currentUT = eventUT - RecordingStore.RewindToLaunchLeadTimeSeconds;
+
+            double target = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            Assert.Equal(eventUT, target);
+        }
+
+        /// <summary>
+        /// ApplyJumpLead logs its decision (event, current, lead, target, clamped).
+        /// </summary>
+        [Fact]
+        public void ApplyJumpLead_Logs()
+        {
+            TimeJumpManager.ApplyJumpLead(10000.0, 1000.0);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[TimeJump]") && l.Contains("ApplyJumpLead") &&
+                l.Contains("clamped=False"));
+        }
+
+        #endregion
+
         #region Time-jump auto-record suppression
 
         [Fact]

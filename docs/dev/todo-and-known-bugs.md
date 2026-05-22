@@ -12,6 +12,15 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.9.3 Fast-Forward / Warp to Departure landed exactly at the event instead of before it
+
+- Request 2026-05-22. Fast-Forward (recordings table + timeline) jumped to a recording's launch UT exactly, and Warp to Departure (Real Spawn Control) jumped to the ghost's departure UT exactly, dropping the player into the event with no setup time. Rewind already restores `RewindToLaunchLeadTimeSeconds` (15 s) of pre-launch lead; the forward jumps should match. Warp to Spawn must stay precise at the spawn moment.
+- **Fix:** new pure helper `TimeJumpManager.ApplyJumpLead(eventUT, currentUT)` returns `eventUT - RecordingStore.RewindToLaunchLeadTimeSeconds`, clamped to `eventUT` when that would land at or before now (already inside the lead window) so the jump stays forward. `FastForwardToRecording` (flight) and the non-flight FF path in `RecordingsTableUI.ShowFastForwardConfirmation` apply it to `rec.StartUT`; `WarpToDeparture` applies it to `departureUT`. `WarpToRecordingEnd` (Warp to Spawn) is intentionally left precise. `WarpToNextCraftSpawn` inherits both behaviors via its dispatch. Constant is shared so FF and Rewind stay equal.
+- **Tests:** 5 new `TimeJumpManagerTests.ApplyJumpLead*` cases (ample-room subtracts lead, lead matches the Rewind constant, inside-lead-window clamps to event, exact-boundary clamps, logs). Full suite green (12336).
+- **Status:** CLOSED 2026-05-22.
+
+---
+
 ## Done - v0.9.3 Relative frame dropped to Absolute when switching control to the docking target mid-approach
 
 - Playtest 2026-05-21 (`logs/2026-05-21_2050_rendezvous-docking/`, save `x8`). During a rendezvous the chaser `Kerbal X` (pid 9871332, rec `91a6d717`, TreeOrder 8) recorded `ReferenceFrame.Relative` against the target (pid 1963925040, rec `b2685b5e`, TreeOrder 0) for only ~2 s (UT 16783.18-16785.28, ~9 m apart), then recorded the entire final 57 s close approach to docking (UT 16785.28-16842.31) in `Absolute`, despite staying within ~4-10 m of the target the whole time. Dock at UT 16842.26 recorded fine. Log: `RELATIVE exit: pid=9871332 no eligible recording anchor candidates liveCandidates=0/1` then `RELATIVE mode exited ... reason=distance-or-missing-anchor` while `dist=4m`.
