@@ -228,6 +228,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: shifts a jump target back so the player lands
+        /// <see cref="RecordingStore.RewindToLaunchLeadTimeSeconds"/> before the event,
+        /// matching the pre-launch lead Rewind restores. Fast-forward and warp-to-departure
+        /// use this; warp-to-spawn must stay precise and does NOT call it. Falls back to the
+        /// exact event UT when the lead window would land at or before now (already inside the
+        /// lead window) so the jump stays a forward jump.
+        /// </summary>
+        internal static double ApplyJumpLead(double eventUT, double currentUT)
+        {
+            double lead = RecordingStore.RewindToLaunchLeadTimeSeconds;
+            double target = eventUT - lead;
+            bool clamped = target <= currentUT;
+            if (clamped)
+                target = eventUT;
+
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "ApplyJumpLead: event={0:F1} current={1:F1} lead={2:F0}s target={3:F1} clamped={4}",
+                    eventUT, currentUT, lead, target, clamped));
+
+            return target;
+        }
+
+        /// <summary>
         /// KSP runtime: execute the full time jump sequence.
         /// 1. Set Planetarium UT
         /// 2. Epoch-shift all vessel orbits (keep position/velocity, update epoch)

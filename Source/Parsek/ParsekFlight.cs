@@ -26389,29 +26389,31 @@ namespace Parsek
 
             Recording rec = committed[recordingIndex];
             double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before departure, matching Rewind's pre-launch lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(departureUT, currentUT);
 
-            if (!TimeJumpManager.IsValidJump(currentUT, departureUT))
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
             {
                 ParsekLog.Warn("Flight",
                     string.Format(CultureInfo.InvariantCulture,
                         "WarpToDeparture: invalid jump current={0:F1} target={1:F1} — aborted",
-                        currentUT, departureUT));
+                        currentUT, targetUT));
                 return;
             }
 
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, endUT={3:F1})",
-                    departureUT, rec.VesselName, departureUT - currentUT, rec.EndUT));
+                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, departUT={3:F1}, endUT={4:F1})",
+                    targetUT, rec.VesselName, targetUT - currentUT, departureUT, rec.EndUT));
 
-            TimeJumpManager.NotifyRecorder(recorder, currentUT, departureUT);
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(departureUT, null, vesselGhoster);
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
 
             ParsekLog.ScreenMessage(
                 string.Format(CultureInfo.InvariantCulture,
                     "Warped to departure of \"{0}\" ({1:F0}s)",
-                    rec.VesselName, departureUT - currentUT), 5f);
+                    rec.VesselName, targetUT - currentUT), 5f);
         }
 
         /// <summary>
@@ -26428,8 +26430,9 @@ namespace Parsek
                 return;
             }
 
-            double targetUT = rec.StartUT;
             double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(rec.StartUT, currentUT);
 
             if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
             {

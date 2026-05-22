@@ -3624,10 +3624,12 @@ namespace Parsek
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double now = Planetarium.GetUniversalTime();
-            double delta = rec.StartUT - now;
+            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+            double leadTarget = TimeJumpManager.ApplyJumpLead(rec.StartUT, now);
+            double delta = leadTarget - now;
             string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
             string message = string.Format(ic,
-                "Fast-forward to \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
+                "Fast-forward to just before \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
                 rec.VesselName, launchDate, delta);
 
             var flight = parentUI.Flight;
@@ -3666,12 +3668,14 @@ namespace Parsek
                                     $"id={capturedRec.RecordingId ?? "<none>"}: {ffReason}");
                                 return;
                             }
-                            double jumpDelta = capturedRec.StartUT - preJumpUT;
+                            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+                            double ffTarget = TimeJumpManager.ApplyJumpLead(capturedRec.StartUT, preJumpUT);
+                            double jumpDelta = ffTarget - preJumpUT;
                             ParsekLog.Info("FastForward",
                                 string.Format(ic,
-                                    "Non-flight FF to UT={0:F1} for '{1}' (delta={2:F1}s)",
-                                    capturedRec.StartUT, capturedRec.VesselName, jumpDelta));
-                            TimeJumpManager.ExecuteForwardJump(capturedRec.StartUT);
+                                    "Non-flight FF to UT={0:F1} for '{1}' (delta={2:F1}s, launchUT={3:F1})",
+                                    ffTarget, capturedRec.VesselName, jumpDelta, capturedRec.StartUT));
+                            TimeJumpManager.ExecuteForwardJump(ffTarget);
                             ParsekLog.ScreenMessage(
                                 string.Format(ic,
                                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
