@@ -233,15 +233,14 @@ namespace Parsek
 
             // Bottom bar.
             GUILayout.Space(SpacingSmall);
-            GUILayout.BeginHorizontal();
             GUILayout.Label($"Active: {activeRoutes.Count}   Paused: {pausedRoutes.Count}   Candidates: {candidates.Count}");
-            GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Close", GUILayout.Width(120)))
+
+            // Full-width Close button at the bottom (matches Kerbals / Settings windows).
+            if (GUILayout.Button("Close"))
             {
                 showWindow = false;
                 ParsekLog.Verbose("UI", "Logistics window closed");
             }
-            GUILayout.EndHorizontal();
 
             ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Logistics window");
             GUI.DragWindow();
