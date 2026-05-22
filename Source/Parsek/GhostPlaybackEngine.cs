@@ -629,8 +629,8 @@ namespace Parsek
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
                 "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19} " +
-                "chainLoopUnitInactive={21}] " +
-                "active={20}",
+                "chainLoopUnitInactive={20}] " +
+                "active={21}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -651,8 +651,8 @@ namespace Parsek
                 counters.anchorReFlyUnstable,
                 counters.chainShadowed,
                 counters.chainBridgeHeld,
-                counters.active,
-                counters.chainLoopUnitInactive);
+                counters.chainLoopUnitInactive,
+                counters.active);
         }
 
         private GhostPlaybackFrameCounters BuildCurrentFrameCounters()
@@ -1745,7 +1745,36 @@ namespace Parsek
                 return;
             }
 
-            // (5) This member IS selected. Warp suppression on the live member (edge 12): the unit
+            // (5a) Payload-activation gate (Fix 1): the unit selection windows use raw StartUT/EndUT
+            // (design D2), but RenderInRangeGhost positions/interpolates against the playable payload,
+            // which can begin AFTER StartUT when ExplicitStartUT widened the semantic boundary below
+            // the first payload sample. The standalone in-range path guards `currentUT < activationStartUT`
+            // (it `continue`s before reaching here) and the loop-synced-debris path guards
+            // `parentLoopUT >= activationStartUT`; the unit dispatch bypassed both. Mirror the debris
+            // behavior: if the span clock selected THIS member at a loopUT below its own payload start,
+            // hide it for the frame rather than render a stale/extrapolated pre-payload pose. Contiguous
+            // members (StartUT == activationStartUT) are unaffected — spanLoopUT >= window.startUT here.
+            double memberActivationStartUT = ResolveGhostActivationStartUT(traj);
+            if (spanLoopUT < memberActivationStartUT)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " hidden: spanLoopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " below member activation UT=" + memberActivationStartUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-before-activation");
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "chain-loop unit member before activation UT");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                return;
+            }
+
+            // (5b) This member IS selected. Warp suppression on the live member (edge 12): the unit
             // uses the same per-frame render path, so the same warp gate applies at spanLoopUT.
             if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
                     ctx.warpRate, traj, spanLoopUT))
@@ -1764,9 +1793,13 @@ namespace Parsek
             // The span clock never produces overlap cycles (cadence == span, one cycle live), so a
             // unit member should never carry overlap ghosts. Clear any stale ones left over from a
             // prior standalone overlap-loop life (e.g. the member was just toggled into the unit
-            // mid-flight). Cheap no-op when the slot has no overlap entry.
+            // mid-flight). Mirror the standalone path (~1031): Remove(i) after destroying so the
+            // (now empty) dict entry does not keep ContainsKey(i) true and rerun this every frame.
             if (overlapGhosts.ContainsKey(i))
+            {
                 DestroyAllOverlapGhosts(i);
+                overlapGhosts.Remove(i);
+            }
 
             // (6) Cycle change: rebuild the ghost for a clean per-cycle visual (same shape the
             // loop-synced-debris path uses) and clear the completed-event dedup so it can replay.

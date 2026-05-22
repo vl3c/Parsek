@@ -750,5 +750,96 @@ namespace Parsek.Tests
             Assert.Equal(125.0, loopUT, 6);  // 25s into the span, inside slot 0
             Assert.Equal(0, sel);
         }
+
+        // ─── Phase 4 follow-up (Fix 1): payload-activation gate ─────────────────
+
+        [Fact]
+        public void UnitMember_SpanClockBelowPayloadActivation_GateHidesMember()
+        {
+            // Fix 1 regression: a unit selection window uses the member's RAW StartUT (design D2).
+            // When ExplicitStartUT widens StartUT below the first playable payload sample, the span
+            // clock can select THIS member at a spanLoopUT inside [StartUT, payloadStart) — below
+            // its first payload UT. RenderInRangeGhost would then position/interpolate a stale
+            // pre-payload pose. UpdateUnitMemberPlayback's new gate (spanLoopUT < activation UT)
+            // hides the member instead. This proves the exact arithmetic the engine gate evaluates.
+            //
+            // Member: payload samples at [100, 150], but ExplicitStartUT = 90 widens StartUT to 90.
+            var member = new Recording
+            {
+                VesselName = "fix1-member",
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopTimeUnit = LoopTimeUnit.Auto,
+                ChainId = "fix1",
+                ChainIndex = 0,
+                ExplicitStartUT = 90.0, // earlier than the first payload sample (100)
+            };
+            member.Points.Add(MakePoint(100));
+            member.Points.Add(MakePoint(150));
+
+            // The two boundaries diverge: StartUT follows ExplicitStartUT, but the activation UT
+            // tracks the first PLAYABLE payload sample. This divergence is the precondition for the
+            // bug (a contiguous member with StartUT == activation UT cannot reach this state).
+            Assert.Equal(90.0, member.StartUT, 6);
+            double activationUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(member);
+            Assert.Equal(100.0, activationUT, 6);
+            Assert.True(member.StartUT < activationUT);
+
+            // Build the unit windows the way UpdateUnitMemberPlayback does: raw StartUT/EndUT.
+            // A single-member window here is enough to exercise the gate (the selection picks slot 0).
+            var windows = new List<(double, double)> { (member.StartUT, member.EndUT) };
+
+            // Span clock anchored at the member's raw window. At currentUT 95 (inside the widened
+            // [90,100) pre-payload region) the clock resolves loopUT 95 and SELECTS slot 0 — exactly
+            // the case the standalone path's `currentUT < activationStartUT` guard would have caught
+            // but the unit dispatch bypasses. WHAT MAKES IT FAIL: without the new gate, slot 0
+            // renders at loopUT 95 (below its 100 activation UT). With the gate, spanLoopUT (95) <
+            // activationUT (100) => the member is hidden.
+            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                95, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
+                memberSlot: 0, windows, out double spanLoopUT, out _, out int selectedSlot);
+
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision); // selection picks it
+            Assert.Equal(0, selectedSlot);
+            Assert.Equal(95.0, spanLoopUT, 6);
+
+            // The engine gate condition: selected, but the span loopUT is below the member's
+            // payload activation. The gate fires => member hidden for this frame.
+            Assert.True(spanLoopUT < activationUT,
+                "gate must fire: span clock selected the member below its payload activation UT");
+        }
+
+        [Fact]
+        public void UnitMember_ContiguousMember_GateDoesNotFire()
+        {
+            // Control for Fix 1: a typical contiguous member (no ExplicitStartUT widening) has
+            // StartUT == activation UT, so any selected spanLoopUT is >= activation UT and the gate
+            // never fires. Fails if the gate were to spuriously hide ordinary members.
+            var member = new Recording
+            {
+                VesselName = "fix1-contiguous",
+                PlaybackEnabled = true,
+                LoopPlayback = true,
+                LoopTimeUnit = LoopTimeUnit.Auto,
+                ChainId = "fix1c",
+                ChainIndex = 0,
+            };
+            member.Points.Add(MakePoint(100));
+            member.Points.Add(MakePoint(150));
+
+            Assert.Equal(100.0, member.StartUT, 6);
+            double activationUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(member);
+            Assert.Equal(member.StartUT, activationUT, 6); // no divergence: gate cannot fire
+
+            var windows = new List<(double, double)> { (member.StartUT, member.EndUT) };
+
+            // Any in-window currentUT selects the member at a spanLoopUT >= 100 == activation UT.
+            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                120, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
+                memberSlot: 0, windows, out double spanLoopUT, out _, out _);
+
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+            Assert.False(spanLoopUT < activationUT, "gate must NOT fire for a contiguous member");
+        }
     }
 }

@@ -513,6 +513,9 @@ namespace Parsek.Tests
                 spawnSuppressedDeadOnArrival = 16,
                 anchorRotationUnreliable = 17,
                 anchorReFlyUnstable = 18,
+                chainShadowed = 21,
+                chainBridgeHeld = 22,
+                chainLoopUnitInactive = 23,
                 active = 19
             };
 
@@ -537,6 +540,11 @@ namespace Parsek.Tests
             Assert.Contains("spawnSuppressedDeadOnArrival=16", message);
             Assert.Contains("anchorRotationUnreliable=17", message);
             Assert.Contains("anchorReFlyUnstable=18", message);
+            Assert.Contains("chainShadowed=21", message);
+            Assert.Contains("chainBridgeHeld=22", message);
+            // Distinct value (23) from active (19): catches a positional off-by-one where the
+            // active arg bleeds into the chainLoopUnitInactive placeholder or vice versa.
+            Assert.Contains("chainLoopUnitInactive=23", message);
             Assert.Contains("active=19", message);
         }
 
