@@ -17,6 +17,7 @@ All notable changes to Parsek are documented here.
 ### Bug Fixes
 
 - Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
+- Flying the same craft a second time no longer folds the new flight's recordings into the previous flight's group in the recordings window; each launch stays its own group even when the game reuses the same vessel ID.
 
 ---
 

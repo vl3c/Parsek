@@ -26,6 +26,13 @@ namespace Parsek
         private const string DebrisSubgroupSuffix = " / Debris";
         private const string CrewSubgroupSuffix = " / Crew";
 
+        // Tolerance for the orphan-adoption PID + time-overlap fallback. Genuine
+        // split-segments committed standalone before their tree are time-contiguous
+        // with it (gap ~= one frame), so a small tolerance absorbs frame / recorder
+        // boundary jitter without bridging the multi-second gap to a distinct earlier
+        // mission that merely reused the same vessel PID.
+        private const double AdoptionContiguityToleranceSeconds = 2.0;
+
         internal static void ResetForTesting()
         {
             autoAssignedStandaloneGroupsByRecordingId.Clear();
@@ -757,8 +764,16 @@ namespace Parsek
                 var cr = committedRecordings[i];
 
                 bool match = cr.TreeId == tree.Id;
+                // PID fallback for orphan split-segments committed standalone before
+                // this tree. Require an actual time OVERLAP with the tree's flight
+                // (the documented intent), not mere containment within a +/-60s pad:
+                // a distinct earlier mission that reused the same vessel PID (e.g. a
+                // relaunch after the previous flight crashed) ends well before this
+                // tree starts and must NOT be folded into this mission's group.
                 if (!match && treePids.Contains(cr.VesselPersistentId)
-                    && cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60)
+                    && AdoptionTimeRangeOverlaps(
+                        cr.StartUT, cr.EndUT, treeStartUT, treeEndUT,
+                        AdoptionContiguityToleranceSeconds))
                     match = true;
 
                 if (!match) continue;
@@ -774,6 +789,25 @@ namespace Parsek
             if (adopted > 0)
                 ParsekLog.Info("RecordingStore",
                     $"Adopted {adopted} orphaned recording(s) into tree group '{rootGroupName}'");
+        }
+
+        /// <summary>
+        /// True when a candidate recording's [recStartUT, recEndUT] time range
+        /// overlaps the tree's [treeStartUT, treeEndUT] flight range, allowing a
+        /// small contiguity tolerance for frame / recorder boundary jitter. Used by
+        /// the orphan-adoption PID fallback so a distinct earlier mission that merely
+        /// reused the same vessel PID (and ended before this tree began) is not
+        /// folded into this mission's group.
+        /// </summary>
+        internal static bool AdoptionTimeRangeOverlaps(
+            double recStartUT,
+            double recEndUT,
+            double treeStartUT,
+            double treeEndUT,
+            double toleranceSeconds)
+        {
+            return recEndUT >= treeStartUT - toleranceSeconds
+                && recStartUT <= treeEndUT + toleranceSeconds;
         }
 
         /// <summary>

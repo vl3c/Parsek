@@ -46,13 +46,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## Open - v0.10.0 Boosters that separate on the pad before liftoff were never recorded
+## Done - v0.10.0 Boosters that separate on the pad before liftoff were never recorded
 
 - Playtest 2026-05-22 (`logs/2026-05-22_2153_ksc-debris-norender/`, save `s11`). On-pad sequence: throttle 0, stage to ignite SRBs, stage again to detach the SRBs (they fly off the pad), then throttle the main stage up and lift off. The detached SRBs were never recorded, so they did not render as ghosts at the Space Center. The only debris recorded was the main stage's later crash breakup, which got a single seed point and was pruned by `PruneSinglePointDebrisLeaves`.
 - **Root cause:** auto-record only fires on the active (main) vessel's `PRELAUNCH -> FLYING` transition (`EvaluateAutoRecordLaunchDecision`, gated on `isActiveVessel`). The SRBs detach and fly while the main stage is still `PRELAUNCH` on the pad, so the recorder is not running yet; their situation change is logged as `ignoring non-active vessel`. By the time the main lifts off and recording starts, the SRBs are already separate foreign vessels and are dropped by the decouple capture gate (`ShouldCaptureDecoupleCreatedVessel` requires `originalPid == recordedPid`).
 - **Fix:** new first-staging auto-record trigger. `GameEvents.onStageActivate` -> `OnStageActivate(int)` -> pure `EvaluateAutoRecordStagingDecision` starts the recorder when the active vessel stages while `PRELAUNCH` (guard order mirrors the launch decision: already-recording, then time-jump-transient, then no-active-vessel / not-on-pad / disabled). Recording then begins before the SRB decouple, so the detachment is captured as a debris branch of the main and the SRBs record from separation to their endpoint. The normal clamp-release launch is unaffected (the `isRecording` guard makes whichever trigger fires first win). Also added the vessel name + pid to the `ignoring non-active vessel` log so a debris flying off the pad is unambiguous in future logs.
 - **Tests:** 7 new `AutoRecordDecisionTests.EvaluateAutoRecordStagingDecision_*` cases. Full suite green (12386).
-- **Status:** Fix implemented + unit-tested 2026-05-22; pending in-game playtest validation (clean booster separation on the pad -> SRBs recorded and rendered as ghosts at the Space Center).
+- **Status:** CLOSED 2026-05-22. Playtest (`logs/2026-05-22_2250_staging-merge-block/`, save `s11`) confirmed `Auto-record started (first staging on pad, stage=2)` fires and the SRBs are captured as 5 `GDLV3 Debris` recordings anchored to the main; the tree merge committed all 7 recordings. (Surfaced a separate group-collision regression, tracked in the next entry.)
+
+---
+
+## Done - v0.10.0 Second launch of the same craft merged into the first launch's recordings group
+
+- Found during the staging-fix playtest above (`logs/2026-05-22_2250_staging-merge-block/`, save `s11`). After the first GDLV3 flight (single recording, debris pruned) and a second GDLV3 flight (now multi-recording thanks to the staging fix), the recordings window showed only one "GDLV3" group: the new mission's recordings were folded into the prior mission's group instead of appearing as a separate group. ERS held all 8 recordings, so it was a grouping/visibility regression, not lost data.
+- **Root cause:** the new multi-recording tree auto-grouped under "GDLV3", then `RecordingGroupStore.AdoptOrphanedRecordingsIntoTreeGroup` adopted the prior mission's recording (`441f1459`, an orphan because single-recording trees are never auto-grouped) into that group. The adoption's PID fallback matched on shared `vesselPersistentId` (the relaunch reused the same PID) plus a `cr.StartUT >= treeStartUT - 60 && cr.EndUT <= treeEndUT + 60` window. That is containment within a +/-60s pad, not the "overlapping time range" the method's doc-comment intends, so a distinct earlier flight (ended UT 41) was swept into a later tree (started UT 57.78). This only became visible once the staging fix made the second flight multi-recording (a single-recording second flight is never auto-grouped, so no group existed to adopt into).
+- **Fix:** replaced the containment check with a real time-overlap test, `RecordingGroupStore.AdoptionTimeRangeOverlaps(recStart, recEnd, treeStart, treeEnd, tol)` (`recEnd >= treeStart - tol && recStart <= treeEnd + tol`), with `AdoptionContiguityToleranceSeconds = 2.0` to absorb frame / recorder-boundary jitter for genuine contiguous split-segments while excluding the multi-second gap to a separate prior mission. Genuine split-segments committed standalone before their tree are time-contiguous, so they still adopt; a relaunch that reused the PID stays its own group.
+- **Tests:** 5 new `GroupManagementTests.AdoptionTimeRangeOverlaps_*` cases (separate earlier / later mission rejected; contiguous prefix, frame-gap-within-tolerance, and overlapping ranges matched).
+- **Status:** CLOSED 2026-05-22.
 
 ---
 

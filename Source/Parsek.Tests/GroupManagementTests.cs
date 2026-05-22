@@ -1485,5 +1485,58 @@ namespace Parsek.Tests
             Assert.Contains("AlsoValid", GroupHierarchyStore.hiddenGroups);
             Assert.DoesNotContain("", GroupHierarchyStore.hiddenGroups);
         }
+
+        // Orphan-adoption PID fallback must require a real time overlap, not the old
+        // +/-60s containment that folded a distinct earlier mission (which reused the
+        // same vessel PID) into a later mission's group.
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_SeparateEarlierMission_DoesNotMatch()
+        {
+            // Regression repro: prior GDLV3 flight [18,41] vs new GDLV3 tree
+            // [57.78, 87.82]; the prior mission ends ~16s before the new tree begins.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                18.06, 41.22, 57.78, 87.82, 2.0);
+
+            Assert.False(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_SeparateLaterMission_DoesNotMatch()
+        {
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                200.0, 260.0, 57.78, 87.82, 2.0);
+
+            Assert.False(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_ContiguousPrefixSegment_Matches()
+        {
+            // A split segment committed standalone before the tree ends exactly where
+            // the tree's first recorded section begins.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                40.0, 57.78, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_FrameGapWithinTolerance_Matches()
+        {
+            // One-frame gap between segment end and tree start stays within tolerance.
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                40.0, 57.74, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
+
+        [Fact]
+        public void AdoptionTimeRangeOverlaps_OverlappingRanges_Matches()
+        {
+            bool overlaps = RecordingGroupStore.AdoptionTimeRangeOverlaps(
+                50.0, 70.0, 57.78, 87.82, 2.0);
+
+            Assert.True(overlaps);
+        }
     }
 }
