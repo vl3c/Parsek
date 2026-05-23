@@ -33,6 +33,18 @@ namespace Parsek
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
+        // Per-frame cache of the derived mission read model (structure + through-line
+        // view) keyed by tree id. OnGUI fires several times per frame (Layout, Repaint,
+        // input events) and multiple missions can target the same tree, so without this
+        // the two builders ran 6-12 times per frame for unchanged trees. The cache is
+        // cleared whenever a new frame starts, so it always reflects the current trees
+        // (no invalidation logic, no staleness) and the Layout and Repaint passes of one
+        // frame see identical data.
+        private readonly Dictionary<string, (MissionStructure structure, MissionThroughLineView view)>
+            missionViewCache =
+                new Dictionary<string, (MissionStructure structure, MissionThroughLineView view)>();
+        private int missionViewCacheFrame = -1;
+
         private const string InputLockId = "Parsek_MissionsWindow";
         private const float MinWindowWidth = 450f;
         private const float MinWindowHeight = 150f;
@@ -211,8 +223,7 @@ namespace Parsek
                         continue;
                     missionCount++;
 
-                    MissionStructure structure = MissionStructureBuilder.Build(tree);
-                    MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+                    var (structure, view) = GetMissionView(tree);
 
                     DrawMissionHeader(mission);
 
@@ -248,6 +259,30 @@ namespace Parsek
                 if (trees[i] != null && trees[i].Id == treeId)
                     return trees[i];
             return null;
+        }
+
+        // Returns the derived (structure, view) for a tree, building it at most once per
+        // frame per tree id. The first lookup in a new frame clears the cache so the data
+        // stays fresh; later lookups in the same frame (other OnGUI passes, or other
+        // missions targeting the same tree) hit the cache instead of rebuilding.
+        private (MissionStructure structure, MissionThroughLineView view) GetMissionView(RecordingTree tree)
+        {
+            int frame = Time.frameCount;
+            if (frame != missionViewCacheFrame)
+            {
+                missionViewCache.Clear();
+                missionViewCacheFrame = frame;
+            }
+
+            if (!missionViewCache.TryGetValue(tree.Id, out var cached))
+            {
+                MissionStructure structure = MissionStructureBuilder.Build(tree);
+                MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
+                cached = (structure, view);
+                missionViewCache[tree.Id] = cached;
+            }
+
+            return cached;
         }
 
         // Mission header bar: the mission name (section-header style) plus Clone and
