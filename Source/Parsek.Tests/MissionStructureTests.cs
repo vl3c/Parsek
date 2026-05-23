@@ -25,7 +25,8 @@ namespace Parsek.Tests
         // --- Helpers ---
 
         private static Recording Leg(string id, string chainId, int chainIndex,
-            double start, double end, int chainBranch = 0, string vessel = "V")
+            double start, double end, int chainBranch = 0, string vessel = "V",
+            string eva = null, string parentAnchor = null)
         {
             return new Recording
             {
@@ -36,7 +37,9 @@ namespace Parsek.Tests
                 ChainBranch = chainBranch,
                 IsDebris = false,
                 ExplicitStartUT = start,
-                ExplicitEndUT = end
+                ExplicitEndUT = end,
+                EvaCrewName = eva,
+                ParentAnchorRecordingId = parentAnchor
             };
         }
 
@@ -338,6 +341,38 @@ namespace Parsek.Tests
                 sr.LegsById["trunk"].BranchChildIds.ToArray());
             // Documented (StartUT, RecordingId) order; all three children start at 200.
             Assert.Equal(new[] { "a", "b", "c" }, sf.LegsById["trunk"].BranchChildIds.ToArray());
+        }
+
+        [Fact]
+        public void ContinuesAsVessel_And_OffshootFlags_AreSetCorrectly()
+        {
+            // Root branches into the continuing vessel (no crew, no anchor) plus two
+            // offshoots: an EVA kerbal and an anchored probe.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("root", "C0", 0, 0, 100),
+                    Leg("cont", "C1", 0, 100, 200),
+                    Leg("kerb", "C2", 0, 100, 150, eva: "Bob Kerman"),
+                    Leg("probe", "C3", 0, 100, 140, parentAnchor: "root")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.EVA, new[] { "root" }, new[] { "cont", "kerb", "probe" })
+                });
+            tree.Recordings["cont"].TerminalStateValue = TerminalState.Landed;
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            // The root continues as the vessel ("cont"), so it is not a terminal leg.
+            Assert.True(s.LegsById["root"].ContinuesAsVessel);
+            // A leaf continuation with a terminal does not itself continue.
+            Assert.False(s.LegsById["cont"].ContinuesAsVessel);
+            Assert.False(s.LegsById["cont"].IsAnchoredOffshoot);
+            Assert.True(string.IsNullOrEmpty(s.LegsById["cont"].EvaCrewName));
+            // Offshoots are flagged so they get a start event, not "Continues".
+            Assert.Equal("Bob Kerman", s.LegsById["kerb"].EvaCrewName);
+            Assert.True(s.LegsById["probe"].IsAnchoredOffshoot);
         }
 
         [Fact]

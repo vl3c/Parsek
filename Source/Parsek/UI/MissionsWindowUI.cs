@@ -401,46 +401,49 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        // How a leg began: its origin branch event (decoupled / EVA / docked / etc.),
-        // or "continues" for an env-split continuation of the same vessel, or
-        // "launched" for the mission root.
+        // How a leg began. The continuing primary vessel just "Continues"; only a
+        // genuinely new craft gets a start event: an EVA kerbal says "EVA", a
+        // separated offshoot (probe / decoupled / broken-off child) says how it
+        // separated. EVA is a kerbal's start, never a vessel's start or end.
         private static string StartEventText(MissionLeg leg)
         {
-            if (leg.OriginBranchPointType.HasValue)
-                return EventLabel(leg.OriginBranchPointType.Value);
             if (leg.SequencePrevId != null)
-                return "continues";
-            if (leg.IsRoot)
-                return "launched";
-            return "";
+                return "Continues";
+            if (!string.IsNullOrEmpty(leg.EvaCrewName))
+                return "EVA";
+            if (leg.IsAnchoredOffshoot && leg.OriginBranchPointType.HasValue)
+                return EventLabel(leg.OriginBranchPointType.Value);
+            if (leg.IsRoot || !leg.OriginBranchPointType.HasValue)
+                return "Launched";
+            return "Continues";
         }
 
-        // How a leg ended: its terminal state (Landed / Destroyed / ...), or the
-        // branch event it ended at, or "continues"/"active".
+        // How a leg ended. A vessel ends with a terminal state (Landed / Destroyed /
+        // Recovered / ...). If the same vessel keeps going it "Continues". A branch
+        // event (EVA, decouple) is where something LEFT the vessel, not where the
+        // vessel ended, so it is never shown as an end.
         private static string EndEventText(MissionLeg leg)
         {
             if (leg.TerminalStateValue.HasValue)
                 return leg.TerminalStateValue.Value.ToString();
-            if (leg.EndBranchPointType.HasValue)
-                return EventLabel(leg.EndBranchPointType.Value);
-            if (leg.SequenceNextId != null)
-                return "continues";
-            return "active";
+            if (leg.ContinuesAsVessel)
+                return "Continues";
+            return "Active";
         }
 
         private static string EventLabel(BranchPointType type)
         {
             switch (type)
             {
-                case BranchPointType.Launch: return "launched";
-                case BranchPointType.Undock: return "undocked";
-                case BranchPointType.Dock: return "docked";
+                case BranchPointType.Launch: return "Launched";
+                case BranchPointType.Undock: return "Undocked";
+                case BranchPointType.Dock: return "Docked";
                 case BranchPointType.EVA: return "EVA";
-                case BranchPointType.Board: return "boarded";
-                case BranchPointType.JointBreak: return "decoupled";
-                case BranchPointType.Breakup: return "broke up";
-                case BranchPointType.Terminal: return "ended";
-                case BranchPointType.VesselSwitchContinuation: return "switched";
+                case BranchPointType.Board: return "Boarded";
+                case BranchPointType.JointBreak: return "Decoupled";
+                case BranchPointType.Breakup: return "Broke up";
+                case BranchPointType.Terminal: return "Ended";
+                case BranchPointType.VesselSwitchContinuation: return "Switched";
                 default: return type.ToString();
             }
         }

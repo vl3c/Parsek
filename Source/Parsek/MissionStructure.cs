@@ -25,6 +25,16 @@ namespace Parsek
         public double EndUT;
         public TerminalState? TerminalStateValue;
 
+        // Crew name if this leg is an EVA kerbal (its own controllable craft); null
+        // for vessels. IsAnchoredOffshoot = this leg separated and is anchored to a
+        // parent (a probe / lander / decoupled or broken-off child) rather than being
+        // the continuing primary vessel. ContinuesAsVessel = the same vessel keeps
+        // going past this leg (an env-split continuation, or a branch child that is
+        // the vessel itself rather than a crew/offshoot).
+        public string EvaCrewName;
+        public bool IsAnchoredOffshoot;
+        public bool ContinuesAsVessel;
+
         // Within-run (env-split) sequence links: same (ChainId, ChainBranch),
         // adjacent ChainIndex, no branch point between them. Null at run head/tail.
         // The UI stacks a run's legs (no indent) by walking SequenceNextId.
@@ -99,7 +109,9 @@ namespace Parsek
                     ChainIndex = rec.ChainIndex,
                     StartUT = rec.StartUT,
                     EndUT = rec.EndUT,
-                    TerminalStateValue = rec.TerminalStateValue
+                    TerminalStateValue = rec.TerminalStateValue,
+                    EvaCrewName = rec.EvaCrewName,
+                    IsAnchoredOffshoot = !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 };
             }
 
@@ -108,6 +120,28 @@ namespace Parsek
 
             // 3. Cross-run branch links (forks / merges / continuations).
             int branchEdges = BuildBranchLinks(tree, structure);
+
+            // 3b. ContinuesAsVessel: the same vessel keeps going past this leg, via an
+            // env-split continuation or a branch child that is the vessel itself (not a
+            // crew EVA or an anchored offshoot). Used to label "Continues" vs a terminal.
+            foreach (var leg in structure.LegsById.Values)
+            {
+                bool continues = leg.SequenceNextId != null;
+                if (!continues)
+                {
+                    for (int i = 0; i < leg.BranchChildIds.Count; i++)
+                    {
+                        if (structure.LegsById.TryGetValue(leg.BranchChildIds[i], out MissionLeg child)
+                            && !child.IsAnchoredOffshoot
+                            && string.IsNullOrEmpty(child.EvaCrewName))
+                        {
+                            continues = true;
+                            break;
+                        }
+                    }
+                }
+                leg.ContinuesAsVessel = continues;
+            }
 
             // 4. Roots: no run-predecessor and no branch-parent.
             int merges = 0;
