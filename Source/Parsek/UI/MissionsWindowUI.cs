@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
 using ClickThroughFix;
 using UnityEngine;
 
@@ -7,9 +6,16 @@ namespace Parsek
 {
     /// <summary>
     /// Read-only Missions window (phase 2 of the mission-abstraction feature).
-    /// Renders each committed mission tree's controlled-leg fork-tree
-    /// (from MissionStructureBuilder) as an indented outline: a run's env-split
-    /// legs stack at one depth, forks indent. No checkboxes / persistence yet.
+    /// Derived from <see cref="RecordingsTableUI"/> so it reuses that window's
+    /// exact visual style and rendering scaffolding (column-header style, dark
+    /// table-body box, tree-branch connector glyphs, expand/collapse carets, and
+    /// the section-header bar). The ONLY conceptual difference from the recordings
+    /// window: the recordings window groups individual recordings
+    /// (groups -> chains -> recordings); the Missions window groups the higher
+    /// mission abstraction, rendering each committed mission tree's controlled-leg
+    /// fork-tree (from <see cref="MissionStructureBuilder"/>) as an indented
+    /// chronological outline. A run's env-split legs stack at one depth; forks
+    /// indent. No checkboxes / persistence / loop / clone / delete yet.
     /// See docs/dev/design-mission-abstractions.md.
     /// </summary>
     internal class MissionsWindowUI
@@ -23,13 +29,43 @@ namespace Parsek
         private bool isResizing;
         private bool hasInputLock;
 
-        // Run-tail leg ids whose forks are collapsed in the outline.
+        // Leg ids (RecordingIds, unique GUIDs) whose children are collapsed in the
+        // outline. Shared across trees: GUIDs never collide, so one set is safe.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
         private const string InputLockId = "Parsek_MissionsWindow";
         private const float MinWindowWidth = 320f;
         private const float MinWindowHeight = 150f;
         private const float DefaultWidth = 480f;
+
+        // Fixed-width columns to the right of the expanding "Vessel / event" column.
+        // Mirrors the recordings window's fixed-width Launch/Status cell widths so
+        // the Missions window reads as the same table style.
+        private const float ColW_Start = 110f;
+        private const float ColW_End = 110f;
+        private const float ColW_Status = 120f;
+
+        // -- Recreated styles --
+        // RecordingsTableUI builds these privately inside EnsurePhaseStyles();
+        // we cannot reach those instances from a subclass, so we lazily rebuild
+        // the same styles here (verbatim, adapted) to match the look exactly.
+        private GUIStyle bodyCellLabel;
+        private GUIStyle tableBodyBoxStyle;
+
+        // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
+        // body labels land under their header text).
+        private const int BodyCellTextIndent = 5;
+
+        // -- Caret glyphs (built from char codes so the source stays ASCII, the
+        // same way RecordingsTableUI builds its TreeConnector glyphs) --
+        // U+25BC down caret (expanded), U+25B6 right caret (collapsed),
+        // U+21B3 downward-rightward arrow (merge reference row).
+        private static readonly string CaretDown =
+            new string(new[] { (char)0x25BC, ' ' });
+        private static readonly string CaretRight =
+            new string(new[] { (char)0x25B6, ' ' });
+        private static readonly string MergeArrow =
+            new string(new[] { (char)0x21B3, ' ' });
 
         public MissionsWindowUI(ParsekUI parentUI)
         {
@@ -107,8 +143,32 @@ namespace Parsek
             hasInputLock = false;
         }
 
+        // Lazily rebuilds the body-cell label and dark table-body box styles the
+        // recordings window uses. Same definitions as RecordingsTableUI.EnsurePhaseStyles
+        // (cell label padding = left-only indent matching the header text inset;
+        // body box = dark background, zero horizontal padding so columns align with
+        // the header above the scroll view).
+        private void EnsureStyles()
+        {
+            if (bodyCellLabel != null) return;
+
+            var cellLabelPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
+            bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+
+            tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                padding = new RectOffset(0, 0, 2, 2),
+                margin = new RectOffset(0, 0, 0, 0)
+            };
+        }
+
         private void DrawWindow(int windowID)
         {
+            EnsureStyles();
+
+            // Breathing room below the title bar (matches the recordings window).
+            GUILayout.Space(5);
+
             GUILayout.BeginVertical();
 
             var trees = RecordingStore.CommittedTrees;
@@ -118,7 +178,15 @@ namespace Parsek
             }
             else
             {
+                // Fixed column-header row (outside the scroll view), styled with the
+                // recordings window's shared column-header style.
+                DrawColumnHeader();
+
                 scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
+
+                // Dark list-area background (matches the recordings window) with no
+                // horizontal padding so columns align with the header above.
+                GUILayout.BeginVertical(tableBodyBoxStyle);
 
                 int treeCount = 0;
                 int legRows = 0;
@@ -139,7 +207,7 @@ namespace Parsek
                     for (int r = 0; r < structure.RootLegIds.Count; r++)
                     {
                         bool isLast = r == structure.RootLegIds.Count - 1;
-                        legRows += DrawRun(structure, structure.RootLegIds[r], 0, isLast, visited);
+                        legRows += DrawLeg(structure, structure.RootLegIds[r], 1, isLast, visited);
                     }
 
                     if (visited.Count < structure.LegsById.Count)
@@ -151,6 +219,7 @@ namespace Parsek
                     }
                 }
 
+                GUILayout.EndVertical();
                 GUILayout.EndScrollView();
 
                 ParsekLog.VerboseRateLimited("UI", "missions-window-draw",
@@ -162,121 +231,137 @@ namespace Parsek
             GUI.DragWindow();
         }
 
-        // Renders one run (a sequence of SequenceNext-linked legs at the same
-        // depth), then recurses into the run-tail's forks at depth+1. The visited
-        // set both prevents re-rendering a merge child reached from two parents
-        // (it gets a reference row instead) and guards against malformed cycles.
-        private int DrawRun(MissionStructure s, string headId, int depth, bool isLast,
+        // Column-header row: a wide expanding "Vessel / event" column plus the
+        // three fixed-width Start / End / Status columns, all in the recordings
+        // window's shared column-header style.
+        private void DrawColumnHeader()
+        {
+            var colHdr = parentUI.GetColumnHeaderStyle();
+            GUILayout.BeginHorizontal();
+            GUILayout.Label("Vessel / event", colHdr, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_Start));
+            GUILayout.Label("End", colHdr, GUILayout.Width(ColW_End));
+            GUILayout.Label("Status", colHdr, GUILayout.Width(ColW_Status));
+
+            // Reserve the vertical-scrollbar column so the fixed header's right edge
+            // aligns with the row cells' right edges (the scroll view always shows a
+            // vertical scrollbar). Same trick as the recordings window header.
+            float scrollbarWidth = GUI.skin.verticalScrollbar != null
+                ? GUI.skin.verticalScrollbar.fixedWidth
+                : 16f;
+            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
+            GUILayout.Space(scrollbarWidth);
+
+            GUILayout.EndHorizontal();
+        }
+
+        // Renders one leg, then recurses into its children. A leg's children, in
+        // order, are: its SequenceNextId (if non-null) followed by its
+        // BranchChildIds. Mirrors how RecordingsTableUI renders a group/chain tree
+        // row (SelfConnectorIndent + TreeConnector + caret + label + fixed cells).
+        // The visited set both prevents re-rendering a merge child reached from a
+        // second parent (it gets a reference row instead) and guards malformed cycles.
+        private int DrawLeg(MissionStructure s, string legId, int depth, bool isLast,
             HashSet<string> visited)
         {
-            int rows = 0;
-            string legId = headId;
-            bool isHeadRow = true;
-            MissionLeg tail = null;
+            if (legId == null || !s.LegsById.TryGetValue(legId, out MissionLeg leg))
+                return 0;
 
-            while (legId != null && s.LegsById.TryGetValue(legId, out MissionLeg leg))
+            if (visited.Contains(legId))
             {
-                if (visited.Contains(legId))
-                {
-                    DrawReferenceRow(leg, depth, isLast);
-                    return rows + 1;
-                }
-                visited.Add(legId);
-                tail = leg;
-
-                bool isTail = leg.SequenceNextId == null;
-                bool drawCaret = isTail && leg.BranchChildIds.Count > 0;
-                DrawLegRow(leg, depth, isHeadRow, isLast, drawCaret);
-                rows++;
-                isHeadRow = false;
-
-                if (isTail)
-                    break;
-                legId = leg.SequenceNextId;
+                DrawReferenceRow(leg, depth, isLast);
+                return 1;
             }
+            visited.Add(legId);
 
-            if (tail != null && tail.BranchChildIds.Count > 0
-                && !collapsedLegs.Contains(tail.RecordingId))
+            // Children: sequence-next first, then branch children.
+            var children = new List<string>();
+            if (leg.SequenceNextId != null)
+                children.Add(leg.SequenceNextId);
+            for (int i = 0; i < leg.BranchChildIds.Count; i++)
+                children.Add(leg.BranchChildIds[i]);
+
+            bool hasChildren = children.Count > 0;
+            bool collapsed = collapsedLegs.Contains(leg.RecordingId);
+
+            DrawLegRow(leg, depth, isLast, hasChildren, collapsed);
+            int rows = 1;
+
+            if (hasChildren && !collapsed)
             {
-                for (int i = 0; i < tail.BranchChildIds.Count; i++)
+                for (int i = 0; i < children.Count; i++)
                 {
-                    bool childIsLast = i == tail.BranchChildIds.Count - 1;
-                    rows += DrawRun(s, tail.BranchChildIds[i], depth + 1, childIsLast, visited);
+                    bool childIsLast = i == children.Count - 1;
+                    rows += DrawLeg(s, children[i], depth + 1, childIsLast, visited);
                 }
             }
 
             return rows;
         }
 
-        private void DrawLegRow(MissionLeg leg, int depth, bool isHeadRow, bool isLast, bool drawCaret)
+        private void DrawLegRow(MissionLeg leg, int depth, bool isLast, bool hasChildren, bool collapsed)
         {
-            float connW = RecordingsTableUI.ConnectorWidth();
-            string caret = drawCaret
-                ? (collapsedLegs.Contains(leg.RecordingId) ? "▶ " : "▼ ")
-                : "";
-
             GUILayout.BeginHorizontal();
-            if (isHeadRow)
-            {
-                if (depth > 0)
-                    GUILayout.Space(depth * connW);
-                string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
-                DrawLabelOrToggle(connector + caret + FormatLeg(leg), drawCaret, leg.RecordingId);
-            }
-            else
-            {
-                // Sequence-continuation rows stack under the run head, label-aligned
-                // (one connector width in) and marked with a bullet, not a fork tee.
-                GUILayout.Space(depth * connW + connW);
-                DrawLabelOrToggle("· " + caret + FormatLeg(leg), drawCaret, leg.RecordingId);
-            }
-            GUILayout.EndHorizontal();
-        }
 
-        private void DrawLabelOrToggle(string label, bool toggle, string legId)
-        {
-            if (toggle)
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+
+            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
+            string caret = hasChildren ? (collapsed ? CaretRight : CaretDown) : "";
+            string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
+            string wide = connector + caret + vessel;
+
+            // Clickable label (toggles collapse) when the leg has children;
+            // otherwise a plain body-cell label.
+            if (hasChildren)
             {
-                if (GUILayout.Button(label, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                if (GUILayout.Button(wide, bodyCellLabel, GUILayout.ExpandWidth(true)))
                 {
-                    if (collapsedLegs.Contains(legId))
-                        collapsedLegs.Remove(legId);
+                    if (collapsedLegs.Contains(leg.RecordingId))
+                        collapsedLegs.Remove(leg.RecordingId);
                     else
-                        collapsedLegs.Add(legId);
+                        collapsedLegs.Add(leg.RecordingId);
                 }
             }
             else
             {
-                GUILayout.Label(label, GUILayout.ExpandWidth(true));
+                GUILayout.Label(wide, bodyCellLabel, GUILayout.ExpandWidth(true));
             }
-        }
 
-        private static void DrawReferenceRow(MissionLeg leg, int depth, bool isLast)
-        {
-            GUILayout.BeginHorizontal();
-            float connW = RecordingsTableUI.ConnectorWidth();
-            if (depth > 0)
-                GUILayout.Space(depth * connW);
-            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
-            string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
-            GUILayout.Label($"{connector}↳ merges into {vessel} (shown above)",
-                GUILayout.ExpandWidth(true));
+            GUILayout.Label(KSPUtil.PrintDateCompact(leg.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_Start));
+            GUILayout.Label(KSPUtil.PrintDateCompact(leg.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_End));
+            GUILayout.Label(StatusText(leg), bodyCellLabel, GUILayout.Width(ColW_Status));
+
             GUILayout.EndHorizontal();
         }
 
-        private static string FormatLeg(MissionLeg leg)
+        // Reference row for a merge child reached from a second parent: shown once,
+        // not recursed into. Wide cell carries the merge arrow; time/status empty.
+        private void DrawReferenceRow(MissionLeg leg, int depth, bool isLast)
         {
-            var ic = CultureInfo.InvariantCulture;
+            GUILayout.BeginHorizontal();
+
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+
+            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
             string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
-            double duration = leg.EndUT - leg.StartUT;
-            if (duration < 0)
-                duration = 0;
-            string ev = leg.TerminalStateValue.HasValue
-                ? leg.TerminalStateValue.Value.ToString()
-                : leg.EndBranchPointType.HasValue
-                    ? leg.EndBranchPointType.Value.ToString()
-                    : "in progress";
-            return $"{vessel}   {duration.ToString("F0", ic)}s   {ev}";
+            GUILayout.Label($"{connector}{MergeArrow}merges into {vessel} (above)",
+                bodyCellLabel, GUILayout.ExpandWidth(true));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Start));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_End));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Status));
+
+            GUILayout.EndHorizontal();
+        }
+
+        private static string StatusText(MissionLeg leg)
+        {
+            return leg.TerminalStateValue?.ToString()
+                ?? leg.EndBranchPointType?.ToString()
+                ?? (leg.SequenceNextId != null ? "continues" : "active");
         }
     }
 }

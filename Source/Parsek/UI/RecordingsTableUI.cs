@@ -1789,7 +1789,7 @@ namespace Parsek
         // virtual header). A depth-D item leaves D-1 connector-width steps blank;
         // the connector itself fills the Dth step. Depth 0 (top level) has no
         // connector and no indent.
-        private static float SelfConnectorIndent(int depth)
+        internal static float SelfConnectorIndent(int depth)
         {
             return Math.Max(0, depth - 1) * ConnectorWidth();
         }
