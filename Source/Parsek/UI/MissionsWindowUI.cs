@@ -5,18 +5,17 @@ using UnityEngine;
 namespace Parsek
 {
     /// <summary>
-    /// Read-only Missions window (phase 2 of the mission-abstraction feature).
-    /// Derived from <see cref="RecordingsTableUI"/> so it reuses that window's
-    /// exact visual style and rendering scaffolding (column-header style, dark
-    /// table-body box, tree-branch connector glyphs, expand/collapse carets, and
-    /// the section-header bar). The ONLY conceptual difference from the recordings
-    /// window: the recordings window groups individual recordings
-    /// (groups -> chains -> recordings); the Missions window groups the higher
-    /// mission abstraction, rendering each committed mission tree's controlled-leg
-    /// fork-tree (from <see cref="MissionStructureBuilder"/>) as an indented
-    /// chronological outline. A run's env-split legs stack at one depth; forks
-    /// indent. No checkboxes / persistence / loop / clone / delete yet.
-    /// See docs/dev/design-mission-abstractions.md.
+    /// The Missions window. A standalone class that reuses <see cref="RecordingsTableUI"/>'s
+    /// visual style and rendering helpers (column-header style, dark table-body box,
+    /// tree-branch connector glyphs, expand/collapse carets, section-header bar) without
+    /// inheriting it. Unlike the recordings window (which groups individual recordings:
+    /// groups -> chains -> recordings), this groups the higher mission abstraction: it
+    /// lists saved <see cref="Mission"/>s (from <see cref="MissionStore"/>), and renders
+    /// each one's tree as collapsed continuous-vessel through-lines (from
+    /// <see cref="MissionThroughLineBuilder"/>) with the offshoots that left them as
+    /// children. Per Mission: a name + Clone/Delete, and include checkboxes bound to that
+    /// Mission's selection (persisted). Individual recording legs never appear here.
+    /// Not yet wired: looping a Mission as a unit. See docs/dev/design-mission-abstractions.md.
     /// </summary>
     internal class MissionsWindowUI
     {
