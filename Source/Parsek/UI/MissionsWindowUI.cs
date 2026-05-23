@@ -236,11 +236,17 @@ namespace Parsek
 
                     DrawMissionHeader(mission);
 
+                    // Single source of truth for the include/exclude cascade (greying +
+                    // checkbox state both derive from this set). Computed once per mission
+                    // per frame so there is exactly one copy of the rule (MissionSelection).
+                    HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
+                        view, mission.ExcludedThroughLineHeadIds);
+
                     var visited = new HashSet<string>();
                     for (int r = 0; r < view.RootHeadIds.Count; r++)
                     {
                         bool isLast = r == view.RootHeadIds.Count - 1;
-                        rowCount += DrawThroughLine(structure, view, mission, view.RootHeadIds[r], 1, isLast, false, visited);
+                        rowCount += DrawThroughLine(structure, view, mission, includedHeads, view.RootHeadIds[r], 1, isLast, false, visited);
                     }
                 }
 
@@ -446,7 +452,8 @@ namespace Parsek
         // its offshoots (the things that left it: EVA kerbals, decoupled children,
         // forks to other vessels). The visited set guards merges/cycles.
         private int DrawThroughLine(MissionStructure s, MissionThroughLineView v, Mission mission,
-            string headId, int depth, bool isLast, bool parentExcluded, HashSet<string> visited)
+            HashSet<string> includedHeads, string headId, int depth, bool isLast, bool parentExcluded,
+            HashSet<string> visited)
         {
             if (headId == null || !v.ByHeadId.TryGetValue(headId, out MissionThroughLine tl))
                 return 0;
@@ -464,14 +471,17 @@ namespace Parsek
             DrawThroughLineRow(s, mission, tl, depth, isLast, hasChildren, collapsed, parentExcluded);
             int rows = 1;
 
-            // Unchecking a through-line drops it and everything downstream.
-            bool childExcluded = parentExcluded || mission.ExcludedThroughLineHeadIds.Contains(headId);
+            // Unchecking a through-line drops it and everything downstream. The shared
+            // MissionSelection cascade is the single definition: a head is excluded for its
+            // offshoots iff it is not in the included set (= self-unchecked OR ancestor
+            // excluded), which is exactly the old parentExcluded || self-unchecked rule.
+            bool childExcluded = !includedHeads.Contains(headId);
             if (hasChildren && !collapsed)
             {
                 for (int i = 0; i < tl.OffshootHeadIds.Count; i++)
                 {
                     bool childIsLast = i == tl.OffshootHeadIds.Count - 1;
-                    rows += DrawThroughLine(s, v, mission, tl.OffshootHeadIds[i], depth + 1, childIsLast, childExcluded, visited);
+                    rows += DrawThroughLine(s, v, mission, includedHeads, tl.OffshootHeadIds[i], depth + 1, childIsLast, childExcluded, visited);
                 }
             }
 
