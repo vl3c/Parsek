@@ -1879,7 +1879,19 @@ namespace Parsek
                     continue;
                 }
                 BranchPoint bp = LookupBranchPoint(cand.TreeId, cand.ParentBranchPointId);
-                if (bp == null || bp.Type != BranchPointType.Breakup)
+                // Focused-vessel split debris is admitted for both the Breakup
+                // (crash / overstress) and JointBreak (intentional decouple) cases:
+                // ParsekFlight.CreateBreakupChildRecording wires both kinds through the
+                // same coalescer path, setting the debris' ParentAnchorRecordingId and
+                // ParentBranchPointId to the breakup parent + BP. The two now differ only
+                // in BP type (a foreground decouple records JointBreak/DECOUPLE), so the
+                // type gate must accept both or multi-staging debris would silently drop
+                // out of the supersede closure. The background-split anchor case is still
+                // fenced out by the topology check below (its BP's parent is the pre-split
+                // recording, not the continuation the debris is anchored to), so the
+                // anchor double-duty noted on this method's contract stays excluded.
+                if (bp == null
+                    || (bp.Type != BranchPointType.Breakup && bp.Type != BranchPointType.JointBreak))
                 {
                     debrisAnchorOnlySkips++;
                     continue;

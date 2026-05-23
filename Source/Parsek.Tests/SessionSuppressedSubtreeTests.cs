@@ -192,6 +192,80 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ForegroundDecoupleDebris_JointBreakBP_IncludedInClosure()
+        {
+            // A foreground staging event records a JointBreak/DECOUPLE branch point
+            // whose debris child is anchored to the breakup parent
+            // (ParentAnchorRecordingId). For a multi-staging parent the single
+            // ChildBranchPointId slot cannot reference every BP, so this debris is
+            // reachable only via the ParentAnchorRecordingId edge (EnqueueDebrisChildren).
+            // It must still land in the supersede closure so re-flying past the staging
+            // supersedes the old debris — exactly the case that breaks if the closure
+            // gate only accepts Breakup BPs.
+            var origin = Rec("rec_origin", "tree_1"); // ChildBranchPointId intentionally null
+            var debris = new Recording
+            {
+                RecordingId = "rec_debris",
+                VesselName = "Booster Debris",
+                TreeId = "tree_1",
+                MergeState = MergeState.Immutable,
+                IsDebris = true,
+                ParentBranchPointId = "bp_decouple",
+                ParentAnchorRecordingId = "rec_origin"
+            };
+            var bpDecouple = Bp("bp_decouple", BranchPointType.JointBreak,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_debris" });
+            bpDecouple.SplitCause = "DECOUPLE";
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, debris },
+                new List<BranchPoint> { bpDecouple });
+            InstallScenario(Marker("rec_origin"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_origin"));
+
+            Assert.Contains("rec_origin", closure);
+            Assert.Contains("rec_debris", closure);
+        }
+
+        [Fact]
+        public void BackgroundSplitDebris_AnchoredToContinuation_ExcludedFromClosure()
+        {
+            // Background-split debris re-points ParentAnchorRecordingId to the parent
+            // continuation (a relative-sampling anchor), while the JointBreak BP's
+            // parent is the PRE-SPLIT recording. The topology check (BP parents must
+            // include the dequeued recording) must keep this debris OUT of the closure
+            // even though the BP type is JointBreak — accepting JointBreak in the gate
+            // must not collapse the anchor-double-duty fence.
+            var cont = Rec("rec_cont", "tree_1"); // continuation = closure root
+            var bgDebris = new Recording
+            {
+                RecordingId = "rec_bg_debris",
+                VesselName = "BG Booster Debris",
+                TreeId = "tree_1",
+                MergeState = MergeState.Immutable,
+                IsDebris = true,
+                ParentBranchPointId = "bp_split",
+                ParentAnchorRecordingId = "rec_cont" // anchored to continuation
+            };
+            var bpSplit = Bp("bp_split", BranchPointType.JointBreak,
+                parents: new List<string> { "rec_presplit" }, // NOT rec_cont
+                children: new List<string> { "rec_bg_debris" });
+            bpSplit.SplitCause = "DECOUPLE";
+
+            InstallTree("tree_1",
+                new List<Recording> { cont, bgDebris },
+                new List<BranchPoint> { bpSplit });
+            InstallScenario(Marker("rec_cont"));
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(Marker("rec_cont"));
+
+            Assert.Contains("rec_cont", closure);
+            Assert.DoesNotContain("rec_bg_debris", closure);
+        }
+
+        [Fact]
         public void MixedParentHalt_DockedMergeHaltsClosure()
         {
             // origin -> bp_child -> child1 -> bp_dock(Dock; parents=[child1, outside_rec]) -> merged

@@ -17,6 +17,7 @@ namespace Parsek.Tests
             GameStateStore.SuppressLogging = true;
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
+            ParsekLog.VerboseOverrideForTesting = true;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             RecordingStore.ResetForTesting();
         }
@@ -133,6 +134,52 @@ namespace Parsek.Tests
                 anyNewVesselHasController: false);
 
             Assert.Equal(JointBreakResult.DebrisSplit, result);
+        }
+
+        #endregion
+
+        #region ClassifyForegroundSplitChildCause
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_DecoupleCreatedChild_ReturnsDecouple()
+        {
+            // A child caught by onPartDeCoupleNewVesselComplete came off through a
+            // decoupler firing — an intentional staging separation, not a crash.
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: true, triggerWasDecoupleOnly: false);
+            Assert.Equal("DECOUPLE", cause);
+        }
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_DecoupleOnlyTrigger_ReturnsDecouple()
+        {
+            // The deferred split check armed purely from a decouple callback (no
+            // force joint-break) is decoupler-initiated by construction.
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: false, triggerWasDecoupleOnly: true);
+            Assert.Equal("DECOUPLE", cause);
+        }
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_NoDecoupleSignal_ReturnsCrash()
+        {
+            // No positive decouple signal: a child that appeared only via the
+            // post-joint-break vessel scan is a force-driven structural break.
+            // Conservative — a genuine failure is never relabelled a decouple.
+            string cause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: false, triggerWasDecoupleOnly: false);
+            Assert.Equal("CRASH", cause);
+        }
+
+        [Fact]
+        public void ClassifyForegroundSplitChildCause_LogsDecision()
+        {
+            SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                childWasDecoupleCreated: true, triggerWasDecoupleOnly: false);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Boundary]") &&
+                l.Contains("ClassifyForegroundSplitChildCause") &&
+                l.Contains("=> DECOUPLE"));
         }
 
         #endregion
