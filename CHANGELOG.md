@@ -8,7 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Looping
 
-- Recordings of one mission that are back-to-back in time and set to Loop with period `auto` now play back as one continuous looping unit, even when they are separate recordings that were never formally chained (for example a launch followed by a descent capsule): each segment hands off to the next and the whole sequence wraps, instead of each relaunching on the per-recording stagger.
+- A mission whose main recordings (launch, ascent, descent, etc.) are set to Loop with period `auto` now plays back as one continuous looping flight on a shared clock, with that mission's debris replaying alongside their parents like a rewind, instead of each piece relaunching on its own stagger. The main recordings loop as one even if there are time gaps between them; the loop period follows your "Auto-launch every" setting (the whole flight plays, then repeats).
 
 ### UI
 

@@ -116,11 +116,13 @@ namespace Parsek
         // Model". The engine consumes these opaquely; chain detection stays host-side.
 
         /// <summary>
-        /// One chain-loop unit: a maximal run of >= 2 consecutive primary-path
-        /// (ChainBranch == 0) chain members that are all loop-enabled with period auto.
-        /// The whole span [SpanStartUT, SpanEndUT] loops as one virtual recording at
-        /// <see cref="CadenceSeconds"/> (= span duration, clamped to MinCycleDuration).
-        /// Indices are committed/trajectory-list indices (the alignment invariant).
+        /// One loop unit: a maximal run of >= 2 consecutive MAIN links (the primary-vessel
+        /// through-line, all loop+auto+renderable) PLUS every ride-along SECONDARY (debris / probe
+        /// that loops+auto and overlaps the run span). The whole span [SpanStartUT, SpanEndUT] loops
+        /// on ONE shared mission clock at <see cref="CadenceSeconds"/> (= max(autoInterval, span,
+        /// MinCycleDuration)). All members render concurrently when the shared clock is inside their
+        /// own window - debris alongside their parent, exactly like a rewind. Indices are
+        /// committed/trajectory-list indices (the alignment invariant).
         /// </summary>
         internal readonly struct LoopUnit
         {
@@ -138,19 +140,19 @@ namespace Parsek
                 CadenceSeconds = cadenceSeconds;
             }
 
-            /// <summary>Lowest-ChainIndex member's committed/trajectory index (owns the span clock).</summary>
+            /// <summary>Earliest main link's committed/trajectory index (owns the span clock).</summary>
             internal int OwnerIndex { get; }
 
-            /// <summary>Committed indices of all members, in ChainIndex order.</summary>
+            /// <summary>Committed indices of all members (main links + ride-along secondaries), StartUT order.</summary>
             internal int[] MemberIndices { get; }
 
-            /// <summary>First member StartUT.</summary>
+            /// <summary>Min member StartUT.</summary>
             internal double SpanStartUT { get; }
 
-            /// <summary>Last member EndUT.</summary>
+            /// <summary>Max member EndUT (a ride-along debris tail can extend it).</summary>
             internal double SpanEndUT { get; }
 
-            /// <summary>Span duration (= SpanEndUT - SpanStartUT), clamped to MinCycleDuration.</summary>
+            /// <summary>Cadence (= max(autoInterval, span, MinCycleDuration)).</summary>
             internal double CadenceSeconds { get; }
         }
 
@@ -1010,68 +1012,17 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Selects which unit member's window covers <paramref name="loopUT"/>.
-        /// <paramref name="memberWindows"/> are the members' raw [startUT, endUT] windows in
-        /// ChainIndex order (decision D2: raw windows, not EffectiveLoop*). Returns the slot
-        /// (index INTO memberWindows) of the covering member.
-        ///
-        /// Edge 5 (overlap precedence): when two contiguous windows overlap and loopUT falls in
-        /// both, the higher-ChainIndex member (later slot) wins — matching the chain-shadow
-        /// "continuation is authoritative" rule, reimplemented here because the unit bypasses
-        /// the non-loop chain-shadow path. Edge 6 (gap): when loopUT falls in a UT gap between
-        /// member i's end and member i+1's start, returns false with
-        /// <paramref name="inInterMemberGap"/> = true so the caller hides every member for that
-        /// sliver instead of clamping to a stale member. Uses
+        /// True if <paramref name="loopUT"/> falls inside the member window
+        /// [<paramref name="memberStartUT"/>, <paramref name="memberEndUT"/>] (epsilon-tolerant).
+        /// Pure: a member renders iff the shared mission clock is inside its own window. Uses
         /// <see cref="LoopTiming.BoundaryEpsilon"/> so boundary handling agrees with the rest of
-        /// the loop math. Pure: no logging.
+        /// the loop math.
         /// </summary>
-        internal static bool TrySelectSpanMember(
-            double loopUT,
-            IReadOnlyList<(double startUT, double endUT)> memberWindows,
-            out int selectedSlot,
-            out bool inInterMemberGap)
+        internal static bool IsLoopUTInMemberWindow(
+            double loopUT, double memberStartUT, double memberEndUT)
         {
-            selectedSlot = -1;
-            inInterMemberGap = false;
-
-            if (memberWindows == null || memberWindows.Count == 0)
-                return false;
-
-            // Walk in ChainIndex order; keep the LAST covering slot so a higher-index member
-            // wins an overlap (edge 5). Members tile contiguously, so outside an overlap exactly
-            // one slot covers loopUT.
-            bool anyCovers = false;
-            bool insideAnySpan = false;
-            for (int slot = 0; slot < memberWindows.Count; slot++)
-            {
-                var w = memberWindows[slot];
-                if (loopUT >= w.startUT - LoopTiming.BoundaryEpsilon)
-                    insideAnySpan = true;
-
-                if (loopUT >= w.startUT - LoopTiming.BoundaryEpsilon
-                    && loopUT <= w.endUT + LoopTiming.BoundaryEpsilon)
-                {
-                    selectedSlot = slot;
-                    anyCovers = true;
-                }
-            }
-
-            if (anyCovers)
-                return true;
-
-            // No window covers loopUT. Distinguish an inter-member gap (loopUT sits between the
-            // first member's start and the last member's end, in a discontinuity) from being
-            // entirely before/after the unit span. Both yield "no member"; only the interior
-            // case is the edge-6 gap the caller logs.
-            var first = memberWindows[0];
-            var last = memberWindows[memberWindows.Count - 1];
-            if (insideAnySpan
-                && loopUT >= first.startUT - LoopTiming.BoundaryEpsilon
-                && loopUT <= last.endUT + LoopTiming.BoundaryEpsilon)
-            {
-                inInterMemberGap = true;
-            }
-            return false;
+            return loopUT >= memberStartUT - LoopTiming.BoundaryEpsilon
+                && loopUT <= memberEndUT + LoopTiming.BoundaryEpsilon;
         }
 
         /// <summary>The render outcome for one member of a chain-loop unit on a given frame.</summary>
@@ -1079,61 +1030,58 @@ namespace Parsek
         {
             /// <summary>The span clock could not resolve (before span start or degenerate span).</summary>
             SpanClockUnresolved,
-            /// <summary>This member's window covers the span loopUT — render it at <c>SpanLoopUT</c>.</summary>
+            /// <summary>The shared mission clock is in this member's own window — render it at <c>SpanLoopUT</c>.</summary>
             Render,
-            /// <summary>A sibling member is selected for this loopUT — hide this member.</summary>
-            HiddenSiblingSelected,
-            /// <summary>The span clock sits in an inter-member gap — hide this member (edge 6).</summary>
-            HiddenInGap,
-            /// <summary>The span clock is outside the unit span entirely — hide this member.</summary>
-            HiddenOutsideSpan,
+            /// <summary>The shared clock is in the inter-cycle tail-wait (cadence &gt; span) — hide ALL members.</summary>
+            HiddenInterCycleTail,
+            /// <summary>The shared clock is outside this member's own window — hide this member.</summary>
+            HiddenOutsideWindow,
         }
 
         /// <summary>
-        /// Pure composite decision for the engine's per-member follower dispatch: given the unit
-        /// span/cadence, this member's slot, and the members' raw windows, returns whether THIS
-        /// member should render (and at what span loopUT / unit cycle) or be hidden, and why. This
-        /// is the testable seam for <c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c> — the
-        /// GameObject activation itself is verified in-game (Phase 8). Composes
-        /// <see cref="TryComputeSpanLoopUT"/> and <see cref="TrySelectSpanMember"/>; applies edge-5
-        /// overlap precedence and edge-6 gap handling through the latter. Pure: no logging.
+        /// Pure per-member render decision for the engine's follower dispatch under the shared
+        /// mission clock model. There is NO cross-member selection: each member renders
+        /// independently based ONLY on whether the shared clock is in its own
+        /// [<paramref name="memberStartUT"/>, <paramref name="memberEndUT"/>] window. Multiple
+        /// members render concurrently (debris alongside their parent), exactly like a rewind.
+        ///
+        /// Computes the shared <c>spanLoopUT</c> via <see cref="TryComputeSpanLoopUT"/>:
+        /// - span clock unresolved (before span start / degenerate span) -> SpanClockUnresolved.
+        /// - inter-cycle tail (cadence &gt; span, the "wait" between cycles) -> HiddenInterCycleTail
+        ///   (the caller hides ALL members - render nothing during the wait).
+        /// - else: Render if spanLoopUT is in THIS member's own window, HiddenOutsideWindow otherwise.
+        ///
+        /// This is the testable seam for <c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c> - the
+        /// GameObject activation itself is verified in-game. Pure: no logging.
         /// </summary>
         internal static UnitMemberRenderDecision DecideUnitMemberRender(
             double currentUT,
             double spanStartUT,
             double spanEndUT,
             double cadenceSeconds,
-            int memberSlot,
-            IReadOnlyList<(double startUT, double endUT)> memberWindows,
+            double memberStartUT,
+            double memberEndUT,
             out double spanLoopUT,
             out long unitCycle,
-            out int selectedSlot)
+            out bool isInInterCycleTail)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
-            selectedSlot = -1;
+            isInInterCycleTail = false;
 
-            // The loop feature always uses cadence == span, so the parked inter-cycle tail never
-            // engages here (isInInterCycleTail is always false) — discard it. Future cadence > span
-            // producers (logistics supply routes) consume the tail to hide the ghost by calling
-            // TryComputeSpanLoopUT directly; that tail-handling is the host's concern, not this
-            // loop-only render path.
             if (!TryComputeSpanLoopUT(
                     currentUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT, out unitCycle,
-                    out _))
+                    out isInInterCycleTail))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
-            bool covered = TrySelectSpanMember(
-                spanLoopUT, memberWindows, out selectedSlot, out bool inGap);
+            // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
+            if (isInInterCycleTail)
+                return UnitMemberRenderDecision.HiddenInterCycleTail;
 
-            if (!covered)
-                return inGap
-                    ? UnitMemberRenderDecision.HiddenInGap
-                    : UnitMemberRenderDecision.HiddenOutsideSpan;
-
-            return selectedSlot == memberSlot
+            // Each member renders independently iff the shared clock is in its own window.
+            return IsLoopUTInMemberWindow(spanLoopUT, memberStartUT, memberEndUT)
                 ? UnitMemberRenderDecision.Render
-                : UnitMemberRenderDecision.HiddenSiblingSelected;
+                : UnitMemberRenderDecision.HiddenOutsideWindow;
         }
 
         /// <summary>
@@ -1157,20 +1105,24 @@ namespace Parsek
 
         /// <summary>
         /// Edge 10 decision: should the engine fire a unit-handoff camera retarget this frame?
-        /// Returns true ONLY when (a) the watched index is a member of <paramref name="unit"/> (the
-        /// camera is following this unit), AND (b) the live member just changed
-        /// (<paramref name="prevSelectedSlot"/> != <paramref name="newSelectedSlot"/>) to a real
-        /// member slot. A chain-loop unit advances its visible ghost at unit-internal segment
-        /// boundaries and at the span wrap WITHOUT the chain-seam PlaybackCompleted handoff (unit
-        /// members `continue` at the loop dispatch), so a watched camera would otherwise stick to a
-        /// now-hidden ghost. When this returns true the engine fires
-        /// <c>CameraActionType.UnitHandoffRetarget</c> carrying the new live member index, and the
-        /// host transfers the camera to it. Pure; the FlightCamera transfer itself is verified
-        /// in-game (P8). Both -1 slots (no member / span clock unresolved) and a same-slot frame
-        /// return false so the handoff fires once per boundary, not every frame.
+        /// Under the shared-clock concurrent model there is no single "selected" member - every
+        /// member renders when the clock is in its own window. The camera follows ONE watched
+        /// member; when the shared clock leaves that member's window it stops rendering, so the
+        /// camera must move to a member that IS still rendering this frame. Returns true ONLY when
+        /// (a) the watched index is a member of <paramref name="unit"/> (the camera is following this
+        /// unit), AND (b) the watched member was rendering last frame
+        /// (<paramref name="watchedWasRendering"/>) but is NOT rendering this frame
+        /// (<paramref name="watchedIsRendering"/> == false), AND (c) there is a different live member
+        /// to retarget to (<paramref name="newLiveMemberIndex"/> &gt;= 0). When this returns true the
+        /// engine fires <c>CameraActionType.UnitHandoffRetarget</c> carrying
+        /// <paramref name="newLiveMemberIndex"/> and the host transfers the camera. Pure; the
+        /// FlightCamera transfer itself is verified in-game. Returns false while the watched member
+        /// is still rendering (steady state), and when no live member exists (the inter-cycle wait /
+        /// a gap), so the camera holds its current anchor rather than yanking to nothing.
         /// </summary>
         internal static bool ShouldRetargetWatchOnUnitHandoff(
-            int watchedIndex, int prevSelectedSlot, int newSelectedSlot, LoopUnit unit)
+            int watchedIndex, bool watchedWasRendering, bool watchedIsRendering,
+            int newLiveMemberIndex, LoopUnit unit)
         {
             if (watchedIndex < 0)
                 return false;
@@ -1190,9 +1142,12 @@ namespace Parsek
             }
             if (!watchingThisUnit)
                 return false;
-            // The live member must have actually changed to a real slot (not a gap / unresolved
-            // clock, and not the same member as last frame).
-            if (newSelectedSlot < 0 || prevSelectedSlot == newSelectedSlot)
+            // Only fire on the transition from "watched member rendering" to "watched member no
+            // longer rendering" (its window just ended), and only when there is a real different
+            // live member to move to. Steady state (still rendering) and "nothing live" hold.
+            if (!watchedWasRendering || watchedIsRendering)
+                return false;
+            if (newLiveMemberIndex < 0 || newLiveMemberIndex == watchedIndex)
                 return false;
             return true;
         }

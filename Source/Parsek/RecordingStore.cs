@@ -5008,21 +5008,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Detects chain-loop units by CHRONOLOGICAL ADJACENCY: within one tree, every maximal
-        /// connected component (>= 2 members) of unit-eligible recordings whose [StartUT, EndUT]
-        /// windows are back-to-back (overlapping or touching within
-        /// <see cref="LoopTiming.BoundaryEpsilon"/>) becomes one virtual recording that loops over
-        /// its whole span instead of each member relaunching on the flat global stagger. This is
-        /// the playtest fix: a real mission stored as separate recordings that do NOT share a
-        /// ChainId (e.g. a launch recording with no ChainId followed by a separate descent chain)
-        /// is still contiguous in time, so it now loops as one sequence. Grouping no longer keys
-        /// off ChainId. See docs/dev/design-chain-sequential-auto-loop.md.
+        /// Detects loop units per mission tree using the MAIN-LINK-RUN model. A "mission" is a
+        /// recording tree: it has a MAIN through-line (the primary vessel's launch -> ... -> descent
+        /// recordings) plus SECONDARY recordings (debris / probes that separated and play in
+        /// parallel). A unit is a maximal run of >= 2 CONSECUTIVE main links (adjacent in StartUT
+        /// order) that are ALL loop+auto+renderable, PLUS every secondary that loops+auto and whose
+        /// window overlaps the run's span (ride-along debris). The whole unit plays on ONE shared
+        /// mission clock so debris replay alongside their parent exactly like a rewind.
         ///
-        /// A recording is unit-eligible iff: <c>LoopPlayback</c> AND
-        /// <c>LoopTimeUnit == Auto</c> AND <c>Points.Count >= 2</c> AND <c>ChainBranch == 0</c>
-        /// (primary path only) AND <c>ParentAnchorRecordingId == null</c> (parent-anchored
-        /// side-tracks like debris / EVA run concurrently, not in sequence) AND a non-empty
-        /// <c>TreeId</c> with a positive-duration window.
+        /// There is NO UT-contiguity requirement between main links: gaps between consecutive main
+        /// links are fine (this was the v1 bug - the old code required windows to touch). What
+        /// breaks a run is a main link that is missing loop+auto+renderable. Secondaries NEVER break
+        /// a run: a secondary without loop+auto is simply omitted (not rendered) and does not affect
+        /// the chain.
+        ///
+        /// - MAIN link = <c>IsDebris == false</c> AND <c>ParentAnchorRecordingId == null</c> AND
+        ///   <c>ChainBranch == 0</c> (the primary-vessel through-line).
+        /// - SECONDARY = everything else in the tree (debris, probes, loose/orphan debris).
+        /// - Main link is RUN-eligible iff (it is a main link) AND <c>LoopPlayback</c> AND
+        ///   <c>LoopTimeUnit == Auto</c> AND a renderable window (<c>Points.Count >= 2</c> and a
+        ///   positive-duration window). A main link missing loop+auto+renderable BREAKS the run.
+        /// - Ride-along SECONDARY iff it loops+auto with a renderable window AND its
+        ///   <c>[StartUT, EndUT]</c> overlaps the run's span.
+        ///
+        /// cadence = max(autoInterval n, span, MinCycleDuration): the whole chain always plays
+        /// fully; if n > span there is a wait between cycles, if n &lt;= span it plays back-to-back.
+        /// n = the resolved global "Auto-launch every N" value (<paramref name="globalAutoIntervalSeconds"/>).
         ///
         /// Pure with respect to Unity: reads only Recording fields off the supplied list, keyed
         /// by committed-list index (the index-alignment invariant the descriptors rely on).
@@ -5031,57 +5042,45 @@ namespace Parsek
         /// when no unit forms, which keeps the feature dormant for every existing save.
         /// </summary>
         internal static GhostPlaybackLogic.LoopUnitSet DetectChainLoopUnits(
-            IReadOnlyList<Recording> recordings)
+            IReadOnlyList<Recording> recordings,
+            double globalAutoIntervalSeconds = LoopTiming.DefaultLoopIntervalSeconds)
         {
             if (recordings == null || recordings.Count < 2)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
             // Dormant-path fast-out (efficiency): this runs every frame from both the flight scene
-            // and KSC, but the overwhelmingly common save has < 2 unit-eligible recordings. A unit
-            // needs >= 2 unit-eligible members, and only unit-eligible recordings ever feed the
-            // per-tree grouping (and its per-component diagnostics) below. So when fewer than 2
-            // unit-eligible recordings exist the whole detection is a guaranteed no-op. Skip
-            // straight to Empty in that case via this cheap O(n) pre-scan with no allocation
-            // (bails as soon as a second eligible recording is seen). Any save with two or more
-            // eligible recordings falls through to the full detection unchanged.
-            int eligibleSeen = 0;
+            // and KSC, but the overwhelmingly common save has < 2 run-eligible MAIN links. A unit
+            // needs a run of >= 2 consecutive run-eligible main links. So when fewer than 2
+            // run-eligible main links exist the whole detection is a guaranteed no-op (a single main
+            // link is not a unit; secondaries only ride along, never seed a unit). Skip straight to
+            // Empty in that case via this cheap O(n) pre-scan with no allocation (bails as soon as a
+            // second run-eligible main link is seen).
+            int mainEligibleSeen = 0;
             for (int i = 0; i < recordings.Count; i++)
             {
-                if (IsUnitEligible(recordings[i], out _))
+                if (IsRunEligibleMainLink(recordings[i], out _))
                 {
-                    eligibleSeen++;
-                    if (eligibleSeen >= 2)
+                    mainEligibleSeen++;
+                    if (mainEligibleSeen >= 2)
                         break;
                 }
             }
-            if (eligibleSeen < 2)
+            if (mainEligibleSeen < 2)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
-            // Group unit-eligible committed indices by TreeId; skip ineligible recordings.
-            // Dictionary preserves the tree key for deterministic per-tree processing. A
-            // null/empty TreeId is treated as ineligible (in always-tree mode every recording
-            // carries a TreeId; a missing one cannot form a connected component anyway).
+            // Group every recording by TreeId so each mission's main links and secondaries are
+            // detected together. A null/empty TreeId cannot belong to a mission (in always-tree
+            // mode every recording carries a TreeId), so those are skipped entirely.
             var indicesByTree = new Dictionary<string, List<int>>(StringComparer.Ordinal);
             for (int i = 0; i < recordings.Count; i++)
             {
-                if (!IsUnitEligible(recordings[i], out string reason))
-                {
-                    // Log only ELIGIBILITY rejections that the player can act on (a recording that
-                    // could have joined but for one disqualifier). Skip the noisy not-looping /
-                    // not-auto / null-tree cases that simply never opt in.
-                    if (reason == "member-zero-duration")
-                    {
-                        ParsekLog.Verbose("Loop",
-                            $"recIdx={i} (ChainIndex={recordings[i]?.ChainIndex}) not a unit: {reason}");
-                    }
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.TreeId))
                     continue;
-                }
-
-                string treeId = recordings[i].TreeId;
-                if (!indicesByTree.TryGetValue(treeId, out var list))
+                if (!indicesByTree.TryGetValue(rec.TreeId, out var list))
                 {
                     list = new List<int>();
-                    indicesByTree[treeId] = list;
+                    indicesByTree[rec.TreeId] = list;
                 }
                 list.Add(i);
             }
@@ -5096,42 +5095,43 @@ namespace Parsek
                 string treeId = kvp.Key;
                 List<int> treeIndices = kvp.Value;
 
-                // Sort by StartUT (tie-break by committed index) so a single forward sweep finds
-                // every maximal UT-interval-connected component.
-                treeIndices.Sort((a, b) =>
+                // Collect this tree's MAIN links in StartUT order (tie-break by committed index).
+                // Secondaries are not in this list; they ride along after a run is built.
+                var mainLinks = new List<int>();
+                for (int t = 0; t < treeIndices.Count; t++)
+                {
+                    if (IsMainLink(recordings[treeIndices[t]]))
+                        mainLinks.Add(treeIndices[t]);
+                }
+                mainLinks.Sort((a, b) =>
                 {
                     int c = recordings[a].StartUT.CompareTo(recordings[b].StartUT);
                     return c != 0 ? c : a.CompareTo(b);
                 });
 
-                // Connected-component sweep: extend the current run while the next member's
-                // StartUT touches/overlaps the running max EndUT (within BoundaryEpsilon). A UT
-                // gap larger than the epsilon closes the run and starts a new component.
+                // Consecutive-run sweep over the sorted main links: extend the current run while the
+                // next main link is run-eligible (loop+auto+renderable). A run-INELIGIBLE main link
+                // BREAKS the run (no UT-contiguity requirement - gaps between consecutive main links
+                // are fine). Each run of >= 2 main links forms a unit.
                 var currentRun = new List<int>();
-                double runMaxEndUT = double.NegativeInfinity;
-                for (int k = 0; k <= treeIndices.Count; k++)
+                for (int k = 0; k <= mainLinks.Count; k++)
                 {
-                    bool atEnd = k == treeIndices.Count;
-                    int committedIdx = atEnd ? -1 : treeIndices[k];
+                    bool atEnd = k == mainLinks.Count;
+                    int mainIdx = atEnd ? -1 : mainLinks[k];
 
-                    bool connected = !atEnd
-                        && (currentRun.Count == 0
-                            || recordings[committedIdx].StartUT
-                                <= runMaxEndUT + LoopTiming.BoundaryEpsilon);
+                    bool eligible = !atEnd && IsRunEligibleMainLink(recordings[mainIdx], out _);
 
-                    if (connected)
+                    if (eligible)
                     {
-                        currentRun.Add(committedIdx);
-                        double endUT = recordings[committedIdx].EndUT;
-                        if (endUT > runMaxEndUT)
-                            runMaxEndUT = endUT;
+                        currentRun.Add(mainIdx);
                         continue;
                     }
 
-                    // Member is non-contiguous (gap) or we reached the end: close out the run.
+                    // A run-ineligible main link (or end of the list) closes out the current run.
                     if (currentRun.Count >= 2)
                     {
-                        var unit = BuildLoopUnit(recordings, currentRun);
+                        var unit = BuildLoopUnit(
+                            recordings, treeIndices, currentRun, globalAutoIntervalSeconds);
                         unitsByOwner[unit.OwnerIndex] = unit;
                         for (int m = 0; m < unit.MemberIndices.Length; m++)
                             ownerByIndex[unit.MemberIndices[m]] = unit.OwnerIndex;
@@ -5139,8 +5139,7 @@ namespace Parsek
                     }
                     else if (currentRun.Count == 1)
                     {
-                        // A lone eligible member is not a unit (the UT gap to its neighbor, or no
-                        // neighbor at all, isolated it).
+                        // A lone run-eligible main link is not a unit (it loops standalone as today).
                         runsRejected++;
                         ParsekLog.Verbose("Loop",
                             $"tree {treeId} run [{currentRun[0]}..{currentRun[0]}] " +
@@ -5149,25 +5148,16 @@ namespace Parsek
 
                     if (!atEnd)
                     {
-                        // Log the non-contiguous break (the UT gap is why the prior run did not
-                        // absorb this member). Helps answer "why didn't these loop as one".
-                        if (currentRun.Count > 0)
-                        {
-                            ParsekLog.Verbose("Loop",
-                                $"tree {treeId} member recIdx={committedIdx} " +
-                                $"(StartUT={recordings[committedIdx].StartUT.ToString("R", CultureInfo.InvariantCulture)}) " +
-                                "not contiguous: UT gap");
-                        }
+                        // Log WHY the run broke (this main link is not loop+auto+renderable). Helps
+                        // answer "why didn't these loop as one".
+                        IsRunEligibleMainLink(recordings[mainIdx], out string breakReason);
+                        ParsekLog.Verbose("Loop",
+                            $"tree {treeId} main link recIdx={mainIdx} " +
+                            $"(StartUT={recordings[mainIdx].StartUT.ToString("R", CultureInfo.InvariantCulture)}) " +
+                            $"breaks run: {breakReason}");
+                    }
 
-                        // Start a new component at this member.
-                        currentRun.Clear();
-                        currentRun.Add(committedIdx);
-                        runMaxEndUT = recordings[committedIdx].EndUT;
-                    }
-                    else
-                    {
-                        currentRun.Clear();
-                    }
+                    currentRun.Clear();
                 }
             }
 
@@ -5198,21 +5188,39 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True if a recording can be a member of a chain-loop unit: loop-enabled, period auto,
-        /// at least two trajectory points and a positive-duration window, on the primary path
-        /// (ChainBranch == 0), NOT parent-anchored (parent-anchored side-tracks like debris / EVA
-        /// run concurrently, not in sequence), and carrying a non-empty TreeId. Eligible
-        /// recordings are then grouped by TreeId and chronological adjacency. <paramref name="reason"/>
-        /// is one of the design's reason strings (member-not-looping / member-not-auto /
-        /// member-zero-duration / member-branch / member-parent-anchored / member-no-tree) for the
-        /// diagnostic log. Pure.
+        /// True if a recording is a MAIN link: the primary-vessel through-line of its tree. A main
+        /// link is <c>IsDebris == false</c> AND <c>ParentAnchorRecordingId == null</c> AND
+        /// <c>ChainBranch == 0</c>. Everything else in a tree is SECONDARY (debris, probes,
+        /// loose/orphan debris). Loop / period / point-count are NOT checked here - this is the
+        /// structural main-vs-secondary split; run-eligibility (loop+auto+renderable) is a separate
+        /// gate (<see cref="IsRunEligibleMainLink"/>). Pure.
         /// </summary>
-        internal static bool IsUnitEligible(Recording rec, out string reason)
+        internal static bool IsMainLink(Recording rec)
+        {
+            return rec != null
+                && !rec.IsDebris
+                && rec.ParentAnchorRecordingId == null
+                && rec.ChainBranch == 0;
+        }
+
+        /// <summary>
+        /// True if a MAIN link can extend a consecutive run: it is a main link AND loop-enabled AND
+        /// period auto AND has a renderable window (>= 2 trajectory points and a positive-duration
+        /// window). A main link missing any of these BREAKS the run. <paramref name="reason"/> is a
+        /// reason string (not-main-link / member-not-looping / member-not-auto / member-zero-duration)
+        /// for the diagnostic log. Pure.
+        /// </summary>
+        internal static bool IsRunEligibleMainLink(Recording rec, out string reason)
         {
             reason = null;
             if (rec == null)
             {
                 reason = "member-null";
+                return false;
+            }
+            if (!IsMainLink(rec))
+            {
+                reason = "not-main-link";
                 return false;
             }
             if (!rec.LoopPlayback)
@@ -5225,30 +5233,7 @@ namespace Parsek
                 reason = "member-not-auto";
                 return false;
             }
-            if (rec.ChainBranch != 0)
-            {
-                // Parallel ghost-only continuations never join a primary-path unit.
-                reason = "member-branch";
-                return false;
-            }
-            if (rec.ParentAnchorRecordingId != null)
-            {
-                // Debris / EVA / controlled-decoupled children run alongside their parent, not in
-                // a back-to-back sequence; they must not tile a unit span.
-                reason = "member-parent-anchored";
-                return false;
-            }
-            if (string.IsNullOrEmpty(rec.TreeId))
-            {
-                reason = "member-no-tree";
-                return false;
-            }
-            if (rec.Points == null || rec.Points.Count < 2)
-            {
-                reason = "member-zero-duration";
-                return false;
-            }
-            if (rec.EndUT - rec.StartUT <= 0)
+            if (!HasRenderableWindow(rec))
             {
                 reason = "member-zero-duration";
                 return false;
@@ -5257,27 +5242,95 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Builds a <see cref="GhostPlaybackLogic.LoopUnit"/> from a connected component of >= 2
-        /// unit-eligible committed indices sorted by StartUT. Span = min StartUT..max EndUT;
-        /// cadence = span duration clamped to MinCycleDuration (edge 14, the clamp also lives in
-        /// the span-clock helper); owner = the lowest-StartUT (first) member's index (tie-broken
-        /// by the committed-index sort).
+        /// True if a SECONDARY recording can ride along with a unit: it loops+auto with a renderable
+        /// window. Overlap against the run span is checked at the call site. A secondary WITHOUT
+        /// loop+auto is simply omitted (not rendered) and does NOT affect the chain. Pure.
+        /// </summary>
+        internal static bool IsRideAlongSecondary(Recording rec)
+        {
+            return rec != null
+                && !IsMainLink(rec)
+                && rec.LoopPlayback
+                && rec.LoopTimeUnit == LoopTimeUnit.Auto
+                && HasRenderableWindow(rec);
+        }
+
+        /// <summary>True if a recording has a renderable window (>= 2 points, positive duration). Pure.</summary>
+        private static bool HasRenderableWindow(Recording rec)
+        {
+            return rec != null
+                && rec.Points != null
+                && rec.Points.Count >= 2
+                && rec.EndUT - rec.StartUT > 0;
+        }
+
+        /// <summary>
+        /// Builds a <see cref="GhostPlaybackLogic.LoopUnit"/> from a run of >= 2 consecutive
+        /// run-eligible MAIN links (in StartUT order) plus every ride-along SECONDARY in the same
+        /// tree whose window overlaps the run span. Member set = the run's main links + ride-along
+        /// secondaries (sorted by StartUT, tie-broken by committed index). Span = min StartUT..max
+        /// EndUT over ALL members (so a debris tail extends the span). cadence =
+        /// max(autoInterval n, span, MinCycleDuration). owner = the earliest main link in the run.
         /// </summary>
         private static GhostPlaybackLogic.LoopUnit BuildLoopUnit(
-            IReadOnlyList<Recording> recordings, List<int> runIndices)
+            IReadOnlyList<Recording> recordings, List<int> treeIndices, List<int> runIndices,
+            double globalAutoIntervalSeconds)
         {
+            // Owner = earliest main link in the run (runIndices is already in StartUT order).
             int ownerIndex = runIndices[0];
-            double spanStartUT = recordings[runIndices[0]].StartUT;
-            double spanEndUT = double.NegativeInfinity;
+
+            // The run span over the MAIN links only is what ride-along secondaries are tested against
+            // (a secondary rides along if its window overlaps the run's main-link span).
+            double runSpanStart = recordings[runIndices[0]].StartUT;
+            double runSpanEnd = double.NegativeInfinity;
             for (int m = 0; m < runIndices.Count; m++)
             {
                 double endUT = recordings[runIndices[m]].EndUT;
-                if (endUT > spanEndUT)
-                    spanEndUT = endUT;
+                if (endUT > runSpanEnd)
+                    runSpanEnd = endUT;
             }
-            double cadenceSeconds = Math.Max(spanEndUT - spanStartUT, LoopTiming.MinCycleDuration);
+
+            // Members = the run's main links + ride-along secondaries (overlap the run span).
+            var members = new List<int>(runIndices);
+            for (int t = 0; t < treeIndices.Count; t++)
+            {
+                int idx = treeIndices[t];
+                var rec = recordings[idx];
+                if (!IsRideAlongSecondary(rec))
+                    continue;
+                // Overlap test: [StartUT, EndUT] intersects [runSpanStart, runSpanEnd].
+                if (rec.EndUT >= runSpanStart - LoopTiming.BoundaryEpsilon
+                    && rec.StartUT <= runSpanEnd + LoopTiming.BoundaryEpsilon)
+                {
+                    members.Add(idx);
+                }
+            }
+
+            // Sort members by StartUT (tie-break by committed index) for a deterministic order.
+            members.Sort((a, b) =>
+            {
+                int c = recordings[a].StartUT.CompareTo(recordings[b].StartUT);
+                return c != 0 ? c : a.CompareTo(b);
+            });
+
+            // Span = min StartUT..max EndUT over ALL members (ride-along debris can extend it).
+            double spanStartUT = double.PositiveInfinity;
+            double spanEndUT = double.NegativeInfinity;
+            for (int m = 0; m < members.Count; m++)
+            {
+                double startUT = recordings[members[m]].StartUT;
+                double endUT = recordings[members[m]].EndUT;
+                if (startUT < spanStartUT) spanStartUT = startUT;
+                if (endUT > spanEndUT) spanEndUT = endUT;
+            }
+
+            double span = spanEndUT - spanStartUT;
+            // cadence = max(autoInterval n, span, MinCycleDuration): play the whole chain fully; if
+            // n > span there is a wait between cycles, if n <= span it plays back-to-back.
+            double cadenceSeconds = Math.Max(
+                Math.Max(globalAutoIntervalSeconds, span), LoopTiming.MinCycleDuration);
             return new GhostPlaybackLogic.LoopUnit(
-                ownerIndex, runIndices.ToArray(), spanStartUT, spanEndUT, cadenceSeconds);
+                ownerIndex, members.ToArray(), spanStartUT, spanEndUT, cadenceSeconds);
         }
 
         // ─── Group management helpers ────────────────────────────────────────

@@ -1,14 +1,16 @@
 # Design: Chain-Sequential Auto Looping
 
-*When two or more recordings in the same tree are back-to-back in time (their UT
-windows are contiguous or overlapping) and loop-enabled with period set to
-`auto`, they should loop as a single unit: the end of one segment syncs with the
-start of the next, and the whole multi-segment span loops back to the beginning.
-The mission looks like one continuous looping flight, not a set of independently
-relaunching ghosts. Grouping is by chronological adjacency, NOT by a shared
-`ChainId`: a real flight (launch rocket -> descent capsule) is often stored as
-separate recordings that do not share a `ChainId`, yet they tile the same
-mission window and must loop as one sequence.*
+*A mission is a recording tree: a MAIN through-line (the primary vessel's
+launch -> ... -> descent recordings) plus SECONDARY recordings (debris and
+probes that separated and play in parallel). When two or more CONSECUTIVE main
+links of a mission are loop-enabled with period `auto`, they loop as a single
+unit on one shared mission clock: the end of one segment runs into the start of
+the next and the whole multi-segment span loops back to the beginning, with the
+ride-along debris of that mission replaying alongside their parents exactly like
+a rewind. The mission looks like one continuous looping flight (vessel plus its
+debris), not a set of independently relaunching ghosts. There is NO requirement
+that the main links be contiguous in UT: gaps between them are fine. A main link
+missing loop+auto breaks the run; secondaries never break it.*
 
 ---
 
@@ -30,10 +32,12 @@ chain membership. Two consecutive chain members therefore do NOT sync end-to-
 start. A 5-second segment and a 200-second segment get the same 10s gap, the
 segments overlap or drift apart, and the chain stops reading as one flight.
 
-What the player wants: set the segments of a chain to loop + `auto`, and have
-the chain replay as a single looping unit. Segment N+1 begins exactly when
-segment N ends; when the last segment ends, the unit wraps to the first
-segment's start. The whole flight loops, not each piece.
+What the player wants: set the main links of a mission to loop + `auto`, and have
+the mission replay as a single looping unit on one shared clock. The main line
+advances through its segments (gaps between them are fine), the mission's debris
+replay alongside their parents (like a rewind), and when the span ends the unit
+wraps (or waits for the cadence and then wraps). The whole mission loops, not
+each piece.
 
 This is a player-facing playback-quality feature. It makes looped chains
 (launch -> ascent -> stage -> orbit, captured as a chain) look like the
@@ -44,36 +48,46 @@ of mistimed relaunches.
 
 ## Terminology
 
-- **Tree**: a set of recordings sharing a `TreeId` (always-tree mode gives every
-  recording one), capturing one mission. A tree can contain several chains and
-  chainless recordings; grouping into loop units is scoped per tree.
-- **Chain**: a set of recordings sharing a `ChainId`, ordered by `ChainIndex`,
-  capturing one continuous flight split into segments. `ChainBranch == 0` is the
-  primary path; `ChainBranch > 0` are parallel ghost-only continuations. NOTE:
-  `ChainId` no longer drives loop-unit grouping (chronological adjacency does);
-  `ChainBranch` is still read (branch > 0 members are ineligible).
-- **Unit-eligible recording**: a recording that can join a loop unit. ALL of:
-  `LoopPlayback`, `LoopTimeUnit == Auto`, `Points.Count >= 2` (positive
-  duration), `ChainBranch == 0` (primary path), `ParentAnchorRecordingId == null`
-  (NOT a parent-anchored side-track like debris / EVA, which run concurrently
-  with the parent rather than in sequence), and a non-empty `TreeId`.
-- **Chain-loop unit** (new): a maximal connected component (>= 2 members) of
-  unit-eligible recordings, within one tree, whose `[StartUT, EndUT]` windows are
-  back-to-back in time (overlapping or touching within `BoundaryEpsilon`). The
-  unit is the thing that loops as a whole. (The name is historical; grouping is
-  by chronological adjacency, not `ChainId`.)
+- **Tree / Mission**: a set of recordings sharing a `TreeId` (always-tree mode
+  gives every recording one), capturing one mission. A mission has a MAIN
+  through-line plus SECONDARY recordings; loop-unit detection is scoped per tree.
+- **MAIN link**: a recording on the primary-vessel through-line of its tree:
+  `IsDebris == false` AND `ParentAnchorRecordingId == null` AND
+  `ChainBranch == 0`. The main links, sorted by `StartUT`, are the launch ->
+  ... -> descent sequence of the primary vessel.
+- **SECONDARY**: everything else in the tree (`IsDebris == true` OR
+  `ParentAnchorRecordingId != null` OR `ChainBranch > 0`): debris, probes,
+  controlled-decoupled children, loose/orphan debris, parallel ghost-only
+  continuations. Secondaries play in PARALLEL with the main line, not in sequence.
+- **Run-eligible main link**: a main link that can extend a run: `LoopPlayback`
+  AND `LoopTimeUnit == Auto` AND a renderable window (`Points.Count >= 2` and
+  positive duration). A main link missing any of these BREAKS the run.
+- **Ride-along secondary**: a secondary that loops + auto with a renderable
+  window AND whose `[StartUT, EndUT]` overlaps the run span. It rides along as a
+  unit member (replays alongside its parent). A secondary WITHOUT loop+auto is
+  simply omitted (not rendered) and does NOT affect the chain.
+- **Loop unit** (formerly "chain-loop unit"): a maximal run of >= 2 CONSECUTIVE
+  run-eligible main links (adjacent in `StartUT` order; UT gaps between them are
+  fine, no contiguity requirement) PLUS its ride-along secondaries. The unit is
+  the thing that loops as a whole.
 - **Unit span**: `[spanStart, spanEnd]` = the minimum `StartUT` to the maximum
-  `EndUT` across the unit's members. The shared loop clock walks this span.
-- **Span loop clock**: a single loop phase computed over the unit span. At any
-  real UT, it resolves to a `loopUT` inside `[spanStart, spanEnd]`. Exactly one
-  member (the one whose recorded sub-window covers `loopUT`) is rendered.
-- **Unit anchor / owner**: the member with the lowest `StartUT` in the unit
-  (tie-broken by committed index). It owns the span loop clock; the other members
-  read it. (An implementation detail surfaced here only because the data model
-  below references it.)
+  `EndUT` across ALL the unit's members (so a ride-along debris tail can extend
+  it). The shared mission clock walks this span.
+- **Shared mission clock**: a single loop phase computed over the unit span via
+  `TryComputeSpanLoopUT`. At any real UT it resolves to a `loopUT` inside
+  `[spanStart, spanEnd]`, the unit cycle index, and an `isInInterCycleTail` flag.
+  Each member renders independently when `loopUT` is inside its OWN
+  `[StartUT, EndUT]` (so multiple members render concurrently, like a rewind);
+  during the inter-cycle tail-wait every member hides.
+- **Cadence**: the unit's launch-to-launch period = `max(autoInterval n, span,
+  MinCycleDuration)`, where `n` is the resolved global "Auto-launch every N"
+  value. If `n > span` there is a wait between cycles (the inter-cycle tail); if
+  `n <= span` the unit plays back-to-back (no mid-mission overlap in v1).
+- **Unit anchor / owner**: the earliest (lowest-`StartUT`) MAIN link in the run
+  (tie-broken by committed index). It owns the shared clock.
 - **Global launch queue**: today's flat, save-wide auto stagger
   (`AutoLoopLaunchSchedule`). Standalone auto-looped recordings keep using it;
-  chain-loop units are removed from it.
+  loop-unit members are removed from it.
 
 This document uses "auto" for `LoopTimeUnit.Auto` and "manual period" for
 `Sec`/`Min`/`Hour`.
@@ -94,25 +108,28 @@ Global auto stagger (current), gap = 10s, 3 recordings:
   C:            |====C====|     |====C====|          (offset 20s, overlaps next A)
 ```
 
-With a chain-loop unit, the contiguous auto-looped run of a chain becomes one
-virtual recording that loops over its whole span. A single clock walks
-`spanStart -> spanEnd` and wraps. Whichever member's recorded window contains the
-clock position is the visible ghost; the others are hidden. Members are
-contiguous, so exactly one is visible at a time and the visible ghost changes
-exactly at each segment boundary.
+With a loop unit, the consecutive auto-looped run of a mission's MAIN links plus
+its ride-along debris becomes one virtual recording that loops over its whole
+span. A single shared mission clock walks `spanStart -> spanEnd` and wraps. Each
+member renders independently when the clock is inside its OWN recorded window;
+when the clock is outside that member's window, that member is hidden. Main links
+typically tile the span (one main vessel visible at a time), while debris render
+CONCURRENTLY with their parent main link, exactly like a rewind.
 
 ```
-Chain-loop unit (new): members A,B,C contiguous, span = [t0, t3]:
+Loop unit (new): main links A,B,C, debris D rides along, span = [t0, t3]:
 
-  unit clock:  t0====t1====t2========t3 | t0====t1====t2========t3 | ...
-  visible:     [==A==][=B=][===C====]    [==A==][=B=][===C====]
-               ^seg boundary handoffs    ^wrap: t3 end syncs to t0 start
+  shared clock:  t0====t1====t2========t3 | t0====t1====t2========t3 | ...
+  main visible:  [==A==][=B=][===C====]    [==A==][=B=][===C====]
+  debris D:          [==D==]                   [==D==]   <- alongside its parent
+                 ^main-link handoffs           ^wrap: t3 end syncs to t0 start
 ```
 
-The unit cadence (launch-to-launch period of the whole unit) defaults to the
-span duration `spanEnd - spanStart`, so cycles are back-to-back: no gap, no
-overlap, seamless wrap. That is the literal meaning of "the whole segment is
-looped."
+cadence = `max(autoInterval n, span, MinCycleDuration)`. When `n <= span` the
+cycles are back-to-back (no gap, seamless wrap). When `n > span` there is a WAIT
+between cycles (the inter-cycle tail): the mission plays fully, then ALL members
+hide until the next dispatch `n` seconds after the cycle started. There is no
+mid-mission overlap in v1.
 
 The loop-synced-debris mechanism (`LoopSyncParentIdx` /
 `TryUpdateLoopSyncedDebris`) is conceptual inspiration, NOT a code path we can
@@ -173,17 +190,18 @@ trajectory list on both sides. Unit descriptors are keyed by this shared index.
 ### Existing fields detection reads (all already serialized)
 
 ```
-Recording.TreeId                  string        // grouping scope (one tree's recordings)
-Recording.LoopPlayback            bool          // must be true for every member of a unit
-Recording.LoopTimeUnit            LoopTimeUnit  // must be Auto for every member of a unit
-Recording.ChainBranch             int           // 0 = primary path (only branch 0 is eligible)
-Recording.ParentAnchorRecordingId string        // null = top-level; non-null = side-track (ineligible)
-Recording.StartUT/EndUT           double        // member window; UT-interval connectivity + span
+Recording.TreeId                  string        // mission scope (one tree's recordings)
+Recording.IsDebris                bool          // false on a MAIN link
+Recording.ParentAnchorRecordingId string        // null on a MAIN link; non-null = secondary
+Recording.ChainBranch             int           // 0 on a MAIN link; >0 = parallel continuation (secondary)
+Recording.LoopPlayback            bool          // must be true for a run-eligible member
+Recording.LoopTimeUnit            LoopTimeUnit  // must be Auto for a run-eligible member
+Recording.StartUT/EndUT           double        // member window; run ordering, ride-along overlap, span
 ```
 
-`Recording.ChainId` / `Recording.ChainIndex` are NO LONGER read by detection
-(grouping is by `TreeId` + chronological adjacency). They remain on the recording
-for chain topology / non-loop chain playback.
+`Recording.ChainId` / `Recording.ChainIndex` are NOT read by detection (the
+main-vs-secondary split is structural, and the run is by `StartUT` order). They
+remain on the recording for chain topology / non-loop chain playback.
 
 ### New transient types (not persisted)
 
@@ -191,11 +209,11 @@ Host-built descriptor, one per unit, keyed by owner index:
 
 ```
 struct LoopUnit {
-    int    ownerIndex;       // lowest-StartUT member's committed/trajectory index
-    int[]  memberIndices;    // committed indices of all members, StartUT order
+    int    ownerIndex;       // earliest MAIN link's committed/trajectory index
+    int[]  memberIndices;    // committed indices of all members (main + ride-along), StartUT order
     double spanStartUT;      // min member StartUT
-    double spanEndUT;        // max member EndUT
-    double cadenceSeconds;   // v1: spanEndUT - spanStartUT (seamless wrap), clamped to MinCycleDuration
+    double spanEndUT;        // max member EndUT (a ride-along debris tail can extend it)
+    double cadenceSeconds;   // max(autoInterval n, span, MinCycleDuration)
 }
 ```
 
@@ -216,28 +234,32 @@ belongs in transient engine state, not on the persisted recording.
 
 ### Detection (host-side helper `RecordingStore.DetectChainLoopUnits`)
 
-Grouping is by chronological adjacency, scoped per tree:
+The MAIN-LINK-RUN model, scoped per tree (`globalAutoIntervalSeconds` = the
+resolved global "Auto-launch every N" value, passed in by both callers):
 
-1. Filter to unit-eligible recordings (see Terminology: `LoopPlayback` AND
-   `LoopTimeUnit == Auto` AND `Points.Count >= 2` AND positive duration AND
-   `ChainBranch == 0` AND `ParentAnchorRecordingId == null` AND non-empty
-   `TreeId`). A dormant fast-out returns `Empty` when fewer than 2 eligible
-   recordings exist (the common save), with no allocation.
-2. Group eligible indices by `TreeId`.
-3. Within each tree, sort by `StartUT` (tie-break by committed index) and sweep:
-   start a run, keep extending while the next member's
-   `StartUT <= currentRunMaxEndUT + BoundaryEpsilon` (tracking the running max
-   `EndUT`); a larger UT gap closes the run and starts a new connected component.
-4. Each connected component with >= 2 members becomes one `LoopUnit`:
-   `ownerIndex` = lowest-`StartUT` member, `memberIndices` = members sorted by
-   `StartUT`, `spanStartUT` = min `StartUT`, `spanEndUT` = max `EndUT`,
-   `cadenceSeconds` = span duration clamped to `MinCycleDuration`.
+1. Dormant fast-out: return `Empty` when fewer than 2 run-eligible MAIN links
+   exist (the common save), with no allocation. A single main link is not a unit,
+   and secondaries only ride along, so this is a guaranteed no-op.
+2. Group every recording by `TreeId` (a null/empty `TreeId` cannot belong to a
+   mission, so it is skipped).
+3. Within each tree, collect the MAIN links (`IsMainLink`) sorted by `StartUT`
+   (tie-break by committed index). Sweep them: extend the current run while the
+   next main link is run-eligible (loop+auto+renderable). A run-INELIGIBLE main
+   link BREAKS the run (there is NO UT-contiguity requirement: gaps between
+   consecutive main links are fine). Each run of >= 2 main links forms a unit.
+4. For each run of >= 2 main links, build a `LoopUnit`:
+   - `ownerIndex` = the earliest main link in the run.
+   - Members = the run's main links + every ride-along SECONDARY in the same tree
+     (`IsRideAlongSecondary`: loops+auto+renderable) whose `[StartUT, EndUT]`
+     overlaps the run's main-link span. Members are sorted by `StartUT`.
+   - `spanStartUT` = min `StartUT`, `spanEndUT` = max `EndUT` over ALL members
+     (so a ride-along debris tail can extend the span).
+   - `cadenceSeconds` = `max(globalAutoIntervalSeconds, span, MinCycleDuration)`.
 
 Members not in any unit are absent from `loopUnitOwnerByIdx` and behave exactly as
-today. Two recordings with different (or no) `ChainId` but contiguous UT windows
-in the same tree DO form one unit (the playtest fix). Overlapping eligible
-recordings within a tree still join the same component (concurrent, not tiling);
-the span clock's overlap precedence already handles which renders.
+today. Two main links with different (or no) `ChainId` but consecutive in
+`StartUT` order in the same tree DO form one unit. Secondaries without loop+auto
+are omitted (not rendered) and never affect the run.
 
 ---
 
@@ -263,23 +285,31 @@ the span clock's overlap precedence already handles which renders.
   dispatch that would otherwise route each looping recording onto its own clock.
   If the current index is a unit member, it is routed through the span clock and
   the standalone loop path is skipped for it.
-- A new pure helper (in `GhostPlaybackLogic`, alongside the existing loop-phase
-  math) computes the span loop phase: given `currentUT`, `spanStartUT`,
-  `spanEndUT`, and `cadenceSeconds`, it returns a `loopUT` inside
-  `[spanStart, spanEnd]` plus the unit cycle index. v1 cadence = span duration,
-  so the wrap from `spanEnd` back to `spanStart` is seamless. The cadence is
-  clamped to `LoopTiming.MinCycleDuration` inside this helper (the span clock
-  does NOT get `ResolveLoopInterval`'s clamp for free). The helper also returns
-  `isInInterCycleTail` (always false for the loop feature since cadence = span)
-  so future `cadence > span` producers can hide the ghost during the parked tail
-  instead of freezing it at `spanEnd`.
-- Each member renders only when the shared `loopUT` falls in its own
-  `[StartUT, EndUT]`, positioned at `loopUT` via the normal in-range render path.
-  When `loopUT` is outside its window, the member is hidden / destroyed for that
-  frame.
-- Because members tile the span contiguously, exactly one member is visible at a
-  time, and the visible ghost changes exactly at each segment boundary -
-  reproducing the seamless chain handoff under looping.
+- A pure helper (`TryComputeSpanLoopUT` in `GhostPlaybackLogic`, alongside the
+  existing loop-phase math) computes the shared mission clock: given `currentUT`,
+  `spanStartUT`, `spanEndUT`, and `cadenceSeconds`, it returns a `loopUT` inside
+  `[spanStart, spanEnd]`, the unit cycle index, and `isInInterCycleTail`. When
+  `cadence <= span` the wrap from `spanEnd` back to `spanStart` is seamless. When
+  `cadence > span` the phase parks at `spanEnd` for the remainder of the cadence
+  (`isInInterCycleTail == true`): the WAIT between cycles. The cadence is clamped
+  to `LoopTiming.MinCycleDuration` inside this helper (the clock does NOT get
+  `ResolveLoopInterval`'s clamp for free).
+- Each member renders INDEPENDENTLY (no cross-member selection): the pure
+  `DecideUnitMemberRender` checks ONLY whether the shared `loopUT` falls in THIS
+  member's own `[StartUT, EndUT]`. If so it renders at `loopUT` via the normal
+  in-range render path (the same clock-override technique `TryUpdateLoopSyncedDebris`
+  uses); otherwise the member is hidden / destroyed for that frame.
+- During the inter-cycle tail-wait (`isInInterCycleTail`), ALL members hide
+  (render nothing) until the next cycle.
+- Multiple members render CONCURRENTLY: a debris and its parent main link, whose
+  windows overlap, both render at the same `loopUT`, exactly like a rewind. Main
+  links typically tile the span (one main vessel visible at a time) and the
+  visible main ghost changes at each main-link boundary, reproducing the chain
+  handoff under looping. On a cycle wrap the ghosts are rebuilt for a clean state.
+- Same-vessel main-link overlap at a seam (two main links of the same vessel
+  whose windows overlap sub-second from an optimizer split): in v1 BOTH may
+  briefly render for the sliver of overlap (acceptable). Different vessels always
+  render concurrently by design.
 
 ### Tracking-station scheduler (scoped IN)
 
@@ -302,19 +332,22 @@ driven by the engine positioning ghosts, so no third scheduler is involved
 
 ### Cadence / period meaning
 
-- For a chain-loop unit, `auto` means "loop the unit at its natural span"
-  (cadence = span duration). This is intentionally a different resolution of
-  `auto` than the standalone meaning ("relaunch on the global gap"). The two
-  never apply to the same recording at the same time because unit members are
-  removed from the global queue.
+- For a loop unit, cadence = `max(autoInterval n, span, MinCycleDuration)`, where
+  `n` is the global "Auto-launch every N" value. When `n <= span` the unit plays
+  back-to-back (no wait); when `n > span` the unit plays fully, then ALL members
+  hide for the rest of `n` (the inter-cycle wait) before the next cycle. Either
+  way the whole chain always plays in full. This is intentionally a different
+  resolution of `auto` than the standalone meaning ("relaunch on the global
+  gap"). The two never apply to the same recording at once because unit members
+  are removed from the global queue.
 
 ### Interaction with non-unit ghosts
 
 - Standalone auto-looped recordings continue to share the global stagger parade
   among themselves; the unit does not join that parade.
-- Manual-period (`Sec`/`Min`/`Hour`) chain members are never part of a unit and
-  loop independently as today, even if they sit between two auto members (they
-  break the contiguous run).
+- Manual-period (`Sec`/`Min`/`Hour`) main links are never part of a unit and
+  loop independently as today. A manual-period main link sitting between two auto
+  main links BREAKS the run (it is not run-eligible).
 
 ---
 
@@ -322,67 +355,56 @@ driven by the engine positioning ghosts, so no third scheduler is involved
 
 Each: scenario -> expected behavior -> v1 disposition.
 
-1. **Only one eligible member in a tree.** Connected component of size 1. -> Not
-   a unit; behaves exactly as today (global stagger). v1.
-2. **Non-contiguous auto members** (a UT gap between two eligible autos, e.g.
-   because a manual / not-looping member's window sits between them, or an edit
-   left a gap). -> The gap closes the first component and starts a new one; each
-   is length 1; neither forms a unit; both behave as today. The intervening
-   member plays per its own setting. v1.
-3. **Two contiguous autos with different (or no) `ChainId`** (the playtest case:
-   a chainless launch recording followed by a separate descent chain head, tiling
-   the same mission window in one tree). -> They form ONE unit by chronological
-   adjacency. v1, the fix this revision adds.
-4. **An ineligible member (manual period / not looping) between two contiguous
-   autos.** It is removed from the eligible set, leaving a UT gap where its window
-   was. The autos on either side are NOT connected across that gap; each side of
-   length >= 2 is its own unit. v1.
-5. **Adjacent members with overlapping UT windows** (post-optimizer splits
-   routinely leave a sub-second overlap). They join the same connected component
-   (the later member's `StartUT` is within the running max `EndUT`). When `loopUT`
-   is in both member i and i+1 windows, render the higher-`StartUT` member (the
-   later one). This re-applies the same precedence rule as the existing
-   chain-shadow ("continuation is authoritative during overlap"), but it is a
-   small REIMPLEMENTATION inside the span-clock member-selection, not a call into
-   `ChainHandoffLogic.DecideShadow` (that lives on the non-loop path the unit
-   bypasses). v1.
-6. **Gap between member i end and member i+1 start** (UT discontinuity from
-   edits/splits). A gap larger than `BoundaryEpsilon` splits the component (see
-   edge 2), so two eligible autos across a real gap simply form separate
-   length-1 components and do not unitize. Within a single unit's span (members
-   that ARE connected), if `loopUT` lands in a sub-gap no member renders for that
-   sliver, then the next member picks up. -> Accept the brief invisibility. v1.
-7. **A member has < 2 trajectory points / zero duration.** It is ineligible
-   (cannot render a window). If excluding it drops a component below 2, the unit
-   dissolves and the remaining member behaves as today. v1.
-8. **Branch > 0 members** (parallel ghost-only continuations). They are
-   ineligible: units are built over the primary path (branch 0) only, consistent
-   with `GetChainEndUT`. Branch > 0 members play per their own loop setting. v1
-   (defer branch-aware units). Parent-anchored side-tracks
-   (`ParentAnchorRecordingId != null`: debris / EVA / controlled-decoupled
-   children) are likewise ineligible, since they run concurrently with their
-   parent rather than in a back-to-back sequence.
+1. **Only one run-eligible main link in a tree.** Run length 1. -> Not a unit;
+   behaves exactly as today (global stagger). v1.
+2. **Auto main links with a UT gap between them** (an edit left a gap, or a
+   non-overlapping coast). -> The gap is IRRELEVANT: as long as the main links are
+   consecutive and all run-eligible, they form one unit. cadence = `max(n, span)`,
+   so the gap is simply part of the span. v1, the headline fix this revision adds.
+3. **Two auto main links with different (or no) `ChainId`** (a chainless launch
+   recording followed by a separate descent chain head in one tree). -> They form
+   ONE unit (the run is by `StartUT` order, not `ChainId`). v1.
+4. **A non-run-eligible main link (manual period / not looping) between two auto
+   main links.** It BREAKS the run. The main links before and after are then NOT
+   consecutive, so each side of length >= 2 is its own unit; a lone side is not a
+   unit. v1.
+5. **Adjacent main links with overlapping UT windows** (post-optimizer splits
+   routinely leave a sub-second overlap). They are still consecutive main links,
+   so they join the same run. When `loopUT` is in both windows, BOTH render for
+   the sliver of overlap (concurrent render, no single-member selection). For two
+   main links of the SAME vessel this brief double-render is acceptable in v1;
+   different vessels always render concurrently by design. v1.
+6. **Gap inside the span where no member's window covers `loopUT`** (UT
+   discontinuity from edits/splits, between consecutive main links). The members
+   are still part of one unit (gaps do not break the run). If `loopUT` lands in
+   such a sub-gap, no member renders for that sliver, then the next member picks
+   up. -> Accept the brief invisibility. v1.
+7. **A main link has < 2 trajectory points / zero duration.** It is NOT
+   renderable, so it is run-INELIGIBLE and BREAKS the run (same as a manual main
+   link). v1.
+8. **Branch > 0 members, debris, controlled children = SECONDARY.** A
+   `ChainBranch > 0` parallel continuation, `IsDebris == true` debris, or
+   `ParentAnchorRecordingId != null` controlled-decoupled child is NEVER a main
+   link. It can RIDE ALONG (replay alongside the main line) if it loops+auto and
+   overlaps the run span; otherwise it is simply omitted. A secondary never seeds
+   or breaks the run. v1.
 9. **Debris loop-synced to a member that is now a unit member**
    (`LoopSyncParentIdx` points at a unit member). `TryUpdateLoopSyncedDebris`
-   currently calls `TryComputeLoopPlaybackUT(parent, ...)`, which gives the
+   would otherwise call `TryComputeLoopPlaybackUT(parent, ...)`, giving the
    parent's OWN per-recording loop clock - wrong once the parent is a unit member
-   whose timing is governed by the span clock. -> v1: when the debris's parent is
-   a unit member, the debris must read the unit span `loopUT` (resolved via the
-   parent's `ownerIndex` in `loopUnitOwnerByIdx`) and render when that span
-   `loopUT` is in the debris's own `[StartUT, EndUT]`. This requires editing the
-   debris dispatch to detect unit-member parents and source the span clock. This
-   is the highest-risk integration point - call it out in the plan as its own
-   task.
+   whose timing is governed by the shared mission clock. -> When the debris's
+   parent is a unit member, the debris sources the unit's shared `loopUT`
+   (resolved via the parent's `ownerIndex` in `loopUnitOwnerByIdx`) and renders
+   when that `loopUT` is in the debris's own `[StartUT, EndUT]`. v1.
 10. **Watch mode on a unit.** For NON-loop chains, watch hands off by the
-    chain-seam handoff destroying the head and `WatchModeController` transferring
-    to the continuation. Unit members are loop-enabled and bypass the chain-seam
-    path entirely (they take the new span-clock route), so that transfer never
-    fires. Under the unit the visible ghost changes at member boundaries WITHOUT
-    the chain-seam handoff. -> v1 requires a NEW watch-transfer trigger at
-    unit-internal boundaries (and at the wrap) that moves the camera to the
-    newly-live member. This is real work, not a "confirm." If it cannot land in
-    v1, the acceptable fallback is: watching a unit follows the owner member only
-    and the camera does not auto-advance across segments (documented limitation).
+    chain-seam handoff. Unit members are loop-enabled and take the shared-clock
+    route, so that transfer never fires. The camera follows ONE watched member;
+    when the shared clock leaves that member's window (it stops rendering) and a
+    different live member exists, a unit-handoff retarget moves the camera to the
+    new live member (the in-window member with the highest `StartUT`). During the
+    inter-cycle wait or a gap (no live member) the camera holds its current anchor
+    rather than yanking to nothing, and a watched member's ghost is hidden (not
+    destroyed) so the camera target is never a destroyed ghost. v1.
 11. **Terminal vessel spawn at loop end.** A looping chain spawns NOTHING:
     `ShouldSpawnAtRecordingEnd` returns `(false, "chain looping")` for the whole
     chain whenever any branch-0 member loops (via `IsChainLooping`). There is no
@@ -395,24 +417,28 @@ Each: scenario -> expected behavior -> v1 disposition.
 13. **Member edited / chain re-topologized at runtime** (rare; merges, reverts).
     The unit is rebuilt from scratch on the next schedule rebuild, so membership
     self-heals. No persisted unit state to go stale. v1.
-14. **Very short span** (sum of segments below `MinCycleDuration`). The new
-    span-clock helper clamps `cadenceSeconds` to `LoopTiming.MinCycleDuration`
-    itself (it does NOT route through `ResolveLoopInterval` / `ComputeLoopPhaseFromUT`,
-    which is where the existing clamp lives). State the clamp lives in the new
-    helper. v1.
-15. **Very long span / many cycles live.** Because cadence = span duration, only
-    one cycle's worth of one ghost is ever live at a time (no overlap), so the
-    `MaxOverlapGhostsPerRecording` cap is not stressed by the unit itself. v1.
+14. **Very short span** (span below `MinCycleDuration` AND a tiny autoInterval).
+    The detection clamps `cadenceSeconds` to `LoopTiming.MinCycleDuration` as the
+    third term of `max(n, span, MinCycleDuration)`, and the span-clock helper
+    re-applies the clamp (it does NOT route through `ResolveLoopInterval`). v1.
+15. **Very long span / many cycles live.** Because cadence >= span, only one
+    cycle's worth of the unit is ever live at a time (no inter-cycle overlap), so
+    the `MaxOverlapGhostsPerRecording` cap is not stressed by the unit itself. v1.
 16. **Chain spans a body change or scene-relevant transition mid-unit.** The unit
     is purely a playback-timing construct over recorded windows; each member still
     renders through its own recorded surface (absolute / relative / orbit) at
     `loopUT`. No new positioning math. v1.
 17. **Anchor / relative-frame member inside a unit** (`LoopAnchorVesselId` set).
     The member still resolves its own anchor at `loopUT` via existing relative
-    playback. The unit only supplies the clock. -> Confirm anchor gating (skip
-    when anchor unloaded) still short-circuits per-member. v1.
-18. **All members of a chain are auto-loop** (the common case). Single unit
-    covering the whole chain; loops as one flight. v1, the headline scenario.
+    playback. The unit only supplies the clock. Anchor gating (skip when anchor
+    unloaded) short-circuits per-member. v1.
+18. **All main links of a mission are auto-loop, with debris** (the common case).
+    Single unit covering the whole mission; the main line loops as one flight and
+    its debris replay alongside their parents. v1, the headline scenario.
+19. **cadence > span (inter-cycle wait).** When the global autoInterval `n` is
+    larger than the span, the unit plays fully then ALL members hide
+    (`isInInterCycleTail`) until the next cycle `n` seconds after the cycle start.
+    This is the literal "Auto-launch every N" cadence applied to the whole unit. v1.
 
 ---
 
@@ -457,10 +483,10 @@ helper + detection land and are unit-tested.
 
 ## Backward Compatibility
 
-No save migration. Chain-loop units are derived at runtime from existing fields,
-so old saves and recordings load unchanged and gain the behavior automatically
-once their consecutive members are loop + auto. There is no on-disk
-representation of a unit to version. Removing the feature (or a member dropping
+No save migration. Loop units are derived at runtime from existing fields, so old
+saves and recordings load unchanged and gain the behavior automatically once a
+mission has >= 2 consecutive loop+auto main links. There is no on-disk
+representation of a unit to version. Removing the feature (or a main link dropping
 out of auto) simply reverts those members to the global-stagger behavior on the
 next schedule rebuild.
 
@@ -477,31 +503,30 @@ batch-counting convention):
   from K tree(s)", plus a per-unit detail line "Chain-loop unit: owner=o
   members=i,j,k span=spanStart..spanEnd cadence=Xs". One summary line per
   rebuild; per-unit detail only when units exist.
-- `Loop`: a length-1 component logs "tree <treeId> run [i..i] not a unit:
-  length<2". A non-contiguous break logs "tree <treeId> member recIdx=j
-  (StartUT=...) not contiguous: UT gap" so the player can see WHY two autos did
-  not merge. A would-be candidate that fails eligibility on duration logs
-  "recIdx=i ... not a unit: member-zero-duration". The simply-never-opt-in
-  reasons (not-looping / not-auto / branch / parent-anchored / no-tree) are not
-  logged (they are not actionable noise). This makes "why didn't these loop as
-  one" answerable from the log alone.
+- `Loop`: a lone run-eligible main link logs "tree <treeId> run [i..i] not a
+  unit: length<2". A main link that breaks the run logs "tree <treeId> main link
+  recIdx=j (StartUT=...) breaks run: <reason>" (e.g. member-not-auto /
+  member-not-looping / member-zero-duration) so the player can see WHY two autos
+  did not merge. This makes "why didn't these loop as one" answerable from the
+  log alone.
 
 Scheduling:
 - `Loop`: "chain-loop member recIdx=i excluded from global auto queue (unit
   owner=o)" so the global-queue / unit split is visible.
 
 Per-frame render (rate-limited via `VerboseRateLimited`, per-unit key):
-- `Engine`: on segment-boundary handoff: "unit owner=o handoff member i->j at
-  loopUT=..." (rate-limited, key per unit).
+- `Engine`: on camera-live-member handoff: "unit owner=o camera-live member
+  #i->#j at loopUT=..." (rate-limited, key per unit).
 - `Engine`: on cycle wrap: "unit owner=o wrapped cycle c-1->c at UT=...".
-- `Engine`: on the gap case (edge 6): "unit owner=o loopUT=... in inter-member
-  gap, no member visible" (rate-limited, key per unit).
-- `Engine`: on overlap precedence (edge 5): "unit owner=o overlap at loopUT=...
-  rendering higher-index member j over i" (rate-limited).
+- `Engine`: on the inter-cycle wait: "unit owner=o in inter-cycle wait at
+  loopUT=... - all members hidden" (rate-limited, key per unit).
+- `Engine`: on a member hidden outside its own window: "unit owner=o member #i
+  hidden: loopUT=... outside its window [start,end]" (rate-limited, per member).
+- `CameraFollow`: "unit watch retarget owner=o member #i->#j at loopUT=..." when
+  the watched member stops rendering and a new live member exists.
 
-Every branch that hides a member, picks a member at an overlap, or skips a frame
-must log its reason, consistent with the project's "silent code paths are
-debugging blind spots" rule.
+Every branch that hides a member or skips a frame must log its reason, consistent
+with the project's "silent code paths are debugging blind spots" rule.
 
 ---
 
@@ -511,82 +536,62 @@ Pure-logic and serialization tests are xUnit; anything needing live KSP (ghost
 GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
 
 ### Unit detection (xUnit, `ChainLoopUnitTests`)
-- **Two contiguous auto-loop recordings with DIFFERENT (or no) `ChainId` form one
-  unit** (the headline / playtest fix). Fails if `ChainId` is still required for
-  grouping (the old behavior looped them separately).
-- **Component of size 1 is not a unit.** A lone eligible recording -> no unit, its
-  index absent from `loopUnitOwnerByIdx`. Fails if a single member is wrongly
-  unitized (which would change today's behavior).
-- **An ineligible (manual / not-looping) member between two contiguous autos
-  leaves a UT gap**, so the autos on either side do NOT merge across it; each
-  side of length >= 2 is its own unit (edge 3/4). Fails if an ineligible member
-  is silently bridged.
-- **Non-contiguous auto members do not merge** (edge 2). A real UT gap splits the
-  component. Fails if a gap is ignored and the pair is grouped.
-- **Different `TreeId` -> not merged even if contiguous.** Fails if contiguity
-  alone (ignoring the tree) pulled unrelated missions into one unit.
-- **Branch > 0 members excluded; parent-anchored members excluded** (edge 8).
-  Fails if a parallel continuation or a debris / EVA side-track joins the unit.
-- **`LoopPlayback == false` excluded; < 2 points excluded; null `TreeId`
-  excluded.** Each disqualifier drops the member from eligibility.
-- **Zero-duration member excluded; unit dissolves if that drops below 2**
-  (edge 7). Fails if a degenerate member produces an invalid span.
-- **Span and cadence**: span = min Start..max End, cadence = span duration
-  (clamped to `MinCycleDuration` for tiny spans, edge 14). Fails if cadence is
-  taken from the global gap instead of the span.
-- **Overlapping eligible windows still join the same component.** Fails if a
-  sub-second overlap split them.
+- **>= 2 consecutive auto-loop main links form one unit EVEN WITH UT GAPS**
+  between them (the headline fix). Fails if a UT gap between main links still
+  breaks the run.
+- **A middle main link missing loop+auto breaks the run** so the surrounding main
+  links are not consecutive and no unit forms. Fails if a non-eligible main link
+  is silently skipped (bridging the two halves).
+- **A,B loop+auto, trailing C does not -> unit {A,B}.** Fails if the trailing
+  break drops earlier members too.
+- **A single main link is not a unit** (loops standalone as today). Fails if a
+  lone main link is unitized.
+- **Ride-along debris** (loop+auto, overlaps the run) is included as a unit
+  member; **debris WITHOUT loop+auto is omitted and does NOT break the unit.**
+  Fails if a non-loop secondary is pulled in, or if its absence breaks the run.
+- **A parent-anchored probe / orphan debris is SECONDARY** (never a main link,
+  never breaks the run). Fails if it is treated as a main link.
+- **Different `TreeId` -> not merged.** Detection is scoped per tree.
+- **Zero-duration / < 2-point main link breaks the run** (not renderable). Fails
+  if a degenerate main link is treated as run-eligible.
+- **Cadence = max(autoInterval n, span, MinCycleDuration)**: when `n > span`
+  there is a tail (`isInInterCycleTail` reachable); when `n <= span`, cadence ==
+  span. **Span = min/max over members including ride-along debris.** Fails if
+  cadence ignores `n` or the span ignores the debris tail.
 
-### Span loop-phase math (xUnit, extend loop-phase tests)
-- **Member visibility windows tile the span**: for sampled `loopUT` across one
-  cycle, exactly the member whose `[Start,End]` contains `loopUT` is selected;
-  boundaries select the higher index (edge 5). Fails if two members are
-  simultaneously selected outside an overlap, or if the wrong member wins an
-  overlap.
-- **Seamless wrap**: `loopUT` at `spanEnd` maps to the last member's final
-  frame; one step past wraps to the first member at `spanStart` (edge,
-  back-to-back). Fails if a pause window is inserted at the wrap.
-- **Gap handling**: a synthetic chain with a UT gap yields "no member" for
-  `loopUT` inside the gap and resumes after (edge 6). Fails if it clamps to a
-  stale member.
+### Span loop-phase math (xUnit)
+- **TryComputeSpanLoopUT**: seamless wrap when cadence <= span; the parked tail
+  (`isInInterCycleTail`) when cadence > span; MinCycleDuration clamp; before-start
+  / zero-span early returns.
+- **IsLoopUTInMemberWindow / DecideUnitMemberRender**: a member renders iff the
+  shared clock is in its OWN window; two OVERLAPPING members BOTH render in the
+  overlap (concurrent, no single-member selection); the inter-cycle tail hides
+  EVERY member; before span start the clock is unresolved.
 
 ### Scheduling integration (xUnit)
 - **Unit members excluded from the global queue**; standalone auto recordings
-  still get staggered slots in the same `trajectories` list. Fails if a unit
-  member also receives a global slot (double-scheduling).
+  still get staggered slots. Fails if a unit member also receives a global slot.
 - **Mixed list**: standalone auto + a 3-member auto chain -> standalone stays in
-  the parade, chain forms one unit. Fails if either leaks into the other's
-  scheduling.
-- **Dual-scheduler parity**: feed the identical recording set to the flight
-  detection/schedule path and the tracking-station path; both must produce the
-  same unit (same owner, members, span, cadence). Fails if the two schedulers
-  diverge (the inconsistency the KSC scoping exists to prevent).
+  the parade, chain forms one unit.
+- **Dual-scheduler parity**: the identical recording set feeds both schedulers;
+  both produce the same unit (owner, members, span, cadence).
 
 ### Log-assertion tests (xUnit, via test sink)
-- Detection emits the unit-built summary with member indices and span. Fails if
-  the diagnostic line is dropped (protects observability through refactors).
-- A rejected run emits the specific `<reason>` line for `length<2`,
-  `member-not-auto`, and `branch>0`. Fails if a rejection is silent.
+- Detection emits the unit-built summary with member indices and span.
+- A lone main link logs `length<2`; a run break logs `breaks run: <reason>`.
 
-### Serialization (xUnit, extend `AutoLoopTests`)
-- Round-trip a chain of auto-loop members through `ParsekScenario` save/load and
-  confirm NO new ConfigNode keys are written for unit membership (units are
-  computed at runtime, never persisted), and that the unit is reconstituted from
-  the loaded loop/period state on the next detection pass. Fails if any unit
-  state leaks into the save or fails to recompute after load.
+### Serialization (xUnit, `AutoLoopTests`)
+- Round-trip a chain of auto-loop main links through `ParsekScenario` save/load
+  and confirm NO new ConfigNode keys are written for unit membership, and that
+  the unit reconstitutes from the loaded loop/period state on the next detection.
 
 ### In-game (RuntimeTests.cs, FLIGHT)
-- Inject a synthetic 3-segment auto-loop chain; over several frames assert
-  exactly one ghost GameObject of the unit is active at a time and that the
-  active one advances through the members in order, then wraps. Fails if
-  multiple unit ghosts are visible at once or the handoff/wrap does not occur.
-- Watch a unit (edge 10). If the unit-internal transfer lands: the camera target
-  advances with the live member and survives the wrap. If the documented fallback
-  is taken: the camera follows the owner only. Either way the invariant is the
-  camera target is NEVER a deactivated/destroyed ghost. Fails if the camera
-  sticks to a hidden ghost.
-- Debris loop-synced to a unit member follows the unit clock (edge 9). Fails if
-  the debris renders on the raw member window instead of the owner's span clock.
+- Inject a synthetic 3-segment auto-loop chain; over several frames assert the
+  active main ghost advances through the members in order, then wraps.
+- Watch a unit (edge 10): the camera target advances with the live member and
+  survives the wrap; the camera target is NEVER a deactivated/destroyed ghost.
+- Debris loop-synced to a unit member follows the shared mission clock (edge 9),
+  rendering concurrently with its parent.
 
 ---
 
@@ -597,8 +602,9 @@ GameObjects, watch camera, real spawn) is an in-game test in `RuntimeTests.cs`.
    should chain blocks in `RecordingsTableUI` get a single loop toggle that sets
    all members at once? Recommendation: ship v1 with a display hint only; add a
    chain-block toggle as a fast follow.
-2. **Inter-cycle pause.** v1 wraps seamlessly (cadence = span). Do we ever want a
-   configurable pause between unit cycles (e.g. reuse the standalone auto gap as
-   a tail pause)? Recommendation: no in v1; revisit if players ask.
-3. **Branch-aware units.** v1 covers branch 0 only. Parallel continuations
-   (branch > 0) loop independently. Is unifying branches in-scope later?
+2. **Inter-cycle pause.** RESOLVED: cadence = `max(autoInterval n, span)`, so when
+   `n > span` the unit already has a wait between cycles (the global "Auto-launch
+   every N" gap applied to the whole unit); when `n <= span` it wraps seamlessly.
+3. **Branch-aware units.** v1 treats branch > 0 as SECONDARY (rides along if
+   loop+auto and overlapping). A branch > 0 continuation never seeds or breaks a
+   main-link run. Is promoting a branch to its own main line in-scope later?

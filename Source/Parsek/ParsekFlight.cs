@@ -18270,7 +18270,8 @@ namespace Parsek
             // descriptors are keyed on) and push the frozen snapshot to the engine before
             // UpdatePlayback. The same value object would feed the tracking-station scheduler in
             // Phase 5. Empty for saves with no consecutive auto-loop chain members (feature dormant).
-            engine.SetLoopUnits(RecordingStore.DetectChainLoopUnits(committed));
+            engine.SetLoopUnits(RecordingStore.DetectChainLoopUnits(
+                committed, ctx.autoLoopIntervalSeconds));
 
             if (HasAnchorReFlyUnstableFlag(flags))
             {

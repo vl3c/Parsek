@@ -5,11 +5,19 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for chain-sequential auto looping.
-    /// Phase 1: the span-clock helpers (TryComputeSpanLoopUT / TrySelectSpanMember) and the
-    /// LoopUnit / LoopUnitSet descriptor types in GhostPlaybackLogic.
-    /// Phase 2: the host-side detection helper RecordingStore.DetectChainLoopUnits.
-    /// See docs/dev/plan-chain-sequential-auto-loop.md and the design doc.
+    /// Tests for loop units using the MAIN-LINK-RUN model.
+    ///
+    /// A "mission" is a recording tree with a MAIN through-line (the primary vessel's launch -> ...
+    /// -> descent recordings) plus SECONDARY recordings (debris / probes that play in parallel). A
+    /// unit = a maximal run of >= 2 CONSECUTIVE main links that are ALL loop+auto+renderable, PLUS
+    /// every ride-along SECONDARY (loops+auto, overlaps the run span). There is NO UT-contiguity
+    /// requirement between main links - gaps are fine; a main link missing loop+auto BREAKS the run;
+    /// secondaries never break the run. The whole unit plays on ONE shared mission clock, with each
+    /// member rendering concurrently when the clock is in its own window.
+    ///
+    /// Detection: RecordingStore.DetectChainLoopUnits. Playback decision: the pure span-clock
+    /// helpers (TryComputeSpanLoopUT) + per-member render decision (DecideUnitMemberRender) in
+    /// GhostPlaybackLogic. See docs/dev/design-chain-sequential-auto-loop.md.
     /// </summary>
     [Collection("Sequential")]
     public class ChainLoopUnitTests : System.IDisposable
@@ -29,7 +37,7 @@ namespace Parsek.Tests
             GhostPlaybackLogic.ResetForTesting();
         }
 
-        // ─── Phase 1: TryComputeSpanLoopUT ──────────────────────────────────────
+        // ─── TryComputeSpanLoopUT (kept) ────────────────────────────────────────
 
         [Fact]
         public void TryComputeSpanLoopUT_WrapsSeamlessly_AtSpanEnd()
@@ -37,7 +45,7 @@ namespace Parsek.Tests
             // Span [100, 200], cadence == span duration (100s, above MinCycleDuration so no
             // clamp interference). At spanEnd the clock parks at spanEnd in cycle 0; one cadence
             // step later it wraps to spanStart in cycle 1. A pause window at the wrap (the
-            // standalone global-gap path) would push the wrap UT later than spanStart+cadence —
+            // standalone global-gap path) would push the wrap UT later than spanStart+cadence -
             // this asserts the seamless back-to-back wrap, so no pause was inserted.
             double spanStart = 100, spanEnd = 200, cadence = 100;
 
@@ -120,12 +128,12 @@ namespace Parsek.Tests
         {
             // Span [100, 200] (span = 100), cadence 300 (> span): each cycle plays for the first
             // 100s then idles parked at spanEnd for the remaining 200s before the next dispatch.
-            // This is the logistics common case (dispatch interval >= transit). The flag must
-            // distinguish the parked idle tail from a legitimate at-spanEnd play frame, so a
-            // future host can HIDE the ghost during the gap instead of freezing it at the dock.
+            // This is the cadence > span case: the "wait" between cycles. The flag must distinguish
+            // the parked idle tail (the wait, hide ALL members) from a legitimate at-spanEnd play
+            // frame, so the host can HIDE the ghost during the wait instead of freezing it.
             double spanStart = 100, spanEnd = 200, cadence = 300; // span = 100
 
-            // PLAY region: currentUT 150, phaseInCycle 50 < 100 — ghost advancing, no tail.
+            // PLAY region: currentUT 150, phaseInCycle 50 < 100 - ghost advancing, no tail.
             bool play = GhostPlaybackLogic.TryComputeSpanLoopUT(
                 150, spanStart, spanEnd, cadence, out double loopPlay, out long cyclePlay,
                 out bool tailPlay);
@@ -134,7 +142,7 @@ namespace Parsek.Tests
             Assert.Equal(0, cyclePlay);
             Assert.False(tailPlay);
 
-            // TAIL region: currentUT 250, phaseInCycle 150 >= 100 — parked at spanEnd, tail engaged.
+            // TAIL region: currentUT 250, phaseInCycle 150 >= 100 - parked at spanEnd, tail engaged.
             bool tailRegion = GhostPlaybackLogic.TryComputeSpanLoopUT(
                 250, spanStart, spanEnd, cadence, out double loopTail, out long cycleTail,
                 out bool tailFlag);
@@ -143,9 +151,7 @@ namespace Parsek.Tests
             Assert.Equal(0, cycleTail);
             Assert.True(tailFlag);
 
-            // Second cycle TAIL: currentUT 450 (elapsed 350, phaseInCycle 50 into cycle 1... but
-            // 450 is elapsed 350 => cycle 1, phase 50 < 100 = play). Use 550 for cycle 1 tail
-            // (elapsed 450 => cycle 1, phase 150 >= 100 = tail).
+            // Second cycle TAIL: currentUT 550 (elapsed 450 => cycle 1, phase 150 >= 100 = tail).
             bool secondTail = GhostPlaybackLogic.TryComputeSpanLoopUT(
                 550, spanStart, spanEnd, cadence, out double loopSecond, out long cycleSecond,
                 out bool tailSecond);
@@ -155,100 +161,45 @@ namespace Parsek.Tests
             Assert.True(tailSecond);
         }
 
-        // ─── Phase 1: TrySelectSpanMember ───────────────────────────────────────
+        // ─── IsLoopUTInMemberWindow (per-member window check) ───────────────────
 
         [Fact]
-        public void TrySelectSpanMember_TilesSpan_ExactlyOneMember()
+        public void IsLoopUTInMemberWindow_InsideAndBoundary_True_OutsideFalse()
         {
-            // Three contiguous windows tile [100, 250]. Sample one loopUT inside each member's
-            // interior; exactly that member is selected. (Boundary overlap is a separate test.)
-            var windows = new List<(double, double)>
-            {
-                (100, 150),
-                (150, 200),
-                (200, 250),
-            };
-
-            Assert.True(GhostPlaybackLogic.TrySelectSpanMember(120, windows, out int s0, out bool g0));
-            Assert.Equal(0, s0);
-            Assert.False(g0);
-
-            Assert.True(GhostPlaybackLogic.TrySelectSpanMember(175, windows, out int s1, out bool g1));
-            Assert.Equal(1, s1);
-            Assert.False(g1);
-
-            Assert.True(GhostPlaybackLogic.TrySelectSpanMember(230, windows, out int s2, out bool g2));
-            Assert.Equal(2, s2);
-            Assert.False(g2);
+            // The shared clock drives each member independently: a member renders iff the clock is
+            // in its own window (epsilon-tolerant at the boundaries).
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(125, 100, 150));
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(100, 100, 150)); // start boundary
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(150, 100, 150)); // end boundary
+            Assert.False(GhostPlaybackLogic.IsLoopUTInMemberWindow(99, 100, 150)); // before
+            Assert.False(GhostPlaybackLogic.IsLoopUTInMemberWindow(151, 100, 150)); // after
         }
 
         [Fact]
-        public void TrySelectSpanMember_OverlapPicksHigherIndex()
+        public void IsLoopUTInMemberWindow_OverlappingMembers_BothCoverTheOverlap()
         {
-            // Edge 5: members 0 and 1 overlap by 0.5s ([100,150.5] and [150,200]). A loopUT in
-            // the overlap (150.25) must select member 1 (the higher ChainIndex), not member 0.
-            var windows = new List<(double, double)>
-            {
-                (100, 150.5),
-                (150, 200),
-            };
-
-            Assert.True(GhostPlaybackLogic.TrySelectSpanMember(150.25, windows, out int slot, out bool gap));
-            Assert.Equal(1, slot);   // higher index wins the overlap; fails (==0) if i wins
-            Assert.False(gap);
+            // CONCURRENT model regression: two members whose windows overlap BOTH cover a loopUT in
+            // the overlap (no single-member selection). Members 0 [100,160] and 1 [150,200] overlap
+            // [150,160]; at loopUT 155 BOTH return true (both render). Fails if the old
+            // higher-index-wins selection logic survived (it would render only one).
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(155, 100, 160));
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(155, 150, 200));
         }
 
-        [Fact]
-        public void TrySelectSpanMember_GapReturnsNoMember()
-        {
-            // Edge 6: a UT gap between member 0's end (150) and member 1's start (160). A loopUT
-            // in the gap (155) selects no member and flags inInterMemberGap so the caller hides
-            // both instead of clamping to the stale member 0.
-            var windows = new List<(double, double)>
-            {
-                (100, 150),
-                (160, 200),
-            };
-
-            Assert.False(GhostPlaybackLogic.TrySelectSpanMember(155, windows, out int slot, out bool gap));
-            Assert.Equal(-1, slot);  // no stale member
-            Assert.True(gap);        // recognized as an inter-member gap, not before/after span
-        }
-
-        [Fact]
-        public void TrySelectSpanMember_BeforeAndAfterSpan_NoGapFlag()
-        {
-            // Outside the whole span: no member, but NOT an inter-member gap (so the caller does
-            // not log the edge-6 gap line for the wrap tail / pre-start sliver).
-            var windows = new List<(double, double)>
-            {
-                (100, 150),
-                (150, 200),
-            };
-
-            Assert.False(GhostPlaybackLogic.TrySelectSpanMember(50, windows, out int sBefore, out bool gBefore));
-            Assert.Equal(-1, sBefore);
-            Assert.False(gBefore);
-
-            Assert.False(GhostPlaybackLogic.TrySelectSpanMember(250, windows, out int sAfter, out bool gAfter));
-            Assert.Equal(-1, sAfter);
-            Assert.False(gAfter);
-        }
-
-        // ─── Phase 2: RecordingStore.DetectChainLoopUnits ───────────────────────
+        // ─── DetectChainLoopUnits ───────────────────────────────────────────────
 
         /// <summary>
         /// Builds and commits a tree-member recording. StartUT/EndUT derive from the first and
-        /// last point UT, so [startUT, endUT] is the member window. branch defaults to primary.
-        /// Grouping is by chronological adjacency within a TreeId (the playtest fix), so the
-        /// member needs a TreeId; <paramref name="treeId"/> defaults to <paramref name="chainId"/>
-        /// so a single chainId argument keeps same-tree members together. ChainId/ChainIndex are
-        /// still set (they no longer drive grouping but remain on the recording).
+        /// last point UT, so [startUT, endUT] is the member window. <paramref name="treeId"/>
+        /// defaults to <paramref name="chainId"/> so a single id keeps same-tree members together.
+        /// A MAIN link has isDebris=false, parentAnchorRecordingId=null, branch=0; pass any of those
+        /// to make a SECONDARY (debris / probe / orphan / parallel-continuation).
         /// </summary>
         private static Recording CommitChainMember(
             string chainId, int chainIndex, double startUT, double endUT,
             bool loop = true, LoopTimeUnit unit = LoopTimeUnit.Auto, int branch = 0,
-            int pointCount = 2, string treeId = null, string parentAnchorRecordingId = null)
+            int pointCount = 2, string treeId = null, string parentAnchorRecordingId = null,
+            bool isDebris = false)
         {
             var rec = new Recording
             {
@@ -261,6 +212,7 @@ namespace Parsek.Tests
                 ChainBranch = branch,
                 TreeId = treeId ?? chainId,
                 ParentAnchorRecordingId = parentAnchorRecordingId,
+                IsDebris = isDebris,
             };
             if (pointCount >= 1)
             {
@@ -295,118 +247,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_TwoContiguousDifferentChainId_FormsOneUnit()
+        public void DetectChainLoopUnits_ThreeMainLinks_WithUTGaps_FormOneUnit()
         {
-            // HEADLINE / the playtest bug: two contiguous, same-tree, loop+auto recordings with
-            // DIFFERENT ChainIds form ONE unit. A real flight (launch rocket -> descent capsule)
-            // is stored as separate recordings that do NOT share a ChainId, yet they tile the same
-            // mission window. Grouping by chronological adjacency within the tree must merge them.
-            // REGRESSION GUARD: fails if ChainId is still required for grouping (the old behavior
-            // looped the two segments separately).
-            CommitChainMember("launch", 0, 100, 150, treeId: "mission");
-            CommitChainMember("descent", 0, 150, 200, treeId: "mission"); // different ChainId, same tree
+            // HEADLINE / the v1 bug fix: three main links A,B,C all loop+auto, with UT GAPS between
+            // them (A [100,150], B [200,250], C [400,450]), still form ONE unit. The old code
+            // required windows to touch; the new model groups CONSECUTIVE main links regardless of
+            // UT gaps. REGRESSION GUARD: fails if a UT gap between main links still breaks the run.
+            CommitChainMember("A", 0, 100, 150, treeId: "mission");
+            CommitChainMember("B", 0, 200, 250, treeId: "mission"); // 50s gap before
+            CommitChainMember("C", 0, 400, 450, treeId: "mission"); // 150s gap before
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, set.Count);
             Assert.True(set.IsMember(0));
             Assert.True(set.IsMember(1));
+            Assert.True(set.IsMember(2));
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(0, unit.OwnerIndex);                 // lowest StartUT
-            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices); // sorted by StartUT
-            Assert.Equal(100.0, unit.SpanStartUT, 6);         // min StartUT
-            Assert.Equal(200.0, unit.SpanEndUT, 6);           // max EndUT
+            Assert.Equal(0, unit.OwnerIndex);                    // earliest main link
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices); // sorted by StartUT
+            Assert.Equal(100.0, unit.SpanStartUT, 6);            // min StartUT
+            Assert.Equal(450.0, unit.SpanEndUT, 6);              // max EndUT (over gaps)
         }
 
         [Fact]
-        public void DetectChainLoopUnits_ChainNoneAndChainId_StillMergeWhenContiguous()
+        public void DetectChainLoopUnits_MiddleMainLinkLacksLoopAuto_BreaksRun_NoUnit()
         {
-            // The exact playtest topology: a chain=none launch recording (no ChainId at all) and a
-            // separate descent recording that DOES carry a ChainId, contiguous in the same tree,
-            // merge into one unit. REGRESSION GUARD: fails if a null ChainId is treated as
-            // standalone-ineligible-for-grouping (the old per-chain dictionary skipped null ChainId).
-            CommitChainMember(null, -1, 100, 150, treeId: "flight"); // chain=none launch
-            CommitChainMember("desc", 0, 150, 200, treeId: "flight"); // 2-segment descent chain head
+            // A-B-C all main links, but B lacks loop+auto (it is manual-period). B BREAKS the run.
+            // A and C are then NOT consecutive main links (B sits between them in StartUT order), so
+            // neither side has >= 2 consecutive eligible main links -> NO unit. REGRESSION GUARD:
+            // fails if a run-ineligible main link is silently skipped (bridging A and C).
+            CommitChainMember("A", 0, 100, 150, treeId: "m");
+            CommitChainMember("B", 0, 150, 200, unit: LoopTimeUnit.Sec, treeId: "m"); // breaks the run
+            CommitChainMember("C", 0, 200, 250, treeId: "m");
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(0, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+            Assert.False(set.IsMember(2));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_AB_LoopAuto_C_Not_FormsUnitOfAB()
+        {
+            // A-B have loop+auto, C (a main link) does not. The run is A-B (the trailing C breaks it
+            // after the run already has 2 members), so the unit is {A,B}; C is excluded.
+            CommitChainMember("A", 0, 100, 150, treeId: "m");
+            CommitChainMember("B", 0, 150, 200, treeId: "m");
+            CommitChainMember("C", 0, 200, 250, loop: false, treeId: "m"); // not looping
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, set.Count);
-            Assert.True(set.IsMember(0));
-            Assert.True(set.IsMember(1));
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
-            Assert.Equal(100.0, unit.SpanStartUT, 6);
-            Assert.Equal(200.0, unit.SpanEndUT, 6);
+            Assert.False(set.IsMember(2)); // C not loop+auto, excluded
         }
 
         [Fact]
-        public void DetectChainLoopUnits_SingleAutoMember_NotAUnit()
+        public void DetectChainLoopUnits_SingleMainLink_NotAUnit()
         {
-            // A lone eligible recording is a component of size 1, so it is NOT unitized and its
-            // index is absent from the set (keeps today's global-stagger behavior). Add an
-            // ineligible sibling so the list has >= 2 entries (the singleton early-return would
-            // otherwise short-circuit before detection); only one is unit-eligible.
+            // A single main link with loop+auto is NOT a unit (it loops standalone as today). Add a
+            // run-eligible main link in ANOTHER tree so the global fast-out (>= 2 eligible main
+            // links) does not short-circuit before per-tree detection runs on the lone one.
             CommitChainMember("solo", 0, 100, 150, treeId: "soloTree");
-            CommitChainMember("notLoop", 0, 300, 350, loop: false, treeId: "soloTree"); // ineligible
-
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-
-            Assert.Equal(0, set.Count);
-            Assert.False(set.IsMember(0));
-        }
-
-        [Fact]
-        public void DetectChainLoopUnits_ManualMemberLeavesGap_NoMergeAcrossIt()
-        {
-            // [auto, manual, auto] all contiguous in time. The manual-period member is ineligible,
-            // so it is removed from the tree's eligible set, leaving a UT GAP (the manual member's
-            // window [150,200]) between the two autos. The gap means the two autos on either side
-            // are NOT connected and do NOT merge across it. REGRESSION GUARD: fails if an
-            // ineligible member were silently bridged (collapsing the gap).
-            CommitChainMember("chB", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "chB");
-            CommitChainMember("chB", 1, 150, 200, unit: LoopTimeUnit.Sec, treeId: "chB"); // manual period
-            CommitChainMember("chB", 2, 200, 250, unit: LoopTimeUnit.Auto, treeId: "chB");
-
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-
-            Assert.Equal(0, set.Count);  // the gap isolates both autos into length-1 components
-            Assert.False(set.IsMember(0));
-            Assert.False(set.IsMember(1)); // manual, ineligible
-            Assert.False(set.IsMember(2));
-        }
-
-        [Fact]
-        public void DetectChainLoopUnits_ManualMemberBetweenContiguousAutos_AdjacentAutosStillMerge()
-        {
-            // [auto, auto, manual, auto, auto] contiguous in time. The manual member (idx 2) is
-            // ineligible and leaves a gap, so the two autos before it (0,1) form one unit and the
-            // two after it (3,4) form a second unit; the manual is in neither. This confirms
-            // adjacency, not chain index, drives grouping AND that a gap correctly splits runs.
-            CommitChainMember("m", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "m");
-            CommitChainMember("m", 1, 150, 200, unit: LoopTimeUnit.Auto, treeId: "m");
-            CommitChainMember("m", 2, 200, 250, unit: LoopTimeUnit.Sec, treeId: "m");  // manual gap
-            CommitChainMember("m", 3, 250, 300, unit: LoopTimeUnit.Auto, treeId: "m");
-            CommitChainMember("m", 4, 300, 350, unit: LoopTimeUnit.Auto, treeId: "m");
-
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-
-            Assert.Equal(2, set.Count);
-            Assert.True(set.TryGetUnitForMember(0, out var u0));
-            Assert.Equal(new[] { 0, 1 }, u0.MemberIndices);
-            Assert.False(set.IsMember(2)); // manual breaker
-            Assert.True(set.TryGetUnitForMember(3, out var u1));
-            Assert.Equal(new[] { 3, 4 }, u1.MemberIndices);
-        }
-
-        [Fact]
-        public void DetectChainLoopUnits_NonContiguousAuto_DoesNotMerge()
-        {
-            // Two same-tree eligible autos separated by a UT GAP ([100,150] then [160,210]) do NOT
-            // merge: the connectivity sweep sees StartUT 160 > runMaxEndUT 150 + epsilon, so the
-            // first run closes as length 1 and the second starts fresh, also length 1. Neither is
-            // a unit. REGRESSION GUARD: fails if a UT gap were ignored and the two were grouped.
-            CommitChainMember("chC", 0, 100, 150, treeId: "chC");
-            CommitChainMember("chC", 1, 160, 210, treeId: "chC"); // 10s gap
+            CommitChainMember("other", 0, 500, 550, treeId: "otherTree"); // lone main link in its tree
+            // 'other' tree also has only 1 main link, so neither tree forms a unit, but both are
+            // run-eligible main links so the fast-out passes and per-tree detection runs.
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -416,122 +325,151 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_DifferentTreeId_NotMergedEvenIfContiguous()
+        public void DetectChainLoopUnits_DebrisWithLoopAuto_OverlapsRun_RidesAlong()
         {
-            // Two contiguous loop+auto recordings in DIFFERENT trees do NOT merge: grouping is
-            // scoped per TreeId. REGRESSION GUARD: fails if contiguity alone (ignoring the tree)
-            // pulled unrelated missions into one unit.
-            CommitChainMember("a", 0, 100, 150, treeId: "treeA");
-            CommitChainMember("b", 0, 150, 200, treeId: "treeB"); // contiguous but other tree
-
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-
-            Assert.Equal(0, set.Count);
-            Assert.False(set.IsMember(0));
-            Assert.False(set.IsMember(1));
-        }
-
-        [Fact]
-        public void DetectChainLoopUnits_OverlappingWindows_StillJoinSameComponent()
-        {
-            // Adjacent members with overlapping UT windows (post-optimizer splits routinely leave a
-            // sub-second overlap) still join the same connected component. Member 1 starts at 140
-            // < member 0's end 150, so they overlap by 10s and are connected. The span clock's
-            // overlap precedence handles which renders; detection just groups them.
-            CommitChainMember("ovl", 0, 100, 150, treeId: "ovl");
-            CommitChainMember("ovl", 1, 140, 200, treeId: "ovl"); // overlaps [140,150]
+            // A-B main links form a unit; a SECONDARY debris (loop+auto) whose window overlaps the
+            // run rides along as a member. The shared clock plays it concurrently with its parent.
+            // REGRESSION GUARD: fails if ride-along debris is omitted, OR if it is mistaken for a
+            // main link (it must never seed/break a run).
+            CommitChainMember("A", 0, 100, 150, treeId: "m");                       // main, idx 0
+            CommitChainMember("B", 0, 150, 250, treeId: "m");                       // main, idx 1
+            CommitChainMember("deb", 0, 160, 220, treeId: "m",
+                parentAnchorRecordingId: "parent", isDebris: true);                 // debris, idx 2
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, set.Count);
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices); // debris rides along
+            Assert.Equal(0, unit.OwnerIndex);                    // owner is still the earliest main link
             Assert.Equal(100.0, unit.SpanStartUT, 6);
-            Assert.Equal(200.0, unit.SpanEndUT, 6); // max EndUT across overlapping members
+            Assert.Equal(250.0, unit.SpanEndUT, 6);
         }
 
         [Fact]
-        public void DetectChainLoopUnits_NotLoopingMemberExcluded_BreaksContiguity()
+        public void DetectChainLoopUnits_DebrisWithoutLoopAuto_OmittedDoesNotBreakRun()
         {
-            // LoopPlayback==false is ineligible. A non-looping member sitting between two autos
-            // leaves a gap, so the autos do not merge across it (same gap logic as the manual case).
-            CommitChainMember("chL", 0, 100, 150, loop: true, treeId: "chL");
-            CommitChainMember("chL", 1, 150, 200, loop: false, treeId: "chL"); // not looping
-            CommitChainMember("chL", 2, 200, 250, loop: true, treeId: "chL");
+            // A-B main links form a unit. A debris WITHOUT loop+auto overlapping the run is simply
+            // omitted (not rendered) and does NOT affect the chain. REGRESSION GUARD: fails if a
+            // non-loop secondary is pulled in as a member, or breaks/blocks the unit.
+            CommitChainMember("A", 0, 100, 150, treeId: "m");                       // main, idx 0
+            CommitChainMember("B", 0, 150, 250, treeId: "m");                       // main, idx 1
+            CommitChainMember("deb", 0, 160, 220, loop: false, treeId: "m",
+                parentAnchorRecordingId: "parent", isDebris: true);                 // debris no-loop, idx 2
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
-            Assert.Equal(0, set.Count);
-            Assert.False(set.IsMember(0));
-            Assert.False(set.IsMember(1));
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices); // debris omitted, A-B still a unit
             Assert.False(set.IsMember(2));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_Branch1MembersExcluded()
+        public void DetectChainLoopUnits_RideAlongDebris_OutsideSpan_NotIncluded()
         {
-            // ChainBranch > 0 (parallel ghost-only continuation) is ineligible. A branch-0 auto
-            // pair forms a unit; a branch-1 auto member is NOT pulled in. The branch-1 member shares
-            // the same UT window as branch-0 idx 1 but is excluded by the eligibility predicate
-            // before connectivity runs.
-            CommitChainMember("chD", 0, 100, 150, branch: 0, treeId: "chD");
-            CommitChainMember("chD", 1, 150, 200, branch: 0, treeId: "chD");
-            CommitChainMember("chD", 1, 150, 200, branch: 1, treeId: "chD"); // parallel continuation, idx 2
+            // A loop+auto debris whose window does NOT overlap the run span is not a ride-along
+            // member (nothing to play alongside). A-B span [100,250]; the debris [400,450] is
+            // entirely after, so it is not included even though it loops+auto.
+            CommitChainMember("A", 0, 100, 150, treeId: "m");                       // main, idx 0
+            CommitChainMember("B", 0, 150, 250, treeId: "m");                       // main, idx 1
+            CommitChainMember("deb", 0, 400, 450, treeId: "m",
+                parentAnchorRecordingId: "parent", isDebris: true);                 // debris, idx 2
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, set.Count);
-            Assert.True(set.IsMember(0));
-            Assert.True(set.IsMember(1));
-            Assert.False(set.IsMember(2)); // branch>0 never joins the unit
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            Assert.False(set.IsMember(2)); // outside the run span
         }
 
         [Fact]
-        public void DetectChainLoopUnits_ParentAnchoredMemberExcluded()
+        public void DetectChainLoopUnits_ParentAnchoredProbe_TreatedAsSecondary()
         {
-            // ParentAnchorRecordingId != null (debris / EVA / controlled-decoupled child) is
-            // ineligible: those run CONCURRENTLY with their parent, not in a back-to-back sequence,
-            // so they must not tile a unit span. A contiguous auto pair forms a unit; a
-            // parent-anchored auto member sharing the same window is excluded.
-            CommitChainMember("chP", 0, 100, 150, treeId: "chP");
-            CommitChainMember("chP", 1, 150, 200, treeId: "chP");
-            CommitChainMember("chP", 2, 150, 200, treeId: "chP", parentAnchorRecordingId: "parent-rec"); // debris, idx 2
+            // A parent-anchored controlled child (IsDebris=false but ParentAnchorRecordingId set, a
+            // probe / lander) is a SECONDARY, never a main link. With loop+auto and an overlapping
+            // window it rides along; it never seeds or breaks the chain. REGRESSION GUARD: fails if
+            // a parent-anchored probe is treated as a main link (it would break the A-B run, since
+            // it sits between them in StartUT order).
+            CommitChainMember("A", 0, 100, 200, treeId: "m");                       // main, idx 0
+            CommitChainMember("probe", 0, 150, 180, treeId: "m",
+                parentAnchorRecordingId: "A-rec", isDebris: false);                 // controlled child, idx 1
+            CommitChainMember("B", 0, 200, 250, treeId: "m");                       // main, idx 2
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(1, set.Count);
-            Assert.True(set.IsMember(0));
-            Assert.True(set.IsMember(1));
-            Assert.False(set.IsMember(2)); // parent-anchored never joins the unit
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
+            // A (0) and B (2) are the consecutive main links; the probe (1) rides along (overlaps).
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices);
+            Assert.Equal(0, unit.OwnerIndex); // earliest MAIN link (not the probe)
         }
 
         [Fact]
-        public void DetectChainLoopUnits_ZeroDurationMemberExcluded_DissolvesIfBelowTwo()
+        public void DetectChainLoopUnits_Branch1MainExcluded_IsSecondary()
         {
-            // A single-point (< 2 trajectory points / zero-duration) member is ineligible. [auto,
-            // zero-duration-auto] -> the zero-duration member is dropped, leaving one eligible
-            // member, so NO unit forms (it dissolves).
-            CommitChainMember("chE", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "chE");
-            CommitChainMember("chE", 1, 200, 200, unit: LoopTimeUnit.Auto, pointCount: 1, treeId: "chE"); // single point
+            // ChainBranch > 0 (parallel ghost-only continuation) is NOT a main link (it is
+            // SECONDARY). A branch-0 main pair forms the unit; the branch-1 member rides along only
+            // if it loops+auto and overlaps (it does here). It never seeds/breaks the run.
+            CommitChainMember("A", 0, 100, 150, branch: 0, treeId: "m"); // main, idx 0
+            CommitChainMember("B", 0, 150, 200, branch: 0, treeId: "m"); // main, idx 1
+            CommitChainMember("B", 1, 150, 200, branch: 1, treeId: "m"); // parallel continuation, idx 2
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(0, unit.OwnerIndex);
+            // Branch-1 (idx 2) is a secondary; it loops+auto and overlaps the span, so it rides along.
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices);
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_DifferentTreeId_NotMerged()
+        {
+            // Main links in DIFFERENT trees never merge: detection is scoped per TreeId. Each tree
+            // has only 1 main link, so neither forms a unit. (Both are run-eligible so the global
+            // fast-out passes.)
+            CommitChainMember("a", 0, 100, 150, treeId: "treeA");
+            CommitChainMember("b", 0, 150, 200, treeId: "treeB");
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Equal(0, set.Count);
             Assert.False(set.IsMember(0));
             Assert.False(set.IsMember(1));
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_ZeroDurationMainLink_BreaksRun()
+        {
+            // A single-point (< 2 points / zero-duration) main link is NOT renderable, so it is
+            // run-INELIGIBLE and BREAKS the run. [auto-main, zero-duration-auto-main] leaves only one
+            // eligible main link before the break -> no unit. Add a 2nd eligible tree so the fast-out
+            // passes. REGRESSION GUARD: fails if a degenerate main link is treated as run-eligible.
+            CommitChainMember("A", 0, 100, 150, unit: LoopTimeUnit.Auto, treeId: "m");
+            CommitChainMember("B", 0, 200, 200, unit: LoopTimeUnit.Auto, pointCount: 1, treeId: "m"); // single point
+            CommitChainMember("pair", 0, 500, 550, treeId: "pair"); // eligible pair in another tree
+            CommitChainMember("pair", 1, 550, 600, treeId: "pair");
+
+            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+
+            // 'm' tree dissolves (only A is eligible before B breaks the run); 'pair' tree is a unit.
+            Assert.Equal(1, set.Count);
+            Assert.False(set.IsMember(0));
+            Assert.False(set.IsMember(1));
+            Assert.True(set.IsMember(2));
+            Assert.True(set.IsMember(3));
         }
 
         [Fact]
         public void DetectChainLoopUnits_NullTreeId_NotEligible()
         {
-            // A null/empty TreeId is ineligible for grouping (shouldn't happen in always-tree mode,
-            // but guard it): two contiguous loop+auto recordings with NO TreeId never form a unit.
+            // A null/empty TreeId cannot belong to a mission (shouldn't happen in always-tree mode):
+            // two loop+auto recordings with NO TreeId never form a unit.
             CommitStandaloneAuto(100, 150); // no TreeId
-            CommitStandaloneAuto(150, 200); // no TreeId, contiguous
+            CommitStandaloneAuto(150, 200); // no TreeId
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
@@ -541,31 +479,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_SpanAndCadence_FromWindowsNotGlobalGap()
+        public void DetectChainLoopUnits_Cadence_MaxOfAutoIntervalAndSpan()
         {
-            // Cadence == span duration (150s for a 100..250 span), NOT the 30s/10s global gap.
-            CommitChainMember("chF", 0, 100, 200, treeId: "chF");
-            CommitChainMember("chF", 1, 200, 250, treeId: "chF");
+            // cadence = max(autoInterval n, span, MinCycleDuration). Span here is 150s (100..250).
+            // With n = 30 (< span) cadence == span (150). With n = 300 (> span) cadence == n (300).
+            CommitChainMember("A", 0, 100, 200, treeId: "m");
+            CommitChainMember("B", 0, 200, 250, treeId: "m");
 
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            // n < span: cadence == span (back-to-back, no wait).
+            var setSmallN = RecordingStore.DetectChainLoopUnits(
+                RecordingStore.CommittedRecordings, globalAutoIntervalSeconds: 30);
+            Assert.True(setSmallN.TryGetUnitForMember(0, out var unitSmall));
+            Assert.Equal(150.0, unitSmall.CadenceSeconds, 6); // span wins
+            Assert.Equal(150.0, unitSmall.SpanEndUT - unitSmall.SpanStartUT, 6);
 
-            Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(150.0, unit.CadenceSeconds, 6); // 250 - 100, not a global stagger gap
-            Assert.Equal(150.0, unit.SpanEndUT - unit.SpanStartUT, 6);
+            // n > span: cadence == n (there is a wait, isInInterCycleTail reachable).
+            var setBigN = RecordingStore.DetectChainLoopUnits(
+                RecordingStore.CommittedRecordings, globalAutoIntervalSeconds: 300);
+            Assert.True(setBigN.TryGetUnitForMember(0, out var unitBig));
+            Assert.Equal(300.0, unitBig.CadenceSeconds, 6); // autoInterval wins
+            Assert.True(unitBig.CadenceSeconds > (unitBig.SpanEndUT - unitBig.SpanStartUT));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_TinySpanCadenceClampedToMinCycleDuration()
+        public void DetectChainLoopUnits_TinySpanAndTinyInterval_CadenceClampedToMinCycleDuration()
         {
-            // A sub-MinCycleDuration span (2s total) clamps cadence to MinCycleDuration.
-            CommitChainMember("chG", 0, 100, 101, treeId: "chG");
-            CommitChainMember("chG", 1, 101, 102, treeId: "chG");
+            // A sub-MinCycleDuration span (2s) AND a sub-MinCycleDuration autoInterval (2s) clamp
+            // cadence to MinCycleDuration (the third term in the max).
+            CommitChainMember("A", 0, 100, 101, treeId: "m");
+            CommitChainMember("B", 0, 101, 102, treeId: "m");
 
-            var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
+            var set = RecordingStore.DetectChainLoopUnits(
+                RecordingStore.CommittedRecordings, globalAutoIntervalSeconds: 2);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(2.0, unit.SpanEndUT - unit.SpanStartUT, 6); // raw span is 2s
             Assert.Equal(LoopTiming.MinCycleDuration, unit.CadenceSeconds, 6); // clamped up
+        }
+
+        [Fact]
+        public void DetectChainLoopUnits_SpanIncludesRideAlongDebrisTail()
+        {
+            // Span = min StartUT..max EndUT over ALL members, including ride-along debris. The
+            // debris tail [200,300] extends the span past the main links' [100,250]. cadence then
+            // tracks that wider span (200s) when it exceeds the autoInterval.
+            CommitChainMember("A", 0, 100, 150, treeId: "m");                       // main, idx 0
+            CommitChainMember("B", 0, 150, 250, treeId: "m");                       // main, idx 1
+            CommitChainMember("deb", 0, 200, 300, treeId: "m",
+                parentAnchorRecordingId: "parent", isDebris: true);                 // debris tail, idx 2
+
+            var set = RecordingStore.DetectChainLoopUnits(
+                RecordingStore.CommittedRecordings, globalAutoIntervalSeconds: 30);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(new[] { 0, 1, 2 }, unit.MemberIndices);
+            Assert.Equal(100.0, unit.SpanStartUT, 6);
+            Assert.Equal(300.0, unit.SpanEndUT, 6);            // debris tail extends span
+            Assert.Equal(200.0, unit.CadenceSeconds, 6);       // span (200) > autoInterval (30)
         }
 
         [Fact]
@@ -574,37 +544,35 @@ namespace Parsek.Tests
             // Defensive: null and under-2-element lists return the shared Empty (no allocation).
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, RecordingStore.DetectChainLoopUnits(null));
 
-            CommitChainMember("chH", 0, 100, 150, treeId: "chH");
+            CommitChainMember("A", 0, 100, 150, treeId: "m");
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty,
                 RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_FewerThanTwoEligible_ReturnsEmptyViaFastPath()
+        public void DetectChainLoopUnits_FewerThanTwoMainLinks_ReturnsEmptyViaFastPath()
         {
-            // Dormant-path fast-out: the per-frame common case has < 2 unit-eligible recordings.
-            // Here two standalone auto-loop recordings carry no TreeId, so neither is unit-eligible.
-            // The O(n) pre-scan counts fewer than 2 eligible and returns the shared Empty before
-            // allocating the grouping dictionary. REGRESSION GUARD: fails if the fast path
-            // mis-counted an ineligible save as eligible, or fell through and allocated needlessly.
-            CommitStandaloneAuto(50, 90);  // no TreeId -> ineligible
-            CommitStandaloneAuto(95, 130); // no TreeId -> ineligible
+            // Dormant-path fast-out: the per-frame common case has < 2 run-eligible MAIN links.
+            // Here two standalone auto-loop recordings carry no TreeId (so they are not main links of
+            // any mission), so the pre-scan counts 0 run-eligible main links and returns the shared
+            // Empty before allocating. REGRESSION GUARD: fails if the fast path mis-counted a
+            // non-main-link save as eligible.
+            CommitStandaloneAuto(50, 90);  // no TreeId -> not a main link
+            CommitStandaloneAuto(95, 130); // no TreeId -> not a main link
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, set);
             Assert.Equal(0, set.Count);
-            Assert.False(set.IsMember(0));
-            Assert.False(set.IsMember(1));
         }
 
-        // ─── Phase 2: log-assertion tests ───────────────────────────────────────
+        // ─── DetectChainLoopUnits log-assertion tests ───────────────────────────
 
         [Fact]
         public void DetectChainLoopUnits_EmitsUnitBuiltSummary()
         {
-            CommitChainMember("logA", 0, 100, 150, treeId: "logA");
-            CommitChainMember("logA", 1, 150, 200, treeId: "logA");
+            CommitChainMember("A", 0, 100, 150, treeId: "logA");
+            CommitChainMember("B", 0, 150, 200, treeId: "logA");
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
@@ -617,24 +585,22 @@ namespace Parsek.Tests
                 ParsekLog.TestSinkForTesting = null;
             }
 
-            // Summary count line (protects observability of how many units were built; the source
-            // counts trees now, not chains).
+            // Summary count line (protects observability of how many units were built).
             Assert.Contains(captured, l =>
                 l.Contains("[RecordingStore]") && l.Contains("Chain-loop units: built 1 unit"));
-            // Per-unit detail with member indices and span (the design's detection log).
+            // Per-unit detail with member indices and span.
             Assert.Contains(captured, l =>
                 l.Contains("[Loop]") && l.Contains("Chain-loop unit: owner=0")
                 && l.Contains("members=0,1") && l.Contains("span=100..200"));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_RejectedRunLogsReason_LengthLtTwo()
+        public void DetectChainLoopUnits_LoneMainLinkLogsLengthLtTwo()
         {
-            // A lone eligible member in its own tree is a length-1 component and logs the per-tree
-            // length<2 rejection. A SECOND tree carries a contiguous eligible pair, so the global
-            // eligible count is >= 2 and the dormant fast-out does not short-circuit detection
-            // (which it would if "logB" were the only eligible recording).
-            CommitChainMember("logB", 0, 100, 150, treeId: "logB"); // lone eligible in its own tree
+            // A lone run-eligible main link in its own tree logs the length<2 rejection. A SECOND
+            // tree carries a contiguous eligible pair so the global eligible count is >= 2 and the
+            // dormant fast-out does not short-circuit.
+            CommitChainMember("logB", 0, 100, 150, treeId: "logB"); // lone main link in its tree
             CommitChainMember("pair", 0, 500, 550, treeId: "pair"); // eligible pair in another tree
             CommitChainMember("pair", 1, 550, 600, treeId: "pair");
 
@@ -654,13 +620,13 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DetectChainLoopUnits_RejectedRunLogsReason_NonContiguousGap()
+        public void DetectChainLoopUnits_RunBreakLogsReason()
         {
-            // Two eligible same-tree autos separated by a UT gap log the non-contiguity break: the
-            // sweep closes the first run and logs why the second member did not join (the UT gap).
-            // This makes "why didn't these loop as one" answerable from the log alone.
-            CommitChainMember("logC", 0, 100, 150, treeId: "logC");
-            CommitChainMember("logC", 1, 200, 250, treeId: "logC"); // 50s gap
+            // A main link that lacks loop+auto BREAKS the run and logs WHY (member-not-auto). This
+            // makes "why didn't these loop as one" answerable from the log alone.
+            CommitChainMember("A", 0, 100, 150, treeId: "logC");
+            CommitChainMember("B", 0, 150, 200, unit: LoopTimeUnit.Sec, treeId: "logC"); // manual, breaks
+            CommitChainMember("C", 0, 200, 250, treeId: "logC");
 
             var captured = new List<string>();
             ParsekLog.TestSinkForTesting = captured.Add;
@@ -675,40 +641,72 @@ namespace Parsek.Tests
 
             Assert.Contains(captured, l =>
                 l.Contains("[Loop]") && l.Contains("tree logC")
-                && l.Contains("recIdx=1") && l.Contains("not contiguous: UT gap"));
+                && l.Contains("recIdx=1") && l.Contains("breaks run: member-not-auto"));
+        }
+
+        // ─── IsMainLink / IsRunEligibleMainLink / IsRideAlongSecondary ──────────
+
+        [Fact]
+        public void IsMainLink_StructuralSplit()
+        {
+            // Main link = not debris AND no parent anchor AND branch 0.
+            var main = CommitChainMember("m", 0, 100, 150, treeId: "t");
+            Assert.True(RecordingStore.IsMainLink(main));
+
+            var debris = CommitChainMember("d", 0, 100, 150, treeId: "t", isDebris: true);
+            Assert.False(RecordingStore.IsMainLink(debris));
+
+            var anchored = CommitChainMember("p", 0, 100, 150, treeId: "t",
+                parentAnchorRecordingId: "x");
+            Assert.False(RecordingStore.IsMainLink(anchored));
+
+            var branch = CommitChainMember("b", 0, 100, 150, treeId: "t", branch: 1);
+            Assert.False(RecordingStore.IsMainLink(branch));
+
+            Assert.False(RecordingStore.IsMainLink(null));
         }
 
         [Fact]
-        public void DetectChainLoopUnits_RejectedRunLogsReason_ZeroDurationEligibility()
+        public void IsRunEligibleMainLink_RequiresMainAndLoopAutoRenderable()
         {
-            // An eligibility rejection the player can act on (a zero-duration / single-point member
-            // that would otherwise have joined) logs its reason. not-looping / not-auto / branch /
-            // parent-anchored / no-tree are intentionally NOT logged (they simply never opt in);
-            // member-zero-duration is, because the member looks like a unit candidate otherwise.
-            // A second tree carries a contiguous eligible pair so the dormant fast-out (>= 2
-            // eligible) does not short-circuit before the per-recording eligibility scan logs.
-            CommitChainMember("logD", 0, 100, 150, treeId: "logD");
-            CommitChainMember("logD", 1, 200, 200, pointCount: 1, treeId: "logD"); // single point, recIdx 1
-            CommitChainMember("pair", 0, 500, 550, treeId: "pair"); // eligible pair in another tree
-            CommitChainMember("pair", 1, 550, 600, treeId: "pair");
+            var ok = CommitChainMember("m", 0, 100, 150, treeId: "t");
+            Assert.True(RecordingStore.IsRunEligibleMainLink(ok, out _));
 
-            var captured = new List<string>();
-            ParsekLog.TestSinkForTesting = captured.Add;
-            try
-            {
-                RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-            }
-            finally
-            {
-                ParsekLog.TestSinkForTesting = null;
-            }
+            var notMain = CommitChainMember("d", 0, 100, 150, treeId: "t", isDebris: true);
+            Assert.False(RecordingStore.IsRunEligibleMainLink(notMain, out string r1));
+            Assert.Equal("not-main-link", r1);
 
-            Assert.Contains(captured, l =>
-                l.Contains("[Loop]") && l.Contains("recIdx=1")
-                && l.Contains("not a unit: member-zero-duration"));
+            var notLoop = CommitChainMember("m2", 0, 100, 150, loop: false, treeId: "t");
+            Assert.False(RecordingStore.IsRunEligibleMainLink(notLoop, out string r2));
+            Assert.Equal("member-not-looping", r2);
+
+            var notAuto = CommitChainMember("m3", 0, 100, 150, unit: LoopTimeUnit.Sec, treeId: "t");
+            Assert.False(RecordingStore.IsRunEligibleMainLink(notAuto, out string r3));
+            Assert.Equal("member-not-auto", r3);
+
+            var zeroDur = CommitChainMember("m4", 0, 100, 100, pointCount: 1, treeId: "t");
+            Assert.False(RecordingStore.IsRunEligibleMainLink(zeroDur, out string r4));
+            Assert.Equal("member-zero-duration", r4);
         }
 
-        // ─── Phase 3: global-queue exclusion in the engine schedule rebuild ─────
+        [Fact]
+        public void IsRideAlongSecondary_RequiresSecondaryAndLoopAutoRenderable()
+        {
+            var debrisOk = CommitChainMember("d", 0, 100, 150, treeId: "t",
+                parentAnchorRecordingId: "x", isDebris: true);
+            Assert.True(RecordingStore.IsRideAlongSecondary(debrisOk));
+
+            // A main link is NOT a ride-along secondary even if loop+auto.
+            var main = CommitChainMember("m", 0, 100, 150, treeId: "t");
+            Assert.False(RecordingStore.IsRideAlongSecondary(main));
+
+            // A secondary without loop+auto is omitted.
+            var debrisNoLoop = CommitChainMember("d2", 0, 100, 150, loop: false, treeId: "t",
+                parentAnchorRecordingId: "x", isDebris: true);
+            Assert.False(RecordingStore.IsRideAlongSecondary(debrisNoLoop));
+        }
+
+        // ─── Global-queue exclusion in the engine schedule rebuild ──────────────
 
         /// <summary>
         /// Materializes the committed recordings as an IPlaybackTrajectory list in committed-index
@@ -744,8 +742,7 @@ namespace Parsek.Tests
         {
             // Members {0,1} form a unit; index 2 is a standalone auto recording. After the engine
             // rebuilds the global auto-launch schedule with the unit pushed in, index 2 keeps its
-            // global slot but the two unit members do NOT (they are scheduled by their span clock).
-            // Fails if a unit member also receives a global slot (double-scheduling regression).
+            // global slot but the two unit members do NOT (they are scheduled by the shared clock).
             CommitChainMember("schedA", 0, 100, 150);
             CommitChainMember("schedA", 1, 150, 200);
             CommitStandaloneAuto(300, 360); // index 2
@@ -768,9 +765,7 @@ namespace Parsek.Tests
         [Fact]
         public void RebuildSchedule_NoUnits_StandaloneAutosAllScheduled()
         {
-            // Control: with an Empty LoopUnitSet, every eligible auto-loop recording keeps its
-            // global slot. This pins the exclusion to the unit membership, not to a blanket change
-            // in the rebuild. Fails if the rebuild drops standalone autos when no unit exists.
+            // Control: with an Empty LoopUnitSet, every eligible auto-loop recording keeps its slot.
             CommitStandaloneAuto(100, 160); // index 0
             CommitStandaloneAuto(300, 360); // index 1
 
@@ -787,8 +782,7 @@ namespace Parsek.Tests
         public void RebuildSchedule_MixedList_StandaloneStaysInParade()
         {
             // Mixed: a standalone auto (index 0) + a 3-member auto chain (indices 1,2,3). The
-            // standalone keeps its parade slot; all three chain members are excluded. Fails if
-            // either population leaks into the other's scheduling.
+            // standalone keeps its parade slot; all three chain members are excluded.
             CommitStandaloneAuto(50, 110); // index 0
             CommitChainMember("schedM", 0, 200, 250); // index 1
             CommitChainMember("schedM", 1, 250, 300); // index 2
@@ -814,14 +808,11 @@ namespace Parsek.Tests
         public void RebuildSchedule_ExclusionLogsReason()
         {
             // The exclusion is observable: each excluded member logs its owner once (VerboseOnChange).
-            // Fails if the global-queue / unit split is silent (protects the design's diagnostic).
             CommitChainMember("schedL", 0, 100, 150);
             CommitChainMember("schedL", 1, 150, 200);
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
 
-            // VerboseOnChange emits only on the first observation of an (identity, stateKey) pair;
-            // reset so a prior test's exclusion state does not suppress this one's first emit.
             ParsekLog.ResetRateLimitsForTesting();
 
             var captured = new List<string>();
@@ -846,139 +837,99 @@ namespace Parsek.Tests
                 && l.Contains("excluded from global auto queue") && l.Contains("unit owner=0"));
         }
 
-        // ─── Phase 4: DecideUnitMemberRender (follower dispatch decision) ───────
-
-        // Three contiguous members tiling the span [100, 250]: slot 0 [100,150], slot 1 [150,200],
-        // slot 2 [200,250]. Cadence == span (150s, above MinCycleDuration so no clamp).
-        private static List<(double startUT, double endUT)> ThreeContiguousWindows() =>
-            new List<(double, double)> { (100, 150), (150, 200), (200, 250) };
+        // ─── DecideUnitMemberRender (per-member, shared-clock concurrent model) ──
 
         [Fact]
-        public void DecideUnitMemberRender_SelectedMemberRenders_AtSpanLoopUT()
+        public void DecideUnitMemberRender_RendersWhenClockInOwnWindow()
         {
-            // currentUT 175 sits in cycle 0 at loopUT 175, which is inside slot 1's window. Slot 1
-            // renders; slots 0 and 2 are hidden because a sibling is selected. spanLoopUT == 175.
-            var w = ThreeContiguousWindows();
-
-            var d1 = GhostPlaybackLogic.DecideUnitMemberRender(
-                175, 100, 250, 150, memberSlot: 1, w,
-                out double loopUT, out long cycle, out int sel);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d1);
+            // Member [150,200]. Span [100,250], cadence 150 (== span). At currentUT 175 the shared
+            // clock loopUT == 175 is inside [150,200] -> Render at loopUT 175.
+            var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                175, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
+                out double loopUT, out long cycle, out bool tail);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
             Assert.Equal(175.0, loopUT, 6);
             Assert.Equal(0, cycle);
-            Assert.Equal(1, sel);
-
-            var d0 = GhostPlaybackLogic.DecideUnitMemberRender(
-                175, 100, 250, 150, memberSlot: 0, w, out _, out _, out int sel0);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d0);
-            Assert.Equal(1, sel0); // slot 1 is the live member
-
-            var d2 = GhostPlaybackLogic.DecideUnitMemberRender(
-                175, 100, 250, 150, memberSlot: 2, w, out _, out _, out _);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d2);
+            Assert.False(tail);
         }
 
         [Fact]
-        public void DecideUnitMemberRender_ExactlyOneMemberRendersAcrossTheSpan()
+        public void DecideUnitMemberRender_HiddenWhenClockOutsideOwnWindow()
         {
-            // Sample one interior loopUT per member; exactly that slot renders and the other two
-            // are hidden. Fails if two members render simultaneously outside an overlap.
-            var w = ThreeContiguousWindows();
-            double[] samples = { 120, 175, 230 };
-            for (int live = 0; live < 3; live++)
-            {
-                for (int slot = 0; slot < 3; slot++)
-                {
-                    var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                        samples[live], 100, 250, 150, slot, w, out _, out _, out _);
-                    if (slot == live)
-                        Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
-                    else
-                        Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, d);
-                }
-            }
+            // Same member [150,200], but currentUT 120 -> loopUT 120 is outside [150,200] -> hidden.
+            var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                120, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
+                out double loopUT, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, d);
+            Assert.Equal(120.0, loopUT, 6);
         }
 
         [Fact]
-        public void DecideUnitMemberRender_OverlapPrecedence_HigherIndexRendersLowerHidden()
+        public void DecideUnitMemberRender_ConcurrentMembers_BothRenderInOverlap()
         {
-            // Edge 5: slots 0 [100,150.5] and 1 [150,200] overlap by 0.5s. At loopUT 150.25 the
-            // higher-index slot 1 renders and slot 0 is hidden (continuation is authoritative).
-            var w = new List<(double, double)> { (100, 150.5), (150, 200) };
-
-            // currentUT == 150.25, span [100,200], cadence 100 -> loopUT 150.25 in cycle 0.
-            var dHigh = GhostPlaybackLogic.DecideUnitMemberRender(
-                150.25, 100, 200, 100, memberSlot: 1, w, out double loopUT, out _, out int sel);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dHigh);
-            Assert.Equal(1, sel);
-            Assert.Equal(150.25, loopUT, 6);
-
-            var dLow = GhostPlaybackLogic.DecideUnitMemberRender(
-                150.25, 100, 200, 100, memberSlot: 0, w, out _, out _, out _);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenSiblingSelected, dLow);
+            // CONCURRENT model: two members whose windows overlap BOTH render when the shared clock
+            // is in the overlap. Members A [100,160] and B [150,200] overlap [150,160]; at currentUT
+            // 155 (loopUT 155) BOTH decide Render. This is the headline behavior change: debris
+            // alongside their parent, like a rewind. Fails if a single-member selection survived.
+            var dA = GhostPlaybackLogic.DecideUnitMemberRender(
+                155, 100, 200, 100, memberStartUT: 100, memberEndUT: 160, out _, out _, out _);
+            var dB = GhostPlaybackLogic.DecideUnitMemberRender(
+                155, 100, 200, 100, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dA);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dB);
         }
 
         [Fact]
-        public void DecideUnitMemberRender_GapHidesAllMembers()
+        public void DecideUnitMemberRender_InterCycleTail_HidesEveryMember()
         {
-            // Edge 6: a UT gap between slot 0 end (150) and slot 1 start (160). A loopUT in the gap
-            // (155) hides every member with HiddenInGap. Fails if it clamps to the stale slot 0.
-            var w = new List<(double, double)> { (100, 150), (160, 210) };
+            // cadence > span: the wait between cycles. Span [100,200] (100s), cadence 300. At
+            // currentUT 250 the clock is in the parked tail -> HiddenInterCycleTail for EVERY member
+            // (render nothing during the wait), regardless of which member's window contains spanEnd.
+            var dMid = GhostPlaybackLogic.DecideUnitMemberRender(
+                250, 100, 200, 300, memberStartUT: 100, memberEndUT: 150,
+                out double loopUT, out _, out bool tail);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, dMid);
+            Assert.True(tail);
+            Assert.Equal(200.0, loopUT, 6); // parked at spanEnd
 
-            // span [100,210], cadence 110; currentUT 155 -> loopUT 155 (cycle 0) in the gap.
-            var d0 = GhostPlaybackLogic.DecideUnitMemberRender(
-                155, 100, 210, 110, memberSlot: 0, w, out double loopUT, out _, out int sel);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap, d0);
-            Assert.Equal(-1, sel);     // no member selected
-            Assert.Equal(155.0, loopUT, 6);
-
-            var d1 = GhostPlaybackLogic.DecideUnitMemberRender(
-                155, 100, 210, 110, memberSlot: 1, w, out _, out _, out _);
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInGap, d1);
+            // Even the member whose window includes spanEnd (150..200) is hidden in the tail.
+            var dEnd = GhostPlaybackLogic.DecideUnitMemberRender(
+                250, 100, 200, 300, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, dEnd);
         }
 
         [Fact]
         public void DecideUnitMemberRender_BeforeSpanStart_SpanClockUnresolved()
         {
-            // currentUT before spanStart: the span clock cannot resolve, so the member is hidden
-            // with SpanClockUnresolved (distinct from the in-span hide reasons).
-            var w = ThreeContiguousWindows();
-
+            // currentUT before spanStart: the shared clock cannot resolve -> SpanClockUnresolved.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                50, 100, 250, 150, memberSlot: 0, w, out _, out _, out _);
+                50, 100, 250, 150, memberStartUT: 100, memberEndUT: 150, out _, out _, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved, d);
         }
 
         [Fact]
         public void DecideUnitMemberRender_CycleIndexAdvancesAfterWrap()
         {
-            // After one full cadence the span clock wraps to cycle 1. At currentUT 275 (175s past
-            // spanStart, one 150s cadence + 25s) loopUT folds to 125 in cycle 1, selecting slot 0.
-            // The returned unitCycle == 1 is what the engine writes to state.loopCycleIndex to
-            // trigger the per-cycle ghost rebuild.
-            var w = ThreeContiguousWindows();
-
+            // After one full cadence the shared clock wraps to cycle 1. At currentUT 275 (175s past
+            // spanStart, one 150s cadence + 25s) loopUT folds to 125 in cycle 1. A member [100,150]
+            // renders (125 in its window); unitCycle == 1 is written to state.loopCycleIndex.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                275, 100, 250, 150, memberSlot: 0, w, out double loopUT, out long cycle, out int sel);
+                275, 100, 250, 150, memberStartUT: 100, memberEndUT: 150,
+                out double loopUT, out long cycle, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
             Assert.Equal(1, cycle);          // wrapped into cycle 1
-            Assert.Equal(125.0, loopUT, 6);  // 25s into the span, inside slot 0
-            Assert.Equal(0, sel);
+            Assert.Equal(125.0, loopUT, 6);  // 25s into the span
         }
 
-        // ─── Phase 4 follow-up (Fix 1): payload-activation gate ─────────────────
+        // ─── Payload-activation gate (Fix 1) ────────────────────────────────────
 
         [Fact]
         public void UnitMember_SpanClockBelowPayloadActivation_GateHidesMember()
         {
-            // Fix 1 regression: a unit selection window uses the member's RAW StartUT (design D2).
-            // When ExplicitStartUT widens StartUT below the first playable payload sample, the span
-            // clock can select THIS member at a spanLoopUT inside [StartUT, payloadStart) — below
-            // its first payload UT. RenderInRangeGhost would then position/interpolate a stale
-            // pre-payload pose. UpdateUnitMemberPlayback's new gate (spanLoopUT < activation UT)
-            // hides the member instead. This proves the exact arithmetic the engine gate evaluates.
-            //
-            // Member: payload samples at [100, 150], but ExplicitStartUT = 90 widens StartUT to 90.
+            // A member's window uses raw StartUT (which ExplicitStartUT can widen below the first
+            // playable payload sample). When the shared clock is in [StartUT, payloadStart), the
+            // member's render must be gated off (the engine's spanLoopUT < activation UT check), not
+            // render a stale pre-payload pose. This proves the exact arithmetic the engine gate uses.
             var member = new Recording
             {
                 VesselName = "fix1-member",
@@ -992,44 +943,29 @@ namespace Parsek.Tests
             member.Points.Add(MakePoint(100));
             member.Points.Add(MakePoint(150));
 
-            // The two boundaries diverge: StartUT follows ExplicitStartUT, but the activation UT
-            // tracks the first PLAYABLE payload sample. This divergence is the precondition for the
-            // bug (a contiguous member with StartUT == activation UT cannot reach this state).
             Assert.Equal(90.0, member.StartUT, 6);
             double activationUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(member);
             Assert.Equal(100.0, activationUT, 6);
             Assert.True(member.StartUT < activationUT);
 
-            // Build the unit windows the way UpdateUnitMemberPlayback does: raw StartUT/EndUT.
-            // A single-member window here is enough to exercise the gate (the selection picks slot 0).
-            var windows = new List<(double, double)> { (member.StartUT, member.EndUT) };
-
-            // Span clock anchored at the member's raw window. At currentUT 95 (inside the widened
-            // [90,100) pre-payload region) the clock resolves loopUT 95 and SELECTS slot 0 — exactly
-            // the case the standalone path's `currentUT < activationStartUT` guard would have caught
-            // but the unit dispatch bypasses. WHAT MAKES IT FAIL: without the new gate, slot 0
-            // renders at loopUT 95 (below its 100 activation UT). With the gate, spanLoopUT (95) <
-            // activationUT (100) => the member is hidden.
+            // At currentUT 95 (inside the widened [90,100) pre-payload region) the clock resolves
+            // loopUT 95 and the member's own window [90,150] CONTAINS it -> decision Render. The
+            // engine's gate (spanLoopUT < activationUT) then hides it for the frame.
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 95, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
-                memberSlot: 0, windows, out double spanLoopUT, out _, out int selectedSlot);
+                member.StartUT, member.EndUT, out double spanLoopUT, out _, out _);
 
-            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision); // selection picks it
-            Assert.Equal(0, selectedSlot);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
             Assert.Equal(95.0, spanLoopUT, 6);
-
-            // The engine gate condition: selected, but the span loopUT is below the member's
-            // payload activation. The gate fires => member hidden for this frame.
             Assert.True(spanLoopUT < activationUT,
-                "gate must fire: span clock selected the member below its payload activation UT");
+                "gate must fire: shared clock in the member window below its payload activation UT");
         }
 
         [Fact]
         public void UnitMember_ContiguousMember_GateDoesNotFire()
         {
-            // Control for Fix 1: a typical contiguous member (no ExplicitStartUT widening) has
-            // StartUT == activation UT, so any selected spanLoopUT is >= activation UT and the gate
-            // never fires. Fails if the gate were to spuriously hide ordinary members.
+            // Control: a typical member (no ExplicitStartUT widening) has StartUT == activation UT,
+            // so any in-window spanLoopUT is >= activation UT and the gate never fires.
             var member = new Recording
             {
                 VesselName = "fix1-contiguous",
@@ -1044,46 +980,37 @@ namespace Parsek.Tests
 
             Assert.Equal(100.0, member.StartUT, 6);
             double activationUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(member);
-            Assert.Equal(member.StartUT, activationUT, 6); // no divergence: gate cannot fire
+            Assert.Equal(member.StartUT, activationUT, 6);
 
-            var windows = new List<(double, double)> { (member.StartUT, member.EndUT) };
-
-            // Any in-window currentUT selects the member at a spanLoopUT >= 100 == activation UT.
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 120, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
-                memberSlot: 0, windows, out double spanLoopUT, out _, out _);
+                member.StartUT, member.EndUT, out double spanLoopUT, out _, out _);
 
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
             Assert.False(spanLoopUT < activationUT, "gate must NOT fire for a contiguous member");
         }
 
-        // ─── Phase 5: dual-scheduler (flight engine + tracking station) parity ──
+        // ─── Dual-scheduler (flight engine + tracking station) parity ───────────
 
         [Fact]
         public void DualScheduler_SameRecordingSet_ProducesIdenticalUnits()
         {
-            // The design scopes BOTH the flight engine and the tracking-station scheduler in by
-            // sharing the pure RecordingStore.DetectChainLoopUnits as the single source of unit
-            // truth: each scheduler builds its LoopUnitSet from the same detection call on the same
-            // committed list, then routes through IsMember / OwnerByIndex without re-deriving units.
-            // This pins that contract. A mixed list: standalone auto (index 0) + a 3-member auto
-            // chain (indices 1,2,3) + a manual-period chain pair (indices 4,5, never a unit).
-            CommitStandaloneAuto(50, 110);              // index 0 — global parade
-            CommitChainMember("parA", 0, 200, 250);     // index 1 — unit member
-            CommitChainMember("parA", 1, 250, 300);     // index 2 — unit member
-            CommitChainMember("parA", 2, 300, 350);     // index 3 — unit member
-            CommitChainMember("parB", 0, 400, 450, unit: LoopTimeUnit.Sec); // index 4 — manual
-            CommitChainMember("parB", 1, 450, 500, unit: LoopTimeUnit.Sec); // index 5 — manual
+            // Both the flight engine and the tracking-station scheduler share the pure
+            // RecordingStore.DetectChainLoopUnits as the single source of unit truth, so a looped
+            // chain replays identically in both scenes. Mixed list: standalone auto (index 0) + a
+            // 3-member auto chain (indices 1,2,3) + a manual-period chain pair (indices 4,5).
+            CommitStandaloneAuto(50, 110);              // index 0 - global parade
+            CommitChainMember("parA", 0, 200, 250);     // index 1 - unit member
+            CommitChainMember("parA", 1, 250, 300);     // index 2 - unit member
+            CommitChainMember("parA", 2, 300, 350);     // index 3 - unit member
+            CommitChainMember("parB", 0, 400, 450, unit: LoopTimeUnit.Sec); // index 4 - manual
+            CommitChainMember("parB", 1, 450, 500, unit: LoopTimeUnit.Sec); // index 5 - manual
 
             var committed = RecordingStore.CommittedRecordings;
 
-            // Both schedulers detect from the identical committed list. Two calls model "flight built
-            // its set" and "KSC built its set"; since the function is pure, they MUST be byte-equal.
             var flightSet = RecordingStore.DetectChainLoopUnits(committed);
             var kscSet = RecordingStore.DetectChainLoopUnits(committed);
 
-            // Same unit: same owner, members, span, cadence. Fails if the two schedulers diverge
-            // (the inconsistency the KSC scoping exists to prevent).
             Assert.Equal(flightSet.Count, kscSet.Count);
             Assert.Equal(1, flightSet.Count);
             Assert.True(flightSet.TryGetUnitForMember(1, out var fUnit));
@@ -1095,18 +1022,11 @@ namespace Parsek.Tests
             Assert.Equal(fUnit.SpanEndUT, kUnit.SpanEndUT, 6);
             Assert.Equal(fUnit.CadenceSeconds, kUnit.CadenceSeconds, 6);
 
-            // Both schedulers exclude the SAME indices from the global parade. The engine exposes its
-            // schedule for inspection; KSC.RebuildAutoLoopLaunchScheduleCache applies the IDENTICAL
-            // `ShouldUseGlobalAutoLaunchQueue && !IsMember` predicate (verified by reading the source),
-            // so the predicted excluded/scheduled split below is exactly what KSC produces too.
             var engine = new GhostPlaybackEngine(positioner: null);
             engine.SetLoopUnitsForTesting(flightSet);
             engine.RebuildAutoLoopLaunchScheduleCacheForTesting(
                 TrajectoriesFromCommitted(), LoopTiming.DefaultLoopIntervalSeconds);
 
-            // Standalone auto (0) keeps its slot. Unit members (1,2,3) are excluded. Manual chain
-            // members (4,5) are not auto, so ShouldUseGlobalAutoLaunchQueue already excludes them
-            // independent of the unit logic (so neither scheduler gives them a global auto slot).
             Assert.True(engine.TryGetAutoLoopScheduleForTesting(0));
             Assert.False(engine.TryGetAutoLoopScheduleForTesting(1));
             Assert.False(engine.TryGetAutoLoopScheduleForTesting(2));
@@ -1114,32 +1034,27 @@ namespace Parsek.Tests
             Assert.False(engine.TryGetAutoLoopScheduleForTesting(4));
             Assert.False(engine.TryGetAutoLoopScheduleForTesting(5));
 
-            // The KSC exclusion predicate, applied to the SAME shared set, agrees index-for-index:
-            // a member is excluded iff DetectChainLoopUnits says it is a member (the single source).
             for (int i = 0; i < committed.Count; i++)
                 Assert.Equal(flightSet.IsMember(i), kscSet.IsMember(i));
         }
 
-        // ─── Phase 6: debris-on-unit-member branch predicate (edge 9) ───────────
+        // ─── Debris-on-unit-member branch predicate (edge 9) ────────────────────
 
         [Fact]
         public void ShouldSourceDebrisFromUnitSpan_ParentIsUnitMember_TrueAndResolvesOwnerUnit()
         {
-            // Edge 9: a debris's loop-sync parent is a chain-loop unit member. The branch predicate
-            // must return true (so TryUpdateLoopSyncedDebris sources the unit's SHARED span clock
-            // instead of the parent's own per-recording loop clock) and resolve the owning unit so
-            // the engine can read its span. Fails if the predicate misses a unit-member parent.
-            CommitChainMember("debA", 0, 100, 150); // index 0 — unit owner
-            CommitChainMember("debA", 1, 150, 200); // index 1 — unit member
+            // A debris's loop-sync parent is a loop-unit member -> the debris must source the unit's
+            // SHARED mission clock (TryUpdateLoopSyncedDebris) instead of the parent's own clock.
+            CommitChainMember("debA", 0, 100, 150); // index 0 - unit owner
+            CommitChainMember("debA", 1, 150, 200); // index 1 - unit member
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
             Assert.True(set.IsMember(1));
 
-            // Parent index 1 is a unit member -> source the span clock.
             bool source = GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: 1, set, out var unit);
             Assert.True(source);
-            Assert.Equal(0, unit.OwnerIndex);                 // resolved to the owning unit
+            Assert.Equal(0, unit.OwnerIndex);
             Assert.Equal(new[] { 0, 1 }, unit.MemberIndices);
             Assert.Equal(100.0, unit.SpanStartUT, 6);
             Assert.Equal(200.0, unit.SpanEndUT, 6);
@@ -1148,14 +1063,12 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSourceDebrisFromUnitSpan_ParentNotAUnitMember_False()
         {
-            // Control: a standalone auto looper (not a chain member) is the debris parent. The
-            // predicate returns false, so the engine keeps the existing per-recording loop-clock
-            // path byte-for-byte (no regression for non-unit debris). Fails if a non-unit parent is
-            // wrongly routed to the span clock.
-            CommitStandaloneAuto(100, 160); // index 0 — standalone, never a unit
+            // Control: a standalone auto looper (not a unit member) is the debris parent -> false,
+            // so the engine keeps the existing per-recording loop-clock path.
+            CommitStandaloneAuto(100, 160); // index 0 - standalone, never a unit
 
             var set = RecordingStore.DetectChainLoopUnits(RecordingStore.CommittedRecordings);
-            Assert.Equal(0, set.Count); // no unit formed
+            Assert.Equal(0, set.Count);
 
             bool source = GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: 0, set, out var unit);
@@ -1166,89 +1079,85 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSourceDebrisFromUnitSpan_EmptySetOrNegativeParent_False()
         {
-            // Defensive: an Empty set (the dormant common case) and a negative parent index (no
-            // loop-sync parent) both return false so the predicate never throws and never sources a
-            // span clock that does not exist.
             Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: 3, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
             Assert.False(GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                 parentIdx: -1, GhostPlaybackLogic.LoopUnitSet.Empty, out _));
         }
 
-        // ─── Phase 7: watch-transfer decision on unit handoff (edge 10) ─────────
+        // ─── Watch retarget on unit handoff (shared-clock transition) ───────────
 
         // A 3-member unit (committed indices 5,6,7) for the watch-transfer decision tests. The
-        // indices are arbitrary (not 0,1,2) to catch a slot-vs-index confusion: the predicate keys
-        // off the WATCHED committed index and the SELECTED SLOT, not their numeric coincidence.
+        // indices are arbitrary (not 0,1,2) to catch an index confusion.
         private static GhostPlaybackLogic.LoopUnit ThreeMemberUnit() =>
             new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 5, memberIndices: new[] { 5, 6, 7 },
                 spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150);
 
         [Fact]
-        public void ShouldRetargetWatchOnUnitHandoff_WatchedUnitAndSlotChanged_True()
+        public void ShouldRetargetWatchOnUnitHandoff_WatchedStopsRendering_NewLiveExists_True()
         {
-            // The camera watches member #6 (a member of the unit) and the live slot advances 0->1
-            // (a segment boundary). The retarget must fire so the camera follows the new live member.
-            // WHAT MAKES IT FAIL: returning false here would leave the camera stuck on a now-hidden
-            // member after the unit advances to the next segment.
+            // The camera watches member #6 (a member of the unit). Last frame it was rendering; this
+            // frame its window ended (no longer rendering) and a different live member (#7) exists ->
+            // the camera must move to #7. WHAT MAKES IT FAIL: returning false would strand the camera
+            // on the now-hidden member.
             var unit = ThreeMemberUnit();
             Assert.True(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: 6, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+                watchedIndex: 6, watchedWasRendering: true, watchedIsRendering: false,
+                newLiveMemberIndex: 7, unit));
         }
 
         [Fact]
-        public void ShouldRetargetWatchOnUnitHandoff_WrapSlotChange_True()
+        public void ShouldRetargetWatchOnUnitHandoff_StillRendering_False()
         {
-            // The span wrap moves the live slot from the last member (2) back to the first (0). That
-            // is still a slot change for a watched unit, so the retarget fires (transfers the camera
-            // back to the owner member). Fails if the wrap is not treated as a handoff.
+            // Steady state inside one segment: the watched member is still rendering -> no retarget
+            // (fires once per boundary, not every frame).
             var unit = ThreeMemberUnit();
-            Assert.True(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: 7, prevSelectedSlot: 2, newSelectedSlot: 0, unit));
+            Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex: 6, watchedWasRendering: true, watchedIsRendering: true,
+                newLiveMemberIndex: 6, unit));
         }
 
         [Fact]
         public void ShouldRetargetWatchOnUnitHandoff_WatchedIndexNotInUnit_False()
         {
-            // The camera watches a recording (#99) that is NOT a member of this unit. Even though the
-            // unit's live slot changed, the retarget must NOT fire — that camera is following an
-            // unrelated ghost. Fails if a non-watched unit retargets the camera (would yank it).
+            // The camera watches a recording (#99) that is NOT a member of this unit -> never fire.
             var unit = ThreeMemberUnit();
             Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: 99, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+                watchedIndex: 99, watchedWasRendering: true, watchedIsRendering: false,
+                newLiveMemberIndex: 7, unit));
         }
 
         [Fact]
-        public void ShouldRetargetWatchOnUnitHandoff_SameSlot_False()
+        public void ShouldRetargetWatchOnUnitHandoff_NothingLive_False()
         {
-            // No live-member change this frame (the steady state inside one segment): the predicate
-            // must return false so the retarget fires once per boundary, not every frame. Fails if it
-            // fires on a same-member frame (the camera would re-transfer to itself every frame).
+            // The watched member stopped rendering but NO live member exists (inter-cycle wait / a
+            // gap) -> hold the current anchor rather than yanking to nothing (-1).
             var unit = ThreeMemberUnit();
             Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: 5, prevSelectedSlot: 1, newSelectedSlot: 1, unit));
+                watchedIndex: 6, watchedWasRendering: true, watchedIsRendering: false,
+                newLiveMemberIndex: -1, unit));
         }
 
         [Fact]
-        public void ShouldRetargetWatchOnUnitHandoff_NewSlotNoMember_False()
+        public void ShouldRetargetWatchOnUnitHandoff_WasNotRendering_False()
         {
-            // The new selection is -1 (an inter-member gap or the span clock could not resolve): the
-            // retarget must not fire to a non-member. Fails if a gap frame retargets the camera to a
-            // bogus -1 member index.
+            // The watched member was not rendering last frame either (no rendering->hidden
+            // transition) -> no retarget.
             var unit = ThreeMemberUnit();
             Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: 6, prevSelectedSlot: 0, newSelectedSlot: -1, unit));
+                watchedIndex: 6, watchedWasRendering: false, watchedIsRendering: false,
+                newLiveMemberIndex: 7, unit));
         }
 
         [Fact]
         public void ShouldRetargetWatchOnUnitHandoff_NotWatching_False()
         {
-            // No watch active (watchedIndex == -1): never fire. Fails if a unit handoff retargets the
-            // camera when nothing is being watched.
+            // No watch active (watchedIndex == -1): never fire.
             var unit = ThreeMemberUnit();
             Assert.False(GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex: -1, prevSelectedSlot: 0, newSelectedSlot: 1, unit));
+                watchedIndex: -1, watchedWasRendering: true, watchedIsRendering: false,
+                newLiveMemberIndex: 7, unit));
         }
     }
 }
