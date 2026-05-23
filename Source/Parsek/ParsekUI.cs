@@ -196,11 +196,9 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
-            // [Phase 3] ERS-routed: top-level Recordings button shows the
-            // user-facing effective count (hides NotCommitted / superseded /
-            // session-suppressed).
-            int committedCount = EffectiveState.ComputeERS().Count;
-            if (GUILayout.Button($"Recordings ({committedCount})"))
+            // Top-level Recordings button. The per-state count lives inside the
+            // window; the launch-surface label stays short.
+            if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
 
             GUILayout.Space(SpacingLarge);
