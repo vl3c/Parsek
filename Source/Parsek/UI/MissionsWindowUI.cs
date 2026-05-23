@@ -33,17 +33,26 @@ namespace Parsek
         // outline. Shared across trees: GUIDs never collide, so one set is safe.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
-        private const string InputLockId = "Parsek_MissionsWindow";
-        private const float MinWindowWidth = 320f;
-        private const float MinWindowHeight = 150f;
-        private const float DefaultWidth = 480f;
+        // Leg ids the player has unchecked. Unchecking a leg drops it and its whole
+        // downstream subtree from the mission (the agreed trim rule); those rows grey
+        // out and their checkboxes disable. In-memory for now (no persistence yet).
+        private readonly HashSet<string> uncheckedLegs = new HashSet<string>();
 
-        // Fixed-width columns to the right of the expanding "Vessel / event" column.
-        // Mirrors the recordings window's fixed-width Launch/Status cell widths so
-        // the Missions window reads as the same table style.
-        private const float ColW_Start = 110f;
-        private const float ColW_End = 110f;
-        private const float ColW_Status = 120f;
+        private const string InputLockId = "Parsek_MissionsWindow";
+        private const float MinWindowWidth = 450f;
+        private const float MinWindowHeight = 150f;
+        private const float DefaultWidth = 680f;
+
+        // Fixed-width columns to the right of the expanding "Vessel" column, mirroring
+        // the recordings window's fixed-width cells so the window reads as the same
+        // table style. Layout: [check] Vessel | Start time | Start event | End event | End time.
+        private const float ColW_Check = 22f;
+        private const float ColW_StartTime = 100f;
+        private const float ColW_StartEvent = 85f;
+        private const float ColW_EndEvent = 85f;
+        private const float ColW_EndTime = 100f;
+
+        private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
 
         // -- Recreated styles --
         // RecordingsTableUI builds these privately inside EnsurePhaseStyles();
@@ -207,7 +216,7 @@ namespace Parsek
                     for (int r = 0; r < structure.RootLegIds.Count; r++)
                     {
                         bool isLast = r == structure.RootLegIds.Count - 1;
-                        legRows += DrawLeg(structure, structure.RootLegIds[r], 1, isLast, visited);
+                        legRows += DrawLeg(structure, structure.RootLegIds[r], 1, isLast, false, visited);
                     }
 
                     if (visited.Count < structure.LegsById.Count)
@@ -231,17 +240,19 @@ namespace Parsek
             GUI.DragWindow();
         }
 
-        // Column-header row: a wide expanding "Vessel / event" column plus the
-        // three fixed-width Start / End / Status columns, all in the recordings
+        // Column-header row: a checkbox column, a wide expanding "Vessel" column, then
+        // Start time / Start event / End event / End time, all in the recordings
         // window's shared column-header style.
         private void DrawColumnHeader()
         {
             var colHdr = parentUI.GetColumnHeaderStyle();
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Vessel / event", colHdr, GUILayout.ExpandWidth(true));
-            GUILayout.Label("Start", colHdr, GUILayout.Width(ColW_Start));
-            GUILayout.Label("End", colHdr, GUILayout.Width(ColW_End));
-            GUILayout.Label("Status", colHdr, GUILayout.Width(ColW_Status));
+            GUILayout.Label("", colHdr, GUILayout.Width(ColW_Check));
+            GUILayout.Label("Vessel", colHdr, GUILayout.ExpandWidth(true));
+            GUILayout.Label("Start time", colHdr, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime));
 
             // Reserve the vertical-scrollbar column so the fixed header's right edge
             // aligns with the row cells' right edges (the scroll view always shows a
@@ -262,7 +273,7 @@ namespace Parsek
         // The visited set both prevents re-rendering a merge child reached from a
         // second parent (it gets a reference row instead) and guards malformed cycles.
         private int DrawLeg(MissionStructure s, string legId, int depth, bool isLast,
-            HashSet<string> visited)
+            bool parentExcluded, HashSet<string> visited)
         {
             if (legId == null || !s.LegsById.TryGetValue(legId, out MissionLeg leg))
                 return 0;
@@ -284,24 +295,48 @@ namespace Parsek
             bool hasChildren = children.Count > 0;
             bool collapsed = collapsedLegs.Contains(leg.RecordingId);
 
-            DrawLegRow(leg, depth, isLast, hasChildren, collapsed);
+            DrawLegRow(leg, depth, isLast, hasChildren, collapsed, parentExcluded);
             int rows = 1;
 
+            // Unchecking a leg drops it and everything downstream: children inherit
+            // the excluded flag once this leg (or any ancestor) is unchecked.
+            bool childExcluded = parentExcluded || uncheckedLegs.Contains(leg.RecordingId);
             if (hasChildren && !collapsed)
             {
                 for (int i = 0; i < children.Count; i++)
                 {
                     bool childIsLast = i == children.Count - 1;
-                    rows += DrawLeg(s, children[i], depth + 1, childIsLast, visited);
+                    rows += DrawLeg(s, children[i], depth + 1, childIsLast, childExcluded, visited);
                 }
             }
 
             return rows;
         }
 
-        private void DrawLegRow(MissionLeg leg, int depth, bool isLast, bool hasChildren, bool collapsed)
+        private void DrawLegRow(MissionLeg leg, int depth, bool isLast, bool hasChildren,
+            bool collapsed, bool parentExcluded)
         {
             GUILayout.BeginHorizontal();
+
+            // Include checkbox. Disabled when an ancestor is unchecked (this leg is
+            // downstream of a dropped leg, so it can only be re-included by re-checking
+            // the ancestor). Toggling adds/removes this leg from the unchecked set.
+            bool selfUnchecked = uncheckedLegs.Contains(leg.RecordingId);
+            bool shownChecked = !parentExcluded && !selfUnchecked;
+            GUI.enabled = !parentExcluded;
+            bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Check));
+            GUI.enabled = true;
+            if (!parentExcluded && toggled != shownChecked)
+            {
+                if (toggled) uncheckedLegs.Remove(leg.RecordingId);
+                else uncheckedLegs.Add(leg.RecordingId);
+            }
+
+            // Dim rows dropped from the mission (downstream of an unchecked leg, or
+            // unchecked themselves).
+            Color prevColor = GUI.color;
+            if (parentExcluded || selfUnchecked)
+                GUI.color = DimColor;
 
             float indent = RecordingsTableUI.SelfConnectorIndent(depth);
             if (indent > 0f)
@@ -329,10 +364,12 @@ namespace Parsek
                 GUILayout.Label(wide, bodyCellLabel, GUILayout.ExpandWidth(true));
             }
 
-            GUILayout.Label(KSPUtil.PrintDateCompact(leg.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_Start));
-            GUILayout.Label(KSPUtil.PrintDateCompact(leg.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_End));
-            GUILayout.Label(StatusText(leg), bodyCellLabel, GUILayout.Width(ColW_Status));
+            GUILayout.Label(KSPUtil.PrintDateCompact(leg.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label(StartEventText(leg), bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label(EndEventText(leg), bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label(KSPUtil.PrintDateCompact(leg.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_EndTime));
 
+            GUI.color = prevColor;
             GUILayout.EndHorizontal();
         }
 
@@ -341,6 +378,7 @@ namespace Parsek
         private void DrawReferenceRow(MissionLeg leg, int depth, bool isLast)
         {
             GUILayout.BeginHorizontal();
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Check));
 
             float indent = RecordingsTableUI.SelfConnectorIndent(depth);
             if (indent > 0f)
@@ -350,18 +388,56 @@ namespace Parsek
             string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
             GUILayout.Label($"{connector}{MergeArrow}merges into {vessel} (above)",
                 bodyCellLabel, GUILayout.ExpandWidth(true));
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Start));
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_End));
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Status));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
 
             GUILayout.EndHorizontal();
         }
 
-        private static string StatusText(MissionLeg leg)
+        // How a leg began: its origin branch event (decoupled / EVA / docked / etc.),
+        // or "continues" for an env-split continuation of the same vessel, or
+        // "launched" for the mission root.
+        private static string StartEventText(MissionLeg leg)
         {
-            return leg.TerminalStateValue?.ToString()
-                ?? leg.EndBranchPointType?.ToString()
-                ?? (leg.SequenceNextId != null ? "continues" : "active");
+            if (leg.OriginBranchPointType.HasValue)
+                return EventLabel(leg.OriginBranchPointType.Value);
+            if (leg.SequencePrevId != null)
+                return "continues";
+            if (leg.IsRoot)
+                return "launched";
+            return "";
+        }
+
+        // How a leg ended: its terminal state (Landed / Destroyed / ...), or the
+        // branch event it ended at, or "continues"/"active".
+        private static string EndEventText(MissionLeg leg)
+        {
+            if (leg.TerminalStateValue.HasValue)
+                return leg.TerminalStateValue.Value.ToString();
+            if (leg.EndBranchPointType.HasValue)
+                return EventLabel(leg.EndBranchPointType.Value);
+            if (leg.SequenceNextId != null)
+                return "continues";
+            return "active";
+        }
+
+        private static string EventLabel(BranchPointType type)
+        {
+            switch (type)
+            {
+                case BranchPointType.Launch: return "launched";
+                case BranchPointType.Undock: return "undocked";
+                case BranchPointType.Dock: return "docked";
+                case BranchPointType.EVA: return "EVA";
+                case BranchPointType.Board: return "boarded";
+                case BranchPointType.JointBreak: return "decoupled";
+                case BranchPointType.Breakup: return "broke up";
+                case BranchPointType.Terminal: return "ended";
+                case BranchPointType.VesselSwitchContinuation: return "switched";
+                default: return type.ToString();
+            }
         }
     }
 }
