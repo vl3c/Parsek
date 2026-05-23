@@ -1,0 +1,265 @@
+using System;
+using System.Collections.Generic;
+using Xunit;
+
+namespace Parsek.Tests
+{
+    [Collection("Sequential")]
+    public class MissionStructureTests : IDisposable
+    {
+        private readonly List<string> logLines = new List<string>();
+
+        public MissionStructureTests()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = true;
+        }
+
+        // --- Helpers ---
+
+        private static Recording Leg(string id, string chainId, int chainIndex,
+            double start, double end, int chainBranch = 0, string vessel = "V")
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = vessel,
+                ChainId = chainId,
+                ChainIndex = chainIndex,
+                ChainBranch = chainBranch,
+                IsDebris = false,
+                ExplicitStartUT = start,
+                ExplicitEndUT = end
+            };
+        }
+
+        private static Recording Debris(string id, double start, double end)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                IsDebris = true,
+                ExplicitStartUT = start,
+                ExplicitEndUT = end
+            };
+        }
+
+        private static BranchPoint BP(string id, BranchPointType type,
+            string[] parents, string[] children, double ut = 0)
+        {
+            return new BranchPoint
+            {
+                Id = id,
+                Type = type,
+                UT = ut,
+                ParentRecordingIds = new List<string>(parents),
+                ChildRecordingIds = new List<string>(children)
+            };
+        }
+
+        private static RecordingTree Tree(string id, Recording[] recs,
+            BranchPoint[] bps = null)
+        {
+            var tree = new RecordingTree
+            {
+                Id = id,
+                RootRecordingId = recs.Length > 0 ? recs[0].RecordingId : null
+            };
+            foreach (var r in recs)
+                tree.Recordings[r.RecordingId] = r;
+            if (bps != null)
+                tree.BranchPoints.AddRange(bps);
+            return tree;
+        }
+
+        // --- Tests ---
+
+        [Fact]
+        public void SingleVesselRun_LinksEnvSplitLegsInChainIndexOrder()
+        {
+            var tree = Tree("t1", new[]
+            {
+                Leg("a", "C", 0, 100, 200),
+                Leg("b", "C", 1, 200, 300),
+                Leg("c", "C", 2, 300, 400)
+            });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal(3, s.LegsById.Count);
+            Assert.Equal("b", s.LegsById["a"].SequenceNextId);
+            Assert.Equal("c", s.LegsById["b"].SequenceNextId);
+            Assert.Null(s.LegsById["c"].SequenceNextId);
+            Assert.Null(s.LegsById["a"].SequencePrevId);
+            Assert.Equal("a", s.LegsById["b"].SequencePrevId);
+            Assert.Equal(new[] { "a" }, s.RootLegIds.ToArray());
+        }
+
+        [Fact]
+        public void Run_OrdersByChainIndex_NotInsertionOrder()
+        {
+            // Inserted out of order (2,0,1) to prove ordering keys on ChainIndex.
+            var tree = Tree("t1", new[]
+            {
+                Leg("c", "C", 2, 300, 400),
+                Leg("a", "C", 0, 100, 200),
+                Leg("b", "C", 1, 200, 300)
+            });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal("b", s.LegsById["a"].SequenceNextId);
+            Assert.Equal("c", s.LegsById["b"].SequenceNextId);
+            Assert.Null(s.LegsById["c"].SequenceNextId);
+            Assert.Single(s.RootLegIds);
+            Assert.Equal("a", s.RootLegIds[0]);
+        }
+
+        [Fact]
+        public void Fork_ControlledSeparation_ProducesTwoBranchChildren()
+        {
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("trunk", "C0", 0, 100, 200),
+                    Leg("aA", "C1", 0, 200, 300, vessel: "A"),
+                    Leg("bB", "C2", 0, 200, 350, vessel: "B")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak,
+                        new[] { "trunk" }, new[] { "aA", "bB" }, ut: 200)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal(2, s.LegsById["trunk"].BranchChildIds.Count);
+            Assert.Contains("aA", s.LegsById["trunk"].BranchChildIds);
+            Assert.Contains("bB", s.LegsById["trunk"].BranchChildIds);
+            Assert.Equal(BranchPointType.JointBreak, s.LegsById["trunk"].EndBranchPointType);
+            Assert.Equal(new[] { "trunk" }, s.LegsById["aA"].BranchParentIds.ToArray());
+            Assert.Equal(new[] { "trunk" }, s.LegsById["bB"].BranchParentIds.ToArray());
+            Assert.Equal(BranchPointType.JointBreak, s.LegsById["aA"].OriginBranchPointType);
+            // Only the trunk is a root; the two forks have a branch-parent.
+            Assert.Equal(new[] { "trunk" }, s.RootLegIds.ToArray());
+        }
+
+        [Fact]
+        public void Debris_IsExcludedFromLegs_AndDoesNotBecomeAChild()
+        {
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("trunk", "C0", 0, 100, 200),
+                    Leg("child", "C1", 0, 200, 300)
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak,
+                        new[] { "trunk" }, new[] { "child", "junk" }, ut: 200)
+                });
+            // Debris booster shed at the same separation.
+            tree.Recordings["junk"] = Debris("junk", 200, 260);
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.False(s.LegsById.ContainsKey("junk"));
+            Assert.Equal(new[] { "child" }, s.LegsById["trunk"].BranchChildIds.ToArray());
+            Assert.Equal(2, s.LegsById.Count);
+        }
+
+        [Fact]
+        public void SameTreeMerge_DockBack_GivesChildTwoBranchParents()
+        {
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("m", "CM", 0, 100, 300, vessel: "M"),
+                    Leg("d", "CD", 0, 150, 300, vessel: "D"),
+                    Leg("x", "CX", 0, 300, 400, vessel: "M+D")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.Dock,
+                        new[] { "m", "d" }, new[] { "x" }, ut: 300)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal(2, s.LegsById["x"].BranchParentIds.Count);
+            Assert.Contains("m", s.LegsById["x"].BranchParentIds);
+            Assert.Contains("d", s.LegsById["x"].BranchParentIds);
+            Assert.Contains("x", s.LegsById["m"].BranchChildIds);
+            Assert.Contains("x", s.LegsById["d"].BranchChildIds);
+            // Both incoming lines are roots; the merged child is not.
+            Assert.Equal(2, s.RootLegIds.Count);
+            Assert.Contains("m", s.RootLegIds);
+            Assert.Contains("d", s.RootLegIds);
+            Assert.DoesNotContain("x", s.RootLegIds);
+        }
+
+        [Fact]
+        public void ForeignDock_IsSingleParent()
+        {
+            // Co-parent (the foreign station) is not in this tree, so the dock
+            // branch point lists only the in-tree parent.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("d", "CD", 0, 100, 300, vessel: "D"),
+                    Leg("x", "CX", 0, 300, 400, vessel: "D@S")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.Dock,
+                        new[] { "d" }, new[] { "x" }, ut: 300)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Single(s.LegsById["x"].BranchParentIds);
+            Assert.Equal("d", s.LegsById["x"].BranchParentIds[0]);
+            Assert.Equal(new[] { "d" }, s.RootLegIds.ToArray());
+        }
+
+        [Fact]
+        public void DisconnectedContinuation_IsASeparateRoot()
+        {
+            // Two unconnected runs in one tree (e.g. a restore-completed switch
+            // continuation with ParentBranchPointId == null and no branch point).
+            var tree = Tree("t1", new[]
+            {
+                Leg("r1a", "C0", 0, 100, 200),
+                Leg("r1b", "C0", 1, 200, 300),
+                Leg("r2", "C9", 0, 500, 600, vessel: "W")
+            });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal(2, s.RootLegIds.Count);
+            Assert.Contains("r1a", s.RootLegIds);
+            Assert.Contains("r2", s.RootLegIds);
+            Assert.DoesNotContain("r1b", s.RootLegIds);
+        }
+
+        [Fact]
+        public void EmptyOrNullTree_ReturnsEmptyStructure()
+        {
+            var sNull = MissionStructureBuilder.Build(null);
+            Assert.Empty(sNull.LegsById);
+            Assert.Empty(sNull.RootLegIds);
+
+            var sEmpty = MissionStructureBuilder.Build(new RecordingTree { Id = "t" });
+            Assert.Equal("t", sEmpty.TreeId);
+            Assert.Empty(sEmpty.LegsById);
+            Assert.Empty(sEmpty.RootLegIds);
+        }
+    }
+}
