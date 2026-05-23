@@ -69,6 +69,95 @@ namespace Parsek
             return removed;
         }
 
+        /// <summary>
+        /// Drops stale through-line head ids from every Mission's excluded set: ids that
+        /// are no longer a current through-line head for the Mission's tree (the branch
+        /// they referred to was edited away, re-flown, or merged out from under them). A
+        /// stale exclusion would otherwise silently re-include a branch the player had
+        /// dropped once it stopped being a head, so this fails loudly with a warn. Builds
+        /// each tree's through-line view at most once and reuses it across Missions that
+        /// share the tree. Returns the total number of ids removed across all Missions.
+        /// </summary>
+        internal static int ReconcileSelections(IEnumerable<RecordingTree> trees)
+        {
+            var byId = new Dictionary<string, RecordingTree>(StringComparer.Ordinal);
+            if (trees != null)
+                foreach (var tree in trees)
+                    if (tree != null && !string.IsNullOrEmpty(tree.Id))
+                        byId[tree.Id] = tree;
+
+            var viewCache = new Dictionary<string, MissionThroughLineView>(StringComparer.Ordinal);
+            int removed = 0;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null || string.IsNullOrEmpty(m.TreeId)
+                    || m.ExcludedThroughLineHeadIds.Count == 0)
+                    continue;
+                if (!byId.TryGetValue(m.TreeId, out RecordingTree tree))
+                    continue;
+
+                if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
+                {
+                    view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
+                    viewCache[m.TreeId] = view;
+                }
+
+                var stale = new List<string>();
+                foreach (string headId in m.ExcludedThroughLineHeadIds)
+                    if (!view.ByHeadId.ContainsKey(headId))
+                        stale.Add(headId);
+                for (int s = 0; s < stale.Count; s++)
+                    m.ExcludedThroughLineHeadIds.Remove(stale[s]);
+                removed += stale.Count;
+            }
+
+            if (removed > 0 && !SuppressLogging)
+                ParsekLog.Warn("Mission",
+                    $"ReconcileSelections: removed {removed} stale excluded through-line head id(s) " +
+                    "(branches no longer current heads; re-included to avoid silently dropping them)");
+            return removed;
+        }
+
+        /// <summary>
+        /// Enables or disables loop playback on a Mission. Enabling enforces single
+        /// selection: at most one Mission loops at a time, so turning <paramref name="target"/>
+        /// on turns every other Mission off. Disabling only clears the target. INERT for
+        /// now (the looping engine that consumes LoopPlayback is wired in a later phase).
+        /// </summary>
+        internal static void SetLoopEnabled(Mission target, bool on)
+        {
+            if (target == null)
+                return;
+            if (on)
+            {
+                int clearedOthers = 0;
+                for (int i = 0; i < missions.Count; i++)
+                {
+                    Mission m = missions[i];
+                    if (m == null || ReferenceEquals(m, target))
+                        continue;
+                    if (m.LoopPlayback)
+                    {
+                        m.LoopPlayback = false;
+                        clearedOthers++;
+                    }
+                }
+                target.LoopPlayback = true;
+                if (!SuppressLogging)
+                    ParsekLog.Info("Mission",
+                        $"SetLoopEnabled: loop ON for '{target.Name}' (tree={target.TreeId}); " +
+                        $"cleared {clearedOthers} other looping mission(s) (single-selection)");
+            }
+            else
+            {
+                target.LoopPlayback = false;
+                if (!SuppressLogging)
+                    ParsekLog.Info("Mission",
+                        $"SetLoopEnabled: loop OFF for '{target.Name}' (tree={target.TreeId})");
+            }
+        }
+
         internal static Mission Clone(Mission source)
         {
             if (source == null)

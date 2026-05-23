@@ -33,6 +33,11 @@ namespace Parsek
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
+        // Per-Mission loop-period edit buffer, keyed by Mission.Id. Transient UI state:
+        // holds the in-progress text while the player types, committed on field change.
+        private readonly Dictionary<string, string> loopPeriodEditBuffers =
+            new Dictionary<string, string>();
+
         // Per-frame cache of the derived mission read model (structure + through-line
         // view) keyed by tree id. OnGUI fires several times per frame (Layout, Repaint,
         // input events) and multiple missions can target the same tree, so without this
@@ -59,6 +64,10 @@ namespace Parsek
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 100f;
         private const float ColW_Action = 60f;
+
+        // Mission-header loop controls (live on the header row, not the table columns).
+        private const float ColW_Loop = 52f;
+        private const float ColW_Period = 90f;
 
         private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
 
@@ -285,14 +294,26 @@ namespace Parsek
             return cached;
         }
 
-        // Mission header bar: the mission name (section-header style) plus Clone and
-        // Delete. Delete is disabled when this is the tree's last mission. Clone/Delete
-        // mutate MissionStore; the draw loop iterates a snapshot so that is safe.
+        // Mission header bar: the mission name (section-header style), a loop toggle + a
+        // loop-period cell, then Clone and Delete. Delete is disabled when this is the
+        // tree's last mission. Clone/Delete mutate MissionStore; the draw loop iterates a
+        // snapshot so that is safe. The loop toggle enforces single-selection through
+        // MissionStore.SetLoopEnabled (only flips bools on other missions, never
+        // adds/removes, so it is safe to call from inside the draw loop). The loop
+        // controls are INERT for now: they persist state but do not yet drive playback
+        // (the looping engine is wired in a later phase).
         private void DrawMissionHeader(Mission mission)
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label(string.IsNullOrEmpty(mission.Name) ? "(mission)" : mission.Name,
                 parentUI.GetSectionHeaderStyle(), GUILayout.ExpandWidth(true));
+
+            bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "Loop", GUILayout.Width(ColW_Loop));
+            if (loopNow != mission.LoopPlayback)
+                MissionStore.SetLoopEnabled(mission, loopNow);
+
+            DrawMissionLoopPeriodCell(mission);
+
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -300,6 +321,88 @@ namespace Parsek
                 MissionStore.Delete(mission);
             GUI.enabled = true;
             GUILayout.EndHorizontal();
+        }
+
+        // Loop-period cell: a value text field plus a unit button cycling Sec/Min/Hour/
+        // Auto, mirroring the recordings window's DrawLoopPeriodCell. When loop is off the
+        // controls grey out (matching the recordings window). Reuses ParsekUI's shared
+        // loop-time helpers so the parse/format/convert rules stay identical. Commit on
+        // text change: parse via TryParseLoopInput, reject negatives, clamp below
+        // MinCycleDuration (same contract as RecordingsTableUI.CommitLoopPeriodEdit).
+        private void DrawMissionLoopPeriodCell(Mission mission)
+        {
+            const float unitBtnW = 44f;
+            float valueW = ColW_Period - unitBtnW - 4f;
+
+            bool enabled = mission.LoopPlayback;
+            bool auto = mission.LoopTimeUnit == LoopTimeUnit.Auto;
+
+            // Seed / refresh the per-mission edit buffer from the stored value whenever the
+            // field is not actively being typed into for this mission's control name.
+            string controlName = "MissionLoopPeriod_" + mission.Id;
+            bool focused = GUI.GetNameOfFocusedControl() == controlName;
+            if (!focused || !loopPeriodEditBuffers.ContainsKey(mission.Id))
+            {
+                loopPeriodEditBuffers[mission.Id] = ParsekUI.FormatLoopValue(
+                    ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit),
+                    mission.LoopTimeUnit);
+            }
+
+            GUI.enabled = enabled && !auto;
+            GUI.SetNextControlName(controlName);
+            string newText = GUILayout.TextField(
+                loopPeriodEditBuffers[mission.Id], bodyCellLabel, GUILayout.Width(valueW));
+            if (newText != loopPeriodEditBuffers[mission.Id])
+            {
+                loopPeriodEditBuffers[mission.Id] = newText;
+                CommitMissionLoopPeriod(mission, newText);
+            }
+            GUI.enabled = true;
+
+            GUILayout.Space(4f);
+            GUI.enabled = enabled;
+            if (GUILayout.Button(ParsekUI.UnitLabel(mission.LoopTimeUnit), GUILayout.Width(unitBtnW)))
+            {
+                mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
+                loopPeriodEditBuffers.Remove(mission.Id);
+                GUIUtility.keyboardControl = 0;
+                ParsekLog.Info("Mission",
+                    $"Loop unit for '{mission.Name}' changed to {mission.LoopTimeUnit}");
+            }
+            GUI.enabled = true;
+        }
+
+        // Parses an edited loop-period value and writes it to the Mission, mirroring
+        // RecordingsTableUI.CommitLoopPeriodEdit: reject negatives, clamp below
+        // MinCycleDuration. Invalid text is ignored (the field keeps the typed buffer so
+        // the player can finish typing). Auto unit does not commit a value.
+        private static void CommitMissionLoopPeriod(Mission mission, string text)
+        {
+            if (mission.LoopTimeUnit == LoopTimeUnit.Auto)
+                return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (!ParsekUI.TryParseLoopInput(text, mission.LoopTimeUnit, out double parsed))
+                return;
+            double newSeconds = ParsekUI.ConvertToSeconds(parsed, mission.LoopTimeUnit);
+            if (newSeconds < 0)
+            {
+                ParsekLog.Warn("Mission",
+                    $"Loop period for '{mission.Name}' rejected: " +
+                    $"negative value {newSeconds.ToString("F1", ic)}s");
+                return;
+            }
+            if (newSeconds < LoopTiming.MinCycleDuration)
+            {
+                ParsekLog.Info("Mission",
+                    $"Loop period for '{mission.Name}' clamped from " +
+                    $"{newSeconds.ToString("F1", ic)}s to " +
+                    $"{LoopTiming.MinCycleDuration.ToString("F1", ic)}s (MinCycleDuration)");
+                newSeconds = LoopTiming.MinCycleDuration;
+            }
+            mission.LoopIntervalSeconds = newSeconds;
+            ParsekLog.Info("Mission",
+                $"Loop period for '{mission.Name}' updated to " +
+                newSeconds.ToString("F1", ic) + "s");
         }
 
         private static string CollapseKey(Mission mission, string headId)
