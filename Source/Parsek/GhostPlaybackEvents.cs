@@ -40,6 +40,12 @@ namespace Parsek
         // it via the stale-past-end cleanup. Bounded by a real-time bridge
         // window so a continuation that never spawns still tears down.
         ChainBridgeHeld = 17,
+        // Chain-loop unit follower: this index is a unit member but the shared
+        // span clock currently selects a DIFFERENT member (or sits in an
+        // inter-member gap, or the span clock could not resolve this frame), so
+        // this member's ghost is hidden. Exactly one unit member renders at a
+        // time; the others count this skip. See UpdateUnitMemberPlayback.
+        ChainLoopUnitInactive = 18,
     }
 
     internal static class GhostPlaybackSkipReasonExtensions
@@ -84,6 +90,8 @@ namespace Parsek
                     return "chain-shadowed";
                 case GhostPlaybackSkipReason.ChainBridgeHeld:
                     return "chain-bridge-held";
+                case GhostPlaybackSkipReason.ChainLoopUnitInactive:
+                    return "chain-loop-unit-inactive";
                 default:
                     return "unknown";
             }
@@ -112,6 +120,7 @@ namespace Parsek
         public int anchorReFlyUnstable;
         public int chainShadowed;
         public int chainBridgeHeld;
+        public int chainLoopUnitInactive;
         public int active;
     }
 
@@ -294,7 +303,18 @@ namespace Parsek
         RetargetToNewGhost,
 
         /// <summary>Ghost gone with no successor — exit watch mode.</summary>
-        ExitWatch
+        ExitWatch,
+
+        /// <summary>
+        /// Chain-loop unit advanced to a new live member at a unit-internal segment boundary or the
+        /// span wrap (edge 10). The camera, currently watching this unit, must transfer to the new
+        /// live member (a DIFFERENT recording index carried in <see cref="CameraActionEvent.Index"/>).
+        /// Distinct from <see cref="RetargetToNewGhost"/> (the explosion-bridge loop-cycle retarget,
+        /// gated on watchedOverlapCycleIndex == -1 and consuming GhostPivot): a unit handoff targets
+        /// a sibling member index, not a new cycle of the same index. Appended last so the existing
+        /// ordinals (ExplosionHoldStart..ExitWatch) are unchanged.
+        /// </summary>
+        UnitHandoffRetarget
     }
 
     /// <summary>
