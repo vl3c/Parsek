@@ -141,6 +141,14 @@ namespace Parsek
                         bool isLast = r == structure.RootLegIds.Count - 1;
                         legRows += DrawRun(structure, structure.RootLegIds[r], 0, isLast, visited);
                     }
+
+                    if (visited.Count < structure.LegsById.Count)
+                    {
+                        ParsekLog.VerboseRateLimited("UI", $"missions-dropped-{tree.Id}",
+                            $"Missions window: tree={tree.Id} rendered {visited.Count}/{structure.LegsById.Count} " +
+                            $"legs; {structure.LegsById.Count - visited.Count} unreachable from roots " +
+                            $"(malformed branch-point cycle?)", 30.0);
+                    }
                 }
 
                 GUILayout.EndScrollView();
@@ -150,6 +158,7 @@ namespace Parsek
             }
 
             GUILayout.EndVertical();
+            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Missions window");
             GUI.DragWindow();
         }
 
