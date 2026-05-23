@@ -14,6 +14,7 @@ All notable changes to Parsek are documented here.
 - Removed the Timeline window stats line ("n Recordings, m Actions, p Events"); it added little once a timeline has many entries.
 - The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.
 - Recordings window groups and chains now draw tree-branch connectors on each row under an expanded caret, so it is clearer which entries belong to which group. This matches the style already used in the Kerbals window lists.
+- The main window's "Recordings" button no longer shows a count in parentheses; the per-state counts live inside the window.
 
 ### Bug Fixes
 
