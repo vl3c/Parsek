@@ -5600,6 +5600,12 @@ namespace Parsek
                             pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
                         string childSplitCause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
                             childWasDecoupleCreated, triggerWasDecoupleOnly);
+                        // Best-available proxy for BranchPoint.DecouplerPartId: the separated
+                        // child's root part (the part that came off through the decoupler). KSP's
+                        // decouple callback does not hand us the parent-side decoupler module, and
+                        // this field has no behavioral consumer (serialized / logged only), so the
+                        // child root PID is informative without being load-bearing. 0 when unknown,
+                        // matching the background-recorder decouple path.
                         uint childDecouplerPartId = childWasDecoupleCreated
                             ? (childVessel?.rootPart?.persistentId ?? 0u)
                             : 0u;
