@@ -43,13 +43,20 @@ On `Recording`:
 - `ChainBranch`   - 0 on a primary line; > 0 on parallel continuations.
 - `IsDebris`      - true on debris. THE discriminator between a spine-eligible
   leg and a parallel-only twig (see layer 2).
-- `ParentAnchorRecordingId` - non-null on parent-anchored recordings (debris AND
-  controlled-decoupled children); points at the parent recording. This is what
-  carries the FORK topology.
+- `ParentAnchorRecordingId` - non-null on a SUBSET of children (genuine debris and
+  background-split controlled-decoupled children); points at the parent recording.
+  It is a parent-anchored PLAYBACK contract (which recording owns playback), NOT
+  the tree topology, and it is null on cross-vessel continuations. Use it only as
+  part of the debris-vs-controlled discriminator, never to find forks.
+- `RecordingTree.BranchPoints` (+ `Recording.ParentBranchPointId` /
+  `ChildBranchPointId`) - the actual tree topology. Each `BranchPoint` is a typed
+  parent->child edge (`Undock`, `EVA`, `Dock`, `Board`, `JointBreak`, `Launch`,
+  `Breakup`, `Terminal`, `VesselSwitchContinuation`) carrying `ParentRecordingIds`
+  / `ChildRecordingIds`. THIS is where forks, merges, and continuations live.
 - `StartUT` / `EndUT` - the recording's recorded time window. COMPUTED properties
-  (from the trajectory points, with `ExplicitStartUT` / `ExplicitEndUT`
-  serialized overrides and a `0.0` fallback), not raw stored timestamps. Sequence
-  ordering uses the computed value.
+  (from the trajectory points, with serialized `ExplicitStartUT` / `ExplicitEndUT`
+  values that only EXTEND the point-derived bounds, never shrink them), not raw
+  stored timestamps. Sequence ordering uses the computed value.
 
 Terminology note: a "node" means a boundary point between two consecutive legs,
 including a path's Start and End points. It is NOT a recording. A "leg" is one
@@ -74,8 +81,9 @@ already been applied.
 
 - Recorder-side commits at discrete gameplay events: launch, dock (`OnPartCouple`),
   undock (`OnVesselsUndocking`), EVA / board (ChainToVessel), scene exit /
-  recovery (`FinalizeTreeOnSceneChange`), and controlled decouple (the fork point,
-  which produces the child recording).
+  recovery (`FinalizeTreeOnSceneChange`), and controlled decouple (a fork point;
+  the child recording is produced by the background recorder,
+  `BackgroundRecorder.HandleBackgroundVesselSplit`).
 - Optimizer-side splits at environment / body transitions (atmosphere / altitude
   / SOI). In always-tree mode the recorder SUPPRESSES the in-flight split
   (`ShouldSuppressBoundarySplit`); the split into separate recordings is applied
@@ -94,8 +102,9 @@ TREE, not a linear spine: a trunk that FORKS at controlled separations, with
 debris hanging off as parallel twigs. There are two kinds of edges, and
 `IsDebris` is the discriminator:
 
-- FORKS = controlled decouples (`IsDebris=false` children, found via
-  `ParentAnchorRecordingId`). Each downstream is an alternative through-line.
+- FORKS = controlled separations (`IsDebris=false` children), found by walking
+  `RecordingTree.BranchPoints` and taking children with `IsDebris=false`. Each
+  downstream is an alternative through-line.
   These are real flights you flew (a probe, lander, capsule) and are
   spine-eligible: a path can follow one.
 - TWIGS = debris (`IsDebris=true`). Spent boosters, jettisoned tanks. They
@@ -120,8 +129,9 @@ tree; different selections trace different paths.
 - Spine-eligible legs: `IsDebris == false` (forks included; the old
   `ParentAnchorRecordingId == null` / `ChainBranch == 0` exclusions only described
   topology and are dropped from eligibility).
-- Sequence order: by `StartUT` along a controlled line; FORK edges come from
-  `ParentAnchorRecordingId` (child points at the leg it separated from).
+- Sequence order: by `StartUT` along a controlled line; FORK / merge / continuation
+  edges come from `RecordingTree.BranchPoints` (typed parent->child), NOT from
+  `ParentAnchorRecordingId`.
 - Order is NOT `ChainId`-based: `ChainId` resets at vessel switches
   (`ChainSegmentManager.CommitVesselSwitchTermination`) and at scene exit/resume
   (only `ActiveTreeId` is restored), so it cannot thread a multi-session,
@@ -130,6 +140,12 @@ tree; different selections trace different paths.
 - Contiguity is causal/chronological with UT gaps allowed (a switch-and-coast
   with no input leaves a real gap until first modification produces the next
   recording). A gap is not a break.
+
+A single spine is one path. A layer-4 selection may follow several forks at once,
+which makes the selection a SUBTREE of paths (each path independently contiguous)
+that loop together on one shared clock. So "spine = a path" and "selection = one
+or more spine paths" are the two distinct levels; the headline whole-mission case
+is the multi-path one.
 
 How the spine crosses controller vessels without a switch boundary: the new
 active vessel produces its own spine-eligible recording (same `TreeId`) via the
@@ -156,13 +172,18 @@ which branch(es) to include.
 - tree : selection is 1 : many, and selections may OVERLAP (share the shared
   trunk, or any legs). Overlap is fine: the engine already renders the same
   recording concurrently on multiple clocks (`MaxOverlapGhostsPerRecording`).
+- A selection is defined by its boundary NODES (Start and End per path) plus the
+  fork choices, NOT by a frozen list of leg ids. So when the optimizer re-splits
+  or re-merges legs inside the interval on a later pass, the selection survives:
+  new sub-legs that fall inside [Start, End] stay included. Re-split exactly at a
+  trim boundary is the one edge to nail at build time (open question 3).
 
 ### 5. Mission (a saved, configurable entity)
 
 A Mission is a persisted, named object that wraps a selection:
 
 - a reference to a mission tree (`TreeId`),
-- a selection (the included-leg set of layer 4),
+- a selection (layer 4: per-path boundary nodes + fork choices),
 - loop on/off and a loop period,
 - a name.
 
@@ -170,6 +191,11 @@ Multiple Missions may target the same tree with different selections. CLONE
 duplicates the Mission DEFINITION (leg references + included state + settings),
 never the recording data, so variants are cheap. A Mission is the persistence
 answer for the abstraction: it is what gets saved, listed, cloned, and looped.
+
+Invariant: every recorded tree always has at least one Mission. A default Mission
+(everything included) is auto-created when the tree is first recorded, and DELETE
+is blocked on the last remaining Mission for a tree, so the tree can never be left
+without a Mission. Extra (cloned, reconfigured) Missions are freely deletable.
 
 ### 6. Supply run / supply route (deferred)
 
@@ -187,7 +213,9 @@ A first-draft window, opened from a "Missions" button in the main Parsek UI unde
 Recordings. It reuses `RecordingsTableUI`'s rendering primitives (caret
 expand/collapse, indentation, tree connectors, row layout); it does NOT reuse the
 recordings hierarchy (debris/crew/chain blocks), because it renders a different
-tree: the fork-tree of controlled legs.
+tree: the fork-tree of controlled legs (derived by walking
+`RecordingTree.BranchPoints` for fork / merge / continuation edges and `StartUT`
+for the linear runs between them, with debris children excluded).
 
 Layout: a vertical indented outline. The one rule that keeps arbitrary missions
 representable without 2D layout pain:
@@ -208,13 +236,20 @@ Mission row  [Clone] [loop x] [period: 30s]   <- Mission-level controls
        [x] re-entry + landing
 ```
 
-- Each leg row = one recording, labeled by what it accomplished (its end event),
-  with an include checkbox. Debris is not shown (it rides along its parent leg).
+- Each leg row = one recording (post-optimizer), with an include checkbox; debris
+  is not shown (it rides along its parent leg). Rows are labeled by their end
+  event. Note: optimizer env-splits mean a single controlled activity (e.g.
+  transit) can become several stacked rows whose end events are environmental
+  (entering atmosphere, SOI change), not gameplay milestones. Whether to visually
+  collapse consecutive same-line env-split rows is an open UI detail (open
+  question 5).
 - Checkbox behavior is the layer-4 trim rule: excluding a leg drops it and
   everything downstream; greying enforces the contiguous interval from both ends.
-- Columns on the Mission (root) row: a Clone button, a loop checkbox, and a loop
-  period, mirroring the Recordings window's loop/period controls but applied to
-  the whole Mission.
+- Columns on the Mission (root) row: a Clone button, a Delete button, a loop
+  checkbox, and a loop period (the loop/period mirror the Recordings window's
+  controls but apply to the whole Mission). Delete removes that Mission; it is
+  greyed/blocked on the last remaining Mission for a tree (every tree always
+  keeps at least one).
 
 First real usage (the viability test): set loop + period on a Mission and have
 the whole selected subtree loop as one unit (one shared span clock over the
@@ -229,8 +264,10 @@ concrete proof the abstraction is viable and the basis for later logistics.
 - Atom = the post-optimizer recording. Recorder-vs-optimizer boundary creation is
   provenance only.
 - Boundaries are on nodes only; a selection is always a whole number of legs.
-- `IsDebris` is the spine-eligibility discriminator: forks (non-debris) are
-  spine-eligible alternative paths; debris twigs are parallel-only.
+- Tree topology (forks, merges, continuations) lives in `RecordingTree.BranchPoints`
+  (typed parent->child edges), NOT `ParentAnchorRecordingId`. `IsDebris` on a
+  branch point's child is the spine-eligibility discriminator: non-debris children
+  are spine-eligible forks; debris children are parallel-only twigs.
 - Spine order is `TreeId` scope + `StartUT` + fork topology, not `ChainId`.
 - A selection is a contiguous interval per path; uncheck = drop it and everything
   downstream.
@@ -260,16 +297,22 @@ concrete proof the abstraction is viable and the basis for later logistics.
 1. Mid-selection unchecking. We chose uncheck = drop downstream, and start-trim is
    unchecking from the top down. Confirm there is no need for a separate "hole in
    the middle" state (there should not be: the spine must stay contiguous).
-2. Default Mission creation. Does each recorded tree auto-spawn a default Mission
-   (everything included), which the player then Clones and reconfigures, or are
-   Missions created explicitly? Leaning auto-default.
-3. Selection vs a growing tree. When a tree gains new legs (the mission continues
-   after a Mission was defined), how does an existing selection treat the new
-   legs: default-excluded, or auto-extend the End? Leaning default-excluded.
+2. Default Mission creation. RESOLVED: each recorded tree auto-spawns a default
+   Mission (everything included) and always keeps at least one (Delete is blocked
+   on the last remaining Mission for a tree).
+3. Selection vs a changing tree. (a) When a tree gains new legs (mission continues
+   after a Mission was defined): default-excluded, or auto-extend the End? Leaning
+   default-excluded. (b) When the optimizer RE-SPLITS or RE-MERGES already-referenced
+   legs on a later pass: sub-legs inside [Start, End] stay included by the
+   boundary-node model, but a re-split exactly at a trim boundary needs a defined
+   rule. Resolve before persistence is built.
 4. Span-clock reuse specifics. What exactly to lift from the design-chain-auto-loop
    branch for Mission-level looping (the shared span clock, member render-in-window,
    debris ride-along) vs rebuild. This is the concrete work the viability build
    forces.
+5. Env-split leg rows. Should consecutive same-controlled-line legs that exist only
+   because of optimizer env-splits be visually collapsed into one row (environmental
+   sub-boundaries hidden), or shown individually? UI clarity only, not the data model.
 
 ---
 
@@ -280,8 +323,10 @@ concrete proof the abstraction is viable and the basis for later logistics.
   window, debris ride along). Reusable for Mission-level looping. Its
   unit-detection-from-loop-flags model is superseded by the defined Mission
   selection here.
-- Fork topology + debris discriminator: `Recording.ParentAnchorRecordingId`,
-  `Recording.IsDebris`.
+- Tree topology (forks / merges / continuations): `RecordingTree.BranchPoints`,
+  `Recording.ParentBranchPointId` / `ChildBranchPointId`, `BranchPointType`.
+- Debris-vs-controlled discriminator + parent-anchored playback contract:
+  `Recording.IsDebris`, `Recording.ParentAnchorRecordingId`.
 - Recorder boundary creation: `ParsekFlight.OnPartCouple` / `OnVesselsUndocking` /
   `FinalizeTreeOnSceneChange`, `ChainSegmentManager` commit sites.
 - Boundary-split suppression in tree mode: `ParsekFlight.ShouldSuppressBoundarySplit`
