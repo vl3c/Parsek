@@ -1444,7 +1444,7 @@ namespace Parsek
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
                 // TryResolveRecordingWorldPosition consumes the selected list as
-                // body-fixed lat/lon/alt. v13 Relative frames are anchor-local
+                // body-fixed lat/lon/alt. Relative frames are anchor-local
                 // metre offsets, so Tracking Station focus/icon positioning must
                 // use the body-fixed primary surface unless this path grows a
                 // real relative world-pose resolver.

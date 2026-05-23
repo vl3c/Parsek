@@ -121,7 +121,7 @@ namespace Parsek
 
             /// <summary>
             /// Recording's <c>bodyFixedFrames</c> body-fixed primary lerp.
-            /// Used for parent-anchored debris (v13+) whenever the loop-chain
+            /// Used for parent-anchored debris whenever the loop-chain
             /// relative surface is not deliberately selected.
             /// </summary>
             BodyFixedPrimary = 2,
@@ -161,7 +161,7 @@ namespace Parsek
             // Debris-frame bracket span at the current playback UT: the time
             // gap between the two recorded `frames` entries that contain
             // playbackUT. NaN when not Relative or fewer than two frames are
-            // available. This surfaces the wide-bracket pattern that format v13
+            // available. This surfaces the wide-bracket pattern that the current format
             // avoids for parent-anchored debris by rendering body-fixed primary
             // frames first.
             public double DebrisBracketSeconds;

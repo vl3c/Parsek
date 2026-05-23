@@ -322,7 +322,7 @@ namespace Parsek.Rendering
                         // stage halves AND short-lived debris fragments. The
                         // controlled halves are continuing vessels and need
                         // ε just like an Undock/JointBreak child; debris
-                        // keeps the v13 parent-anchored contract and is
+                        // keeps the parent-anchored contract and is
                         // skipped per-child below.
                         if (bp.Type != BranchPointType.Dock
                             && bp.Type != BranchPointType.Board
@@ -346,7 +346,7 @@ namespace Parsek.Rendering
                                 // Breakup BPs list debris children alongside
                                 // controlled stage halves; debris must not
                                 // receive a propagated DockOrMerge ε (it plays
-                                // back through the v13 parent-anchored debris
+                                // back through the parent-anchored debris
                                 // contract). Only controlled children walk.
                                 if (bp.Type == BranchPointType.Breakup
                                     && byId.TryGetValue(cid, out Recording rChildClassify)

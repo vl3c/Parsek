@@ -1761,7 +1761,7 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
             bool usedBodyFixedPrimary = false;
 
-            // Position the ghost. Parent-anchored v13 debris is only valid
+            // Position the ghost. Parent-anchored debris is only valid
             // while a recorded Relative section covers the playback UT; outside
             // that coverage, hide instead of falling through to flat points,
             // surface, or orbit-tail playback. The ShadowPositioned route has
@@ -6106,7 +6106,7 @@ namespace Parsek
             if (!state.deferVisibilityUntilPlaybackSync || state.appearanceCount != 0)
                 return playbackUT;
 
-            // v13 carve-out (matches the hide-gate carve-out): parent-anchored
+            // Body-fixed-primary carve-out (matches the hide-gate carve-out): parent-anchored
             // debris with body-fixed primary covering the activation UT does
             // NOT get clamped to activationStartUT for one frame either.
             // Without this, the clamp produces a one-frame seed render that
@@ -6172,7 +6172,7 @@ namespace Parsek
                 return false;
             }
 
-            // v13 carve-out: parent-anchored debris that has a body-fixed primary
+            // Body-fixed-primary carve-out: parent-anchored debris that has a body-fixed primary
             // surface covering the activation UT does not need the generic
             // relative-start hide. The body-fixed primary path resolves the
             // recorded world pose directly from the section's bodyFixedFrames
@@ -6197,7 +6197,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Shared predicate for the v13 parent-anchored debris activation-hide
+        /// Shared predicate for the parent-anchored debris activation-hide
         /// carve-outs: returns true when the trajectory is parent-anchored
         /// debris AND the section covering the activation UT is Relative AND
         /// body-fixed primary coverage exists at the activation UT. Both the
@@ -6430,7 +6430,7 @@ namespace Parsek
                 || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
-            // v13 carve-out: parent-anchored debris that has body-fixed primary
+            // Body-fixed-primary carve-out: parent-anchored debris that has body-fixed primary
             // covering the activation UT does not need ANY initial-hide path --
             // not the UT-window gates above, and not the activation-settle
             // time-warp guard below. Body-fixed primary playback resolves the
