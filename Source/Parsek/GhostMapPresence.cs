@@ -5193,8 +5193,34 @@ namespace Parsek
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
         /// </summary>
+        /// <summary>
+        /// Back-compat / inert overload (no Mission loop units). Used by in-game tests and any
+        /// caller that has no cached <see cref="GhostPlaybackLogic.LoopUnitSet"/>. Passes
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/>, so behavior is identical to before
+        /// Phase F: every recording resolves to the live UT and nothing is hidden.
+        /// </summary>
         internal static void UpdateTrackingStationGhostLifecycle(bool refreshStockList = true)
         {
+            UpdateTrackingStationGhostLifecycle(
+                GhostPlaybackLogic.LoopUnitSet.Empty, refreshStockList);
+        }
+
+        /// <summary>
+        /// Phase F: tracking-station ProtoVessel ghost lifecycle under the shared Mission span
+        /// clock. <paramref name="loopUnits"/> is the per-frame cached set built once by
+        /// <c>ParsekTrackingStation.DriveMissionLoopUnits</c>. For each committed index the
+        /// effective sample UT is resolved via
+        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/>; a member outside its
+        /// loop window this cycle is skipped on create and torn down on refresh. With
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> this is byte-identical to the
+        /// pre-Phase-F behavior (effUT == liveUT, renderHidden never true).
+        /// </summary>
+        internal static void UpdateTrackingStationGhostLifecycle(
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            bool refreshStockList = true)
+        {
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
             double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
@@ -5223,6 +5249,10 @@ namespace Parsek
                 return;
             }
 
+            // Phase F v1 simplification: suppression is resolved at the LIVE currentUT, not the
+            // per-member span-clock effUT. Loop-unit members are already gated by the per-recording
+            // render decision (ResolveTrackingStationSampleUT) in the create / refresh / atmospheric
+            // passes below, so the chain-filter suppression set never needs the loop UT here.
             var suppressed = hasCommittedRecordings
                 ? FindTrackingStationSuppressedRecordingIds(committed, currentUT)
                 : new HashSet<string>();
@@ -5232,7 +5262,7 @@ namespace Parsek
             if (hasCommittedRecordings)
                 GhostPlaybackLogic.InvalidateVesselCache();
 
-            RefreshTrackingStationGhosts(committed, suppressed, currentUT);
+            RefreshTrackingStationGhosts(committed, suppressed, currentUT, loopUnits);
 
             if (!hasCommittedRecordings)
             {
@@ -5249,6 +5279,7 @@ namespace Parsek
             var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-lifecycle");
             int lifecycleCreated = 0;
             int alreadyTracked = 0;
+            int loopMemberHidden = 0; // Phase F: members outside their loop window this cycle (skip create)
             for (int i = 0; i < committed.Count; i++)
             {
                 // Skip recordings that already have a ghost
@@ -5259,6 +5290,18 @@ namespace Parsek
                 }
 
                 var rec = committed[i];
+
+                // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
+                // committed index is a loop-unit member. Inert (effUT == currentUT, renderHidden
+                // false) for every non-member and when loopUnits is Empty.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i, rec.StartUT, rec.EndUT, currentUT, loopUnits, out bool renderHidden);
+                if (renderHidden)
+                {
+                    loopMemberHidden++;
+                    continue; // member outside its window this cycle: do not create a ghost
+                }
+
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
@@ -5269,7 +5312,7 @@ namespace Parsek
                     rec,
                     isSuppressed,
                     realVesselExists,
-                    currentUT,
+                    effUT,
                     ref cachedStateVectorIndex,
                     out OrbitSegment segment,
                     out TrajectoryPoint stateVectorPoint,
@@ -5286,7 +5329,7 @@ namespace Parsek
                     source,
                     segment,
                     stateVectorPoint,
-                    currentUT);
+                    effUT);
 
                 if (v != null)
                 {
@@ -5300,7 +5343,7 @@ namespace Parsek
                     ParsekLog.Info(Tag,
                         string.Format(ic,
                             "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range source={3}",
-                            i, rec.VesselName ?? "(null)", currentUT, FormatTrackingStationGhostSource(source)));
+                            i, rec.VesselName ?? "(null)", effUT, FormatTrackingStationGhostSource(source)));
                 }
             }
 
@@ -5309,6 +5352,18 @@ namespace Parsek
                 committed.Count,
                 lifecycleCreated,
                 alreadyTracked);
+
+            // Phase F: per-frame member render/hide summary (rate-limited, shared key — per the
+            // project's per-frame logging convention). Only meaningful when a Mission loops.
+            if (loopUnits.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-loop-member-render",
+                    string.Format(ic,
+                        "TS Mission loop active: units={0} created={1} hiddenOutOfWindow={2} UT {3:F1}",
+                        loopUnits.Count, lifecycleCreated, loopMemberHidden, currentUT),
+                    2.0);
+            }
 
             RefreshTrackingStationVesselListAfterLifecycleMutation(
                 createdBefore,
@@ -5360,10 +5415,13 @@ namespace Parsek
         private static void RefreshTrackingStationGhosts(
             IReadOnlyList<Recording> committed,
             HashSet<string> suppressed,
-            double currentUT)
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
             if (vesselsByRecordingIndex.Count == 0)
                 return;
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
             List<(int idx, string reason)> toRemove = null;
             foreach (var kvp in vesselsByRecordingIndex)
@@ -5384,6 +5442,26 @@ namespace Parsek
                 }
 
                 var rec = committed[idx];
+
+                // Phase F: resolve the effective sample UT for this member under the shared Mission
+                // span clock. A member outside its loop window this cycle is torn down (queued for
+                // removal) so it stops rendering, exactly like the create pass skips it. Inert when
+                // idx is not a unit member or loopUnits is Empty (effUT == currentUT, renderHidden
+                // false): every live-UT read below becomes the unchanged live UT.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    idx,
+                    rec != null ? rec.StartUT : currentUT,
+                    rec != null ? rec.EndUT : currentUT,
+                    currentUT,
+                    loopUnits,
+                    out bool renderHidden);
+                if (renderHidden)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, "mission-loop-out-of-window"));
+                    continue;
+                }
+
                 bool isSuppressed = rec != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressed != null
@@ -5403,7 +5481,7 @@ namespace Parsek
                     : -1;
                 bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
                     rec,
-                    currentUT,
+                    effUT,
                     ref cachedStateVectorIndex,
                     out TrajectoryPoint checkpointPoint,
                     out _,
@@ -5415,13 +5493,13 @@ namespace Parsek
                     alreadyMaterialized,
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
-                    currentUT);
+                    effUT);
                 if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out _,
                         out _,
                         out _))
@@ -5438,7 +5516,7 @@ namespace Parsek
                 if (fromCheckpoint)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5450,7 +5528,7 @@ namespace Parsek
                 {
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
                         rec.Points,
-                        currentUT,
+                        effUT,
                         ref cachedStateVectorIndex);
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
@@ -5476,7 +5554,7 @@ namespace Parsek
                     // UpdateGhostOrbitFromStateVectors already dispatches on
                     // referenceFrame and resolves world position via the
                     // anchor for that branch.
-                    bool inRelativeFrame = IsInRelativeFrame(rec, currentUT);
+                    bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
                     if (!inRelativeFrame)
                     {
                         double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
@@ -5491,7 +5569,7 @@ namespace Parsek
                         }
                     }
 
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5502,14 +5580,14 @@ namespace Parsek
                 if (!hasOrbitBounds)
                     continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
                 if (seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         seg.Value,
-                        IsTerminalMapPresenceRegion(rec, currentUT),
+                        IsTerminalMapPresenceRegion(rec, effUT),
                         out OrbitSegment endpointTailSegment,
                         out _,
                         out _))
@@ -5520,9 +5598,9 @@ namespace Parsek
                 else if (!seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out endpointTailSegment,
                         out _,
                         out _))

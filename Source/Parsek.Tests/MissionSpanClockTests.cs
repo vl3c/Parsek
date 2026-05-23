@@ -276,6 +276,116 @@ namespace Parsek.Tests
             Assert.Equal(125.0, loopUT, 6);  // 25s into the span
         }
 
+        // ─── ResolveTrackingStationSampleUT (TS span-clock parity, Phase F) ──────
+
+        // Builds a single-unit LoopUnitSet covering committed indices {ownerIndex..} so the
+        // TS effective-UT helper has a real member to resolve. Members all share the unit's
+        // span clock; the per-member window is supplied separately to the helper.
+        private static GhostPlaybackLogic.LoopUnitSet MakeSingleUnitSet(
+            int ownerIndex, int[] memberIndices,
+            double spanStartUT, double spanEndUT, double cadenceSeconds)
+        {
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex, memberIndices, spanStartUT, spanEndUT, cadenceSeconds);
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit>
+            {
+                { ownerIndex, unit }
+            };
+            var ownerByIndex = new Dictionary<int, int>();
+            foreach (int m in memberIndices)
+                ownerByIndex[m] = ownerIndex;
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_NonMember_ReturnsLiveUT_NotHidden()
+        {
+            // Index 9 is NOT in the unit (members 5,6,7) -> live UT passes through unchanged,
+            // renderHidden=false. This is the common case for every non-looped recording.
+            var units = MakeSingleUnitSet(5, new[] { 5, 6, 7 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 9, memberStartUT: 100, memberEndUT: 150, liveUT: 12345.0,
+                units, out bool hidden);
+            Assert.Equal(12345.0, eff, 6);
+            Assert.False(hidden);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_NullSet_ReturnsLiveUT_NotHidden()
+        {
+            // Null set (dormant feature) -> always live UT, never hidden.
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 777.0,
+                units: null, out bool hidden);
+            Assert.Equal(777.0, eff, 6);
+            Assert.False(hidden);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_EmptySet_ReturnsLiveUT_NotHidden()
+        {
+            // Empty set is the inertness contract: every index returns live UT, never hidden,
+            // so TS behavior is byte-identical to before when no Mission loops.
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 42.0,
+                GhostPlaybackLogic.LoopUnitSet.Empty, out bool hidden);
+            Assert.Equal(42.0, eff, 6);
+            Assert.False(hidden);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_MemberInWindow_ReturnsLoopUT_NotHidden()
+        {
+            // Member 5 window [150,200]. Span [100,250], cadence 150. liveUT 175 -> the shared
+            // clock loopUT 175 is inside [150,200] -> Render -> return loopUT 175, not hidden.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 175.0,
+                units, out bool hidden);
+            Assert.Equal(175.0, eff, 6);
+            Assert.False(hidden);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_MemberInWindow_WrappedCycle_ReturnsFoldedLoopUT()
+        {
+            // Member 5 window [100,150]. Span [100,250], cadence 150. liveUT 275 (one cadence past
+            // start + 25s) folds to loopUT 125 in cycle 1, which is inside [100,150] -> Render at
+            // the folded loopUT 125 (not the live 275). This is the headline span-clock substitution.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 275.0,
+                units, out bool hidden);
+            Assert.Equal(125.0, eff, 6);
+            Assert.False(hidden);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_MemberOutsideWindow_ReportsHidden()
+        {
+            // Member 5 window [150,200]. liveUT 120 -> loopUT 120 is outside the member window ->
+            // HiddenOutsideWindow -> renderHidden=true, returned UT is liveUT (unused by caller).
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 120.0,
+                units, out bool hidden);
+            Assert.True(hidden);
+            Assert.Equal(120.0, eff, 6);
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_BeforeSpanStart_ReportsHidden()
+        {
+            // liveUT 50 is before the span start (100): the shared clock cannot resolve ->
+            // SpanClockUnresolved -> renderHidden=true (do not render this frame).
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 50.0,
+                units, out bool hidden);
+            Assert.True(hidden);
+            Assert.Equal(50.0, eff, 6);
+        }
+
         // ─── Payload-activation gate (Fix 1) ────────────────────────────────────
 
         [Fact]

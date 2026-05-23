@@ -6692,6 +6692,51 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tracking-Station per-recording effective sample UT under the shared mission clock.
+        /// The TS scene has no playback engine: it positions ProtoVessel ghosts (orbit lines +
+        /// icons) and OnGUI atmospheric markers at an explicit UT. This is the single seam that
+        /// substitutes the span-clock loopUT for that explicit UT so a looped Mission renders in
+        /// the tracking station identically to flight / KSC.
+        ///
+        /// - <paramref name="units"/> null or committed index <paramref name="i"/> is NOT a unit
+        ///   member -> return <paramref name="liveUT"/>, <paramref name="renderHidden"/>=false
+        ///   (unchanged behavior; this is the common case until a Mission loops).
+        /// - i IS a member -> resolve the owning unit's shared clock via
+        ///   <see cref="DecideUnitMemberRender"/>: <c>Render</c> returns the span-clock loopUT with
+        ///   renderHidden=false; ANY other decision (SpanClockUnresolved / HiddenInterCycleTail /
+        ///   HiddenOutsideWindow) returns liveUT with renderHidden=true so the caller skips creation
+        ///   / tears down the ghost / skips the marker for this frame.
+        ///
+        /// Pure: no logging (per-frame callers own rate-limiting). Inert when <paramref name="units"/>
+        /// is <see cref="LoopUnitSet.Empty"/>: returns liveUT / renderHidden=false for every index.
+        /// </summary>
+        internal static double ResolveTrackingStationSampleUT(
+            int i, double memberStartUT, double memberEndUT, double liveUT,
+            LoopUnitSet units, out bool renderHidden)
+        {
+            renderHidden = false;
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return liveUT;
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT,
+                unit.SpanStartUT,
+                unit.SpanEndUT,
+                unit.CadenceSeconds,
+                memberStartUT,
+                memberEndUT,
+                out double loopUT,
+                out _,
+                out _);
+
+            if (decision == UnitMemberRenderDecision.Render)
+                return loopUT;
+
+            renderHidden = true;
+            return liveUT;
+        }
+
+        /// <summary>
         /// Edge 9 branch predicate for <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>: returns
         /// true when a loop-synced debris's parent (<paramref name="parentIdx"/>) is itself a
         /// chain-loop unit member, in which case the debris must source the unit's SHARED span clock
