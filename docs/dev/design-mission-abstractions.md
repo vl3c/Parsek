@@ -110,11 +110,14 @@ the discriminator:
 - FORKS (split) = controlled separations (Undock / EVA / JointBreak whose child is
   `IsDebris=false`). Each downstream child is an alternative through-line, a real
   flight you flew (probe, lander, capsule); a path can follow one.
-- MERGES (join) = Dock / Board: two parent lines converge into one child (the
-  branch point carries two `ParentRecordingIds`), and a merge can even join a line
-  from a DIFFERENT tree (docking to another mission's vessel). A mission PATH
-  traverses a merge by following its OWN incoming line into the child; the
-  co-parent belongs to its own line / Mission and is not pulled in.
+- MERGES (join) = Dock / Board: two SAME-TREE parent lines converge into one child
+  (the branch point carries two `ParentRecordingIds`; the co-parent is resolved
+  from the tree's own `BackgroundMap`). A dock to a FOREIGN vessel (another
+  mission's tree) is instead a SINGLE-parent branch point; that cross-tree
+  relationship is reconstructed at playback (PID linking in `GhostChainWalker`),
+  not as a two-parent edge. Either way a mission PATH traverses a merge by following
+  its OWN incoming line into the child; the co-parent belongs to its own line /
+  Mission and is not pulled in.
 - TWIGS (parallel) = debris (`IsDebris=true` children: spent boosters, jettisoned
   tanks). NEVER spine-eligible; they only ride along in parallel with whichever
   leg they left, and are not shown as rows in the Missions UI.
@@ -126,8 +129,10 @@ and ordered by `StartUT` (see layer 3).
 Example. Mothership stack (controller M) carries a drop pod (controller D). At
 separation the graph forks: one branch continues as M, the other as D (D:
 separation -> transit -> land; M: separation -> deorbit -> recover). If D later
-docks to station S that is a merge: D's path follows into the docked child, and S
-(its own mission) is not pulled in. Debris shed by either rides along its parent.
+docks back to M (same tree) that is a two-parent merge; a dock to a foreign station
+(another mission) is instead single-parent. Either way D's path follows into the
+docked child and the co-parent is not pulled in. Debris shed by either rides along
+its parent.
 
 ### 3. Main line (a spine, per path)
 
@@ -306,8 +311,9 @@ concrete proof the abstraction is viable and the basis for later logistics.
 
 ## What exists today vs what is new
 
-- Layers 1 to 2 (recording, mission tree) exist in the data; the fork topology is
-  already carried by `ParentAnchorRecordingId` + `IsDebris`.
+- Layers 1 to 2 (recording, mission tree) exist in the data; the topology is
+  already carried by `RecordingTree.BranchPoints` (+ `ParentBranchPointId` /
+  `ChildBranchPointId`), and `IsDebris` discriminates spine legs from debris twigs.
 - Layer 3 (spine as a path) is reconstructable from existing fields but is not a
   first-class object yet.
 - Layers 4 and 5 (selection, Mission entity) are new: a new persisted Mission
@@ -338,10 +344,11 @@ concrete proof the abstraction is viable and the basis for later logistics.
 5. Env-split leg rows. Should consecutive same-controlled-line legs that exist only
    because of optimizer env-splits be visually collapsed into one row (environmental
    sub-boundaries hidden), or shown individually? UI clarity only, not the data model.
-6. Merge / DAG handling. Dock / Board are two-parent merges (possibly across trees).
-   v1 rule: a path follows its own incoming line into the merged child and does not
-   pull in the co-parent. Open: how the multi-path (whole-mission) outline renders a
-   reconvergence, and whether a cross-tree dock target is ever surfaced.
+6. Merge / DAG handling. Dock / Board within one tree are two-parent merges; a dock
+   to a foreign vessel is single-parent (the cross-tree link is reconstructed at
+   playback). v1 rule: a path follows its own incoming line into the merged child and
+   does not pull in the co-parent. Open: how the multi-path (whole-mission) outline
+   renders a reconvergence, and whether a foreign dock target is ever surfaced.
 
 ---
 
@@ -369,5 +376,5 @@ concrete proof the abstraction is viable and the basis for later logistics.
 - Cross-vessel spine continuation: `PrepareActiveTreeForFreshPostSwitchRecording`,
   `SwitchSegmentBuilder.CreateSwitchContinuationSegment`.
 - UI primitives to reuse: `RecordingsTableUI` (caret, connectors, row layout).
-- Concurrent same-recording render: `MaxOverlapGhostsPerRecording` in
-  `GhostPlaybackEngine`.
+- Concurrent same-recording render: `MaxOverlapGhostsPerRecording` (defined in
+  `ParsekConfig`, consumed by `GhostPlaybackEngine`).
