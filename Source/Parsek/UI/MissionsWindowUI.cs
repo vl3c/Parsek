@@ -199,7 +199,7 @@ namespace Parsek
                 GUILayout.BeginVertical(tableBodyBoxStyle);
 
                 int treeCount = 0;
-                int legRows = 0;
+                int rowCount = 0;
                 for (int t = 0; t < trees.Count; t++)
                 {
                     RecordingTree tree = trees[t];
@@ -208,24 +208,24 @@ namespace Parsek
                     treeCount++;
 
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
+                    MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
                     string treeName = string.IsNullOrEmpty(tree.TreeName) ? "(mission)" : tree.TreeName;
                     GUILayout.Label(
-                        $"{treeName}  -  {structure.LegsById.Count} legs",
+                        $"{treeName}  -  {view.ByHeadId.Count} vessels",
                         parentUI.GetSectionHeaderStyle());
 
                     var visited = new HashSet<string>();
-                    for (int r = 0; r < structure.RootLegIds.Count; r++)
+                    for (int r = 0; r < view.RootHeadIds.Count; r++)
                     {
-                        bool isLast = r == structure.RootLegIds.Count - 1;
-                        legRows += DrawLeg(structure, structure.RootLegIds[r], 1, isLast, false, visited);
+                        bool isLast = r == view.RootHeadIds.Count - 1;
+                        rowCount += DrawThroughLine(structure, view, view.RootHeadIds[r], 1, isLast, false, visited);
                     }
 
-                    if (visited.Count < structure.LegsById.Count)
+                    if (visited.Count < view.ByHeadId.Count)
                     {
                         ParsekLog.VerboseRateLimited("UI", $"missions-dropped-{tree.Id}",
-                            $"Missions window: tree={tree.Id} rendered {visited.Count}/{structure.LegsById.Count} " +
-                            $"legs; {structure.LegsById.Count - visited.Count} unreachable from roots " +
-                            $"(malformed branch-point cycle?)", 30.0);
+                            $"Missions window: tree={tree.Id} rendered {visited.Count}/{view.ByHeadId.Count} " +
+                            $"through-lines; {view.ByHeadId.Count - visited.Count} unreachable from roots", 30.0);
                     }
                 }
 
@@ -233,7 +233,7 @@ namespace Parsek
                 GUILayout.EndScrollView();
 
                 ParsekLog.VerboseRateLimited("UI", "missions-window-draw",
-                    $"Missions window: trees={treeCount} legRows={legRows}", 5.0);
+                    $"Missions window: trees={treeCount} rows={rowCount}", 5.0);
             }
 
             // Full-width Close button at the bottom (matches the Timeline window).
@@ -277,68 +277,60 @@ namespace Parsek
         // row (SelfConnectorIndent + TreeConnector + caret + label + fixed cells).
         // The visited set both prevents re-rendering a merge child reached from a
         // second parent (it gets a reference row instead) and guards malformed cycles.
-        private int DrawLeg(MissionStructure s, string legId, int depth, bool isLast,
-            bool parentExcluded, HashSet<string> visited)
+        // Renders one through-line (a collapsed continuous vessel), then recurses into
+        // its offshoots (the things that left it: EVA kerbals, decoupled children,
+        // forks to other vessels). The visited set guards merges/cycles.
+        private int DrawThroughLine(MissionStructure s, MissionThroughLineView v, string headId,
+            int depth, bool isLast, bool parentExcluded, HashSet<string> visited)
         {
-            if (legId == null || !s.LegsById.TryGetValue(legId, out MissionLeg leg))
+            if (headId == null || !v.ByHeadId.TryGetValue(headId, out MissionThroughLine tl))
                 return 0;
 
-            if (visited.Contains(legId))
+            if (visited.Contains(headId))
             {
-                DrawReferenceRow(leg, depth, isLast);
+                DrawReferenceRow(tl, depth, isLast);
                 return 1;
             }
-            visited.Add(legId);
+            visited.Add(headId);
 
-            // Children: sequence-next first, then branch children.
-            var children = new List<string>();
-            if (leg.SequenceNextId != null)
-                children.Add(leg.SequenceNextId);
-            for (int i = 0; i < leg.BranchChildIds.Count; i++)
-                children.Add(leg.BranchChildIds[i]);
+            bool hasChildren = tl.OffshootHeadIds.Count > 0;
+            bool collapsed = collapsedLegs.Contains(headId);
 
-            bool hasChildren = children.Count > 0;
-            bool collapsed = collapsedLegs.Contains(leg.RecordingId);
-
-            DrawLegRow(leg, depth, isLast, hasChildren, collapsed, parentExcluded);
+            DrawThroughLineRow(s, tl, depth, isLast, hasChildren, collapsed, parentExcluded);
             int rows = 1;
 
-            // Unchecking a leg drops it and everything downstream: children inherit
-            // the excluded flag once this leg (or any ancestor) is unchecked.
-            bool childExcluded = parentExcluded || uncheckedLegs.Contains(leg.RecordingId);
+            // Unchecking a through-line drops it and everything downstream.
+            bool childExcluded = parentExcluded || uncheckedLegs.Contains(headId);
             if (hasChildren && !collapsed)
             {
-                for (int i = 0; i < children.Count; i++)
+                for (int i = 0; i < tl.OffshootHeadIds.Count; i++)
                 {
-                    bool childIsLast = i == children.Count - 1;
-                    rows += DrawLeg(s, children[i], depth + 1, childIsLast, childExcluded, visited);
+                    bool childIsLast = i == tl.OffshootHeadIds.Count - 1;
+                    rows += DrawThroughLine(s, v, tl.OffshootHeadIds[i], depth + 1, childIsLast, childExcluded, visited);
                 }
             }
 
             return rows;
         }
 
-        private void DrawLegRow(MissionLeg leg, int depth, bool isLast, bool hasChildren,
-            bool collapsed, bool parentExcluded)
+        private void DrawThroughLineRow(MissionStructure s, MissionThroughLine tl, int depth,
+            bool isLast, bool hasChildren, bool collapsed, bool parentExcluded)
         {
             GUILayout.BeginHorizontal();
 
-            // Include checkbox. Disabled when an ancestor is unchecked (this leg is
-            // downstream of a dropped leg, so it can only be re-included by re-checking
-            // the ancestor). Toggling adds/removes this leg from the unchecked set.
-            bool selfUnchecked = uncheckedLegs.Contains(leg.RecordingId);
+            // Include checkbox, keyed by the through-line's head leg. Disabled when an
+            // ancestor is unchecked (this through-line is downstream of a dropped one).
+            bool selfUnchecked = uncheckedLegs.Contains(tl.HeadLegId);
             bool shownChecked = !parentExcluded && !selfUnchecked;
             GUI.enabled = !parentExcluded;
             bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Check));
             GUI.enabled = true;
             if (!parentExcluded && toggled != shownChecked)
             {
-                if (toggled) uncheckedLegs.Remove(leg.RecordingId);
-                else uncheckedLegs.Add(leg.RecordingId);
+                if (toggled) uncheckedLegs.Remove(tl.HeadLegId);
+                else uncheckedLegs.Add(tl.HeadLegId);
             }
 
-            // Dim rows dropped from the mission (downstream of an unchecked leg, or
-            // unchecked themselves).
             Color prevColor = GUI.color;
             if (parentExcluded || selfUnchecked)
                 GUI.color = DimColor;
@@ -349,19 +341,17 @@ namespace Parsek
 
             string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
             string caret = hasChildren ? (collapsed ? CaretRight : CaretDown) : "";
-            string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
+            string vessel = string.IsNullOrEmpty(tl.VesselName) ? "(vessel)" : tl.VesselName;
             string wide = connector + caret + vessel;
 
-            // Clickable label (toggles collapse) when the leg has children;
-            // otherwise a plain body-cell label.
             if (hasChildren)
             {
                 if (GUILayout.Button(wide, bodyCellLabel, GUILayout.ExpandWidth(true)))
                 {
-                    if (collapsedLegs.Contains(leg.RecordingId))
-                        collapsedLegs.Remove(leg.RecordingId);
+                    if (collapsedLegs.Contains(tl.HeadLegId))
+                        collapsedLegs.Remove(tl.HeadLegId);
                     else
-                        collapsedLegs.Add(leg.RecordingId);
+                        collapsedLegs.Add(tl.HeadLegId);
                 }
             }
             else
@@ -369,18 +359,21 @@ namespace Parsek
                 GUILayout.Label(wide, bodyCellLabel, GUILayout.ExpandWidth(true));
             }
 
-            GUILayout.Label(KSPUtil.PrintDateCompact(leg.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_StartTime));
-            GUILayout.Label(StartEventText(leg), bodyCellLabel, GUILayout.Width(ColW_StartEvent));
-            GUILayout.Label(EndEventText(leg), bodyCellLabel, GUILayout.Width(ColW_EndEvent));
-            GUILayout.Label(KSPUtil.PrintDateCompact(leg.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            // Start event from the head leg, end event from the tail leg.
+            MissionLeg head = s.LegsById.TryGetValue(tl.HeadLegId, out MissionLeg h) ? h : null;
+            MissionLeg tail = s.LegsById.TryGetValue(tl.TailLegId, out MissionLeg t2) ? t2 : null;
+            GUILayout.Label(KSPUtil.PrintDateCompact(tl.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_StartTime));
+            GUILayout.Label(head != null ? StartEventText(head) : "", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+            GUILayout.Label(tail != null ? EndEventText(tail) : "", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+            GUILayout.Label(KSPUtil.PrintDateCompact(tl.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_EndTime));
 
             GUI.color = prevColor;
             GUILayout.EndHorizontal();
         }
 
-        // Reference row for a merge child reached from a second parent: shown once,
-        // not recursed into. Wide cell carries the merge arrow; time/status empty.
-        private void DrawReferenceRow(MissionLeg leg, int depth, bool isLast)
+        // Reference row for a through-line reached a second time (a merge): shown once,
+        // not recursed into.
+        private void DrawReferenceRow(MissionThroughLine tl, int depth, bool isLast)
         {
             GUILayout.BeginHorizontal();
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Check));
@@ -390,7 +383,7 @@ namespace Parsek
                 GUILayout.Space(indent);
 
             string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
-            string vessel = string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
+            string vessel = string.IsNullOrEmpty(tl.VesselName) ? "(vessel)" : tl.VesselName;
             GUILayout.Label($"{connector}{MergeArrow}merges into {vessel} (above)",
                 bodyCellLabel, GUILayout.ExpandWidth(true));
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));

@@ -376,6 +376,44 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ThroughLine_CollapsesVesselChain_AndHangsOffshoots()
+        {
+            // Kerbal-X-shaped: a vessel that continues through an env-split and two
+            // EVAs, plus a broken-off probe. The whole vessel should collapse to one
+            // through-line with three offshoot children (probe, bob, bill).
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("root", "CR", 0, 0, 100),
+                    Leg("c1", "CC", 0, 100, 200),                  // vessel continuation via bp1
+                    Leg("c2", "CC", 1, 200, 300),                  // env-split next of c1
+                    Leg("c3", "CX", 0, 300, 350),                  // vessel continuation via bp3
+                    Leg("bob", "CB", 0, 100, 140, eva: "Bob"),     // EVA off root
+                    Leg("bill", "CL", 0, 300, 340, eva: "Bill"),   // EVA off c2
+                    Leg("probe", "CP", 0, 60, 90, parentAnchor: "root") // broke off root
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.EVA, new[] { "root" }, new[] { "c1", "bob" }),
+                    BP("bp2", BranchPointType.Breakup, new[] { "root" }, new[] { "probe" }),
+                    BP("bp3", BranchPointType.EVA, new[] { "c2" }, new[] { "c3", "bill" })
+                });
+
+            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
+
+            Assert.Equal(new[] { "root" }, view.RootHeadIds.ToArray());
+            Assert.Equal(4, view.ByHeadId.Count); // root-line + probe + bob + bill
+
+            var line = view.ByHeadId["root"];
+            Assert.Equal(new[] { "root", "c1", "c2", "c3" }, line.MemberLegIds.ToArray());
+            Assert.Equal("c3", line.TailLegId);
+            Assert.Equal(0.0, line.StartUT);
+            Assert.Equal(350.0, line.EndUT);
+            // Offshoots in chronological order: probe (60), bob (100), bill (300).
+            Assert.Equal(new[] { "probe", "bob", "bill" }, line.OffshootHeadIds.ToArray());
+        }
+
+        [Fact]
         public void EmptyOrNullTree_ReturnsEmptyStructure()
         {
             var sNull = MissionStructureBuilder.Build(null);
