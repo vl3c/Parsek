@@ -1376,7 +1376,7 @@ namespace Parsek
                 // resolution in ProductionAnchorWorldFrameResolver) don't run
                 // through the engine dispatch. Fall through to the rejection
                 // path here so we don't compose against a non-loop live PID
-                // across loop iterations. Under v13 invariants non-loop
+                // across loop iterations. Under the current invariants non-loop
                 // recordings never write section.anchorVesselId != 0u, so
                 // this guard only fires on the explicit mismatch.
                 bool loopAnchorMismatch = recording.LoopAnchorVesselId != 0u

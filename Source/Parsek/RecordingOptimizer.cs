@@ -1083,7 +1083,7 @@ namespace Parsek
             second.AntennaSpecs = original.AntennaSpecs != null
                 ? new List<AntennaSpec>(original.AntennaSpecs) : null;
             second.IsDebris = original.IsDebris;
-            // PR 3b: propagate the v13 debris parent-anchor contract to both halves of
+            // PR 3b: propagate the debris parent-anchor contract to both halves of
             // a SplitAtSection split. The `original` half retains its field by virtue of
             // in-place mutation; the `second` (newly-allocated) half needs the explicit copy.
             second.ParentAnchorRecordingId = original.ParentAnchorRecordingId;
@@ -1168,7 +1168,7 @@ namespace Parsek
         ///
         /// Returns null (without mutating <paramref name="original"/>) on any guard
         /// failure: bad pre-conditions (null input, NaN splitUT, recording's UT bounds
-        /// don't strictly span splitUT) or a v13 debris contract violation (post-split
+        /// don't strictly span splitUT) or a debris contract violation (post-split
         /// half ends up with fewer than 2 bodyFixedFrames samples). Straddling
         /// OrbitSegments are safe — <see cref="SplitAtSection"/>'s OrbitSegments
         /// partition tail-clones them into TIP at startUT=splitUT (the Kepler
@@ -1219,7 +1219,7 @@ namespace Parsek
             // CachedStats — all in place on `original`. The plan §r4
             // mutation-ordering rule requires "a guarded return leaves
             // the input recording byte-identical." Snapshot the affected
-            // fields BEFORE Ensure so the v13 guard / gap-fallback /
+            // fields BEFORE Ensure so the debris guard / gap-fallback /
             // boundary-search guarded-return paths below can restore.
             //
             // Cheap on the happy path: list shallow-copies of structs,
@@ -1426,7 +1426,7 @@ namespace Parsek
                         }
                     }
 
-                    // Partition v13 body-fixed primary surface samples by UT.
+                    // Partition body-fixed primary surface samples by UT.
                     bool hadBodyFixedFrames = straddle.bodyFixedFrames != null
                         && straddle.bodyFixedFrames.Count > 0;
                     if (straddle.bodyFixedFrames != null)
@@ -1441,7 +1441,7 @@ namespace Parsek
                         }
                     }
 
-                    // v13 debris frame contract guard: each half must retain at least 2
+                    // Debris frame contract guard: each half must retain at least 2
                     // bodyFixedFrames samples when the straddling section had them.
                     if (hadBodyFixedFrames)
                     {

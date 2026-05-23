@@ -5819,7 +5819,7 @@ namespace Parsek
             bool allowOrbitalCheckpointStateVector = false,
             TrajectoryPoint? bodyFixedPrimaryPoint = null)
         {
-            // v13 parent-anchored debris uses `bodyFixedFrames` as the primary
+            // Parent-anchored debris uses `bodyFixedFrames` as the primary
             // surface for ordinary debris. Callers pass the selected body-fixed
             // point here after deciding the recording is not a loop-anchored
             // chain. Resolved through the standard surface lookup it yields the

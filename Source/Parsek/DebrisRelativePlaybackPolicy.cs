@@ -5,7 +5,7 @@ namespace Parsek
 {
     /// <summary>
     /// Playback policy for debris that carries the explicit parent-recording
-    /// anchor contract. The v13 render contract uses body-fixed primary data
+    /// anchor contract. The current render contract uses body-fixed primary data
     /// for ordinary debris and only relies on anchor-local replay for
     /// loop-anchored chains.
     /// </summary>
@@ -83,7 +83,7 @@ namespace Parsek
 
         /// <summary>
         /// Ordinary parent-anchored debris must not route through recorded
-        /// Relative playback once v13 body-fixed primary data is the authored
+        /// Relative playback since body-fixed primary data is the authored
         /// render surface. A true result means callers should skip the
         /// recorded-relative resolver and either use body-fixed primary or
         /// fail closed.

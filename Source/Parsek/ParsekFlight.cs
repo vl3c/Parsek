@@ -19685,7 +19685,7 @@ namespace Parsek
         /// population are reused.
         /// </summary>
         /// <remarks>
-        /// Format v13 contract: this is the primary rendering surface for
+        /// Parent-anchored contract: this is the primary rendering surface for
         /// parent-anchored debris whenever the active Relative section's
         /// `bodyFixedFrames` covers the playback UT. Loop-anchored chains still
         /// try relative replay first and use this as the recorded fallback when

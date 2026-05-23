@@ -1,10 +1,8 @@
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using KSP.UI.Screens;
 using KSP.UI.Screens.Mapview;
 using Parsek.Patches;
-using ToolbarControl_NS;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -34,10 +32,6 @@ namespace Parsek
         private const float MaterializedFocusRetryDurationSec = 20.0f;
         private const float MaterializedFocusRetryIntervalSec = 0.1f;
         private float nextLifecycleCheckTime;
-        private ToolbarControl toolbarControl;
-        private ParsekUI ui;
-        private bool showUI;
-        private Rect windowRect = new Rect(20, 100, 250, 10);
         private PopupDialog currentGhostPopup;
         private string currentGhostPopupKey;
         private int ghostPopupOpenFrame;
@@ -70,15 +64,6 @@ namespace Parsek
         /// immediately without waiting for the 2-second interval.
         /// </summary>
         private bool lastKnownShowGhosts = true;
-
-        internal struct TrackingStationControlSurfaceState
-        {
-            internal int CommittedRecordings;
-            internal int VisibleGhostVessels;
-            internal int SuppressedRecordings;
-            internal int MaterializedRecordings;
-            internal bool ShowGhosts;
-        }
 
         internal enum AtmosphericMarkerSkipReason
         {
@@ -192,9 +177,6 @@ namespace Parsek
 
         void Start()
         {
-            ui = new ParsekUI(UIMode.TrackingStation);
-            InstallToolbar();
-
             // Read through the persistence store so the startup tick uses the
             // recorded user preference even when ParsekSettings.Current isn't
             // resolved yet (early-scene-load case, see ParsekScenario.cs:546).
@@ -216,26 +198,6 @@ namespace Parsek
                 $"showGhostsInTrackingStation={lastKnownShowGhosts}, " +
                 $"trackingStationSuppressed={suppressedForGhosts}, " +
                 "orbitSourceDiagnostics=aggregated");
-        }
-
-        private void InstallToolbar()
-        {
-            toolbarControl = gameObject.AddComponent<ToolbarControl>();
-            toolbarControl.AddToAllToolbars(
-                () => { showUI = true; ParsekLog.Verbose(Tag, "Toolbar button ON"); },
-                () => { showUI = false; ParsekLog.Verbose(Tag, "Toolbar button OFF"); },
-                ApplicationLauncher.AppScenes.TRACKSTATION,
-                ParsekFlight.MODID, "parsekTrackingStationButton",
-                "Parsek/Textures/parsek_64",
-                "Parsek/Textures/parsek_32",
-                ParsekFlight.MODNAME
-            );
-
-            ui.CloseMainWindow = () =>
-            {
-                showUI = false;
-                if (toolbarControl != null) toolbarControl.SetFalse();
-            };
         }
 
         void Update()
@@ -288,15 +250,14 @@ namespace Parsek
         void OnGUI()
         {
             // The Esc / pause overlay lives on KSP's Canvas and sorts above
-            // our IMGUI layer, so without this gate the ghost icons, ghost
-            // action panel, and control surface visually punch through the
-            // pause menu. Both the Layout pass AND the Repaint draw are
-            // skipped so width-clamped layouts can't flicker between events.
+            // our IMGUI layer, so without this gate the ghost icons and ghost
+            // action panel visually punch through the pause menu. Both the
+            // Layout pass AND the Repaint draw are skipped so width-clamped
+            // layouts can't flicker between events.
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
             DrawAtmosphericMarkers();
-            DrawControlSurface();
         }
 
         private void DrawAtmosphericMarkers()
@@ -328,9 +289,9 @@ namespace Parsek
                 return;
             }
 
-            if (!ShouldProcessAtmosphericMarkerEvent(
-                    etype,
-                    IsPointerOverParsekWindow(currentEvent.mousePosition)))
+            // No Parsek window is hosted in the Tracking Station scene, so a
+            // marker click can never land on a Parsek window here.
+            if (!ShouldProcessAtmosphericMarkerEvent(etype, pointerOverParsekWindow: false))
                 return;
             if (PlanetariumCamera.Camera == null)
             {
@@ -414,12 +375,6 @@ namespace Parsek
             LogAtmosphericMarkerSummary(summary);
         }
 
-        internal bool IsPointerOverParsekWindow(Vector2 mousePosition)
-        {
-            return ParsekUI.IsPointerOverOpenWindow(showUI, windowRect, mousePosition)
-                || (ui != null && ui.IsMouseOverOpenAuxiliaryWindows(mousePosition));
-        }
-
         internal static bool ShouldProcessAtmosphericMarkerEvent(
             EventType eventType,
             bool pointerOverParsekWindow)
@@ -450,108 +405,6 @@ namespace Parsek
                 && IsAtmosphericMarkerClickEvent(eventType);
         }
 
-        private void DrawControlSurface()
-        {
-            if (!showUI || ui == null) return;
-
-            windowRect.height = 0f;
-            var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-
-            ParsekUI.ResetWindowGuiColors(
-                out Color prevColor,
-                out Color prevBackgroundColor,
-                out Color prevContentColor);
-            try
-            {
-                windowRect = ClickThruBlocker.GUILayoutWindow(
-                    GetInstanceID(),
-                    windowRect,
-                    DrawControlSurfaceWindow,
-                    "Parsek",
-                    opaqueWindowStyle,
-                    GUILayout.Width(250));
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
-
-            ui.LogMainWindowPosition(windowRect);
-            ui.DrawRecordingsWindowIfOpen(windowRect);
-            ui.DrawMissionsWindowIfOpen(windowRect);
-            ui.DrawSettingsWindowIfOpen(windowRect);
-            ui.DrawTestRunnerWindowIfOpen(windowRect, this);
-        }
-
-        private void DrawControlSurfaceWindow(int windowID)
-        {
-            TrackingStationControlSurfaceState state = BuildControlSurfaceState(
-                RecordingStore.CommittedRecordings,
-                GhostMapPresence.ghostMapVesselPids.Count,
-                GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0,
-                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
-
-            GUILayout.BeginVertical();
-
-            GUILayout.Label("Tracking Station", GUI.skin.box);
-            GUILayout.Label(state.ShowGhosts ? "Ghosts: visible" : "Ghosts: hidden");
-            GUILayout.Label(FormatControlSurfaceCountsLine(state));
-            GUILayout.Label(FormatControlSurfaceLifecycleLine(state));
-
-            GUILayout.Space(10f);
-
-            bool showGhosts = GUILayout.Toggle(
-                state.ShowGhosts,
-                new GUIContent(
-                    " Show ghosts in Tracking Station",
-                    "Show or hide Parsek ghost vessels and markers in the Tracking Station"));
-            if (showGhosts != state.ShowGhosts)
-                SetShowGhostsFromControlSurface(showGhosts);
-
-            GUILayout.Space(10f);
-
-            if (GUILayout.Button(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Recordings ({0})",
-                    state.CommittedRecordings)))
-            {
-                ui.ToggleRecordingsWindow();
-            }
-
-            if (GUILayout.Button("Settings"))
-                ui.ToggleSettingsWindow();
-
-            GUILayout.Space(10f);
-            if (GUILayout.Button("Close"))
-            {
-                showUI = false;
-                if (toolbarControl != null) toolbarControl.SetFalse();
-                ParsekLog.Verbose(Tag, "Control surface closed via button");
-            }
-
-            GUILayout.EndVertical();
-            GUI.DragWindow();
-        }
-
-        private void SetShowGhostsFromControlSurface(bool showGhosts)
-        {
-            bool liveSettingsUpdated = TryApplyGhostVisibilitySetting(
-                ParsekSettings.Current,
-                showGhosts);
-            ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhosts);
-            lastKnownShowGhosts = showGhosts;
-
-            if (!showGhosts)
-                HideTrackingStationGhostsNow("tracking-station-ui-toggle");
-
-            nextLifecycleCheckTime = 0f;
-            ParsekLog.Info(Tag,
-                $"Control surface set showGhostsInTrackingStation={showGhosts} " +
-                $"liveSettingsUpdated={liveSettingsUpdated}");
-        }
-
         private void HideTrackingStationGhostsNow(string reason)
         {
             string safeReason = string.IsNullOrEmpty(reason)
@@ -564,68 +417,6 @@ namespace Parsek
             ghostActionChains.Clear();
             GhostMapPresence.RemoveAllGhostVessels(safeReason);
             GhostMapPresence.TryRefreshLiveTrackingStationVesselList(safeReason);
-        }
-
-        internal static bool TryApplyGhostVisibilitySetting(ParsekSettings settings, bool showGhosts)
-        {
-            if (settings == null)
-                return false;
-
-            settings.showGhostsInTrackingStation = showGhosts;
-            return true;
-        }
-
-        internal static TrackingStationControlSurfaceState BuildControlSurfaceState(
-            IReadOnlyList<Recording> committed,
-            int visibleGhostVessels,
-            int suppressedRecordings,
-            bool showGhosts)
-        {
-            int committedCount = committed?.Count ?? 0;
-            int materialized = 0;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    Recording rec = committed[i];
-                    if (rec != null && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
-                        materialized++;
-                }
-            }
-
-            return new TrackingStationControlSurfaceState
-            {
-                CommittedRecordings = ClampNonNegative(committedCount),
-                VisibleGhostVessels = ClampNonNegative(visibleGhostVessels),
-                SuppressedRecordings = ClampNonNegative(suppressedRecordings),
-                MaterializedRecordings = ClampNonNegative(materialized),
-                ShowGhosts = showGhosts
-            };
-        }
-
-        internal static string FormatControlSurfaceCountsLine(
-            TrackingStationControlSurfaceState state)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Recordings: {0} | Map ghosts: {1}",
-                state.CommittedRecordings,
-                state.VisibleGhostVessels);
-        }
-
-        internal static string FormatControlSurfaceLifecycleLine(
-            TrackingStationControlSurfaceState state)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Suppressed: {0} | Spawned: {1}",
-                state.SuppressedRecordings,
-                state.MaterializedRecordings);
-        }
-
-        private static int ClampNonNegative(int value)
-        {
-            return value < 0 ? 0 : value;
         }
 
         /// <summary>
@@ -705,14 +496,6 @@ namespace Parsek
             // Flight scene's own OnSceneChangeRequested hook runs too, but this
             // addon is the only always-present TS listener — keep it defensive.
             MapMarkerRenderer.ResetForSceneChange();
-            ui?.Cleanup();
-            ui = null;
-            if (toolbarControl != null)
-            {
-                toolbarControl.OnDestroy();
-                Destroy(toolbarControl);
-                toolbarControl = null;
-            }
             ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
 
@@ -1445,7 +1228,7 @@ namespace Parsek
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
                 // TryResolveRecordingWorldPosition consumes the selected list as
-                // body-fixed lat/lon/alt. v13 Relative frames are anchor-local
+                // body-fixed lat/lon/alt. Relative frames are anchor-local
                 // metre offsets, so Tracking Station focus/icon positioning must
                 // use the body-fixed primary surface unless this path grows a
                 // real relative world-pose resolver.
