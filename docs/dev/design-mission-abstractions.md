@@ -287,6 +287,187 @@ concrete proof the abstraction is viable and the basis for later logistics.
 
 ---
 
+## Mission-level looping (span-clock integration)
+
+This resolves open question 4 with the concrete plan derived from reading both the
+`design-chain-auto-loop` branch (the span clock) and this branch's current playback.
+
+### What a looped Mission means
+
+When a Mission has loop on, ALL its included legs replay together on ONE shared
+clock (a "span clock") covering [earliest included start, latest included end],
+repeating every loop period. Each leg renders only while the shared clock is inside
+that leg's own time window, so a multi-leg, multi-branch mission plays back exactly
+like the original flight, then wraps as a whole. This replaces independent
+per-recording looping for the mission's members. Debris rides along its parent leg.
+
+### What we lift from design-chain-auto-loop, and what we leave
+
+The span-clock mechanism is cleanly separable from that branch's abandoned
+auto-detection. We lift the mechanism and replace detection with the Mission
+selection.
+
+LIFT (essentially verbatim; the member set is the only thing that changes):
+
+- Span-clock core in `GhostPlaybackLogic.cs`: `LoopUnit` / `LoopUnitSet` types and
+  the pure helpers `TryComputeSpanLoopUT`, `IsLoopUTInMemberWindow`,
+  `DecideUnitMemberRender` (+ `UnitMemberRenderDecision`), `ShouldSourceDebrisFromUnitSpan`,
+  `ShouldRetargetWatchOnUnitHandoff`.
+- Engine routing in `GhostPlaybackEngine.cs`: `currentLoopUnits` + `lastUnitSelection`
+  state, `SetLoopUnits`, the per-recording interception, `UpdateUnitMemberPlayback`
+  (anchor gating, warp suppression, the `currentUT = spanLoopUT` render override,
+  keep-watched-owner-alive), `LogUnitTransitionIfChanged`, and the loop-synced debris
+  seam.
+- Events: `CameraActionType.UnitHandoffRetarget` and the
+  `GhostPlaybackSkipReason.ChainLoopUnitInactive` skip reason.
+- Watch-transfer (KEPT, per decision): `WatchModeController.HandleLoopCameraAction`
+  branch + the `OnLoopCameraAction` subscription. The camera follows the live member
+  across member boundaries as the span clock advances.
+- KSC consumer in `ParsekKSC.cs`: `UpdateUnitMemberKsc`,
+  `DestroyUnitMemberKscGhostIfActive`, `LogUnitTransitionKscIfChanged`, and the
+  auto-launch-queue exclusion for unit members.
+- The PURE span-clock xUnit tests and the three in-game tests (single-ghost wrap,
+  watch-follows-member, debris-follows-span) carry over.
+
+LEAVE BEHIND: `RecordingStore.DetectChainLoopUnits` and its `IsMainLink` /
+`IsRunEligibleMainLink` / `IsRideAlongSecondary` / `BuildLoopUnit` predicates and
+their tests. The Mission selection IS the member set; no inference is needed.
+
+### The index contract (the seam that ties it together)
+
+`LoopUnit.OwnerIndex` / `MemberIndices` and `LoopUnitSet.OwnerByIndex` are positional
+integer indices into `RecordingStore.CommittedRecordings`. The flight engine, the KSC
+consumer, and the Tracking Station bookkeeping ALL key per-recording state on that
+same `int`, so one `LoopUnitSet` is valid in every scene. The adapter must emit
+indices into that exact list, in that order, and must never hand the engine a stale
+or out-of-range index (the consumers guard bounds but assume positional alignment).
+
+Two helpers do not exist yet and must be added (both pure and unit-tested):
+
+- A RecordingId -> committed-index map (today `FindCommittedRecordingIndex` is
+  private and callers do ad-hoc linear scans).
+- A Mission -> included-RecordingId-set extractor. The include cascade (a head is
+  included unless it or an upstream head is in `ExcludedThroughLineHeadIds`) currently
+  lives inline in `MissionsWindowUI`; extract it so the adapter and the UI share one
+  definition.
+
+### The adapter (Mission -> LoopUnitSet)
+
+A new pure builder, `MissionLoopUnitBuilder.Build(missions, committedRecordings)
+-> LoopUnitSet`. For each Mission with loop on:
+
+- Members = the included legs' committed indices (skip ids not currently in
+  `CommittedRecordings`).
+- Span = [min StartUT, max EndUT] over those member recordings.
+- Cadence = the Mission's loop period, clamped to `LoopTiming.MinCycleDuration`; the
+  `Auto` unit means cadence = span length (loop the whole mission with no gap).
+- Owner = the earliest-start member (the mission's root leg), used as the unit's
+  representative for the camera and debris-parent lookup.
+
+Debris is NOT added to `MemberIndices`. The engine's `ShouldSourceDebrisFromUnitSpan`
+sources a debris recording from its parent leg's unit (it checks `TryGetUnitForMember`
+on the debris's resolved parent index), so debris rides along when its parent leg is
+an included member, and is simply left out of the loop when the parent leg is not.
+This keeps the adapter operating purely on legs. Caveat for the builder: the debris ->
+parent index linkage is `RecordingStore.PopulateLoopSyncParentIndices`, which picks
+the FIRST non-debris same-tree recording whose [StartUT, EndUT] covers the debris
+start. That is independent of `ParentAnchorRecordingId` AND of the Mission selection,
+so if a debris's covering leg is excluded while a different overlapping leg is
+included, the debris will not ride (it belongs to the leg it physically left). That is
+acceptable v1 behavior, but the adapter must not assume "parent leg" means the
+anchor parent; it means the UT-covering leg the engine resolves.
+
+### Engine-dispatch changes to the lifted code
+
+On `design-chain-auto-loop` the unit machinery assumes each member carries a
+per-recording `LoopPlayback` flag (its group UI set them), so several engine sites are
+gated behind `ShouldLoopPlayback(traj)` (which requires `traj.LoopPlayback == true`).
+In the Mission model loop is a MISSION property, so member recordings do NOT carry
+their own loop flag. That gate therefore has to be bypassed for unit members at every
+site that drives looping, otherwise members silently fail to loop. There are three:
+
+1. Member render. The unit-membership interception currently sits INSIDE
+   `if (ShouldLoopPlayback(traj))`. Hoist it ABOVE that gate: a recording that is a
+   member of an active unit renders via `UpdateUnitMemberPlayback` regardless of its
+   own `LoopPlayback`. (`UpdateUnitMemberPlayback` re-checks anchor / window /
+   pre-activation / warp / overlap / cycle internally, so the hoist is safe.)
+2. Debris ride-along. `TryUpdateLoopSyncedDebris` (which calls
+   `ShouldSourceDebrisFromUnitSpan`) is also reached only when
+   `ShouldLoopPlayback(parent)` is true. The same bypass must apply: reach the debris
+   seam when the parent is a unit member, not only when the parent carries
+   `LoopPlayback`. Without this, debris of a looped Mission stops riding.
+3. Auto-launch queue. Unit members are excluded from the global auto-loop launch
+   schedule (`RebuildAutoLoopLaunchScheduleCache`, and the KSC mirror). Today that
+   exclusion is itself behind `ShouldLoopPlayback`; with members no longer carrying
+   the flag those gates become no-ops (harmless: a flagless member is not queued).
+   But if a member ALSO happens to carry its own `LoopPlayback`, exclude it from the
+   queue by UNIT MEMBERSHIP, independent of the flag, so it cannot be double-scheduled.
+
+Net consequence: for a given recording, Mission looping wins over per-recording
+looping; the hoisted membership check (with its `continue`) is the single arbiter at
+the render site, and the queue exclusion covers the scheduling site.
+
+### Persistence
+
+Add to `Mission` (and to `Mission.Save` / `Load` / `Clone`): `LoopPlayback` (bool),
+`LoopIntervalSeconds` (double, serialized "R" / InvariantCulture), and `LoopTimeUnit`.
+Unlike the per-recording codec (which drops the unit and resets it to seconds on
+reload), serialize the Mission's unit explicitly so the row reads back as the user set
+it. `ParsekScenario` OnSave/OnLoad already route through `MissionStore.Save` / `Load`,
+so the new fields persist with no extra wiring. `Mission.Clone` must copy all three.
+
+### UI
+
+A per-Mission-row loop checkbox + period cell, mirroring
+`RecordingsTableUI.DrawLoopPeriodCell`: a value text field plus a unit button cycling
+Sec / Min / Hour / Auto. Reuse the existing `ParsekUI` helpers (`TryParseLoopInput`,
+`ConvertToSeconds`, `ConvertFromSeconds`, `FormatLoopValue`, `UnitLabel`) and the same
+clamp-to-`MinCycleDuration` rule.
+
+### KSC and Tracking Station parity (render exactly what flight renders)
+
+Per decision, KSC and TS must show exactly what flight renders. The `LoopUnitSet` is
+computed once per frame from Missions + committed recordings and fed to every scene
+(the index space is shared), rather than each scene re-deriving units.
+
+- KSC: near-duplicate of the flight path already exists on the old branch; lift it and
+  point its unit source at the adapter. Its ghost map / orbit-line presence rides the
+  same per-recording lifecycle, so no separate icon path is needed.
+- Tracking Station: the LARGEST gap and its own sub-phase. TS does not use
+  `GhostPlaybackEngine`; it renders ProtoVessel-based map presence via
+  `GhostMapPresence` (keyed by the same committed index) and has no per-frame
+  loop-phase machinery today. To match flight, TS must position a unit member's
+  presence at the span-clock `loopUT`. First step in that sub-phase: confirm whether
+  TS animates per-recording loops at all today, then drive the span-clock UT into
+  `GhostMapPresence` positioning.
+
+### Overlap of looping Missions (decision needed)
+
+`LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner. The headline case
+(loop a single Mission) never hits this. But selections may overlap, so two
+SIMULTANEOUSLY looping Missions that share a recording are a single-owner conflict.
+v1 options: (a) assign the shared recording to one unit by a defined precedence and
+warn-log the rest, or (b) restrict to one actively-looping Mission per tree at a time.
+True concurrent rendering of one recording on several Mission clocks (one ghost per
+Mission) is the overlap-ghost capability and is deferred to logistics; do not try to
+make the single-owner span clock do it in v1.
+
+### Build phasing (reviews at the milestones, not every commit)
+
+- A. Lift the span-clock core + types + pure tests verbatim (no callers yet).
+- B. Mission persistence (loop fields) + `Clone` + the per-Mission-row UI toggle/period.
+- C. The adapter + the two new helpers (id->index, included-set) + adapter tests.
+  REVIEW after C.
+- D. Flight wiring: the `SetLoopUnits` call site in `UpdateTimelinePlaybackViaEngine`,
+  the three engine-dispatch changes (member-render hoist, debris-seam bypass, queue
+  exclusion by unit membership), and watch-transfer. THE VIABILITY TEST happens here
+  (loop one Mission, watch it and its debris replay as a unit in flight). REVIEW
+  after D.
+- E. KSC parity.
+- F. Tracking Station parity (largest). REVIEW after F.
+
+---
+
 ## Key decisions
 
 - Atom = the post-optimizer recording. Recorder-vs-optimizer boundary creation is
@@ -337,10 +518,10 @@ concrete proof the abstraction is viable and the basis for later logistics.
    legs on a later pass: sub-legs inside [Start, End] stay included by the
    boundary-node model, but a re-split exactly at a trim boundary needs a defined
    rule. Resolve before persistence is built.
-4. Span-clock reuse specifics. What exactly to lift from the design-chain-auto-loop
-   branch for Mission-level looping (the shared span clock, member render-in-window,
-   debris ride-along) vs rebuild. This is the concrete work the viability build
-   forces.
+4. Span-clock reuse specifics. RESOLVED: see "Mission-level looping (span-clock
+   integration)" above. Lift the span clock + engine routing + watch-transfer + KSC
+   consumer; leave behind the auto-detection; replace it with a Mission -> LoopUnitSet
+   adapter over committed-recording indices.
 5. Env-split leg rows. Should consecutive same-controlled-line legs that exist only
    because of optimizer env-splits be visually collapsed into one row (environmental
    sub-boundaries hidden), or shown individually? UI clarity only, not the data model.
@@ -349,6 +530,18 @@ concrete proof the abstraction is viable and the basis for later logistics.
    playback). v1 rule: a path follows its own incoming line into the merged child and
    does not pull in the co-parent. Open: how the multi-path (whole-mission) outline
    renders a reconvergence, and whether a foreign dock target is ever surfaced.
+7. Overlapping looping Missions. `LoopUnitSet` is single-owner-per-index, so two
+   Missions looping at once that share a recording conflict. v1: precedence + warn, or
+   one active looping Mission per tree. True multi-clock-per-recording (one ghost per
+   Mission via the overlap path) is deferred to logistics. Decide the v1 rule before
+   wiring the adapter (build phase C).
+8. Tracking Station loop parity. TS renders ProtoVessel map presence
+   (`GhostMapPresence`), not engine ghosts, and positions them at the LIVE `currentUT`
+   against each recording's recorded window with NO loop-phase remap; confirmed it
+   does not loop per-recording at all today. So phase F is genuinely new work: feed the
+   span-clock `loopUT` (for unit members) into `GhostMapPresence` positioning so a
+   looped Mission's map presence tracks the same clock flight uses. This is the largest
+   gap (no existing loop machinery to lift on the TS side).
 
 ---
 
