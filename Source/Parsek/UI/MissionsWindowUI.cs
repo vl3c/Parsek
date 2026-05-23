@@ -184,6 +184,7 @@ namespace Parsek
             if (trees == null || trees.Count == 0)
             {
                 GUILayout.Label("No missions recorded yet.");
+                GUILayout.FlexibleSpace();
             }
             else
             {
@@ -234,6 +235,10 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("UI", "missions-window-draw",
                     $"Missions window: trees={treeCount} legRows={legRows}", 5.0);
             }
+
+            // Full-width Close button at the bottom (matches the Timeline window).
+            if (GUILayout.Button("Close"))
+                IsOpen = false;
 
             GUILayout.EndVertical();
             ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Missions window");
