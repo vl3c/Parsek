@@ -49,10 +49,12 @@ On `Recording`:
   the tree topology, and it is null on cross-vessel continuations. Use it only as
   part of the debris-vs-controlled discriminator, never to find forks.
 - `RecordingTree.BranchPoints` (+ `Recording.ParentBranchPointId` /
-  `ChildBranchPointId`) - the actual tree topology. Each `BranchPoint` is a typed
-  parent->child edge (`Undock`, `EVA`, `Dock`, `Board`, `JointBreak`, `Launch`,
-  `Breakup`, `Terminal`, `VesselSwitchContinuation`) carrying `ParentRecordingIds`
-  / `ChildRecordingIds`. THIS is where forks, merges, and continuations live.
+  `ChildBranchPointId`) - the actual topology, a DAG (`ParentRecordingIds` /
+  `ChildRecordingIds` are lists, so Dock/Board merges have two parents). Each
+  `BranchPoint` is a typed parent->child edge (`Undock`, `EVA`, `Dock`, `Board`,
+  `JointBreak`, `Launch`, `Breakup`, `VesselSwitchContinuation`; `Terminal` exists
+  in the enum but is a state classifier on `Recording.TerminalStateValue`, not a
+  constructed edge). THIS is where forks, merges, and continuations live.
 - `StartUT` / `EndUT` - the recording's recorded time window. COMPUTED properties
   (from the trajectory points, with serialized `ExplicitStartUT` / `ExplicitEndUT`
   values that only EXTEND the point-derived bounds, never shrink them), not raw
@@ -60,8 +62,9 @@ On `Recording`:
 
 Terminology note: a "node" means a boundary point between two consecutive legs,
 including a path's Start and End points. It is NOT a recording. A "leg" is one
-recording (post-optimizer). "Subtree" means a bounded selection, not a
-graph-theory rooted subtree.
+recording (post-optimizer). "Subtree" / selection means a bounded selected
+sub-graph (forks may be followed, merges traversed per-path), not a graph-theory
+rooted subtree.
 
 ---
 
@@ -97,31 +100,38 @@ background; the spine continues on a new recording via layer 3) or at staging.
 
 ### 2. Mission tree (a branching structure)
 
-The recorded tree for one played mission, scoped by `TreeId`. It is genuinely a
-TREE, not a linear spine: a trunk that FORKS at controlled separations, with
-debris hanging off as parallel twigs. There are two kinds of edges, and
-`IsDebris` is the discriminator:
+The recorded structure for one played mission, scoped by `TreeId`. It is a
+DIRECTED GRAPH, not a linear spine and not even a strict tree: lines FORK at
+controlled separations and JOIN at docks/boards. The topology is
+`RecordingTree.BranchPoints` (typed parent->child edges; both `ParentRecordingIds`
+and `ChildRecordingIds` are lists). Edge roles, with `IsDebris` on the CHILD as
+the discriminator:
 
-- FORKS = controlled separations (`IsDebris=false` children), found by walking
-  `RecordingTree.BranchPoints` and taking children with `IsDebris=false`. Each
-  downstream is an alternative through-line.
-  These are real flights you flew (a probe, lander, capsule) and are
-  spine-eligible: a path can follow one.
-- TWIGS = debris (`IsDebris=true`). Spent boosters, jettisoned tanks. They
-  separate and tumble away while their parent flies on. They are NEVER
-  spine-eligible; they only ever ride along in parallel (like a rewind), rendered
-  alongside whichever leg they attached to. Twigs are not shown as rows in the
-  Missions UI.
+- FORKS (split) = controlled separations (Undock / EVA / JointBreak whose child is
+  `IsDebris=false`). Each downstream child is an alternative through-line, a real
+  flight you flew (probe, lander, capsule); a path can follow one.
+- MERGES (join) = Dock / Board: two parent lines converge into one child (the
+  branch point carries two `ParentRecordingIds`), and a merge can even join a line
+  from a DIFFERENT tree (docking to another mission's vessel). A mission PATH
+  traverses a merge by following its OWN incoming line into the child; the
+  co-parent belongs to its own line / Mission and is not pulled in.
+- TWIGS (parallel) = debris (`IsDebris=true` children: spent boosters, jettisoned
+  tanks). NEVER spine-eligible; they only ride along in parallel with whichever
+  leg they left, and are not shown as rows in the Missions UI.
 
-Example. Mothership stack (controller M) lifts off carrying a drop pod
-(controller D). At separation the tree forks: one fork continues as M, the other
-as D. Each fork is then a linear sequence of legs (D: separation -> transit ->
-land at base; M: separation -> deorbit -> recover). Debris shed by either rides
-along its parent.
+Within a single controlled run between branch points, the optimizer may env-split
+the recording into several consecutive legs; those are grouped by shared `ChainId`
+and ordered by `StartUT` (see layer 3).
+
+Example. Mothership stack (controller M) carries a drop pod (controller D). At
+separation the graph forks: one branch continues as M, the other as D (D:
+separation -> transit -> land; M: separation -> deorbit -> recover). If D later
+docks to station S that is a merge: D's path follows into the docked child, and S
+(its own mission) is not pulled in. Debris shed by either rides along its parent.
 
 ### 3. Main line (a spine, per path)
 
-A spine is a PATH through the branching tree from a Start node to an End node,
+A spine is a PATH through the branching graph from a Start node to an End node,
 choosing which fork to follow at each separation. It is not one fixed thing per
 tree; different selections trace different paths.
 
@@ -129,14 +139,21 @@ tree; different selections trace different paths.
 - Spine-eligible legs: `IsDebris == false` (forks included; the old
   `ParentAnchorRecordingId == null` / `ChainBranch == 0` exclusions only described
   topology and are dropped from eligibility).
-- Sequence order: by `StartUT` along a controlled line; FORK / merge / continuation
-  edges come from `RecordingTree.BranchPoints` (typed parent->child), NOT from
-  `ParentAnchorRecordingId`.
-- Order is NOT `ChainId`-based: `ChainId` resets at vessel switches
+- Reconstructing a line: follow `RecordingTree.BranchPoints` edges across forks /
+  merges / switches (these survive scene changes and vessel switches via
+  `VesselSwitchContinuation` and the like). Within one controlled run between
+  branch points, the optimizer's env-split legs are grouped by shared `ChainId`
+  and ordered by `StartUT`.
+- `ChainId` is NOT the whole-spine thread: it RESETS at vessel switches
   (`ChainSegmentManager.CommitVesselSwitchTermination`) and at scene exit/resume
-  (only `ActiveTreeId` is restored), so it cannot thread a multi-session,
-  multi-vessel through-line. `TreeId` is the stable scope; `StartUT` plus the fork
-  topology gives the order.
+  (only `ActiveTreeId` is restored), so it cannot identify a multi-session,
+  multi-vessel through-line. Its only role here is grouping the env-split legs of a
+  single run; `BranchPoints` carry the cross-run topology and `TreeId` is the
+  stable scope.
+- Some continuations have NO incoming edge: restore-completed post-switch
+  recordings can have `ParentBranchPointId == null` (a disconnected root in the
+  same tree), joinable only by `TreeId` + `StartUT`. The derivation must handle a
+  tree with multiple roots.
 - Contiguity is causal/chronological with UT gaps allowed (a switch-and-coast
   with no input leaves a real gap until first modification produces the next
   recording). A gap is not a break.
@@ -165,13 +182,17 @@ which branch(es) to include.
   before it is greyed, pre-start). The END edge is set by exclusion: excluding a
   leg drops that leg AND everything downstream of it (its sequence-successors and,
   if it is a fork leg, that whole branch). So unchecking a fork leg drops the
-  entire branch from the separation onward.
+  entire branch from the separation onward. At a merge, dropping this path's parent
+  drops the merged child from THIS path only; the co-parent's own Mission is
+  unaffected.
 - Forks may select MULTIPLE branches: including only one fork = a single-path
   mission; including both = the whole-mission subtree (both post-fork branches
   loop together).
-- tree : selection is 1 : many, and selections may OVERLAP (share the shared
-  trunk, or any legs). Overlap is fine: the engine already renders the same
-  recording concurrently on multiple clocks (`MaxOverlapGhostsPerRecording`).
+- tree : selection is 1 : many, and selections may OVERLAP (share the trunk or any
+  legs). Overlap is fine: the engine already supports many concurrent ghost
+  instances of one recording (the loop-overlap path, capped by
+  `MaxOverlapGhostsPerRecording`); rendering one recording on several Mission
+  clocks is that same capability.
 - A selection is defined by its boundary NODES (Start and End per path) plus the
   fork choices, NOT by a frozen list of leg ids. So when the optimizer re-splits
   or re-merges legs inside the interval on a later pass, the selection survives:
@@ -213,9 +234,11 @@ A first-draft window, opened from a "Missions" button in the main Parsek UI unde
 Recordings. It reuses `RecordingsTableUI`'s rendering primitives (caret
 expand/collapse, indentation, tree connectors, row layout); it does NOT reuse the
 recordings hierarchy (debris/crew/chain blocks), because it renders a different
-tree: the fork-tree of controlled legs (derived by walking
-`RecordingTree.BranchPoints` for fork / merge / continuation edges and `StartUT`
-for the linear runs between them, with debris children excluded).
+graph: the controlled-leg fork-tree (derived by walking `RecordingTree.BranchPoints`
+for fork / merge / continuation edges, grouping each run's env-split legs by
+`ChainId` and ordering by `StartUT`, with debris children excluded). At a merge the
+rendered path follows its own incoming line into the child; the co-parent (a
+docking target with its own Mission) is not expanded.
 
 Layout: a vertical indented outline. The one rule that keeps arbitrary missions
 representable without 2D layout pain:
@@ -268,7 +291,9 @@ concrete proof the abstraction is viable and the basis for later logistics.
   (typed parent->child edges), NOT `ParentAnchorRecordingId`. `IsDebris` on a
   branch point's child is the spine-eligibility discriminator: non-debris children
   are spine-eligible forks; debris children are parallel-only twigs.
-- Spine order is `TreeId` scope + `StartUT` + fork topology, not `ChainId`.
+- Line reconstruction: follow `RecordingTree.BranchPoints` across forks / merges /
+  switches, group a run's env-split legs by `ChainId`, order by `StartUT`. `ChainId`
+  does not thread the whole spine (it resets); `TreeId` is the stable scope.
 - A selection is a contiguous interval per path; uncheck = drop it and everything
   downstream.
 - Selections may overlap freely.
@@ -313,6 +338,10 @@ concrete proof the abstraction is viable and the basis for later logistics.
 5. Env-split leg rows. Should consecutive same-controlled-line legs that exist only
    because of optimizer env-splits be visually collapsed into one row (environmental
    sub-boundaries hidden), or shown individually? UI clarity only, not the data model.
+6. Merge / DAG handling. Dock / Board are two-parent merges (possibly across trees).
+   v1 rule: a path follows its own incoming line into the merged child and does not
+   pull in the co-parent. Open: how the multi-path (whole-mission) outline renders a
+   reconvergence, and whether a cross-tree dock target is ever surfaced.
 
 ---
 
