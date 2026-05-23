@@ -250,6 +250,97 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ParallelBranch_IsSeparateRun_NotLinkedIntoPrimary()
+        {
+            // ChainBranch>0 shares ChainId/ChainIndex with the primary but is a
+            // distinct ghost-only continuation run.
+            var tree = Tree("t1", new[]
+            {
+                Leg("a", "C", 0, 100, 200, chainBranch: 0),
+                Leg("b", "C", 1, 200, 300, chainBranch: 0),
+                Leg("p", "C", 0, 150, 250, chainBranch: 1, vessel: "P")
+            });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.Equal("b", s.LegsById["a"].SequenceNextId);
+            Assert.Null(s.LegsById["p"].SequenceNextId);
+            Assert.Null(s.LegsById["p"].SequencePrevId);
+            // Primary run head "a" and the parallel branch head "p" are both roots.
+            Assert.Equal(2, s.RootLegIds.Count);
+            Assert.Contains("a", s.RootLegIds);
+            Assert.Contains("p", s.RootLegIds);
+        }
+
+        [Fact]
+        public void Fork_ChildBranchContinuesAsItsOwnRun()
+        {
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("trunk", "C0", 0, 100, 200),
+                    Leg("a0", "CA", 0, 200, 300, vessel: "A"),
+                    Leg("a1", "CA", 1, 300, 400, vessel: "A"),
+                    Leg("b", "CB", 0, 200, 350, vessel: "B")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak,
+                        new[] { "trunk" }, new[] { "a0", "b" }, ut: 200)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            // Sorted by (StartUT, RecordingId): a0 and b both start at 200, so id order.
+            Assert.Equal(new[] { "a0", "b" }, s.LegsById["trunk"].BranchChildIds.ToArray());
+            Assert.Equal("a1", s.LegsById["a0"].SequenceNextId);
+            Assert.Equal("a0", s.LegsById["a1"].SequencePrevId);
+            Assert.Null(s.LegsById["a1"].SequenceNextId);
+            Assert.Equal(new[] { "trunk" }, s.RootLegIds.ToArray());
+        }
+
+        [Fact]
+        public void Output_IsDeterministic_RegardlessOfInsertionOrder()
+        {
+            var forward = Tree("t1",
+                new[]
+                {
+                    Leg("trunk", "C0", 0, 100, 200),
+                    Leg("a", "CA", 0, 200, 300, vessel: "A"),
+                    Leg("b", "CB", 0, 200, 350, vessel: "B"),
+                    Leg("c", "CC", 0, 200, 360, vessel: "C")
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak,
+                        new[] { "trunk" }, new[] { "a", "b", "c" }, ut: 200)
+                });
+            var reverse = Tree("t1",
+                new[]
+                {
+                    Leg("c", "CC", 0, 200, 360, vessel: "C"),
+                    Leg("b", "CB", 0, 200, 350, vessel: "B"),
+                    Leg("a", "CA", 0, 200, 300, vessel: "A"),
+                    Leg("trunk", "C0", 0, 100, 200)
+                },
+                new[]
+                {
+                    BP("bp1", BranchPointType.JointBreak,
+                        new[] { "trunk" }, new[] { "c", "b", "a" }, ut: 200)
+                });
+
+            var sf = MissionStructureBuilder.Build(forward);
+            var sr = MissionStructureBuilder.Build(reverse);
+
+            Assert.Equal(sf.RootLegIds.ToArray(), sr.RootLegIds.ToArray());
+            Assert.Equal(
+                sf.LegsById["trunk"].BranchChildIds.ToArray(),
+                sr.LegsById["trunk"].BranchChildIds.ToArray());
+            // Documented (StartUT, RecordingId) order; all three children start at 200.
+            Assert.Equal(new[] { "a", "b", "c" }, sf.LegsById["trunk"].BranchChildIds.ToArray());
+        }
+
+        [Fact]
         public void EmptyOrNullTree_ReturnsEmptyStructure()
         {
             var sNull = MissionStructureBuilder.Build(null);

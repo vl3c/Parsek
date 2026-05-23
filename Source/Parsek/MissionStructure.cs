@@ -122,6 +122,14 @@ namespace Parsek
                 }
             }
 
+            // Deterministic output ordering.
+            SortLegIds(structure.RootLegIds, structure);
+            foreach (var leg in structure.LegsById.Values)
+            {
+                SortLegIds(leg.BranchChildIds, structure);
+                SortLegIds(leg.BranchParentIds, structure);
+            }
+
             ParsekLog.Verbose("Mission",
                 $"BuildMissionStructure: tree={structure.TreeId ?? "<null>"} " +
                 $"legs={structure.LegsById.Count} debrisExcluded={debrisExcluded} " +
@@ -167,12 +175,40 @@ namespace Parsek
 
         private static int CompareLegSequence(MissionLeg a, MissionLeg b)
         {
-            if (a.ChainIndex >= 0 && b.ChainIndex >= 0 && a.ChainIndex != b.ChainIndex)
-                return a.ChainIndex.CompareTo(b.ChainIndex);
-            int cmp = a.StartUT.CompareTo(b.StartUT);
+            // Single transitive key: (ChainIndex, StartUT, RecordingId). An unset
+            // ChainIndex (-1) sorts after valid ones. Mixing index- and UT-based
+            // comparisons in one comparer can violate transitivity and make
+            // List.Sort throw, so this collapses to one lexicographic key.
+            int ai = a.ChainIndex >= 0 ? a.ChainIndex : int.MaxValue;
+            int bi = b.ChainIndex >= 0 ? b.ChainIndex : int.MaxValue;
+            int cmp = ai.CompareTo(bi);
+            if (cmp != 0)
+                return cmp;
+            cmp = a.StartUT.CompareTo(b.StartUT);
             if (cmp != 0)
                 return cmp;
             return string.CompareOrdinal(a.RecordingId, b.RecordingId);
+        }
+
+        // Stable ordering for output collections whose build order follows
+        // non-deterministic Dictionary / BranchPoint enumeration. Orders by
+        // StartUT then RecordingId so the UI outline and positional assertions
+        // are reproducible across loads.
+        private static void SortLegIds(List<string> ids, MissionStructure structure)
+        {
+            if (ids.Count < 2)
+                return;
+            ids.Sort((x, y) =>
+            {
+                structure.LegsById.TryGetValue(x, out MissionLeg lx);
+                structure.LegsById.TryGetValue(y, out MissionLeg ly);
+                double sx = lx != null ? lx.StartUT : 0.0;
+                double sy = ly != null ? ly.StartUT : 0.0;
+                int cmp = sx.CompareTo(sy);
+                if (cmp != 0)
+                    return cmp;
+                return string.CompareOrdinal(x, y);
+            });
         }
 
         private static int BuildBranchLinks(RecordingTree tree, MissionStructure structure)
