@@ -2619,6 +2619,7 @@ namespace Parsek
                 MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
                 MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
                 MissionStore.ReconcileSelections(RecordingStore.CommittedTrees);
+                MissionStore.NormalizeSingleLoop();
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved

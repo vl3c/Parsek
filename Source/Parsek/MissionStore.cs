@@ -158,6 +158,37 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// Enforces the single-loop invariant after load. SetLoopEnabled keeps at most one
+        /// Mission looping during normal use, but a hand-edited save could carry several
+        /// with LoopPlayback on. Keeps the first in list order and clears the rest, so the
+        /// adapter's "first looping mission wins" never silently hides extra enabled loops.
+        /// Returns the number cleared.
+        /// </summary>
+        internal static int NormalizeSingleLoop()
+        {
+            bool keptOne = false;
+            int cleared = 0;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null || !m.LoopPlayback)
+                    continue;
+                if (!keptOne)
+                {
+                    keptOne = true;
+                    continue;
+                }
+                m.LoopPlayback = false;
+                cleared++;
+            }
+            if (cleared > 0 && !SuppressLogging)
+                ParsekLog.Warn("Mission",
+                    $"NormalizeSingleLoop: cleared {cleared} extra looping mission(s) " +
+                    "(only one Mission may loop at a time; kept the first)");
+            return cleared;
+        }
+
         internal static Mission Clone(Mission source)
         {
             if (source == null)

@@ -18402,6 +18402,21 @@ namespace Parsek
                 for (int e = 0; e < excluded.Count; e++)
                     sb.Append(excluded[e] ?? "").Append(',');
                 sb.Append('|');
+                // Tree topology: a mid-session merge / re-parent can change the unit's
+                // members or span without adding/renaming any committed RecordingId, so the
+                // committed hash below would not move. Fold the looping tree's branch +
+                // recording counts in so a topology change still forces a rebuild.
+                RecordingTree loopTree = null;
+                var committedTrees = RecordingStore.CommittedTrees;
+                if (committedTrees != null && !string.IsNullOrEmpty(looping.TreeId))
+                    for (int t = 0; t < committedTrees.Count; t++)
+                        if (committedTrees[t] != null && committedTrees[t].Id == looping.TreeId)
+                        {
+                            loopTree = committedTrees[t];
+                            break;
+                        }
+                sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
+                sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('|');
             }
 
             // Committed-list identity: count + a rolling hash of RecordingIds (member indices are

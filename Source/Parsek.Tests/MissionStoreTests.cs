@@ -193,6 +193,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NormalizeSingleLoop_ClearsExtraLoopingMissions_KeepsFirst()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
+            Mission a = First();
+            Mission b = MissionStore.Clone(a);
+            Mission c = MissionStore.Clone(a);
+            // Simulate a hand-edited save where several missions loop at once.
+            a.LoopPlayback = true;
+            b.LoopPlayback = true;
+            c.LoopPlayback = true;
+
+            int cleared = MissionStore.NormalizeSingleLoop();
+
+            Assert.Equal(2, cleared);
+            Assert.True(a.LoopPlayback);   // first in list order is kept
+            Assert.False(b.LoopPlayback);
+            Assert.False(c.LoopPlayback);
+
+            // Idempotent: a second pass clears nothing.
+            Assert.Equal(0, MissionStore.NormalizeSingleLoop());
+        }
+
+        [Fact]
         public void ReconcileSelections_RemovesBogusHead_AndWarns_KeepsValidHead()
         {
             // Capture log output to assert on the warn.
