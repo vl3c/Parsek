@@ -1209,7 +1209,7 @@ namespace Parsek
         /// and BackgroundMap, initializes tracking state, and sets TTL for debris children.
         ///
         /// Per plan §3b §"Primary creation sites — invocation and ordering" (PR 3b),
-        /// `IsDebris` and the v13 <see cref="Recording.ParentAnchorRecordingId"/> contract
+        /// `IsDebris` and the <see cref="Recording.ParentAnchorRecordingId"/> contract
         /// are set on the Recording BEFORE <see cref="RecordingTree.AddOrReplaceRecording"/>
         /// and BEFORE <see cref="OnVesselBackgrounded"/>. The seed-point orchestration in
         /// <see cref="InitializeLoadedState"/> reads these fields to decide whether to open
@@ -1357,7 +1357,7 @@ namespace Parsek
                     IsDebris = !newVesselInfos[i].hasController,
                     Generation = parentGeneration + 1
                 };
-                // PR 3b: stamp the v13 debris parent-anchor contract on the new
+                // PR 3b: stamp the debris parent-anchor contract on the new
                 // child Recording adjacent to the IsDebris assignment. String
                 // overload because this static factory is invoked with the
                 // parent recording id.
@@ -1444,7 +1444,7 @@ namespace Parsek
                     continue;
                 }
 
-                // PR 3b §"Parent on-rails hook" (Decision §10): for v13 debris
+                // PR 3b §"Parent on-rails hook" (Decision §10): for debris
                 // carrying the parent-anchor contract, end the debris recording when
                 // the parent's recorded data is gone or the parent vessel is no
                 // longer live. Three end-conditions, one for each failure mode.
@@ -1486,7 +1486,7 @@ namespace Parsek
                 // can validate the truth table. Do NOT regress to
                 // parentRec.ExplicitEndUT < currentUT — active background recordings
                 // update ExplicitEndUT only at sample boundaries, so that signal
-                // lags by the sample interval and would end every v13 debris on
+                // lags by the sample interval and would end every parent-anchored debris on
                 // the next TTL tick.
                 if (DebrisParentStateGate.IsParentRecordingClosedOrSuperseded(parentRec, tree))
                 {
@@ -1704,8 +1704,8 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure gate predicate for the body-fixed-shadow clearance path
-        /// (v13 follow-up). Mirrors
+        /// Pure gate predicate for the body-fixed-shadow clearance path.
+        /// Mirrors
         /// <see cref="ShouldEmitBackgroundSurfaceClearance"/> but forces
         /// <see cref="ReferenceFrame.Absolute"/> -- the shadow carries
         /// genuine body-fixed lat/lon/alt regardless of the active
@@ -1725,12 +1725,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// Apply v9 surface clearance to the body-fixed shadow
         /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
         /// alongside a RELATIVE section. The in-frames <c>point</c> stays
         /// NaN-clearance because anchor-local metre offsets in
         /// <c>lat/lon/alt</c> are not body-fixed coordinates -- but the shadow
-        /// carries genuine body-fixed lat/lon/alt and the v13 body-fixed
+        /// carries genuine body-fixed lat/lon/alt and the body-fixed
         /// primary playback path applies terrain correction via
         /// <c>recordedGroundClearance</c>. Without this helper, parent-
         /// anchored surface debris recorded inside a parent-relative section
@@ -2187,10 +2187,10 @@ namespace Parsek
             // Non-surface / RELATIVE-frame / missing-PQS keep NaN, the
             // sentinel for the legacy altitude path.
             ApplySurfaceClearanceToPoint(state, bgVessel, ref point);
-            // v13 follow-up: when the active section is RELATIVE, also apply
+            // When the active section is RELATIVE, also apply
             // surface clearance to the body-fixed shadow that gets persisted
             // in bodyFixedFrames. The shadow carries body-fixed lat/lon/alt
-            // and the v13 body-fixed-primary playback path needs
+            // and the body-fixed-primary playback path needs
             // recordedGroundClearance for v9 terrain correction; without
             // this, parent-anchored surface debris replays at raw recorded
             // altitude.
@@ -4894,7 +4894,7 @@ namespace Parsek
 
             // When the recording carries the debris parent-anchor contract,
             // bypass the generic candidate-list / nearest-search entirely and
-            // pin the anchor to the parent recording. v13 still decides
+            // pin the anchor to the parent recording. The recorder still decides
             // Absolute-vs-Relative sections by parent proximity; the parent id is
             // ownership, not a generic live-anchor candidate.
             if (!string.IsNullOrEmpty(treeRec.ParentAnchorRecordingId))
@@ -5259,7 +5259,7 @@ namespace Parsek
         /// <summary>
         /// PR 3b (Decision §5 + plan §3b §"Per-frame anchor write" / §"Structural-event
         /// seam"): pins <paramref name="state"/>'s anchor to the parent recording id
-        /// carried by the v13 <see cref="Recording.ParentAnchorRecordingId"/> contract.
+        /// carried by the <see cref="Recording.ParentAnchorRecordingId"/> contract.
         /// Skips the candidate-list / nearest-search and lets
         /// <see cref="ApplyBackgroundCurrentAnchorToTrackSection"/> propagate the anchor
         /// id into <see cref="TrackSection.anchorRecordingId"/>. Builds a Live anchor
@@ -5319,7 +5319,7 @@ namespace Parsek
                 // v.latitude/longitude/altitude derived from vesselTransform via
                 // KSP's UpdatePosVel). Mixing CoM position with vesselTransform
                 // rotation was the v0.9 radial-booster ~10 m forward offset bug
-                // -- body-fixed primary masks the inconsistency for normal v13
+                // -- body-fixed primary masks the inconsistency for normal
                 // rendering, but the live candidate also leaks into diagnostics,
                 // fallback paths, and future anchor-based render logic. Falls
                 // back to CoM when transform is null (mid-teardown fake-null).
@@ -5454,7 +5454,7 @@ namespace Parsek
 
             // PR 3b §"Structural-event seam": the structural-event snapshot path
             // bypasses UpdateBackgroundAnchorDetection, so the debris contract must
-            // be enforced here too. For v13 debris, pin state to the parent
+            // be enforced here too. For parent-anchored debris, pin state to the parent
             // recording id before any pose resolution. Re-runs of the periodic path
             // hit the same helper but it's idempotent when the contract is already
             // applied (anchorChanged=false → no log spam, no section flip).
@@ -5549,7 +5549,7 @@ namespace Parsek
             // relativePoint goes into a Relative section so the helper's
             // frame gate correctly skips it (anchor-local metres in
             // lat/lon/alt would corrupt terrain math), but the body-fixed
-            // shadow carries genuine lat/lon/alt and the v13 body-fixed
+            // shadow carries genuine lat/lon/alt and the body-fixed
             // primary playback path applies terrain correction via
             // recordedGroundClearance. Mirrors the periodic-sample,
             // structural-event, and debris-seed wirings.
@@ -6179,7 +6179,7 @@ namespace Parsek
             return distanceMeters <= threshold;
         }
 
-        // For v13 debris recordings whose parent recording id is known, cap the
+        // For parent-anchored debris recordings whose parent recording id is known, cap the
         // proximity-derived sample interval (the adaptive sampler's MIN floor)
         // at MidInterval (0.5 s) regardless of distance from the focused vessel.
         // Without this cap, radial debris that flies past 1000 m of its parent
@@ -7921,7 +7921,7 @@ namespace Parsek
                 TrajectoryPoint absolutePoint = point;
                 bool relativeApplied = ApplyBackgroundRelativeOffset(state, ref point, v, eventUT);
                 ApplySurfaceClearanceToPoint(state, v, ref point);
-                // v13 follow-up: body-fixed shadow gets clearance too when
+                // Body-fixed shadow gets clearance too when
                 // the active section is RELATIVE (see helper docstring).
                 if (relativeApplied)
                 {

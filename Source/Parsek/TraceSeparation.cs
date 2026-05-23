@@ -194,7 +194,7 @@ namespace Parsek
         /// <summary>
         /// Pure helper: returns the magnitude of the anchor-local offset vector
         /// at <paramref name="playbackUT"/> linearly interpolated between the
-        /// bracketing entries of <paramref name="frames"/>. In v13 Relative
+        /// bracketing entries of <paramref name="frames"/>. In Relative
         /// debris sections, <c>frames[i].latitude/longitude/altitude</c> are
         /// anchor-local Cartesian metres (NOT body-fixed lat/lon/alt), so the
         /// magnitude of the lerped vector is the parent-vs-debris distance the

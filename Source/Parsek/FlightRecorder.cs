@@ -8748,12 +8748,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// Apply v9 surface clearance to the body-fixed shadow
         /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
         /// alongside a RELATIVE section. The in-frames primary <c>point</c>
         /// stays NaN-clearance because anchor-local metres-in-lat/lon/alt are
         /// not body-fixed coordinates, but the shadow carries genuine
-        /// body-fixed lat/lon/alt and v13 playback applies terrain correction
+        /// body-fixed lat/lon/alt and playback applies terrain correction
         /// via <c>recordedGroundClearance</c>. Without this, parent-anchored
         /// surface debris recorded inside a parent-relative section would
         /// replay at raw recorded altitude and bury / pop on terrain.
@@ -8844,9 +8844,9 @@ namespace Parsek
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && bodyFixedPrimaryPoint.HasValue)
                 {
-                    // v13 follow-up: apply surface clearance to the body-fixed
+                    // Apply surface clearance to the body-fixed
                     // shadow before appending it to bodyFixedFrames. The shadow
-                    // carries body-fixed lat/lon/alt that v13 playback applies
+                    // carries body-fixed lat/lon/alt that playback applies
                     // terrain correction against.
                     TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
                     ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);

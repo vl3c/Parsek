@@ -214,7 +214,7 @@ namespace Parsek
                 return false;
 
             // Debris recordings are not eligible as anchor candidates for OTHER
-            // recordings. v13 records a debris-owned body-fixed primary surface
+            // recordings. The parent-anchor contract records a debris-owned body-fixed primary surface
             // and a proximity-limited parent-relative secondary surface, but the
             // debris lifetime is still owned by its parent recording and may end
             // when that parent is closed/superseded. Any non-debris recording
