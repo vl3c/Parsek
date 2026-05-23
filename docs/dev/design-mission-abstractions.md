@@ -67,48 +67,40 @@ subtree (see layer 5).
 
 ### 1. Recording (the atom)
 
-A bounded recording is the atom. Every higher structure is composed of WHOLE
-recordings. Boundaries always fall between recordings, never mid-recording.
+A bounded recording is the atom. Crucially, "recording" throughout this document
+means the recording AS IT EXISTS AFTER the optimizer has run: exactly what the
+Recordings window shows once the optimization pass completes. The abstraction
+never operates on the recorder's raw in-flight buffer; it operates on the final,
+optimized recording set. Every higher structure is composed of WHOLE
+(post-optimizer) recordings, and boundaries always fall between recordings, never
+mid-recording.
 
-Recording boundaries are created by two different layers:
+Atom boundaries in the final set come from two sources, but the distinction is
+only PROVENANCE: by the time the abstraction reads the recordings, both have
+already been applied, so the hierarchy never needs to care which produced a given
+boundary.
 
-Recorder-side, at discrete gameplay events (each commits the current recording
-and starts a new one):
+- Recorder-side commits at discrete gameplay events: launch, dock
+  (`OnPartCouple`), undock (`OnVesselsUndocking`), EVA / board (ChainToVessel),
+  scene exit / recovery (`FinalizeTreeOnSceneChange`).
+- Optimizer-side splits at environment / body transitions (atmosphere / altitude
+  / SOI crossings). In always-tree mode the recorder SUPPRESSES the in-flight
+  split (`ShouldSuppressBoundarySplit`); the split into separate recordings is
+  applied afterwards by `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` (on
+  commit, merge, and load), over a FILTERED subset of transitions (surface
+  grazes, brief bracketed runs under 120s, cohesive cross-body coasts, and
+  boundary seams are suppressed).
 
-- launch (start of the first recording)
-- dock (`OnPartCouple` -> `StopRecordingForChainBoundary`)
-- undock (`OnVesselsUndocking` -> `StopRecordingForChainBoundary`, plus a
-  continuation recording)
-- EVA / board (ChainToVessel)
-- scene exit / recovery (`FinalizeTreeOnSceneChange`)
+Boundaries do NOT exist in the final set at a general vessel switch (the prior
+vessel drops to background; the spine continues on a new recording via layer 2)
+or at staging / part-composition change (the recording continues, logging part
+events).
 
-Optimizer-side, post-commit, splitting one recording at environment / body
-transitions:
-
-- atmosphere / altitude / SOI (body) crossings. In always-tree mode the recorder
-  SUPPRESSES the in-flight boundary split (`ShouldSuppressBoundarySplit` returns
-  true whenever a tree is active, which is always during recording), so the data
-  keeps accumulating into one recording. The split into separate recordings is
-  applied afterwards by `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` during
-  the optimization pass (on commit, merge, and load). The optimizer splits only
-  a FILTERED subset of env/body transitions (it suppresses surface grazes, brief
-  bracketed runs under 120s, cohesive cross-body coasts, and boundary seams), so
-  not every environmental crossing yields a recording boundary.
-
-Boundaries are NOT created at:
-
-- a general vessel switch (the prior vessel drops to background recording; the
-  spine continues on a new recording via the mechanism in layer 2, not via a
-  boundary commit here)
-- staging / part-composition change (the recording continues and logs part
-  events)
-
-Consequence: discrete gameplay waypoints that go through dock / undock / EVA /
-scene exit are guaranteed to land on a recording boundary, and major
-environmental transitions reliably become boundaries via the optimizer. If a
-future waypoint is a discrete event that is NONE of these, making it a cut point
-is recorder-side work (a `StopRecordingForChainBoundary`-style commit on the
-event), not an optimizer change.
+Consequence: discrete waypoints through dock / undock / EVA / scene exit, and
+major environmental transitions, are all guaranteed to appear as atom boundaries
+in the final set. If a future discrete waypoint is NONE of these, making it an
+atom boundary is recorder-side work (a `StopRecordingForChainBoundary`-style
+commit on the event), not an optimizer change.
 
 ### 2. Main line (the spine)
 
