@@ -18353,7 +18353,8 @@ namespace Parsek
         // the same committed signature, so toggling looping off still rebuilds to Empty exactly once.
         private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
         {
-            string signature = BuildLoopUnitSignature(committed);
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
@@ -18363,74 +18364,6 @@ namespace Parsek
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
             }
             engine.SetLoopUnits(cachedLoopUnits);
-        }
-
-        // Cheap signature over the inputs that shape the Mission LoopUnitSet. Mirrors
-        // MissionLoopUnitBuilder's "first looping mission wins" rule for the mission part.
-        private static string BuildLoopUnitSignature(IReadOnlyList<Recording> committed)
-        {
-            var ic = CultureInfo.InvariantCulture;
-            var sb = new System.Text.StringBuilder(128);
-
-            Mission looping = null;
-            IReadOnlyList<Mission> missions = MissionStore.Missions;
-            if (missions != null)
-            {
-                for (int m = 0; m < missions.Count; m++)
-                {
-                    if (missions[m] != null && missions[m].LoopPlayback)
-                    {
-                        looping = missions[m];
-                        break;
-                    }
-                }
-            }
-
-            if (looping == null)
-            {
-                sb.Append("none:");
-            }
-            else
-            {
-                sb.Append(looping.Id ?? "<noid>").Append('|');
-                sb.Append(looping.TreeId ?? "<notree>").Append('|');
-                sb.Append(looping.LoopIntervalSeconds.ToString("R", ic)).Append('|');
-                sb.Append(looping.LoopTimeUnit.ToString()).Append('|');
-                // Sorted + joined so set order never perturbs the signature.
-                var excluded = new List<string>(looping.ExcludedThroughLineHeadIds);
-                excluded.Sort(StringComparer.Ordinal);
-                for (int e = 0; e < excluded.Count; e++)
-                    sb.Append(excluded[e] ?? "").Append(',');
-                sb.Append('|');
-                // Tree topology: a mid-session merge / re-parent can change the unit's
-                // members or span without adding/renaming any committed RecordingId, so the
-                // committed hash below would not move. Fold the looping tree's branch +
-                // recording counts in so a topology change still forces a rebuild.
-                RecordingTree loopTree = null;
-                var committedTrees = RecordingStore.CommittedTrees;
-                if (committedTrees != null && !string.IsNullOrEmpty(looping.TreeId))
-                    for (int t = 0; t < committedTrees.Count; t++)
-                        if (committedTrees[t] != null && committedTrees[t].Id == looping.TreeId)
-                        {
-                            loopTree = committedTrees[t];
-                            break;
-                        }
-                sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
-                sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('|');
-            }
-
-            // Committed-list identity: count + a rolling hash of RecordingIds (member indices are
-            // committed-list indices, so any add/remove/reorder must invalidate the cached set).
-            int count = committed?.Count ?? 0;
-            sb.Append(count.ToString(ic)).Append('|');
-            int rollingHash = 17;
-            for (int i = 0; i < count; i++)
-            {
-                string id = committed[i]?.RecordingId ?? "";
-                unchecked { rollingHash = rollingHash * 31 + StringComparer.Ordinal.GetHashCode(id); }
-            }
-            sb.Append(rollingHash.ToString(ic));
-            return sb.ToString();
         }
 
         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)

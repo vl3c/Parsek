@@ -46,6 +46,24 @@ namespace Parsek
             autoLoopLaunchSchedules = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>();
         private readonly List<AutoLoopQueueCandidate> autoLoopQueueScratch = new List<AutoLoopQueueCandidate>();
 
+        // Mission loop-unit descriptors for THIS frame, shared with the flight engine (Phase E).
+        // Built from the SAME MissionLoopUnitBuilder.Build the flight engine consumes, so a looped
+        // Mission replays as one unit in the tracking station identically to flight. Empty
+        // (LoopUnitSet.Empty) means no Mission loops, which keeps the feature dormant. Rebuilt only
+        // when the cheap signature changes (cachedLoopUnits + lastLoopUnitSignature), then assigned
+        // to currentLoopUnits every frame so the per-recording loop just reads the cached set.
+        private GhostPlaybackLogic.LoopUnitSet currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+        private string lastLoopUnitSignature;
+
+        // Last (cycleIndex, liveMemberIdx) the shared mission clock resolved for each unit owner.
+        // Purely for the per-unit cycle-wrap / camera-handoff diagnostic log (mirrors the engine's
+        // lastUnitSelection; KSC has no watch camera so it tracks no watched-render state).
+        // liveMemberIdx = the in-window member with the highest StartUT; -1 = nothing live. Keyed by
+        // owner index; self-heals each frame since only members write it.
+        private readonly Dictionary<int, (long cycle, int liveMemberIdx)> lastUnitSelection
+            = new Dictionary<int, (long, int)>();
+
         // KSC spawn dedup: tracks recording IDs that have had spawn attempted (bug #99)
         private HashSet<string> kscSpawnAttempted = new HashSet<string>();
         private HashSet<string> loggedPlaybackDisabledPastEndSpawnAttempts = new HashSet<string>();
@@ -340,6 +358,15 @@ namespace Parsek
             float warpRate = TimeWarp.CurrentRate;
             bool suppressGhosts = GhostPlaybackLogic.ShouldSuppressGhosts(warpRate);
             bool suppressVisualFx = GhostPlaybackLogic.ShouldSuppressVisualFx(warpRate);
+
+            // === Mission loop-unit drive (Phase E — KSC parity) ===
+            // Recompute the LoopUnitSet only when its inputs change (cheap signature gates the
+            // allocating, Verbose-logging MissionLoopUnitBuilder.Build), then assign the cached set
+            // to currentLoopUnits every frame. KSC builds from the SAME (committed, missions, trees)
+            // the flight engine consumes, so member indices align with this Update()'s committed
+            // index and a looped Mission renders identically in the tracking station and in flight.
+            DriveMissionLoopUnits(committed);
+
             RebuildAutoLoopLaunchScheduleCache(committed);
 
             if (suppressGhosts)
@@ -405,6 +432,22 @@ namespace Parsek
                             loggedPlaybackDisabledPastEndSpawnAttempts);
                         TrySpawnAtRecordingEnd(i, rec);
                     }
+                    continue;
+                }
+
+                // === Mission loop-unit follower interception (Phase E parity) ===
+                // HOISTED above the per-recording LoopPlayback gate (mirrors Phase D in flight):
+                // Mission members do NOT carry their own LoopPlayback flag, so the interception must
+                // run regardless of rec.LoopPlayback. If this index is a member of a Mission loop
+                // unit, it is driven by the unit's SHARED span clock (the SAME LoopUnitSet the flight
+                // engine consumes), NOT its own per-recording loop clock. Route it through
+                // UpdateUnitMemberKsc and skip the standalone overlap / single / non-looping dispatch
+                // below. Dormant until a Mission loops (currentLoopUnits Empty), so non-members fall
+                // straight through with no behavior change.
+                if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                {
+                    UpdateUnitMemberKsc(
+                        i, rec, currentUT, unit, committed, warpRate, suppressGhosts, suppressVisualFx);
                     continue;
                 }
 
@@ -569,6 +612,11 @@ namespace Parsek
             if (recordings == null || recordings.Count == 0)
                 return;
 
+            // Normalize a null snapshot to Empty (mirrors GhostPlaybackEngine.SetLoopUnits). The
+            // field is initialized to Empty and set each Update() before this runs, but a direct
+            // test invocation can leave it unset; treat that as "no units" rather than throwing.
+            var loopUnits = currentLoopUnits ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+
             double globalInterval = ParsekSettings.Current?.autoLoopIntervalSeconds
                                     ?? LoopTiming.DefaultLoopIntervalSeconds;
             for (int i = 0; i < recordings.Count; i++)
@@ -576,6 +624,22 @@ namespace Parsek
                 Recording recording = recordings[i];
                 if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(recording))
                     continue;
+
+                // Mission loop-unit members are scheduled by their unit's span clock, not the flat
+                // global stagger. Exclude them by unit membership (independent of LoopPlayback),
+                // mirroring the flight engine's single global-queue exclusion point;
+                // UpdateUnitMemberKsc takes over their playback. Dormant when no Mission loops.
+                if (loopUnits.OwnerByIndex.TryGetValue(i, out int unitOwner))
+                {
+                    ParsekLog.VerboseOnChange(
+                        "Loop",
+                        "ksc-mission-loop-exclude-" + i.ToString(CultureInfo.InvariantCulture),
+                        unitOwner.ToString(CultureInfo.InvariantCulture),
+                        "Mission-loop member recIdx=" + i.ToString(CultureInfo.InvariantCulture)
+                            + " excluded from KSC global auto queue (unit owner="
+                            + unitOwner.ToString(CultureInfo.InvariantCulture) + ")");
+                    continue;
+                }
 
                 autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
                     i,
@@ -931,6 +995,229 @@ namespace Parsek
                 // but recording is past its end — still need to spawn the vessel (bug #99)
                 TrySpawnAtRecordingEnd(recIdx, rec);
             }
+        }
+
+        /// <summary>
+        /// Recompute the Mission LoopUnitSet only when its inputs change, then assign the cached set
+        /// to <see cref="currentLoopUnits"/> every frame (member-index alignment is the contract:
+        /// the same committed list is passed to <see cref="MissionLoopUnitBuilder.BuildSignature"/>
+        /// and <see cref="MissionLoopUnitBuilder.Build"/> that the per-recording loop iterates).
+        /// Mirrors <c>ParsekFlight.DriveMissionLoopUnits</c> (KSC has no engine, so it owns the
+        /// cached set itself). Build (and its Verbose log) only fires on an actual input change.
+        /// </summary>
+        private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
+        {
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+            if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
+            {
+                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+                lastLoopUnitSignature = signature;
+                ParsekLog.Verbose("Mission",
+                    $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+            }
+            currentLoopUnits = cachedLoopUnits;
+        }
+
+        /// <summary>
+        /// Loop unit follower dispatch for the tracking station. Mirrors the flight engine's
+        /// <c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c>: it routes a unit member onto the
+        /// unit's SHARED mission clock (the SAME <see cref="GhostPlaybackLogic.LoopUnit"/> the flight
+        /// engine consumes, via the shared adapter <c>MissionLoopUnitBuilder.Build</c>) instead of
+        /// the member's own per-recording loop clock, so a looped Mission replays as one unit in KSC
+        /// identically to flight.
+        ///
+        /// There is NO cross-member selection: each member renders independently iff the shared
+        /// spanLoopUT is in THIS member's own [StartUT, EndUT] (so debris render concurrently with
+        /// their parent, exactly like a rewind), via the pure
+        /// <see cref="GhostPlaybackLogic.DecideUnitMemberRender"/>. It renders THIS member at the
+        /// span loopUT through the normal single-ghost path (<see cref="UpdateSingleGhostKsc"/> with
+        /// inRange=true) or destroys its ghost directly. Hidden members are torn down directly here
+        /// rather than routed through <see cref="UpdateSingleGhostKsc"/> with inRange=false, because
+        /// that path fires the timeline-complete <c>TrySpawnAtRecordingEnd</c> - a looping Mission
+        /// spawns nothing. During the inter-cycle tail-wait (cadence greater than span) every member
+        /// hides.
+        /// </summary>
+        void UpdateUnitMemberKsc(
+            int i, Recording rec, double currentUT, GhostPlaybackLogic.LoopUnit unit,
+            IReadOnlyList<Recording> committed, float warpRate,
+            bool suppressGhosts, bool suppressVisualFx)
+        {
+            string unitKey = "ksc-unit-" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture);
+
+            // Shared mission clock + THIS member's own-window check, via the pure (xUnit-tested)
+            // decision helper. No cross-member selection: the decision keys ONLY on whether the
+            // shared spanLoopUT is in THIS member's [StartUT, EndUT].
+            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                rec.StartUT, rec.EndUT, out double spanLoopUT, out long unitCycle,
+                out bool isInInterCycleTail);
+
+            // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
+            // the unit-wide transition and logs it once (rate-limited per unit owner).
+            LogUnitTransitionKscIfChanged(
+                unit, unitKey, committed, spanLoopUT, unitCycle, currentUT, isInInterCycleTail);
+
+            // Not in THIS member's window, in the inter-cycle tail-wait, or the span clock could not
+            // resolve: tear down THIS member's ghost for the frame, directly.
+            if (decision != GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+            {
+                if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail)
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "KSCGhost", unitKey + "-tail",
+                        "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " in inter-cycle wait at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " - all members hidden",
+                        5.0);
+                }
+                else if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
+                {
+                    // The span clock could not resolve a phase (currentUT before spanStart, or a
+                    // degenerate span). Explicit diagnostic so a tracking-station-only "unit not
+                    // showing yet" is answerable from the log rather than a silent destroy.
+                    ParsekLog.VerboseRateLimited(
+                        "KSCGhost", unitKey + "-span-unresolved",
+                        "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " hidden: span clock unresolved at currentUT="
+                            + currentUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " (span=" + unit.SpanStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + ".." + unit.SpanEndUT.ToString("F2", CultureInfo.InvariantCulture) + ")",
+                        5.0);
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "KSCGhost", unitKey + "-hide-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " hidden: loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " outside its window [" + rec.StartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + "," + rec.EndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
+                        5.0);
+                }
+                DestroyUnitMemberKscGhostIfActive(i, rec);
+                return;
+            }
+
+            // Payload-activation gate (mirrors the engine's Fix 1): the member window uses raw
+            // StartUT/EndUT, but the render path positions against the playable payload, which can
+            // begin AFTER StartUT when ExplicitStartUT widened the boundary. Hide a member whose
+            // spanLoopUT sits below its own payload start rather than render a stale pre-payload pose.
+            // Contiguous members (StartUT == activation) are unaffected.
+            double memberActivationStartUT = GhostPlaybackEngine.ResolveGhostActivationStartUT(rec);
+            if (spanLoopUT < memberActivationStartUT)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "KSCGhost", unitKey + "-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " hidden: spanLoopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " below member activation UT=" + memberActivationStartUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+                DestroyUnitMemberKscGhostIfActive(i, rec);
+                return;
+            }
+
+            // The shared clock never produces overlap cycles (one cycle live), so a unit member never
+            // carries overlap ghosts. Clear any stale ones left from a prior standalone overlap-loop
+            // life (e.g. the member was just toggled into the unit), mirroring the flight path.
+            DestroyAllKscOverlapGhosts(i);
+
+            // This member renders: render it at the span loopUT through the normal single-ghost path.
+            // inRange=true / inPauseWindow=false drives the in-range render branch, which owns the
+            // per-cycle ghost rebuild on loopCycleIndex change (clean per-cycle visual).
+            UpdateSingleGhostKsc(i, rec, currentUT, spanLoopUT, unitCycle,
+                inRange: true, inPauseWindow: false, warpRate, suppressGhosts, suppressVisualFx);
+        }
+
+        /// <summary>
+        /// Destroys a unit member's primary KSC ghost (and any stale overlap ghosts) when it is the
+        /// hidden / pre-activation member for the frame. Direct teardown, NOT the
+        /// <see cref="UpdateSingleGhostKsc"/> exit-range path, so the looping Mission never fires the
+        /// terminal-spawn (<c>TrySpawnAtRecordingEnd</c>) that path runs on timeline completion.
+        /// </summary>
+        void DestroyUnitMemberKscGhostIfActive(int i, Recording rec)
+        {
+            if (kscGhosts.TryGetValue(i, out var state) && state != null)
+            {
+                ParsekLog.VerboseRateLimited("KSCGhost", "unit-hide-destroy-" + i.ToString(CultureInfo.InvariantCulture),
+                    $"Mission-loop unit member #{i} \"{rec.VesselName}\" destroyed (outside its window / tail this frame)", 5.0);
+                DestroyKscGhost(state, i);
+                kscGhosts.Remove(i);
+                loggedGhostSpawn.Remove(i);
+            }
+            DestroyAllKscOverlapGhosts(i);
+        }
+
+        /// <summary>
+        /// Logs the unit's cycle wrap and camera-handoff once per transition (rate-limited per unit
+        /// owner). Mirrors the engine's <c>LogUnitTransitionIfChanged</c> (KSC has no watch camera,
+        /// so no retarget is fired): every member calls it, only the first to see a CHANGE versus the
+        /// last recorded state logs. Live member = the in-window member with the highest StartUT;
+        /// -1 = nothing live (inter-cycle wait / before span).
+        /// </summary>
+        void LogUnitTransitionKscIfChanged(
+            GhostPlaybackLogic.LoopUnit unit, string unitKey,
+            IReadOnlyList<Recording> committed,
+            double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail)
+        {
+            int liveMemberIdx = -1;
+            double liveStartUT = double.NegativeInfinity;
+            if (!isInInterCycleTail)
+            {
+                int[] members = unit.MemberIndices;
+                if (members != null)
+                {
+                    for (int m = 0; m < members.Length; m++)
+                    {
+                        int idx = members[m];
+                        if (idx < 0 || idx >= committed.Count || committed[idx] == null)
+                            continue;
+                        var member = committed[idx];
+                        if (GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                                spanLoopUT, member.StartUT, member.EndUT)
+                            && member.StartUT >= liveStartUT)
+                        {
+                            liveStartUT = member.StartUT;
+                            liveMemberIdx = idx;
+                        }
+                    }
+                }
+            }
+
+            if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
+            {
+                lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx);
+                return;
+            }
+            if (prev.cycle == cycle && prev.liveMemberIdx == liveMemberIdx)
+                return;
+
+            if (cycle != prev.cycle)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "KSCGhost", unitKey + "-wrap",
+                    "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " wrapped cycle " + prev.cycle.ToString(CultureInfo.InvariantCulture)
+                        + "->" + cycle.ToString(CultureInfo.InvariantCulture)
+                        + " at UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+            else if (liveMemberIdx != prev.liveMemberIdx && liveMemberIdx >= 0 && prev.liveMemberIdx >= 0)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "KSCGhost", unitKey + "-handoff",
+                    "Mission-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " camera-live member #" + prev.liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + "->#" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+
+            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx);
         }
 
         /// <summary>
