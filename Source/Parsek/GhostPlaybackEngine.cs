@@ -983,6 +983,24 @@ namespace Parsek
                 bool pastEnd = ctx.currentUT > traj.EndUT;
                 bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
 
+                // === Mission loop unit interception (Phase D2) ===
+                // If this index is a member of a Mission loop unit, it is driven by the unit's
+                // shared span clock, NOT its own per-recording loop clock. Mission members do not
+                // carry their own per-recording LoopPlayback flag, so ShouldLoopPlayback(traj) is
+                // false for them - the interception must sit ABOVE the loop-dispatch gate (this
+                // deviates from the chain-auto-loop branch, where the equivalent interception lives
+                // inside the gate). Route it through UpdateUnitMemberPlayback (which re-checks anchor
+                // gating + warp suppression per-member). Gated entirely on unit membership, which is
+                // empty until a Mission loops, so non-members fall straight through below.
+                if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                {
+                    UpdateUnitMemberPlayback(
+                        i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                        hasPointData, hasInterpolatedPoints,
+                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive);
+                    continue;
+                }
+
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
                 {
@@ -1540,16 +1558,58 @@ namespace Parsek
             double activationStartUT, bool hasPointData, bool hasInterpolatedPoints,
             bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
         {
+            // Widen the seam (Phase D2): reach the parent-loop path when the parent is a Mission
+            // loop unit member even if it is not per-recording looping (unit members carry no own
+            // LoopPlayback flag, so ShouldLoopPlayback(parent) is false for them).
             if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
             {
                 var parent = trajectories[traj.LoopSyncParentIdx];
-                if (ShouldLoopPlayback(parent))
+                if (ShouldLoopPlayback(parent) || currentLoopUnits.OwnerByIndex.ContainsKey(traj.LoopSyncParentIdx))
                 {
+                    int parentIdx = traj.LoopSyncParentIdx;
                     double parentLoopUT;
                     long parentCycle;
                     bool parentPaused;
-                    if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                            out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+
+                    // Edge 9: when the loop-sync parent is itself a Mission loop unit member, its timing
+                    // is governed by the unit's SHARED span clock, not its own per-recording loop
+                    // clock. Sourcing TryComputeLoopPlaybackUT here would resolve the parent's
+                    // standalone phase (wrong: a unit member's loop clock never sweeps past its own
+                    // EndUT into a sibling's window). Instead source the span clock for the parent's
+                    // owner so the debris rides the same clock the live parent member does. The span
+                    // clock has no inter-cycle pause (cadence == span), so parentPaused is always
+                    // false on this branch. The rest of the block (cycle-change rebuild, debrisInRange
+                    // test, RenderInRangeGhost) is unchanged - it keys off parentLoopUT / parentCycle.
+                    if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                            parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
+                    {
+                        // Discard isInInterCycleTail: a unit member uses cadence == span, so the
+                        // parked tail never engages (always false). Future cadence > span producers
+                        // consume the tail directly.
+                        if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
+                                ctx.currentUT, parentUnit.SpanStartUT, parentUnit.SpanEndUT,
+                                parentUnit.CadenceSeconds, out parentLoopUT, out parentCycle,
+                                out _))
+                        {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
+                            if (ghostActive)
+                                DestroyGhost(i, traj, f, reason: "parent unit span clock unresolved");
+                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                            return true;
+                        }
+                        parentPaused = false; // span clock has no pause window (cadence == span)
+                        ParsekLog.VerboseOnChange(
+                            "Engine",
+                            "loop-sync-debris-unit-" + i.ToString(CultureInfo.InvariantCulture),
+                            parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture),
+                            "loop-sync debris #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
+                                + " is unit member (owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                                + ") - sourcing span clock");
+                    }
+                    else if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                            out parentLoopUT, out parentCycle, out parentPaused, parentIdx))
                     {
                         GhostRenderTrace.EmitGuardSkip(
                             traj, i, ctx.currentUT, "parent-loop-sync-failed");
@@ -4390,6 +4450,23 @@ namespace Parsek
                 var traj = trajectories[i];
                 if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(traj))
                     continue;
+
+                // Mission loop unit members are scheduled by their unit's span clock, not the flat
+                // global stagger, so they must never receive a staggered global slot. Excluding
+                // them here is the single global-queue exclusion point; the span-clock render
+                // dispatch (Phase D2) takes over their playback. Keyed on unit membership,
+                // independent of the LoopPlayback flag.
+                if (currentLoopUnits.OwnerByIndex.TryGetValue(i, out int unitOwner))
+                {
+                    ParsekLog.VerboseOnChange(
+                        "Loop",
+                        "unit-loop-exclude-" + i.ToString(CultureInfo.InvariantCulture),
+                        unitOwner.ToString(CultureInfo.InvariantCulture),
+                        "unit-loop member recIdx=" + i.ToString(CultureInfo.InvariantCulture)
+                            + " excluded from global auto queue (unit owner="
+                            + unitOwner.ToString(CultureInfo.InvariantCulture) + ")");
+                    continue;
+                }
 
                 autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
                     i,
