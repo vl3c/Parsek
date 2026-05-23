@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 - Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
 - Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
+- Staging and other decoupler separations are now recorded and labelled as decouples instead of "Broke up". Only genuine crashes, overheats, and structural failures are recorded as breakups; a separation that mixes a real failure with a decouple still counts as a breakup.
 
 ---
 
