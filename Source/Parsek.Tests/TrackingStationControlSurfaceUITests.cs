@@ -10,68 +10,6 @@ namespace Parsek.Tests
     public class TrackingStationControlSurfaceUITests
     {
         [Fact]
-        public void BuildControlSurfaceState_CountsRecordingsAndMaterializedVessels()
-        {
-            var committed = new List<Recording>
-            {
-                new Recording(),
-                new Recording { VesselSpawned = true },
-                new Recording { SpawnedVesselPersistentId = 42 },
-                null
-            };
-
-            ParsekTrackingStation.TrackingStationControlSurfaceState state =
-                ParsekTrackingStation.BuildControlSurfaceState(
-                    committed,
-                    visibleGhostVessels: 3,
-                    suppressedRecordings: 2,
-                    showGhosts: true);
-
-            Assert.Equal(4, state.CommittedRecordings);
-            Assert.Equal(3, state.VisibleGhostVessels);
-            Assert.Equal(2, state.SuppressedRecordings);
-            Assert.Equal(2, state.MaterializedRecordings);
-            Assert.True(state.ShowGhosts);
-        }
-
-        [Fact]
-        public void BuildControlSurfaceState_ClampsNegativeExternalCounts()
-        {
-            ParsekTrackingStation.TrackingStationControlSurfaceState state =
-                ParsekTrackingStation.BuildControlSurfaceState(
-                    committed: null,
-                    visibleGhostVessels: -4,
-                    suppressedRecordings: -2,
-                    showGhosts: false);
-
-            Assert.Equal(0, state.CommittedRecordings);
-            Assert.Equal(0, state.VisibleGhostVessels);
-            Assert.Equal(0, state.SuppressedRecordings);
-            Assert.Equal(0, state.MaterializedRecordings);
-            Assert.False(state.ShowGhosts);
-        }
-
-        [Fact]
-        public void FormatControlSurfaceLines_UsesCompactStableLabels()
-        {
-            var state = new ParsekTrackingStation.TrackingStationControlSurfaceState
-            {
-                CommittedRecordings = 7,
-                VisibleGhostVessels = 3,
-                SuppressedRecordings = 2,
-                MaterializedRecordings = 1,
-                ShowGhosts = true
-            };
-
-            Assert.Equal(
-                "Recordings: 7 | Map ghosts: 3",
-                ParsekTrackingStation.FormatControlSurfaceCountsLine(state));
-            Assert.Equal(
-                "Suppressed: 2 | Spawned: 1",
-                ParsekTrackingStation.FormatControlSurfaceLifecycleLine(state));
-        }
-
-        [Fact]
         public void BuildGhostPopupText_UsesNativeMenuStatusLabels()
         {
             var selection = new TrackingStationGhostSelectionInfo(
@@ -423,29 +361,6 @@ namespace Parsek.Tests
             Assert.False(selected);
             Assert.Null(frames);
             Assert.Equal("checkpoint-section", reason);
-        }
-
-        [Fact]
-        public void TryApplyGhostVisibilitySetting_UpdatesLiveSettingsWhenPresent()
-        {
-            var settings = new ParsekSettings { showGhostsInTrackingStation = true };
-
-            bool applied = ParsekTrackingStation.TryApplyGhostVisibilitySetting(
-                settings,
-                showGhosts: false);
-
-            Assert.True(applied);
-            Assert.False(settings.showGhostsInTrackingStation);
-        }
-
-        [Fact]
-        public void TryApplyGhostVisibilitySetting_NullSettings_ReturnsFalse()
-        {
-            bool applied = ParsekTrackingStation.TryApplyGhostVisibilitySetting(
-                null,
-                showGhosts: false);
-
-            Assert.False(applied);
         }
 
         [Theory]

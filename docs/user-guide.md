@@ -10,7 +10,7 @@ Parsek lets you record missions, revert to launch, and merge them into the timel
 | **V** | Toggle watch camera between Free Orbit and Horizon-Locked (watch mode only) |
 | **Ctrl+Shift+T** | Open the in-game Test Runner (any scene) |
 
-The Parsek window is available from the toolbar button in Flight, Map, KSC, and Tracking Station views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey. Manual ghost-only recordings are made from the Gloops Flight Recorder window (see below).
+The Parsek window is available from the toolbar button in Flight, Map, and KSC views. Recording is triggered automatically on launch/EVA; there is no start/stop hotkey. Manual ghost-only recordings are made from the Gloops Flight Recorder window (see below).
 
 ## How It Works
 
