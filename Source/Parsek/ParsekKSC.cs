@@ -887,8 +887,14 @@ namespace Parsek
 
             if (inRange && !inPauseWindow)
             {
-                // Loop cycle change: destroy + respawn to guarantee clean visual state
-                if (ghostActive && rec.LoopPlayback && state.loopCycleIndex != cycleIndex)
+                // Loop cycle change: destroy + respawn to guarantee clean visual state. A Mission
+                // loop unit member carries no per-recording LoopPlayback flag (its cycleIndex is the
+                // shared unitCycle), so include unit membership here, otherwise the per-cycle
+                // teardown/respawn never fires for members and explosion-dedup / event-replay state
+                // is never reset across span-clock wraps (flight rebuilds unconditionally on cycle
+                // change). Empty set => IsMember is always false, so non-looping behavior is unchanged.
+                if (ghostActive && (rec.LoopPlayback || currentLoopUnits.IsMember(recIdx))
+                    && state.loopCycleIndex != cycleIndex)
                 {
                     long oldCycle = state.loopCycleIndex;
                     bool endpointPositioned = PositionGhostAtLoopEndpoint(recIdx, rec, state);

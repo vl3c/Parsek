@@ -6442,13 +6442,15 @@ namespace Parsek
         // --- Span-clock primitives (lifted for Mission-level looping; wired in a later phase) ---
 
         /// <summary>
-        /// One loop unit: the recordings a looping Mission replays together as a single unit (its
-        /// included through-line members, PLUS ride-along debris whose parent member overlaps the
-        /// span). Built by <see cref="MissionLoopUnitBuilder"/> from the Mission's selection - it is
-        /// NOT auto-detected. The whole span [SpanStartUT, SpanEndUT] loops on ONE shared mission
-        /// clock at <see cref="CadenceSeconds"/>. All members render concurrently when the shared
-        /// clock is inside their own window, debris alongside their parent, exactly like a rewind.
-        /// Indices are committed-recording-list indices (the alignment invariant).
+        /// One loop unit: the recordings a looping Mission replays together as a single unit. The
+        /// MEMBERS (<see cref="MemberIndices"/>) are the Mission's included through-line legs ONLY;
+        /// ride-along debris is NOT a member - it follows its parent member's span clock via the
+        /// engine's debris seam (ShouldSourceDebrisFromUnitSpan). Built by
+        /// <see cref="MissionLoopUnitBuilder"/> from the Mission's selection, NOT auto-detected. The
+        /// whole span [SpanStartUT, SpanEndUT] loops on ONE shared mission clock at
+        /// <see cref="CadenceSeconds"/>. Members render concurrently when the shared clock is inside
+        /// their own window, debris alongside their parent, exactly like a rewind. Indices are
+        /// committed-recording-list indices (the alignment invariant).
         /// </summary>
         internal readonly struct LoopUnit
         {

@@ -118,7 +118,7 @@ namespace Parsek
         private int frameSkipChainBridgeHeld;
         // Chain-loop unit follower: per-frame count of unit members hidden because the shared span
         // clock selected a different member (or a gap, or the clock failed). See UpdateUnitMemberPlayback.
-        private int frameSkipChainLoopUnitInactive;
+        private int frameSkipMissionLoopUnitInactive;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -590,8 +590,8 @@ namespace Parsek
                 case GhostPlaybackSkipReason.ChainBridgeHeld:
                     frameSkipChainBridgeHeld++;
                     break;
-                case GhostPlaybackSkipReason.ChainLoopUnitInactive:
-                    frameSkipChainLoopUnitInactive++;
+                case GhostPlaybackSkipReason.MissionLoopUnitInactive:
+                    frameSkipMissionLoopUnitInactive++;
                     break;
             }
         }
@@ -618,7 +618,7 @@ namespace Parsek
                 || counters.anchorReFlyUnstable > 0
                 || counters.chainShadowed > 0
                 || counters.chainBridgeHeld > 0
-                || counters.chainLoopUnitInactive > 0;
+                || counters.missionLoopUnitInactive > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -631,7 +631,7 @@ namespace Parsek
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
                 "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19} " +
-                "chainLoopUnitInactive={20}] " +
+                "missionLoopUnitInactive={20}] " +
                 "active={21}",
                 counters.spawned,
                 counters.destroyed,
@@ -653,7 +653,7 @@ namespace Parsek
                 counters.anchorReFlyUnstable,
                 counters.chainShadowed,
                 counters.chainBridgeHeld,
-                counters.chainLoopUnitInactive,
+                counters.missionLoopUnitInactive,
                 counters.active);
         }
 
@@ -681,7 +681,7 @@ namespace Parsek
                 anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
                 chainShadowed = frameSkipChainShadowed,
                 chainBridgeHeld = frameSkipChainBridgeHeld,
-                chainLoopUnitInactive = frameSkipChainLoopUnitInactive,
+                missionLoopUnitInactive = frameSkipMissionLoopUnitInactive,
                 active = ghostStates.Count
             };
         }
@@ -1463,7 +1463,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
-            frameSkipChainLoopUnitInactive = 0;
+            frameSkipMissionLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -1817,7 +1817,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: "unit span clock unresolved");
                     DestroyAllOverlapGhosts(i);
                 }
-                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
 
@@ -1846,7 +1846,7 @@ namespace Parsek
                             + "," + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
                         5.0);
                 }
-                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "chain-loop-unit-inactive");
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
                 // Keep-watched-owner-alive fallback (design D5): if this hidden member is the one the
                 // camera is watching, hide its ghost WITHOUT destroying it so the camera never ends
                 // up parented to a deactivated/destroyed ghost even if the UnitHandoffRetarget to the
@@ -1865,7 +1865,7 @@ namespace Parsek
                             5.0);
                     }
                     DestroyAllOverlapGhosts(i);
-                    CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                     return;
                 }
                 if (ghostActive)
@@ -1873,7 +1873,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: "chain-loop unit member outside its window");
                     DestroyAllOverlapGhosts(i);
                 }
-                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
 
@@ -1916,7 +1916,7 @@ namespace Parsek
                             5.0);
                     }
                     DestroyAllOverlapGhosts(i);
-                    CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                     return;
                 }
                 if (ghostActive)
@@ -1924,7 +1924,7 @@ namespace Parsek
                     DestroyGhost(i, traj, f, reason: "chain-loop unit member before activation UT");
                     DestroyAllOverlapGhosts(i);
                 }
-                CountFrameSkip(GhostPlaybackSkipReason.ChainLoopUnitInactive);
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
                 return;
             }
 
@@ -5799,7 +5799,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
-            frameSkipChainLoopUnitInactive = 0;
+            frameSkipMissionLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
