@@ -198,11 +198,14 @@ which branch(es) to include.
   instances of one recording (the loop-overlap path, capped by
   `MaxOverlapGhostsPerRecording`); rendering one recording on several Mission
   clocks is that same capability.
-- A selection is defined by its boundary NODES (Start and End per path) plus the
-  fork choices, NOT by a frozen list of leg ids. So when the optimizer re-splits
-  or re-merges legs inside the interval on a later pass, the selection survives:
-  new sub-legs that fall inside [Start, End] stay included. Re-split exactly at a
-  trim boundary is the one edge to nail at build time (open question 3).
+- A selection is PERSISTED as the set of EXCLUDED through-line head ids; the included
+  set is DERIVED live from current topology, not stored as a frozen list of selected
+  leg ids. So when the optimizer re-splits or re-merges legs inside an INCLUDED
+  through-line on a later pass, the selection survives: new sub-legs inside the
+  interval auto-join the through-line and stay included. The excluded boundary itself
+  is keyed by the through-line head's RecordingId, which is stable because the
+  optimizer preserves the earliest segment's id on both split and merge (see open
+  question 3 for the verification, the v1 decision, and the residual re-fly case).
 
 ### 5. Mission (a saved, configurable entity)
 
@@ -459,7 +462,9 @@ do it in v1.
 ### Build phasing (reviews at the milestones, not every commit)
 
 - A. Lift the span-clock core + types + pure tests verbatim (no callers yet).
-- B. Mission persistence (loop fields) + `Clone` + the per-Mission-row UI toggle/period.
+- B. Mission persistence (loop fields) + `Clone` + the per-Mission-row UI toggle/period
+  (single-selection). Also the load/use-time guard from open question 3: drop excluded
+  head ids that no longer resolve to a current through-line head and warn-log them.
 - C. The adapter + the two new helpers (id->index, included-set) + adapter tests.
   REVIEW after C.
 - D. Flight wiring: the `SetLoopUnits` call site in `UpdateTimelinePlaybackViaEngine`,
@@ -516,12 +521,35 @@ do it in v1.
 2. Default Mission creation. RESOLVED: each recorded tree auto-spawns a default
    Mission (everything included) and always keeps at least one (Delete is blocked
    on the last remaining Mission for a tree).
-3. Selection vs a changing tree. (a) When a tree gains new legs (mission continues
-   after a Mission was defined): default-excluded, or auto-extend the End? Leaning
-   default-excluded. (b) When the optimizer RE-SPLITS or RE-MERGES already-referenced
-   legs on a later pass: sub-legs inside [Start, End] stay included by the
-   boundary-node model, but a re-split exactly at a trim boundary needs a defined
-   rule. Resolve before persistence is built.
+3. Selection vs a changing tree. Persistence stores the set of EXCLUDED through-line
+   head ids; the included set is DERIVED live from current topology. That split the
+   problem into a robust part and a residual.
+   (b) Re-split / re-merge of already-referenced legs: VERIFIED SAFE for the common
+   optimizer ops. The optimizer preserves the EARLIEST segment's id:
+   `RecordingOptimizer.SplitAtSection` mutates the original (first / earlier) half and
+   keeps its id, the second half is a new Recording; `MergeInto` keeps the earlier
+   `target`'s id and absorbs the later segment. A through-line head is by definition
+   the earliest leg of its run, so it always plays the original / target role and its
+   id is preserved. An excluded head id therefore keeps matching after re-split /
+   re-merge and the drop-downstream cascade still applies, and new sub-legs inside an
+   included through-line auto-join. So the old "resolve before persistence is built"
+   concern is largely retired.
+   (a) New / post-hoc topology: a genuinely NEW branch (most realistically a re-fly
+   supersede split, which adds a new fork; the pre-rewind HEAD keeps its id by the same
+   split convention, so existing exclusions still match) is not referenced by a Mission
+   defined earlier, so under the excluded-id model it defaults to INCLUDED. This is the
+   opposite of the earlier "leaning default-excluded" note; for v1 default-include is
+   acceptable. Making new branches default-excluded would require recording the set of
+   known head ids at definition time, a bigger change deferred to logistics.
+   v1 DECISION: keep the excluded-head-id model. Reasons: (1) head ids are stable as
+   verified above; (2) pre-1.0, no save-migration burden, so the persistence shape can
+   change later for free; (3) the cleanest harden (key exclusions by the fork's
+   `BranchPoint.Id`) has its own hole, since disconnected roots have no branch point.
+   Phase-B safety to build in: when a Mission is loaded / used, drop any excluded head
+   id that no longer resolves to a current through-line head and WARN-log it, so future
+   id churn fails loudly instead of silently re-including a dropped branch. Revisit
+   BranchPoint-keyed persistence when logistics starts persisting routes on top of
+   Missions.
 4. Span-clock reuse specifics. RESOLVED: see "Mission-level looping (span-clock
    integration)" above. Lift the span clock + engine routing + watch-transfer + KSC
    consumer; leave behind the auto-detection; replace it with a Mission -> LoopUnitSet
