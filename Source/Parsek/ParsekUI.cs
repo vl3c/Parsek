@@ -38,6 +38,9 @@ namespace Parsek
         // Recordings table window (extracted to RecordingsTableUI)
         private RecordingsTableUI recordingsTableUI;
 
+        // Missions window (extracted to MissionsWindowUI)
+        private MissionsWindowUI missionsUI;
+
         private const float ResizeHandleSize = 16f;
 
         // Settings window (extracted to SettingsWindowUI)
@@ -106,6 +109,7 @@ namespace Parsek
             this.flight = flight;
             this.mode = UIMode.Flight;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -121,6 +125,7 @@ namespace Parsek
             this.flight = null;
             this.mode = mode;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -202,6 +207,12 @@ namespace Parsek
             int committedCount = EffectiveState.ComputeERS().Count;
             if (GUILayout.Button($"Recordings ({committedCount})"))
                 ToggleRecordingsWindow();
+
+            if (GUILayout.Button("Missions"))
+            {
+                missionsUI.IsOpen = !missionsUI.IsOpen;
+                ParsekLog.Verbose("UI", $"Missions window toggled: {(missionsUI.IsOpen ? "open" : "closed")}");
+            }
 
             GUILayout.Space(SpacingLarge);
 
@@ -346,6 +357,11 @@ namespace Parsek
         public void DrawRecordingsWindowIfOpen(Rect mainWindowRect)
         {
             recordingsTableUI.DrawIfOpen(mainWindowRect);
+        }
+
+        public void DrawMissionsWindowIfOpen(Rect mainWindowRect)
+        {
+            missionsUI.DrawIfOpen(mainWindowRect);
         }
 
         internal void ToggleRecordingsWindow()

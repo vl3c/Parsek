@@ -480,6 +480,7 @@ namespace Parsek
 
             ui.LogMainWindowPosition(windowRect);
             ui.DrawRecordingsWindowIfOpen(windowRect);
+            ui.DrawMissionsWindowIfOpen(windowRect);
             ui.DrawSettingsWindowIfOpen(windowRect);
             ui.DrawTestRunnerWindowIfOpen(windowRect, this);
         }
