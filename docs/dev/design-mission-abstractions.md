@@ -354,7 +354,8 @@ Two helpers do not exist yet and must be added (both pure and unit-tested):
 ### The adapter (Mission -> LoopUnitSet)
 
 A new pure builder, `MissionLoopUnitBuilder.Build(missions, committedRecordings)
--> LoopUnitSet`. For each Mission with loop on:
+-> LoopUnitSet`. In v1 at most one Mission has loop on (see open question 7), so the
+builder emits an empty set or a single unit. For the looping Mission:
 
 - Members = the included legs' committed indices (skip ids not currently in
   `CommittedRecordings`).
@@ -422,7 +423,9 @@ A per-Mission-row loop checkbox + period cell, mirroring
 `RecordingsTableUI.DrawLoopPeriodCell`: a value text field plus a unit button cycling
 Sec / Min / Hour / Auto. Reuse the existing `ParsekUI` helpers (`TryParseLoopInput`,
 `ConvertToSeconds`, `ConvertFromSeconds`, `FormatLoopValue`, `UnitLabel`) and the same
-clamp-to-`MinCycleDuration` rule.
+clamp-to-`MinCycleDuration` rule. v1: the loop toggle is single-selection across all
+Missions (turning loop on for one Mission turns it off on every other), per the
+one-at-a-time decision in open question 7.
 
 ### KSC and Tracking Station parity (render exactly what flight renders)
 
@@ -441,16 +444,17 @@ computed once per frame from Missions + committed recordings and fed to every sc
   TS animates per-recording loops at all today, then drive the span-clock UT into
   `GhostMapPresence` positioning.
 
-### Overlap of looping Missions (decision needed)
+### Overlap of looping Missions (v1: one at a time)
 
-`LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner. The headline case
-(loop a single Mission) never hits this. But selections may overlap, so two
-SIMULTANEOUSLY looping Missions that share a recording are a single-owner conflict.
-v1 options: (a) assign the shared recording to one unit by a defined precedence and
-warn-log the rest, or (b) restrict to one actively-looping Mission per tree at a time.
-True concurrent rendering of one recording on several Mission clocks (one ghost per
-Mission) is the overlap-ghost capability and is deferred to logistics; do not try to
-make the single-owner span clock do it in v1.
+`LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner, so two
+simultaneously looping Missions that share a recording would be a single-owner
+conflict. v1 DECISION: exactly one Mission loops at a time (global). Enabling loop on
+a Mission disables it on every other Mission (the loop toggle behaves like a single
+selection). The adapter therefore builds AT MOST ONE `LoopUnit`, so the conflict
+cannot arise and no precedence logic is needed. True concurrent rendering of one
+recording on several Mission clocks (one ghost per Mission via the overlap-ghost
+capability) is deferred to logistics; do not try to make the single-owner span clock
+do it in v1.
 
 ### Build phasing (reviews at the milestones, not every commit)
 
@@ -530,11 +534,11 @@ make the single-owner span clock do it in v1.
    playback). v1 rule: a path follows its own incoming line into the merged child and
    does not pull in the co-parent. Open: how the multi-path (whole-mission) outline
    renders a reconvergence, and whether a foreign dock target is ever surfaced.
-7. Overlapping looping Missions. `LoopUnitSet` is single-owner-per-index, so two
-   Missions looping at once that share a recording conflict. v1: precedence + warn, or
-   one active looping Mission per tree. True multi-clock-per-recording (one ghost per
-   Mission via the overlap path) is deferred to logistics. Decide the v1 rule before
-   wiring the adapter (build phase C).
+7. Overlapping looping Missions. RESOLVED (v1): exactly one Mission loops at a time
+   (global); enabling loop on a Mission disables it on every other (single-selection
+   toggle). The adapter builds at most one `LoopUnit`, so the single-owner conflict
+   cannot arise. Concurrent multi-Mission looping and true multi-clock-per-recording
+   (one ghost per Mission via the overlap path) are deferred to logistics.
 8. Tracking Station loop parity. TS renders ProtoVessel map presence
    (`GhostMapPresence`), not engine ghosts, and positions them at the LIVE `currentUT`
    against each recording's recorded window with NO loop-phase remap; confirmed it
