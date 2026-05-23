@@ -29,14 +29,10 @@ namespace Parsek
         private bool isResizing;
         private bool hasInputLock;
 
-        // Leg ids (RecordingIds, unique GUIDs) whose children are collapsed in the
-        // outline. Shared across trees: GUIDs never collide, so one set is safe.
+        // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
+        // the same tree collapse independently. Transient UI state (not persisted). The
+        // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
-
-        // Leg ids the player has unchecked. Unchecking a leg drops it and its whole
-        // downstream subtree from the mission (the agreed trim rule); those rows grey
-        // out and their checkboxes disable. In-memory for now (no persistence yet).
-        private readonly HashSet<string> uncheckedLegs = new HashSet<string>();
 
         private const string InputLockId = "Parsek_MissionsWindow";
         private const float MinWindowWidth = 450f;
@@ -51,6 +47,7 @@ namespace Parsek
         private const float ColW_StartEvent = 85f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 100f;
+        private const float ColW_Action = 60f;
 
         private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
 
@@ -181,7 +178,9 @@ namespace Parsek
             GUILayout.BeginVertical();
 
             var trees = RecordingStore.CommittedTrees;
-            if (trees == null || trees.Count == 0)
+            MissionStore.EnsureDefaultsForTrees(trees);
+            var missions = MissionStore.Missions;
+            if (missions == null || missions.Count == 0)
             {
                 GUILayout.Label("No missions recorded yet.");
                 GUILayout.FlexibleSpace();
@@ -198,34 +197,31 @@ namespace Parsek
                 // horizontal padding so columns align with the header above.
                 GUILayout.BeginVertical(tableBodyBoxStyle);
 
-                int treeCount = 0;
+                // Snapshot so Clone / Delete (which mutate the store) can be invoked
+                // from within the draw loop; the change takes effect on the next frame.
+                var snapshot = new List<Mission>(missions);
+                int missionCount = 0;
                 int rowCount = 0;
-                for (int t = 0; t < trees.Count; t++)
+                for (int i = 0; i < snapshot.Count; i++)
                 {
-                    RecordingTree tree = trees[t];
+                    Mission mission = snapshot[i];
+                    if (mission == null)
+                        continue;
+                    RecordingTree tree = FindTree(trees, mission.TreeId);
                     if (tree == null)
                         continue;
-                    treeCount++;
+                    missionCount++;
 
                     MissionStructure structure = MissionStructureBuilder.Build(tree);
                     MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
-                    string treeName = string.IsNullOrEmpty(tree.TreeName) ? "(mission)" : tree.TreeName;
-                    GUILayout.Label(
-                        $"{treeName}  -  {view.ByHeadId.Count} vessels",
-                        parentUI.GetSectionHeaderStyle());
+
+                    DrawMissionHeader(mission);
 
                     var visited = new HashSet<string>();
                     for (int r = 0; r < view.RootHeadIds.Count; r++)
                     {
                         bool isLast = r == view.RootHeadIds.Count - 1;
-                        rowCount += DrawThroughLine(structure, view, view.RootHeadIds[r], 1, isLast, false, visited);
-                    }
-
-                    if (visited.Count < view.ByHeadId.Count)
-                    {
-                        ParsekLog.VerboseRateLimited("UI", $"missions-dropped-{tree.Id}",
-                            $"Missions window: tree={tree.Id} rendered {visited.Count}/{view.ByHeadId.Count} " +
-                            $"through-lines; {view.ByHeadId.Count - visited.Count} unreachable from roots", 30.0);
+                        rowCount += DrawThroughLine(structure, view, mission, view.RootHeadIds[r], 1, isLast, false, visited);
                     }
                 }
 
@@ -233,7 +229,7 @@ namespace Parsek
                 GUILayout.EndScrollView();
 
                 ParsekLog.VerboseRateLimited("UI", "missions-window-draw",
-                    $"Missions window: trees={treeCount} rows={rowCount}", 5.0);
+                    $"Missions window: missions={missionCount} rows={rowCount}", 5.0);
             }
 
             // Full-width Close button at the bottom (matches the Timeline window).
@@ -243,6 +239,38 @@ namespace Parsek
             GUILayout.EndVertical();
             ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Missions window");
             GUI.DragWindow();
+        }
+
+        private static RecordingTree FindTree(List<RecordingTree> trees, string treeId)
+        {
+            if (trees == null || string.IsNullOrEmpty(treeId))
+                return null;
+            for (int i = 0; i < trees.Count; i++)
+                if (trees[i] != null && trees[i].Id == treeId)
+                    return trees[i];
+            return null;
+        }
+
+        // Mission header bar: the mission name (section-header style) plus Clone and
+        // Delete. Delete is disabled when this is the tree's last mission. Clone/Delete
+        // mutate MissionStore; the draw loop iterates a snapshot so that is safe.
+        private void DrawMissionHeader(Mission mission)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(string.IsNullOrEmpty(mission.Name) ? "(mission)" : mission.Name,
+                parentUI.GetSectionHeaderStyle(), GUILayout.ExpandWidth(true));
+            if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
+                MissionStore.Clone(mission);
+            GUI.enabled = MissionStore.CanDelete(mission);
+            if (GUILayout.Button("Delete", GUILayout.Width(ColW_Action)))
+                MissionStore.Delete(mission);
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+        }
+
+        private static string CollapseKey(Mission mission, string headId)
+        {
+            return mission.Id + ":" + headId;
         }
 
         // Column-header row: a checkbox column, a wide expanding "Vessel" column, then
@@ -280,8 +308,8 @@ namespace Parsek
         // Renders one through-line (a collapsed continuous vessel), then recurses into
         // its offshoots (the things that left it: EVA kerbals, decoupled children,
         // forks to other vessels). The visited set guards merges/cycles.
-        private int DrawThroughLine(MissionStructure s, MissionThroughLineView v, string headId,
-            int depth, bool isLast, bool parentExcluded, HashSet<string> visited)
+        private int DrawThroughLine(MissionStructure s, MissionThroughLineView v, Mission mission,
+            string headId, int depth, bool isLast, bool parentExcluded, HashSet<string> visited)
         {
             if (headId == null || !v.ByHeadId.TryGetValue(headId, out MissionThroughLine tl))
                 return 0;
@@ -294,41 +322,42 @@ namespace Parsek
             visited.Add(headId);
 
             bool hasChildren = tl.OffshootHeadIds.Count > 0;
-            bool collapsed = collapsedLegs.Contains(headId);
+            bool collapsed = collapsedLegs.Contains(CollapseKey(mission, headId));
 
-            DrawThroughLineRow(s, tl, depth, isLast, hasChildren, collapsed, parentExcluded);
+            DrawThroughLineRow(s, mission, tl, depth, isLast, hasChildren, collapsed, parentExcluded);
             int rows = 1;
 
             // Unchecking a through-line drops it and everything downstream.
-            bool childExcluded = parentExcluded || uncheckedLegs.Contains(headId);
+            bool childExcluded = parentExcluded || mission.ExcludedThroughLineHeadIds.Contains(headId);
             if (hasChildren && !collapsed)
             {
                 for (int i = 0; i < tl.OffshootHeadIds.Count; i++)
                 {
                     bool childIsLast = i == tl.OffshootHeadIds.Count - 1;
-                    rows += DrawThroughLine(s, v, tl.OffshootHeadIds[i], depth + 1, childIsLast, childExcluded, visited);
+                    rows += DrawThroughLine(s, v, mission, tl.OffshootHeadIds[i], depth + 1, childIsLast, childExcluded, visited);
                 }
             }
 
             return rows;
         }
 
-        private void DrawThroughLineRow(MissionStructure s, MissionThroughLine tl, int depth,
-            bool isLast, bool hasChildren, bool collapsed, bool parentExcluded)
+        private void DrawThroughLineRow(MissionStructure s, Mission mission, MissionThroughLine tl,
+            int depth, bool isLast, bool hasChildren, bool collapsed, bool parentExcluded)
         {
             GUILayout.BeginHorizontal();
 
-            // Include checkbox, keyed by the through-line's head leg. Disabled when an
-            // ancestor is unchecked (this through-line is downstream of a dropped one).
-            bool selfUnchecked = uncheckedLegs.Contains(tl.HeadLegId);
+            // Include checkbox, keyed by the through-line's head leg in this Mission's
+            // excluded set. Disabled when an ancestor is unchecked (this through-line is
+            // downstream of a dropped one).
+            bool selfUnchecked = mission.ExcludedThroughLineHeadIds.Contains(tl.HeadLegId);
             bool shownChecked = !parentExcluded && !selfUnchecked;
             GUI.enabled = !parentExcluded;
             bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Check));
             GUI.enabled = true;
             if (!parentExcluded && toggled != shownChecked)
             {
-                if (toggled) uncheckedLegs.Remove(tl.HeadLegId);
-                else uncheckedLegs.Add(tl.HeadLegId);
+                if (toggled) mission.ExcludedThroughLineHeadIds.Remove(tl.HeadLegId);
+                else mission.ExcludedThroughLineHeadIds.Add(tl.HeadLegId);
             }
 
             Color prevColor = GUI.color;
@@ -348,10 +377,11 @@ namespace Parsek
             {
                 if (GUILayout.Button(wide, bodyCellLabel, GUILayout.ExpandWidth(true)))
                 {
-                    if (collapsedLegs.Contains(tl.HeadLegId))
-                        collapsedLegs.Remove(tl.HeadLegId);
+                    string key = CollapseKey(mission, tl.HeadLegId);
+                    if (collapsedLegs.Contains(key))
+                        collapsedLegs.Remove(key);
                     else
-                        collapsedLegs.Add(tl.HeadLegId);
+                        collapsedLegs.Add(key);
                 }
             }
             else
