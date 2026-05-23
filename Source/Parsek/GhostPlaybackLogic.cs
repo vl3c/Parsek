@@ -6442,13 +6442,13 @@ namespace Parsek
         // --- Span-clock primitives (lifted for Mission-level looping; wired in a later phase) ---
 
         /// <summary>
-        /// One loop unit: a maximal run of >= 2 consecutive MAIN links (the primary-vessel
-        /// through-line, all loop+auto+renderable) PLUS every ride-along SECONDARY (debris / probe
-        /// that loops+auto and overlaps the run span). The whole span [SpanStartUT, SpanEndUT] loops
-        /// on ONE shared mission clock at <see cref="CadenceSeconds"/> (= max(autoInterval, span,
-        /// MinCycleDuration)). All members render concurrently when the shared clock is inside their
-        /// own window - debris alongside their parent, exactly like a rewind. Indices are
-        /// committed/trajectory-list indices (the alignment invariant).
+        /// One loop unit: the recordings a looping Mission replays together as a single unit (its
+        /// included through-line members, PLUS ride-along debris whose parent member overlaps the
+        /// span). Built by <see cref="MissionLoopUnitBuilder"/> from the Mission's selection - it is
+        /// NOT auto-detected. The whole span [SpanStartUT, SpanEndUT] loops on ONE shared mission
+        /// clock at <see cref="CadenceSeconds"/>. All members render concurrently when the shared
+        /// clock is inside their own window, debris alongside their parent, exactly like a rewind.
+        /// Indices are committed-recording-list indices (the alignment invariant).
         /// </summary>
         internal readonly struct LoopUnit
         {
@@ -6466,10 +6466,10 @@ namespace Parsek
                 CadenceSeconds = cadenceSeconds;
             }
 
-            /// <summary>Earliest main link's committed/trajectory index (owns the span clock).</summary>
+            /// <summary>Earliest member's committed-recording index (owns the span clock).</summary>
             internal int OwnerIndex { get; }
 
-            /// <summary>Committed indices of all members (main links + ride-along secondaries), StartUT order.</summary>
+            /// <summary>Committed-recording indices of all members (mission legs + ride-along debris), StartUT order.</summary>
             internal int[] MemberIndices { get; }
 
             /// <summary>Min member StartUT.</summary>
@@ -6478,15 +6478,15 @@ namespace Parsek
             /// <summary>Max member EndUT (a ride-along debris tail can extend it).</summary>
             internal double SpanEndUT { get; }
 
-            /// <summary>Cadence (= max(autoInterval, span, MinCycleDuration)).</summary>
+            /// <summary>Cadence: the Mission's loop period, raised to at least the span so the mission never truncates (Auto = span).</summary>
             internal double CadenceSeconds { get; }
         }
 
         /// <summary>
-        /// Immutable per-frame snapshot of every chain-loop unit. Built once per schedule
-        /// rebuild and handed to both schedulers (flight engine + tracking station) so they
-        /// consume an identical frozen view. <see cref="Empty"/> means no unit formed, which
-        /// keeps the entire feature dormant for saves with no consecutive auto-loop members.
+        /// Immutable snapshot of the Mission loop units (v1: at most one, since one Mission loops
+        /// at a time). Built by <see cref="MissionLoopUnitBuilder"/> and handed to flight, KSC, and
+        /// the tracking station so all three consume an identical view. <see cref="Empty"/> means no
+        /// Mission is looping, which keeps the entire feature dormant.
         /// </summary>
         internal sealed class LoopUnitSet
         {

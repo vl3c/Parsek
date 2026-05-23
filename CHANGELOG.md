@@ -8,6 +8,8 @@ All notable changes to Parsek are documented here.
 
 ### UI
 
+- New "Missions" window (opened from the main Parsek UI) that groups your recordings into whole missions: one configurable mission per recording tree, with each row a continuous vessel rather than individual recordings. Include or exclude branches with checkboxes, clone a mission into differently-configured variants, and delete extra variants (each tree always keeps at least one).
+- A mission can be looped as a single unit: turn on Loop and set a period on the mission row, and the whole selected mission replays together on one shared clock (in flight, the Space Center, and the Tracking Station), instead of each recording looping on its own. Only one mission loops at a time.
 - New "Warp to time" control in the Timeline window: type a Year / Day / Hour / Minute and the game clock jumps there. Future dates fast-forward; past dates rewind to the nearest launch at or before that date and then fast-forward to the exact time.
 - Warping in flight first asks (via the usual Merge / Discard dialog) what to do with the in-progress recording before returning to the Space Center; it is never auto-saved.
 - Warping to Year 1 / Day 1 (1/1/0/0) resets a new career to its true starting state (resources, facilities, clock), keeping your recordings as future ghosts. New careers get a one-time start snapshot for this; saves created before this version instead land at your earliest launch.
