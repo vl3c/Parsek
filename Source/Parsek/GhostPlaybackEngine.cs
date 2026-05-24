@@ -2806,8 +2806,23 @@ namespace Parsek
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
+            bool priorVisualFxSuppressed = state.visualFxSuppressed;
+            state.visualFxSuppressed = suppressVisualFx;
+
             if (suppressVisualFx)
             {
+                // Diagnostic (anchor-distance tracer): log the ghost-to-anchor-vehicle distance
+                // on the on->off FX transition so a "FX vanished too early" report can be checked
+                // against the actual anchor distance (not camera distance). ghostPos/anchorPos
+                // expose a phantom-distance seam (positions look close but the metric is huge).
+                if (!priorVisualFxSuppressed)
+                    ParsekLog.VerboseRateLimited("Zone", $"fx-teardown-{index}",
+                        $"FX suppressed: ghost #{index} \"{state.vesselName}\" cycle="
+                        + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                        + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                        + " renderDist=" + FormatPlaybackDistanceForLog(state.lastRenderDistance)
+                        + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                        + " anchorPos=" + FormatActiveVesselWorldPosForLog());
                 GhostPlaybackLogic.StopAllEngineFx(state);
                 GhostPlaybackLogic.StopAllRcsFx(state);
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
@@ -2819,6 +2834,19 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 GhostPlaybackLogic.UnmuteAllAudio(state);
+
+                // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
+                // re-applies them per frame. On the suppressed -> unsuppressed transition,
+                // restart them from the last recorded throttle so a ghost re-entering FX
+                // range (canonical case: a looping aircraft that repeatedly crosses the
+                // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
+                // throttle cursor up to this UT, so a throttle-down during the suppressed
+                // window has already cleared currentPower and is not re-ignited here. When the
+                // transition also coincides with a ghost re-activation, RestoreDeferredRuntimeFxState
+                // (in ApplyNonRetiredPostPosition) re-applies the same engines this frame too;
+                // both route through SetEngineEmission and are idempotent.
+                if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
+                    GhostPlaybackLogic.RestoreActiveEngineFx(state);
             }
 
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
@@ -4952,6 +4980,24 @@ namespace Parsek
             return RenderingZoneManager.FormatDistanceForLog(distanceMeters);
         }
 
+        // Diagnostic helpers for the anchor-distance teardown tracer. Compact world-position
+        // strings so a teardown log can be cross-checked for a phantom-distance seam (ghost and
+        // anchor look close but the distance metric reads huge).
+        private static string FormatGhostWorldPosForLog(GhostPlaybackState state)
+        {
+            return state != null && state.ghost != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(state.ghost.transform.position)
+                : "(none)";
+        }
+
+        private static string FormatActiveVesselWorldPosForLog()
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            return activeVessel != null && activeVessel.transform != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(activeVessel.transform.position)
+                : "(none)";
+        }
+
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
         internal static bool IsAnyWarpActiveFromGlobals()
         {
@@ -6411,6 +6457,20 @@ namespace Parsek
 
             if (HasLoadedGhostVisuals(state))
             {
+                // Diagnostic (anchor-distance tracer): the ghost mesh is about to be torn down.
+                // Log the ghost-to-anchor-vehicle distance (state.lastDistance), the render
+                // distance that drove the hide, and both world positions so a "ghost vanished
+                // too early / when a duplicate launched" report can be checked against the real
+                // anchor distance and against a phantom-distance seam.
+                ParsekLog.VerboseRateLimited("Zone", $"mesh-teardown-{index}",
+                    $"Mesh torn down: ghost #{index} \"{state.vesselName}\" "
+                    + (overlapGhost ? "overlap" : "primary")
+                    + " cycle=" + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                    + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                    + " renderDist=" + FormatPlaybackDistanceForLog(ghostDistance)
+                    + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                    + " anchorPos=" + FormatActiveVesselWorldPosForLog()
+                    + " reason=" + hiddenReason);
                 if (overlapGhost)
                     UnloadOverlapGhostVisuals(index, state, hiddenReason);
                 else
@@ -6807,6 +6867,22 @@ namespace Parsek
             bool activatedDeferredState, bool suppressVisualFx)
         {
             return activatedDeferredState && !suppressVisualFx;
+        }
+
+        /// <summary>
+        /// Whether engine plume FX must be explicitly restarted this frame. True only on the
+        /// suppressed -> unsuppressed transition: engine FX are event-driven and
+        /// <see cref="GhostPlaybackLogic.StopAllEngineFx"/> left them dark, so they need a
+        /// one-shot restart from the last recorded throttle when suppression lifts. (RCS and
+        /// audio restore themselves on every unsuppressed frame, so they need no transition
+        /// gate.) Distinct from <see cref="ShouldRestoreDeferredRuntimeFxState"/>, which only
+        /// fires on ghost re-activation and so misses an FX-suppress lift while the ghost
+        /// stayed active in the reduced-fidelity Visual tier.
+        /// </summary>
+        internal static bool ShouldRestartEngineFxAfterSuppression(
+            bool suppressVisualFx, bool wasVisualFxSuppressed)
+        {
+            return !suppressVisualFx && wasVisualFxSuppressed;
         }
 
         private static void ResetGhostAppearanceTracking(GhostPlaybackState state)
