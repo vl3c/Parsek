@@ -27,9 +27,12 @@ namespace Parsek
         /// indices are disjoint and each Mission owns its own span clock. Returns
         /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when nothing loops or no looping Mission
         /// maps to any committed member. Member indices are committed-list indices (the alignment
-        /// invariant the engine consumes). A committed index claimed by more than one unit (only
-        /// possible if the one-per-tree invariant is violated) is kept on its FIRST claimant and the
-        /// later claim is dropped with a warn, so the maps never disagree.
+        /// invariant the engine consumes). Collisions (only possible if the one-per-tree invariant is
+        /// violated upstream): a unit whose owner index is already taken is dropped wholesale with a
+        /// warn (the realistic same-tree case, since same-tree variants share the trunk root and so
+        /// the same earliest/owner index); a stray shared member index is kept on its FIRST claimant
+        /// in OwnerByIndex, so the engine's per-index dispatch always routes a shared index to one
+        /// unit.
         /// </summary>
         internal static GhostPlaybackLogic.LoopUnitSet Build(
             IReadOnlyList<Mission> missions,

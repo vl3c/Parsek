@@ -572,6 +572,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_TwoLoopingMissionsOnSameTree_KeepsFirst_WarnsCollision_MapsConsistent()
+        {
+            // The store enforces one-loop-per-tree, but Build carries a defensive collision guard
+            // in case the invariant is violated upstream. Two looping missions on the SAME tree
+            // share the trunk (and therefore the earliest committed index / owner), so the second
+            // unit's owner slot collides and it is dropped wholesale with a warn.
+            var tree = LinearTree("t1"); // single through-line a/b/c -> indices 0,1,2, owner 0
+            var committed = new List<Recording>
+            {
+                tree.Recordings["a"], tree.Recordings["b"], tree.Recordings["c"]
+            };
+            var missions = new List<Mission>
+            {
+                new Mission("m1", "t1", "A") { LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto },
+                new Mission("m2", "t1", "B") { LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto }
+            };
+
+            var set = Build(missions, new[] { tree }, committed);
+
+            // Exactly one unit survives; every index resolves to that one owner (maps agree).
+            Assert.Equal(1, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(0, unit.OwnerIndex);
+            Assert.Equal(0, set.OwnerByIndex[1]);
+            Assert.Equal(0, set.OwnerByIndex[2]);
+            // Every member the surviving unit lists routes back to the surviving unit.
+            foreach (int idx in unit.MemberIndices)
+                Assert.Equal(0, set.OwnerByIndex[idx]);
+            // The collision was logged.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Mission]") && l.Contains("already owned by another looping unit"));
+        }
+
+        [Fact]
         public void Build_OnlyOneOfTwoMissionsLooping_ProducesOneUnit()
         {
             var t1 = LinearTree("t1");
