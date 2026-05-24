@@ -7,9 +7,21 @@ namespace Parsek.Tests
         [Fact]
         public void PhysicsBubbleThreshold_IsSharedAcrossCoreGhostSystems()
         {
-            Assert.Equal(DistanceThresholds.PhysicsBubbleMeters, RenderingZoneManager.PhysicsBubbleRadius);
+            // The 2.3 km physics bubble is shared by relative-frame anchoring and
+            // background sampling. The rendering full-fidelity radius is deliberately
+            // NOT tied to it (see FullFidelityDecoupledFromPhysicsBubble below).
             Assert.Equal(DistanceThresholds.RelativeFrame.EntryMeters, AnchorDetector.RelativeEntryDistance);
             Assert.Equal(DistanceThresholds.BackgroundSampling.MaxDistanceMeters, ProximityRateSelector.PhysicsBubble);
+        }
+
+        [Fact]
+        public void FullFidelityDecoupledFromPhysicsBubble()
+        {
+            // Engine plumes / smoke read well from several km away, so the rendering
+            // full-fidelity range is larger than KSP's physics-load bubble.
+            Assert.Equal(DistanceThresholds.GhostFlight.FullFidelityRangeMeters, RenderingZoneManager.FullFidelityRadius);
+            Assert.True(RenderingZoneManager.FullFidelityRadius > DistanceThresholds.PhysicsBubbleMeters);
+            Assert.True(DistanceThresholds.GhostFlight.FullFidelityRestoreMeters < DistanceThresholds.GhostFlight.FullFidelityRangeMeters);
         }
 
         [Fact]

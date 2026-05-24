@@ -25,6 +25,8 @@ All notable changes to Parsek are documented here.
 - Watching a looped mission no longer shows the wrong ghost (just the capsule and parachute). Watch entry now syncs the watched vessel's parts to the mission's shared loop clock, so the full rocket appears instead of replaying every staging and decouple event to the raw game time.
 - Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
 - Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
+- Staging and other decoupler separations are now recorded and labelled as decouples instead of "Broke up". Only genuine crashes, overheats, and structural failures are recorded as breakups; a separation that mixes a real failure with a decouple still counts as a breakup.
+- Ghost engine plumes, smoke, and other effects now stay visible out to 5 km instead of cutting off at about 2.3 km, so a looped launch keeps its exhaust trail well into the ascent. Watched ghosts were already exempt; this brings non-watched ghosts in line.
 
 ---
 

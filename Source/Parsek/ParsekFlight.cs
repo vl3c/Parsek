@@ -5604,8 +5604,32 @@ namespace Parsek
                             trajectoryPointSource = "destroyed-before-capture";
                         }
 
+                        // Classify decoupler-initiated (intentional staging / decoupler fire)
+                        // vs force-driven structural break. A child caught by
+                        // onPartDeCoupleNewVesselComplete (present in decoupleControllerStatus)
+                        // came off through Part.decouple(); a decouple-only trigger means the
+                        // whole split was detected via that callback. Everything else stays a
+                        // breakup so a genuine crash is never relabelled a decouple.
+                        bool childWasDecoupleCreated = decoupleControllerStatus != null
+                            && decoupleControllerStatus.ContainsKey(newPid);
+                        bool triggerWasDecoupleOnly =
+                            pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+                        string childSplitCause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                            childWasDecoupleCreated, triggerWasDecoupleOnly);
+                        // Best-available proxy for BranchPoint.DecouplerPartId: the separated
+                        // child's root part (the part that came off through the decoupler). KSP's
+                        // decouple callback does not hand us the parent-side decoupler module, and
+                        // this field has no behavioral consumer (serialized / logged only), so the
+                        // child root PID is informative without being load-bearing. 0 when unknown,
+                        // matching the background-recorder decouple path.
+                        uint childDecouplerPartId = childWasDecoupleCreated
+                            ? (childVessel?.rootPart?.persistentId ?? 0u)
+                            : 0u;
+
                         ParsekLog.Info("Coalescer",
                             $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
+                            $", cause={childSplitCause}, decoupleCreated={childWasDecoupleCreated}" +
+                            $", triggerDecoupleOnly={triggerWasDecoupleOnly}, decouplerPartId={childDecouplerPartId}" +
                             $", preSnapshot={preSnapshot != null}, preTrajectoryPoint={preTrajectoryPoint.HasValue} " +
                             $"pointSource={trajectoryPointSource} " +
                             $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)}" +
@@ -5614,8 +5638,10 @@ namespace Parsek
                                 : string.Empty));
                         crashCoalescer.OnSplitEvent(
                             branchUT, newPid, hasController,
+                            splitCause: childSplitCause,
                             preSnapshot: preSnapshot,
-                            preTrajectoryPoint: preTrajectoryPoint);
+                            preTrajectoryPoint: preTrajectoryPoint,
+                            decouplerPartId: childDecouplerPartId);
                         pendingSplitRecorder?.RegisterHighFidelityProximityVessel(
                             newPid,
                             branchUT,
@@ -5745,9 +5771,9 @@ namespace Parsek
                 return;
 
             ParsekLog.Info("Coalescer",
-                $"Coalescer emitted BREAKUP: ut={breakupBp.UT:F2}, " +
-                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
-                $"duration={breakupBp.BreakupDuration:F3}s");
+                $"Coalescer emitted split branch point: ut={breakupBp.UT:F2}, " +
+                $"type={breakupBp.Type}, cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, " +
+                $"debris={breakupBp.DebrisCount}, duration={breakupBp.BreakupDuration:F3}s");
 
             ProcessBreakupEvent(breakupBp);
         }
@@ -6459,9 +6485,9 @@ namespace Parsek
             }
 
             ParsekLog.Info("Coalescer",
-                $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +
+                $"ProcessBreakupEvent: {breakupBp.Type} attached to tree={activeTree.Id}, " +
                 $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
-                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, debris={breakupBp.DebrisCount}, " +
                 $"skippedTrivial={skippedDebris}, " +
                 $"duration={breakupBp.BreakupDuration:F3}s");
         }
