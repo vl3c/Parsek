@@ -6805,6 +6805,35 @@ namespace Parsek
                 return false;
             return true;
         }
+
+        /// <summary>
+        /// Self-healing edge for the unit-handoff retarget: decides what value the engine should
+        /// store for the "watched member was rendering" edge of its per-unit transition state after
+        /// it fired (or considered firing) a <c>UnitHandoffRetarget</c> this frame.
+        ///
+        /// The host transfer can DEFER when the target member's ghost is still being built
+        /// (unit-member respawns are time-sliced over several frames). If the engine advanced its
+        /// edge unconditionally, the steady-state early-return would suppress any re-fire for the
+        /// rest of the cycle and the camera would stay stranded on the now-hidden old member. To make
+        /// the retarget retry every frame until it lands, the engine must PRESERVE the
+        /// rendering-edge (return <c>true</c>) while the retarget fired but the watch camera has not
+        /// yet moved to <paramref name="newLiveMemberIndex"/> (detected via
+        /// <paramref name="watchedIndex"/>, which is the live watched index the engine reads each
+        /// frame). Once the transfer lands (<paramref name="watchedIndex"/> ==
+        /// <paramref name="newLiveMemberIndex"/>) or the retarget did not fire this frame, the real
+        /// <paramref name="watchedIsRendering"/> value is stored and re-firing stops.
+        ///
+        /// Returns the value to store for the edge. Pure; no infinite re-fire because the stored
+        /// <c>true</c> only persists while <paramref name="watchedIndex"/> still lags
+        /// <paramref name="newLiveMemberIndex"/>.
+        /// </summary>
+        internal static bool ResolveUnitHandoffStoredRenderingEdge(
+            bool retargetFired, int watchedIndex, int newLiveMemberIndex, bool watchedIsRendering)
+        {
+            if (retargetFired && watchedIndex != newLiveMemberIndex)
+                return true; // transfer pending (target ghost not spawned yet) -> re-fire next frame
+            return watchedIsRendering;
+        }
     }
 
     /// <summary>

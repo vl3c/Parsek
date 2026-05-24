@@ -809,12 +809,20 @@ namespace Parsek
             // the new live ghost is not spawned yet, the transfer defers (returns false); the
             // keep-watched-owner-alive fallback (KeepWatchedUnitGhostAlive on the engine) holds the
             // currently-watched member's ghost so the camera never targets a deactivated ghost even
-            // if this single event is dropped.
+            // if this single event is dropped. The engine re-fires this event every frame while the
+            // transfer is pending (it does not advance its handoff edge until WatchedRecordingIndex
+            // actually lands on the live member), so a deferred transfer here is retried next frame
+            // rather than lost; we log the deferred outcome and let the engine drive the retry.
             if (evt.Action == CameraActionType.UnitHandoffRetarget)
             {
                 if (watchedRecordingIndex < 0) return; // not watching anything
                 if (watchedRecordingIndex == evt.Index) return; // already on the live member
-                TransferWatchToNextSegment(evt.Index);
+                bool transferred = TransferWatchToNextSegment(evt.Index);
+                if (!transferred)
+                    ParsekLog.VerboseRateLimited(
+                        "CameraFollow", "unit-handoff-defer",
+                        $"Unit handoff retarget to #{evt.Index} deferred (target ghost not ready) "
+                            + "- engine will re-fire next frame");
                 return;
             }
 

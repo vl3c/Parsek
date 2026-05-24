@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Mission-loop watch camera stuck on hidden member at a unit handoff
+
+- When a Mission loops and the player watches it, the camera should follow the live member and hand off to the next member as the shared span clock crosses member boundaries (and at the loop wrap). The engine fires `CameraActionType.UnitHandoffRetarget` and `WatchModeController.HandleLoopCameraAction` calls `TransferWatchToNextSegment`. The camera stayed glued to the old (now hidden, held-alive) member whenever the target member's ghost was not yet spawned at the boundary.
+- **Root cause:** the retarget was fire-and-forget. `GhostPlaybackEngine.LogUnitTransitionIfChanged` fired the event then unconditionally advanced `lastUnitSelection[unit.OwnerIndex]` to the new selection, so the steady-state early-return suppressed any re-fire for the rest of the cycle. The host transfer (`TransferWatchToNextSegment`) returns false and leaves `watchedRecordingIndex` unchanged when the target ghost is still building (unit-member respawns are time-sliced; the chain-seam immediate-build fast path does not apply to unit members), so a large stack took several frames to build and the single retarget event was lost.
+- **Fix (engine-side, self-healing):** `LogUnitTransitionIfChanged` no longer advances the rendering edge of `lastUnitSelection` while a retarget is pending. A new pure helper `GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(retargetFired, watchedIndex, newLiveMemberIndex, watchedIsRendering)` returns `true` (preserve the rendering->hidden edge) while the watch camera has not yet landed on the live member (detected by comparing the live watched index `ctx.protectedIndex` to the intended `liveMemberIdx`), so the gate re-fires the event each frame; once `watchedIndex == liveMemberIdx` it stores the real value and re-firing stops. `cycle` / `liveMemberIdx` advance as before, so no duplicate wrap/handoff diagnostics. `HandleLoopCameraAction` now consumes the `TransferWatchToNextSegment` bool and rate-limit-logs the deferred outcome. Inert when not looping (no unit set) or not watching (`watchedIndex < 0`). Approach B (a per-frame reconciler in `UpdateWatchCamera`) was rejected because the controller does not cleanly know the unit's current live member without new cross-class plumbing.
+- **Tests:** 4 new `MissionSpanClockTests.ResolveUnitHandoffStoredRenderingEdge_*` cases (pending preserves edge, landed stores real value, no-retarget stores real value, no-retarget-not-rendering stores false). A full in-game test was impractical (would need new harness plumbing to spawn a unit, withhold the target ghost for N frames, and drive `HandleLoopCameraAction`); the pure decision helper is covered instead. Full suite green (12473).
+- **Status:** CLOSED 2026-05-24.
+
+---
+
 ## Done - v0.10.0 Warp-to-time: in-flight paths validated
 
 - "Warp to time" (Timeline window, PR #947) in-flight flow validated in the 2026-05-22 run (`logs/2026-05-22_2123_warp-inflight-v2/`, save `s10`). The in-flight warp no longer auto-commits: it uses the simple KSC confirm text, then defers through the Space Center so the existing scene-exit Merge / Discard dialog handles the active recording first.

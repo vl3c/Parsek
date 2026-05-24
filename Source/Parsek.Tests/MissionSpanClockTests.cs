@@ -540,5 +540,53 @@ namespace Parsek.Tests
                 watchedIndex: -1, watchedWasRendering: true, watchedIsRendering: false,
                 newLiveMemberIndex: 7, unit));
         }
+
+        // === Self-healing unit-handoff retarget (deferred-transfer retry) ===
+        // The host transfer can defer when the target member's ghost is still being built
+        // (time-sliced respawns). ResolveUnitHandoffStoredRenderingEdge decides whether to preserve
+        // the rendering edge (true => re-fire next frame) or store the real value (re-firing stops).
+
+        [Fact]
+        public void ResolveUnitHandoffStoredRenderingEdge_RetargetPending_PreservesEdge()
+        {
+            // The retarget fired this frame but the watch camera is still on the OLD member (#6)
+            // because the target (#7) ghost has not spawned yet. The edge must stay true so the gate
+            // re-fires next frame. WHAT MAKES IT FAIL: storing the real watchedIsRendering (false)
+            // would let the steady-state early-return suppress the re-fire and strand the camera.
+            Assert.True(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired: true, watchedIndex: 6, newLiveMemberIndex: 7,
+                watchedIsRendering: false));
+        }
+
+        [Fact]
+        public void ResolveUnitHandoffStoredRenderingEdge_TransferLanded_StoresRealValue()
+        {
+            // The watch camera has landed on the live member (watchedIndex == newLiveMemberIndex):
+            // the transfer succeeded, so store the real rendering value (true here) and stop
+            // re-firing. WHAT MAKES IT FAIL: preserving true unconditionally would re-fire forever.
+            Assert.True(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired: true, watchedIndex: 7, newLiveMemberIndex: 7,
+                watchedIsRendering: true));
+        }
+
+        [Fact]
+        public void ResolveUnitHandoffStoredRenderingEdge_NoRetarget_StoresRealValue()
+        {
+            // No retarget fired this frame (steady state): store the real watchedIsRendering value
+            // (true => still rendering). The pending-edge override must NOT engage.
+            Assert.True(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired: false, watchedIndex: 6, newLiveMemberIndex: 6,
+                watchedIsRendering: true));
+        }
+
+        [Fact]
+        public void ResolveUnitHandoffStoredRenderingEdge_NoRetargetNotRendering_StoresFalse()
+        {
+            // No retarget and the watched member is not rendering (e.g. inter-cycle tail / nothing
+            // live): store false so the next rendering->hidden transition is detected cleanly.
+            Assert.False(GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired: false, watchedIndex: 6, newLiveMemberIndex: -1,
+                watchedIsRendering: false));
+        }
     }
 }

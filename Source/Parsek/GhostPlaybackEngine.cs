@@ -2065,8 +2065,23 @@ namespace Parsek
             // (ShouldRetargetWatchOnUnitHandoff) gates on the watched index belonging to this unit
             // and the render-state transition; firing here keys off the SAME single per-frame
             // transition detector, so the event fires once per boundary, not every frame.
-            if (GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                    watchedIndex, watchedWasRendering, watchedIsRendering, liveMemberIdx, unit))
+            //
+            // Re-fire while pending: the host transfer can DEFER when the target member's ghost is
+            // not spawned yet (unit-member respawns are time-sliced over several frames). A
+            // fire-and-forget single shot would leave the camera stuck on the old (now hidden)
+            // member because the steady-state early-return above suppresses any re-fire once the
+            // state advances. To make the retarget self-healing we DO NOT advance the
+            // watchedRendering edge of lastUnitSelection until the watch camera has actually
+            // landed on liveMemberIdx (the engine reads the live watched index as `watchedIndex`,
+            // i.e. ctx.protectedIndex == WatchModeController.WatchedRecordingIndex). While the
+            // transfer is pending we keep watchedRendering=true, so next frame the gate sees the
+            // same wasRendering=true -> isRendering=false transition and re-fires the event. Once
+            // the transfer lands (watchedIndex == liveMemberIdx) we store the real watchedIsRendering
+            // value and re-firing stops. cycle / liveMemberIdx always advance as-is so we never emit
+            // duplicate "wrapped cycle" diagnostics.
+            bool retargetFired = GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex, watchedWasRendering, watchedIsRendering, liveMemberIdx, unit);
+            if (retargetFired)
             {
                 ParsekLog.Info("CameraFollow",
                     "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
@@ -2078,9 +2093,28 @@ namespace Parsek
                     Index = liveMemberIdx,
                     Action = CameraActionType.UnitHandoffRetarget,
                 });
+                // If the watch camera did not transfer this frame (still on the old member because
+                // the target ghost is mid-build), the pure helper preserves the rendering edge so the
+                // event re-fires next frame; this rate-limited line records that pending state.
+                if (watchedIndex != liveMemberIdx)
+                    ParsekLog.VerboseRateLimited(
+                        "CameraFollow", "unit-handoff-retry",
+                        "unit watch retarget pending owner="
+                            + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " target #" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                            + " (watch still #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                            + ") - re-firing until ghost spawns",
+                        5.0);
             }
 
-            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering);
+            // Self-healing edge: while the retarget is pending (target ghost not yet spawned) keep
+            // the rendering edge true so the steady-state early-return does not suppress the re-fire.
+            // Once the transfer lands (watchedIndex == liveMemberIdx) the real value is stored and
+            // re-firing stops. cycle / liveMemberIdx always advance as-is (no duplicate wrap logs).
+            bool storedWatchedRendering = GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired, watchedIndex, liveMemberIdx, watchedIsRendering);
+
+            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
         }
 
         /// <summary>
