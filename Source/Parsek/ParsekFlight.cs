@@ -22410,8 +22410,10 @@ namespace Parsek
         /// World position the flight camera is anchored on: the watched ghost while in watch
         /// mode, otherwise the active (real) vessel. The ghost render-distance LOD radius is
         /// centered here so zooming the camera in/out does not toggle ghost FX (see
-        /// <see cref="TryResolvePlaybackDistanceReferencePosition"/>). Returns null only when
-        /// neither anchor is available, leaving the caller to fall back to the camera.
+        /// <see cref="TryResolvePlaybackDistanceReferencePosition"/>). A non-finite watched-ghost
+        /// anchor falls through to the active vessel; an unavailable active vessel returns null.
+        /// The caller treats null or a non-finite result as "no anchor" and falls back to the
+        /// camera, so the active-vessel branch is intentionally not finiteness-checked here.
         /// </summary>
         Vector3d? ResolveCameraAnchorWorldPosition()
         {
