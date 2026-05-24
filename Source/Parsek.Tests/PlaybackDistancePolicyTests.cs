@@ -5,25 +5,13 @@ namespace Parsek.Tests
     public class PlaybackDistancePolicyTests
     {
         [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_FlightView_PrefersSceneCamera()
+        public void TryResolvePlaybackDistanceReferencePosition_PrefersCameraAnchorOverCamera()
         {
+            // The LOD radius must be centered on the camera anchor (real vessel / watched
+            // ghost), NOT the zoomable camera transform — even when both are available.
             bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: false,
+                cameraAnchorWorldPosition: new Vector3d(5000, 6000, 7000),
                 cameraWorldPosition: new Vector3d(50, 60, 70),
-                activeVesselWorldPosition: new Vector3d(5000, 6000, 7000),
-                out Vector3d referencePosition);
-
-            Assert.True(resolved);
-            AssertVectorEquals(new Vector3d(50, 60, 70), referencePosition);
-        }
-
-        [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_MapView_PrefersActiveVessel()
-        {
-            bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: true,
-                cameraWorldPosition: new Vector3d(50, 60, 70),
-                activeVesselWorldPosition: new Vector3d(5000, 6000, 7000),
                 out Vector3d referencePosition);
 
             Assert.True(resolved);
@@ -31,12 +19,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_NoCamera_FallsBackToActiveVessel()
+        public void TryResolvePlaybackDistanceReferencePosition_AnchorOnly_Resolves()
         {
             bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: false,
+                cameraAnchorWorldPosition: new Vector3d(5000, 6000, 7000),
                 cameraWorldPosition: null,
-                activeVesselWorldPosition: new Vector3d(5000, 6000, 7000),
                 out Vector3d referencePosition);
 
             Assert.True(resolved);
@@ -44,12 +31,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_NoActiveVessel_FallsBackToCamera()
+        public void TryResolvePlaybackDistanceReferencePosition_NoAnchor_FallsBackToCamera()
         {
             bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: false,
+                cameraAnchorWorldPosition: null,
                 cameraWorldPosition: new Vector3d(50, 60, 70),
-                activeVesselWorldPosition: null,
                 out Vector3d referencePosition);
 
             Assert.True(resolved);
@@ -57,25 +43,23 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_InvalidCamera_FallsBackToActiveVessel()
+        public void TryResolvePlaybackDistanceReferencePosition_InvalidAnchor_FallsBackToCamera()
         {
             bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: false,
-                cameraWorldPosition: new Vector3d(double.NaN, 60, 70),
-                activeVesselWorldPosition: new Vector3d(5000, 6000, 7000),
+                cameraAnchorWorldPosition: new Vector3d(double.NaN, 6000, 7000),
+                cameraWorldPosition: new Vector3d(50, 60, 70),
                 out Vector3d referencePosition);
 
             Assert.True(resolved);
-            AssertVectorEquals(new Vector3d(5000, 6000, 7000), referencePosition);
+            AssertVectorEquals(new Vector3d(50, 60, 70), referencePosition);
         }
 
         [Fact]
-        public void TryResolvePlaybackDistanceReferencePosition_InvalidInputs_ReturnsFalse()
+        public void TryResolvePlaybackDistanceReferencePosition_BothInvalid_ReturnsFalse()
         {
             bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
-                mapViewEnabled: false,
-                cameraWorldPosition: new Vector3d(double.NaN, 60, 70),
-                activeVesselWorldPosition: new Vector3d(5000, double.PositiveInfinity, 7000),
+                cameraAnchorWorldPosition: new Vector3d(double.NaN, 6000, 7000),
+                cameraWorldPosition: new Vector3d(50, double.PositiveInfinity, 70),
                 out Vector3d referencePosition);
 
             Assert.False(resolved);

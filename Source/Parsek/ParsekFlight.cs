@@ -22345,28 +22345,30 @@ namespace Parsek
         private const bool NormalPlaybackPointHermiteEnabled = false;
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
-            bool mapViewEnabled,
+            Vector3d? cameraAnchorWorldPosition,
             Vector3d? cameraWorldPosition,
-            Vector3d? activeVesselWorldPosition,
             out Vector3d referencePosition)
         {
             referencePosition = Vector3d.zero;
 
-            if (!mapViewEnabled
-                && cameraWorldPosition.HasValue
-                && IsFiniteVector3d(cameraWorldPosition.Value))
+            // Center the ghost render-distance LOD radius on the camera ANCHOR — the
+            // real vessel in normal flight, the watched ghost in watch mode — not on the
+            // free-floating camera transform. Zooming the camera out moves the camera far
+            // from the anchored object; using camera-to-ghost distance then culls ghost FX
+            // (plume/smoke) even though the ghost is still close to the anchor, and zooming
+            // back in does not reliably restore them. Anchor-to-ghost distance is
+            // zoom-invariant, so all ghosts within the LOD radius of the followed object
+            // render regardless of camera zoom.
+            if (cameraAnchorWorldPosition.HasValue
+                && IsFiniteVector3d(cameraAnchorWorldPosition.Value))
             {
-                referencePosition = cameraWorldPosition.Value;
+                referencePosition = cameraAnchorWorldPosition.Value;
                 return true;
             }
 
-            if (activeVesselWorldPosition.HasValue
-                && IsFiniteVector3d(activeVesselWorldPosition.Value))
-            {
-                referencePosition = activeVesselWorldPosition.Value;
-                return true;
-            }
-
+            // Fallback only: the anchor is unavailable (no active vessel and not watching
+            // a resolvable ghost). The camera transform is the last resort so the distance
+            // is still finite rather than NaN.
             if (cameraWorldPosition.HasValue
                 && IsFiniteVector3d(cameraWorldPosition.Value))
             {
@@ -22391,14 +22393,10 @@ namespace Parsek
             Vector3d? cameraWorldPosition = sceneCamera != null
                 ? (Vector3d?)sceneCamera.transform.position
                 : null;
-            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
-                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
-                : null;
             Vector3d referencePosition;
             if (!TryResolvePlaybackDistanceReferencePosition(
-                    MapView.MapIsEnabled,
+                    ResolveCameraAnchorWorldPosition(),
                     cameraWorldPosition,
-                    activeVesselWorldPosition,
                     out referencePosition))
             {
                 return double.NaN;
@@ -22406,6 +22404,31 @@ namespace Parsek
 
             return ResolvePlaybackDistanceFromReferencePosition(
                 index, traj, state, playbackUT, referencePosition);
+        }
+
+        /// <summary>
+        /// World position the flight camera is anchored on: the watched ghost while in watch
+        /// mode, otherwise the active (real) vessel. The ghost render-distance LOD radius is
+        /// centered here so zooming the camera in/out does not toggle ghost FX (see
+        /// <see cref="TryResolvePlaybackDistanceReferencePosition"/>). Returns null only when
+        /// neither anchor is available, leaving the caller to fall back to the camera.
+        /// </summary>
+        Vector3d? ResolveCameraAnchorWorldPosition()
+        {
+            if (watchMode != null
+                && watchMode.IsWatchingGhost
+                && watchMode.TryGetWatchedGhostAnchorWorldPosition(out Vector3d watchedAnchor)
+                && IsFiniteVector3d(watchedAnchor))
+            {
+                return watchedAnchor;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            Transform activeTransform = activeVessel != null ? activeVessel.transform : null;
+            if (activeTransform != null)
+                return (Vector3d)activeTransform.position;
+
+            return null;
         }
 
         double ResolvePlaybackActiveVesselDistanceForEngine(

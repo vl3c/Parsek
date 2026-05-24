@@ -12,6 +12,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Ghost FX culled when zooming the flight camera out (LOD measured from camera, not anchor)
+
+- Report 2026-05-24. Follow-up to the 2.3 km -> 5 km FX-range fix below. In flight with the camera anchored on the real vessel (not Watch mode), zooming the camera out past the FX range makes ghost engine plumes / smoke disappear even though the ghost is still close to the real vessel; zooming back in does not bring them back.
+- **Root cause:** the ghost render-distance that drives the LOD / FX tier (`renderDistance`, via `ParsekFlight.ResolvePlaybackDistanceForEngine` -> `TryResolvePlaybackDistanceReferencePosition`) was measured from the scene CAMERA transform in flight view. Zooming out moves the camera far from the anchored vessel, so `renderDistance` crosses `FullFidelityRangeMeters` (5 km) and `ApplyDistanceLodPolicy` returns `suppressVisualFx` / `reduceFidelity`. The camera transform is not what the scene is centered on; the active vessel (or, in Watch mode, the watched ghost) is.
+- **Fix:** measure `renderDistance` from the camera ANCHOR instead of the camera transform. `TryResolvePlaybackDistanceReferencePosition` now prefers the anchor (camera kept only as a finite fallback); `ResolveCameraAnchorWorldPosition` returns the watched ghost's pivot in Watch mode (new side-effect-free `WatchModeController.TryGetWatchedGhostAnchorWorldPosition`) and `FlightGlobals.ActiveVessel` otherwise. `lastDistance` (the active-vessel safety distance feeding watch entry / exit + watched full-fidelity) and `ResolvePlaybackActiveVesselDistanceForEngine` are unchanged. Map view already anchored on the active vessel, so its behavior is preserved.
+- **Tests:** rewrote `PlaybackDistancePolicyTests` for the new anchor-first contract (prefer anchor over camera; camera fallback when anchor null / non-finite; false when both non-finite). Full xUnit suite 12409 passing.
+- **Discovered (separate, NOT fixed here):** engine plume FX have no symmetric per-frame restart. `StopAllEngineFx` runs on `suppressVisualFx`, but the un-suppress path (`ApplyFrameVisuals` else branch) only restores RCS / audio / reentry, and `RestoreDeferredRuntimeFxState` fires only on ghost re-activation (`activatedDeferredState`), not on an FX-suppress -> unsuppress transition while the ghost stays active. So a ghost that genuinely crosses 5 km from the anchor during a steady burn and returns keeps a dead plume until the next recorded EngineThrottle event. The anchor fix removes the zoom trigger (the reported repro); this asymmetry remains for real boundary crossings. Tracked as a follow-up.
+- **Status:** CLOSED for the reported zoom repro, pending in-KSP confirmation. Re-confirm: in flight, camera on the real vessel, zoom fully out and back in while a non-watch ghost burns within ~5 km; plumes should stay lit throughout.
+
+---
+
 ## Done - v0.10.0 Ghost engine FX / smoke culled at 2.3 km from anchor (too early)
 
 - Report 2026-05-24. Watching a looped mission launch in flight (not in Watch mode): the rocket mesh lifts off the pad fine, then around 2.3 km the engine plumes / smoke stop rendering. Watched ghosts kept their plumes far into the distance, so the report was non-watch-only.

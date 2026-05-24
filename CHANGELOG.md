@@ -23,6 +23,7 @@ All notable changes to Parsek are documented here.
 - Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
 - Staging and other decoupler separations are now recorded and labelled as decouples instead of "Broke up". Only genuine crashes, overheats, and structural failures are recorded as breakups; a separation that mixes a real failure with a decouple still counts as a breakup.
 - Ghost engine plumes, smoke, and other effects now stay visible out to 5 km instead of cutting off at about 2.3 km, so a looped launch keeps its exhaust trail well into the ascent. Watched ghosts were already exempt; this brings non-watched ghosts in line.
+- Ghost effects no longer cut out when you zoom the flight camera out, and reappear correctly when you zoom back in. The effect range is now measured from the vessel the camera is following rather than the camera position, so every ghost near that vessel keeps its effects at any zoom level.
 
 ---
 
