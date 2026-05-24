@@ -28,8 +28,9 @@ namespace Parsek
     {
         /// <summary>
         /// KSP's loaded-physics envelope around the active vessel. This is the core
-        /// spatial boundary that several systems key off: rendering fidelity,
-        /// relative-frame anchoring, and background sampling.
+        /// spatial boundary that several systems key off: relative-frame anchoring
+        /// and background sampling. Rendering fidelity no longer keys off this; it
+        /// uses the larger <see cref="GhostFlight.FullFidelityRangeMeters"/>.
         /// </summary>
         internal const double PhysicsBubbleMeters = 2300.0;
 

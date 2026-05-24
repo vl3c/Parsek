@@ -524,9 +524,12 @@ namespace Parsek.Tests
         [Fact]
         public void ApplyDistanceLodPolicy_HystereticVisualZone_KeepsReducedFidelityInsideBoundary()
         {
+            // 9800 m sits in the 9700-10000 m hysteresis band: a ghost that drifted
+            // out to Visual and is creeping back in is still classified Visual, so
+            // the policy must keep it reduced even though the raw distance is < 10 km.
             var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
                 shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
-                ghostDistanceMeters: 2299.0, forceFullFidelity: false,
+                ghostDistanceMeters: 9800.0, forceFullFidelity: false,
                 classifiedZone: RenderingZone.Visual);
 
             Assert.False(result.shouldHideMesh);
