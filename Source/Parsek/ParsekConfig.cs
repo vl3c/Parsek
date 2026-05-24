@@ -68,7 +68,7 @@ namespace Parsek
             /// Does not affect relative-frame anchoring or background sampling,
             /// which key off <see cref="PhysicsBubbleMeters"/> directly.
             /// </summary>
-            internal const double FullFidelityRangeMeters = 5000.0;
+            internal const double FullFidelityRangeMeters = 10000.0;
 
             internal const double LoopFullFidelityMeters = FullFidelityRangeMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
@@ -78,9 +78,9 @@ namespace Parsek
             /// ghost that has dropped to reduced fidelity must move back inside
             /// this distance before full-fidelity renderers are restored. Slightly
             /// below <see cref="FullFidelityRangeMeters"/> to suppress boundary
-            /// chatter.
+            /// chatter (kept ~300 m under it).
             /// </summary>
-            internal const double FullFidelityRestoreMeters = 4700.0;
+            internal const double FullFidelityRestoreMeters = 9700.0;
 
             // Keep the watch camera available through typical ascent/coast ghosts
             // without letting it stay latched to whole-orbit distant playback.

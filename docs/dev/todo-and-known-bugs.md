@@ -12,6 +12,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Ghost full-fidelity range raised 5 km -> 10 km
+
+- Player request: extend the full-mesh + FX (plume / smoke) full-fidelity distance further out. The boundary is a single constant pair in `ParsekConfig.cs`: `DistanceThresholds.GhostFlight.FullFidelityRangeMeters` 5000 -> 10000, and the hysteresis floor `FullFidelityRestoreMeters` 4700 -> 9700 (kept ~300 m below the range so a ghost that drifts past the boundary and back does not stick in reduced fidelity). `RenderingZoneManager.FullFidelityRadius` / `LoopFullFidelityRadius` derive from those constants, so the flight LOD zones, loop-spawn simplification, and part-event rendering all follow. Measured from the camera ANCHOR vehicle (not the camera), per the recent FX-LOD-anchor fix.
+- **Tests:** updated the boundary-value assertions in `ZoneRenderingTests` / `RenderingZoneTests` (the `*_AtFullFidelityBoundary_*` cases, the hysteresis-band cases, and `ZoneBoundaries_CorrectValues`) from the old 5000 / 4700 / 4999 literals to 10000 / 9700 / 9999. Full suite green (12524).
+- **Status:** CLOSED 2026-05-24.
+
+---
+
 ## Done - v0.10.0 Mission loop: concurrent missions (one loop per tree)
 
 - A single looping Mission was the hard limit: `MissionStore.SetLoopEnabled` cleared EVERY other looping Mission on enable, `NormalizeSingleLoop` kept only the first looping Mission on load, and `MissionLoopUnitBuilder.Build` / `BuildSignature` only ever looked at the first looping Mission (`FindLoopingMission`). The `LoopUnitSet` was already a multi-unit dictionary (`UnitsByOwner` / `OwnerByIndex`) and all three scenes (flight engine, KSC, TS) already dispatch PER committed index via `TryGetUnitForMember(i)` / `ResolveTrackingStationSampleUT(i, ..., loopUnits)`, so the engine side needed no change.
