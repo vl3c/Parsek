@@ -12,6 +12,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Missions window: index column, sorting, rename, clone order, watch, effective-period
+
+- Batch of Missions-window UX from the 2026-05-25 playtest, all in `MissionsWindowUI.cs` (+ `MissionStore.cs`, `ParsekConfig.cs`):
+- **Loop period "didn't loop every 10 s" (root cause, not a bug):** the reported mission span was 883 s (full ascent to orbit); `MaxOverlapMissionInstances=12` clamped `ComputeEffectiveLaunchCadence(10, 883, 12)` to `883/12 = 73.6 s` (log: `overlapCadence=73.627...`). The period was effectively 10 s (the untouched sentinel is 10.0). A shorter 56 s-span mission logged `overlapCadence=10` (no clamp), confirming it is span-dependent. Per the user decision, bumped `MaxOverlapMissionInstances` 12 -> 20 to mirror `MaxOverlapGhostsPerRecording`, and the period cell now SHOWS the effective (capped) cadence.
+- **Effective-period display:** `DrawMissionLoopPeriodCell` now computes `ComputeEffectiveLaunchCadence(requested, span, cap)` (span = union of included through-lines' [StartUT,EndUT] via new `MissionSpanSeconds`) and, when looping and the cap raised it, shows the effective value tinted (`LoopPeriodClampColor`) in both Auto and manual modes. Manual editing still shows/commits the raw typed value (effective shown only when unfocused).
+- **Index numbers + column:** new per-tree 1-based index (committed-tree order) via `BuildTreeIndexMap`; clones share their tree's number (non-modifiable, unaffected by rename). Rendered as an "N." cell in the (renamed) first column; the column header is the sortable "#".
+- **Sorting:** `MissionSortColumn { Index, Name, StartTime }` + `sortAscending`, via the shared generic `ParsekUI.DrawSortableHeaderCore<TCol>`. `BuildSortedMissionRows` orders the display list; tiebreak by tree index then original list position so a tree's clones stay adjacent.
+- **Rename:** double-click a mission title to edit inline (`renamingMissionId` + text field, Enter commits / Esc cancels / click-away commits via `activeMissionRenameRect`), mirroring the recordings-window group rename.
+- **Clone order:** `MissionStore.Clone` inserts the copy directly after its source (was append).
+- **Header + width:** "Vessel" -> "Missions and vessels"; `DefaultWidth` += 30 + `ColW_Watch` (50).
+- **Watch button:** per-mission "Watch" before Clone (flight only), `ResolveMissionWatchTarget` picks the first watchable member (active ghost, same body, in range) off the RAW committed list and calls `flight.EnterWatchMode`; for a looping mission the existing unit handoff carries the camera across stages. "W*"/exit when already watching a member. `MissionsWindowUI.cs` added to the ERS/ELS allowlist (raw committed index feeds ghost-engine watch APIs, same rationale as `TimelineWindowUI.cs`).
+- **Tests:** `MissionStoreTests.Clone_InsertsCopyDirectlyAfterSource`; null-tree normalize test made order-independent; cap test comment refreshed. Full suite green (12525).
+- **Status:** CLOSED 2026-05-25.
+
+---
+
 ## Done - v0.10.0 Ghost full-fidelity range raised 5 km -> 10 km
 
 - Player request: extend the full-mesh + FX (plume / smoke) full-fidelity distance further out. The boundary is a single constant pair in `ParsekConfig.cs`: `DistanceThresholds.GhostFlight.FullFidelityRangeMeters` 5000 -> 10000, and the hysteresis floor `FullFidelityRestoreMeters` 4700 -> 9700 (kept ~300 m below the range so a ghost that drifts past the boundary and back does not stick in reduced fidelity). `RenderingZoneManager.FullFidelityRadius` / `LoopFullFidelityRadius` derive from those constants, so the flight LOD zones, loop-spawn simplification, and part-event rendering all follow. Measured from the camera ANCHOR vehicle (not the camera), per the recent FX-LOD-anchor fix.

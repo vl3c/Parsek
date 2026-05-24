@@ -152,18 +152,20 @@ namespace Parsek
         /// <summary>
         /// Hard ceiling on simultaneously-live MISSION instances when a looping
         /// Mission overlaps itself (its loop period is shorter than its span).
-        /// Mirrors <see cref="MaxOverlapGhostsPerRecording"/>, but at the mission
+        /// Mirrors <see cref="MaxOverlapGhostsPerRecording"/> at the mission
         /// granularity: each mission instance is a full staggered replay of EVERY
         /// member, so the live ghost count is roughly this value times the member
-        /// count. Set lower than the per-recording cap because of that per-member
-        /// multiplier. Combined with
+        /// count. Set equal to the per-recording cap so a looped mission overlaps
+        /// as generously as a single looped recording does (the per-member overlap
+        /// path already re-bounds each member by
+        /// <see cref="MaxOverlapGhostsPerRecording"/>). Combined with
         /// <see cref="GhostPlaybackLogic.ComputeEffectiveLaunchCadence"/> in
         /// <see cref="MissionLoopUnitBuilder"/> the cap is strictly observed: the
         /// mission's overlap cadence is raised to the minimum value that keeps
         /// <c>ceil(span / cadence)</c> within the cap, so no mission instance is
         /// ever silently culled mid-span.
         /// </summary>
-        internal const int MaxOverlapMissionInstances = 12;
+        internal const int MaxOverlapMissionInstances = 20;
 
         /// <summary>
         /// Bug #414: cap on throttle-eligible ghost-visual builds per

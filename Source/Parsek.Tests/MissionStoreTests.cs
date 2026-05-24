@@ -93,6 +93,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Clone_InsertsCopyDirectlyAfterSource()
+        {
+            // Two trees so there is a mission after the source to displace; the clone must land
+            // between the source and the next mission, not at the end of the list.
+            MissionStore.EnsureDefaultsForTrees(
+                new List<RecordingTree> { Tree("t1", "Kerbal X"), Tree("t2", "Mun Lander") });
+            var before = new List<Mission>(MissionStore.Missions);
+            Mission source = before.Find(m => m.TreeId == "t1");
+
+            Mission clone = MissionStore.Clone(source);
+
+            var after = new List<Mission>(MissionStore.Missions);
+            int srcPos = after.IndexOf(source);
+            Assert.Equal(srcPos + 1, after.IndexOf(clone)); // directly after the source
+            Assert.Equal(before.Count + 1, after.Count);
+        }
+
+        [Fact]
         public void Delete_BlockedOnLast_AllowedWhenMoreThanOne()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
@@ -303,9 +321,9 @@ namespace Parsek.Tests
             // null TreeId to "" so all null-tree missions share ONE logical loop slot, while a
             // real-tree mission stays independent.
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
-            Mission real = First();              // tree t1, list index 0
-            Mission n1 = MissionStore.Clone(real); // appended
-            Mission n2 = MissionStore.Clone(real); // appended
+            Mission real = First();                // tree t1
+            Mission n1 = MissionStore.Clone(real); // inserted after its source
+            Mission n2 = MissionStore.Clone(real); // inserted after its source
             n1.TreeId = null;
             n2.TreeId = null;
             real.LoopPlayback = true;
@@ -314,10 +332,12 @@ namespace Parsek.Tests
 
             int cleared = MissionStore.NormalizeOneLoopPerTree();
 
+            // The real-tree mission is independent; the two null-tree missions collapse to one
+            // logical "" slot, so exactly one of them is cleared (which one depends on list
+            // order, so assert the invariant, not a specific survivor).
             Assert.Equal(1, cleared);
-            Assert.True(real.LoopPlayback);  // distinct (real) tree - kept
-            Assert.True(n1.LoopPlayback);    // first null-tree mission - kept
-            Assert.False(n2.LoopPlayback);   // second null-tree mission - cleared (same "" slot)
+            Assert.True(real.LoopPlayback);                       // distinct (real) tree - kept
+            Assert.True(n1.LoopPlayback ^ n2.LoopPlayback);       // exactly one null-tree survivor
         }
 
         [Fact]

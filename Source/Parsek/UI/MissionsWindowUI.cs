@@ -53,23 +53,48 @@ namespace Parsek
         private const string InputLockId = "Parsek_MissionsWindow";
         private const float MinWindowWidth = 450f;
         private const float MinWindowHeight = 150f;
-        private const float DefaultWidth = 680f;
+        // Default width: the prior 680 plus 30 px of breathing room plus the new
+        // per-mission Watch button column.
+        private const float DefaultWidth = 680f + 30f + ColW_Watch;
 
-        // Fixed-width columns to the right of the expanding "Vessel" column, mirroring
-        // the recordings window's fixed-width cells so the window reads as the same
-        // table style. Layout: [check] Vessel | Start time | Start event | End event | End time.
-        private const float ColW_Check = 22f;
+        // Fixed-width columns to the right of the expanding "Missions and vessels" column,
+        // mirroring the recordings window's fixed-width cells so the window reads as the
+        // same table style. Layout: [index/check] Missions and vessels | Start time |
+        // Start event | End event | End time. The first column doubles as the mission
+        // index cell (on header bars) and the include checkbox (on through-line rows).
+        private const float ColW_Index = 30f;
         private const float ColW_StartTime = 100f;
         private const float ColW_StartEvent = 85f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 100f;
         private const float ColW_Action = 60f;
+        private const float ColW_Watch = 50f;
 
         // Mission-header loop controls (live on the header row, not the table columns).
         private const float ColW_Loop = 52f;
         private const float ColW_Period = 90f;
 
+        // How a Mission row list is ordered. Index = the per-tree index number (clones of a
+        // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
+        private enum MissionSortColumn { Index, Name, StartTime }
+        private MissionSortColumn sortColumn = MissionSortColumn.Index;
+        private bool sortAscending = true;
+
+        // Inline mission-title rename (double-click the name), mirroring the recordings
+        // window group rename. renamingMissionId is the Mission.Id currently being edited.
+        private string renamingMissionId;
+        private string renamingMissionText = "";
+        private bool renamingMissionFocused;
+        private Rect activeMissionRenameRect;
+        private string lastClickedMissionId;
+        private float lastMissionClickTime;
+        private const float DoubleClickThreshold = 0.3f;
+
         private static readonly Color DimColor = new Color(1f, 1f, 1f, 0.45f);
+
+        // Tint for a loop-period value that the overlap cap raised above what was requested
+        // (so the cell shows the real effective cadence in a distinct colour). Soft amber.
+        private static readonly Color LoopPeriodClampColor = new Color(1f, 0.8f, 0.4f);
 
         // -- Recreated styles --
         // RecordingsTableUI builds these privately inside EnsurePhaseStyles();
@@ -210,6 +235,15 @@ namespace Parsek
         {
             EnsureStyles();
 
+            // Click outside an active rename field -> commit and close (mirrors the
+            // recordings window's defocus handling).
+            if (Event.current.type == EventType.MouseDown && renamingMissionId != null
+                && activeMissionRenameRect.width > 0
+                && !activeMissionRenameRect.Contains(Event.current.mousePosition))
+            {
+                CommitMissionRenameById(renamingMissionId);
+            }
+
             // Breathing room below the title bar (matches the recordings window).
             GUILayout.Space(5);
 
@@ -235,16 +269,18 @@ namespace Parsek
                 // horizontal padding so columns align with the header above.
                 GUILayout.BeginVertical(tableBodyBoxStyle);
 
-                // Snapshot so Clone / Delete (which mutate the store) can be invoked
-                // from within the draw loop; the change takes effect on the next frame.
-                var snapshot = new List<Mission>(missions);
+                // Per-tree index numbers (1-based, in committed-tree order). Clones share a
+                // tree, so they share its index; renaming a mission never changes it.
+                Dictionary<string, int> treeIndex = BuildTreeIndexMap(trees);
+
+                // Snapshot + sort for display. Clone / Delete (which mutate the store) are
+                // invoked from within the draw loop; the change takes effect next frame.
+                var ordered = BuildSortedMissionRows(missions, trees, treeIndex);
                 int missionCount = 0;
                 int rowCount = 0;
-                for (int i = 0; i < snapshot.Count; i++)
+                for (int i = 0; i < ordered.Count; i++)
                 {
-                    Mission mission = snapshot[i];
-                    if (mission == null)
-                        continue;
+                    Mission mission = ordered[i].mission;
                     RecordingTree tree = FindTree(trees, mission.TreeId);
                     if (tree == null)
                         continue;
@@ -252,7 +288,7 @@ namespace Parsek
 
                     var (structure, view) = GetMissionView(tree);
 
-                    DrawMissionHeader(mission);
+                    DrawMissionHeader(mission, ordered[i].index, view);
 
                     // Single source of truth for the include/exclude cascade (greying +
                     // checkbox state both derive from this set). Computed once per mission
@@ -318,24 +354,31 @@ namespace Parsek
             return cached;
         }
 
-        // Mission header bar: the mission name (section-header style), a loop toggle + a
-        // loop-period cell, then Clone and Delete. Delete is disabled when this is the
-        // tree's last mission. Clone/Delete mutate MissionStore; the draw loop iterates a
-        // snapshot so that is safe. The loop toggle goes through MissionStore.SetLoopEnabled,
-        // which allows concurrent looping across trees but at most one looping mission per
-        // tree (it only flips bools on same-tree siblings, never adds/removes, so it is safe
-        // to call from inside the draw loop).
-        private void DrawMissionHeader(Mission mission)
+        // Mission header bar: a non-modifiable index cell, the mission name (section-header
+        // style, double-click to rename inline), a loop toggle + loop-period cell, then Watch,
+        // Clone and Delete. Delete is disabled when this is the tree's last mission; Watch is
+        // flight-only and enabled when a member ghost is watchable. Clone/Delete mutate
+        // MissionStore; the draw loop iterates a snapshot so that is safe. The loop toggle goes
+        // through MissionStore.SetLoopEnabled, which allows concurrent looping across trees but
+        // at most one looping mission per tree (it only flips bools on same-tree siblings, never
+        // adds/removes, so it is safe to call from inside the draw loop).
+        private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label(string.IsNullOrEmpty(mission.Name) ? "(mission)" : mission.Name,
-                parentUI.GetSectionHeaderStyle(), GUILayout.ExpandWidth(true));
+
+            // Index cell (first column): the per-tree number, non-modifiable. Shared by clones.
+            GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "." : "",
+                parentUI.GetSectionHeaderStyle(), GUILayout.Width(ColW_Index));
+
+            DrawMissionTitleOrRename(mission);
 
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "Loop", GUILayout.Width(ColW_Loop));
             if (loopNow != mission.LoopPlayback)
                 MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
 
-            DrawMissionLoopPeriodCell(mission);
+            DrawMissionLoopPeriodCell(mission, view);
+
+            DrawMissionWatchButton(mission, view);
 
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
                 MissionStore.Clone(mission);
@@ -346,13 +389,296 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
+        // The mission title cell: a label that enters inline-edit on double-click (mirrors the
+        // recordings window group rename). While editing, a text field replaces the label;
+        // Enter commits, Escape cancels. Click-away commit is handled by the window-level
+        // mouse-down check (see DrawWindow's outer event handling parity with RecordingsTableUI).
+        private void DrawMissionTitleOrRename(Mission mission)
+        {
+            string display = string.IsNullOrEmpty(mission.Name) ? "(mission)" : mission.Name;
+
+            if (renamingMissionId == mission.Id)
+            {
+                bool submit = Event.current.type == EventType.KeyDown &&
+                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancel = Event.current.type == EventType.KeyDown &&
+                    Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName("MissionRename");
+                renamingMissionText = GUILayout.TextField(renamingMissionText, GUILayout.ExpandWidth(true));
+                activeMissionRenameRect = GUILayoutUtility.GetLastRect();
+                if (!renamingMissionFocused)
+                {
+                    GUI.FocusControl("MissionRename");
+                    renamingMissionFocused = true;
+                }
+                if (submit)
+                {
+                    CommitMissionRename(mission);
+                    Event.current.Use();
+                }
+                else if (cancel)
+                {
+                    renamingMissionId = null;
+                    Event.current.Use();
+                }
+                return;
+            }
+
+            if (GUILayout.Button(display, parentUI.GetSectionHeaderStyle(), GUILayout.ExpandWidth(true)))
+            {
+                float t = Time.realtimeSinceStartup;
+                if (lastClickedMissionId == mission.Id && t - lastMissionClickTime < DoubleClickThreshold)
+                {
+                    // Commit any other in-progress rename before starting this one.
+                    if (renamingMissionId != null)
+                        CommitMissionRenameById(renamingMissionId);
+                    renamingMissionId = mission.Id;
+                    renamingMissionText = mission.Name ?? "";
+                    renamingMissionFocused = false;
+                    lastClickedMissionId = null;
+                    ParsekLog.Verbose("Mission", $"Rename started for mission '{mission.Name}'");
+                }
+                else
+                {
+                    lastClickedMissionId = mission.Id;
+                    lastMissionClickTime = t;
+                }
+            }
+        }
+
+        // Watch button: follows the whole mission (its currently-watchable member ghost), in
+        // flight only. Mirrors the recordings-window Watch button but mission-scoped - it picks
+        // the mission's live member and enters watch on it; for a looping mission the engine's
+        // unit handoff then carries the camera across stages as the shared clock advances. "W*"
+        // when already watching one of this mission's members.
+        private void DrawMissionWatchButton(Mission mission, MissionThroughLineView view)
+        {
+            if (!parentUI.InFlightMode || parentUI.Flight == null)
+            {
+                // Keep the column width stable when not in flight (greyed placeholder).
+                GUI.enabled = false;
+                GUILayout.Button("Watch", GUILayout.Width(ColW_Watch));
+                GUI.enabled = true;
+                return;
+            }
+
+            var flight = parentUI.Flight;
+            // [ERS-exempt] reason: the watch path feeds ghost-engine APIs (HasActiveGhost /
+            // IsGhostOnSameBody / IsGhostWithinVisualRange / WatchedRecordingIndex /
+            // EnterWatchMode) that are keyed on the RAW committed index, not the ERS index
+            // (which shifts after a Re-Fly supersede). Same rationale as TimelineWindowUI.
+            var committed = RecordingStore.CommittedRecordings;
+            int watchTarget = ResolveMissionWatchTarget(mission, view, committed, flight,
+                out bool isWatchingThisMission);
+
+            bool canWatch = watchTarget >= 0 || isWatchingThisMission;
+            GUI.enabled = canWatch;
+            string label = isWatchingThisMission ? "W*" : "Watch";
+            if (GUILayout.Button(label, GUILayout.Width(ColW_Watch)))
+            {
+                if (isWatchingThisMission)
+                {
+                    flight.ExitWatchMode();
+                    ParsekLog.Info("Mission", $"Watch exited for mission '{mission.Name}'");
+                }
+                else if (watchTarget >= 0)
+                {
+                    flight.EnterWatchMode(watchTarget);
+                    ParsekLog.Info("Mission",
+                        $"Watch entered for mission '{mission.Name}' on member recording #{watchTarget}");
+                }
+            }
+            GUI.enabled = true;
+        }
+
+        private void LogSortChanged()
+        {
+            ParsekLog.Verbose("UI",
+                $"Missions sort column changed: {sortColumn} {(sortAscending ? "asc" : "desc")}");
+        }
+
+        // Per-tree index numbers, 1-based, assigned in committed-tree order. Every Mission of a
+        // tree (the default plus any clones) shares the tree's number, so a clone reads as a copy
+        // of the same indexed mission and renaming never renumbers anything.
+        private static Dictionary<string, int> BuildTreeIndexMap(List<RecordingTree> trees)
+        {
+            var map = new Dictionary<string, int>(System.StringComparer.Ordinal);
+            if (trees == null)
+                return map;
+            int n = 0;
+            for (int i = 0; i < trees.Count; i++)
+            {
+                RecordingTree t = trees[i];
+                if (t == null || string.IsNullOrEmpty(t.Id) || map.ContainsKey(t.Id))
+                    continue;
+                map[t.Id] = ++n;
+            }
+            return map;
+        }
+
+        // The mission span start UT = earliest root through-line start (offshoots leave later).
+        private static double MissionSpanStartUT(MissionThroughLineView view)
+        {
+            double min = double.PositiveInfinity;
+            if (view != null)
+                for (int r = 0; r < view.RootHeadIds.Count; r++)
+                    if (view.ByHeadId.TryGetValue(view.RootHeadIds[r], out MissionThroughLine tl)
+                        && tl.StartUT < min)
+                        min = tl.StartUT;
+            return double.IsInfinity(min) ? 0.0 : min;
+        }
+
+        // The mission span in seconds = (max end - min start) over the INCLUDED through-lines,
+        // mirroring how MissionLoopUnitBuilder derives the span it caps the overlap cadence to.
+        // Used only for the period cell's effective-cadence display. Returns 0 when nothing is
+        // included (no overlap, so the cell shows the raw period).
+        private static double MissionSpanSeconds(MissionThroughLineView view, Mission mission)
+        {
+            if (view == null)
+                return 0.0;
+            HashSet<string> included = MissionSelection.ComputeIncludedHeadIds(
+                view, mission.ExcludedThroughLineHeadIds);
+            double min = double.PositiveInfinity;
+            double max = double.NegativeInfinity;
+            foreach (string head in included)
+                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
+                {
+                    if (tl.StartUT < min) min = tl.StartUT;
+                    if (tl.EndUT > max) max = tl.EndUT;
+                }
+            if (double.IsInfinity(min) || double.IsInfinity(max))
+                return 0.0;
+            return System.Math.Max(0.0, max - min);
+        }
+
+        // Builds the display-ordered (mission, index) list for the current sort column/direction.
+        // Tiebreakers fall back to the tree index then the original list position so a tree's
+        // clones stay grouped together (the clone was inserted right after its source).
+        private List<(Mission mission, int index)> BuildSortedMissionRows(
+            IReadOnlyList<Mission> missions, List<RecordingTree> trees, Dictionary<string, int> treeIndex)
+        {
+            var rows = new List<(Mission mission, int index, double startUT, int origPos)>();
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission m = missions[i];
+                if (m == null)
+                    continue;
+                RecordingTree tree = FindTree(trees, m.TreeId);
+                if (tree == null)
+                    continue;
+                int idx = treeIndex.TryGetValue(m.TreeId ?? "", out int ti) ? ti : 0;
+                var (_, view) = GetMissionView(tree);
+                rows.Add((m, idx, MissionSpanStartUT(view), i));
+            }
+
+            rows.Sort((a, b) =>
+            {
+                int cmp;
+                switch (sortColumn)
+                {
+                    case MissionSortColumn.Name:
+                        cmp = string.Compare(a.mission.Name ?? "", b.mission.Name ?? "",
+                            System.StringComparison.OrdinalIgnoreCase);
+                        if (cmp == 0) cmp = a.index.CompareTo(b.index);
+                        break;
+                    case MissionSortColumn.StartTime:
+                        cmp = a.startUT.CompareTo(b.startUT);
+                        if (cmp == 0) cmp = a.index.CompareTo(b.index);
+                        break;
+                    default: // Index
+                        cmp = a.index.CompareTo(b.index);
+                        break;
+                }
+                if (cmp == 0) cmp = a.origPos.CompareTo(b.origPos);
+                return sortAscending ? cmp : -cmp;
+            });
+
+            var result = new List<(Mission, int)>(rows.Count);
+            for (int i = 0; i < rows.Count; i++)
+                result.Add((rows[i].mission, rows[i].index));
+            return result;
+        }
+
+        // Commits the in-progress mission-title rename. Empty / unchanged text is discarded.
+        private void CommitMissionRename(Mission mission)
+        {
+            if (mission == null)
+            {
+                renamingMissionId = null;
+                renamingMissionFocused = false;
+                return;
+            }
+            string newName = (renamingMissionText ?? "").Trim();
+            if (!string.IsNullOrEmpty(newName) && newName != mission.Name)
+            {
+                string old = mission.Name;
+                mission.Name = newName;
+                ParsekLog.Info("Mission", $"Renamed mission '{old}' -> '{newName}'");
+            }
+            renamingMissionId = null;
+            renamingMissionFocused = false;
+            activeMissionRenameRect = default;
+        }
+
+        private void CommitMissionRenameById(string id)
+        {
+            var missions = MissionStore.Missions;
+            for (int i = 0; i < missions.Count; i++)
+                if (missions[i] != null && missions[i].Id == id)
+                {
+                    CommitMissionRename(missions[i]);
+                    return;
+                }
+            renamingMissionId = null;
+            renamingMissionFocused = false;
+            activeMissionRenameRect = default;
+        }
+
+        // Picks the committed recording index to watch for a mission: the first watchable member
+        // (active ghost, same body, in visual range) among the mission's included through-line
+        // legs. Also reports whether the currently-watched recording is one of this mission's
+        // members (for the "W*" toggle / exit). Returns -1 when nothing is watchable.
+        private int ResolveMissionWatchTarget(Mission mission, MissionThroughLineView view,
+            IReadOnlyList<Recording> committed, ParsekFlight flight, out bool isWatchingThisMission)
+        {
+            isWatchingThisMission = false;
+            if (committed == null || view == null || flight == null)
+                return -1;
+
+            HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
+                view, mission.ExcludedThroughLineHeadIds);
+            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (string head in includedHeads)
+                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
+                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
+                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
+                            memberIds.Add(tl.MemberLegIds[m]);
+
+            int watchedIdx = flight.WatchedRecordingIndex;
+            int target = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                    || !memberIds.Contains(rec.RecordingId))
+                    continue;
+                if (i == watchedIdx)
+                    isWatchingThisMission = true;
+                if (target < 0 && flight.HasActiveGhost(i) && flight.IsGhostOnSameBody(i)
+                    && flight.IsGhostWithinVisualRange(i))
+                    target = i;
+            }
+            return target;
+        }
+
         // Loop-period cell: a value text field plus a unit button cycling Sec/Min/Hour/
         // Auto, mirroring the recordings window's DrawLoopPeriodCell. When loop is off the
         // controls grey out (matching the recordings window). Reuses ParsekUI's shared
         // loop-time helpers so the parse/format/convert rules stay identical. Commit on
         // text change: parse via TryParseLoopInput, reject negatives, clamp below
         // MinCycleDuration (same contract as RecordingsTableUI.CommitLoopPeriodEdit).
-        private void DrawMissionLoopPeriodCell(Mission mission)
+        private void DrawMissionLoopPeriodCell(Mission mission, MissionThroughLineView view)
         {
             const float unitBtnW = 40f; // match RecordingsTableUI.DrawLoopPeriodCell
             float valueW = ColW_Period - unitBtnW - 4f;
@@ -362,30 +688,51 @@ namespace Parsek
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
+            // The EFFECTIVE launch cadence: the requested period (manual value, or the global
+            // auto-loop interval for Auto) raised by the overlap cap to keep ceil(span/cadence)
+            // within MaxOverlapMissionInstances. When the period is short relative to the mission
+            // span this is larger than what was typed, so the cell shows what is actually running
+            // (e.g. a 10 s period on a 15-min mission runs at ~44 s). Tinted when raised.
+            var settings = ParsekSettings.Current;
+            double requestedSeconds = auto
+                ? (settings != null ? settings.autoLoopIntervalSeconds : LoopTiming.DefaultLoopIntervalSeconds)
+                : mission.LoopIntervalSeconds;
+            double span = MissionSpanSeconds(view, mission);
+            double effectiveSeconds = span > 0
+                ? GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                    requestedSeconds, span, GhostPlayback.MaxOverlapMissionInstances)
+                : System.Math.Max(requestedSeconds, LoopTiming.MinCycleDuration);
+            bool clamped = effectiveSeconds > requestedSeconds + 1e-6;
+            // Only surface the capped value when the mission is actually looping (a cadence is
+            // only "running" then); a greyed-off cell shows the configured value as typed.
+            bool showEffective = clamped && enabled;
+
             if (auto)
             {
-                // Auto mode: the value is inherited from Settings > Looping, not the
-                // Mission's own LoopIntervalSeconds. Mirror RecordingsTableUI's auto
-                // branch: show the global value in the global display unit plus an
-                // explicit unit suffix (the unit button reads "auto", so the suffix is
-                // what tells the player the real unit). Field is non-editable.
-                var settings = ParsekSettings.Current;
-                double globalVal = settings != null
-                    ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
-                    : LoopTiming.DefaultLoopIntervalSeconds;
+                // Auto mode: the value is inherited from Settings > Looping (and then capped by
+                // the span). Show the EFFECTIVE cadence in the global display unit plus a unit
+                // suffix (the unit button reads "auto", so the suffix gives the real unit). The
+                // field is non-editable.
                 var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
-                string autoText = ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit)
+                double autoShown = showEffective ? effectiveSeconds : requestedSeconds;
+                string autoText = ParsekUI.FormatLoopValue(
+                        ParsekUI.ConvertFromSeconds(autoShown, globalDisplayUnit), globalDisplayUnit)
                     + ParsekUI.UnitSuffix(globalDisplayUnit);
                 // Drop any stale edit buffer so re-entering a manual unit re-seeds cleanly.
                 loopPeriodEditBuffers.Remove(mission.Id);
                 GUI.enabled = false;
+                Color prevAuto = GUI.contentColor;
+                if (showEffective) GUI.contentColor = LoopPeriodClampColor;
                 GUILayout.TextField(autoText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                GUI.contentColor = prevAuto;
                 GUI.enabled = true;
             }
             else
             {
-                // Manual mode: seed / refresh the per-mission edit buffer from the stored
-                // value whenever the field is not actively being typed into.
+                // Manual mode: while editing, the field shows the raw value the player is typing;
+                // when not editing it shows the EFFECTIVE (capped) cadence so the real launch
+                // interval is visible. The edit buffer is always seeded from the raw stored value
+                // so focusing the field starts editing the typed value, not the capped one.
                 bool focused = GUI.GetNameOfFocusedControl() == controlName;
                 if (!focused || !loopPeriodEditBuffers.ContainsKey(mission.Id))
                 {
@@ -394,11 +741,21 @@ namespace Parsek
                         mission.LoopTimeUnit);
                 }
 
+                string fieldText = (!focused && showEffective)
+                    ? ParsekUI.FormatLoopValue(
+                        ParsekUI.ConvertFromSeconds(effectiveSeconds, mission.LoopTimeUnit), mission.LoopTimeUnit)
+                    : loopPeriodEditBuffers[mission.Id];
+
                 GUI.enabled = enabled;
                 GUI.SetNextControlName(controlName);
+                Color prevManual = GUI.contentColor;
+                if (!focused && showEffective) GUI.contentColor = LoopPeriodClampColor;
                 string newText = GUILayout.TextField(
-                    loopPeriodEditBuffers[mission.Id], bodyCellTextFieldFlush, GUILayout.Width(valueW));
-                if (newText != loopPeriodEditBuffers[mission.Id])
+                    fieldText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                GUI.contentColor = prevManual;
+                // Only treat edits as edits while focused (when unfocused+clamped the field shows
+                // the computed value, which must not be written back as a typed period).
+                if (focused && newText != loopPeriodEditBuffers[mission.Id])
                 {
                     loopPeriodEditBuffers[mission.Id] = newText;
                     CommitMissionLoopPeriod(mission, newText);
@@ -464,9 +821,15 @@ namespace Parsek
         {
             var colHdr = parentUI.GetColumnHeaderStyle();
             GUILayout.BeginHorizontal();
-            GUILayout.Label("", colHdr, GUILayout.Width(ColW_Check));
-            GUILayout.Label("Vessel", colHdr, GUILayout.ExpandWidth(true));
-            GUILayout.Label("Start time", colHdr, GUILayout.Width(ColW_StartTime));
+            // Sortable headers (click to sort, click again to flip direction), mirroring the
+            // recordings window. The first (index) column, the expanding name column, and the
+            // Start time column sort Missions; the per-leg event columns stay static.
+            parentUI.DrawSortableHeaderCore("#", MissionSortColumn.Index,
+                ref sortColumn, ref sortAscending, ColW_Index, false, LogSortChanged);
+            parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
+                ref sortColumn, ref sortAscending, 0f, true, LogSortChanged);
+            parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
+                ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged);
             GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime));
@@ -540,7 +903,7 @@ namespace Parsek
             bool selfUnchecked = mission.ExcludedThroughLineHeadIds.Contains(tl.HeadLegId);
             bool shownChecked = !parentExcluded && !selfUnchecked;
             GUI.enabled = !parentExcluded;
-            bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Check));
+            bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Index));
             GUI.enabled = true;
             if (!parentExcluded && toggled != shownChecked)
             {
@@ -594,7 +957,7 @@ namespace Parsek
         private void DrawReferenceRow(MissionThroughLine tl, int depth, bool isLast)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Check));
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
 
             float indent = RecordingsTableUI.SelfConnectorIndent(depth);
             if (indent > 0f)

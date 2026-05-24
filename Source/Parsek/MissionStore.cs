@@ -204,7 +204,14 @@ namespace Parsek
             if (source == null)
                 return null;
             Mission copy = source.Clone(Guid.NewGuid().ToString("N"));
-            missions.Add(copy);
+            // Insert the copy directly after its source so a clone sits next to the
+            // original it was made from (and shares its tree index in the UI). Falls
+            // back to append if the source is somehow not in the list.
+            int srcIdx = missions.IndexOf(source);
+            if (srcIdx >= 0)
+                missions.Insert(srcIdx + 1, copy);
+            else
+                missions.Add(copy);
             if (!SuppressLogging)
                 ParsekLog.Info("Mission",
                     $"Cloned mission '{source.Name}' -> '{copy.Name}' (tree={source.TreeId})");

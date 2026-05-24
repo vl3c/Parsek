@@ -281,16 +281,16 @@ namespace Parsek.Tests
         {
             var tree = LinearTree(); // span = 310
             var committed = new List<Recording>(tree.Recordings.Values);
-            // A 1s period would need ceil(310/1) = 310 instances, far over the cap of 12.
-            // The cap raises the overlap cadence to the minimum that keeps the count <= 12:
-            // ceil(310 / cadence) <= 12 -> cadence >= 310/12 = 25.833...
+            // A 1s period would need ceil(310/1) = 310 instances, far over the cap.
+            // The cap raises the overlap cadence to the minimum that keeps the count within
+            // it: ceil(310 / cadence) <= cap -> cadence >= 310/cap.
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Sec, interval: 1.0) };
 
             var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             double span = unit.SpanEndUT - unit.SpanStartUT;
-            int cap = GhostPlayback.MaxOverlapMissionInstances; // 12
+            int cap = GhostPlayback.MaxOverlapMissionInstances; // per-recording cap (20)
             // Cap strictly observed: live instance count never exceeds the cap.
             Assert.True(Math.Ceiling(span / unit.OverlapCadenceSeconds) <= cap);
             // And raised no further than necessary: one notch lower would breach the cap.
