@@ -5349,7 +5349,8 @@ namespace Parsek
             }
             state.fidelityReduced = true;
             ParsekLog.Verbose("Visual",
-                $"ReduceFidelity: disabled {state.fidelityDisabledRenderers.Count}/{renderers.Length} renderers");
+                $"ReduceFidelity: disabled {state.fidelityDisabledRenderers.Count}/{renderers.Length} renderers, "
+                + $"anchorDist={RenderingZoneManager.FormatDistanceForLog(state.lastDistance)}");
         }
 
         /// <summary>

@@ -2104,6 +2104,18 @@ namespace Parsek
 
             if (suppressVisualFx)
             {
+                // Diagnostic (anchor-distance tracer): log the ghost-to-anchor-vehicle distance
+                // on the on->off FX transition so a "FX vanished too early" report can be checked
+                // against the actual anchor distance (not camera distance). ghostPos/anchorPos
+                // expose a phantom-distance seam (positions look close but the metric is huge).
+                if (!priorVisualFxSuppressed)
+                    ParsekLog.VerboseRateLimited("Zone", $"fx-teardown-{index}",
+                        $"FX suppressed: ghost #{index} \"{state.vesselName}\" cycle="
+                        + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                        + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                        + " renderDist=" + FormatPlaybackDistanceForLog(state.lastRenderDistance)
+                        + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                        + " anchorPos=" + FormatActiveVesselWorldPosForLog());
                 GhostPlaybackLogic.StopAllEngineFx(state);
                 GhostPlaybackLogic.StopAllRcsFx(state);
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
@@ -4244,6 +4256,24 @@ namespace Parsek
             return RenderingZoneManager.FormatDistanceForLog(distanceMeters);
         }
 
+        // Diagnostic helpers for the anchor-distance teardown tracer. Compact world-position
+        // strings so a teardown log can be cross-checked for a phantom-distance seam (ghost and
+        // anchor look close but the distance metric reads huge).
+        private static string FormatGhostWorldPosForLog(GhostPlaybackState state)
+        {
+            return state != null && state.ghost != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(state.ghost.transform.position)
+                : "(none)";
+        }
+
+        private static string FormatActiveVesselWorldPosForLog()
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            return activeVessel != null && activeVessel.transform != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(activeVessel.transform.position)
+                : "(none)";
+        }
+
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
         internal static bool IsAnyWarpActiveFromGlobals()
         {
@@ -5702,6 +5732,20 @@ namespace Parsek
 
             if (HasLoadedGhostVisuals(state))
             {
+                // Diagnostic (anchor-distance tracer): the ghost mesh is about to be torn down.
+                // Log the ghost-to-anchor-vehicle distance (state.lastDistance), the render
+                // distance that drove the hide, and both world positions so a "ghost vanished
+                // too early / when a duplicate launched" report can be checked against the real
+                // anchor distance and against a phantom-distance seam.
+                ParsekLog.VerboseRateLimited("Zone", $"mesh-teardown-{index}",
+                    $"Mesh torn down: ghost #{index} \"{state.vesselName}\" "
+                    + (overlapGhost ? "overlap" : "primary")
+                    + " cycle=" + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                    + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                    + " renderDist=" + FormatPlaybackDistanceForLog(ghostDistance)
+                    + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                    + " anchorPos=" + FormatActiveVesselWorldPosForLog()
+                    + " reason=" + hiddenReason);
                 if (overlapGhost)
                     UnloadOverlapGhostVisuals(index, state, hiddenReason);
                 else
