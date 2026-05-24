@@ -12,6 +12,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Ghost engine FX / smoke culled at 2.3 km from anchor (too early)
+
+- Report 2026-05-24. Watching a looped mission launch in flight (not in Watch mode): the rocket mesh lifts off the pad fine, then around 2.3 km the engine plumes / smoke stop rendering. Watched ghosts kept their plumes far into the distance, so the report was non-watch-only.
+- **Root cause:** the rendering full-fidelity boundary (`RenderingZone.Physics` -> `Visual`) was hardwired to `DistanceThresholds.PhysicsBubbleMeters` (KSP's 2.3 km physics-load bubble). Crossing into `Visual` fired two plume-killers at once in `GhostPlaybackLogic.ApplyDistanceLodPolicy`: `reduceFidelity` (disables 3 of every 4 renderers, including the engine plume `ParticleSystemRenderer`) and `suppressVisualFx` (`StopAllEngineFx` + RCS + reentry + mute). `forceWatchedFullFidelity` exempts watched / watch-protected ghosts, which is why only non-watch showed it. General distance-LOD, not loop-specific.
+- **Audit:** all other distance rules reviewed and left as-is - mesh hide at 50 km (`LoopSimplifiedMeters`), Beyond at 120 km (`GhostVisualRangeMeters`), warp FX-off >10x / mesh-off >50x, KSC scene FX warp-only + 25 km hard cull, audio rolloff 30 m - 5 km. Only the 2.3 km full-fidelity boundary was too early. Relative-frame anchoring and background sampling key off `PhysicsBubbleMeters` directly (not the rendering zone), so they were not affected.
+- **Fix:** new `DistanceThresholds.GhostFlight.FullFidelityRangeMeters = 10000`, decoupled from the 2.3 km physics bubble. `RenderingZone.Physics` boundary (`RenderingZoneManager.FullFidelityRadius`), `ShouldRenderPartEvents`, `LoopFullFidelityMeters`, and the `ApplyDistanceLodPolicy` / `DiagnosticsComputation` reduced-tier thresholds now key off it; hysteresis restore renamed `PhysicsFidelityRestoreMeters` -> `FullFidelityRestoreMeters = 9700`. Within 10 km a ghost keeps full mesh + part events + engine / RCS / reentry FX; beyond it drops to the existing reduced-fidelity + FX-suppressed tier. `ReduceGhostFidelity`, the 50 km mesh-hide, and the 120 km Beyond cull are untouched.
+- **Tests:** updated the boundary-coupled `RenderingZoneTests` / `ZoneRenderingTests` / `DistanceThresholdsTests` for 2300 -> 10000 and the renamed constants; added `ApplyDistanceLodPolicy_FiveKmPhysicsZone_KeepsFullFidelityAndFx` and 5 km loop-spawn assertions that encode the requirement directly. Full xUnit suite 12410 passing.
+- **Status:** CLOSED pending playtest. Pure-logic xUnit cannot exercise live ghost particle rendering; confirm in KSP that a non-watch looped launch keeps its plume / smoke out to ~5-10 km from the camera anchor.
+
+---
+
 ## Done - v0.10.0 Warp-to-time: in-flight paths validated
 
 - "Warp to time" (Timeline window, PR #947) in-flight flow validated in the 2026-05-22 run (`logs/2026-05-22_2123_warp-inflight-v2/`, save `s10`). The in-flight warp no longer auto-commits: it uses the simple KSC confirm text, then defers through the Space Center so the existing scene-exit Merge / Discard dialog handles the active recording first.

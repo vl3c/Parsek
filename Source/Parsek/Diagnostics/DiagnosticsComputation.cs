@@ -651,7 +651,7 @@ namespace Parsek
                 GhostPlaybackLogic.IsProtectedGhost(
                     watchedIndex, watchedLoopCycleIndex,
                     recordingIndex, state.loopCycleIndex) &&
-                renderDistance >= DistanceThresholds.PhysicsBubbleMeters;
+                renderDistance >= DistanceThresholds.GhostFlight.FullFidelityRangeMeters;
 
             if (watchedOverrideActive)
             {
@@ -670,7 +670,7 @@ namespace Parsek
 
             if (state.distanceLodReduced
                 || state.fidelityReduced
-                || renderDistance >= DistanceThresholds.PhysicsBubbleMeters)
+                || renderDistance >= DistanceThresholds.GhostFlight.FullFidelityRangeMeters)
             {
                 reducedGhostCount++;
                 return;

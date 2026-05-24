@@ -29,32 +29,34 @@ namespace Parsek.Tests
         #region Zone Classification
 
         [Fact]
-        public void ClassifyDistance_WithinPhysicsBubble_ReturnsPhysics()
+        public void ClassifyDistance_WithinFullFidelityRange_ReturnsPhysics()
         {
             Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(0));
             Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(1000));
-            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(2299));
+            // 5 km is now full-fidelity (plumes visible) — used to fall to Visual at 2.3 km.
+            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(5000));
+            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(9999));
         }
 
         [Fact]
-        public void ClassifyDistance_AtPhysicsBoundary_ReturnsVisual()
+        public void ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual()
         {
-            // Exactly at 2300m boundary transitions to Visual
-            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(2300));
+            // Exactly at 10000m boundary transitions to Visual
+            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(10000));
         }
 
         [Fact]
         public void ClassifyDistance_WithPreviousVisual_HoldsVisualUntilRestoreBand()
         {
             Assert.Equal(RenderingZone.Visual,
-                RenderingZoneManager.ClassifyDistance(2299, RenderingZone.Visual));
+                RenderingZoneManager.ClassifyDistance(9999, RenderingZone.Visual));
             Assert.Equal(RenderingZone.Visual,
                 RenderingZoneManager.ClassifyDistance(
-                    DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters,
+                    DistanceThresholds.GhostFlight.FullFidelityRestoreMeters,
                     RenderingZone.Visual));
             Assert.Equal(RenderingZone.Physics,
                 RenderingZoneManager.ClassifyDistance(
-                    DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters - 1.0,
+                    DistanceThresholds.GhostFlight.FullFidelityRestoreMeters - 1.0,
                     RenderingZone.Visual));
         }
 
@@ -63,7 +65,7 @@ namespace Parsek.Tests
         {
             RenderingZone zone = RenderingZone.Physics;
             int transitionCount = 0;
-            double[] distances = { 2299.0, 2301.0, 2299.0, 2301.0, 2299.0 };
+            double[] distances = { 9999.0, 10001.0, 9999.0, 10001.0, 9999.0 };
 
             for (int i = 0; i < distances.Length; i++)
             {
@@ -81,7 +83,7 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyDistance_InVisualRange_ReturnsVisual()
         {
-            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(5000));
+            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(10001));
             Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(50000));
             Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(119999));
         }
@@ -492,6 +494,31 @@ namespace Parsek.Tests
             Assert.False(result.shouldSkipPositioning);
             Assert.True(result.shouldSuppressVisualFx);
             Assert.True(result.shouldReduceFidelity);
+        }
+
+        [Fact]
+        public void ApplyDistanceLodPolicy_FiveKmPhysicsZone_KeepsFullFidelityAndFx()
+        {
+            // Regression: engine plumes / smoke must NOT be culled at the old 2.3 km
+            // physics bubble. A non-watched ghost 5 km away (Physics zone) keeps part
+            // events, FX, and full renderer fidelity.
+            var result = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 5000, forceFullFidelity: false,
+                classifiedZone: RenderingZone.Physics);
+
+            Assert.False(result.shouldHideMesh);
+            Assert.False(result.shouldSkipPartEvents);
+            Assert.False(result.shouldSkipPositioning);
+            Assert.False(result.shouldSuppressVisualFx);
+            Assert.False(result.shouldReduceFidelity);
+
+            // Same outcome via the distance fallback (no classified zone passed).
+            var fallback = GhostPlaybackLogic.ApplyDistanceLodPolicy(
+                shouldHideMesh: false, shouldSkipPartEvents: false, shouldSkipPositioning: false,
+                ghostDistanceMeters: 5000, forceFullFidelity: false);
+            Assert.False(fallback.shouldSuppressVisualFx);
+            Assert.False(fallback.shouldReduceFidelity);
         }
 
         [Fact]
@@ -937,17 +964,23 @@ namespace Parsek.Tests
         #region Looped Ghost Spawn Gating
 
         [Fact]
-        public void EvaluateLoopedGhostSpawn_WithinPhysicsBubble_FullFidelity()
+        public void EvaluateLoopedGhostSpawn_WithinFullFidelityRange_FullFidelity()
         {
             var (shouldSpawn, simplified) = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(1000);
             Assert.True(shouldSpawn);
             Assert.False(simplified);
+
+            // A looped mission launch climbing past the old 2.3 km cutoff now keeps
+            // full fidelity (plumes / smoke) all the way out to 10 km.
+            var midRange = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(5000);
+            Assert.True(midRange.shouldSpawn);
+            Assert.False(midRange.simplified);
         }
 
         [Fact]
-        public void EvaluateLoopedGhostSpawn_BetweenPhysicsAndSimplified_Simplified()
+        public void EvaluateLoopedGhostSpawn_BetweenFullFidelityAndSimplified_Simplified()
         {
-            var (shouldSpawn, simplified) = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(10000);
+            var (shouldSpawn, simplified) = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(30000);
             Assert.True(shouldSpawn);
             Assert.True(simplified);
         }
@@ -968,10 +1001,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EvaluateLoopedGhostSpawn_AtPhysicsBoundary_Simplified()
+        public void EvaluateLoopedGhostSpawn_AtFullFidelityBoundary_Simplified()
         {
-            // Exactly at 2300m: transitions to simplified
-            var (shouldSpawn, simplified) = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(2300);
+            // Exactly at 10000m: transitions to simplified
+            var (shouldSpawn, simplified) = GhostPlaybackLogic.EvaluateLoopedGhostSpawn(10000);
             Assert.True(shouldSpawn);
             Assert.True(simplified);
         }
@@ -1012,7 +1045,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldRenderPartEvents_InVisualZone_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(5000));
+            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(50000));
         }
 
         [Fact]
@@ -1136,10 +1169,10 @@ namespace Parsek.Tests
         [Fact]
         public void ZoneBoundaries_CorrectValues()
         {
-            Assert.Equal(2300.0, RenderingZoneManager.PhysicsBubbleRadius);
+            Assert.Equal(10000.0, RenderingZoneManager.FullFidelityRadius);
             Assert.Equal(120000.0, RenderingZoneManager.VisualRangeRadius);
-            Assert.Equal(2300.0, RenderingZoneManager.LoopFullFidelityRadius);
-            Assert.Equal(2200.0, DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters);
+            Assert.Equal(10000.0, RenderingZoneManager.LoopFullFidelityRadius);
+            Assert.Equal(9700.0, DistanceThresholds.GhostFlight.FullFidelityRestoreMeters);
             Assert.Equal(50000.0, RenderingZoneManager.LoopSimplifiedRadius);
         }
 
@@ -1150,16 +1183,24 @@ namespace Parsek.Tests
         [Fact]
         public void ZoneAndLoopSpawn_ConsistentAtBoundaries()
         {
-            // At physics boundary (2300m):
+            // At full-fidelity boundary (10000m):
             // Zone: Visual, Loop: simplified
-            var zone = RenderingZoneManager.ClassifyDistance(2300);
-            var (spawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(2300);
+            var zone = RenderingZoneManager.ClassifyDistance(10000);
+            var (spawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(10000);
             Assert.Equal(RenderingZone.Visual, zone);
             Assert.True(spawn);
             Assert.True(simplified);
 
-            // Both agree: no part events at 2300m
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(2300));
+            // Both agree: no part events at 10000m
+            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(10000));
+
+            // And just inside the boundary (5 km) everything stays full fidelity —
+            // this is the regression the FX-cutoff fix targets.
+            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(5000));
+            var midRange = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(5000);
+            Assert.True(midRange.shouldSpawn);
+            Assert.False(midRange.simplified);
+            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(5000));
         }
 
         [Fact]

@@ -5245,7 +5245,7 @@ namespace Parsek
 
             bool shouldReduceFidelity = classifiedZone.HasValue
                 ? classifiedZone.Value == RenderingZone.Visual
-                : ghostDistanceMeters >= DistanceThresholds.PhysicsBubbleMeters;
+                : ghostDistanceMeters >= DistanceThresholds.GhostFlight.FullFidelityRangeMeters;
             if (shouldReduceFidelity)
                 return (false, true, false, true, true);
 
