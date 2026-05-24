@@ -45,6 +45,14 @@ namespace Parsek
         /// because the failure is "no vessel at all", not "wrong vessel".</summary>
         Refused_NullVessel = 7,
 
+        /// <summary>Focused vessel is still <see cref="Vessel.Situations.PRELAUNCH"/>
+        /// (sitting on the pad/runway). The switch-fly immediate-start is
+        /// declined so the vessel follows the same auto-record-on-launch
+        /// rules as any other on-pad vessel; the recorder starts on the
+        /// PRELAUNCH->FLYING transition / first staging instead. Cleared
+        /// with reason <c>prelaunch-defer-to-launch</c>.</summary>
+        Refused_PrelaunchTarget = 8,
+
         /// <summary>Started a continuation segment under a committed-tree
         /// clone (plan §"Fly / Switch-To a committed spawned vessel").</summary>
         StartedCommittedSpawnedClone = 10,
@@ -127,6 +135,11 @@ namespace Parsek
             TargetMismatch = 5,
             DuplicateSameTarget = 7,
             MissedSwitchRecovery = 8,
+
+            /// <summary>Focused vessel is still PRELAUNCH (on the pad). Defer
+            /// the switch-fly start to the normal auto-record-on-launch
+            /// trigger; clear the marker with <c>prelaunch-defer-to-launch</c>.</summary>
+            PrelaunchDeferToLaunch = 9,
         }
 
         /// <summary>
@@ -144,6 +157,7 @@ namespace Parsek
                 case Outcome.TargetMismatch: return "stale-target-mismatch";
                 case Outcome.DuplicateSameTarget: return "duplicate-intent-same-target";
                 case Outcome.MissedSwitchRecovery: return "stale-cross-run";
+                case Outcome.PrelaunchDeferToLaunch: return "prelaunch-defer-to-launch";
                 default: return null;
             }
         }
@@ -167,6 +181,7 @@ namespace Parsek
                 case Outcome.TargetMismatch: return SwitchSegmentEntryRoute.Refused_TargetMismatch;
                 case Outcome.DuplicateSameTarget: return SwitchSegmentEntryRoute.Refused_DuplicateSameTarget;
                 case Outcome.MissedSwitchRecovery: return SwitchSegmentEntryRoute.Refused_MissedSwitchRecovery;
+                case Outcome.PrelaunchDeferToLaunch: return SwitchSegmentEntryRoute.Refused_PrelaunchTarget;
                 case Outcome.Authorized:
                 default:
                     return SwitchSegmentEntryRoute.NoIntent;
@@ -190,6 +205,12 @@ namespace Parsek
         /// <c>stale-cross-run</c> rather than consumed.</param>
         /// <param name="activeSessionFocusedPid">Focused PID of the currently
         /// armed <see cref="SwitchSegmentSession"/> (0 = no active session).</param>
+        /// <param name="targetIsPrelaunch">True when the just-activated focused
+        /// vessel is still <see cref="Vessel.Situations.PRELAUNCH"/> (sitting on
+        /// the pad/runway). Such a vessel must follow the normal
+        /// auto-record-on-launch rules rather than starting a switch-fly
+        /// segment immediately, so a fresh / matching marker is declined with
+        /// <see cref="Outcome.PrelaunchDeferToLaunch"/>.</param>
         internal static Outcome Evaluate(
             StockActionIntentMarker marker,
             uint newVesselPersistentId,
@@ -197,7 +218,8 @@ namespace Parsek
             float currentRealtime,
             double currentUT,
             bool missedSwitchRecoveryInProgress,
-            uint activeSessionFocusedPid)
+            uint activeSessionFocusedPid,
+            bool targetIsPrelaunch)
         {
             if (marker == null)
                 return Outcome.NoIntent;
@@ -244,6 +266,17 @@ namespace Parsek
             {
                 return Outcome.DuplicateSameTarget;
             }
+
+            // PRELAUNCH defer: a vessel still sitting on the pad/runway has not
+            // launched yet, so the stock Fly / Switch-To click must not start a
+            // recording immediately. Decline here and let the normal
+            // auto-record-on-launch trigger (PRELAUNCH->FLYING / first staging)
+            // own the start, matching how any other on-pad vessel behaves. This
+            // is placed after the staleness / target-mismatch / duplicate guards
+            // so those diagnostic-relevant refusals keep precedence over the
+            // routine defer.
+            if (targetIsPrelaunch)
+                return Outcome.PrelaunchDeferToLaunch;
 
             return Outcome.Authorized;
         }

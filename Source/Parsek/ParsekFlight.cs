@@ -2339,6 +2339,17 @@ namespace Parsek
                 backgroundRecorder = null;
             }
             activeTree = null;
+
+            // A discarded active tree must not leave an armed switch-segment
+            // session pointing at it. Without this, the idle-on-pad scene-exit
+            // fast path (SceneExitInterceptor) tears the tree down but the
+            // session (already persisted by the pre-exit OnSave) survives
+            // into the save and resurfaces as a deferred merge dialog on the
+            // next load. ClearSwitchSegmentSession no-ops when none is armed
+            // (e.g. the Case B no-session Switch-To discard).
+            ParsekScenario.Instance?.ClearSwitchSegmentSession(
+                $"active-tree-auto-discard: {reason}");
+
             // No pending tree was stashed (we discard pre-finalize).
             // Roll back any in-flight ledger entries from the aborted
             // recording.
@@ -7979,6 +7990,12 @@ namespace Parsek
                 ? Planetarium.GetUniversalTime()
                 : marker.CapturedUT;
 
+            // PRELAUNCH targets defer to the normal auto-record-on-launch
+            // trigger instead of starting a switch-fly segment immediately
+            // (a vessel still on the pad has not launched yet).
+            bool targetIsPrelaunch =
+                newVessel.situation == Vessel.Situations.PRELAUNCH;
+
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker,
                 newPid,
@@ -7986,7 +8003,8 @@ namespace Parsek
                 currentRealtime,
                 currentUT,
                 missedSwitchRecoveryActive,
-                activeSessionFocusedPid);
+                activeSessionFocusedPid,
+                targetIsPrelaunch);
 
             if (outcome != StockActionIntentConsumeDecision.Outcome.Authorized
                 && outcome != StockActionIntentConsumeDecision.Outcome.NoIntent)
