@@ -2122,7 +2122,10 @@ namespace Parsek
                 // range (canonical case: a looping aircraft that repeatedly crosses the
                 // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
                 // throttle cursor up to this UT, so a throttle-down during the suppressed
-                // window has already cleared currentPower and is not re-ignited here.
+                // window has already cleared currentPower and is not re-ignited here. When the
+                // transition also coincides with a ghost re-activation, RestoreDeferredRuntimeFxState
+                // (in ApplyNonRetiredPostPosition) re-applies the same engines this frame too;
+                // both route through SetEngineEmission and are idempotent.
                 if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
                     GhostPlaybackLogic.RestoreActiveEngineFx(state);
             }

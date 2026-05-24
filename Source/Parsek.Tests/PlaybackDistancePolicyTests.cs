@@ -66,6 +66,18 @@ namespace Parsek.Tests
             AssertVectorEquals(Vector3d.zero, referencePosition);
         }
 
+        [Fact]
+        public void TryResolvePlaybackDistanceReferencePosition_BothNull_ReturnsFalse()
+        {
+            bool resolved = ParsekFlight.TryResolvePlaybackDistanceReferencePosition(
+                cameraAnchorWorldPosition: null,
+                cameraWorldPosition: null,
+                out Vector3d referencePosition);
+
+            Assert.False(resolved);
+            AssertVectorEquals(Vector3d.zero, referencePosition);
+        }
+
         private static void AssertVectorEquals(Vector3d expected, Vector3d actual)
         {
             Assert.Equal(expected.x, actual.x, 12);
