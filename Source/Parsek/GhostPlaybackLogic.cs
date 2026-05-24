@@ -6459,13 +6459,15 @@ namespace Parsek
                 int[] memberIndices,
                 double spanStartUT,
                 double spanEndUT,
-                double cadenceSeconds)
+                double cadenceSeconds,
+                double phaseAnchorUT)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
                 SpanStartUT = spanStartUT;
                 SpanEndUT = spanEndUT;
                 CadenceSeconds = cadenceSeconds;
+                PhaseAnchorUT = phaseAnchorUT;
             }
 
             /// <summary>Earliest member's committed-recording index (owns the span clock).</summary>
@@ -6482,6 +6484,9 @@ namespace Parsek
 
             /// <summary>Cadence: the Mission's loop period, raised to at least the span so the mission never truncates (Auto = span).</summary>
             internal double CadenceSeconds { get; }
+
+            /// <summary>The UT the loop phase is measured from (elapsed = currentUT - PhaseAnchorUT). Equals <see cref="SpanStartUT"/> when no explicit anchor was supplied, which preserves the old absolute-phase behavior.</summary>
+            internal double PhaseAnchorUT { get; }
         }
 
         /// <summary>
@@ -6568,6 +6573,7 @@ namespace Parsek
         /// </summary>
         internal static bool TryComputeSpanLoopUT(
             double currentUT,
+            double phaseAnchorUT,
             double spanStartUT,
             double spanEndUT,
             double cadenceSeconds,
@@ -6579,7 +6585,7 @@ namespace Parsek
             cycleIndex = 0;
             isInInterCycleTail = false;
 
-            if (currentUT < spanStartUT)
+            if (currentUT < phaseAnchorUT)
                 return false;
 
             double span = spanEndUT - spanStartUT;
@@ -6589,7 +6595,11 @@ namespace Parsek
             // Edge 14: clamp the cadence here. The span clock has no ResolveLoopInterval clamp.
             double cycleDuration = Math.Max(cadenceSeconds, LoopTiming.MinCycleDuration);
 
-            double elapsed = currentUT - spanStartUT;
+            // Phase is measured from the anchor (the UT the loop was enabled at), NOT the absolute
+            // span start: at enable-time elapsed == 0 -> phase 0 -> loopUT == spanStartUT, so every
+            // enable (and re-enable) restarts the looped mission from the recording's start. When
+            // phaseAnchorUT == spanStartUT this reduces to the old absolute-phase behavior.
+            double elapsed = currentUT - phaseAnchorUT;
             cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
@@ -6665,6 +6675,7 @@ namespace Parsek
         /// </summary>
         internal static UnitMemberRenderDecision DecideUnitMemberRender(
             double currentUT,
+            double phaseAnchorUT,
             double spanStartUT,
             double spanEndUT,
             double cadenceSeconds,
@@ -6679,8 +6690,8 @@ namespace Parsek
             isInInterCycleTail = false;
 
             if (!TryComputeSpanLoopUT(
-                    currentUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT, out unitCycle,
-                    out isInInterCycleTail))
+                    currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
+                    out unitCycle, out isInInterCycleTail))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -6722,6 +6733,7 @@ namespace Parsek
 
             UnitMemberRenderDecision decision = DecideUnitMemberRender(
                 liveUT,
+                unit.PhaseAnchorUT,
                 unit.SpanStartUT,
                 unit.SpanEndUT,
                 unit.CadenceSeconds,

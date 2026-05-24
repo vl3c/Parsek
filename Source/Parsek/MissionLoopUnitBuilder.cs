@@ -110,10 +110,18 @@ namespace Parsek
             // 8. Owner = earliest-start member (first after the StartUT sort).
             int ownerIndex = memberIndices[0];
 
+            // 8b. Phase anchor: the UT the loop was enabled at. The span clock measures phase from
+            //     this (elapsed = currentUT - phaseAnchorUT) so re-enabling the loop restarts from
+            //     the recording's start. An unset (NaN) anchor falls back to spanStartUT, which
+            //     reproduces the old absolute-phase behavior.
+            double phaseAnchorUT = double.IsNaN(mission.LoopAnchorUT)
+                ? spanStartUT
+                : mission.LoopAnchorUT;
+
             // 9. Build the single unit + lookup maps.
             int[] memberArray = memberIndices.ToArray();
             var unit = new GhostPlaybackLogic.LoopUnit(
-                ownerIndex, memberArray, spanStartUT, spanEndUT, cadence);
+                ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT);
             var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { ownerIndex, unit } };
             var ownerByIndex = new Dictionary<int, int>();
             for (int i = 0; i < memberArray.Length; i++)
@@ -127,7 +135,8 @@ namespace Parsek
                     $"members={memberArray.Length} skipped={skippedNotCommitted} " +
                     $"span=[{spanStartUT.ToString("R", ic)},{spanEndUT.ToString("R", ic)}] " +
                     $"spanDur={span.ToString("R", ic)} unit={mission.LoopTimeUnit} " +
-                    $"cadence={cadence.ToString("R", ic)} owner={ownerIndex}");
+                    $"cadence={cadence.ToString("R", ic)} owner={ownerIndex} " +
+                    $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
             }
 
             return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
@@ -139,7 +148,7 @@ namespace Parsek
         /// + tracking station) so the allocating, Verbose-logging <see cref="Build"/> only fires on
         /// an actual input change while the cached set is pushed every frame. Mirrors Build's "first
         /// looping mission wins" rule. Captures: the first looping mission's Id, TreeId,
-        /// LoopIntervalSeconds, LoopTimeUnit, sorted ExcludedThroughLineHeadIds, the looping tree's
+        /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedThroughLineHeadIds, the looping tree's
         /// BranchPoints.Count + Recordings.Count, plus the committed-list count and a rolling
         /// RecordingId hash. Constant "none:" prefix when no mission loops, so toggling looping off
         /// still rebuilds to Empty exactly once. Pure: no Unity calls, no shared mutable state.
@@ -164,6 +173,9 @@ namespace Parsek
                 sb.Append(looping.TreeId ?? "<notree>").Append('|');
                 sb.Append(looping.LoopIntervalSeconds.ToString("R", ic)).Append('|');
                 sb.Append(looping.LoopTimeUnit.ToString()).Append('|');
+                // Phase anchor: re-enabling the loop re-anchors the span clock, so a changed
+                // anchor must force a rebuild even when nothing else about the mission moved.
+                sb.Append(looping.LoopAnchorUT.ToString("R", ic)).Append('|');
                 // Sorted + joined so set order never perturbs the signature.
                 var excluded = new List<string>(looping.ExcludedThroughLineHeadIds);
                 excluded.Sort(StringComparer.Ordinal);

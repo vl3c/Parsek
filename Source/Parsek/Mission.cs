@@ -28,6 +28,11 @@ namespace Parsek
         public double LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;
 
+        // The UT the loop was last enabled at (NaN = unset). The span clock phases relative
+        // to this anchor (elapsed = currentUT - LoopAnchorUT) so re-enabling the loop restarts
+        // playback from the recording's start instead of resuming mid-mission.
+        public double LoopAnchorUT = double.NaN;
+
         public Mission() { }
 
         public Mission(string id, string treeId, string name)
@@ -46,6 +51,7 @@ namespace Parsek
             copy.LoopPlayback = LoopPlayback;
             copy.LoopIntervalSeconds = LoopIntervalSeconds;
             copy.LoopTimeUnit = LoopTimeUnit;
+            copy.LoopAnchorUT = LoopAnchorUT;
             return copy;
         }
 
@@ -58,6 +64,8 @@ namespace Parsek
             node.AddValue("loopIntervalSeconds",
                 LoopIntervalSeconds.ToString("R", CultureInfo.InvariantCulture));
             node.AddValue("loopTimeUnit", LoopTimeUnit.ToString());
+            node.AddValue("loopAnchorUT",
+                LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
         }
@@ -82,6 +90,10 @@ namespace Parsek
                 m.LoopIntervalSeconds = loopInterval;
             if (Enum.TryParse(node.GetValue("loopTimeUnit"), out LoopTimeUnit loopUnit))
                 m.LoopTimeUnit = loopUnit;
+            // Keep the NaN (unset) default when the value is missing or malformed.
+            if (double.TryParse(node.GetValue("loopAnchorUT"),
+                    NumberStyles.Float, CultureInfo.InvariantCulture, out double loopAnchor))
+                m.LoopAnchorUT = loopAnchor;
 
             string[] heads = node.GetValues("excludedHead");
             for (int i = 0; i < heads.Length; i++)

@@ -1587,9 +1587,9 @@ namespace Parsek
                         // parked tail never engages (always false). Future cadence > span producers
                         // consume the tail directly.
                         if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
-                                ctx.currentUT, parentUnit.SpanStartUT, parentUnit.SpanEndUT,
-                                parentUnit.CadenceSeconds, out parentLoopUT, out parentCycle,
-                                out _))
+                                ctx.currentUT, parentUnit.PhaseAnchorUT, parentUnit.SpanStartUT,
+                                parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
+                                out parentCycle, out _))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -1797,7 +1797,7 @@ namespace Parsek
             // decision helper. No cross-member selection: the decision keys ONLY on whether the
             // shared spanLoopUT is in THIS member's [StartUT, EndUT].
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                ctx.currentUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 traj.StartUT, traj.EndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail);
 

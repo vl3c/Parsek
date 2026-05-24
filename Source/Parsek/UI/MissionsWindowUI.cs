@@ -334,7 +334,7 @@ namespace Parsek
 
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "Loop", GUILayout.Width(ColW_Loop));
             if (loopNow != mission.LoopPlayback)
-                MissionStore.SetLoopEnabled(mission, loopNow);
+                MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
 
             DrawMissionLoopPeriodCell(mission);
 

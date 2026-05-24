@@ -122,10 +122,13 @@ namespace Parsek
         /// <summary>
         /// Enables or disables loop playback on a Mission. Enabling enforces single
         /// selection: at most one Mission loops at a time, so turning <paramref name="target"/>
-        /// on turns every other Mission off. Disabling only clears the target. INERT for
-        /// now (the looping engine that consumes LoopPlayback is wired in a later phase).
+        /// on turns every other Mission off. Enabling also stamps <see cref="Mission.LoopAnchorUT"/>
+        /// to <paramref name="currentUT"/> so the span clock phases from this moment: every enable
+        /// (including the first, and every re-enable after a disable) restarts the looped mission
+        /// from the recording's start instead of resuming mid-phase. Disabling only clears the
+        /// target's flag and leaves the stale anchor in place (the next enable overwrites it).
         /// </summary>
-        internal static void SetLoopEnabled(Mission target, bool on)
+        internal static void SetLoopEnabled(Mission target, bool on, double currentUT)
         {
             if (target == null)
                 return;
@@ -144,9 +147,11 @@ namespace Parsek
                     }
                 }
                 target.LoopPlayback = true;
+                target.LoopAnchorUT = currentUT;
                 if (!SuppressLogging)
                     ParsekLog.Info("Mission",
                         $"SetLoopEnabled: loop ON for '{target.Name}' (tree={target.TreeId}); " +
+                        $"anchorUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}; " +
                         $"cleared {clearedOthers} other looping mission(s) (single-selection)");
             }
             else

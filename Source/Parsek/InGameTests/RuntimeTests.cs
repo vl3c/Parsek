@@ -4544,7 +4544,7 @@ namespace Parsek.InGameTests
             // same helper with broader cases (MissionSpanClockTests).
             var unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 5, memberIndices: new[] { 5 },
-                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150);
+                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150, phaseAnchorUT: 100);
             var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit>
             {
                 { 5, unit }

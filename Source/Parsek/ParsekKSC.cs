@@ -1056,7 +1056,7 @@ namespace Parsek
             // decision helper. No cross-member selection: the decision keys ONLY on whether the
             // shared spanLoopUT is in THIS member's [StartUT, EndUT].
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                currentUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 rec.StartUT, rec.EndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail);
 

@@ -72,6 +72,7 @@ namespace Parsek.Tests
             original.LoopPlayback = true;
             original.LoopIntervalSeconds = 42.5;
             original.LoopTimeUnit = LoopTimeUnit.Min;
+            original.LoopAnchorUT = 9876.5;
 
             Mission clone = MissionStore.Clone(original);
 
@@ -81,10 +82,11 @@ namespace Parsek.Tests
             Assert.Contains("legA", clone.ExcludedThroughLineHeadIds);
             Assert.Equal(2, MissionStore.CountForTree("t1"));
 
-            // Clone copies the three loop fields.
+            // Clone copies the loop fields, including the phase anchor.
             Assert.True(clone.LoopPlayback);
             Assert.Equal(42.5, clone.LoopIntervalSeconds);
             Assert.Equal(LoopTimeUnit.Min, clone.LoopTimeUnit);
+            Assert.Equal(9876.5, clone.LoopAnchorUT);
 
             clone.ExcludedThroughLineHeadIds.Add("legB");
             Assert.DoesNotContain("legB", original.ExcludedThroughLineHeadIds); // independent sets
@@ -128,6 +130,7 @@ namespace Parsek.Tests
             m.LoopPlayback = true;
             m.LoopIntervalSeconds = 123.75;
             m.LoopTimeUnit = LoopTimeUnit.Hour;
+            m.LoopAnchorUT = 54321.25;
             string savedId = m.Id;
 
             var node = new ConfigNode("PARSEK");
@@ -146,10 +149,28 @@ namespace Parsek.Tests
             Assert.Contains("legA", loaded.ExcludedThroughLineHeadIds);
             Assert.Contains("legB", loaded.ExcludedThroughLineHeadIds);
 
-            // Loop fields round-trip too.
+            // Loop fields round-trip too, including the phase anchor.
             Assert.True(loaded.LoopPlayback);
             Assert.Equal(123.75, loaded.LoopIntervalSeconds);
             Assert.Equal(LoopTimeUnit.Hour, loaded.LoopTimeUnit);
+            Assert.Equal(54321.25, loaded.LoopAnchorUT);
+        }
+
+        [Fact]
+        public void SaveLoad_UnsetAnchor_RoundTripsAsNaN()
+        {
+            // An unset anchor (NaN) must survive save/load as NaN, not silently become 0 (which would
+            // anchor the span clock at UT 0 instead of falling back to spanStart in the adapter).
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission m = First();
+            Assert.True(double.IsNaN(m.LoopAnchorUT)); // default
+
+            var node = new ConfigNode("PARSEK");
+            MissionStore.Save(node);
+            MissionStore.ResetForTesting();
+            MissionStore.Load(node);
+
+            Assert.True(double.IsNaN(First().LoopAnchorUT));
         }
 
         [Fact]
@@ -164,14 +185,14 @@ namespace Parsek.Tests
             b.LoopPlayback = true;
             c.LoopPlayback = true;
 
-            MissionStore.SetLoopEnabled(a, true);
+            MissionStore.SetLoopEnabled(a, true, 1000.0);
 
             Assert.True(a.LoopPlayback);
             Assert.False(b.LoopPlayback);
             Assert.False(c.LoopPlayback);
 
             // Turning a different one on clears the previous selection.
-            MissionStore.SetLoopEnabled(b, true);
+            MissionStore.SetLoopEnabled(b, true, 1000.0);
             Assert.False(a.LoopPlayback);
             Assert.True(b.LoopPlayback);
             Assert.False(c.LoopPlayback);
@@ -186,10 +207,32 @@ namespace Parsek.Tests
             a.LoopPlayback = true;
             b.LoopPlayback = true;
 
-            MissionStore.SetLoopEnabled(a, false);
+            MissionStore.SetLoopEnabled(a, false, 1000.0);
 
             Assert.False(a.LoopPlayback);
             Assert.True(b.LoopPlayback); // unaffected
+        }
+
+        [Fact]
+        public void SetLoopEnabled_On_StampsAnchorUT_AndReEnableReAnchors()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
+            Mission a = First();
+            Assert.True(double.IsNaN(a.LoopAnchorUT)); // unset before any enable
+
+            // First enable stamps the anchor to the supplied UT.
+            MissionStore.SetLoopEnabled(a, true, 1234.5);
+            Assert.True(a.LoopPlayback);
+            Assert.Equal(1234.5, a.LoopAnchorUT);
+
+            // Disable then re-enable at a later UT re-anchors: the span clock will restart from the
+            // recording start at the new anchor instead of resuming mid-mission.
+            MissionStore.SetLoopEnabled(a, false, 2000.0);
+            Assert.Equal(1234.5, a.LoopAnchorUT); // disable leaves the stale anchor in place
+
+            MissionStore.SetLoopEnabled(a, true, 5555.5);
+            Assert.True(a.LoopPlayback);
+            Assert.Equal(5555.5, a.LoopAnchorUT); // re-enable overwrites it
         }
 
         [Fact]

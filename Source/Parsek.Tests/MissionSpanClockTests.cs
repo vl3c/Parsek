@@ -44,8 +44,9 @@ namespace Parsek.Tests
             // this asserts the seamless back-to-back wrap, so no pause was inserted.
             double spanStart = 100, spanEnd = 200, cadence = 100;
 
+            // phaseAnchorUT == spanStart reproduces the old absolute-phase behavior.
             bool atEnd = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                200, spanStart, spanEnd, cadence, out double loopAtEnd, out long cycleAtEnd,
+                200, spanStart, spanStart, spanEnd, cadence, out double loopAtEnd, out long cycleAtEnd,
                 out bool tailAtEnd);
             Assert.True(atEnd);
             Assert.Equal(200.0, loopAtEnd, 6);
@@ -58,7 +59,7 @@ namespace Parsek.Tests
             // spanStart in cycle 1. A pause window would have delayed the wrap, leaving the clock
             // parked at spanEnd (loopUT == 200) at this UT instead of restarting near spanStart.
             bool afterWrap = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                200.0001, spanStart, spanEnd, cadence, out double loopAfter, out long cycleAfter,
+                200.0001, spanStart, spanStart, spanEnd, cadence, out double loopAfter, out long cycleAfter,
                 out bool tailAfterWrap);
             Assert.True(afterWrap);
             Assert.Equal(1, cycleAfter);
@@ -77,7 +78,7 @@ namespace Parsek.Tests
             double spanStart = 100, spanEnd = 102, cadence = 2; // raw cadence below MinCycleDuration
 
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                103, spanStart, spanEnd, cadence, out double loopUT, out long cycleIndex, out _);
+                103, spanStart, spanStart, spanEnd, cadence, out double loopUT, out long cycleIndex, out _);
             Assert.True(ok);
             Assert.Equal(0, cycleIndex);          // clamped to 5s cadence: still cycle 0 at +3s
             Assert.Equal(102.0, loopUT, 6);       // phase 3 clamped to span 2 => parked at spanEnd
@@ -86,7 +87,7 @@ namespace Parsek.Tests
             // sliver past the boundary avoids the epsilon-tolerant boundary rollback (which keeps
             // the exact boundary UT showing the prior cycle's final frame).
             bool wrapped = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                105.0001, spanStart, spanEnd, cadence, out double loopWrap, out long cycleWrap, out _);
+                105.0001, spanStart, spanStart, spanEnd, cadence, out double loopWrap, out long cycleWrap, out _);
             Assert.True(wrapped);
             Assert.Equal(1, cycleWrap);
             Assert.Equal(100.0001, loopWrap, 4); // spanStart + tiny phase, not clamped to spanEnd
@@ -98,7 +99,7 @@ namespace Parsek.Tests
             // currentUT before the span start: no negative phase. Returns false and parks
             // loopUT at spanStart (never spanStart - something).
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                50, 100, 200, 100, out double loopUT, out long cycleIndex, out bool tail);
+                50, 100, 100, 200, 100, out double loopUT, out long cycleIndex, out bool tail);
             Assert.False(ok);
             Assert.Equal(100.0, loopUT, 6);
             Assert.Equal(0, cycleIndex);
@@ -111,7 +112,7 @@ namespace Parsek.Tests
         {
             // Degenerate span (spanEnd <= spanStart): false, parked at spanStart, no divide.
             bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                150, 100, 100, 100, out double loopUT, out long cycleIndex, out bool tail);
+                150, 100, 100, 100, 100, out double loopUT, out long cycleIndex, out bool tail);
             Assert.False(ok);
             Assert.Equal(100.0, loopUT, 6);
             Assert.Equal(0, cycleIndex);
@@ -130,7 +131,7 @@ namespace Parsek.Tests
 
             // PLAY region: currentUT 150, phaseInCycle 50 < 100 - ghost advancing, no tail.
             bool play = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                150, spanStart, spanEnd, cadence, out double loopPlay, out long cyclePlay,
+                150, spanStart, spanStart, spanEnd, cadence, out double loopPlay, out long cyclePlay,
                 out bool tailPlay);
             Assert.True(play);
             Assert.Equal(150.0, loopPlay, 6); // loopUT advancing with the phase
@@ -139,7 +140,7 @@ namespace Parsek.Tests
 
             // TAIL region: currentUT 250, phaseInCycle 150 >= 100 - parked at spanEnd, tail engaged.
             bool tailRegion = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                250, spanStart, spanEnd, cadence, out double loopTail, out long cycleTail,
+                250, spanStart, spanStart, spanEnd, cadence, out double loopTail, out long cycleTail,
                 out bool tailFlag);
             Assert.True(tailRegion);
             Assert.Equal(200.0, loopTail, 6); // parked at spanEnd
@@ -148,12 +149,73 @@ namespace Parsek.Tests
 
             // Second cycle TAIL: currentUT 550 (elapsed 450 => cycle 1, phase 150 >= 100 = tail).
             bool secondTail = GhostPlaybackLogic.TryComputeSpanLoopUT(
-                550, spanStart, spanEnd, cadence, out double loopSecond, out long cycleSecond,
+                550, spanStart, spanStart, spanEnd, cadence, out double loopSecond, out long cycleSecond,
                 out bool tailSecond);
             Assert.True(secondTail);
             Assert.Equal(200.0, loopSecond, 6); // parked at spanEnd again
             Assert.Equal(1, cycleSecond);
             Assert.True(tailSecond);
+        }
+
+        // ─── Phase anchor (re-enable restarts from the recording start) ─────────
+
+        [Fact]
+        public void TryComputeSpanLoopUT_AnchorEqualsCurrentUT_StartsAtSpanStart()
+        {
+            // Span [100, 200], cadence 100. The loop was enabled at currentUT 5000 (deep into the
+            // game, long past the recorded span's absolute UT). With phaseAnchorUT == currentUT the
+            // elapsed phase is 0, so loopUT lands exactly on spanStart - the recording's start. This
+            // is the headline behavior: every enable starts the looped mission from the beginning.
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                5000, 5000, 100, 200, 100, out double loopUT, out long cycle, out bool tail);
+            Assert.True(ok);
+            Assert.Equal(100.0, loopUT, 6); // phase 0 -> spanStart
+            Assert.Equal(0, cycle);
+            Assert.False(tail);
+        }
+
+        [Fact]
+        public void TryComputeSpanLoopUT_AnchorBeforeCurrentByK_StartsAtSpanStartPlusK()
+        {
+            // Same span [100, 200], cadence 100. The loop was enabled k=30s before the current UT
+            // (k < cadence so we are still in cycle 0). loopUT == spanStart + k == 130. This proves
+            // the phase is measured from the anchor, not the absolute span start.
+            const double k = 30.0;
+            double currentUT = 5000, anchorUT = currentUT - k;
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                currentUT, anchorUT, 100, 200, 100, out double loopUT, out long cycle, out bool tail);
+            Assert.True(ok);
+            Assert.Equal(130.0, loopUT, 6); // spanStart + k
+            Assert.Equal(0, cycle);
+            Assert.False(tail);
+        }
+
+        [Fact]
+        public void TryComputeSpanLoopUT_BeforeAnchor_ReturnsFalse()
+        {
+            // currentUT before the anchor (loop not yet enabled at this UT): false, parked at
+            // spanStart, no negative phase. The early-return guard keys on the anchor now.
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                4990, 5000, 100, 200, 100, out double loopUT, out long cycle, out bool tail);
+            Assert.False(ok);
+            Assert.Equal(100.0, loopUT, 6);
+            Assert.Equal(0, cycle);
+            Assert.False(tail);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_AnchorEqualsCurrentUT_RendersAtSpanStart()
+        {
+            // Member [100,150] (the owner leg). Span [100,250], cadence 150. The loop was enabled at
+            // currentUT 9000. With phaseAnchorUT == currentUT the shared clock loopUT == spanStart
+            // (100), which is inside the owner member's window -> Render at 100. The looped mission
+            // begins from its first leg, not wherever the absolute UT phase happened to land.
+            var d = GhostPlaybackLogic.DecideUnitMemberRender(
+                9000, 9000, 100, 250, 150, memberStartUT: 100, memberEndUT: 150,
+                out double loopUT, out long cycle, out _);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
+            Assert.Equal(100.0, loopUT, 6);
+            Assert.Equal(0, cycle);
         }
 
         // ─── IsLoopUTInMemberWindow (per-member window check) ───────────────────
@@ -199,8 +261,9 @@ namespace Parsek.Tests
         {
             // Member [150,200]. Span [100,250], cadence 150 (== span). At currentUT 175 the shared
             // clock loopUT == 175 is inside [150,200] -> Render at loopUT 175.
+            // phaseAnchorUT == spanStartUT (100) reproduces the old absolute-phase behavior.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                175, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
+                175, 100, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
                 out double loopUT, out long cycle, out bool tail);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
             Assert.Equal(175.0, loopUT, 6);
@@ -213,7 +276,7 @@ namespace Parsek.Tests
         {
             // Same member [150,200], but currentUT 120 -> loopUT 120 is outside [150,200] -> hidden.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                120, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
+                120, 100, 100, 250, 150, memberStartUT: 150, memberEndUT: 200,
                 out double loopUT, out _, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenOutsideWindow, d);
             Assert.Equal(120.0, loopUT, 6);
@@ -227,9 +290,9 @@ namespace Parsek.Tests
             // 155 (loopUT 155) BOTH decide Render. This is the headline behavior change: debris
             // alongside their parent, like a rewind. Fails if a single-member selection survived.
             var dA = GhostPlaybackLogic.DecideUnitMemberRender(
-                155, 100, 200, 100, memberStartUT: 100, memberEndUT: 160, out _, out _, out _);
+                155, 100, 100, 200, 100, memberStartUT: 100, memberEndUT: 160, out _, out _, out _);
             var dB = GhostPlaybackLogic.DecideUnitMemberRender(
-                155, 100, 200, 100, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
+                155, 100, 100, 200, 100, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dA);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, dB);
         }
@@ -241,7 +304,7 @@ namespace Parsek.Tests
             // currentUT 250 the clock is in the parked tail -> HiddenInterCycleTail for EVERY member
             // (render nothing during the wait), regardless of which member's window contains spanEnd.
             var dMid = GhostPlaybackLogic.DecideUnitMemberRender(
-                250, 100, 200, 300, memberStartUT: 100, memberEndUT: 150,
+                250, 100, 100, 200, 300, memberStartUT: 100, memberEndUT: 150,
                 out double loopUT, out _, out bool tail);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, dMid);
             Assert.True(tail);
@@ -249,7 +312,7 @@ namespace Parsek.Tests
 
             // Even the member whose window includes spanEnd (150..200) is hidden in the tail.
             var dEnd = GhostPlaybackLogic.DecideUnitMemberRender(
-                250, 100, 200, 300, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
+                250, 100, 100, 200, 300, memberStartUT: 150, memberEndUT: 200, out _, out _, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, dEnd);
         }
 
@@ -258,7 +321,7 @@ namespace Parsek.Tests
         {
             // currentUT before spanStart: the shared clock cannot resolve -> SpanClockUnresolved.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                50, 100, 250, 150, memberStartUT: 100, memberEndUT: 150, out _, out _, out _);
+                50, 100, 100, 250, 150, memberStartUT: 100, memberEndUT: 150, out _, out _, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved, d);
         }
 
@@ -269,7 +332,7 @@ namespace Parsek.Tests
             // spanStart, one 150s cadence + 25s) loopUT folds to 125 in cycle 1. A member [100,150]
             // renders (125 in its window); unitCycle == 1 is written to state.loopCycleIndex.
             var d = GhostPlaybackLogic.DecideUnitMemberRender(
-                275, 100, 250, 150, memberStartUT: 100, memberEndUT: 150,
+                275, 100, 100, 250, 150, memberStartUT: 100, memberEndUT: 150,
                 out double loopUT, out long cycle, out _);
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, d);
             Assert.Equal(1, cycle);          // wrapped into cycle 1
@@ -283,10 +346,14 @@ namespace Parsek.Tests
         // span clock; the per-member window is supplied separately to the helper.
         private static GhostPlaybackLogic.LoopUnitSet MakeSingleUnitSet(
             int ownerIndex, int[] memberIndices,
-            double spanStartUT, double spanEndUT, double cadenceSeconds)
+            double spanStartUT, double spanEndUT, double cadenceSeconds,
+            double phaseAnchorUT = double.NaN)
         {
+            // Default anchor == spanStartUT reproduces the old absolute-phase behavior.
+            if (double.IsNaN(phaseAnchorUT))
+                phaseAnchorUT = spanStartUT;
             var unit = new GhostPlaybackLogic.LoopUnit(
-                ownerIndex, memberIndices, spanStartUT, spanEndUT, cadenceSeconds);
+                ownerIndex, memberIndices, spanStartUT, spanEndUT, cadenceSeconds, phaseAnchorUT);
             var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit>
             {
                 { ownerIndex, unit }
@@ -386,6 +453,35 @@ namespace Parsek.Tests
             Assert.Equal(50.0, eff, 6);
         }
 
+        [Fact]
+        public void ResolveTrackingStationSampleUT_AnchoredUnit_RemapsLiveUTThroughAnchor()
+        {
+            // Member 5 window [100,150]. Span [100,250], cadence 150. The unit was anchored at
+            // liveUT 8000 (loop enabled then). At liveUT 8030 the phase is 30 (8030 - 8000), so the
+            // span clock loopUT == spanStart + 30 == 130, inside [100,150] -> Render at 130, not the
+            // live 8030. Without the anchor the absolute-phase clock would have folded 8030 into a
+            // mid-cycle phase, landing the ghost somewhere arbitrary in the span.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150, phaseAnchorUT: 8000);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 8030.0,
+                units, out bool hidden);
+            Assert.False(hidden);
+            Assert.Equal(130.0, eff, 6); // spanStart + (liveUT - anchor)
+        }
+
+        [Fact]
+        public void ResolveTrackingStationSampleUT_AnchoredUnit_AtAnchor_RendersAtSpanStart()
+        {
+            // Anchored at liveUT 8000; querying exactly at the anchor gives phase 0 -> loopUT ==
+            // spanStart (100), which is in member 5's window [100,150] -> Render at 100.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150, phaseAnchorUT: 8000);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 8000.0,
+                units, out bool hidden);
+            Assert.False(hidden);
+            Assert.Equal(100.0, eff, 6);
+        }
+
         // ─── Payload-activation gate (Fix 1) ────────────────────────────────────
 
         [Fact]
@@ -417,7 +513,7 @@ namespace Parsek.Tests
             // loopUT 95 and the member's own window [90,150] CONTAINS it -> decision Render. The
             // engine's gate (spanLoopUT < activationUT) then hides it for the frame.
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                95, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
+                95, member.StartUT, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
                 member.StartUT, member.EndUT, out double spanLoopUT, out _, out _);
 
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
@@ -448,7 +544,7 @@ namespace Parsek.Tests
             Assert.Equal(member.StartUT, activationUT, 6);
 
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
-                120, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
+                120, member.StartUT, member.StartUT, member.EndUT, member.EndUT - member.StartUT,
                 member.StartUT, member.EndUT, out double spanLoopUT, out _, out _);
 
             Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
@@ -473,7 +569,7 @@ namespace Parsek.Tests
         private static GhostPlaybackLogic.LoopUnit ThreeMemberUnit() =>
             new GhostPlaybackLogic.LoopUnit(
                 ownerIndex: 5, memberIndices: new[] { 5, 6, 7 },
-                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150);
+                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150, phaseAnchorUT: 100);
 
         [Fact]
         public void ShouldRetargetWatchOnUnitHandoff_WatchedStopsRendering_NewLiveExists_True()

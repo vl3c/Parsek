@@ -167,6 +167,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_SetAnchor_FlowsToPhaseAnchorUT()
+        {
+            var tree = LinearTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMission("t1", LoopTimeUnit.Auto);
+            mission.LoopAnchorUT = 7777.0; // loop was enabled at this UT
+            var missions = new List<Mission> { mission };
+
+            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(7777.0, unit.PhaseAnchorUT); // explicit anchor flows through
+            Assert.Equal(100.0, unit.SpanStartUT);    // span start unchanged
+            // The Verbose summary records the anchor.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Mission]") && l.Contains("MissionLoopUnit") && l.Contains("phaseAnchor=7777"));
+        }
+
+        [Fact]
+        public void Build_NaNAnchor_FallsBackToSpanStartUT()
+        {
+            var tree = LinearTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMission("t1", LoopTimeUnit.Auto);
+            Assert.True(double.IsNaN(mission.LoopAnchorUT)); // default, never enabled through the store
+            var missions = new List<Mission> { mission };
+
+            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            // NaN anchor falls back to spanStartUT, preserving the old absolute-phase behavior.
+            Assert.Equal(unit.SpanStartUT, unit.PhaseAnchorUT);
+            Assert.Equal(100.0, unit.PhaseAnchorUT);
+        }
+
+        [Fact]
         public void Build_OwnerAndOrder_FollowStartUT_NotCommittedOrder()
         {
             var tree = LinearTree();
