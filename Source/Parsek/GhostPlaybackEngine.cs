@@ -2099,6 +2099,9 @@ namespace Parsek
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
+            bool priorVisualFxSuppressed = state.visualFxSuppressed;
+            state.visualFxSuppressed = suppressVisualFx;
+
             if (suppressVisualFx)
             {
                 GhostPlaybackLogic.StopAllEngineFx(state);
@@ -2112,6 +2115,16 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 GhostPlaybackLogic.UnmuteAllAudio(state);
+
+                // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
+                // re-applies them per frame. On the suppressed -> unsuppressed transition,
+                // restart them from the last recorded throttle so a ghost re-entering FX
+                // range (canonical case: a looping aircraft that repeatedly crosses the
+                // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
+                // throttle cursor up to this UT, so a throttle-down during the suppressed
+                // window has already cleared currentPower and is not re-ignited here.
+                if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
+                    GhostPlaybackLogic.RestoreActiveEngineFx(state);
             }
 
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
@@ -6082,6 +6095,22 @@ namespace Parsek
             bool activatedDeferredState, bool suppressVisualFx)
         {
             return activatedDeferredState && !suppressVisualFx;
+        }
+
+        /// <summary>
+        /// Whether engine plume FX must be explicitly restarted this frame. True only on the
+        /// suppressed -> unsuppressed transition: engine FX are event-driven and
+        /// <see cref="GhostPlaybackLogic.StopAllEngineFx"/> left them dark, so they need a
+        /// one-shot restart from the last recorded throttle when suppression lifts. (RCS and
+        /// audio restore themselves on every unsuppressed frame, so they need no transition
+        /// gate.) Distinct from <see cref="ShouldRestoreDeferredRuntimeFxState"/>, which only
+        /// fires on ghost re-activation and so misses an FX-suppress lift while the ghost
+        /// stayed active in the reduced-fidelity Visual tier.
+        /// </summary>
+        internal static bool ShouldRestartEngineFxAfterSuppression(
+            bool suppressVisualFx, bool wasVisualFxSuppressed)
+        {
+            return !suppressVisualFx && wasVisualFxSuppressed;
         }
 
         private static void ResetGhostAppearanceTracking(GhostPlaybackState state)

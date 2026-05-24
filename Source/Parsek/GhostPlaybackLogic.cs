@@ -1525,6 +1525,7 @@ namespace Parsek
             state.explosionFired = false;
             state.pauseHidden = false;
             state.rcsSuppressed = false;
+            state.visualFxSuppressed = false;
 
             // Audio state machine: next frame's atmosphere/mute pipeline
             // re-decides. Atmosphere factor resets to 1 (matches spawn).
@@ -3858,6 +3859,47 @@ namespace Parsek
                     SetParticleRenderersEnabled(ps, false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Re-applies engine FX (plume / smoke emitters + particle systems) for every engine
+        /// at its last recorded throttle (<see cref="EngineGhostInfo.currentPower"/>) after a
+        /// distance / warp FX suppression is lifted. The symmetric partner to
+        /// <see cref="StopAllEngineFx"/>.
+        ///
+        /// Engine FX are event-driven (recorded EngineThrottle threshold crossings), so unlike
+        /// RCS and audio they have no per-frame driver that turns them back on. Without this a
+        /// ghost that crosses the FX-LOD range during a steady burn (canonical case: a looping
+        /// aircraft that repeatedly flies past the anchor and back) and returns keeps a dead
+        /// plume until its next recorded throttle change. Only engines with
+        /// <c>currentPower &gt; 0</c> are restored, so shut-down engines stay dark.
+        ///
+        /// Must run after <see cref="ApplyPartEvents"/> has caught the throttle cursor up to the
+        /// current UT (the <c>ApplyFrameVisuals</c> call order guarantees this), so a throttle-down
+        /// that occurred while FX were suppressed has already reset <c>currentPower</c> and is not
+        /// re-ignited here.
+        /// </summary>
+        internal static void RestoreActiveEngineFx(GhostPlaybackState state)
+        {
+            if (state?.engineInfos == null) return;
+
+            int restored = 0;
+            foreach (var restore in CollectDeferredEnginePowerRestores(state))
+            {
+                uint partPersistentId;
+                int moduleIndex;
+                FlightRecorder.DecodeEngineKey(restore.key, out partPersistentId, out moduleIndex);
+                SetEngineEmission(state, new PartEvent
+                {
+                    partPersistentId = partPersistentId,
+                    moduleIndex = moduleIndex
+                }, restore.power);
+                restored++;
+            }
+
+            if (restored > 0)
+                ParsekLog.Verbose("Visual",
+                    $"RestoreActiveEngineFx: re-applied {restored} engine FX after FX suppression lifted");
         }
 
         /// <summary>
