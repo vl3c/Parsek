@@ -3671,8 +3671,9 @@ namespace Parsek
             // Resolve such a member through the unit's shared span clock instead, matching the UT
             // the engine renders the member at in UpdateUnitMemberPlayback. Non-members /
             // non-looping watch return false here and fall through to the unchanged path below.
-            if (recordingIndex >= 0
-                && host.TryResolveUnitMemberPlaybackUTForWatch(recordingIndex, fallbackUT, out double spanLoopUT))
+            if (recordingIndex >= 0 && rec != null
+                && host.TryResolveUnitMemberPlaybackUTForWatch(
+                    recordingIndex, fallbackUT, rec.StartUT, rec.EndUT, out double spanLoopUT))
             {
                 ParsekLog.Verbose("CameraFollow",
                     $"Watch UT resolved via Mission span clock: rec #{recordingIndex} rawUT="

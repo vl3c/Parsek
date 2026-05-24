@@ -297,12 +297,52 @@ This resolves open question 4 with the concrete plan derived from reading both t
 
 ### What a looped Mission means
 
-When a Mission has loop on, ALL its included legs replay together on ONE shared
-clock (a "span clock") covering [earliest included start, latest included end],
-repeating every loop period. Each leg renders only while the shared clock is inside
-that leg's own time window, so a multi-leg, multi-branch mission plays back exactly
-like the original flight, then wraps as a whole. This replaces independent
-per-recording looping for the mission's members. Debris rides along its parent leg.
+When a Mission has loop on, ALL its included legs replay together over its span
+[earliest included start, latest included end], relaunching every loop period. The
+behavior depends on how the loop PERIOD compares to the span length:
+
+- Period >= span (or `Auto` resolves to >= span): ONE shared clock (a "span clock")
+  sweeps the whole span and wraps as a unit. Each leg renders only while the shared
+  clock is inside its own time window, so a multi-leg, multi-branch mission plays back
+  exactly like the original flight, then wraps as a whole.
+- Period < span: the whole mission OVERLAPS itself. It relaunches every `period`
+  seconds, so multiple staggered instances of the mission play concurrently, exactly
+  like a single recording with `period < duration` spawns overlapping ghost instances.
+
+Either way this replaces independent per-recording looping for the mission's members,
+and debris rides along its parent leg (on the same overlapping cadence when the mission
+overlaps).
+
+This is single-mission self-overlap only. Concurrent multiple looping missions is a
+later phase (open question 7); for now exactly one mission loops at a time.
+
+The elegant reduction (the mechanism). A mission instance launched at
+`anchorUT + k*cadence` places member m at phase
+`currentUT - (anchorUT + k*cadence + memberOffset)` within m's own recording, where
+`memberOffset = memberStartUT - spanStartUT`. So for member m the active staggered
+instances are EXACTLY a per-recording overlap loop with `scheduleStartUT =
+PhaseAnchorUT + (memberStartUT - SpanStartUT)`, `intervalSeconds =
+OverlapCadenceSeconds`, `duration = memberEndUT - memberStartUT`, `playbackStartUT =
+memberStartUT`. This maps directly onto the EXISTING per-recording overlap machinery
+(`GhostPlaybackEngine.UpdateOverlapPlayback` / `overlapGhosts`), so a member renders its
+staggered instances through the same code a single overlapping recording uses. The
+flight engine's `UpdateUnitMemberPlayback` routes a member through that path when the
+unit overlaps, and keeps the single span-clock instance otherwise. Debris uses the same
+reduction with its own [debrisStart, debrisEnd] window.
+
+Two cadences on the unit (`GhostPlaybackLogic.LoopUnit`):
+
+- `CadenceSeconds` (span-clock cadence): the loop period RAISED to at least the span so
+  a SINGLE span instance never truncates (Auto = span). Consumed by the single-instance
+  scenes - the Space Center and the Tracking Station have no overlap machinery and always
+  render one span instance - and by the flight engine's no-overlap branch.
+- `OverlapCadenceSeconds` (true launch cadence): the loop period NOT raised to the span
+  (Auto = the GLOBAL auto-loop interval `ParsekSettings.autoLoopIntervalSeconds`, same as
+  single recordings), cap-clamped so `ceil(span / cadence)` stays within
+  `GhostPlayback.MaxOverlapMissionInstances` (mirrors the per-recording
+  `MaxOverlapGhostsPerRecording` / `ComputeEffectiveLaunchCadence` semantics, but at
+  mission granularity over the span; set lower because each mission instance multiplies
+  across all members). The flight engine self-overlaps when this is shorter than the span.
 
 ### What we lift from design-chain-auto-loop, and what we leave
 
@@ -363,8 +403,17 @@ builder emits an empty set or a single unit. For the looping Mission:
 - Members = the included legs' committed indices (skip ids not currently in
   `CommittedRecordings`).
 - Span = [min StartUT, max EndUT] over those member recordings.
-- Cadence = the Mission's loop period, clamped to `LoopTiming.MinCycleDuration`; the
-  `Auto` unit means cadence = span length (loop the whole mission with no gap).
+- Span-clock cadence (`CadenceSeconds`) = the Mission's loop period RAISED to at least
+  the span, clamped to `LoopTiming.MinCycleDuration`; the `Auto` unit means cadence =
+  span length (a single span instance plays the whole mission with no gap).
+- Overlap cadence (`OverlapCadenceSeconds`) = the TRUE launch period: the Mission's loop
+  period NOT raised to the span (`Auto` = the global auto-loop interval passed in by the
+  scene driver, NOT the span), floored at `LoopTiming.MinCycleDuration`, then cap-clamped
+  via `ComputeEffectiveLaunchCadence(rawPeriod, span, MaxOverlapMissionInstances)`. When
+  it is shorter than the span the flight engine overlaps the mission with itself.
+- The driver passes `ParsekSettings.Current.autoLoopIntervalSeconds` (with a safe default
+  when null) into both `Build` and `BuildSignature`, and the effective overlap cadence is
+  folded into the signature so a cadence change rebuilds.
 - Owner = the earliest-start member (the mission's root leg), used as the unit's
   representative for the camera and debris-parent lookup.
 
@@ -430,15 +479,20 @@ clamp-to-`MinCycleDuration` rule. v1: the loop toggle is single-selection across
 Missions (turning loop on for one Mission turns it off on every other), per the
 one-at-a-time decision in open question 7.
 
-### KSC and Tracking Station parity (render exactly what flight renders)
+### KSC and Tracking Station parity (single span instance)
 
-Per decision, KSC and TS must show exactly what flight renders. The `LoopUnitSet` is
-computed once per frame from Missions + committed recordings and fed to every scene
-(the index space is shared), rather than each scene re-deriving units.
+The `LoopUnitSet` is computed once per frame from Missions + committed recordings and
+fed to every scene (the index space is shared), rather than each scene re-deriving
+units. The Space Center and Tracking Station have no overlap-ghost machinery, so they
+render a SINGLE span instance via the span clock (`CadenceSeconds`, raised to the span)
+even when the flight scene self-overlaps the mission. This is why `CadenceSeconds` stays
+raised to at least the span: lowering it below the span would truncate the single
+instance these scenes show. Self-overlap (multiple staggered instances) is a
+flight-scene-only visual; the SC / TS keep showing the whole mission once through.
 
-- KSC: near-duplicate of the flight path already exists on the old branch; lift it and
-  point its unit source at the adapter. Its ghost map / orbit-line presence rides the
-  same per-recording lifecycle, so no separate icon path is needed.
+- KSC: near-duplicate of the flight span-clock path already exists on the old branch;
+  lift it and point its unit source at the adapter. Its ghost map / orbit-line presence
+  rides the same per-recording lifecycle, so no separate icon path is needed.
 - Tracking Station: the LARGEST gap and its own sub-phase. TS does not use
   `GhostPlaybackEngine`; it renders ProtoVessel-based map presence via
   `GhostMapPresence` (keyed by the same committed index) and has no per-frame
@@ -447,17 +501,24 @@ computed once per frame from Missions + committed recordings and fed to every sc
   TS animates per-recording loops at all today, then drive the span-clock UT into
   `GhostMapPresence` positioning.
 
-### Overlap of looping Missions (v1: one at a time)
+### Overlap of looping Missions (single-mission self-overlap; multi-mission deferred)
 
-`LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner, so two
-simultaneously looping Missions that share a recording would be a single-owner
-conflict. v1 DECISION: exactly one Mission loops at a time (global). Enabling loop on
-a Mission disables it on every other Mission (the loop toggle behaves like a single
-selection). The adapter therefore builds AT MOST ONE `LoopUnit`, so the conflict
-cannot arise and no precedence logic is needed. True concurrent rendering of one
-recording on several Mission clocks (one ghost per Mission via the overlap-ghost
-capability) is deferred to logistics; do not try to make the single-owner span clock
-do it in v1.
+Two distinct kinds of "overlap":
+
+- SINGLE-mission self-overlap (DONE): one looping mission whose period is shorter than
+  its span relaunches itself, so several staggered instances of THAT mission play at
+  once. Implemented via the per-member overlap reduction onto `UpdateOverlapPlayback`
+  (see "Mission-level looping" above). The `OverlapCadenceSeconds` carries the true
+  launch cadence; `MaxOverlapMissionInstances` caps the instance count.
+- MULTIPLE concurrent looping missions (DEFERRED): two different missions looping at the
+  same time. `LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner, so two
+  simultaneously looping Missions that share a recording would be a single-owner
+  conflict. v1 DECISION: exactly one Mission loops at a time (global). Enabling loop on a
+  Mission disables it on every other Mission (the loop toggle behaves like a single
+  selection). The adapter therefore builds AT MOST ONE `LoopUnit`, so the conflict cannot
+  arise and no precedence logic is needed. True concurrent rendering of one recording on
+  several Mission clocks (one ghost per Mission) is deferred to logistics; do not try to
+  make the single-owner span clock do it in v1.
 
 ### Build phasing (reviews at the milestones, not every commit)
 
@@ -562,11 +623,21 @@ do it in v1.
    playback). v1 rule: a path follows its own incoming line into the merged child and
    does not pull in the co-parent. Open: how the multi-path (whole-mission) outline
    renders a reconvergence, and whether a foreign dock target is ever surfaced.
-7. Overlapping looping Missions. RESOLVED (v1): exactly one Mission loops at a time
-   (global); enabling loop on a Mission disables it on every other (single-selection
-   toggle). The adapter builds at most one `LoopUnit`, so the single-owner conflict
-   cannot arise. Concurrent multi-Mission looping and true multi-clock-per-recording
-   (one ghost per Mission via the overlap path) are deferred to logistics.
+7. Overlapping looping Missions. RESOLVED (two parts):
+   (a) SINGLE-mission self-overlap (DONE): a looping mission whose period is shorter than
+   its span now overlaps ITSELF (relaunches every period, several staggered instances
+   play concurrently), exactly like a single recording with period < duration. Cadence =
+   the true period (Auto = the global auto-loop interval, NOT the span); a per-mission cap
+   (`MaxOverlapMissionInstances`) raises the effective cadence to keep the instance count
+   bounded, mirroring `MaxOverlapGhostsPerRecording`. Implemented by reducing each member
+   to a per-recording overlap loop over the existing `UpdateOverlapPlayback` machinery.
+   The Space Center and Tracking Station still render a single span instance (no overlap
+   machinery there); self-overlap is a flight-scene visual.
+   (b) CONCURRENT multi-Mission looping (still v1: one at a time): exactly one Mission
+   loops at a time (global); enabling loop on a Mission disables it on every other
+   (single-selection toggle). The adapter builds at most one `LoopUnit`, so the
+   single-owner conflict cannot arise. True multi-Mission looping (one ghost per Mission
+   on the shared index) is deferred to a later phase.
 8. Tracking Station loop parity. TS renders ProtoVessel map presence
    (`GhostMapPresence`), not engine ghosts, and positions them at the LIVE `currentUT`
    against each recording's recorded window with NO loop-phase remap; confirmed it

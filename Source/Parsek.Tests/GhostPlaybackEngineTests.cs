@@ -6229,7 +6229,9 @@ namespace Parsek.Tests
                 cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
 
             // rawUT 3520: elapsed 2520 over cadence 100 => cycle 25, phaseInCycle 20 => loopUT 1020.
-            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 3520.0, out double loopUT);
+            // Member window == span (cadence == span -> no self-overlap, single span-clock instance).
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
 
             Assert.True(resolved);
             Assert.Equal(1020.0, loopUT, 6);
@@ -6246,7 +6248,8 @@ namespace Parsek.Tests
                 memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
                 cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
 
-            bool resolved = engine.TryResolveUnitMemberPlaybackUT(7, currentUT: 3520.0, out double loopUT);
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                7, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
 
             Assert.False(resolved);
             Assert.Equal(3520.0, loopUT, 6);
@@ -6258,7 +6261,8 @@ namespace Parsek.Tests
             // No looping mission => LoopUnitSet.Empty => resolver is inert (false + raw UT).
             var engine = new GhostPlaybackEngine(null);
 
-            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 3520.0, out double loopUT);
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
 
             Assert.False(resolved);
             Assert.Equal(3520.0, loopUT, 6);
@@ -6274,10 +6278,39 @@ namespace Parsek.Tests
                 memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
                 cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
 
-            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 500.0, out double loopUT);
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 500.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
 
             Assert.False(resolved);
             Assert.Equal(500.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_SelfOverlap_ReturnsNewestInstanceMemberUT()
+        {
+            // Mission span [1000, 1300] (span 300). Overlap cadence 60 < span => self-overlap.
+            // Member window == the full span here. Newest-instance member UT: with anchor 1000,
+            // scheduleStart = 1000 + (1000 - 1000) = 1000, duration 300, cadence 60. At rawUT 1250:
+            // GetActiveCycles -> lastCycle = floor((1250-1000)/60) = 4; cycleStart = 1000 + 4*60 = 1240;
+            // phase = 1250 - 1240 = 10 => playbackUT = memberStart 1000 + 10 = 1010.
+            var engine = new GhostPlaybackEngine(null);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0,
+                memberIndices: new[] { 0 },
+                spanStartUT: 1000.0,
+                spanEndUT: 1300.0,
+                cadenceSeconds: 300.0,        // span-clock cadence (raised to span)
+                phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 60.0); // true period < span -> overlap
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 } }));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1250.0, memberStartUT: 1000.0, memberEndUT: 1300.0, out double loopUT);
+
+            Assert.True(resolved);
+            Assert.Equal(1010.0, loopUT, 6); // newest instance, NOT the span-clock single-instance UT
         }
 
         #endregion

@@ -278,12 +278,14 @@ namespace Parsek
         /// </summary>
         private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
         {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
             if (!string.Equals(signature, lastLoopUnitSignature, System.StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"TS Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");

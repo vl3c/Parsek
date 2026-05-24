@@ -684,5 +684,52 @@ namespace Parsek.Tests
                 retargetFired: false, watchedIndex: 6, newLiveMemberIndex: -1,
                 watchedIsRendering: false));
         }
+
+        // --- ComputeNewestMissionInstanceSpanLoopUT (self-overlap watch handoff) ---
+
+        [Fact]
+        public void ComputeNewestMissionInstanceSpanLoopUT_TracksNewestInstancePhase()
+        {
+            // Span 300 [1000,1300], overlap cadence 60, anchor 1000. At UT 1250: elapsed 250,
+            // missionCycle = floor(250/60) = 4; phase = 250 - 240 = 10; loopUT = 1000 + 10 = 1010.
+            GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
+                overlapCadenceSeconds: 60, currentUT: 1250, maxInstances: 12,
+                out double loopUT, out long cycle);
+
+            Assert.Equal(4L, cycle);
+            Assert.Equal(1010.0, loopUT, 6);
+            // The newest-instance loopUT lands in the FIRST member's window [1000,1100], not a later
+            // member, so the camera follows the newest instance's first leg here.
+            Assert.True(GhostPlaybackLogic.IsLoopUTInMemberWindow(loopUT, 1000, 1100));
+            Assert.False(GhostPlaybackLogic.IsLoopUTInMemberWindow(loopUT, 1100, 1300));
+        }
+
+        [Fact]
+        public void ComputeNewestMissionInstanceSpanLoopUT_PhaseClampedToSpan()
+        {
+            // Cadence 200 < span 300: an instance is still mid-span when the next launches, but a
+            // single instance's phase past spanEnd is clamped. At UT 1990, anchor 1000: elapsed 990,
+            // cycle = floor(990/200) = 4; phase = 990 - 800 = 190 (< span 300) -> loopUT 1190.
+            GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
+                overlapCadenceSeconds: 200, currentUT: 1990, maxInstances: 12,
+                out double loopUT, out long cycle);
+
+            Assert.Equal(4L, cycle);
+            Assert.Equal(1190.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void ComputeNewestMissionInstanceSpanLoopUT_BeforeAnchor_ReturnsSpanStart()
+        {
+            GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
+                overlapCadenceSeconds: 60, currentUT: 500, maxInstances: 12,
+                out double loopUT, out long cycle);
+
+            Assert.Equal(0L, cycle);
+            Assert.Equal(1000.0, loopUT, 6);
+        }
     }
 }

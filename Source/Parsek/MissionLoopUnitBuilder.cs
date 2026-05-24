@@ -5,11 +5,16 @@ using System.Globalization;
 namespace Parsek
 {
     // Pure adapter: turns a looping Mission's selection into a span-clock LoopUnitSet
-    // (GhostPlaybackLogic.LoopUnit / LoopUnitSet). v1 = one Mission loops at a time. There
-    // is NO engine wiring yet (that is Phase D); this is exercised only by unit tests for
-    // now. The whole selected mission span loops on one shared clock at a cadence that is
-    // never shorter than the span, so the mission always plays in full. Pure: no Unity
-    // calls, no shared mutable state, no recording mutation.
+    // (GhostPlaybackLogic.LoopUnit / LoopUnitSet). v1 = one Mission loops at a time. The
+    // unit carries TWO cadences from the same user input: a span-clock cadence (never
+    // shorter than the span, so a single span instance always plays in full - used by KSC,
+    // the Tracking Station, and the flight no-overlap branch) and an overlap cadence (the
+    // TRUE launch-to-launch period, Auto = the global auto-loop interval, cap-clamped to
+    // MaxOverlapMissionInstances). When the overlap cadence is shorter than the span the
+    // flight engine relaunches the whole mission on that cadence so several staggered
+    // instances play concurrently, exactly like a single recording with period < duration.
+    // Concurrent multi-Mission looping is still a later phase. Pure: no Unity calls, no
+    // shared mutable state, no recording mutation.
     internal static class MissionLoopUnitBuilder
     {
         // Set true in tests to silence the single per-build Verbose summary.
@@ -24,7 +29,8 @@ namespace Parsek
         internal static GhostPlaybackLogic.LoopUnitSet Build(
             IReadOnlyList<Mission> missions,
             IReadOnlyList<RecordingTree> trees,
-            IReadOnlyList<Recording> committed)
+            IReadOnlyList<Recording> committed,
+            double autoLoopIntervalSeconds)
         {
             // 1. First looping mission, else dormant.
             Mission mission = FindLoopingMission(missions);
@@ -99,13 +105,33 @@ namespace Parsek
                     spanEndUT = rec.EndUT;
             }
 
-            // 7. Cadence: never shorter than the span so the mission never truncates. Auto =
-            //    span; an explicit period is raised to the span when shorter, and both are
-            //    floored at MinCycleDuration. The period sets the gap between repeats, not a cut.
+            // 7. Two cadences from the same user input:
+            //
+            //    (a) Span-clock cadence: never shorter than the span so a SINGLE span instance never
+            //        truncates. Auto = span; an explicit period is raised to the span when shorter,
+            //        both floored at MinCycleDuration. Consumed by the single-instance scenes (KSC,
+            //        Tracking Station) and the flight engine's no-overlap branch.
+            //
+            //    (b) Overlap cadence: the TRUE launch-to-launch period (Auto = the GLOBAL auto-loop
+            //        interval, same as single recordings - NOT the span; an explicit period kept
+            //        as-is). Floored at MinCycleDuration, then cap-clamped so ceil(span / cadence)
+            //        stays within MaxOverlapMissionInstances (mirrors the per-recording
+            //        ComputeEffectiveLaunchCadence cap, but over the SPAN at mission granularity).
+            //        When this is shorter than the span the flight engine overlaps the whole mission
+            //        with itself; when >= span it falls back to the single span instance.
             double span = spanEndUT - spanStartUT;
             double cadence = mission.LoopTimeUnit == LoopTimeUnit.Auto
                 ? Math.Max(span, LoopTiming.MinCycleDuration)
                 : Math.Max(Math.Max(mission.LoopIntervalSeconds, span), LoopTiming.MinCycleDuration);
+
+            double rawOverlapPeriod = mission.LoopTimeUnit == LoopTimeUnit.Auto
+                ? autoLoopIntervalSeconds
+                : mission.LoopIntervalSeconds;
+            // ComputeEffectiveLaunchCadence floors at MinCycleDuration and raises only as far as the
+            // cap needs; pass the SPAN as the per-instance "duration" so ceil(span/cadence) is the
+            // live mission-instance count.
+            double overlapCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
+                rawOverlapPeriod, span, GhostPlayback.MaxOverlapMissionInstances);
 
             // 8. Owner = earliest-start member (first after the StartUT sort).
             int ownerIndex = memberIndices[0];
@@ -121,7 +147,8 @@ namespace Parsek
             // 9. Build the single unit + lookup maps.
             int[] memberArray = memberIndices.ToArray();
             var unit = new GhostPlaybackLogic.LoopUnit(
-                ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT);
+                ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT,
+                overlapCadence);
             var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { ownerIndex, unit } };
             var ownerByIndex = new Dictionary<int, int>();
             for (int i = 0; i < memberArray.Length; i++)
@@ -135,7 +162,9 @@ namespace Parsek
                     $"members={memberArray.Length} skipped={skippedNotCommitted} " +
                     $"span=[{spanStartUT.ToString("R", ic)},{spanEndUT.ToString("R", ic)}] " +
                     $"spanDur={span.ToString("R", ic)} unit={mission.LoopTimeUnit} " +
-                    $"cadence={cadence.ToString("R", ic)} owner={ownerIndex} " +
+                    $"cadence={cadence.ToString("R", ic)} " +
+                    $"overlapCadence={overlapCadence.ToString("R", ic)} " +
+                    $"overlaps={(overlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
             }
 
@@ -148,7 +177,9 @@ namespace Parsek
         /// + tracking station) so the allocating, Verbose-logging <see cref="Build"/> only fires on
         /// an actual input change while the cached set is pushed every frame. Mirrors Build's "first
         /// looping mission wins" rule. Captures: the first looping mission's Id, TreeId,
-        /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedThroughLineHeadIds, the looping tree's
+        /// LoopIntervalSeconds, LoopTimeUnit, the global <paramref name="autoLoopIntervalSeconds"/>
+        /// (which sets an Auto mission's overlap cadence), LoopAnchorUT, sorted
+        /// ExcludedThroughLineHeadIds, the looping tree's
         /// BranchPoints.Count + Recordings.Count, plus the committed-list count and a rolling
         /// RecordingId hash. Constant "none:" prefix when no mission loops, so toggling looping off
         /// still rebuilds to Empty exactly once. Pure: no Unity calls, no shared mutable state.
@@ -156,7 +187,8 @@ namespace Parsek
         internal static string BuildSignature(
             IReadOnlyList<Mission> missions,
             IReadOnlyList<RecordingTree> trees,
-            IReadOnlyList<Recording> committed)
+            IReadOnlyList<Recording> committed,
+            double autoLoopIntervalSeconds)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
@@ -173,6 +205,11 @@ namespace Parsek
                 sb.Append(looping.TreeId ?? "<notree>").Append('|');
                 sb.Append(looping.LoopIntervalSeconds.ToString("R", ic)).Append('|');
                 sb.Append(looping.LoopTimeUnit.ToString()).Append('|');
+                // Auto missions take their overlap cadence from the GLOBAL auto-loop interval, so a
+                // change to that setting (with Auto selected) must rebuild the unit even when nothing
+                // about the mission moved. Non-Auto missions ignore it (their period is explicit), but
+                // folding it in unconditionally is cheap and keeps the signature self-contained.
+                sb.Append(autoLoopIntervalSeconds.ToString("R", ic)).Append('|');
                 // Phase anchor: re-enabling the loop re-anchors the span clock, so a changed
                 // anchor must force a rebuild even when nothing else about the mission moved.
                 sb.Append(looping.LoopAnchorUT.ToString("R", ic)).Append('|');

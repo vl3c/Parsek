@@ -857,8 +857,10 @@ namespace Parsek
         // Mission loop-unit watch sync (Phase D2): resolve a watched member's span loopUT so
         // watch entry syncs ghost visuals at the same clock the engine renders the member at.
         // Returns false (loopUT = currentUT) for non-unit-member / non-looping watch.
-        internal bool TryResolveUnitMemberPlaybackUTForWatch(int recordingIndex, double currentUT, out double loopUT)
-            => engine.TryResolveUnitMemberPlaybackUT(recordingIndex, currentUT, out loopUT);
+        internal bool TryResolveUnitMemberPlaybackUTForWatch(
+            int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
+            => engine.TryResolveUnitMemberPlaybackUT(
+                recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
@@ -18358,12 +18360,14 @@ namespace Parsek
         // the same committed signature, so toggling looping off still rebuilds to Empty exactly once.
         private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
         {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");

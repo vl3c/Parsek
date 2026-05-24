@@ -29,6 +29,21 @@ namespace Parsek.Tests
 
         // --- Helpers (mirror MissionStructureTests) ---
 
+        // The global auto-loop interval most tests use. Far below any span here, so an Auto mission's
+        // OverlapCadenceSeconds resolves to this and produces self-overlap. Tests that care about a
+        // specific value pass their own.
+        private const double DefaultAutoInterval = 30.0;
+
+        // Build with the default auto interval (most tests do not exercise the overlap cadence).
+        private static GhostPlaybackLogic.LoopUnitSet Build(
+            IReadOnlyList<Mission> missions,
+            IReadOnlyList<RecordingTree> trees,
+            IReadOnlyList<Recording> committed,
+            double autoInterval = DefaultAutoInterval)
+        {
+            return MissionLoopUnitBuilder.Build(missions, trees, committed, autoInterval);
+        }
+
         private static Recording Leg(string id, string chainId, int chainIndex,
             double start, double end, int chainBranch = 0, string vessel = "V",
             string eva = null, string parentAnchor = null)
@@ -114,7 +129,7 @@ namespace Parsek.Tests
                 new Mission("m0", "t1", "NotLooping") { LoopPlayback = false }
             };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.Equal(0, set.Count);
             Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, set);
@@ -123,9 +138,10 @@ namespace Parsek.Tests
         [Fact]
         public void Build_NullOrEmptyMissions_ReturnsEmpty()
         {
-            Assert.Equal(0, MissionLoopUnitBuilder.Build(null, null, null).Count);
+            Assert.Equal(0, MissionLoopUnitBuilder.Build(null, null, null, DefaultAutoInterval).Count);
             Assert.Equal(0, MissionLoopUnitBuilder.Build(
-                new List<Mission>(), new List<RecordingTree>(), new List<Recording>()).Count);
+                new List<Mission>(), new List<RecordingTree>(), new List<Recording>(),
+                DefaultAutoInterval).Count);
         }
 
         [Fact]
@@ -135,7 +151,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values);
             var missions = new List<Mission> { LoopMission("nope") };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.Equal(0, set.Count);
             Assert.Contains(logLines, l => l.Contains("[Mission]") && l.Contains("tree not found"));
@@ -152,7 +168,7 @@ namespace Parsek.Tests
             };
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.Equal(1, set.Count);
             Assert.True(set.TryGetUnitForMember(0, out var unit));
@@ -160,7 +176,11 @@ namespace Parsek.Tests
             Assert.Equal(0, unit.OwnerIndex);                    // earliest start
             Assert.Equal(100.0, unit.SpanStartUT);               // min start
             Assert.Equal(410.0, unit.SpanEndUT);                 // max end
-            Assert.Equal(310.0, unit.CadenceSeconds);            // Auto: span (310 >= MinCycle)
+            Assert.Equal(310.0, unit.CadenceSeconds);            // span-clock cadence Auto: span (310 >= MinCycle)
+            // Auto overlap cadence = the GLOBAL auto-loop interval (NOT the span), like single
+            // recordings. 30 < 310 span -> the mission self-overlaps.
+            Assert.Equal(DefaultAutoInterval, unit.OverlapCadenceSeconds);
+            Assert.True(unit.OverlapCadenceSeconds < (unit.SpanEndUT - unit.SpanStartUT));
             // Every member resolves to the same owner.
             Assert.True(set.IsMember(1) && set.IsMember(2));
             Assert.Equal(0, set.OwnerByIndex[2]);
@@ -175,7 +195,7 @@ namespace Parsek.Tests
             mission.LoopAnchorUT = 7777.0; // loop was enabled at this UT
             var missions = new List<Mission> { mission };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(7777.0, unit.PhaseAnchorUT); // explicit anchor flows through
@@ -194,7 +214,7 @@ namespace Parsek.Tests
             Assert.True(double.IsNaN(mission.LoopAnchorUT)); // default, never enabled through the store
             var missions = new List<Mission> { mission };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             // NaN anchor falls back to spanStartUT, preserving the old absolute-phase behavior.
@@ -215,7 +235,7 @@ namespace Parsek.Tests
             };
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(1, out var unit));
             // Members sorted by StartUT: a(idx1,100), b(idx2,200), c(idx0,300).
@@ -226,29 +246,75 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_ExplicitPeriod_AboveSpan_UsesPeriod()
+        public void Build_ExplicitPeriod_AboveSpan_UsesPeriod_NoOverlap()
         {
             var tree = LinearTree(); // span = 310
             var committed = new List<Recording>(tree.Recordings.Values);
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Sec, interval: 600.0) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(600.0, unit.CadenceSeconds); // period >= span -> period
+            Assert.Equal(600.0, unit.CadenceSeconds);          // span-clock: period >= span -> period
+            Assert.Equal(600.0, unit.OverlapCadenceSeconds);   // explicit period kept (>= span -> no overlap)
+            Assert.False(unit.OverlapCadenceSeconds < (unit.SpanEndUT - unit.SpanStartUT));
         }
 
         [Fact]
-        public void Build_ExplicitPeriod_BelowSpan_RaisedToSpan()
+        public void Build_ExplicitPeriod_BelowSpan_SpanClockRaised_OverlapKeepsPeriod()
         {
             var tree = LinearTree(); // span = 310
             var committed = new List<Recording>(tree.Recordings.Values);
+            // 50s period, span 310. cap=12 -> floor = 310/12 = 25.83, so 50 > floor: period kept.
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Sec, interval: 50.0) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Equal(310.0, unit.CadenceSeconds); // period < span -> raised to span
+            Assert.Equal(310.0, unit.CadenceSeconds);        // span-clock: period < span -> raised to span
+            Assert.Equal(50.0, unit.OverlapCadenceSeconds);  // overlap: explicit period kept, NOT raised
+            Assert.True(unit.OverlapCadenceSeconds < (unit.SpanEndUT - unit.SpanStartUT)); // self-overlaps
+        }
+
+        [Fact]
+        public void Build_ShortPeriod_CapRaisesOverlapCadence_SpanClockUnaffected()
+        {
+            var tree = LinearTree(); // span = 310
+            var committed = new List<Recording>(tree.Recordings.Values);
+            // A 1s period would need ceil(310/1) = 310 instances, far over the cap of 12.
+            // The cap raises the overlap cadence to the minimum that keeps the count <= 12:
+            // ceil(310 / cadence) <= 12 -> cadence >= 310/12 = 25.833...
+            var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Sec, interval: 1.0) };
+
+            var set = Build(missions, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            int cap = GhostPlayback.MaxOverlapMissionInstances; // 12
+            // Cap strictly observed: live instance count never exceeds the cap.
+            Assert.True(Math.Ceiling(span / unit.OverlapCadenceSeconds) <= cap);
+            // And raised no further than necessary: one notch lower would breach the cap.
+            Assert.True(unit.OverlapCadenceSeconds >= span / cap);
+            // Span-clock cadence is unaffected by the overlap cap (still raised to span).
+            Assert.Equal(310.0, unit.CadenceSeconds);
+            // Still overlaps (cadence < span).
+            Assert.True(unit.OverlapCadenceSeconds < span);
+        }
+
+        [Fact]
+        public void Build_AutoInterval_AtOrAboveSpan_NoOverlap()
+        {
+            var tree = LinearTree(); // span = 310
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
+
+            // Global auto interval >= span: a single instance, no self-overlap.
+            var set = Build(missions, new[] { tree }, committed, autoInterval: 400.0);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(400.0, unit.OverlapCadenceSeconds);  // Auto overlap cadence = global interval
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            Assert.False(unit.OverlapCadenceSeconds < span);  // >= span -> single span instance
         }
 
         [Fact]
@@ -259,7 +325,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values);
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Sec, interval: 0.0) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(LoopTiming.MinCycleDuration, unit.CadenceSeconds); // 5.0
@@ -272,7 +338,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values);
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(LoopTiming.MinCycleDuration, unit.CadenceSeconds);
@@ -314,7 +380,7 @@ namespace Parsek.Tests
                 LoopMission("t1", LoopTimeUnit.Auto, excluded: new[] { "fork" })
             };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             // root + c1 + c2 remain; fork (index 3) is gone.
@@ -336,7 +402,7 @@ namespace Parsek.Tests
             };
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             // Only valid indices 0 (a) and 1 (c); never an out-of-range 2.
@@ -353,7 +419,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(); // nothing committed
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.Equal(0, set.Count);
         }
@@ -370,7 +436,7 @@ namespace Parsek.Tests
                 LoopMission("t1", LoopTimeUnit.Sec, interval: 9999.0) // ignored
             };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(310.0, unit.CadenceSeconds); // Auto from the FIRST looping mission
@@ -383,7 +449,7 @@ namespace Parsek.Tests
             var committed = new List<Recording>(tree.Recordings.Values);
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            Build(missions, new[] { tree }, committed);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Mission]") && l.Contains("MissionLoopUnit") &&
@@ -402,10 +468,40 @@ namespace Parsek.Tests
             };
             var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
 
-            var set = MissionLoopUnitBuilder.Build(missions, new[] { tree }, committed);
+            var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
             Assert.Equal(new[] { 0 }, unit.MemberIndices); // index 0, not 1
+        }
+
+        // --- MissionLoopUnitBuilder.BuildSignature ---
+
+        [Fact]
+        public void BuildSignature_AutoMission_ChangesWhenGlobalIntervalChanges()
+        {
+            var tree = LinearTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
+
+            string sigA = MissionLoopUnitBuilder.BuildSignature(missions, new[] { tree }, committed, 30.0);
+            string sigB = MissionLoopUnitBuilder.BuildSignature(missions, new[] { tree }, committed, 45.0);
+
+            // An Auto mission takes its overlap cadence from the global interval, so a change to it
+            // must force a rebuild.
+            Assert.NotEqual(sigA, sigB);
+        }
+
+        [Fact]
+        public void BuildSignature_StableWhenNothingChanges()
+        {
+            var tree = LinearTree();
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var missions = new List<Mission> { LoopMission("t1", LoopTimeUnit.Auto) };
+
+            string sigA = MissionLoopUnitBuilder.BuildSignature(missions, new[] { tree }, committed, 30.0);
+            string sigB = MissionLoopUnitBuilder.BuildSignature(missions, new[] { tree }, committed, 30.0);
+
+            Assert.Equal(sigA, sigB);
         }
 
         // --- MissionSelection.ComputeIncludedHeadIds ---

@@ -6461,6 +6461,19 @@ namespace Parsek
                 double spanEndUT,
                 double cadenceSeconds,
                 double phaseAnchorUT)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT,
+                       cadenceSeconds, phaseAnchorUT, cadenceSeconds)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6468,6 +6481,7 @@ namespace Parsek
                 SpanEndUT = spanEndUT;
                 CadenceSeconds = cadenceSeconds;
                 PhaseAnchorUT = phaseAnchorUT;
+                OverlapCadenceSeconds = overlapCadenceSeconds;
             }
 
             /// <summary>Earliest member's committed-recording index (owns the span clock).</summary>
@@ -6482,11 +6496,33 @@ namespace Parsek
             /// <summary>Max member EndUT (a ride-along debris tail can extend it).</summary>
             internal double SpanEndUT { get; }
 
-            /// <summary>Cadence: the Mission's loop period, raised to at least the span so the mission never truncates (Auto = span).</summary>
+            /// <summary>
+            /// Span-clock cadence: the Mission's loop period raised to at least the span so a SINGLE
+            /// span instance never truncates (Auto = span). Consumed by the single-instance scenes
+            /// (KSC, Tracking Station) and the flight engine's no-overlap branch via
+            /// <see cref="TryComputeSpanLoopUT"/>. NOT the true launch cadence: when the user period
+            /// is shorter than the span the mission overlaps itself instead (see
+            /// <see cref="OverlapCadenceSeconds"/>); this field stays at the span so the
+            /// single-instance scenes keep showing the whole mission.
+            /// </summary>
             internal double CadenceSeconds { get; }
 
             /// <summary>The UT the loop phase is measured from (elapsed = currentUT - PhaseAnchorUT). Equals <see cref="SpanStartUT"/> when no explicit anchor was supplied, which preserves the old absolute-phase behavior.</summary>
             internal double PhaseAnchorUT { get; }
+
+            /// <summary>
+            /// True launch-to-launch cadence for MISSION self-overlap: the Mission's loop period
+            /// (Auto = the global auto-loop interval, NOT the span), cap-clamped so
+            /// <c>ceil(span / cadence)</c> stays within
+            /// <see cref="GhostPlayback.MaxOverlapMissionInstances"/>. When this is SHORTER than the
+            /// span the flight engine relaunches the whole mission every
+            /// <see cref="OverlapCadenceSeconds"/> seconds, so several staggered instances of the
+            /// mission play concurrently (exactly like a single recording with period &lt; duration).
+            /// When it is &gt;= the span there is no self-overlap and the engine falls back to the
+            /// single span-clock instance. Defaults to <see cref="CadenceSeconds"/> for the
+            /// non-overlapping constructor so legacy callers keep the single-instance behavior.
+            /// </summary>
+            internal double OverlapCadenceSeconds { get; }
         }
 
         /// <summary>
@@ -6628,6 +6664,62 @@ namespace Parsek
             loopUT = spanStartUT + clampedPhase;
             isInInterCycleTail = (phaseInCycle >= span);
             return true;
+        }
+
+        /// <summary>
+        /// Span-progress loopUT of the NEWEST instance of a SELF-OVERLAPPING mission. Under
+        /// self-overlap the mission relaunches every <paramref name="overlapCadenceSeconds"/> (the
+        /// cap-clamped true period, shorter than the span), so the newest instance is the one launched
+        /// at <c>anchor + missionCycle * cadence</c> where
+        /// <c>missionCycle = floor((currentUT - anchor) / cadence)</c> (capped at
+        /// <paramref name="maxInstances"/>, mirroring <see cref="GetActiveCycles"/>'s newest-cycle
+        /// clamp). Its progress through the span is the phase since that launch, clamped to
+        /// [0, <paramref name="span"/>], and the returned <paramref name="loopUT"/> is
+        /// <c>spanStartUT + phase</c>. Feeding this into
+        /// <see cref="IsLoopUTInMemberWindow"/> picks the newest-instance live member for the watch
+        /// camera, so the cross-member handoff follows the newest instance and never an older one.
+        /// Returns <paramref name="loopUT"/> = spanStartUT, cycle 0 before the anchor or for a
+        /// degenerate span. Pure: no logging.
+        /// </summary>
+        internal static void ComputeNewestMissionInstanceSpanLoopUT(
+            double phaseAnchorUT, double spanStartUT, double span,
+            double overlapCadenceSeconds, double currentUT, int maxInstances,
+            out double loopUT, out long missionCycle)
+        {
+            loopUT = spanStartUT;
+            missionCycle = 0;
+
+            if (span <= 0 || currentUT < phaseAnchorUT)
+                return;
+
+            double cadence = Math.Max(overlapCadenceSeconds, LoopTiming.MinCycleDuration);
+            double elapsed = currentUT - phaseAnchorUT;
+            missionCycle = (long)Math.Floor(elapsed / cadence);
+            if (missionCycle < 0)
+                missionCycle = 0;
+
+            // Mirror GetActiveCycles: the newest live instance is at most maxInstances ahead of the
+            // oldest still-playing instance. This only affects the index label; the span phase below
+            // is computed from the same newest cycle, so the camera tracks the genuinely newest one.
+            if (maxInstances > 0)
+            {
+                long firstActive = 0;
+                double elapsedMinusSpan = elapsed - span;
+                if (elapsedMinusSpan >= 0)
+                {
+                    firstActive = (long)Math.Floor(elapsedMinusSpan / cadence) + 1;
+                    if (firstActive < 0)
+                        firstActive = 0;
+                }
+                if (firstActive < missionCycle - maxInstances + 1)
+                    firstActive = missionCycle - maxInstances + 1;
+                // (firstActive is the oldest live; missionCycle stays the newest.)
+            }
+
+            double phase = elapsed - (missionCycle * cadence);
+            if (phase < 0) phase = 0;
+            if (phase > span) phase = span;
+            loopUT = spanStartUT + phase;
         }
 
         /// <summary>

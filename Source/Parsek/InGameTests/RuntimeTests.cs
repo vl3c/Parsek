@@ -4584,6 +4584,45 @@ namespace Parsek.InGameTests
                 "Empty loop-unit set must pass through the live UT (42)");
         }
 
+        [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
+            Description = "Mission self-overlap: a looping unit with overlap cadence shorter than its span resolves the watched member to its NEWEST staggered instance, not the single span-clock UT")]
+        public void MissionSelfOverlap_ResolvesNewestInstanceMemberUT()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Full multi-instance ghost rendering (overlapGhosts) is exercised by the live engine
+            // path and bounded by OverlapGhostCountWithinCap; here we verify the engine's self-overlap
+            // UT reduction in the Unity runtime against a synthetic unit (no live spawning needed).
+            // Span [1000,1300] (300s), overlap cadence 60 < span -> self-overlap. Anchor 1000, member
+            // window == span. At UT 1250: lastCycle = floor(250/60) = 4; cycleStart = 1000+240 = 1240;
+            // phase = 10 -> newest-instance member UT = memberStart(1000) + 10 = 1010.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000, spanEndUT: 1300, cadenceSeconds: 300, phaseAnchorUT: 1000,
+                overlapCadenceSeconds: 60);
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            InGameAssert.IsTrue(unit.OverlapCadenceSeconds < span,
+                "Synthetic unit must self-overlap (overlap cadence < span)");
+
+            var engine = new GhostPlaybackEngine(null);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 0, 0 } };
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1250.0, memberStartUT: 1000.0, memberEndUT: 1300.0, out double loopUT);
+
+            InGameAssert.IsTrue(resolved, "Self-overlap member UT must resolve");
+            InGameAssert.IsTrue(System.Math.Abs(loopUT - 1010.0) < 1e-6,
+                $"Watch must pin the newest instance (expected 1010, got {loopUT:F3})");
+
+            ParsekLog.Info("TestRunner",
+                string.Format(CultureInfo.InvariantCulture,
+                    "MissionSelfOverlap_ResolvesNewestInstanceMemberUT: span={0} overlapCadence={1} loopUT={2}",
+                    span, unit.OverlapCadenceSeconds, loopUT));
+        }
+
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             Description = "#554: synthetic orbital TS ghost is removed when hidden and recreated when shown")]
         public void TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates()

@@ -272,11 +272,41 @@ namespace Parsek
         /// The span clock failing to resolve (before span start / degenerate span) also returns
         /// false with the raw UT, so the caller keeps its existing fallback path.
         /// </summary>
-        internal bool TryResolveUnitMemberPlaybackUT(int recordingIndex, double currentUT, out double loopUT)
+        internal bool TryResolveUnitMemberPlaybackUT(
+            int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
         {
             loopUT = currentUT;
             if (!currentLoopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit))
                 return false;
+
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+
+            // Self-overlap: the mission relaunches every OverlapCadenceSeconds, so watch must pin the
+            // NEWEST instance of this member (the primary ghost UpdateOverlapPlayback keeps pointed at
+            // lastCycle). Resolve the member's playback UT in its newest overlap cycle via the SAME
+            // per-recording overlap math the engine renders the member with: scheduleStartUT =
+            // PhaseAnchorUT + (memberStart - spanStart), playbackStartUT = memberStart, duration =
+            // memberEnd - memberStart, intervalSeconds = the mission overlap cadence. See
+            // UpdateUnitMemberPlayback for the matching render-side reduction.
+            if (span > 0 && unit.OverlapCadenceSeconds < span)
+            {
+                double memberScheduleStartUT = unit.PhaseAnchorUT + (memberStartUT - unit.SpanStartUT);
+                double memberDuration = memberEndUT - memberStartUT;
+                if (memberDuration > 0
+                    && GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                        currentUT,
+                        unit.OverlapCadenceSeconds,
+                        memberDuration,
+                        memberStartUT,
+                        memberScheduleStartUT,
+                        out double overlapMemberUT,
+                        out _))
+                {
+                    loopUT = overlapMemberUT;
+                    return true;
+                }
+                return false;
+            }
 
             if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                     currentUT,
@@ -1622,6 +1652,78 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                             parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
                     {
+                        // MISSION SELF-OVERLAP: when the parent's unit overlaps (overlap cadence
+                        // shorter than the span), the debris must overlap on the SAME cadence so its
+                        // instances ride alongside the parent member's instances. The debris is NOT a
+                        // unit member, but its absolute window [debrisStart, debrisEnd] sits inside the
+                        // span, so the SAME anchor-offset reduction the member path uses applies with
+                        // the debris's own window:
+                        //   scheduleStartUT = PhaseAnchorUT + (debrisStart - spanStart)
+                        //   playbackStartUT = debrisStart
+                        //   duration        = debrisEnd - debrisStart
+                        //   intervalSeconds = OverlapCadenceSeconds
+                        // Route it through UpdateOverlapPlayback (its own overlapGhosts[i] slot) so the
+                        // debris gets the same staggered instances as its parent. When the unit does
+                        // NOT overlap, fall through to the single span-clock instance below (unchanged).
+                        double parentUnitSpan = parentUnit.SpanEndUT - parentUnit.SpanStartUT;
+                        if (parentUnitSpan > 0 && parentUnit.OverlapCadenceSeconds < parentUnitSpan)
+                        {
+                            double debrisDuration = traj.EndUT - traj.StartUT;
+                            if (debrisDuration <= 0)
+                            {
+                                GhostRenderTrace.EmitGuardSkip(
+                                    traj, i, ctx.currentUT, "debris-unit-overlap-zero-duration");
+                                if (ghostActive)
+                                    DestroyGhost(i, traj, f, reason: "debris unit overlap zero duration");
+                                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                                return true;
+                            }
+
+                            double debrisScheduleStartUT =
+                                parentUnit.PhaseAnchorUT + (traj.StartUT - parentUnit.SpanStartUT);
+                            double debrisPlaybackStartUT = traj.StartUT;
+
+                            bool suppressDebrisOverlapGhosts = false;
+                            if (suppressGhosts)
+                            {
+                                if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                                        ctx.currentUT, parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                        debrisPlaybackStartUT, debrisScheduleStartUT,
+                                        out double debrisNewestUT, out _)
+                                    || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                                        ctx.warpRate, traj, debrisNewestUT))
+                                {
+                                    GhostRenderTrace.EmitGuardSkip(
+                                        traj, i, ctx.currentUT, "debris-unit-overlap-warp-hidden");
+                                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                                    {
+                                        state.ghost.SetActive(false);
+                                        ResetGhostAppearanceTracking(state);
+                                    }
+                                    DestroyAllOverlapGhosts(i);
+                                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                                    return true;
+                                }
+                                suppressDebrisOverlapGhosts = true;
+                            }
+
+                            ParsekLog.VerboseRateLimited(
+                                "Engine", "debris-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
+                                "Mission self-overlap debris #" + i.ToString(CultureInfo.InvariantCulture)
+                                    + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
+                                    + " owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                                    + " overlapCadence=" + parentUnit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                                    + " debrisDur=" + debrisDuration.ToString("F2", CultureInfo.InvariantCulture),
+                                5.0);
+
+                            UpdateOverlapPlayback(
+                                i, traj, f, ctx, state,
+                                parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                debrisPlaybackStartUT, debrisScheduleStartUT,
+                                suppressVisualFx, suppressDebrisOverlapGhosts);
+                            return true;
+                        }
+
                         // Discard isInInterCycleTail: a unit member uses cadence == span, so the
                         // parked tail never engages (always false). Future cadence > span producers
                         // consume the tail directly.
@@ -1829,6 +1931,105 @@ namespace Parsek
                     DestroyAllOverlapGhosts(i);
                 }
                 CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
+                return;
+            }
+
+            // (1b) MISSION SELF-OVERLAP: when the mission's overlap cadence is SHORTER than the span,
+            // the whole mission relaunches every OverlapCadenceSeconds, so several staggered instances
+            // play concurrently. For THIS member that is EXACTLY a per-recording overlap loop:
+            //   scheduleStartUT = PhaseAnchorUT + (memberStart - spanStart)  (when this instance launches)
+            //   playbackStartUT = memberStart                                (where in the member to start)
+            //   duration        = memberEnd - memberStart                    (the member's own length)
+            //   intervalSeconds = OverlapCadenceSeconds                      (the mission launch cadence)
+            // Route the member through the existing UpdateOverlapPlayback so overlapGhosts[i] holds the
+            // staggered instances (the primary = newest instance, the camera-followed one). Do NOT clear
+            // overlapGhosts[i] in this branch. The span-clock window/inter-cycle-tail decision below is
+            // NOT used here (overlap has its own per-instance scheduling); the member-specific warp gate
+            // is handled inside UpdateOverlapPlayback. When OverlapCadenceSeconds >= span we fall through
+            // to the EXACT single-instance span-clock behavior (including the overlapGhosts[i] clear).
+            double unitSpan = unit.SpanEndUT - unit.SpanStartUT;
+            if (unitSpan > 0 && unit.OverlapCadenceSeconds < unitSpan)
+            {
+                double memberDuration = traj.EndUT - traj.StartUT;
+                if (memberDuration <= 0)
+                {
+                    GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-overlap-member-zero-duration");
+                    if (ghostActive)
+                    {
+                        DestroyGhost(i, traj, f, reason: "unit overlap member zero duration");
+                        DestroyAllOverlapGhosts(i);
+                    }
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+
+                double memberScheduleStartUT = unit.PhaseAnchorUT + (traj.StartUT - unit.SpanStartUT);
+                double memberPlaybackStartUT = traj.StartUT;
+
+                // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
+                // overlap meshes at high warp but keep the stationary newest primary visible.
+                bool suppressOverlapGhosts = false;
+                if (suppressGhosts)
+                {
+                    if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                            ctx.currentUT, unit.OverlapCadenceSeconds, memberDuration,
+                            memberPlaybackStartUT, memberScheduleStartUT,
+                            out double newestOverlapUT, out _)
+                        || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                            ctx.warpRate, traj, newestOverlapUT))
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "unit-overlap-warp-hidden");
+                        if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                        {
+                            state.ghost.SetActive(false);
+                            ResetGhostAppearanceTracking(state);
+                        }
+                        DestroyAllOverlapGhosts(i);
+                        CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                        return;
+                    }
+                    suppressOverlapGhosts = true;
+                }
+
+                // Watch-newest pin + member handoff WITHIN the newest instance. The camera follows the
+                // newest mission instance (every member's primary ghost sits on its newest overlap
+                // cycle), and must hand off from member A to member B as the NEWEST instance crosses a
+                // member boundary - never to an older instance. Drive the existing per-unit transition
+                // detector (LogUnitTransitionIfChanged + the watch retarget it fires) with the NEWEST
+                // instance's span-progress loopUT instead of the single span clock. The newest mission
+                // instance's progress: missionCycle = floor((currentUT - anchor) / overlapCadence),
+                // capped at the instance cap; span phase = currentUT - (anchor + missionCycle*cadence)
+                // clamped to [0, span]; loopUT = spanStart + phase. IsLoopUTInMemberWindow on that
+                // loopUT picks the newest-instance live member for the camera. isInInterCycleTail is
+                // false here (overlap relaunches with no gap). Each member computes the same value
+                // deterministically, so calling this per-member stays consistent (only the first acts).
+                double newestMissionLoopUT;
+                long newestMissionCycle;
+                GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                    unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
+                    ctx.currentUT, GhostPlayback.MaxOverlapMissionInstances,
+                    out newestMissionLoopUT, out newestMissionCycle);
+                LogUnitTransitionIfChanged(
+                    unit, unitKey, trajectories, newestMissionLoopUT, newestMissionCycle, ctx.currentUT,
+                    isInInterCycleTail: false, watchedIndex: ctx.protectedIndex);
+
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Mission self-overlap unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " overlapCadence=" + unit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                        + " span=" + unitSpan.ToString("F2", CultureInfo.InvariantCulture)
+                        + " memberDur=" + memberDuration.ToString("F2", CultureInfo.InvariantCulture)
+                        + " schedStart=" + memberScheduleStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " newestInstLoopUT=" + newestMissionLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+
+                UpdateOverlapPlayback(
+                    i, traj, f, ctx, state,
+                    unit.OverlapCadenceSeconds, memberDuration,
+                    memberPlaybackStartUT, memberScheduleStartUT,
+                    suppressVisualFx, suppressOverlapGhosts);
                 return;
             }
 
