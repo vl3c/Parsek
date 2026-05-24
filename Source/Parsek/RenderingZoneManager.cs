@@ -6,10 +6,10 @@ namespace Parsek
     {
         // NOTE: "Physics" here is the rendering full-fidelity tier, NOT KSP's
         // physics-load bubble. Its boundary is GhostFlight.FullFidelityRangeMeters
-        // (10 km), deliberately larger than DistanceThresholds.PhysicsBubbleMeters
-        // (2.3 km) so engine plumes / smoke stay visible well into the distance.
-        Physics = 0,   // 0 - 10 km: full mesh + part events + engine/RCS/reentry FX
-        Visual = 1,    // 10 - 120 km: coarse mesh silhouette, no FX, no part events
+        // (5 km), deliberately larger than DistanceThresholds.PhysicsBubbleMeters
+        // (2.3 km) so engine plumes / smoke stay visible past the physics bubble.
+        Physics = 0,   // 0 - 5 km: full mesh + part events + engine/RCS/reentry FX
+        Visual = 1,    // 5 - 120 km: coarse mesh silhouette, no FX, no part events
         Beyond = 2     // 120 km+: no mesh, position tracked for map view only
     }
 

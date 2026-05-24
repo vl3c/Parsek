@@ -17,15 +17,15 @@ namespace Parsek.Tests
         public void ClassifyDistance_JustInsideFullFidelityRange_ReturnsPhysics()
         {
             // Engine plumes / smoke stay full-fidelity well past the 2.3 km
-            // physics bubble; the rendering boundary is 10 km.
-            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(9999));
+            // physics bubble; the rendering boundary is 5 km.
+            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(4999));
         }
 
         [Fact]
         public void ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual()
         {
-            // 10000m is the boundary — no longer < 10000, so it falls to Visual
-            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(10000));
+            // 5000m is the boundary — no longer < 5000, so it falls to Visual
+            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(5000));
         }
 
         [Fact]
@@ -71,7 +71,7 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawnLoopedGhost_JustInsideFullFidelityRange_FullFidelity()
         {
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(9999);
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(4999);
             Assert.True(shouldSpawn);
             Assert.False(simplified);
         }
@@ -79,8 +79,8 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawnLoopedGhost_AtFullFidelityBoundary_Simplified()
         {
-            // 10000m is the boundary — no longer < 10000, so it falls to simplified
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(10000);
+            // 5000m is the boundary — no longer < 5000, so it falls to simplified
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(5000);
             Assert.True(shouldSpawn);
             Assert.True(simplified);
         }
@@ -122,13 +122,13 @@ namespace Parsek.Tests
         {
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(0));
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(1000));
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(9999));
+            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(4999));
         }
 
         [Fact]
         public void ShouldRenderPartEvents_AtFullFidelityBoundary_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(10000));
+            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(5000));
         }
 
         [Fact]
