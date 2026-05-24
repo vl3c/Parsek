@@ -3361,6 +3361,58 @@ namespace Parsek
             return state;
         }
 
+        /// <summary>
+        /// Read-only resolve of the watched ghost's camera-anchor world position, used to
+        /// center the ghost render-distance LOD radius on the watched ghost (what the camera
+        /// is actually following) instead of the active vessel while in watch mode.
+        ///
+        /// Deliberately side-effect free, unlike <see cref="FindWatchedGhostState"/>: it does
+        /// NOT retarget the camera, log, load visuals, or mutate <c>watchedOverlapCycleIndex</c>,
+        /// so it is safe to call from the per-frame, per-ghost LOD distance path. Returns false
+        /// when not watching or the watched ghost has no live transform this frame; the caller
+        /// then falls back to the active vessel.
+        /// </summary>
+        internal bool TryGetWatchedGhostAnchorWorldPosition(out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (watchedRecordingIndex < 0 || host == null || host.Engine == null)
+                return false;
+
+            GhostPlaybackState state = null;
+            var ghostStates = host.Engine.ghostStates;
+            var overlapGhosts = host.Engine.overlapGhosts;
+
+            if (watchedOverlapCycleIndex >= 0 && overlapGhosts != null)
+            {
+                List<GhostPlaybackState> overlaps;
+                if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps) && overlaps != null)
+                {
+                    for (int i = 0; i < overlaps.Count; i++)
+                    {
+                        if (overlaps[i] != null && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
+                        {
+                            state = overlaps[i];
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (state == null && ghostStates != null)
+                ghostStates.TryGetValue(watchedRecordingIndex, out state);
+
+            Transform anchor = null;
+            if (state != null)
+                anchor = state.cameraPivot != null
+                    ? state.cameraPivot
+                    : (state.ghost != null ? state.ghost.transform : null);
+            if (anchor == null)
+                return false;
+
+            worldPosition = (Vector3d)anchor.position;
+            return true;
+        }
+
         private bool TryResolveOverlapRetarget()
         {
             if (watchedOverlapCycleIndex != -2 || overlapRetargetAfterUT <= 0)
