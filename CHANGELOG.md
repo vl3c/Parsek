@@ -33,6 +33,8 @@ All notable changes to Parsek are documented here.
 - A mission's loop period set to "auto" now shows the global auto-loop interval from Settings (with its unit), instead of a fixed placeholder value. The looping behavior already used the Settings value; only the displayed number was wrong.
 - Ghost effects no longer cut out when you zoom the flight camera out, and reappear correctly when you zoom back in. The effect range is now measured from the vessel the camera is following rather than the camera position, so every ghost near that vessel keeps its effects at any zoom level.
 - Ghost engine plumes now switch back on when a ghost flies back into effect range. Previously a ghost that left the range during a steady burn and returned (a looping aircraft, for example) kept a dead plume until its next throttle change.
+- Switching to a vessel still sitting on the launch pad (Tracking Station Fly, KSC marker Fly, or map Switch To) no longer starts a recording immediately. It now follows the normal launch rules and begins recording when you launch or stage, like any other vehicle on the pad.
+- Leaving the flight scene with such an idle on-pad recording no longer leaves a stray Merge/Discard dialog that popped up on your next game load instead of on exit.
 
 ---
 

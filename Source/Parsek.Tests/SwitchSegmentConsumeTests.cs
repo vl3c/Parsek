@@ -75,7 +75,8 @@ namespace Parsek.Tests
                 currentRealtime: 0f,
                 currentUT: 0.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.NoIntent, outcome);
             Assert.Equal(SwitchSegmentEntryRoute.NoIntent,
                 StockActionIntentConsumeDecision.RouteForRefusal(outcome));
@@ -94,7 +95,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun, outcome);
             Assert.Equal("stale-cross-run",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -115,7 +117,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
             Assert.Equal("stale-intent-ttl",
@@ -135,7 +138,8 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Elapsed = 105 - 100 = 5s, MapSwitchTo TTL = 2s → expired.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, procId, 105f, 1000.0, false, 0u);
+                marker, 99u, procId, 105f, 1000.0, false, 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
             Assert.Equal(SwitchSegmentEntryRoute.Refused_StaleIntent,
@@ -155,7 +159,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 101f, 950.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentUtRegressed,
                 outcome);
             Assert.Equal("stale-intent-ut-regressed",
@@ -178,7 +183,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
             Assert.Equal("stale-target-mismatch",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -200,7 +206,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 77u);
+                activeSessionFocusedPid: 77u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.DuplicateSameTarget, outcome);
             Assert.Equal("duplicate-intent-same-target",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -224,7 +231,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 100u);
+                activeSessionFocusedPid: 100u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
         }
 
@@ -243,7 +251,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun,
                 outcome);
             Assert.Equal("stale-cross-run",
@@ -265,7 +274,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
         }
@@ -284,7 +294,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.MissedSwitchRecovery,
                 outcome);
             Assert.Equal("stale-cross-run",
@@ -307,9 +318,110 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
             Assert.Null(StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+        }
+
+        // Fails if: a fresh, target-matching marker for a vessel still sitting
+        // on the pad (PRELAUNCH) starts a switch-fly segment immediately
+        // instead of deferring to the normal auto-record-on-launch trigger.
+        // This is the Jumping-Flea-on-the-pad bug: a KSC marker Fly / TS Fly /
+        // Map Switch-To to an on-pad vessel must follow the same launch-deferral
+        // rules as any other on-pad vessel.
+        [Fact]
+        public void Evaluate_PrelaunchTarget_DefersToLaunch()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.KscMarkerFly,
+                targetPid: 99u, processSessionId: procId,
+                capturedRealtime: 100f, capturedUT: 1000.0);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 99u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: true);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.PrelaunchDeferToLaunch,
+                outcome);
+            Assert.Equal("prelaunch-defer-to-launch",
+                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+            Assert.Equal(SwitchSegmentEntryRoute.Refused_PrelaunchTarget,
+                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
+        }
+
+        // Fails if: the PRELAUNCH defer ever shadows a diagnostic-relevant
+        // refusal. A stale / mis-targeted / duplicate marker must keep its own
+        // classification even when the focused vessel happens to be PRELAUNCH,
+        // because those refusals carry debugging signal the routine defer does
+        // not. Mirrors the in-code ordering (defer is the last gate before
+        // Authorized).
+        [Fact]
+        public void Evaluate_PrelaunchTarget_DoesNotShadowTargetMismatch()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.MapSwitchTo,
+                targetPid: 100u, processSessionId: procId);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 200u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: true);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
+        }
+
+        // Fails if: a non-PRELAUNCH fresh marker is mistakenly deferred. The
+        // companion to Evaluate_PrelaunchTarget_DefersToLaunch: switching to
+        // an already-flying / landed vessel keeps the immediate-start behavior.
+        [Fact]
+        public void Evaluate_NonPrelaunchTarget_StillAuthorizes()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.TrackingStationFly,
+                targetPid: 99u, processSessionId: procId,
+                capturedRealtime: 100f, capturedUT: 1000.0);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 99u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsPrelaunch: false);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
+        }
+
+        // Source-text gate: TryConsumeStockActionIntent must feed the focused
+        // vessel's PRELAUNCH situation into the decision predicate. The pure
+        // Evaluate tests above prove the defer branch, but the live wiring
+        // (newVessel.situation -> targetIsPrelaunch) can't be driven from xUnit
+        // (Vessel + FlightGlobals are unguarded). This gate fails if a refactor
+        // drops the PRELAUNCH argument and silently reverts to immediate-start
+        // for on-pad vessels.
+        [Fact]
+        public void TryConsumeStockActionIntent_PassesPrelaunchSituationToEvaluate()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(flightPath));
+            string source = File.ReadAllText(flightPath);
+
+            // The PRELAUNCH situation is captured into a local that is then
+            // threaded into the Evaluate call as targetIsPrelaunch.
+            Assert.Matches(new Regex(
+                @"bool targetIsPrelaunch\s*=\s*[\s\S]{0,120}?Vessel\.Situations\.PRELAUNCH;",
+                RegexOptions.Multiline),
+                source);
+            Assert.Matches(new Regex(
+                @"ConsumeDecision\.Evaluate\([\s\S]{0,600}?targetIsPrelaunch\);",
+                RegexOptions.Multiline),
+                source);
         }
 
         // -----------------------------------------------------------------
