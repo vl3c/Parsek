@@ -361,27 +361,51 @@ namespace Parsek
             bool enabled = mission.LoopPlayback;
             bool auto = mission.LoopTimeUnit == LoopTimeUnit.Auto;
 
-            // Seed / refresh the per-mission edit buffer from the stored value whenever the
-            // field is not actively being typed into for this mission's control name.
             string controlName = "MissionLoopPeriod_" + mission.Id;
-            bool focused = GUI.GetNameOfFocusedControl() == controlName;
-            if (!focused || !loopPeriodEditBuffers.ContainsKey(mission.Id))
-            {
-                loopPeriodEditBuffers[mission.Id] = ParsekUI.FormatLoopValue(
-                    ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit),
-                    mission.LoopTimeUnit);
-            }
 
-            GUI.enabled = enabled && !auto;
-            GUI.SetNextControlName(controlName);
-            string newText = GUILayout.TextField(
-                loopPeriodEditBuffers[mission.Id], bodyCellTextFieldFlush, GUILayout.Width(valueW));
-            if (newText != loopPeriodEditBuffers[mission.Id])
+            if (auto)
             {
-                loopPeriodEditBuffers[mission.Id] = newText;
-                CommitMissionLoopPeriod(mission, newText);
+                // Auto mode: the value is inherited from Settings > Looping, not the
+                // Mission's own LoopIntervalSeconds. Mirror RecordingsTableUI's auto
+                // branch: show the global value in the global display unit plus an
+                // explicit unit suffix (the unit button reads "auto", so the suffix is
+                // what tells the player the real unit). Field is non-editable.
+                var settings = ParsekSettings.Current;
+                double globalVal = settings != null
+                    ? ParsekUI.ConvertFromSeconds(settings.autoLoopIntervalSeconds, settings.AutoLoopDisplayUnit)
+                    : LoopTiming.DefaultLoopIntervalSeconds;
+                var globalDisplayUnit = settings != null ? settings.AutoLoopDisplayUnit : LoopTimeUnit.Sec;
+                string autoText = ParsekUI.FormatLoopValue(globalVal, globalDisplayUnit)
+                    + ParsekUI.UnitSuffix(globalDisplayUnit);
+                // Drop any stale edit buffer so re-entering a manual unit re-seeds cleanly.
+                loopPeriodEditBuffers.Remove(mission.Id);
+                GUI.enabled = false;
+                GUILayout.TextField(autoText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                GUI.enabled = true;
             }
-            GUI.enabled = true;
+            else
+            {
+                // Manual mode: seed / refresh the per-mission edit buffer from the stored
+                // value whenever the field is not actively being typed into.
+                bool focused = GUI.GetNameOfFocusedControl() == controlName;
+                if (!focused || !loopPeriodEditBuffers.ContainsKey(mission.Id))
+                {
+                    loopPeriodEditBuffers[mission.Id] = ParsekUI.FormatLoopValue(
+                        ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit),
+                        mission.LoopTimeUnit);
+                }
+
+                GUI.enabled = enabled;
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(
+                    loopPeriodEditBuffers[mission.Id], bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                if (newText != loopPeriodEditBuffers[mission.Id])
+                {
+                    loopPeriodEditBuffers[mission.Id] = newText;
+                    CommitMissionLoopPeriod(mission, newText);
+                }
+                GUI.enabled = true;
+            }
 
             GUILayout.Space(4f);
             GUI.enabled = enabled;

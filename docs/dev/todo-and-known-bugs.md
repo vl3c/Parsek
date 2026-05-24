@@ -12,6 +12,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Mission loop period "auto" displayed the wrong value
+
+- The Missions window's loop-period cell showed the Mission's own `LoopIntervalSeconds` (the untouched 10 s sentinel) with no unit when the unit was set to `Auto`, so a player who set Settings auto-loop to 30 s still saw "10" in the Missions window. The engine path was correct all along (`DriveMissionLoopUnits` / `MissionLoopUnitBuilder.Build` use `ParsekSettings.Current?.autoLoopIntervalSeconds`); only the cell display was wrong.
+- **Fix:** `MissionsWindowUI.DrawMissionLoopPeriodCell` now mirrors `RecordingsTableUI.DrawLoopPeriodCell`'s auto branch: in `Auto` mode it reads `settings.autoLoopIntervalSeconds` + `settings.AutoLoopDisplayUnit`, shows `FormatLoopValue(globalVal, globalUnit) + UnitSuffix(globalUnit)` in a disabled (non-editable) field, and drops any stale per-mission edit buffer. Manual units keep the editable buffer path unchanged.
+- **Status:** CLOSED 2026-05-24.
+
+---
+
 ## Done - v0.10.0 Mission loop: self-overlap when period < span
 
 - A looping Mission used a single-instance span clock: the cadence was RAISED to the span (`MissionLoopUnitBuilder.Build`) and `GhostPlaybackEngine.UpdateUnitMemberPlayback` rendered exactly one instance per member, clearing `overlapGhosts[i]` every frame. A period shorter than the span only changed the gap, never produced concurrent replays.
