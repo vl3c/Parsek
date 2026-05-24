@@ -14,16 +14,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ClassifyDistance_JustInsidePhysicsBubble_ReturnsPhysics()
+        public void ClassifyDistance_JustInsideFullFidelityRange_ReturnsPhysics()
         {
-            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(2299));
+            // Engine plumes / smoke stay full-fidelity well past the 2.3 km
+            // physics bubble; the rendering boundary is 5 km.
+            Assert.Equal(RenderingZone.Physics, RenderingZoneManager.ClassifyDistance(4999));
         }
 
         [Fact]
-        public void ClassifyDistance_AtPhysicsBoundary_ReturnsVisual()
+        public void ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual()
         {
-            // 2300m is the boundary — no longer < 2300, so it falls to Visual
-            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(2300));
+            // 5000m is the boundary — no longer < 5000, so it falls to Visual
+            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(5000));
         }
 
         [Fact]
@@ -67,18 +69,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSpawnLoopedGhost_JustInsidePhysics_FullFidelity()
+        public void ShouldSpawnLoopedGhost_JustInsideFullFidelityRange_FullFidelity()
         {
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(2299);
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(4999);
             Assert.True(shouldSpawn);
             Assert.False(simplified);
         }
 
         [Fact]
-        public void ShouldSpawnLoopedGhost_AtPhysicsBoundary_Simplified()
+        public void ShouldSpawnLoopedGhost_AtFullFidelityBoundary_Simplified()
         {
-            // 2300m is the boundary — no longer < 2300, so it falls to simplified
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(2300);
+            // 5000m is the boundary — no longer < 5000, so it falls to simplified
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(5000);
             Assert.True(shouldSpawn);
             Assert.True(simplified);
         }
@@ -116,17 +118,17 @@ namespace Parsek.Tests
         #region ShouldRenderPartEvents
 
         [Fact]
-        public void ShouldRenderPartEvents_InsidePhysicsBubble_ReturnsTrue()
+        public void ShouldRenderPartEvents_InsideFullFidelityRange_ReturnsTrue()
         {
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(0));
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(1000));
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(2299));
+            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(4999));
         }
 
         [Fact]
-        public void ShouldRenderPartEvents_AtPhysicsBoundary_ReturnsFalse()
+        public void ShouldRenderPartEvents_AtFullFidelityBoundary_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(2300));
+            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(5000));
         }
 
         [Fact]
@@ -172,15 +174,23 @@ namespace Parsek.Tests
         #region Constants Consistency
 
         [Fact]
-        public void Constants_PhysicsBubbleLessThanVisualRange()
+        public void Constants_FullFidelityLessThanVisualRange()
         {
-            Assert.True(RenderingZoneManager.PhysicsBubbleRadius < RenderingZoneManager.VisualRangeRadius);
+            Assert.True(RenderingZoneManager.FullFidelityRadius < RenderingZoneManager.VisualRangeRadius);
         }
 
         [Fact]
-        public void Constants_LoopFullFidelityNotExceedPhysicsBubble()
+        public void Constants_FullFidelityExceedsPhysicsBubble()
         {
-            Assert.True(RenderingZoneManager.LoopFullFidelityRadius <= RenderingZoneManager.PhysicsBubbleRadius);
+            // The rendering full-fidelity range is intentionally decoupled from and
+            // larger than KSP's physics-load bubble so plumes survive past 2.3 km.
+            Assert.True(RenderingZoneManager.FullFidelityRadius > DistanceThresholds.PhysicsBubbleMeters);
+        }
+
+        [Fact]
+        public void Constants_LoopFullFidelityMatchesFullFidelityRange()
+        {
+            Assert.True(RenderingZoneManager.LoopFullFidelityRadius <= RenderingZoneManager.FullFidelityRadius);
         }
 
         [Fact]

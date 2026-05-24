@@ -28,8 +28,9 @@ namespace Parsek
     {
         /// <summary>
         /// KSP's loaded-physics envelope around the active vessel. This is the core
-        /// spatial boundary that several systems key off: rendering fidelity,
-        /// relative-frame anchoring, and background sampling.
+        /// spatial boundary that several systems key off: relative-frame anchoring
+        /// and background sampling. Rendering fidelity no longer keys off this; it
+        /// uses the larger <see cref="GhostFlight.FullFidelityRangeMeters"/>.
         /// </summary>
         internal const double PhysicsBubbleMeters = 2300.0;
 
@@ -55,9 +56,31 @@ namespace Parsek
 
         internal static class GhostFlight
         {
-            internal const double LoopFullFidelityMeters = PhysicsBubbleMeters;
+            /// <summary>
+            /// Distance out to which a ghost renders at full fidelity: full mesh,
+            /// part events, and engine / RCS / reentry FX (plumes, smoke). This is
+            /// the rendering-LOD "Physics" zone boundary and is deliberately LARGER
+            /// than <see cref="PhysicsBubbleMeters"/> (KSP's 2.3 km physics-load
+            /// envelope): engine plumes and smoke are large-scale visuals that read
+            /// well from several km away, so culling them at the physics bubble was
+            /// far too early. Beyond this range the ghost drops to a coarse mesh
+            /// silhouette with FX suppressed. Watched ghosts ignore this entirely.
+            /// Does not affect relative-frame anchoring or background sampling,
+            /// which key off <see cref="PhysicsBubbleMeters"/> directly.
+            /// </summary>
+            internal const double FullFidelityRangeMeters = 5000.0;
+
+            internal const double LoopFullFidelityMeters = FullFidelityRangeMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
-            internal const double PhysicsFidelityRestoreMeters = 2200.0;
+
+            /// <summary>
+            /// Hysteresis floor for the full-fidelity / reduced render tiers: a
+            /// ghost that has dropped to reduced fidelity must move back inside
+            /// this distance before full-fidelity renderers are restored. Slightly
+            /// below <see cref="FullFidelityRangeMeters"/> to suppress boundary
+            /// chatter.
+            /// </summary>
+            internal const double FullFidelityRestoreMeters = 4700.0;
 
             // Keep the watch camera available through typical ascent/coast ghosts
             // without letting it stay latched to whole-orbit distant playback.
