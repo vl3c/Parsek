@@ -24,8 +24,9 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyDistance_AtFullFidelityBoundary_ReturnsVisual()
         {
-            // 10000m is the boundary — no longer < 10000, so it falls to Visual
-            Assert.Equal(RenderingZone.Visual, RenderingZoneManager.ClassifyDistance(10000));
+            // At the boundary — no longer < FullFidelityRadius, so it falls to Visual
+            Assert.Equal(RenderingZone.Visual,
+                RenderingZoneManager.ClassifyDistance(RenderingZoneManager.FullFidelityRadius));
         }
 
         [Fact]
@@ -71,7 +72,8 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawnLoopedGhost_JustInsideFullFidelityRange_FullFidelity()
         {
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(9999);
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(
+                RenderingZoneManager.LoopFullFidelityRadius - 1);
             Assert.True(shouldSpawn);
             Assert.False(simplified);
         }
@@ -79,8 +81,9 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldSpawnLoopedGhost_AtFullFidelityBoundary_Simplified()
         {
-            // 10000m is the boundary — no longer < 10000, so it falls to simplified
-            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(10000);
+            // At the boundary — no longer < LoopFullFidelityRadius, so it falls to simplified
+            var (shouldSpawn, simplified) = RenderingZoneManager.ShouldSpawnLoopedGhostAtDistance(
+                RenderingZoneManager.LoopFullFidelityRadius);
             Assert.True(shouldSpawn);
             Assert.True(simplified);
         }
@@ -122,13 +125,13 @@ namespace Parsek.Tests
         {
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(0));
             Assert.True(RenderingZoneManager.ShouldRenderPartEvents(1000));
-            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(9999));
+            Assert.True(RenderingZoneManager.ShouldRenderPartEvents(RenderingZoneManager.FullFidelityRadius - 1));
         }
 
         [Fact]
         public void ShouldRenderPartEvents_AtFullFidelityBoundary_ReturnsFalse()
         {
-            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(10000));
+            Assert.False(RenderingZoneManager.ShouldRenderPartEvents(RenderingZoneManager.FullFidelityRadius));
         }
 
         [Fact]
