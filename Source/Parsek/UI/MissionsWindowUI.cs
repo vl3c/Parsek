@@ -77,6 +77,11 @@ namespace Parsek
         // the same styles here (verbatim, adapted) to match the look exactly.
         private GUIStyle bodyCellLabel;
         private GUIStyle tableBodyBoxStyle;
+        // Zero-horizontal-margin field/button styles for the loop-period cell, identical to
+        // the recordings window's bodyCellTextFieldFlush / bodyCellButtonFlush so the value
+        // box and unit button render the same as RecordingsTableUI.DrawLoopPeriodCell.
+        private GUIStyle bodyCellTextFieldFlush;
+        private GUIStyle bodyCellButtonFlush;
 
         // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
         // body labels land under their header text).
@@ -185,6 +190,19 @@ namespace Parsek
             {
                 padding = new RectOffset(0, 0, 2, 2),
                 margin = new RectOffset(0, 0, 0, 0)
+            };
+
+            bodyCellButtonFlush = new GUIStyle(GUI.skin.button)
+            {
+                margin = new RectOffset(
+                    0, 0,
+                    GUI.skin.button.margin.top, GUI.skin.button.margin.bottom)
+            };
+            bodyCellTextFieldFlush = new GUIStyle(GUI.skin.textField)
+            {
+                margin = new RectOffset(
+                    0, 0,
+                    GUI.skin.textField.margin.top, GUI.skin.textField.margin.bottom)
             };
         }
 
@@ -337,7 +355,7 @@ namespace Parsek
         // MinCycleDuration (same contract as RecordingsTableUI.CommitLoopPeriodEdit).
         private void DrawMissionLoopPeriodCell(Mission mission)
         {
-            const float unitBtnW = 44f;
+            const float unitBtnW = 40f; // match RecordingsTableUI.DrawLoopPeriodCell
             float valueW = ColW_Period - unitBtnW - 4f;
 
             bool enabled = mission.LoopPlayback;
@@ -357,7 +375,7 @@ namespace Parsek
             GUI.enabled = enabled && !auto;
             GUI.SetNextControlName(controlName);
             string newText = GUILayout.TextField(
-                loopPeriodEditBuffers[mission.Id], bodyCellLabel, GUILayout.Width(valueW));
+                loopPeriodEditBuffers[mission.Id], bodyCellTextFieldFlush, GUILayout.Width(valueW));
             if (newText != loopPeriodEditBuffers[mission.Id])
             {
                 loopPeriodEditBuffers[mission.Id] = newText;
@@ -367,7 +385,7 @@ namespace Parsek
 
             GUILayout.Space(4f);
             GUI.enabled = enabled;
-            if (GUILayout.Button(ParsekUI.UnitLabel(mission.LoopTimeUnit), GUILayout.Width(unitBtnW)))
+            if (GUILayout.Button(ParsekUI.UnitLabel(mission.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
             {
                 mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
                 loopPeriodEditBuffers.Remove(mission.Id);
