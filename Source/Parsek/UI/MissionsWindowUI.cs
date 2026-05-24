@@ -529,24 +529,38 @@ namespace Parsek
             return double.IsInfinity(min) ? 0.0 : min;
         }
 
-        // The mission span in seconds = (max end - min start) over the INCLUDED through-lines,
-        // mirroring how MissionLoopUnitBuilder derives the span it caps the overlap cadence to.
-        // Used only for the period cell's effective-cadence display. Returns 0 when nothing is
-        // included (no overlap, so the cell shows the raw period).
-        private static double MissionSpanSeconds(MissionThroughLineView view, Mission mission)
+        // The mission span in seconds = (max EndUT - min StartUT) over the COMMITTED member
+        // recordings of the included through-lines, computed exactly the way
+        // MissionLoopUnitBuilder derives the span it caps the overlap cadence to (only members
+        // present in CommittedRecordings count, by RecordingId). Used only for the period cell's
+        // effective-cadence display, so the shown value matches the cadence actually running.
+        // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
+        private static double MissionSpanSeconds(
+            MissionThroughLineView view, Mission mission, IReadOnlyList<Recording> committed)
         {
-            if (view == null)
+            if (view == null || committed == null)
                 return 0.0;
+
             HashSet<string> included = MissionSelection.ComputeIncludedHeadIds(
                 view, mission.ExcludedThroughLineHeadIds);
-            double min = double.PositiveInfinity;
-            double max = double.NegativeInfinity;
+            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
             foreach (string head in included)
                 if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
-                {
-                    if (tl.StartUT < min) min = tl.StartUT;
-                    if (tl.EndUT > max) max = tl.EndUT;
-                }
+                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
+                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
+                            memberIds.Add(tl.MemberLegIds[m]);
+
+            double min = double.PositiveInfinity;
+            double max = double.NegativeInfinity;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                    || !memberIds.Contains(rec.RecordingId))
+                    continue;
+                if (rec.StartUT < min) min = rec.StartUT;
+                if (rec.EndUT > max) max = rec.EndUT;
+            }
             if (double.IsInfinity(min) || double.IsInfinity(max))
                 return 0.0;
             return System.Math.Max(0.0, max - min);
@@ -697,7 +711,10 @@ namespace Parsek
             double requestedSeconds = auto
                 ? (settings != null ? settings.autoLoopIntervalSeconds : LoopTiming.DefaultLoopIntervalSeconds)
                 : mission.LoopIntervalSeconds;
-            double span = MissionSpanSeconds(view, mission);
+            // [ERS-exempt] reason: span uses the RAW committed list to match MissionLoopUnitBuilder
+            // (which keys members by committed RecordingId), so the displayed effective cadence
+            // equals what actually runs. Display-only; file allowlisted (see watch button).
+            double span = MissionSpanSeconds(view, mission, RecordingStore.CommittedRecordings);
             double effectiveSeconds = span > 0
                 ? GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                     requestedSeconds, span, GhostPlayback.MaxOverlapMissionInstances)
