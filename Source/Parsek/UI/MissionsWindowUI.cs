@@ -76,7 +76,7 @@ namespace Parsek
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
-        private enum MissionSortColumn { Index, Name, StartTime }
+        internal enum MissionSortColumn { Index, Name, StartTime }
         private MissionSortColumn sortColumn = MissionSortColumn.Index;
         private bool sortAscending = true;
 
@@ -586,32 +586,43 @@ namespace Parsek
                 rows.Add((m, idx, MissionSpanStartUT(view), i));
             }
 
-            rows.Sort((a, b) =>
-            {
-                int cmp;
-                switch (sortColumn)
-                {
-                    case MissionSortColumn.Name:
-                        cmp = string.Compare(a.mission.Name ?? "", b.mission.Name ?? "",
-                            System.StringComparison.OrdinalIgnoreCase);
-                        if (cmp == 0) cmp = a.index.CompareTo(b.index);
-                        break;
-                    case MissionSortColumn.StartTime:
-                        cmp = a.startUT.CompareTo(b.startUT);
-                        if (cmp == 0) cmp = a.index.CompareTo(b.index);
-                        break;
-                    default: // Index
-                        cmp = a.index.CompareTo(b.index);
-                        break;
-                }
-                if (cmp == 0) cmp = a.origPos.CompareTo(b.origPos);
-                return sortAscending ? cmp : -cmp;
-            });
+            rows.Sort((a, b) => CompareMissionRows(
+                a.mission.Name, a.index, a.startUT, a.origPos,
+                b.mission.Name, b.index, b.startUT, b.origPos,
+                sortColumn, sortAscending));
 
             var result = new List<(Mission, int)>(rows.Count);
             for (int i = 0; i < rows.Count; i++)
                 result.Add((rows[i].mission, rows[i].index));
             return result;
+        }
+
+        // Pure mission-row sort comparison (extracted for unit testing). Primary key per column;
+        // tiebreak by tree index then original list position so a tree's clones stay grouped
+        // (the clone is inserted right after its source). Descending negates the whole result.
+        internal static int CompareMissionRows(
+            string aName, int aIndex, double aStartUT, int aOrigPos,
+            string bName, int bIndex, double bStartUT, int bOrigPos,
+            MissionSortColumn column, bool ascending)
+        {
+            int cmp;
+            switch (column)
+            {
+                case MissionSortColumn.Name:
+                    cmp = string.Compare(aName ?? "", bName ?? "",
+                        System.StringComparison.OrdinalIgnoreCase);
+                    if (cmp == 0) cmp = aIndex.CompareTo(bIndex);
+                    break;
+                case MissionSortColumn.StartTime:
+                    cmp = aStartUT.CompareTo(bStartUT);
+                    if (cmp == 0) cmp = aIndex.CompareTo(bIndex);
+                    break;
+                default: // Index
+                    cmp = aIndex.CompareTo(bIndex);
+                    break;
+            }
+            if (cmp == 0) cmp = aOrigPos.CompareTo(bOrigPos);
+            return ascending ? cmp : -cmp;
         }
 
         // Commits the in-progress mission-title rename. Empty / unchanged text is discarded.
