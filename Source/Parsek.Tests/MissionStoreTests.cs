@@ -297,6 +297,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void NormalizeOneLoopPerTree_NullTreeIdMissions_CollapseToOneSlot()
+        {
+            // A corrupt save could carry missions with no tree id. NormalizeOneLoopPerTree maps a
+            // null TreeId to "" so all null-tree missions share ONE logical loop slot, while a
+            // real-tree mission stays independent.
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
+            Mission real = First();              // tree t1, list index 0
+            Mission n1 = MissionStore.Clone(real); // appended
+            Mission n2 = MissionStore.Clone(real); // appended
+            n1.TreeId = null;
+            n2.TreeId = null;
+            real.LoopPlayback = true;
+            n1.LoopPlayback = true;
+            n2.LoopPlayback = true;
+
+            int cleared = MissionStore.NormalizeOneLoopPerTree();
+
+            Assert.Equal(1, cleared);
+            Assert.True(real.LoopPlayback);  // distinct (real) tree - kept
+            Assert.True(n1.LoopPlayback);    // first null-tree mission - kept
+            Assert.False(n2.LoopPlayback);   // second null-tree mission - cleared (same "" slot)
+        }
+
+        [Fact]
         public void ReconcileSelections_RemovesBogusHead_AndWarns_KeepsValidHead()
         {
             // Capture log output to assert on the warn.
