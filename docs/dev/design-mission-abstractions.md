@@ -313,8 +313,9 @@ Either way this replaces independent per-recording looping for the mission's mem
 and debris rides along its parent leg (on the same overlapping cadence when the mission
 overlaps).
 
-This is single-mission self-overlap only. Concurrent multiple looping missions is a
-later phase (open question 7); for now exactly one mission loops at a time.
+Multiple missions loop concurrently, at most one per recording tree (see open question
+7): each looping mission builds its own `LoopUnit` and the engine dispatches per
+committed index, so units on different trees (disjoint indices) never conflict.
 
 The elegant reduction (the mechanism). A mission instance launched at
 `anchorUT + k*cadence` places member m at phase
@@ -397,8 +398,9 @@ Two helpers do not exist yet and must be added (both pure and unit-tested):
 ### The adapter (Mission -> LoopUnitSet)
 
 A new pure builder, `MissionLoopUnitBuilder.Build(missions, committedRecordings)
--> LoopUnitSet`. In v1 at most one Mission has loop on (see open question 7), so the
-builder emits an empty set or a single unit. For the looping Mission:
+-> LoopUnitSet`. Multiple Missions may loop, at most one per tree (see open question 7),
+so the builder emits an empty set or one unit per looping Mission. For each looping
+Mission:
 
 - Members = the included legs' committed indices (skip ids not currently in
   `CommittedRecordings`).
@@ -475,9 +477,9 @@ A per-Mission-row loop checkbox + period cell, mirroring
 `RecordingsTableUI.DrawLoopPeriodCell`: a value text field plus a unit button cycling
 Sec / Min / Hour / Auto. Reuse the existing `ParsekUI` helpers (`TryParseLoopInput`,
 `ConvertToSeconds`, `ConvertFromSeconds`, `FormatLoopValue`, `UnitLabel`) and the same
-clamp-to-`MinCycleDuration` rule. v1: the loop toggle is single-selection across all
-Missions (turning loop on for one Mission turns it off on every other), per the
-one-at-a-time decision in open question 7.
+clamp-to-`MinCycleDuration` rule. The loop toggle allows concurrent loops across trees
+but one per tree: turning loop on for a Mission turns it off only on other Missions that
+share its tree, per the one-loop-per-tree decision in open question 7.
 
 ### KSC and Tracking Station parity (single span instance)
 
@@ -501,24 +503,26 @@ flight-scene-only visual; the SC / TS keep showing the whole mission once throug
   TS animates per-recording loops at all today, then drive the span-clock UT into
   `GhostMapPresence` positioning.
 
-### Overlap of looping Missions (single-mission self-overlap; multi-mission deferred)
+### Overlap of looping Missions (self-overlap + concurrent missions)
 
-Two distinct kinds of "overlap":
+Two distinct kinds of "overlap", both DONE:
 
-- SINGLE-mission self-overlap (DONE): one looping mission whose period is shorter than
+- SINGLE-mission self-overlap: one looping mission whose period is shorter than
   its span relaunches itself, so several staggered instances of THAT mission play at
   once. Implemented via the per-member overlap reduction onto `UpdateOverlapPlayback`
   (see "Mission-level looping" above). The `OverlapCadenceSeconds` carries the true
   launch cadence; `MaxOverlapMissionInstances` caps the instance count.
-- MULTIPLE concurrent looping missions (DEFERRED): two different missions looping at the
-  same time. `LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner, so two
-  simultaneously looping Missions that share a recording would be a single-owner
-  conflict. v1 DECISION: exactly one Mission loops at a time (global). Enabling loop on a
-  Mission disables it on every other Mission (the loop toggle behaves like a single
-  selection). The adapter therefore builds AT MOST ONE `LoopUnit`, so the conflict cannot
-  arise and no precedence logic is needed. True concurrent rendering of one recording on
-  several Mission clocks (one ghost per Mission) is deferred to logistics; do not try to
-  make the single-owner span clock do it in v1.
+- MULTIPLE concurrent looping missions: several different missions loop at the same time.
+  `LoopUnitSet.OwnerByIndex` maps each recording index to ONE owner, so two simultaneously
+  looping Missions that shared a recording would be a single-owner conflict. DECISION:
+  concurrent looping is allowed, at most one Mission per tree. Missions on different trees
+  have DISJOINT committed indices, so their units never collide; two Missions on the same
+  tree are variant selections that share trunk legs (before any fork) and would collide,
+  so the store forbids them (`SetLoopEnabled` clears only same-tree siblings). The adapter
+  builds one `LoopUnit` per looping Mission and the engine dispatches per committed index,
+  with a defensive first-claimant collision guard. True concurrent rendering of ONE
+  recording on several Mission clocks (one ghost per Mission of the same recording) is
+  still deferred to logistics; one-loop-per-tree sidesteps it.
 
 ### Build phasing (reviews at the milestones, not every commit)
 
@@ -633,11 +637,13 @@ Two distinct kinds of "overlap":
    to a per-recording overlap loop over the existing `UpdateOverlapPlayback` machinery.
    The Space Center and Tracking Station still render a single span instance (no overlap
    machinery there); self-overlap is a flight-scene visual.
-   (b) CONCURRENT multi-Mission looping (still v1: one at a time): exactly one Mission
-   loops at a time (global); enabling loop on a Mission disables it on every other
-   (single-selection toggle). The adapter builds at most one `LoopUnit`, so the
-   single-owner conflict cannot arise. True multi-Mission looping (one ghost per Mission
-   on the shared index) is deferred to a later phase.
+   (b) CONCURRENT multi-Mission looping (DONE): multiple Missions loop at once, at most one
+   per tree. Enabling loop on a Mission disables it only on other same-tree Missions;
+   different-tree Missions loop concurrently. Missions on different trees have disjoint
+   committed indices so their units never collide; the adapter builds one `LoopUnit` per
+   looping Mission with a defensive first-claimant collision guard. True multi-Mission
+   looping of the SAME recording (one ghost per Mission on the shared index) is still
+   deferred to logistics; one-loop-per-tree sidesteps the single-owner conflict.
 8. Tracking Station loop parity. TS renders ProtoVessel map presence
    (`GhostMapPresence`), not engine ghosts, and positions them at the LIVE `currentUT`
    against each recording's recorded window with NO loop-phase remap; confirmed it

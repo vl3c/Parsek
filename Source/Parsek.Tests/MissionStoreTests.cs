@@ -174,14 +174,14 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SetLoopEnabled_On_TurnsTargetOn_AndAllOthersOff()
+        public void SetLoopEnabled_On_TurnsTargetOn_AndSameTreeOthersOff()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
             Mission a = First();
-            Mission b = MissionStore.Clone(a);
-            Mission c = MissionStore.Clone(a);
+            Mission b = MissionStore.Clone(a); // same tree t1
+            Mission c = MissionStore.Clone(a); // same tree t1
 
-            // Pre-set two others on to prove single-selection clears them.
+            // Pre-set two same-tree variants on to prove one-loop-per-tree clears them.
             b.LoopPlayback = true;
             c.LoopPlayback = true;
 
@@ -191,11 +191,30 @@ namespace Parsek.Tests
             Assert.False(b.LoopPlayback);
             Assert.False(c.LoopPlayback);
 
-            // Turning a different one on clears the previous selection.
+            // Turning a different variant of the SAME tree on clears the previous selection.
             MissionStore.SetLoopEnabled(b, true, 1000.0);
             Assert.False(a.LoopPlayback);
             Assert.True(b.LoopPlayback);
             Assert.False(c.LoopPlayback);
+        }
+
+        [Fact]
+        public void SetLoopEnabled_On_KeepsLoopingMissionsOnOtherTrees()
+        {
+            MissionStore.EnsureDefaultsForTrees(
+                new List<RecordingTree> { Tree("t1", "Kerbal X"), Tree("t2", "Mun Lander") });
+            var all = new List<Mission>(MissionStore.Missions);
+            Mission m1 = all.Find(m => m.TreeId == "t1");
+            Mission m2 = all.Find(m => m.TreeId == "t2");
+
+            // Loop the first mission, then loop the second: concurrent across distinct trees.
+            MissionStore.SetLoopEnabled(m1, true, 1000.0);
+            MissionStore.SetLoopEnabled(m2, true, 1100.0);
+
+            Assert.True(m1.LoopPlayback);  // not cleared - different tree
+            Assert.True(m2.LoopPlayback);
+            Assert.Equal(1000.0, m1.LoopAnchorUT);
+            Assert.Equal(1100.0, m2.LoopAnchorUT);
         }
 
         [Fact]
@@ -236,26 +255,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void NormalizeSingleLoop_ClearsExtraLoopingMissions_KeepsFirst()
+        public void NormalizeOneLoopPerTree_ClearsExtraSameTreeLoops_KeepsFirstPerTree()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "X") });
             Mission a = First();
-            Mission b = MissionStore.Clone(a);
-            Mission c = MissionStore.Clone(a);
-            // Simulate a hand-edited save where several missions loop at once.
+            Mission b = MissionStore.Clone(a); // same tree t1
+            Mission c = MissionStore.Clone(a); // same tree t1
+            // Simulate a hand-edited save where several same-tree missions loop at once.
             a.LoopPlayback = true;
             b.LoopPlayback = true;
             c.LoopPlayback = true;
 
-            int cleared = MissionStore.NormalizeSingleLoop();
+            int cleared = MissionStore.NormalizeOneLoopPerTree();
 
             Assert.Equal(2, cleared);
-            Assert.True(a.LoopPlayback);   // first in list order is kept
+            Assert.True(a.LoopPlayback);   // first in list order for the tree is kept
             Assert.False(b.LoopPlayback);
             Assert.False(c.LoopPlayback);
 
             // Idempotent: a second pass clears nothing.
-            Assert.Equal(0, MissionStore.NormalizeSingleLoop());
+            Assert.Equal(0, MissionStore.NormalizeOneLoopPerTree());
+        }
+
+        [Fact]
+        public void NormalizeOneLoopPerTree_KeepsOneLoopPerDistinctTree()
+        {
+            MissionStore.EnsureDefaultsForTrees(
+                new List<RecordingTree> { Tree("t1", "Kerbal X"), Tree("t2", "Mun Lander") });
+            var all = new List<Mission>(MissionStore.Missions);
+            Mission m1 = all.Find(m => m.TreeId == "t1");
+            Mission m2 = all.Find(m => m.TreeId == "t2");
+            // Two looping missions on DISTINCT trees: both are valid concurrent loops.
+            m1.LoopPlayback = true;
+            m2.LoopPlayback = true;
+
+            int cleared = MissionStore.NormalizeOneLoopPerTree();
+
+            Assert.Equal(0, cleared);     // nothing to clear - one per tree already
+            Assert.True(m1.LoopPlayback);
+            Assert.True(m2.LoopPlayback);
         }
 
         [Fact]

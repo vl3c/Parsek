@@ -17,13 +17,14 @@ namespace Parsek
         public string Name;
         public readonly HashSet<string> ExcludedThroughLineHeadIds = new HashSet<string>();
 
-        // Mission-level loop configuration (Phase B). Persisted but INERT for now: the
-        // looping playback that consumes these is wired in a later phase. Single-selection
-        // is enforced through MissionStore.SetLoopEnabled (at most one Mission loops at a
-        // time). LoopIntervalSeconds is the launch-to-launch period in seconds; the
-        // default is the same "untouched" sentinel the per-recording codec uses. Unlike
-        // the per-recording codec (which drops the unit), the Mission persists its display
-        // unit explicitly so it reads back as set.
+        // Mission-level loop configuration. Multiple Missions may loop concurrently, but at
+        // most one per recording tree: MissionStore.SetLoopEnabled clears only looping
+        // siblings that share this Mission's TreeId (same-tree variants share trunk legs, so
+        // their committed indices overlap; different trees are disjoint and loop together).
+        // LoopIntervalSeconds is the launch-to-launch period in seconds; the default is the
+        // same "untouched" sentinel the per-recording codec uses. Unlike the per-recording
+        // codec (which drops the unit), the Mission persists its display unit explicitly so
+        // it reads back as set.
         public bool LoopPlayback;
         public double LoopIntervalSeconds = LoopTiming.UntouchedLoopIntervalSentinel;
         public LoopTimeUnit LoopTimeUnit = LoopTimeUnit.Sec;

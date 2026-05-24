@@ -321,11 +321,10 @@ namespace Parsek
         // Mission header bar: the mission name (section-header style), a loop toggle + a
         // loop-period cell, then Clone and Delete. Delete is disabled when this is the
         // tree's last mission. Clone/Delete mutate MissionStore; the draw loop iterates a
-        // snapshot so that is safe. The loop toggle enforces single-selection through
-        // MissionStore.SetLoopEnabled (only flips bools on other missions, never
-        // adds/removes, so it is safe to call from inside the draw loop). The loop
-        // controls are INERT for now: they persist state but do not yet drive playback
-        // (the looping engine is wired in a later phase).
+        // snapshot so that is safe. The loop toggle goes through MissionStore.SetLoopEnabled,
+        // which allows concurrent looping across trees but at most one looping mission per
+        // tree (it only flips bools on same-tree siblings, never adds/removes, so it is safe
+        // to call from inside the draw loop).
         private void DrawMissionHeader(Mission mission)
         {
             GUILayout.BeginHorizontal();

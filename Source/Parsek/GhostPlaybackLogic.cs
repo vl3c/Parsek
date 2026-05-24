@@ -6526,9 +6526,10 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Immutable snapshot of the Mission loop units (v1: at most one, since one Mission loops
-        /// at a time). Built by <see cref="MissionLoopUnitBuilder"/> and handed to flight, KSC, and
-        /// the tracking station so all three consume an identical view. <see cref="Empty"/> means no
+        /// Immutable snapshot of the Mission loop units: one unit per looping Mission (multiple
+        /// Missions loop concurrently, at most one per tree, so member indices never overlap across
+        /// units). Built by <see cref="MissionLoopUnitBuilder"/> and handed to flight, KSC, and the
+        /// tracking station so all three consume an identical view. <see cref="Empty"/> means no
         /// Mission is looping, which keeps the entire feature dormant.
         /// </summary>
         internal sealed class LoopUnitSet

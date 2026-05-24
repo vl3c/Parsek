@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Mission loop: concurrent missions (one loop per tree)
+
+- A single looping Mission was the hard limit: `MissionStore.SetLoopEnabled` cleared EVERY other looping Mission on enable, `NormalizeSingleLoop` kept only the first looping Mission on load, and `MissionLoopUnitBuilder.Build` / `BuildSignature` only ever looked at the first looping Mission (`FindLoopingMission`). The `LoopUnitSet` was already a multi-unit dictionary (`UnitsByOwner` / `OwnerByIndex`) and all three scenes (flight engine, KSC, TS) already dispatch PER committed index via `TryGetUnitForMember(i)` / `ResolveTrackingStationSampleUT(i, ..., loopUnits)`, so the engine side needed no change.
+- **Change:** multiple Missions loop concurrently, at most ONE per recording tree. `SetLoopEnabled(target, on)` now clears only looping siblings whose `TreeId == target.TreeId` (concurrent loops on other trees are kept); `NormalizeSingleLoop` became `NormalizeOneLoopPerTree` (keeps the first looping Mission per tree, clears same-tree extras). `MissionLoopUnitBuilder.Build` iterates ALL looping Missions and builds one `LoopUnit` per Mission via the extracted `TryBuildMissionUnit` helper, merging them into one `LoopUnitSet`; `BuildSignature` folds in every looping Mission (list order) so a rebuild fires when any one's fields, selection, tree topology, or looping state changes.
+- **Why one-per-tree (collision-free):** committed-recording indices are the engine's alignment contract and `OwnerByIndex` maps each index to exactly one unit. Missions on DIFFERENT trees have disjoint indices, so concurrent units never collide. Two Missions on the SAME tree are variant selections that share trunk legs before any fork, so their indices overlap and cannot each own a span clock; the store forbids that, and `Build` carries a defensive owner-index + member-index collision guard (first claimant wins, warns) in case the invariant is ever violated upstream.
+- **Tests:** MissionStore (`SetLoopEnabled_On_TurnsTargetOn_AndSameTreeOthersOff`, `SetLoopEnabled_On_KeepsLoopingMissionsOnOtherTrees`, `NormalizeOneLoopPerTree_ClearsExtraSameTreeLoops_KeepsFirstPerTree`, `NormalizeOneLoopPerTree_KeepsOneLoopPerDistinctTree`) + adapter (`Build_TwoMissionsOnDistinctTrees_ProducesTwoUnits_DisjointMembers`, `Build_OnlyOneOfTwoMissionsLooping_ProducesOneUnit`, `BuildSignature_ChangesWhenSecondMissionStartsLooping`). Full suite green (12516).
+- **Status:** CLOSED 2026-05-24.
+
+---
+
 ## Done - v0.10.0 Mission loop period "auto" displayed the wrong value
 
 - The Missions window's loop-period cell showed the Mission's own `LoopIntervalSeconds` (the untouched 10 s sentinel) with no unit when the unit was set to `Auto`, so a player who set Settings auto-loop to 30 s still saw "10" in the Missions window. The engine path was correct all along (`DriveMissionLoopUnits` / `MissionLoopUnitBuilder.Build` use `ParsekSettings.Current?.autoLoopIntervalSeconds`); only the cell display was wrong.

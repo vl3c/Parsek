@@ -120,9 +120,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Enables or disables loop playback on a Mission. Enabling enforces single
-        /// selection: at most one Mission loops at a time, so turning <paramref name="target"/>
-        /// on turns every other Mission off. Enabling also stamps <see cref="Mission.LoopAnchorUT"/>
+        /// Enables or disables loop playback on a Mission. Multiple Missions may loop at once, but
+        /// at most ONE per recording tree: enabling <paramref name="target"/> turns off any other
+        /// looping Mission that shares its <see cref="Mission.TreeId"/>, while leaving looping
+        /// Missions on OTHER trees untouched. (Two Missions on the same tree are variant selections
+        /// that share trunk legs before any fork, so their committed-recording indices overlap and
+        /// cannot each own a span clock; Missions on different trees have disjoint indices and loop
+        /// concurrently with no conflict.) Enabling also stamps <see cref="Mission.LoopAnchorUT"/>
         /// to <paramref name="currentUT"/> so the span clock phases from this moment: every enable
         /// (including the first, and every re-enable after a disable) restarts the looped mission
         /// from the recording's start instead of resuming mid-phase. Disabling only clears the
@@ -134,16 +138,18 @@ namespace Parsek
                 return;
             if (on)
             {
-                int clearedOthers = 0;
+                int clearedSameTree = 0;
                 for (int i = 0; i < missions.Count; i++)
                 {
                     Mission m = missions[i];
                     if (m == null || ReferenceEquals(m, target))
                         continue;
-                    if (m.LoopPlayback)
+                    // Only clear looping siblings on the SAME tree; concurrent loops on other
+                    // trees are allowed.
+                    if (m.LoopPlayback && string.Equals(m.TreeId, target.TreeId, StringComparison.Ordinal))
                     {
                         m.LoopPlayback = false;
-                        clearedOthers++;
+                        clearedSameTree++;
                     }
                 }
                 target.LoopPlayback = true;
@@ -152,7 +158,7 @@ namespace Parsek
                     ParsekLog.Info("Mission",
                         $"SetLoopEnabled: loop ON for '{target.Name}' (tree={target.TreeId}); " +
                         $"anchorUT={currentUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}; " +
-                        $"cleared {clearedOthers} other looping mission(s) (single-selection)");
+                        $"cleared {clearedSameTree} other looping mission(s) on the same tree (one loop per tree)");
             }
             else
             {
@@ -164,33 +170,32 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Enforces the single-loop invariant after load. SetLoopEnabled keeps at most one
-        /// Mission looping during normal use, but a hand-edited save could carry several
-        /// with LoopPlayback on. Keeps the first in list order and clears the rest, so the
-        /// adapter's "first looping mission wins" never silently hides extra enabled loops.
+        /// Enforces the one-loop-per-tree invariant after load. SetLoopEnabled keeps at most one
+        /// Mission looping per tree during normal use, but a hand-edited save could carry several
+        /// looping Missions that share a tree. Keeps the first in list order for each tree and
+        /// clears the rest, so the adapter never builds two conflicting span clocks over the same
+        /// (overlapping) committed indices. Looping Missions on distinct trees are all kept.
         /// Returns the number cleared.
         /// </summary>
-        internal static int NormalizeSingleLoop()
+        internal static int NormalizeOneLoopPerTree()
         {
-            bool keptOne = false;
+            var seenTrees = new HashSet<string>(StringComparer.Ordinal);
             int cleared = 0;
             for (int i = 0; i < missions.Count; i++)
             {
                 Mission m = missions[i];
                 if (m == null || !m.LoopPlayback)
                     continue;
-                if (!keptOne)
-                {
-                    keptOne = true;
-                    continue;
-                }
+                string treeId = m.TreeId ?? string.Empty;
+                if (seenTrees.Add(treeId))
+                    continue; // first looping mission for this tree — keep it
                 m.LoopPlayback = false;
                 cleared++;
             }
             if (cleared > 0 && !SuppressLogging)
                 ParsekLog.Warn("Mission",
-                    $"NormalizeSingleLoop: cleared {cleared} extra looping mission(s) " +
-                    "(only one Mission may loop at a time; kept the first)");
+                    $"NormalizeOneLoopPerTree: cleared {cleared} extra looping mission(s) " +
+                    "(at most one Mission may loop per tree; kept the first of each)");
             return cleared;
         }
 

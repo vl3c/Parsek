@@ -504,6 +504,96 @@ namespace Parsek.Tests
             Assert.Equal(sigA, sigB);
         }
 
+        [Fact]
+        public void BuildSignature_ChangesWhenSecondMissionStartsLooping()
+        {
+            var t1 = LinearTree("t1");
+            var t2 = LinearTree("t2");
+            var committed = new List<Recording>();
+            committed.AddRange(t1.Recordings.Values);
+            committed.AddRange(t2.Recordings.Values);
+            var trees = new[] { t1, t2 };
+
+            var m1 = new Mission("m1", "t1", "A") { LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto };
+            var m2 = new Mission("m2", "t2", "B") { LoopPlayback = false, LoopTimeUnit = LoopTimeUnit.Auto };
+            var missions = new List<Mission> { m1, m2 };
+
+            string sigOne = MissionLoopUnitBuilder.BuildSignature(missions, trees, committed, 30.0);
+            m2.LoopPlayback = true; // a second mission (different tree) starts looping
+            string sigTwo = MissionLoopUnitBuilder.BuildSignature(missions, trees, committed, 30.0);
+
+            Assert.NotEqual(sigOne, sigTwo);
+        }
+
+        // --- Concurrent multi-mission looping (one unit per looping mission) ---
+
+        [Fact]
+        public void Build_TwoMissionsOnDistinctTrees_ProducesTwoUnits_DisjointMembers()
+        {
+            // Two independent linear trees, committed back-to-back so their indices are distinct.
+            var t1 = LinearTree("t1"); // a/b/c at 100..410
+            var t2 = Tree("t2", new[]
+            {
+                Leg("d", "C2", 0, 1000, 1100),
+                Leg("e", "C2", 1, 1100, 1200)
+            });
+            var committed = new List<Recording>();
+            committed.AddRange(new[] { t1.Recordings["a"], t1.Recordings["b"], t1.Recordings["c"] }); // 0,1,2
+            committed.AddRange(new[] { t2.Recordings["d"], t2.Recordings["e"] });                     // 3,4
+            var trees = new[] { t1, t2 };
+
+            var missions = new List<Mission>
+            {
+                new Mission("m1", "t1", "Kerbal X")   { LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto },
+                new Mission("m2", "t2", "Mun Lander") { LoopPlayback = true, LoopTimeUnit = LoopTimeUnit.Auto }
+            };
+
+            var set = Build(missions, trees, committed);
+
+            // Two distinct units, owned by each tree's earliest member.
+            Assert.Equal(2, set.Count);
+            Assert.True(set.TryGetUnitForMember(0, out var u1));
+            Assert.True(set.TryGetUnitForMember(3, out var u2));
+            Assert.Equal(0, u1.OwnerIndex);
+            Assert.Equal(3, u2.OwnerIndex);
+            Assert.Equal(new[] { 0, 1, 2 }, u1.MemberIndices);
+            Assert.Equal(new[] { 3, 4 }, u2.MemberIndices);
+
+            // Members never cross units: each index resolves to its own tree's owner.
+            Assert.Equal(0, set.OwnerByIndex[1]);
+            Assert.Equal(0, set.OwnerByIndex[2]);
+            Assert.Equal(3, set.OwnerByIndex[4]);
+
+            // Independent spans.
+            Assert.Equal(100.0, u1.SpanStartUT);
+            Assert.Equal(410.0, u1.SpanEndUT);
+            Assert.Equal(1000.0, u2.SpanStartUT);
+            Assert.Equal(1200.0, u2.SpanEndUT);
+        }
+
+        [Fact]
+        public void Build_OnlyOneOfTwoMissionsLooping_ProducesOneUnit()
+        {
+            var t1 = LinearTree("t1");
+            var t2 = Tree("t2", new[] { Leg("d", "C2", 0, 1000, 1100) });
+            var committed = new List<Recording>();
+            committed.AddRange(new[] { t1.Recordings["a"], t1.Recordings["b"], t1.Recordings["c"] });
+            committed.Add(t2.Recordings["d"]);
+            var trees = new[] { t1, t2 };
+
+            var missions = new List<Mission>
+            {
+                new Mission("m1", "t1", "A") { LoopPlayback = false, LoopTimeUnit = LoopTimeUnit.Auto },
+                new Mission("m2", "t2", "B") { LoopPlayback = true,  LoopTimeUnit = LoopTimeUnit.Auto }
+            };
+
+            var set = Build(missions, trees, committed);
+
+            Assert.Equal(1, set.Count);
+            Assert.False(set.IsMember(0)); // t1 not looping
+            Assert.True(set.IsMember(3));  // t2 member (committed index 3)
+        }
+
         // --- MissionSelection.ComputeIncludedHeadIds ---
 
         [Fact]

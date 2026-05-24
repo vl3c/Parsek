@@ -4,27 +4,32 @@ using System.Globalization;
 
 namespace Parsek
 {
-    // Pure adapter: turns a looping Mission's selection into a span-clock LoopUnitSet
-    // (GhostPlaybackLogic.LoopUnit / LoopUnitSet). v1 = one Mission loops at a time. The
-    // unit carries TWO cadences from the same user input: a span-clock cadence (never
-    // shorter than the span, so a single span instance always plays in full - used by KSC,
-    // the Tracking Station, and the flight no-overlap branch) and an overlap cadence (the
-    // TRUE launch-to-launch period, Auto = the global auto-loop interval, cap-clamped to
-    // MaxOverlapMissionInstances). When the overlap cadence is shorter than the span the
-    // flight engine relaunches the whole mission on that cadence so several staggered
-    // instances play concurrently, exactly like a single recording with period < duration.
-    // Concurrent multi-Mission looping is still a later phase. Pure: no Unity calls, no
-    // shared mutable state, no recording mutation.
+    // Pure adapter: turns every looping Mission's selection into a span-clock LoopUnitSet
+    // (GhostPlaybackLogic.LoopUnit / LoopUnitSet), one unit per looping Mission. Multiple
+    // Missions loop concurrently, at most one per tree (enforced by MissionStore), so their
+    // committed indices are disjoint and each owns its own span clock. Each unit carries TWO
+    // cadences from the same user input: a span-clock cadence (never shorter than the span,
+    // so a single span instance always plays in full - used by KSC, the Tracking Station,
+    // and the flight no-overlap branch) and an overlap cadence (the TRUE launch-to-launch
+    // period, Auto = the global auto-loop interval, cap-clamped to MaxOverlapMissionInstances).
+    // When the overlap cadence is shorter than the span the flight engine relaunches the
+    // whole mission on that cadence so several staggered instances play concurrently, exactly
+    // like a single recording with period < duration. Pure: no Unity calls, no shared mutable
+    // state, no recording mutation.
     internal static class MissionLoopUnitBuilder
     {
         // Set true in tests to silence the single per-build Verbose summary.
         internal static bool SuppressLogging;
 
         /// <summary>
-        /// Builds the LoopUnitSet for the first looping Mission. Returns
-        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when nothing loops, the tree is
-        /// missing, or the selection maps to no committed members. Member indices are
-        /// committed-list indices (the alignment invariant the engine consumes).
+        /// Builds the LoopUnitSet for every looping Mission (one unit per Mission). Multiple Missions
+        /// loop concurrently - at most one per tree (enforced by MissionStore), so their committed
+        /// indices are disjoint and each Mission owns its own span clock. Returns
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when nothing loops or no looping Mission
+        /// maps to any committed member. Member indices are committed-list indices (the alignment
+        /// invariant the engine consumes). A committed index claimed by more than one unit (only
+        /// possible if the one-per-tree invariant is violated) is kept on its FIRST claimant and the
+        /// later claim is dropped with a warn, so the maps never disagree.
         /// </summary>
         internal static GhostPlaybackLogic.LoopUnitSet Build(
             IReadOnlyList<Mission> missions,
@@ -32,28 +37,99 @@ namespace Parsek
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds)
         {
-            // 1. First looping mission, else dormant.
-            Mission mission = FindLoopingMission(missions);
-            if (mission == null)
+            if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
 
-            // 2. Resolve its tree by TreeId.
+            Dictionary<string, int> indexById = BuildIndexById(committed);
+
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit>();
+            var ownerByIndex = new Dictionary<int, int>();
+            int builtUnits = 0;
+
+            for (int mi = 0; mi < missions.Count; mi++)
+            {
+                Mission mission = missions[mi];
+                if (mission == null || !mission.LoopPlayback)
+                    continue;
+
+                if (!TryBuildMissionUnit(
+                        mission, trees, committed, indexById, autoLoopIntervalSeconds,
+                        out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
+                    continue;
+
+                // Owner-index collision across units: only reachable if two looping Missions share a
+                // tree (one-per-tree violated upstream). The earlier unit wins its owner slot.
+                if (unitsByOwner.ContainsKey(unit.OwnerIndex))
+                {
+                    ParsekLog.Warn("Mission",
+                        $"MissionLoopUnit: mission='{mission.Name}' tree={mission.TreeId} owner index " +
+                        $"{unit.OwnerIndex} already owned by another looping unit; skipping (expected " +
+                        "one loop per tree)");
+                    continue;
+                }
+
+                // Member-index collision: keep the first claimant so OwnerByIndex and the unit's
+                // MemberIndices never disagree. Defensive - disjoint trees never collide.
+                int claimedConflicts = 0;
+                for (int k = 0; k < memberArray.Length; k++)
+                {
+                    int idx = memberArray[k];
+                    if (ownerByIndex.ContainsKey(idx))
+                        claimedConflicts++;
+                    else
+                        ownerByIndex[idx] = unit.OwnerIndex;
+                }
+                if (claimedConflicts > 0)
+                    ParsekLog.Warn("Mission",
+                        $"MissionLoopUnit: mission='{mission.Name}' tree={mission.TreeId} had " +
+                        $"{claimedConflicts} member index(es) already claimed by another looping unit; " +
+                        "kept the first claimant (expected one loop per tree)");
+
+                unitsByOwner[unit.OwnerIndex] = unit;
+                builtUnits++;
+            }
+
+            if (builtUnits == 0)
+                return GhostPlaybackLogic.LoopUnitSet.Empty;
+
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
+        /// <summary>
+        /// Builds one span-clock <see cref="GhostPlaybackLogic.LoopUnit"/> for a single looping
+        /// Mission. Returns false (and logs why at Verbose) when the tree is missing or the
+        /// selection maps to no committed members. <paramref name="indexById"/> is the shared
+        /// committed id -> index map (built once by <see cref="Build"/>).
+        /// </summary>
+        private static bool TryBuildMissionUnit(
+            Mission mission,
+            IReadOnlyList<RecordingTree> trees,
+            IReadOnlyList<Recording> committed,
+            Dictionary<string, int> indexById,
+            double autoLoopIntervalSeconds,
+            out GhostPlaybackLogic.LoopUnit unit,
+            out int[] memberArray)
+        {
+            unit = default;
+            memberArray = System.Array.Empty<int>();
+
+            // 1. Resolve its tree by TreeId.
             RecordingTree tree = FindTree(trees, mission.TreeId);
             if (tree == null)
             {
                 ParsekLog.Verbose("Mission",
                     $"MissionLoopUnit: mission='{mission.Name}' treeId={mission.TreeId ?? "<null>"} " +
                     "tree not found; no unit");
-                return GhostPlaybackLogic.LoopUnitSet.Empty;
+                return false;
             }
 
-            // 3. Through-line view + included heads via the shared selection rule.
+            // 2. Through-line view + included heads via the shared selection rule.
             MissionStructure structure = MissionStructureBuilder.Build(tree);
             MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
             HashSet<string> includedHeads =
                 MissionSelection.ComputeIncludedHeadIds(view, mission.ExcludedThroughLineHeadIds);
 
-            // 4. Union of every included through-line's member legs.
+            // 3. Union of every included through-line's member legs.
             var includedRecordingIds = new HashSet<string>();
             foreach (string head in includedHeads)
             {
@@ -65,9 +141,8 @@ namespace Parsek
                         includedRecordingIds.Add(members[i]);
             }
 
-            // 5. id -> committed index (first wins on duplicates). Map included ids to indices,
+            // 4. id -> committed index (first wins on duplicates). Map included ids to indices,
             //    skipping ids absent from committed, then sort by StartUT (tiebreak by index).
-            Dictionary<string, int> indexById = BuildIndexById(committed);
             var memberIndices = new List<int>();
             int skippedNotCommitted = 0;
             foreach (string id in includedRecordingIds)
@@ -82,7 +157,7 @@ namespace Parsek
                 ParsekLog.Verbose("Mission",
                     $"MissionLoopUnit: mission='{mission.Name}' tree={tree.Id} " +
                     $"includedHeads={includedHeads.Count} no committed members; no unit");
-                return GhostPlaybackLogic.LoopUnitSet.Empty;
+                return false;
             }
 
             memberIndices.Sort((a, b) =>
@@ -93,7 +168,7 @@ namespace Parsek
                 return a.CompareTo(b);
             });
 
-            // 6. Span = [min StartUT, max EndUT] over the members.
+            // 5. Span = [min StartUT, max EndUT] over the members.
             double spanStartUT = double.PositiveInfinity;
             double spanEndUT = double.NegativeInfinity;
             for (int i = 0; i < memberIndices.Count; i++)
@@ -105,7 +180,7 @@ namespace Parsek
                     spanEndUT = rec.EndUT;
             }
 
-            // 7. Two cadences from the same user input:
+            // 6. Two cadences from the same user input:
             //
             //    (a) Span-clock cadence: never shorter than the span so a SINGLE span instance never
             //        truncates. Auto = span; an explicit period is raised to the span when shorter,
@@ -133,10 +208,10 @@ namespace Parsek
             double overlapCadence = GhostPlaybackLogic.ComputeEffectiveLaunchCadence(
                 rawOverlapPeriod, span, GhostPlayback.MaxOverlapMissionInstances);
 
-            // 8. Owner = earliest-start member (first after the StartUT sort).
+            // 7. Owner = earliest-start member (first after the StartUT sort).
             int ownerIndex = memberIndices[0];
 
-            // 8b. Phase anchor: the UT the loop was enabled at. The span clock measures phase from
+            // 7b. Phase anchor: the UT the loop was enabled at. The span clock measures phase from
             //     this (elapsed = currentUT - phaseAnchorUT) so re-enabling the loop restarts from
             //     the recording's start. An unset (NaN) anchor falls back to spanStartUT, which
             //     reproduces the old absolute-phase behavior.
@@ -144,15 +219,11 @@ namespace Parsek
                 ? spanStartUT
                 : mission.LoopAnchorUT;
 
-            // 9. Build the single unit + lookup maps.
-            int[] memberArray = memberIndices.ToArray();
-            var unit = new GhostPlaybackLogic.LoopUnit(
+            // 8. Build the unit.
+            memberArray = memberIndices.ToArray();
+            unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT,
                 overlapCadence);
-            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { ownerIndex, unit } };
-            var ownerByIndex = new Dictionary<int, int>();
-            for (int i = 0; i < memberArray.Length; i++)
-                ownerByIndex[memberArray[i]] = ownerIndex;
 
             if (!SuppressLogging)
             {
@@ -168,21 +239,21 @@ namespace Parsek
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
             }
 
-            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+            return true;
         }
 
         /// <summary>
         /// Cheap change-detection signature over the inputs that shape the Mission
-        /// <see cref="GhostPlaybackLogic.LoopUnitSet"/>. Shared by every scene driver (flight engine
-        /// + tracking station) so the allocating, Verbose-logging <see cref="Build"/> only fires on
-        /// an actual input change while the cached set is pushed every frame. Mirrors Build's "first
-        /// looping mission wins" rule. Captures: the first looping mission's Id, TreeId,
-        /// LoopIntervalSeconds, LoopTimeUnit, the global <paramref name="autoLoopIntervalSeconds"/>
-        /// (which sets an Auto mission's overlap cadence), LoopAnchorUT, sorted
-        /// ExcludedThroughLineHeadIds, the looping tree's
-        /// BranchPoints.Count + Recordings.Count, plus the committed-list count and a rolling
-        /// RecordingId hash. Constant "none:" prefix when no mission loops, so toggling looping off
-        /// still rebuilds to Empty exactly once. Pure: no Unity calls, no shared mutable state.
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet"/>. Shared by every scene driver (flight engine,
+        /// KSC, tracking station) so the allocating, Verbose-logging <see cref="Build"/> only fires on
+        /// an actual input change while the cached set is pushed every frame. Mirrors Build's "every
+        /// looping mission, in list order" rule: for EACH looping mission it folds in Id, TreeId,
+        /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedThroughLineHeadIds, and its
+        /// tree's BranchPoints.Count + Recordings.Count; then the global
+        /// <paramref name="autoLoopIntervalSeconds"/> (which sets an Auto mission's overlap cadence),
+        /// the committed-list count, and a rolling RecordingId hash. Constant "none:" prefix when no
+        /// mission loops, so toggling looping off still rebuilds to Empty exactly once. Pure: no Unity
+        /// calls, no shared mutable state.
         /// </summary>
         internal static string BuildSignature(
             IReadOnlyList<Mission> missions,
@@ -193,40 +264,45 @@ namespace Parsek
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
 
-            Mission looping = FindLoopingMission(missions);
+            int loopingCount = 0;
+            if (missions != null)
+            {
+                for (int mi = 0; mi < missions.Count; mi++)
+                {
+                    Mission m = missions[mi];
+                    if (m == null || !m.LoopPlayback)
+                        continue;
+                    loopingCount++;
+                    sb.Append(m.Id ?? "<noid>").Append('|');
+                    sb.Append(m.TreeId ?? "<notree>").Append('|');
+                    sb.Append(m.LoopIntervalSeconds.ToString("R", ic)).Append('|');
+                    sb.Append(m.LoopTimeUnit.ToString()).Append('|');
+                    // Phase anchor: re-enabling the loop re-anchors the span clock, so a changed
+                    // anchor must force a rebuild even when nothing else about the mission moved.
+                    sb.Append(m.LoopAnchorUT.ToString("R", ic)).Append('|');
+                    // Sorted + joined so set order never perturbs the signature.
+                    var excluded = new List<string>(m.ExcludedThroughLineHeadIds);
+                    excluded.Sort(StringComparer.Ordinal);
+                    for (int e = 0; e < excluded.Count; e++)
+                        sb.Append(excluded[e] ?? "").Append(',');
+                    sb.Append(';');
+                    // Tree topology: a mid-session merge / re-parent can change the unit's
+                    // members or span without adding/renaming any committed RecordingId, so the
+                    // committed hash below would not move. Fold this looping tree's branch +
+                    // recording counts in so a topology change still forces a rebuild.
+                    RecordingTree loopTree = FindTree(trees, m.TreeId);
+                    sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
+                    sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('#');
+                }
+            }
 
-            if (looping == null)
-            {
+            if (loopingCount == 0)
                 sb.Append("none:");
-            }
             else
-            {
-                sb.Append(looping.Id ?? "<noid>").Append('|');
-                sb.Append(looping.TreeId ?? "<notree>").Append('|');
-                sb.Append(looping.LoopIntervalSeconds.ToString("R", ic)).Append('|');
-                sb.Append(looping.LoopTimeUnit.ToString()).Append('|');
                 // Auto missions take their overlap cadence from the GLOBAL auto-loop interval, so a
-                // change to that setting (with Auto selected) must rebuild the unit even when nothing
-                // about the mission moved. Non-Auto missions ignore it (their period is explicit), but
-                // folding it in unconditionally is cheap and keeps the signature self-contained.
+                // change to that setting (with any Auto mission looping) must rebuild even when nothing
+                // about the missions moved. Folding it in once unconditionally is cheap.
                 sb.Append(autoLoopIntervalSeconds.ToString("R", ic)).Append('|');
-                // Phase anchor: re-enabling the loop re-anchors the span clock, so a changed
-                // anchor must force a rebuild even when nothing else about the mission moved.
-                sb.Append(looping.LoopAnchorUT.ToString("R", ic)).Append('|');
-                // Sorted + joined so set order never perturbs the signature.
-                var excluded = new List<string>(looping.ExcludedThroughLineHeadIds);
-                excluded.Sort(StringComparer.Ordinal);
-                for (int e = 0; e < excluded.Count; e++)
-                    sb.Append(excluded[e] ?? "").Append(',');
-                sb.Append('|');
-                // Tree topology: a mid-session merge / re-parent can change the unit's
-                // members or span without adding/renaming any committed RecordingId, so the
-                // committed hash below would not move. Fold the looping tree's branch +
-                // recording counts in so a topology change still forces a rebuild.
-                RecordingTree loopTree = FindTree(trees, looping.TreeId);
-                sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
-                sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('|');
-            }
 
             // Committed-list identity: count + a rolling hash of RecordingIds (member indices are
             // committed-list indices, so any add/remove/reorder must invalidate the cached set).
@@ -240,16 +316,6 @@ namespace Parsek
             }
             sb.Append(rollingHash.ToString(ic));
             return sb.ToString();
-        }
-
-        private static Mission FindLoopingMission(IReadOnlyList<Mission> missions)
-        {
-            if (missions == null)
-                return null;
-            for (int i = 0; i < missions.Count; i++)
-                if (missions[i] != null && missions[i].LoopPlayback)
-                    return missions[i];
-            return null;
         }
 
         private static RecordingTree FindTree(IReadOnlyList<RecordingTree> trees, string treeId)
