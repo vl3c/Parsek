@@ -854,6 +854,11 @@ namespace Parsek
             return TryComputeLoopPlaybackUT(rec, currentUT,
                 out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
+        // Mission loop-unit watch sync (Phase D2): resolve a watched member's span loopUT so
+        // watch entry syncs ghost visuals at the same clock the engine renders the member at.
+        // Returns false (loopUT = currentUT) for non-unit-member / non-looping watch.
+        internal bool TryResolveUnitMemberPlaybackUTForWatch(int recordingIndex, double currentUT, out double loopUT)
+            => engine.TryResolveUnitMemberPlaybackUT(recordingIndex, currentUT, out loopUT);
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)

@@ -1859,7 +1859,7 @@ namespace Parsek
             }
             else
             {
-                watchLoadUT = ResolveWatchPlaybackUT(rec, currentState, watchLoadUT);
+                watchLoadUT = ResolveWatchPlaybackUT(rec, currentState, watchLoadUT, index);
             }
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
@@ -3662,8 +3662,25 @@ namespace Parsek
         }
 
         private double ResolveWatchPlaybackUT(
-            Recording rec, GhostPlaybackState currentState, double fallbackUT)
+            Recording rec, GhostPlaybackState currentState, double fallbackUT, int recordingIndex)
         {
+            // Mission loop-unit members do NOT carry a per-recording LoopPlayback flag, so the
+            // ShouldLoopPlaybackForWatch fallback below would feed the RAW Planetarium UT into the
+            // watch-sync path (ApplyPartEvents is monotonic, replaying every staging / decouple
+            // event past the member's window end and leaving only the never-jettisoned parts).
+            // Resolve such a member through the unit's shared span clock instead, matching the UT
+            // the engine renders the member at in UpdateUnitMemberPlayback. Non-members /
+            // non-looping watch return false here and fall through to the unchanged path below.
+            if (recordingIndex >= 0
+                && host.TryResolveUnitMemberPlaybackUTForWatch(recordingIndex, fallbackUT, out double spanLoopUT))
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch UT resolved via Mission span clock: rec #{recordingIndex} rawUT="
+                        + fallbackUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                return spanLoopUT;
+            }
+
             if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
                 return fallbackUT;
 
@@ -3730,7 +3747,7 @@ namespace Parsek
                 return false;
 
             double currentUT = Planetarium.GetUniversalTime();
-            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState, currentUT);
+            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState, currentUT, index);
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT,
                     currentUT: currentUT))

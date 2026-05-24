@@ -12,6 +12,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Mission-loop watch renders wrong mesh (capsule + parachute only)
+
+- When the player presses Watch on a looping Mission in flight, the watched ghost's mesh changed from the full rocket to just the capsule + deployed parachute and stayed wrong for the whole flight.
+- **Root cause:** watch entry synchronized the watched member's ghost visuals at the RAW Planetarium UT (e.g. ~3520 s) instead of the Mission span-clock loopUT. A Mission-loop unit member does NOT carry its own per-recording `LoopPlayback` flag, so `WatchModeController.ResolveWatchPlaybackUT` hit `if (rec == null || !host.ShouldLoopPlaybackForWatch(rec)) return fallbackUT;` and returned the raw `currentUT`. `EnsureGhostVisualsLoadedForWatch` -> `SynchronizeLoadedGhostForWatch` then ran `ApplyFrameVisuals(playbackUT=rawUT, skipPartEvents:false)`, and the monotonic `ApplyPartEvents` (`while evtIdx < count && PartEvents[evtIdx].ut <= currentUT`) replayed EVERY part event up to ut 3520, including all staging / decouple events past the member's window end, hiding every jettisoned part and leaving only the never-jettisoned pod + parachute. Log evidence: span-clock playback applied 25 part events but watch entry applied 48.
+- **Fix:** added `GhostPlaybackEngine.TryResolveUnitMemberPlaybackUT(recordingIndex, currentUT, out loopUT)`, which looks up `currentLoopUnits.TryGetUnitForMember` and folds `currentUT` onto the unit's shared span clock via `GhostPlaybackLogic.TryComputeSpanLoopUT` (returns false + raw UT for non-members / non-looping / before span start). Wired through `ParsekFlight.TryResolveUnitMemberPlaybackUTForWatch`. `WatchModeController.ResolveWatchPlaybackUT` (now taking the recording index) tries this resolver BEFORE the existing `ShouldLoopPlaybackForWatch` fallback; the two call sites (`TryStartWatchSession`, `TryEnsurePrimaryWatchGhostLoaded`) pass the committed index. `ApplyPartEvents` and `SynchronizeLoadedGhostForWatch` are unchanged; only the UT fed into the watch-sync path changed. Inert for non-unit-member / non-looping watch.
+- **Tests:** 4 new `GhostPlaybackEngineTests.TryResolveUnitMemberPlaybackUT_*` cases (member folds raw UT onto span loopUT, non-member returns false + raw UT, no-units returns false + raw UT, before-span-start returns false + raw UT). Full suite green (12487).
+- **Status:** CLOSED 2026-05-24.
+
+---
+
 ## Done - v0.10.0 Mission-loop watch camera stuck on hidden member at a unit handoff
 
 - When a Mission loops and the player watches it, the camera should follow the live member and hand off to the next member as the shared span clock crosses member boundaries (and at the loop wrap). The engine fires `CameraActionType.UnitHandoffRetarget` and `WatchModeController.HandleLoopCameraAction` calls `TransferWatchToNextSegment`. The camera stayed glued to the old (now hidden, held-alive) member whenever the target member's ghost was not yet spawned at the boundary.

@@ -6190,5 +6190,96 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        // ===================================================================
+        // TryResolveUnitMemberPlaybackUT — Mission loop-unit watch-sync resolver.
+        // Watch entry must sync a watched member's ghost visuals at the unit's
+        // shared span loopUT, NOT the raw Planetarium UT, or ApplyPartEvents
+        // (monotonic) replays staging/decouple events past the member's window
+        // end and leaves only the never-jettisoned parts visible.
+        // ===================================================================
+
+        #region TryResolveUnitMemberPlaybackUT
+
+        private static GhostPlaybackLogic.LoopUnitSet BuildSingleMemberUnit(
+            int memberIndex, double spanStartUT, double spanEndUT, double cadenceSeconds,
+            double phaseAnchorUT)
+        {
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: memberIndex,
+                memberIndices: new[] { memberIndex },
+                spanStartUT: spanStartUT,
+                spanEndUT: spanEndUT,
+                cadenceSeconds: cadenceSeconds,
+                phaseAnchorUT: phaseAnchorUT);
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { memberIndex, unit } };
+            var ownerByIndex = new Dictionary<int, int> { { memberIndex, memberIndex } };
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_Member_ReturnsSpanLoopUT_NotRawUT()
+        {
+            // Mission span [1000, 1100], cadence == span (100s). The raw UT is well past spanEnd
+            // (after several loop cycles): the resolver must fold it back onto the span clock so
+            // watch sync replays only the events up to the in-span loopUT, matching the live ghost.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            // rawUT 3520: elapsed 2520 over cadence 100 => cycle 25, phaseInCycle 20 => loopUT 1020.
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 3520.0, out double loopUT);
+
+            Assert.True(resolved);
+            Assert.Equal(1020.0, loopUT, 6);
+            Assert.True(loopUT >= 1000.0 && loopUT <= 1100.0);
+            Assert.NotEqual(3520.0, loopUT);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_NonMember_ReturnsFalse_AndRawUT()
+        {
+            // A different index is not a unit member: behavior is identical to today (false + raw UT).
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(7, currentUT: 3520.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(3520.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_NoUnits_ReturnsFalse_AndRawUT()
+        {
+            // No looping mission => LoopUnitSet.Empty => resolver is inert (false + raw UT).
+            var engine = new GhostPlaybackEngine(null);
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 3520.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(3520.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_BeforeSpanStart_ReturnsFalse_AndRawUT()
+        {
+            // Span clock unresolved (currentUT before phase anchor): fall back to raw UT so the
+            // caller keeps its existing fallback path.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(0, currentUT: 500.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(500.0, loopUT, 6);
+        }
+
+        #endregion
     }
 }

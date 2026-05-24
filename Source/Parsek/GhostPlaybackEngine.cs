@@ -257,6 +257,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the Mission span-clock loopUT for a committed recording index that is a
+        /// member of a Mission loop unit. Watch entry must synchronize a watched member's ghost
+        /// visuals at the SAME span loopUT the per-frame scheduler renders that member at in
+        /// <see cref="UpdateUnitMemberPlayback"/>, NOT the raw Planetarium UT: a unit member does
+        /// not carry its own per-recording LoopPlayback flag, so the watch path's
+        /// ShouldLoopPlaybackForWatch fallback would otherwise feed the raw UT into
+        /// ApplyPartEvents (monotonic), replaying every staging / decouple event past the member's
+        /// window end and leaving only the never-jettisoned parts visible.
+        ///
+        /// Returns true and the shared span loopUT when <paramref name="recordingIndex"/> is a
+        /// unit member; otherwise returns false with <paramref name="loopUT"/> set to
+        /// <paramref name="currentUT"/> (no behavior change for non-members / non-looping watch).
+        /// The span clock failing to resolve (before span start / degenerate span) also returns
+        /// false with the raw UT, so the caller keeps its existing fallback path.
+        /// </summary>
+        internal bool TryResolveUnitMemberPlaybackUT(int recordingIndex, double currentUT, out double loopUT)
+        {
+            loopUT = currentUT;
+            if (!currentLoopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+
+            if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT,
+                    unit.PhaseAnchorUT,
+                    unit.SpanStartUT,
+                    unit.SpanEndUT,
+                    unit.CadenceSeconds,
+                    out double spanLoopUT,
+                    out _,
+                    out _))
+            {
+                return false;
+            }
+
+            loopUT = spanLoopUT;
+            return true;
+        }
+
+        /// <summary>
         /// Per-slot bookkeeping for the chain-bridge hold: the playback UT at
         /// which the bridge first opened for a slot waiting on its chain
         /// continuation. Bounded by

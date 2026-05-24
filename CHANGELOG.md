@@ -21,6 +21,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Watching a looped mission no longer shows the wrong ghost (just the capsule and parachute). Watch entry now syncs the watched vessel's parts to the mission's shared loop clock, so the full rocket appears instead of replaying every staging and decouple event to the raw game time.
 - Auto-recording now starts on your first staging action while still on the launch pad, not only when the vessel lifts off, so boosters that separate and fly off before the main stage leaves the pad are recorded and shown as ghosts at the Space Center.
 - Every launch now gets its own folder in the recordings window, including single-recording launches; flying the same craft twice shows two separate folders (for example "GDLV3" and "GDLV3 #2") instead of merging both launches into one.
 
