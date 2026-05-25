@@ -310,6 +310,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when a Mission loop unit should SELF-OVERLAP: its launch-to-launch overlap
+        /// cadence is shorter than the whole-mission span, so the mission relaunches before the
+        /// prior instance finishes and several staggered instances play at once (a launch every
+        /// period). False (the span is degenerate or the cadence is >= the span) means a single
+        /// span-clock instance, one replay at a time. Used identically by the flight engine and the
+        /// Space Center so a looped mission overlaps in both, exactly like a single recording with a
+        /// period shorter than its duration.
+        /// </summary>
+        internal static bool UnitMemberOverlaps(LoopUnit unit)
+        {
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            return span > 0 && unit.OverlapCadenceSeconds < span;
+        }
+
+        /// <summary>
+        /// The schedule-start UT for ONE member inside a self-overlapping mission: the instant THIS
+        /// member would launch in each mission instance. Each member overlaps on the shared launch
+        /// cadence but staggered by its offset within the span (memberStart - spanStart) from the
+        /// mission's phase anchor, so the whole mission relaunches as a unit every overlap cadence.
+        /// </summary>
+        internal static double ComputeMemberOverlapScheduleStartUT(
+            double phaseAnchorUT, double spanStartUT, double memberStartUT)
+        {
+            return phaseAnchorUT + (memberStartUT - spanStartUT);
+        }
+
+        /// <summary>
         /// Computes the playback UT for a specific cycle of an overlapping-loop recording.
         /// Given the cycle's index and the loop's effective start UT, returns the UT within
         /// [loopStartUT, loopStartUT + duration] that the ghost for that cycle should be at.

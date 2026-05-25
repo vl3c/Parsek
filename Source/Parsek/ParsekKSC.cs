@@ -1054,6 +1054,48 @@ namespace Parsek
         {
             string unitKey = "ksc-unit-" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture);
 
+            // MISSION SELF-OVERLAP at the Space Center: when the mission's overlap cadence is SHORTER
+            // than the span, the whole mission relaunches every OverlapCadenceSeconds, so several
+            // staggered instances play at once (a launch every period, exactly like flight and like a
+            // single recording with period < duration). For THIS member that is a per-recording
+            // overlap loop on the mission's launch cadence, staggered by the member's offset within
+            // the span:
+            //   scheduleStartUT = PhaseAnchorUT + (memberStart - spanStart)   (when THIS member launches)
+            //   playbackStartUT = memberStart                                 (where in the member to start)
+            //   duration        = memberEnd - memberStart                     (the member's own length)
+            //   intervalSeconds = OverlapCadenceSeconds                       (the mission launch cadence)
+            // Route through the existing single-recording UpdateOverlapKsc so kscOverlapGhosts[i] holds
+            // the staggered instances (mirrors the flight engine's self-overlap branch). When the
+            // cadence is >= the span there is no self-overlap and we fall through to the single
+            // span-clock instance below (one replay at a time).
+            if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
+            {
+                double memberDuration = rec.EndUT - rec.StartUT;
+                if (memberDuration <= 0)
+                {
+                    DestroyUnitMemberKscGhostIfActive(i, rec);
+                    DestroyAllKscOverlapGhosts(i);
+                    return;
+                }
+
+                double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
+                    unit.PhaseAnchorUT, unit.SpanStartUT, rec.StartUT);
+                ParsekLog.VerboseRateLimited(
+                    "KSCGhost", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Mission self-overlap unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " overlapCadence=" + unit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                        + " span=" + (unit.SpanEndUT - unit.SpanStartUT).ToString("F2", CultureInfo.InvariantCulture)
+                        + " memberDur=" + memberDuration.ToString("F2", CultureInfo.InvariantCulture)
+                        + " schedStart=" + memberScheduleStartUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+
+                UpdateOverlapKsc(
+                    i, rec, currentUT, unit.OverlapCadenceSeconds, memberDuration,
+                    rec.StartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx);
+                return;
+            }
+
             // Shared mission clock + THIS member's own-window check, via the pure (xUnit-tested)
             // decision helper. No cross-member selection: the decision keys ONLY on whether the
             // shared spanLoopUT is in THIS member's [StartUT, EndUT].

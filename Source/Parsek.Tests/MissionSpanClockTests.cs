@@ -339,6 +339,53 @@ namespace Parsek.Tests
             Assert.Equal(125.0, loopUT, 6);  // 25s into the span
         }
 
+        // ─── Mission self-overlap routing (UnitMemberOverlaps / member schedule) ──
+
+        [Fact]
+        public void UnitMemberOverlaps_CadenceShorterThanSpan_True()
+        {
+            // span [100,200] = 100s, overlapCadence 10s: a launch every 10s -> several staggered
+            // instances overlap, so flight AND the Space Center route through the overlap path.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, 100, 200, cadenceSeconds: 100, phaseAnchorUT: 100, overlapCadenceSeconds: 10);
+            Assert.True(GhostPlaybackLogic.UnitMemberOverlaps(unit));
+        }
+
+        [Fact]
+        public void UnitMemberOverlaps_CadenceAtOrAboveSpan_False()
+        {
+            // Cadence == span (no overlap) and cadence > span (one replay at a time) both => single
+            // span-clock instance.
+            var atSpan = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, 100, 200, cadenceSeconds: 100, phaseAnchorUT: 100, overlapCadenceSeconds: 100);
+            var aboveSpan = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, 100, 200, cadenceSeconds: 150, phaseAnchorUT: 100, overlapCadenceSeconds: 150);
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(atSpan));
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(aboveSpan));
+        }
+
+        [Fact]
+        public void UnitMemberOverlaps_DegenerateSpan_False()
+        {
+            // A zero-length span (and the default unit) can never overlap.
+            var zeroSpan = new GhostPlaybackLogic.LoopUnit(
+                0, new[] { 0 }, 100, 100, cadenceSeconds: 0, phaseAnchorUT: 100, overlapCadenceSeconds: 10);
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(zeroSpan));
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(default));
+        }
+
+        [Fact]
+        public void ComputeMemberOverlapScheduleStartUT_StaggersByMemberOffsetFromAnchor()
+        {
+            // The owner member (memberStart == spanStart) launches at the phase anchor; a later
+            // member is staggered by its offset within the span, so the whole mission relaunches
+            // as one unit each overlap cadence.
+            Assert.Equal(500.0,
+                GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(500, 100, 100), 6);
+            Assert.Equal(530.0,
+                GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(500, 100, 130), 6);
+        }
+
         // ─── ResolveTrackingStationSampleUT (TS span-clock parity, Phase F) ──────
 
         // Builds a single-unit LoopUnitSet covering committed indices {ownerIndex..} so the

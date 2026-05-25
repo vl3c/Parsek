@@ -1948,7 +1948,7 @@ namespace Parsek
             // is handled inside UpdateOverlapPlayback. When OverlapCadenceSeconds >= span we fall through
             // to the EXACT single-instance span-clock behavior (including the overlapGhosts[i] clear).
             double unitSpan = unit.SpanEndUT - unit.SpanStartUT;
-            if (unitSpan > 0 && unit.OverlapCadenceSeconds < unitSpan)
+            if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
             {
                 double memberDuration = traj.EndUT - traj.StartUT;
                 if (memberDuration <= 0)
@@ -1963,7 +1963,8 @@ namespace Parsek
                     return;
                 }
 
-                double memberScheduleStartUT = unit.PhaseAnchorUT + (traj.StartUT - unit.SpanStartUT);
+                double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
+                    unit.PhaseAnchorUT, unit.SpanStartUT, traj.StartUT);
                 double memberPlaybackStartUT = traj.StartUT;
 
                 // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
