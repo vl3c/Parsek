@@ -218,10 +218,22 @@ namespace Parsek
             return copy;
         }
 
-        // A Mission can be deleted only when it is not the last one for its tree.
+        // Only a COPY can be deleted; the original mission of a tree is never deletable. The
+        // original is the first mission in list order for the tree (the auto-created default;
+        // clones are inserted after it). So a mission is deletable iff it is NOT the first mission
+        // of its tree. This also keeps every tree with at least its original.
         internal static bool CanDelete(Mission m)
         {
-            return m != null && CountForTree(m.TreeId) > 1;
+            if (m == null)
+                return false;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                if (missions[i] == null || missions[i].TreeId != m.TreeId)
+                    continue;
+                // First same-tree mission found: it is the original. Deletable only if it is not m.
+                return !ReferenceEquals(missions[i], m);
+            }
+            return false;
         }
 
         internal static bool Delete(Mission m)

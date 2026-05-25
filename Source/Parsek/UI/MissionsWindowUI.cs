@@ -499,7 +499,7 @@ namespace Parsek
             GUILayout.BeginHorizontal();
 
             // Index cell (first column): the per-tree number, non-modifiable. Shared by clones.
-            GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) + "." : "",
+            GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "",
                 parentUI.GetSectionHeaderStyle(), GUILayout.Width(ColW_Index));
 
             DrawMissionTitleOrRename(mission);

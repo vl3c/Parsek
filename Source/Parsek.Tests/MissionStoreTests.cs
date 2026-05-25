@@ -111,7 +111,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Delete_BlockedOnLast_AllowedWhenMoreThanOne()
+        public void Delete_BlockedOnOriginal_AllowedOnCopy()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
             Mission only = First();
@@ -124,6 +124,23 @@ namespace Parsek.Tests
             Assert.True(MissionStore.CanDelete(clone));
             Assert.True(MissionStore.Delete(clone));
             Assert.Equal(1, MissionStore.CountForTree("t1"));
+        }
+
+        [Fact]
+        public void Delete_OriginalNeverDeletable_EvenWithCopies()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission original = First();
+            Mission copy = MissionStore.Clone(original);
+            Mission copy2 = MissionStore.Clone(original);
+
+            // The original (first mission of the tree) is never deletable, even with copies present;
+            // only the copies are.
+            Assert.False(MissionStore.CanDelete(original));
+            Assert.True(MissionStore.CanDelete(copy));
+            Assert.True(MissionStore.CanDelete(copy2));
+            Assert.False(MissionStore.Delete(original));
+            Assert.Equal(3, MissionStore.CountForTree("t1"));
         }
 
         [Fact]
