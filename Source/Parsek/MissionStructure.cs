@@ -67,6 +67,11 @@ namespace Parsek
         public int ProbeCount;   // ProbeCore controllers (uncrewed command parts)
         public int SeatCount;    // ExternalSeat controllers
         public int CrewCount;    // total crew aboard at start (sum of StartCrew counts)
+
+        // Crew kerbal NAMES aboard this leg (from Recording.CrewEndStates keys, sorted), used
+        // to render named crew leaves in the composition roster. Empty when names are not
+        // recorded (legacy / uncrewed) - the renderer then falls back to a "crew xN" count.
+        public readonly List<string> CrewNames = new List<string>();
     }
 
     /// <summary>
@@ -206,6 +211,16 @@ namespace Parsek
             {
                 foreach (var kv in rec.StartCrew)
                     leg.CrewCount += kv.Value;
+            }
+            // Crew NAMES: CrewEndStates is keyed by kerbal name (the roster aboard this leg);
+            // the per-name value is its end state, which we do not need here. Sorted for a
+            // deterministic roster order.
+            if (rec.CrewEndStates != null && rec.CrewEndStates.Count > 0)
+            {
+                foreach (var name in rec.CrewEndStates.Keys)
+                    if (!string.IsNullOrEmpty(name))
+                        leg.CrewNames.Add(name);
+                leg.CrewNames.Sort(System.StringComparer.Ordinal);
             }
         }
 

@@ -12,7 +12,8 @@ namespace Parsek.Tests
         private static Recording Leg(
             string id, string chainId, int chainIndex, double start, double end,
             int pods = 0, int probes = 0, int seats = 0, int crew = 0,
-            string eva = null, string parentAnchor = null, string vessel = "Kerbal X")
+            string eva = null, string parentAnchor = null, string vessel = "Kerbal X",
+            string[] crewNames = null)
         {
             var rec = new Recording
             {
@@ -33,7 +34,14 @@ namespace Parsek.Tests
             for (int i = 0; i < seats; i++) controllers.Add(new ControllerInfo { type = "ExternalSeat" });
             if (!string.IsNullOrEmpty(eva)) controllers.Add(new ControllerInfo { type = "KerbalEVA" });
             if (controllers.Count > 0) rec.Controllers = controllers;
-            if (crew > 0) rec.StartCrew = new Dictionary<string, int> { { "Pilot", crew } };
+            int crewCount = crewNames != null ? crewNames.Length : crew;
+            if (crewCount > 0) rec.StartCrew = new Dictionary<string, int> { { "Pilot", crewCount } };
+            if (crewNames != null)
+            {
+                rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
+                foreach (var n in crewNames) rec.CrewEndStates[n] = default(KerbalEndState);
+                rec.CrewEndStatesResolved = true;
+            }
             return rec;
         }
 
@@ -92,6 +100,25 @@ namespace Parsek.Tests
             Assert.Equal(2, set[0].Children.Count);
             Assert.Contains(set[0].Children, c => c.CompositionLabel == "Pod");
             Assert.Contains(set[0].Children, c => c.CompositionLabel == "crew x3");
+        }
+
+        [Fact]
+        public void CrewedTerminal_WithNames_ExpandsToNamedCrewLeaves()
+        {
+            var set = Build(new[]
+            {
+                Leg("pod", "C", 0, 0, 100, pods: 1, crewNames: new[] { "Bob Kerman", "Bill Kerman", "Jeb Kerman" }),
+            });
+            Assert.Single(set);
+            Assert.Equal("pod x1, crew x3", set[0].CompositionLabel); // label still uses counts
+            Assert.False(set[0].IsLeaf);
+            // One Pod atom + one named leaf per crew member (no "crew x3" count atom).
+            Assert.Equal(4, set[0].Children.Count);
+            Assert.Contains(set[0].Children, c => c.CompositionLabel == "Pod");
+            Assert.Contains(set[0].Children, c => c.CompositionLabel == "Bob Kerman");
+            Assert.Contains(set[0].Children, c => c.CompositionLabel == "Bill Kerman");
+            Assert.Contains(set[0].Children, c => c.CompositionLabel == "Jeb Kerman");
+            Assert.DoesNotContain(set[0].Children, c => c.CompositionLabel == "crew x3");
         }
 
         [Fact]

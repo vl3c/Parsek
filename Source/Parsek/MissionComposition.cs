@@ -199,25 +199,35 @@ namespace Parsek
         }
 
         // Optional final expansion of a stable multi-atom terminal: one node per controller
-        // (by type) plus crew. Crew shows as a single "crew xN" atom (per-name roster is a
-        // later enhancement once start-crew names are threaded through).
+        // (by type) plus crew. Crew shows as one named leaf per kerbal when names are recorded
+        // (Recording.CrewEndStates), otherwise falls back to a single "crew xN" count atom.
         private static void AddAtomChildren(MissionCompositionNode node, MissionLeg leg)
         {
             AddAtoms(node, "Pod", leg.PodCount);
             AddAtoms(node, "Probe", leg.ProbeCount);
             AddAtoms(node, "Seat", leg.SeatCount);
-            if (leg.CrewCount > 0)
+
+            if (leg.CrewNames != null && leg.CrewNames.Count > 0)
             {
-                string crewLabel = "crew x" + leg.CrewCount.ToString(CultureInfo.InvariantCulture);
-                node.Children.Add(new MissionCompositionNode
-                {
-                    HeadLegId = leg.RecordingId,
-                    VesselName = crewLabel,
-                    CompositionLabel = crewLabel,
-                    IsLeaf = true,
-                    IsAtom = true,
-                });
+                for (int i = 0; i < leg.CrewNames.Count; i++)
+                    AddCrewAtom(node, leg, leg.CrewNames[i]);
             }
+            else if (leg.CrewCount > 0)
+            {
+                AddCrewAtom(node, leg, "crew x" + leg.CrewCount.ToString(CultureInfo.InvariantCulture));
+            }
+        }
+
+        private static void AddCrewAtom(MissionCompositionNode node, MissionLeg leg, string label)
+        {
+            node.Children.Add(new MissionCompositionNode
+            {
+                HeadLegId = leg.RecordingId,
+                VesselName = label,
+                CompositionLabel = label,
+                IsLeaf = true,
+                IsAtom = true,
+            });
         }
 
         private static void AddAtoms(MissionCompositionNode node, string label, int n)
