@@ -1669,6 +1669,32 @@ namespace Parsek
                     if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
                             parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
                     {
+                        // Interval-level trim: a ride-along debris belongs to the slice of its
+                        // parent's flight when it was jettisoned. If the parent member is start/end-
+                        // trimmed (a composition interval unchecked) and this debris was jettisoned
+                        // OUTSIDE the parent's trimmed render window, it is debris of a trimmed-out
+                        // segment - suppress it, so watching only a late segment (e.g. the pod after
+                        // the decouple) shows only that segment's own child debris, not the earlier
+                        // launch-stage jettisons. Untrimmed parents keep their full [StartUT,EndUT]
+                        // window (MemberStartUT/EndUT fall back to it), so this is a no-op for an
+                        // untrimmed mission.
+                        double parentMemberStart = parentUnit.MemberStartUT(parentIdx, parent.StartUT);
+                        double parentMemberEnd = parentUnit.MemberEndUT(parentIdx, parent.EndUT);
+                        if (traj.StartUT < parentMemberStart - LoopTiming.BoundaryEpsilon
+                            || traj.StartUT > parentMemberEnd + LoopTiming.BoundaryEpsilon)
+                        {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "debris-outside-parent-trim-window");
+                            if (ghostActive)
+                            {
+                                DestroyGhost(i, traj, f,
+                                    reason: "debris jettisoned outside parent member's trimmed window");
+                                DestroyAllOverlapGhosts(i);
+                            }
+                            CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                            return true;
+                        }
+
                         // MISSION SELF-OVERLAP: when the parent's unit overlaps (overlap cadence
                         // shorter than the span), the debris must overlap on the SAME cadence so its
                         // instances ride alongside the parent member's instances. The debris is NOT a
