@@ -142,18 +142,21 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void EndEvent_IsFirstCompositionChange_NotRecordingTerminalFork()
+        public void KerbalX_ProbeDecouples_ThenLaterEva_SurvivorStartsAtDecoupleSpansEva()
         {
-            // Mirrors the real Kerbal X: the recording forks at a LATER EVA, but the launch's
-            // composition first changes when the probe decouples earlier. The launch node's end
-            // event must be the decouple, NOT the EVA the recording happens to fork at.
+            // The exact real Kerbal X shape: a pod+probe+crew3 launch decouples its probe early
+            // (29.56) and the same recording keeps going until a LATER EVA (38.88) where one crew
+            // leaves. The continuing pod must read as ONE survivor interval that STARTS at the
+            // decouple and SPANS the EVA (label = surviving crew x2), with the EVA kerbal hanging
+            // off the survivor (not the launch), and the launch interval ending at the decouple.
             var set = Build(
                 new[]
                 {
-                    Leg("L", "C", 0, 0, 122, pods: 1, probes: 1, crewNames: new[] { "Jeb", "Bill", "Bob" }),
-                    Leg("probe", "C2", 0, 59, 84, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
-                    Leg("cont", "C3", 0, 122, 200, pods: 1, crewNames: new[] { "Bill", "Jeb" }),
-                    Leg("bob", "C4", 0, 122, 150, eva: "Bob Kerman", parentAnchor: "L"),
+                    Leg("L", "C", 0, 0, 122, pods: 1, probes: 1,
+                        crewNames: new[] { "Jebediah Kerman", "Bill Kerman", "Bob Kerman" }),
+                    Leg("probe", "C2", 0, 29.56, 84, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
+                    Leg("cont", "C3", 0, 38.88, 200, pods: 1, crewNames: new[] { "Jebediah Kerman", "Bill Kerman" }),
+                    Leg("bob", "C4", 0, 38.88, 150, eva: "Bob Kerman", parentAnchor: "L"),
                 },
                 new[]
                 {
@@ -163,8 +166,31 @@ namespace Parsek.Tests
 
             Assert.Single(set);
             MissionCompositionNode root = set[0];
+            // Launch interval: full stack, ends at the probe decouple (not the later EVA).
             Assert.Equal("pod x1, probe x1, crew x3", root.CompositionLabel);
-            Assert.Equal("Decoupled", root.EndEvent); // earliest change (probe @59), not the EVA @122
+            Assert.Equal("Launch", root.StartEvent);
+            Assert.Equal("Decoupled", root.EndEvent);
+            Assert.Equal(29.56, root.EndUT);
+            Assert.Equal(2, root.Children.Count);
+
+            // Survivor (continuing pod): starts at the decouple, spans the EVA, label = crew x2.
+            MissionCompositionNode survivor = root.Children[0];
+            Assert.Equal("Kerbal X", survivor.VesselName);
+            Assert.Equal("pod x1, crew x2", survivor.CompositionLabel);
+            Assert.Equal("Decoupled", survivor.StartEvent);   // born at the decouple, NOT the EVA
+            Assert.Equal(29.56, survivor.StartUT);
+            Assert.Equal(200.0, survivor.EndUT);              // continues to the recording terminal
+
+            // The EVA kerbal hangs off the survivor; the EVA is the KERBAL's start event.
+            Assert.Single(survivor.Children);
+            Assert.Equal("Bob Kerman", survivor.Children[0].CompositionLabel);
+            Assert.Equal("EVA", survivor.Children[0].StartEvent);
+            Assert.True(survivor.Children[0].IsLeaf);
+
+            // The peeled probe is the launch interval's second child.
+            Assert.Equal("probe x1", root.Children[1].CompositionLabel);
+            Assert.Equal("Decoupled", root.Children[1].StartEvent);
+            Assert.True(root.Children[1].IsLeaf);
         }
 
         [Fact]
@@ -229,8 +255,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Eva_PeelsNamedKerbal_CrewCountDrops()
+        public void Eva_KeepsOneInterval_LabelIsSurvivingCrew_KerbalHangsOff()
         {
+            // A crew-only EVA does NOT start a new vessel interval: the pod continues with the
+            // same controllers, so it stays ONE interval labeled by the SURVIVING crew (x2), and
+            // the kerbal that left hangs off it as a leaf whose own start event is the EVA.
             var set = Build(
                 new[]
                 {
@@ -242,12 +271,12 @@ namespace Parsek.Tests
 
             Assert.Single(set);
             MissionCompositionNode root = set[0];
-            Assert.Equal("pod x1, crew x3", root.CompositionLabel);
-            Assert.Equal("EVA", root.EndEvent);
-            Assert.Equal(2, root.Children.Count);
-            Assert.Equal("pod x1, crew x2", root.Children[0].CompositionLabel);
-            Assert.Equal("Bob Kerman", root.Children[1].CompositionLabel);
-            Assert.True(root.Children[1].IsLeaf); // an EVA kerbal is a single atom
+            Assert.Equal("pod x1, crew x2", root.CompositionLabel); // surviving crew, not x3
+            Assert.Equal("Launch", root.StartEvent);                // born at launch, spans the EVA
+            Assert.Single(root.Children);
+            Assert.Equal("Bob Kerman", root.Children[0].CompositionLabel);
+            Assert.Equal("EVA", root.Children[0].StartEvent);       // EVA is the kerbal's start
+            Assert.True(root.Children[0].IsLeaf);                   // an EVA kerbal is a single atom
         }
 
         [Fact]

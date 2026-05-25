@@ -5,18 +5,25 @@ using System.Text;
 namespace Parsek
 {
     // The "vessel composition over time" read model for the Missions window. Each node is a
-    // physical vessel during a span where its composition (controllers + crew) is STABLE,
-    // labeled with counts like "pod x1, probe x1, crew x3". The tree branches at composition
-    // CHANGE events: a controller separating or a kerbal going EVA (split), or a dock/board
-    // (merge). A composition that is stable until it ends as a whole (Destroyed / Recovered /
-    // an intact endpoint) is a terminal node; a single-atom terminal (one controller, or one
-    // EVA kerbal) is a leaf, a multi-atom terminal can be expanded one level into its atoms.
+    // physical vessel during one STRUCTURAL interval, labeled with counts like
+    // "pod x1, probe x1, crew x3". A structural interval ends only when a CONTROLLER separates
+    // (a stage / probe / lander decouples): that peels the separated piece off as a sibling and
+    // starts a new interval for the continuing survivor. A crew change (a kerbal going EVA) does
+    // NOT end the interval - the vessel continues with the same controllers, so the kerbal hangs
+    // off the interval it left during as a child leaf and the interval label shows the SURVIVING
+    // crew. So a launch stack that decouples a probe and later sheds a kerbal on EVA reads:
+    //   Kerbal X (pod x1, probe x1, crew x3)   Launch -> Decoupled
+    //   |- Kerbal X (pod x1, crew x2)          Decoupled -> <terminal>   (the survivor, spans the EVA)
+    //   |  \- Bob Kerman                        EVA -> <terminal>          (the kerbal that left it)
+    //   \- Kerbal X Probe (probe x1)           Decoupled -> <terminal>    (the peeled probe)
     //
     // Derivation: each controlled MissionLeg already carries its own composition (pod/probe/
-    // seat/crew counts, populated from Recording.Controllers + StartCrew). Consecutive
-    // continuation legs with equal composition (env-splits, observation boundaries) collapse
-    // into one interval; the composition only "changes" where a controller/kerbal peels off
-    // or joins. Pure: no Unity calls, no shared mutable state.
+    // seat/crew counts, populated from Recording.Controllers + StartCrew). The full continuation
+    // through-line of one physical vessel (env-split continuations + the vessel-continuation fork
+    // child) is walked into one run; structural peels split that run's timeline into intervals,
+    // and the survivor's controllers are the start composition minus the peels removed so far
+    // (correct even when the continuing recording's start-captured Controllers are stale).
+    // Pure: no Unity calls, no shared mutable state.
 
     internal sealed class MissionCompositionNode
     {
@@ -55,10 +62,11 @@ namespace Parsek
             return roots;
         }
 
-        // Builds one composition node: a maximal run of equal-composition continuation legs,
-        // then its children = the continuing vessel's next (changed) interval plus any pieces
-        // that peeled off across the run. A merge child reached a second time is guarded by
-        // the shared visited set (it terminates the line that reaches it second).
+        // Builds the composition node for one physical vessel's through-line, split into
+        // structural intervals. A structural peel (a controller separating) ends an interval and
+        // starts the survivor's; a crew peel (an EVA kerbal) hangs off the interval it left
+        // during without ending it. A through-line member reached a second time (a merge) is
+        // guarded by the shared visited set (it terminates the line that reaches it second).
         private static MissionCompositionNode BuildNode(
             MissionStructure s, string headLegId, string startEvent, HashSet<string> visited)
         {
@@ -67,38 +75,29 @@ namespace Parsek
             if (visited.Contains(headLegId))
                 return null;
 
-            // 1. Walk the continuation chain, extending the run while composition is unchanged.
+            // 1. Walk the FULL continuation through-line of this physical vessel (env-split
+            //    continuations + the vessel-continuation fork child). Structural peels split this
+            //    run into intervals afterward; crew peels attach without splitting.
             var run = new List<MissionLeg>();
             string cur = headLegId;
-            while (cur != null && s.LegsById.TryGetValue(cur, out MissionLeg leg) && visited.Add(cur))
+            while (cur != null && !visited.Contains(cur) && s.LegsById.TryGetValue(cur, out MissionLeg leg))
             {
+                visited.Add(cur);
                 run.Add(leg);
-                string succ = MissionThroughLineBuilder.ContinuationSuccessor(s, leg);
-                if (succ == null || !s.LegsById.TryGetValue(succ, out MissionLeg succLeg))
-                    break;
-                if (!SameComposition(leg, succLeg))
-                    break; // composition changes at this boundary: close the run here
-                cur = succ;
+                cur = MissionThroughLineBuilder.ContinuationSuccessor(s, leg);
             }
-
             MissionLeg lastLeg = run[run.Count - 1];
-            var node = new MissionCompositionNode
-            {
-                HeadLegId = headLegId,
-                VesselName = VesselLabel(headLeg),
-                CompositionLabel = FormatComposition(headLeg),
-                StartUT = headLeg.StartUT,
-                EndUT = lastLeg.EndUT,
-                StartEvent = startEvent ?? OriginEventName(headLeg),
-            };
+            double runStart = headLeg.StartUT;
+            double runEnd = lastLeg.EndUT;
 
-            // 2. Continuing vessel after the run (changed composition), if any.
-            string contSucc = MissionThroughLineBuilder.ContinuationSuccessor(s, lastLeg);
-            bool hasContinuation = contSucc != null && s.LegsById.ContainsKey(contSucc)
-                && !visited.Contains(contSucc);
-
-            // 3. Pieces that peeled off across the run (non-continuation branch children).
-            var peels = new List<string>();
+            // 2. Peels across the run, classified: an EVA kerbal child is a CREW peel (it does not
+            //    change the vessel's controllers, so it never starts a new interval - it hangs off
+            //    the interval it left during); any other branch child is a STRUCTURAL peel (a
+            //    controller separated, which DOES start a new interval for the survivor).
+            var structuralPeels = new List<string>();
+            var crewPeels = new List<string>();
+            var runSet = new HashSet<string>();
+            for (int r = 0; r < run.Count; r++) runSet.Add(run[r].RecordingId);
             for (int r = 0; r < run.Count; r++)
             {
                 MissionLeg leg = run[r];
@@ -106,85 +105,170 @@ namespace Parsek
                 for (int c = 0; c < leg.BranchChildIds.Count; c++)
                 {
                     string childId = leg.BranchChildIds[c];
-                    if (childId == legSucc) continue;        // the continuation, handled above
-                    if (!s.LegsById.ContainsKey(childId)) continue;
-                    if (!peels.Contains(childId)) peels.Add(childId);
+                    if (childId == legSucc) continue;          // the vessel continuation, in the run
+                    if (runSet.Contains(childId)) continue;    // a later run member (merge)
+                    if (!s.LegsById.TryGetValue(childId, out MissionLeg childLeg)) continue;
+                    var bucket = !string.IsNullOrEmpty(childLeg.EvaCrewName) ? crewPeels : structuralPeels;
+                    if (!bucket.Contains(childId)) bucket.Add(childId);
                 }
             }
-            peels.Sort((a, b) => CompareLegStart(s, a, b));
+            structuralPeels.Sort((a, b) => CompareLegStart(s, a, b));
+            crewPeels.Sort((a, b) => CompareLegStart(s, a, b));
 
-            // 4. End of this composition = the FIRST change: the earliest peel, or the
-            //    continuation fork, by ITS OWN origin event + UT. Not the recording's terminal-
-            //    fork type, because the composition can end earlier than the recording forks (a
-            //    probe decoupling mid-recording ends the pod+probe composition long before a
-            //    later EVA fork ends the recording). When nothing changes, use the terminal.
-            MissionLeg firstChange = null;
-            if (hasContinuation && s.LegsById.TryGetValue(contSucc, out MissionLeg contChangeLeg))
-                firstChange = contChangeLeg;
-            for (int i = 0; i < peels.Count; i++)
-                if (s.LegsById.TryGetValue(peels[i], out MissionLeg peelChangeLeg)
-                    && (firstChange == null || peelChangeLeg.StartUT < firstChange.StartUT))
-                    firstChange = peelChangeLeg;
-            if (firstChange != null)
+            // 3. Interval edges: the run start, each distinct structural-peel UT (a controller
+            //    separation, clamped into the run), and the run end.
+            var edges = new List<double> { runStart };
+            for (int i = 0; i < structuralPeels.Count; i++)
             {
-                node.EndUT = firstChange.StartUT;
-                node.EndEvent = OriginEventName(firstChange);
+                double ut = PeelUT(s, structuralPeels[i], runStart);
+                if (ut < runStart) ut = runStart;
+                if (ut > runEnd) ut = runEnd;
+                if (!edges.Contains(ut)) edges.Add(ut);
             }
-            else
+            if (!edges.Contains(runEnd)) edges.Add(runEnd);
+            edges.Sort();
+            int segCount = edges.Count - 1; // at least one interval
+
+            // 4. One node per interval: controllers = start composition minus the structural peels
+            //    removed at or before its start (correct even when a continuing recording's
+            //    start-captured Controllers are stale); crew = the roster surviving at its END.
+            var segNodes = new List<MissionCompositionNode>();
+            MissionLeg lastSegLeg = null;
+            for (int i = 0; i < segCount; i++)
             {
-                node.EndEvent = TerminalName(lastLeg.TerminalStateValue);
+                double segStart = edges[i];
+                double segEnd = edges[i + 1];
+
+                int pod = headLeg.PodCount, probe = headLeg.ProbeCount, seat = headLeg.SeatCount;
+                for (int p = 0; p < structuralPeels.Count; p++)
+                    if (s.LegsById.TryGetValue(structuralPeels[p], out MissionLeg pl)
+                        && PeelUT(s, structuralPeels[p], runStart) <= segStart)
+                    { pod -= pl.PodCount; probe -= pl.ProbeCount; seat -= pl.SeatCount; }
+                if (pod < 0) pod = 0;
+                if (probe < 0) probe = 0;
+                if (seat < 0) seat = 0;
+
+                var survivingNames = new List<string>(headLeg.CrewNames);
+                int leftCount = 0;
+                for (int p = 0; p < crewPeels.Count; p++)
+                {
+                    if (!s.LegsById.TryGetValue(crewPeels[p], out MissionLeg cp)) continue;
+                    if (cp.StartUT > segEnd) continue; // still aboard at this interval's end
+                    leftCount++;
+                    if (!string.IsNullOrEmpty(cp.EvaCrewName)) survivingNames.Remove(cp.EvaCrewName);
+                }
+                int crew = headLeg.CrewNames.Count > 0
+                    ? survivingNames.Count
+                    : System.Math.Max(0, headLeg.CrewCount - leftCount);
+
+                var segLeg = new MissionLeg
+                {
+                    RecordingId = (i == 0)
+                        ? headLegId
+                        : headLegId + "/seg" + i.ToString(CultureInfo.InvariantCulture),
+                    VesselName = headLeg.VesselName,
+                    EvaCrewName = (i == 0) ? headLeg.EvaCrewName : null,
+                    PodCount = pod,
+                    ProbeCount = probe,
+                    SeatCount = seat,
+                    CrewCount = crew,
+                    StartUT = segStart,
+                    EndUT = segEnd,
+                    TerminalStateValue = (i == segCount - 1) ? lastLeg.TerminalStateValue : null,
+                };
+                segLeg.CrewNames.AddRange(survivingNames);
+
+                var node = new MissionCompositionNode
+                {
+                    HeadLegId = segLeg.RecordingId,
+                    VesselName = VesselLabel(segLeg),
+                    CompositionLabel = FormatComposition(segLeg),
+                    StartUT = segStart,
+                    EndUT = segEnd,
+                    StartEvent = (i == 0) ? startEvent : StructuralPeelEventAt(s, structuralPeels, segStart),
+                    EndEvent = (i == segCount - 1)
+                        ? TerminalName(lastLeg.TerminalStateValue)
+                        : StructuralPeelEventAt(s, structuralPeels, segEnd),
+                };
+                segNodes.Add(node);
+                if (i == segCount - 1) lastSegLeg = segLeg;
             }
 
-            // 5. Children: continuing vessel first, then peeled pieces (the user's nesting order).
-            if (hasContinuation)
+            // 5. Chain the intervals: each interval's survivor (the next interval) is its first
+            //    child, so the continuing vessel always reads above the pieces that left it.
+            for (int i = 0; i + 1 < segCount; i++)
+                segNodes[i].Children.Add(segNodes[i + 1]);
+
+            // 6. Structural peels: attach the peeled piece (its own subtree) to the interval it
+            //    separated from (the interval ending at the peel's UT).
+            for (int p = 0; p < structuralPeels.Count; p++)
             {
-                MissionCompositionNode child = BuildNode(s, contSucc, EndEventName(lastLeg), visited);
+                double ut = PeelUT(s, structuralPeels[p], runStart);
+                if (ut < runStart) ut = runStart;
+                if (ut > runEnd) ut = runEnd;
+                int segIdx = SegmentEndingAt(edges, ut);
+                s.LegsById.TryGetValue(structuralPeels[p], out MissionLeg pl);
+                MissionCompositionNode child = BuildNode(s, structuralPeels[p], OriginEventName(pl), visited);
                 if (child != null)
-                    node.Children.Add(child);
-            }
-            else if (peels.Count > 0)
-            {
-                // No recaptured continuation leg, but pieces peeled off. The continuing vessel is
-                // the SAME recording (its start-captured Controllers never updated to drop the
-                // separated piece), so synthesize the remaining composition = this vessel minus
-                // the peeled pieces, and show it as the continuing child.
-                MissionCompositionNode remainder = BuildRemainderNode(s, headLeg, lastLeg, peels);
-                if (remainder != null)
-                    node.Children.Add(remainder);
-            }
-            for (int p = 0; p < peels.Count; p++)
-            {
-                s.LegsById.TryGetValue(peels[p], out MissionLeg peelLeg);
-                MissionCompositionNode child = BuildNode(s, peels[p], OriginEventName(peelLeg), visited);
-                if (child != null)
-                    node.Children.Add(child);
+                    segNodes[segIdx].Children.Add(child);
             }
 
-            // 6. Terminal node: a single atom is a leaf; a stable multi-atom terminal expands
-            //    one optional level into its atoms (controllers by type + crew).
-            if (!hasContinuation && peels.Count == 0)
+            // 7. Crew peels: attach the kerbal to the interval that is live when it left.
+            for (int p = 0; p < crewPeels.Count; p++)
             {
-                if (IsSingleAtom(headLeg))
-                    node.IsLeaf = true;
+                s.LegsById.TryGetValue(crewPeels[p], out MissionLeg cp);
+                int segIdx = SegmentContaining(edges, cp != null ? cp.StartUT : runStart);
+                MissionCompositionNode child = BuildNode(s, crewPeels[p], OriginEventName(cp), visited);
+                if (child != null)
+                    segNodes[segIdx].Children.Add(child);
+            }
+
+            // 8. The last interval, when it ends as a whole with nothing peeling at the end, is a
+            //    terminal: a single atom is a leaf, a multi-atom terminal expands into its atoms.
+            MissionCompositionNode last = segNodes[segCount - 1];
+            if (last.Children.Count == 0)
+            {
+                if (IsSingleAtom(lastSegLeg))
+                    last.IsLeaf = true;
                 else
-                    AddAtomChildren(node, headLeg);
+                    AddAtomChildren(last, lastSegLeg);
             }
 
-            return node;
+            return segNodes[0];
+        }
+
+        // The UT a peel separated at: its origin branch point UT, surfaced as the leg start.
+        private static double PeelUT(MissionStructure s, string peelId, double fallback)
+            => s.LegsById.TryGetValue(peelId, out MissionLeg pl) ? pl.StartUT : fallback;
+
+        // The origin event of the structural peel(s) at a given interval boundary UT.
+        private static string StructuralPeelEventAt(MissionStructure s, List<string> structuralPeels, double ut)
+        {
+            for (int i = 0; i < structuralPeels.Count; i++)
+                if (s.LegsById.TryGetValue(structuralPeels[i], out MissionLeg pl) && pl.StartUT == ut)
+                    return OriginEventName(pl);
+            return "";
+        }
+
+        // The interval whose END boundary is this UT (the one a structural peel separated from).
+        private static int SegmentEndingAt(List<double> edges, double ut)
+        {
+            for (int i = 0; i + 1 < edges.Count; i++)
+                if (edges[i + 1] == ut)
+                    return i;
+            return 0; // a peel clamped to the run start attaches to the first interval
+        }
+
+        // The interval that contains this UT (the one live when a crew peel left).
+        private static int SegmentContaining(List<double> edges, double ut)
+        {
+            for (int i = 0; i + 1 < edges.Count; i++)
+                if (ut >= edges[i] && ut < edges[i + 1])
+                    return i;
+            return edges.Count - 2 >= 0 ? edges.Count - 2 : 0; // at/after the run end -> last interval
         }
 
         // --- Composition helpers (pure, individually testable) ---
-
-        // Two legs share a composition iff their controller/crew counts match. Env-split and
-        // observation-boundary continuations preserve composition; forks / EVA / dock change it.
-        internal static bool SameComposition(MissionLeg a, MissionLeg b)
-        {
-            return a.PodCount == b.PodCount
-                && a.ProbeCount == b.ProbeCount
-                && a.SeatCount == b.SeatCount
-                && a.CrewCount == b.CrewCount
-                && string.IsNullOrEmpty(a.EvaCrewName) == string.IsNullOrEmpty(b.EvaCrewName);
-        }
 
         // A leg is a single atom (a leaf with nothing to expand) when it is one EVA kerbal, or
         // exactly one controller with no crew.
@@ -223,82 +307,6 @@ namespace Parsek
             if (!string.IsNullOrEmpty(leg.EvaCrewName))
                 return leg.EvaCrewName;
             return string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
-        }
-
-        // Synthesizes the "what remains" node for a vessel that peeled pieces off but whose own
-        // recording kept going (so its start-captured composition still lists the separated
-        // pieces). The remainder = this vessel's composition minus every peel's composition.
-        // Returns null when nothing meaningful remains or nothing was actually removed.
-        private static MissionCompositionNode BuildRemainderNode(
-            MissionStructure s, MissionLeg headLeg, MissionLeg lastLeg, List<string> peels)
-        {
-            int pod = headLeg.PodCount, probe = headLeg.ProbeCount, seat = headLeg.SeatCount;
-            int crew = headLeg.CrewCount;
-            var crewNames = new List<string>(headLeg.CrewNames);
-            double firstPeelUT = double.PositiveInfinity;
-            string firstPeelEvent = "";
-            bool removedSomething = false;
-
-            for (int i = 0; i < peels.Count; i++)
-            {
-                if (!s.LegsById.TryGetValue(peels[i], out MissionLeg peel))
-                    continue;
-                pod -= peel.PodCount;
-                probe -= peel.ProbeCount;
-                seat -= peel.SeatCount;
-                crew -= System.Math.Max(peel.CrewCount, peel.CrewNames.Count);
-                for (int n = 0; n < peel.CrewNames.Count; n++)
-                    crewNames.Remove(peel.CrewNames[n]);
-                if (peel.PodCount > 0 || peel.ProbeCount > 0 || peel.SeatCount > 0
-                    || peel.CrewCount > 0 || peel.CrewNames.Count > 0)
-                    removedSomething = true;
-                if (peel.StartUT < firstPeelUT)
-                {
-                    firstPeelUT = peel.StartUT;
-                    firstPeelEvent = OriginEventName(peel);
-                }
-            }
-
-            if (pod < 0) pod = 0;
-            if (probe < 0) probe = 0;
-            if (seat < 0) seat = 0;
-            // Crew count tracks the surviving roster when names are known, else the subtracted count.
-            crew = crewNames.Count > 0 ? crewNames.Count : System.Math.Max(0, crew);
-
-            // Nothing left, or nothing was actually subtracted: no remainder node.
-            if (!removedSomething || (pod + probe + seat + crew) == 0)
-                return null;
-
-            var remLeg = new MissionLeg
-            {
-                RecordingId = headLeg.RecordingId,
-                VesselName = headLeg.VesselName,
-                PodCount = pod,
-                ProbeCount = probe,
-                SeatCount = seat,
-                CrewCount = crew,
-                StartUT = double.IsInfinity(firstPeelUT) ? headLeg.StartUT : firstPeelUT,
-                EndUT = lastLeg.EndUT,
-            };
-            remLeg.CrewNames.AddRange(crewNames);
-
-            var node = new MissionCompositionNode
-            {
-                // A synthetic head id (not a through-line head) so it carries no checkbox and gets
-                // its own collapse key.
-                HeadLegId = headLeg.RecordingId + "-remainder",
-                VesselName = remLeg.VesselName,
-                CompositionLabel = FormatComposition(remLeg),
-                StartUT = remLeg.StartUT,
-                EndUT = remLeg.EndUT,
-                StartEvent = firstPeelEvent,
-                EndEvent = TerminalName(lastLeg.TerminalStateValue),
-            };
-            if (IsSingleAtom(remLeg))
-                node.IsLeaf = true;
-            else
-                AddAtomChildren(node, remLeg);
-            return node;
         }
 
         // Optional final expansion of a stable multi-atom terminal: one node per controller
@@ -363,14 +371,6 @@ namespace Parsek
             return leg.OriginBranchPointType.HasValue
                 ? BranchEventName(leg.OriginBranchPointType.Value, leg.OriginCause)
                 : (leg.IsRoot ? "Launch" : "");
-        }
-
-        internal static string EndEventName(MissionLeg leg)
-        {
-            if (leg == null) return "";
-            return leg.EndBranchPointType.HasValue
-                ? BranchEventName(leg.EndBranchPointType.Value, leg.EndCause)
-                : TerminalName(leg.TerminalStateValue);
         }
 
         // Maps a branch point to a short label. The CAUSE wins over the bare type, because a
