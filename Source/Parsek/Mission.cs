@@ -34,6 +34,12 @@ namespace Parsek
         // playback from the recording's start instead of resuming mid-mission.
         public double LoopAnchorUT = double.NaN;
 
+        // Archived = removed from the Missions window list when the window's "Archive" toggle is
+        // on (purely a list-management flag for long lists, mirroring a recording's Hidden flag).
+        // It does not change looping or ghost playback - a still-looping archived mission keeps
+        // looping; un-archive (or turn the Archive toggle off) to see it again.
+        public bool Archived;
+
         public Mission() { }
 
         public Mission(string id, string treeId, string name)
@@ -53,6 +59,7 @@ namespace Parsek
             copy.LoopIntervalSeconds = LoopIntervalSeconds;
             copy.LoopTimeUnit = LoopTimeUnit;
             copy.LoopAnchorUT = LoopAnchorUT;
+            copy.Archived = Archived;
             return copy;
         }
 
@@ -67,6 +74,7 @@ namespace Parsek
             node.AddValue("loopTimeUnit", LoopTimeUnit.ToString());
             node.AddValue("loopAnchorUT",
                 LoopAnchorUT.ToString("R", CultureInfo.InvariantCulture));
+            node.AddValue("archived", Archived);
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
         }
@@ -95,6 +103,8 @@ namespace Parsek
             if (double.TryParse(node.GetValue("loopAnchorUT"),
                     NumberStyles.Float, CultureInfo.InvariantCulture, out double loopAnchor))
                 m.LoopAnchorUT = loopAnchor;
+            if (bool.TryParse(node.GetValue("archived"), out bool archived))
+                m.Archived = archived;
 
             string[] heads = node.GetValues("excludedHead");
             for (int i = 0; i < heads.Length; i++)

@@ -59,8 +59,8 @@ namespace Parsek
         private const float MinWindowWidth = 450f;
         private const float MinWindowHeight = 150f;
         // Default width: the prior 680 plus 30 px of breathing room plus the new
-        // per-mission Watch button column.
-        private const float DefaultWidth = 680f + 30f + ColW_Watch;
+        // per-mission Watch button column plus the rightmost Archive column.
+        private const float DefaultWidth = 680f + 30f + ColW_Watch + ColW_Archive;
 
         // Fixed-width columns to the right of the expanding "Missions and vessels" column,
         // mirroring the recordings window's fixed-width cells so the window reads as the
@@ -74,6 +74,9 @@ namespace Parsek
         private const float ColW_EndTime = 100f;
         private const float ColW_Action = 60f;
         private const float ColW_Watch = 50f;
+        // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
+        // header carries the global "hide archived" toggle, each mission row a per-mission check.
+        private const float ColW_Archive = 60f;
 
         // Mission-header loop controls (live on the header row, not the table columns).
         private const float ColW_Loop = 52f;
@@ -289,6 +292,11 @@ namespace Parsek
                     RecordingTree tree = FindTree(trees, mission.TreeId);
                     if (tree == null)
                         continue;
+                    // Archive: when the window's Archive toggle is on, archived missions drop out
+                    // of the list (mirrors the recordings window hiding Hidden rows). Their loop /
+                    // ghost state is untouched; un-archive or toggle off to see them again.
+                    if (MissionStore.HideArchived && mission.Archived)
+                        continue;
                     missionCount++;
 
                     var (structure, view) = GetMissionView(tree);
@@ -482,6 +490,10 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
             }
 
+            // Empty trailing cell so the vessel rows' right edge lines up with the Archive
+            // column header above (the Archive checkbox itself lives only on the mission row).
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Archive));
+
             GUI.color = prevColor;
             GUILayout.EndHorizontal();
         }
@@ -518,6 +530,20 @@ namespace Parsek
             if (GUILayout.Button("Delete", GUILayout.Width(ColW_Action)))
                 MissionStore.Delete(mission);
             GUI.enabled = true;
+
+            // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive
+            // header toggle controls. Centered in the column like the recordings window's cell.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            bool archived = GUILayout.Toggle(mission.Archived, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (archived != mission.Archived)
+            {
+                mission.Archived = archived;
+                ParsekLog.Info("Mission", $"Mission '{mission.Name}' archived={archived}");
+            }
+
             GUILayout.EndHorizontal();
         }
 
@@ -993,6 +1019,21 @@ namespace Parsek
             GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime));
+
+            // Archive column header + global toggle (mirrors the recordings window): label +
+            // a checkbox bound to MissionStore.HideArchived. When on, archived missions drop
+            // out of the list; the per-mission Archive checkbox lives on each mission's row.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("Archive", colHdr);
+            bool newHide = GUILayout.Toggle(MissionStore.HideArchived, "");
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
+            if (newHide != MissionStore.HideArchived)
+            {
+                MissionStore.HideArchived = newHide;
+                ParsekLog.Info("UI", $"Missions Archive toggle: hideArchived={newHide}");
+            }
 
             // Reserve the vertical-scrollbar column so the fixed header's right edge
             // aligns with the row cells' right edges (the scroll view always shows a

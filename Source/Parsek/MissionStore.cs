@@ -13,11 +13,17 @@ namespace Parsek
 
         internal static bool SuppressLogging;
 
+        // Global "Archive" toggle for the Missions window: when true, archived missions are
+        // hidden from the list (mirrors the recordings window's GroupHierarchyStore.HideActive).
+        // Persisted alongside the missions so the view state survives a reload.
+        internal static bool HideArchived;
+
         internal static IReadOnlyList<Mission> Missions => missions;
 
         internal static void ResetForTesting()
         {
             missions.Clear();
+            HideArchived = false;
         }
 
         internal static int CountForTree(string treeId)
@@ -250,6 +256,8 @@ namespace Parsek
 
         internal static void Save(ConfigNode node)
         {
+            node.RemoveValues("missionHideArchived");
+            node.AddValue("missionHideArchived", HideArchived);
             node.RemoveNodes("MISSION");
             for (int i = 0; i < missions.Count; i++)
             {
@@ -263,6 +271,7 @@ namespace Parsek
         internal static void Load(ConfigNode node)
         {
             missions.Clear();
+            HideArchived = bool.TryParse(node.GetValue("missionHideArchived"), out bool hide) && hide;
             ConfigNode[] mNodes = node.GetNodes("MISSION");
             for (int i = 0; i < mNodes.Length; i++)
                 missions.Add(Mission.Load(mNodes[i]));

@@ -192,6 +192,52 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveLoad_RoundTripsArchivedFlag_AndHideArchivedToggle()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            First().Archived = true;
+            MissionStore.HideArchived = true;
+
+            var node = new ConfigNode("PARSEK");
+            MissionStore.Save(node);
+            MissionStore.ResetForTesting();
+            Assert.False(MissionStore.HideArchived); // reset cleared it
+
+            MissionStore.Load(node);
+            Assert.True(First().Archived);
+            Assert.True(MissionStore.HideArchived);
+        }
+
+        [Fact]
+        public void Load_MissingArchiveValues_DefaultToNotArchived()
+        {
+            // Older saves (before the Archive column) carry no archive fields: the mission must
+            // load as not-archived and the global toggle off, not throw or stay stale.
+            MissionStore.HideArchived = true; // pre-existing stale state
+            var node = new ConfigNode("PARSEK");
+            ConfigNode mNode = node.AddNode("MISSION");
+            mNode.AddValue("id", "m1");
+            mNode.AddValue("treeId", "t1");
+            mNode.AddValue("name", "Kerbal X");
+
+            MissionStore.Load(node);
+            Assert.False(MissionStore.HideArchived);
+            Assert.False(First().Archived);
+        }
+
+        [Fact]
+        public void Clone_CopiesArchivedFlag()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            First().Archived = true;
+            MissionStore.Clone(First());
+
+            var all = new List<Mission>(MissionStore.Missions);
+            Assert.Equal(2, all.Count);
+            Assert.True(all[1].Archived); // the copy (inserted right after the source) carries it
+        }
+
+        [Fact]
         public void SaveLoad_UnsetAnchor_RoundTripsAsNaN()
         {
             // An unset anchor (NaN) must survive save/load as NaN, not silently become 0 (which would

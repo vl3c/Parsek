@@ -29,6 +29,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Missions window: Archive column (long-list management)
+
+- Player request: a way to deal with long mission lists, copying the recordings window's Archive mechanism.
+- **Mechanism (mirrors `RecordingsTableUI` + `GroupHierarchyStore.HideActive`):** new `Mission.Archived` per-mission flag + new global `MissionStore.HideArchived` toggle. The Missions window gained a rightmost `Archive` column: the column header carries the global toggle (label "Archive" + a checkbox bound to `HideArchived`), and each mission row carries its own `Archived` checkbox (after Delete). When `HideArchived` is on, the draw loop skips archived missions (`if (MissionStore.HideArchived && mission.Archived) continue;`). Composition rows get an empty trailing `ColW_Archive` cell so their right edge lines up with the header.
+- **Scope:** archiving is purely list visibility, like a recording's `Hidden`. It does NOT touch looping or ghost playback (the loop unit is still built from all `MissionStore.Missions`); an archived-but-looping mission keeps looping until you turn Loop off. Un-archive or toggle the header off to see it again.
+- **Persistence:** `Mission.Save/Load` round-trip `archived`; `MissionStore.Save/Load` round-trip `missionHideArchived`. `Clone` copies `Archived`. `ResetForTesting` clears `HideArchived`. Missing values (older saves) default to not-archived / toggle-off.
+- **Tests:** 3 new `MissionStoreTests` (archived + HideArchived round-trip; missing values default off; Clone copies Archived). Full suite green (12559).
+- **Status:** CLOSED 2026-05-25.
+
+---
+
 ## Done - v0.10.0 Missions window: index column, sorting, rename, clone order, watch, effective-period
 
 - Batch of Missions-window UX from the 2026-05-25 playtest, all in `MissionsWindowUI.cs` (+ `MissionStore.cs`, `ParsekConfig.cs`):
