@@ -222,6 +222,11 @@ namespace Parsek
                         leg.CrewNames.Add(name);
                 leg.CrewNames.Sort(System.StringComparer.Ordinal);
             }
+            // Many recordings carry no per-trait StartCrew manifest but DO carry the named
+            // CrewEndStates roster, so fall back to the name count for the crew total (otherwise
+            // a crewed pod would show no crew at all). The names remain the authoritative roster.
+            if (leg.CrewCount == 0 && leg.CrewNames.Count > 0)
+                leg.CrewCount = leg.CrewNames.Count;
         }
 
         private static int BuildSequenceLinks(MissionStructure structure)

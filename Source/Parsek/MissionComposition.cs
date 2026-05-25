@@ -125,6 +125,16 @@ namespace Parsek
                 if (child != null)
                     node.Children.Add(child);
             }
+            else if (peels.Count > 0)
+            {
+                // No recaptured continuation leg, but pieces peeled off. The continuing vessel is
+                // the SAME recording (its start-captured Controllers never updated to drop the
+                // separated piece), so synthesize the remaining composition = this vessel minus
+                // the peeled pieces, and show it as the continuing child.
+                MissionCompositionNode remainder = BuildRemainderNode(s, headLeg, lastLeg, peels);
+                if (remainder != null)
+                    node.Children.Add(remainder);
+            }
             for (int p = 0; p < peels.Count; p++)
             {
                 s.LegsById.TryGetValue(peels[p], out MissionLeg peelLeg);
@@ -196,6 +206,82 @@ namespace Parsek
             if (!string.IsNullOrEmpty(leg.EvaCrewName))
                 return leg.EvaCrewName;
             return string.IsNullOrEmpty(leg.VesselName) ? "(vessel)" : leg.VesselName;
+        }
+
+        // Synthesizes the "what remains" node for a vessel that peeled pieces off but whose own
+        // recording kept going (so its start-captured composition still lists the separated
+        // pieces). The remainder = this vessel's composition minus every peel's composition.
+        // Returns null when nothing meaningful remains or nothing was actually removed.
+        private static MissionCompositionNode BuildRemainderNode(
+            MissionStructure s, MissionLeg headLeg, MissionLeg lastLeg, List<string> peels)
+        {
+            int pod = headLeg.PodCount, probe = headLeg.ProbeCount, seat = headLeg.SeatCount;
+            int crew = headLeg.CrewCount;
+            var crewNames = new List<string>(headLeg.CrewNames);
+            double firstPeelUT = double.PositiveInfinity;
+            string firstPeelEvent = "";
+            bool removedSomething = false;
+
+            for (int i = 0; i < peels.Count; i++)
+            {
+                if (!s.LegsById.TryGetValue(peels[i], out MissionLeg peel))
+                    continue;
+                pod -= peel.PodCount;
+                probe -= peel.ProbeCount;
+                seat -= peel.SeatCount;
+                crew -= System.Math.Max(peel.CrewCount, peel.CrewNames.Count);
+                for (int n = 0; n < peel.CrewNames.Count; n++)
+                    crewNames.Remove(peel.CrewNames[n]);
+                if (peel.PodCount > 0 || peel.ProbeCount > 0 || peel.SeatCount > 0
+                    || peel.CrewCount > 0 || peel.CrewNames.Count > 0)
+                    removedSomething = true;
+                if (peel.StartUT < firstPeelUT)
+                {
+                    firstPeelUT = peel.StartUT;
+                    firstPeelEvent = OriginEventName(peel);
+                }
+            }
+
+            if (pod < 0) pod = 0;
+            if (probe < 0) probe = 0;
+            if (seat < 0) seat = 0;
+            // Crew count tracks the surviving roster when names are known, else the subtracted count.
+            crew = crewNames.Count > 0 ? crewNames.Count : System.Math.Max(0, crew);
+
+            // Nothing left, or nothing was actually subtracted: no remainder node.
+            if (!removedSomething || (pod + probe + seat + crew) == 0)
+                return null;
+
+            var remLeg = new MissionLeg
+            {
+                RecordingId = headLeg.RecordingId,
+                VesselName = headLeg.VesselName,
+                PodCount = pod,
+                ProbeCount = probe,
+                SeatCount = seat,
+                CrewCount = crew,
+                StartUT = double.IsInfinity(firstPeelUT) ? headLeg.StartUT : firstPeelUT,
+                EndUT = lastLeg.EndUT,
+            };
+            remLeg.CrewNames.AddRange(crewNames);
+
+            var node = new MissionCompositionNode
+            {
+                // A synthetic head id (not a through-line head) so it carries no checkbox and gets
+                // its own collapse key.
+                HeadLegId = headLeg.RecordingId + "-remainder",
+                VesselName = remLeg.VesselName,
+                CompositionLabel = FormatComposition(remLeg),
+                StartUT = remLeg.StartUT,
+                EndUT = remLeg.EndUT,
+                StartEvent = firstPeelEvent,
+                EndEvent = TerminalName(lastLeg.TerminalStateValue),
+            };
+            if (IsSingleAtom(remLeg))
+                node.IsLeaf = true;
+            else
+                AddAtomChildren(node, remLeg);
+            return node;
         }
 
         // Optional final expansion of a stable multi-atom terminal: one node per controller

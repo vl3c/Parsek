@@ -34,8 +34,10 @@ namespace Parsek.Tests
             for (int i = 0; i < seats; i++) controllers.Add(new ControllerInfo { type = "ExternalSeat" });
             if (!string.IsNullOrEmpty(eva)) controllers.Add(new ControllerInfo { type = "KerbalEVA" });
             if (controllers.Count > 0) rec.Controllers = controllers;
-            int crewCount = crewNames != null ? crewNames.Length : crew;
-            if (crewCount > 0) rec.StartCrew = new Dictionary<string, int> { { "Pilot", crewCount } };
+            // StartCrew (per-trait counts) only from the explicit count; crew NAMES go in
+            // CrewEndStates WITHOUT StartCrew, mirroring the real saves (which carry the named
+            // roster but no StartCrew node) so the name-count fallback is exercised.
+            if (crew > 0) rec.StartCrew = new Dictionary<string, int> { { "Pilot", crew } };
             if (crewNames != null)
             {
                 rec.CrewEndStates = new Dictionary<string, KerbalEndState>();
@@ -100,6 +102,39 @@ namespace Parsek.Tests
             Assert.Equal(2, set[0].Children.Count);
             Assert.Contains(set[0].Children, c => c.CompositionLabel == "Pod");
             Assert.Contains(set[0].Children, c => c.CompositionLabel == "crew x3");
+        }
+
+        [Fact]
+        public void CrewCount_FallsBackToCrewNames_WhenNoStartCrew()
+        {
+            // Real saves carry CrewEndStates names but no StartCrew; the count must still show.
+            var set = Build(new[] { Leg("pod", "C", 0, 0, 100, pods: 1, crewNames: new[] { "Jeb", "Bill", "Bob" }) });
+            Assert.Equal("pod x1, crew x3", set[0].CompositionLabel);
+        }
+
+        [Fact]
+        public void StaleVessel_PeelsAnchoredProbe_SynthesizesContinuingRemainder()
+        {
+            // The exact reported shape: launch pod+probe+crew3, the probe separates as an ANCHORED
+            // controlled offshoot, and the pod keeps the SAME recording (no recaptured continuation
+            // leg, so its Controllers stay [pod,probe]). The builder must synthesize the remaining
+            // "Kerbal X (pod x1, crew x3)" continuing vessel alongside the peeled probe.
+            var set = Build(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 200, pods: 1, probes: 1, crewNames: new[] { "Jeb", "Bill", "Bob" }),
+                    Leg("probe", "C2", 0, 60, 115, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
+                },
+                new[] { BP("bp", BranchPointType.Undock, new[] { "L" }, new[] { "probe" }) });
+
+            Assert.Single(set);
+            MissionCompositionNode root = set[0];
+            Assert.Equal("pod x1, probe x1, crew x3", root.CompositionLabel);
+            Assert.Equal(2, root.Children.Count);
+            Assert.Equal("pod x1, crew x3", root.Children[0].CompositionLabel); // synthesized remainder, first
+            Assert.Equal("Kerbal X", root.Children[0].VesselName);
+            Assert.Equal("probe x1", root.Children[1].CompositionLabel);         // the peeled probe
+            Assert.True(root.Children[1].IsLeaf);
         }
 
         [Fact]
