@@ -4201,8 +4201,7 @@ namespace Parsek
             // their parent. Post-window Absolute sections bypass this method entirely
             // through TryGetRelativeSectionAtUT returning false for non-Relative
             // sections (see plan section 7).
-            bool parentAnchored = traj != null
-                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
+            bool parentAnchored = IsParentAnchoredBodyFixedPrimaryCandidate(traj);
             bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
@@ -4328,6 +4327,22 @@ namespace Parsek
 
             return true;
         }
+
+        /// <summary>
+        /// Gate for the body-fixed-primary playback route: a recording is a parent-anchored
+        /// body-fixed-primary candidate when it carries a <c>ParentAnchorRecordingId</c>, REGARDLESS
+        /// of <c>IsDebris</c>. Both genuine debris (IsDebris=true) and controlled-decoupled children
+        /// (IsDebris=false: probes, landers, a continuing upper stage of a staged rocket) render
+        /// through their own <c>bodyFixedFrames</c> first. Shared by the non-loop
+        /// (<see cref="TryPositionRelativeSectionAtPlaybackUT"/>) and loop/overlap
+        /// (<see cref="PositionLoopAtPlaybackUT"/>) paths so the two never diverge: the loop path
+        /// used to additionally require IsDebris, which silently dropped controlled children to the
+        /// plain relative resolver and retired them to a stale / garbage position whenever their
+        /// transient sibling anchor (e.g. a probe that decoupled and crashed) ended before the
+        /// child's own window did. Pure; unit-tested.
+        /// </summary>
+        internal static bool IsParentAnchoredBodyFixedPrimaryCandidate(IPlaybackTrajectory traj)
+            => traj != null && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
 
         // KEEP debris-only: the `IsDebris` conjunct here is semantic. Loop-anchored
         // chains are debris-of-a-looped-vessel; controlled-decoupled children do
@@ -4658,10 +4673,14 @@ namespace Parsek
             bool suppressFx,
             string callsite)
         {
-            bool parentAnchoredDebris = traj != null
-                && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
-            bool loopAnchoredDebrisChain = parentAnchoredDebris
+            // Parent-anchored gate is ParentAnchorRecordingId != null ALONE (shared with the
+            // non-loop path via IsParentAnchoredBodyFixedPrimaryCandidate). Both genuine debris and
+            // controlled-decoupled children (the continuing upper stage of a staged rocket, etc.)
+            // render through their own bodyFixedFrames first. ShouldUseLoopAnchoredDebrisChain still
+            // requires IsDebris, so a controlled child is NOT a loop-anchored chain: it takes the
+            // body-fixed-primary-first branch below, exactly like the non-loop path.
+            bool parentAnchored = IsParentAnchoredBodyFixedPrimaryCandidate(traj);
+            bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, loopUT);
             if (!loopAnchoredDebrisChain
                 && TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -4670,13 +4689,13 @@ namespace Parsek
                 return false;
             }
 
-            if (parentAnchoredDebris
+            if (parentAnchored
                 && !loopAnchoredDebrisChain
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite))
             {
                 return true;
             }
-            if (parentAnchoredDebris && !loopAnchoredDebrisChain)
+            if (parentAnchored && !loopAnchoredDebrisChain)
             {
                 var diagnostic =
                     DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic.Create(
@@ -4728,7 +4747,7 @@ namespace Parsek
             {
                 positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
             }
-            if (parentAnchoredDebris
+            if (parentAnchored
                 && loopAnchoredDebrisChain
                 && state != null
                 && state.anchorRetiredThisFrame

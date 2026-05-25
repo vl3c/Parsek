@@ -1236,6 +1236,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_ControlledChild_True()
+        {
+            // The reported bug: a controlled-decoupled child (IsDebris=false) that carries a
+            // ParentAnchorRecordingId (a continuing upper stage transiently recorded Relative to a
+            // sibling) MUST be a body-fixed-primary candidate so the loop path renders it from its
+            // own bodyFixedFrames. WHAT MAKES IT FAIL: gating on IsDebris (the old loop-path gate)
+            // returns false here, dropping the child to the plain relative resolver, which retires
+            // it to a garbage position once its sibling anchor ends early.
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.IsDebris = false;
+            Assert.True(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_GenuineDebris_True()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.IsDebris = true;
+            Assert.True(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_NoParentAnchor_False()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.ParentAnchorRecordingId = null;
+            Assert.False(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+
+            traj.ParentAnchorRecordingId = "";
+            Assert.False(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
         public void ResolveRecordingEndpointCoverageUT_OrbitEndpointPastRelativeCoverage_UsesOrbitEndpoint()
         {
             var traj = MakeParentAnchoredDebrisWithShadowFrames();
