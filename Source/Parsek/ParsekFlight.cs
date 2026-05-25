@@ -18417,6 +18417,26 @@ namespace Parsek
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
             }
             engine.SetLoopUnits(cachedLoopUnits);
+
+            // If the player is WATCHING a member of a mission loop and the new selection just
+            // dropped that member from the unit (interval trimmed out, the loop turned off, or
+            // every segment unchecked), exit watch NOW - this runs BEFORE the engine's
+            // UpdatePlayback tears the member's ghost down (and, for a Destroyed-terminal member,
+            // explodes it). Otherwise the policy starts a watch-hold on the now-dying ghost and the
+            // camera latches onto a destroyed transform, leaving FlightCamera.Target null and
+            // flooding stock KSP (FlightGlobals / Sun / CrewHatchController / AmbienceControl) with
+            // NREs. Gated on WatchedLoopCycleIndex >= 0 so only loop-cycle watches are affected (a
+            // plain non-loop watch is never a unit member and must not be disturbed).
+            if (watchMode != null
+                && watchMode.WatchedRecordingIndex >= 0
+                && watchMode.WatchedLoopCycleIndex >= 0
+                && !cachedLoopUnits.IsMember(watchMode.WatchedRecordingIndex))
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"Watched mission member #{watchMode.WatchedRecordingIndex} left the loop unit " +
+                    "(interval trimmed out or loop off) - exiting watch before its ghost is torn down");
+                watchMode.ExitWatchModePreservingLineage();
+            }
         }
 
         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)
