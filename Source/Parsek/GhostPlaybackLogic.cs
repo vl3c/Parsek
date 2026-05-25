@@ -6524,6 +6524,18 @@ namespace Parsek
         /// </summary>
         internal readonly struct LoopUnit
         {
+            /// <summary>A member's trimmed render window [StartUT, EndUT] (interval-level start/end trim).</summary>
+            internal readonly struct MemberWindow
+            {
+                internal MemberWindow(double startUT, double endUT) { StartUT = startUT; EndUT = endUT; }
+                internal double StartUT { get; }
+                internal double EndUT { get; }
+            }
+
+            // committed index -> trimmed render window. Null / absent = no trim (the member renders
+            // its full [rec.StartUT, rec.EndUT], so untrimmed missions behave exactly as before).
+            private readonly IReadOnlyDictionary<int, MemberWindow> memberWindows;
+
             internal LoopUnit(
                 int ownerIndex,
                 int[] memberIndices,
@@ -6532,7 +6544,7 @@ namespace Parsek
                 double cadenceSeconds,
                 double phaseAnchorUT)
                 : this(ownerIndex, memberIndices, spanStartUT, spanEndUT,
-                       cadenceSeconds, phaseAnchorUT, cadenceSeconds)
+                       cadenceSeconds, phaseAnchorUT, cadenceSeconds, null)
             {
             }
 
@@ -6544,6 +6556,20 @@ namespace Parsek
                 double cadenceSeconds,
                 double phaseAnchorUT,
                 double overlapCadenceSeconds)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT,
+                       cadenceSeconds, phaseAnchorUT, overlapCadenceSeconds, null)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds,
+                IReadOnlyDictionary<int, MemberWindow> memberWindows)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6552,7 +6578,22 @@ namespace Parsek
                 CadenceSeconds = cadenceSeconds;
                 PhaseAnchorUT = phaseAnchorUT;
                 OverlapCadenceSeconds = overlapCadenceSeconds;
+                this.memberWindows = memberWindows;
             }
+
+            /// <summary>
+            /// This member's trimmed render START (interval-level start-trim), or <paramref name="fallback"/>
+            /// (the recording's own StartUT) when the member is not trimmed. Drives the member's render
+            /// window in every scene driver, so dropping a vessel's leading interval starts it later.
+            /// </summary>
+            internal double MemberStartUT(int committedIndex, double fallback)
+                => memberWindows != null && memberWindows.TryGetValue(committedIndex, out MemberWindow w)
+                    ? w.StartUT : fallback;
+
+            /// <summary>This member's trimmed render END, or <paramref name="fallback"/> (the recording's EndUT) when untrimmed.</summary>
+            internal double MemberEndUT(int committedIndex, double fallback)
+                => memberWindows != null && memberWindows.TryGetValue(committedIndex, out MemberWindow w)
+                    ? w.EndUT : fallback;
 
             /// <summary>Earliest member's committed-recording index (owns the span clock).</summary>
             internal int OwnerIndex { get; }
@@ -6893,6 +6934,12 @@ namespace Parsek
             renderHidden = false;
             if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
                 return liveUT;
+
+            // Interval-level start/end trim: clamp to this member's trimmed render window (falls
+            // back to the passed recording bounds when untrimmed), so the tracking-station icon
+            // shows the same trimmed segment the other scenes render.
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
 
             UnitMemberRenderDecision decision = DecideUnitMemberRender(
                 liveUT,

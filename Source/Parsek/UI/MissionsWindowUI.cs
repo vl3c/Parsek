@@ -312,24 +312,18 @@ namespace Parsek
                         continue;
                     missionCount++;
 
-                    var (structure, view) = GetMissionView(tree);
+                    var (_, view) = GetMissionView(tree);
 
                     DrawMissionHeader(mission, ordered[i].index, view);
 
-                    // Single source of truth for the include/exclude cascade (greying +
-                    // checkbox state both derive from this set). Computed once per mission
-                    // per frame so there is exactly one copy of the rule (MissionSelection).
-                    HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
-                        view, mission.ExcludedThroughLineHeadIds);
-
-                    // Composition-over-time tree (the vessel rows). Each node is a stable
-                    // composition interval; the tree branches at composition-change events.
+                    // Composition-over-time tree (the vessel rows). Each node is a structural
+                    // interval / branch with its own independent include checkbox (interval-level
+                    // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
                     var compRoots = GetCompositionRoots(tree);
                     for (int r = 0; r < compRoots.Count; r++)
                     {
                         bool isLast = r == compRoots.Count - 1;
-                        rowCount += DrawCompositionNode(
-                            compRoots[r], view, mission, includedHeads, 1, isLast, false);
+                        rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false);
                     }
                 }
 
@@ -397,58 +391,62 @@ namespace Parsek
             return roots;
         }
 
-        // Renders one composition node (a stable-composition interval, a peeled-off piece, or a
-        // roster atom) and recurses into its children. A node whose HeadLegId is a through-line
-        // head carries the include checkbox, so the loop include/exclude selection is unchanged;
-        // interval and atom nodes carry none. Exclusion (greyed) cascades down from an excluded
-        // head, matching MissionSelection. Returns the number of rows drawn.
-        private int DrawCompositionNode(MissionCompositionNode node, MissionThroughLineView view,
-            Mission mission, HashSet<string> includedHeads, int depth, bool isLast, bool ancestorHeadExcluded)
+        // Renders one composition node (a structural interval, a peeled-off branch, or a roster
+        // atom) and recurses into its children. Every selectable node (interval / branch) carries
+        // an INDEPENDENT include checkbox bound to Mission.ExcludedIntervalKeys: unchecking it
+        // start/end-trims just that segment, with NO cascade (excluding the launch interval keeps
+        // the post-decouple survivor checked, which is the whole point). A roster atom carries no
+        // checkbox and greys with its owning interval. Returns the number of rows drawn.
+        private int DrawCompositionNode(MissionCompositionNode node,
+            Mission mission, int depth, bool isLast, bool parentExcluded)
         {
             if (node == null)
                 return 0;
 
-            bool isHead = view.ByHeadId.ContainsKey(node.HeadLegId);
-            bool selfExcluded = isHead && mission.ExcludedThroughLineHeadIds.Contains(node.HeadLegId);
+            bool selectable = node.IsSelectable;
+            bool selfExcluded = selectable && mission.ExcludedIntervalKeys.Contains(node.HeadLegId);
+            // A selectable interval/branch greys only when IT is excluded (independent toggles);
+            // a roster atom greys with its owning interval (parentExcluded).
+            bool greyed = selectable ? selfExcluded : parentExcluded;
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
-            DrawCompositionRow(node, mission, includedHeads, depth, isLast, isHead, selfExcluded,
-                ancestorHeadExcluded, hasChildren, collapsed);
+            DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
+                hasChildren, collapsed);
             int rows = 1;
 
             if (hasChildren && !collapsed)
             {
-                // Exclusion only deepens at a head node; interval / atom nodes pass it through.
-                bool childAncestorExcluded = isHead ? (ancestorHeadExcluded || selfExcluded) : ancestorHeadExcluded;
+                // Atoms grey with their interval; sub-intervals are independent (own state).
+                bool childParentExcluded = selectable ? selfExcluded : parentExcluded;
                 for (int i = 0; i < node.Children.Count; i++)
                 {
                     bool childLast = i == node.Children.Count - 1;
-                    rows += DrawCompositionNode(node.Children[i], view, mission, includedHeads,
-                        depth + 1, childLast, childAncestorExcluded);
+                    rows += DrawCompositionNode(node.Children[i], mission,
+                        depth + 1, childLast, childParentExcluded);
                 }
             }
             return rows;
         }
 
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
-            HashSet<string> includedHeads, int depth, bool isLast, bool isHead, bool selfExcluded,
-            bool ancestorHeadExcluded, bool hasChildren, bool collapsed)
+            int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
+            bool hasChildren, bool collapsed)
         {
             GUILayout.BeginHorizontal();
 
-            // First column: include checkbox on through-line heads (keeps the loop selection
-            // working); a blank cell on interval / atom rows.
-            if (isHead)
+            // First column: an independent include checkbox on every interval / branch (no
+            // cascade - unchecking drops just this segment); a blank cell on roster atoms.
+            if (selectable)
             {
-                bool shownChecked = includedHeads.Contains(node.HeadLegId);
-                GUI.enabled = !ancestorHeadExcluded;
+                bool shownChecked = !selfExcluded;
                 bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Index));
-                GUI.enabled = true;
-                if (!ancestorHeadExcluded && toggled != shownChecked)
+                if (toggled != shownChecked)
                 {
-                    if (toggled) mission.ExcludedThroughLineHeadIds.Remove(node.HeadLegId);
-                    else mission.ExcludedThroughLineHeadIds.Add(node.HeadLegId);
+                    if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
+                    else mission.ExcludedIntervalKeys.Add(node.HeadLegId);
+                    ParsekLog.Info("Mission",
+                        $"Mission '{mission.Name}' interval '{node.HeadLegId}' included={toggled}");
                 }
             }
             else
@@ -457,7 +455,7 @@ namespace Parsek
             }
 
             Color prevColor = GUI.color;
-            if (ancestorHeadExcluded || selfExcluded)
+            if (greyed)
                 GUI.color = DimColor;
 
             float indent = RecordingsTableUI.SelfConnectorIndent(depth);

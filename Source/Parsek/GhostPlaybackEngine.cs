@@ -279,6 +279,12 @@ namespace Parsek
             if (!currentLoopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit))
                 return false;
 
+            // Interval-level start/end trim: track this member's trimmed render window (falls back
+            // to the passed recording bounds when untrimmed), so the watch camera follows the same
+            // trimmed playback the engine renders.
+            memberStartUT = unit.MemberStartUT(recordingIndex, memberStartUT);
+            memberEndUT = unit.MemberEndUT(recordingIndex, memberEndUT);
+
             double span = unit.SpanEndUT - unit.SpanStartUT;
 
             // Self-overlap: the mission relaunches every OverlapCadenceSeconds, so watch must pin the
@@ -1948,9 +1954,17 @@ namespace Parsek
             // is handled inside UpdateOverlapPlayback. When OverlapCadenceSeconds >= span we fall through
             // to the EXACT single-instance span-clock behavior (including the overlapGhosts[i] clear).
             double unitSpan = unit.SpanEndUT - unit.SpanStartUT;
+
+            // Interval-level start/end trim: this member's effective render window (its own range,
+            // unless the mission trimmed it - e.g. a pod shown only after the decouple). Both the
+            // overlap and the span-clock branches use these instead of the raw recording bounds, so
+            // an untrimmed mission keeps its full range (no behavior change).
+            double memberStartUT = unit.MemberStartUT(i, traj.StartUT);
+            double memberEndUT = unit.MemberEndUT(i, traj.EndUT);
+
             if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
             {
-                double memberDuration = traj.EndUT - traj.StartUT;
+                double memberDuration = memberEndUT - memberStartUT;
                 if (memberDuration <= 0)
                 {
                     GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-overlap-member-zero-duration");
@@ -1964,8 +1978,8 @@ namespace Parsek
                 }
 
                 double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
-                    unit.PhaseAnchorUT, unit.SpanStartUT, traj.StartUT);
-                double memberPlaybackStartUT = traj.StartUT;
+                    unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
+                double memberPlaybackStartUT = memberStartUT;
 
                 // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
                 // overlap meshes at high warp but keep the stationary newest primary visible.
@@ -2039,7 +2053,7 @@ namespace Parsek
             // shared spanLoopUT is in THIS member's [StartUT, EndUT].
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
-                traj.StartUT, traj.EndUT, out double spanLoopUT, out long unitCycle,
+                memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit

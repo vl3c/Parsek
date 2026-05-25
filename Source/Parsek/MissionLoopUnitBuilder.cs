@@ -126,61 +126,79 @@ namespace Parsek
                 return false;
             }
 
-            // 2. Through-line view + included heads via the shared selection rule.
+            // 2. Structure + through-line view + composition tree (the intervals the interval-level
+            //    start/end-trim selection toggles).
             MissionStructure structure = MissionStructureBuilder.Build(tree);
             MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
-            HashSet<string> includedHeads =
-                MissionSelection.ComputeIncludedHeadIds(view, mission.ExcludedThroughLineHeadIds);
+            List<MissionCompositionNode> compRoots = MissionCompositionBuilder.Build(structure);
 
-            // 3. Union of every included through-line's member legs.
-            var includedRecordingIds = new HashSet<string>();
-            foreach (string head in includedHeads)
+            // 3. Per-vessel render windows from the interval-level selection. A vessel with no
+            //    included interval is dropped; the rest carry a [start,end] window. Empty
+            //    ExcludedIntervalKeys => every window spans the whole vessel.
+            Dictionary<string, MissionIntervalSelection.RenderWindow> vesselWindows =
+                MissionIntervalSelection.ComputeRenderWindows(compRoots, mission.ExcludedIntervalKeys);
+
+            // 4. Map each included vessel's members to committed indices + their TRIMMED render
+            //    window (the vessel window intersected with the member's own [StartUT, EndUT]; a
+            //    member entirely outside the window is dropped). With no exclusions every window
+            //    spans the whole vessel, so each member keeps its full range (no behavior change).
+            var memberIndices = new List<int>();
+            var memberWindowByIndex = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>();
+            int skippedNotCommitted = 0;
+            foreach (var vw in vesselWindows)
             {
-                if (!view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
+                if (!view.ByHeadId.TryGetValue(vw.Key, out MissionThroughLine tl))
                     continue;
+                double winStart = vw.Value.StartUT;
+                double winEnd = vw.Value.EndUT;
                 var members = tl.MemberLegIds;
                 for (int i = 0; i < members.Count; i++)
-                    if (!string.IsNullOrEmpty(members[i]))
-                        includedRecordingIds.Add(members[i]);
-            }
-
-            // 4. id -> committed index (first wins on duplicates). Map included ids to indices,
-            //    skipping ids absent from committed, then sort by StartUT (tiebreak by index).
-            var memberIndices = new List<int>();
-            int skippedNotCommitted = 0;
-            foreach (string id in includedRecordingIds)
-            {
-                if (indexById.TryGetValue(id, out int idx))
+                {
+                    string id = members[i];
+                    if (string.IsNullOrEmpty(id))
+                        continue;
+                    if (!indexById.TryGetValue(id, out int idx))
+                    {
+                        skippedNotCommitted++;
+                        continue;
+                    }
+                    if (memberWindowByIndex.ContainsKey(idx))
+                        continue; // first wins on duplicate ids
+                    Recording rec = committed[idx];
+                    double rStart = Math.Max(winStart, rec.StartUT);
+                    double rEnd = Math.Min(winEnd, rec.EndUT);
+                    if (rEnd <= rStart)
+                        continue; // member entirely outside the vessel's render window (trimmed off)
                     memberIndices.Add(idx);
-                else
-                    skippedNotCommitted++;
+                    memberWindowByIndex[idx] =
+                        new GhostPlaybackLogic.LoopUnit.MemberWindow(rStart, rEnd);
+                }
             }
             if (memberIndices.Count == 0)
             {
                 ParsekLog.Verbose("Mission",
                     $"MissionLoopUnit: mission='{mission.Name}' tree={tree.Id} " +
-                    $"includedHeads={includedHeads.Count} no committed members; no unit");
+                    $"vessels={vesselWindows.Count} no committed members in window; no unit");
                 return false;
             }
 
+            // Sort by the TRIMMED render start (the member's effective start), tiebreak by index.
             memberIndices.Sort((a, b) =>
             {
-                int cmp = committed[a].StartUT.CompareTo(committed[b].StartUT);
+                int cmp = memberWindowByIndex[a].StartUT.CompareTo(memberWindowByIndex[b].StartUT);
                 if (cmp != 0)
                     return cmp;
                 return a.CompareTo(b);
             });
 
-            // 5. Span = [min StartUT, max EndUT] over the members.
+            // 5. Span = [min trimmed start, max trimmed end] over the members.
             double spanStartUT = double.PositiveInfinity;
             double spanEndUT = double.NegativeInfinity;
             for (int i = 0; i < memberIndices.Count; i++)
             {
-                Recording rec = committed[memberIndices[i]];
-                if (rec.StartUT < spanStartUT)
-                    spanStartUT = rec.StartUT;
-                if (rec.EndUT > spanEndUT)
-                    spanEndUT = rec.EndUT;
+                GhostPlaybackLogic.LoopUnit.MemberWindow w = memberWindowByIndex[memberIndices[i]];
+                if (w.StartUT < spanStartUT) spanStartUT = w.StartUT;
+                if (w.EndUT > spanEndUT) spanEndUT = w.EndUT;
             }
 
             // 6. Two cadences from the same user input:
@@ -222,11 +240,11 @@ namespace Parsek
                 ? spanStartUT
                 : mission.LoopAnchorUT;
 
-            // 8. Build the unit.
+            // 8. Build the unit (carrying the per-member trimmed render windows).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT,
-                overlapCadence);
+                overlapCadence, memberWindowByIndex);
 
             if (!SuppressLogging)
             {
@@ -283,11 +301,19 @@ namespace Parsek
                     // Phase anchor: re-enabling the loop re-anchors the span clock, so a changed
                     // anchor must force a rebuild even when nothing else about the mission moved.
                     sb.Append(m.LoopAnchorUT.ToString("R", ic)).Append('|');
-                    // Sorted + joined so set order never perturbs the signature.
+                    // Sorted + joined so set order never perturbs the signature. The interval-level
+                    // trim keys (ExcludedIntervalKeys) now drive the unit's members + span, so fold
+                    // those in (a start/end-trim change must rebuild). The legacy through-line-head
+                    // set is folded too so a mixed/old save still rebuilds when it changes.
                     var excluded = new List<string>(m.ExcludedThroughLineHeadIds);
                     excluded.Sort(StringComparer.Ordinal);
                     for (int e = 0; e < excluded.Count; e++)
                         sb.Append(excluded[e] ?? "").Append(',');
+                    sb.Append('~');
+                    var excludedIntervals = new List<string>(m.ExcludedIntervalKeys);
+                    excludedIntervals.Sort(StringComparer.Ordinal);
+                    for (int e = 0; e < excludedIntervals.Count; e++)
+                        sb.Append(excludedIntervals[e] ?? "").Append(',');
                     sb.Append(';');
                     // Tree topology: a mid-session merge / re-parent can change the unit's
                     // members or span without adding/renaming any committed RecordingId, so the

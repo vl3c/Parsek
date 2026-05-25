@@ -345,11 +345,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_ExcludingForkHead_DropsThatBranchesMemberLegs()
+        public void Build_ExcludingForkInterval_DropsThatBranchesMemberLegs()
         {
             // Trunk "root" (env-split root->c1->c2) with two forks at bp1: vessel-continuation
             // "c1" stays in the trunk; a separate craft "fork" branches off. Excluding the
-            // fork head must drop the fork's member legs from the unit.
+            // fork's interval (interval-level selection) must drop the fork's member legs.
             var tree = Tree("t1",
                 new[]
                 {
@@ -374,11 +374,10 @@ namespace Parsek.Tests
             var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
             Assert.Contains("fork", view.ByHeadId.Keys);
 
-            // Exclude the fork head.
-            var missions = new List<Mission>
-            {
-                LoopMission("t1", LoopTimeUnit.Auto, excluded: new[] { "fork" })
-            };
+            // Exclude the fork's interval (interval-level selection).
+            var forkMission = LoopMission("t1", LoopTimeUnit.Auto);
+            forkMission.ExcludedIntervalKeys.Add("fork");
+            var missions = new List<Mission> { forkMission };
 
             var set = Build(missions, new[] { tree }, committed);
 
@@ -388,6 +387,56 @@ namespace Parsek.Tests
             Assert.False(set.IsMember(3));
             Assert.Equal(0.0, unit.SpanStartUT);
             Assert.Equal(300.0, unit.SpanEndUT); // fork's 260 end no longer extends the span
+        }
+
+        [Fact]
+        public void Build_ExcludingLaunchInterval_StartTrimsSpanAndMemberWindow()
+        {
+            // A pod that keeps its recording across a probe decouple: leg "L" [0,120] (the launch
+            // stack), the controlled probe "probe" decouples at 30, and the pod's recaptured
+            // continuation "cont" [120,200] picks up after an EVA. The pod through-line is L+cont;
+            // excluding the launch interval (key "L") must start-trim the pod to the decouple:
+            // the span starts at 30 and member L's render window begins at 30 (not 0).
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 120),
+                    Leg("probe", "C2", 0, 30, 84, parentAnchor: "L", vessel: "Probe"),
+                    Leg("cont", "C3", 0, 120, 200),
+                    Leg("bob", "C4", 0, 120, 150, eva: "Bob", parentAnchor: "L"),
+                },
+                new[]
+                {
+                    BP("dp", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" }, ut: 30),
+                    BP("ev", BranchPointType.EVA, new[] { "L" }, new[] { "cont", "bob" }, ut: 120),
+                });
+            tree.BranchPoints[0].SplitCause = "DECOUPLE";
+            var committed = new List<Recording>
+            {
+                tree.Recordings["L"],     // 0
+                tree.Recordings["probe"], // 1
+                tree.Recordings["cont"],  // 2
+                tree.Recordings["bob"],   // 3
+            };
+
+            // Keep only the pod's post-decouple survivor: exclude the launch interval ("L") and the
+            // peeled branches (probe, the EVA kerbal "bob"), leaving the continuing pod.
+            var mission = LoopMission("t1", LoopTimeUnit.Auto);
+            mission.ExcludedIntervalKeys.Add("L");      // launch stack interval
+            mission.ExcludedIntervalKeys.Add("probe");  // peeled booster branch
+            mission.ExcludedIntervalKeys.Add("bob");    // EVA kerbal branch
+            var set = Build(new[] { mission }, new[] { tree }, committed);
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(30.0, unit.SpanStartUT);  // start-trimmed to the decouple, not the launch (0)
+            Assert.Equal(200.0, unit.SpanEndUT);
+            // L renders only from the decouple; cont keeps its full range.
+            Assert.Equal(30.0, unit.MemberStartUT(0, tree.Recordings["L"].StartUT));
+            Assert.Equal(120.0, unit.MemberEndUT(0, tree.Recordings["L"].EndUT));
+            Assert.Equal(120.0, unit.MemberStartUT(2, tree.Recordings["cont"].StartUT));
+            // The peeled branches are gone.
+            Assert.False(set.IsMember(1)); // probe
+            Assert.False(set.IsMember(3)); // bob
         }
 
         [Fact]

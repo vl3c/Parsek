@@ -1054,6 +1054,12 @@ namespace Parsek
         {
             string unitKey = "ksc-unit-" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture);
 
+            // Interval-level start/end trim: this member's effective render window (its own range
+            // unless the mission trimmed it). Used by both branches below instead of the raw
+            // recording bounds, so an untrimmed mission keeps its full range (no behavior change).
+            double memberStartUT = unit.MemberStartUT(i, rec.StartUT);
+            double memberEndUT = unit.MemberEndUT(i, rec.EndUT);
+
             // MISSION SELF-OVERLAP at the Space Center: when the mission's overlap cadence is SHORTER
             // than the span, the whole mission relaunches every OverlapCadenceSeconds, so several
             // staggered instances play at once (a launch every period, exactly like flight and like a
@@ -1070,7 +1076,7 @@ namespace Parsek
             // span-clock instance below (one replay at a time).
             if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
             {
-                double memberDuration = rec.EndUT - rec.StartUT;
+                double memberDuration = memberEndUT - memberStartUT;
                 if (memberDuration <= 0)
                 {
                     DestroyUnitMemberKscGhostIfActive(i, rec);
@@ -1079,7 +1085,7 @@ namespace Parsek
                 }
 
                 double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
-                    unit.PhaseAnchorUT, unit.SpanStartUT, rec.StartUT);
+                    unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
                 ParsekLog.VerboseRateLimited(
                     "KSCGhost", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
                     "Mission self-overlap unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
@@ -1092,16 +1098,16 @@ namespace Parsek
 
                 UpdateOverlapKsc(
                     i, rec, currentUT, unit.OverlapCadenceSeconds, memberDuration,
-                    rec.StartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx);
+                    memberStartUT, memberScheduleStartUT, warpRate, suppressGhosts, suppressVisualFx);
                 return;
             }
 
             // Shared mission clock + THIS member's own-window check, via the pure (xUnit-tested)
             // decision helper. No cross-member selection: the decision keys ONLY on whether the
-            // shared spanLoopUT is in THIS member's [StartUT, EndUT].
+            // shared spanLoopUT is in THIS member's trimmed render window.
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
-                rec.StartUT, rec.EndUT, out double spanLoopUT, out long unitCycle,
+                memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
                 out bool isInInterCycleTail);
 
             // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
