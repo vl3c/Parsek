@@ -216,6 +216,10 @@ namespace Parsek.Tests
             internal bool ShadowPositionShouldSucceed = false;
             internal double PrimedShadowBracketBeforeUT = double.NaN;
             internal double PrimedShadowBracketAfterUT = double.NaN;
+            // When true, PositionLoop marks the frame as anchor-retired (simulating a Relative
+            // section whose anchor could not resolve), so the engine's post-position body-fixed
+            // fallback path is exercised.
+            internal bool PositionLoopShouldRetire = false;
 
             public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
@@ -271,6 +275,8 @@ namespace Parsek.Tests
                 PositionLoopCalls++;
                 LastLoopUT = ut;
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
+                if (PositionLoopShouldRetire && state != null)
+                    state.anchorRetiredThisFrame = true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -1744,6 +1750,83 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_FallsBackToBodyFixed()
+        {
+            // The reported gap: a TOP-LEVEL vessel (not parent-anchored) whose active Relative
+            // section is anchored to a sibling that ended early. PositionLoop retires the frame
+            // (the recorded sibling anchor ran out), and the engine must fall back to the recording's
+            // own bodyFixedFrames instead of leaving the ghost retired (which froze it at a garbage
+            // position, hid the anchored EVA kerbal, and threw the watch camera ~798 km away).
+            // WHAT MAKES IT FAIL: the old fallback condition (parentAnchored && loopAnchoredDebrisChain)
+            // skipped this top-level vessel, so the ghost stayed retired through its window.
+            var positioner = new SpawnPrimingPositioner
+            {
+                PositionLoopShouldRetire = true,
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 110.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeTopLevelVesselWithRelativeSectionToSibling();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 10,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.True(usedBodyFixed);
+            Assert.False(state.anchorRetiredThisFrame); // body-fixed positioning cleared the retire
+            Assert.Equal(1, positioner.PositionLoopCalls); // took the else (non-parent-anchored) branch
+            Assert.Equal(1, positioner.ShadowPositionCalls); // then fell back to body-fixed
+            Assert.Equal(105.0, positioner.LastShadowUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_NoBodyFixed_StaysRetired()
+        {
+            // Negative: the same top-level vessel WITHOUT a body-fixed surface on its section stays
+            // retired (no data to fall back to) - the fallback is self-gating, never inventing a pose.
+            var positioner = new SpawnPrimingPositioner
+            {
+                PositionLoopShouldRetire = true,
+                ShadowPositionShouldSucceed = true,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeTopLevelVesselWithRelativeSectionToSibling();
+            TrackSection section = traj.TrackSections[0];
+            section.bodyFixedFrames = null;
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 10,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.False(usedBodyFixed);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.Equal(0, positioner.ShadowPositionCalls); // BodyFixedPrimaryCoversPlaybackUT short-circuits
+        }
+
+        [Fact]
         public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
         {
             // Regression guard for the fail-closed contract on the body-fixed
@@ -1983,6 +2066,49 @@ namespace Parsek.Tests
                 startUT = 100.0,
                 endUT = 110.0,
                 anchorRecordingId = "parent-rec",
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+            return traj;
+        }
+
+        /// <summary>
+        /// A TOP-LEVEL vessel (NOT parent-anchored: ParentAnchorRecordingId == null) whose active
+        /// section is Relative against a sibling recording, with a populated bodyFixedFrames surface
+        /// covering the window. Models the Kerbal X upper stage that recorded a stretch relative to a
+        /// probe which decoupled and crashed: the recorded section anchor runs out, PositionLoop
+        /// retires the frame, and the engine must fall back to the recording's own bodyFixedFrames.
+        /// </summary>
+        private static MockTrajectory MakeTopLevelVesselWithRelativeSectionToSibling()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "upper-stage-rec";
+            traj.VesselName = "Kerbal X";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = false;
+            traj.ParentAnchorRecordingId = null; // top-level vessel, not parent-anchored
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorRecordingId = "sibling-rec", // a sibling, not a tree parent
                 frames = new List<TrajectoryPoint>
                 {
                     new TrajectoryPoint { ut = 100.0 },

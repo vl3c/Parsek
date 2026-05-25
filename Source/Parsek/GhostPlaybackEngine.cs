@@ -4251,16 +4251,19 @@ namespace Parsek
 
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
-            if (parentAnchored
-                && loopAnchoredDebrisChain
-                && state != null
+            // Body-fixed fallback when the relative anchor could not resolve (see the matching block
+            // in PositionLoopAtPlaybackUT). Fires for parent-anchored loop-chain debris AND for a
+            // top-level vessel whose active section is Relative against a sibling that ended early
+            // (e.g. an upper stage recorded relative to a probe that crashed). TryPositionBodyFixedPrimary
+            // is self-gating (Relative section + covering body-fixed frames), so it is inert otherwise.
+            if (state != null
                 && state.anchorRetiredThisFrame
                 && TryPositionBodyFixedPrimary(
                     index,
                     traj,
                     state,
                     playbackUT,
-                    "relative-section-loop-chain-fallback"))
+                    "relative-section-anchor-retired-fallback"))
             {
                 usedBodyFixedPrimary = true;
             }
@@ -4747,9 +4750,17 @@ namespace Parsek
             {
                 positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
             }
-            if (parentAnchored
-                && loopAnchoredDebrisChain
-                && state != null
+            // Body-fixed fallback when the relative anchor could not resolve this frame
+            // (anchorRetiredThisFrame). This covers BOTH parent-anchored loop-chain debris AND a
+            // top-level vessel whose ACTIVE section is Relative against a SIBLING that ended early:
+            // e.g. the continuing upper stage ("Kerbal X") recorded a stretch relative to the probe
+            // that decoupled and crashed ~0.1 s later, so its recorded section anchor runs out long
+            // before the section does and PositionLoop retires it. TryPositionBodyFixedPrimary is
+            // self-gating (it only succeeds when the active section is Relative AND its
+            // bodyFixedFrames cover the UT), so this never fires for absolute sections or sections
+            // without a body-fixed surface, and the ghost plays its own recorded body-fixed track
+            // instead of vanishing for most of its window.
+            if (state != null
                 && state.anchorRetiredThisFrame
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite + ".fallback"))
             {
