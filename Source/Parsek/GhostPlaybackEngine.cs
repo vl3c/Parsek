@@ -2337,14 +2337,8 @@ namespace Parsek
                             && string.Equals(member.VesselName, watchedVesselName,
                                 StringComparison.Ordinal);
 
-                        // Tier 1 beats tier 0; within a tier, highest StartUT wins.
-                        bool better;
-                        if (matchesWatched != liveMatchesWatched)
-                            better = matchesWatched;
-                        else
-                            better = member.StartUT >= liveStartUT;
-
-                        if (better)
+                        if (GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                                matchesWatched, member.StartUT, liveMatchesWatched, liveStartUT))
                         {
                             liveStartUT = member.StartUT;
                             liveMemberIdx = idx;
@@ -2414,29 +2408,56 @@ namespace Parsek
             // the transfer lands (watchedIndex == liveMemberIdx) we store the real watchedIsRendering
             // value and re-firing stops. cycle / liveMemberIdx always advance as-is so we never emit
             // duplicate "wrapped cycle" diagnostics.
+            // Only hand the watch camera off to a SAME-VESSEL continuation of the through-line the
+            // player is watching (liveMatchesWatched). When the watched member ends and the only
+            // in-window member is a different-named sibling (e.g. a kerbal who went EVA, or any
+            // peeled-off piece), DO NOT retarget: leaving the camera on the ending member lets its
+            // own terminal end take over (a terminal=Destroyed member fires ExplosionHoldStart from
+            // UpdateOverlapPlayback later in the SAME frame, which HandleOverlapCameraAction applies
+            // only while watchedRecordingIndex still equals that member). Retargeting to the sibling
+            // first moves watchedRecordingIndex off the member, so HandleOverlapCameraAction's
+            // `watchedRecordingIndex != evt.Index` guard silently drops the explosion hold and the
+            // camera jumps to the sibling at the moment of impact instead of holding the explosion.
+            // watchedVesselName is null when nothing is watched, so liveMatchesWatched is false and
+            // retargetMemberIdx is -1; the retarget already cannot fire unwatched, so this is inert
+            // there.
+            int retargetMemberIdx = GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(
+                liveMemberIdx, liveMatchesWatched);
+            if (retargetMemberIdx < 0 && watchedIndex >= 0 && watchedWasRendering
+                && !watchedIsRendering && liveMemberIdx >= 0)
+                ParsekLog.VerboseRateLimited(
+                    "CameraFollow", unitKey + "-handoff-noncontinuation",
+                    "unit watch handoff suppressed owner="
+                        + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " watched #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                        + " ended; only live member #" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + " is a different vessel - holding for the watched member's own end"
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+
             bool retargetFired = GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
-                watchedIndex, watchedWasRendering, watchedIsRendering, liveMemberIdx, unit);
+                watchedIndex, watchedWasRendering, watchedIsRendering, retargetMemberIdx, unit);
             if (retargetFired)
             {
                 ParsekLog.Info("CameraFollow",
                     "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                         + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
-                        + "->#" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
                         + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
                 OnLoopCameraAction?.Invoke(new CameraActionEvent
                 {
-                    Index = liveMemberIdx,
+                    Index = retargetMemberIdx,
                     Action = CameraActionType.UnitHandoffRetarget,
                 });
                 // If the watch camera did not transfer this frame (still on the old member because
                 // the target ghost is mid-build), the pure helper preserves the rendering edge so the
                 // event re-fires next frame; this rate-limited line records that pending state.
-                if (watchedIndex != liveMemberIdx)
+                if (watchedIndex != retargetMemberIdx)
                     ParsekLog.VerboseRateLimited(
                         "CameraFollow", "unit-handoff-retry",
                         "unit watch retarget pending owner="
                             + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
-                            + " target #" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                            + " target #" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
                             + " (watch still #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
                             + ") - re-firing until ghost spawns",
                         5.0);
@@ -2444,10 +2465,10 @@ namespace Parsek
 
             // Self-healing edge: while the retarget is pending (target ghost not yet spawned) keep
             // the rendering edge true so the steady-state early-return does not suppress the re-fire.
-            // Once the transfer lands (watchedIndex == liveMemberIdx) the real value is stored and
+            // Once the transfer lands (watchedIndex == retargetMemberIdx) the real value is stored and
             // re-firing stops. cycle / liveMemberIdx always advance as-is (no duplicate wrap logs).
             bool storedWatchedRendering = GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
-                retargetFired, watchedIndex, liveMemberIdx, watchedIsRendering);
+                retargetFired, watchedIndex, retargetMemberIdx, watchedIsRendering);
 
             lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
         }

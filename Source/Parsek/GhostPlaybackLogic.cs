@@ -7004,6 +7004,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Two-tier comparison used when scanning a unit's members to pick the live CAMERA member
+        /// for a watch handoff. A member whose vessel name matches the WATCHED member's vessel name
+        /// (the continuing through-line) always beats a non-match; within a tier, the newest segment
+        /// (highest StartUT) wins. Returns true when the candidate should replace the current best.
+        ///
+        /// This keeps the camera on the craft the player is watching across a structural fork where a
+        /// piece peels off at the same UT the parent vessel continues (e.g. a crew EVA: the
+        /// continuing pod and the EVA kerbal share the same StartUT, so a plain highest-StartUT pick
+        /// would tie and could grab the kerbal). The caller seeds the scan with
+        /// currentMatchesWatched=false and currentStartUT=NegativeInfinity, so the first in-window
+        /// member always wins. When nothing is watched the caller passes matchesWatched=false for
+        /// every member, degrading this to a pure highest-StartUT pick. Pure; unit-tested.
+        /// </summary>
+        internal static bool IsBetterUnitCameraLiveMember(
+            bool candidateMatchesWatched, double candidateStartUT,
+            bool currentMatchesWatched, double currentStartUT)
+        {
+            if (candidateMatchesWatched != currentMatchesWatched)
+                return candidateMatchesWatched;
+            return candidateStartUT >= currentStartUT;
+        }
+
+        /// <summary>
+        /// Gates the unit-handoff retarget so the camera only follows a SAME-VESSEL continuation of
+        /// the through-line the player is watching. Returns <paramref name="liveMemberIdx"/> when the
+        /// chosen live member matches the watched vessel name (a continuation, e.g. launch stage ->
+        /// upper stage of the same craft), and -1 otherwise. A -1 result tells
+        /// <see cref="ShouldRetargetWatchOnUnitHandoff"/> there is no member to hand off to, so the
+        /// watch stays on the ending member and its own terminal end (explosion hold -> return to
+        /// anchor) takes over instead of the camera jumping onto a different-vessel sibling (a kerbal
+        /// who went EVA, a separated booster) at the moment of impact. Pure; unit-tested.
+        /// </summary>
+        internal static int ResolveUnitHandoffRetargetMember(int liveMemberIdx, bool liveMatchesWatched)
+            => liveMatchesWatched ? liveMemberIdx : -1;
+
+        /// <summary>
         /// Edge 10 decision: should the engine fire a unit-handoff camera retarget this frame?
         /// Under the shared-clock concurrent model there is no single "selected" member - every
         /// member renders when the clock is in its own window. The camera follows ONE watched

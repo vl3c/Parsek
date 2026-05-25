@@ -718,6 +718,90 @@ namespace Parsek.Tests
                 newLiveMemberIndex: 7, unit));
         }
 
+        // === Unit camera-live member selection (two-tier: same vessel name beats highest StartUT) ===
+        // Keeps the camera on the through-line the player is watching across a structural fork where a
+        // piece peels off at the same UT the parent continues (a crew EVA: continuing pod and EVA
+        // kerbal share StartUT, so a plain highest-StartUT pick would tie and could grab the kerbal).
+
+        [Fact]
+        public void IsBetterUnitCameraLiveMember_FirstInWindowMemberWins()
+        {
+            // Caller seeds the scan with currentMatchesWatched=false and
+            // currentStartUT=NegativeInfinity, so the first in-window member always replaces the seed
+            // (whether or not it matches). WHAT MAKES IT FAIL: returning false would leave liveMemberIdx
+            // at -1 with members in window.
+            Assert.True(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: false, candidateStartUT: 0.0,
+                currentMatchesWatched: false, currentStartUT: double.NegativeInfinity));
+            Assert.True(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: true, candidateStartUT: 0.0,
+                currentMatchesWatched: false, currentStartUT: double.NegativeInfinity));
+        }
+
+        [Fact]
+        public void IsBetterUnitCameraLiveMember_SameVesselNameBeatsHigherStartNonMatch()
+        {
+            // The continuing pod (matches the watched vessel name, StartUT 38.88) must beat the EVA
+            // kerbal that peeled off at the SAME or even a LATER StartUT but is a DIFFERENT vessel. The
+            // current best here is the non-matching kerbal at the same StartUT; the matching pod must
+            // still win. WHAT MAKES IT FAIL: a pure highest-StartUT pick would NOT replace an equal- or
+            // higher-StartUT non-match, stranding the camera on the kerbal (the reported bug).
+            Assert.True(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: true, candidateStartUT: 38.88,
+                currentMatchesWatched: false, currentStartUT: 38.88));
+            Assert.True(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: true, candidateStartUT: 38.88,
+                currentMatchesWatched: false, currentStartUT: 100.0));
+        }
+
+        [Fact]
+        public void IsBetterUnitCameraLiveMember_NonMatchNeverBeatsMatch()
+        {
+            // Once a same-vessel-name member is the current best, no non-matching member can replace it
+            // (even with a much higher StartUT). Keeps the camera on the through-line.
+            Assert.False(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: false, candidateStartUT: 100.0,
+                currentMatchesWatched: true, currentStartUT: 38.88));
+        }
+
+        [Fact]
+        public void IsBetterUnitCameraLiveMember_WithinTierHighestStartWins()
+        {
+            // Within the same tier (both match, or both non-match) the newest segment (highest StartUT)
+            // wins. Unwatched playback passes matchesWatched=false for every member, so this is the
+            // pure highest-StartUT pick.
+            Assert.True(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: false, candidateStartUT: 50.0,
+                currentMatchesWatched: false, currentStartUT: 38.88));
+            Assert.False(GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                candidateMatchesWatched: false, candidateStartUT: 20.0,
+                currentMatchesWatched: false, currentStartUT: 38.88));
+        }
+
+        // === Unit-handoff retarget gating (follow only a same-vessel continuation) ===
+
+        [Fact]
+        public void ResolveUnitHandoffRetargetMember_Continuation_ReturnsLiveMember()
+        {
+            // The chosen live member matches the watched vessel name (launch stage -> upper stage of
+            // the same craft): hand the camera off to it.
+            Assert.Equal(10, GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(
+                liveMemberIdx: 10, liveMatchesWatched: true));
+        }
+
+        [Fact]
+        public void ResolveUnitHandoffRetargetMember_NonContinuation_SuppressesRetarget()
+        {
+            // The only in-window member is a DIFFERENT vessel (the watched craft ended; a kerbal who
+            // went EVA, or a separated booster, is all that is left). Return -1 so the handoff is
+            // suppressed and the watched member's own terminal end (explosion hold -> return to anchor)
+            // takes over instead of the camera jumping onto the sibling at the moment of impact.
+            // WHAT MAKES IT FAIL: returning the sibling index would move the watch off the ending
+            // member, and HandleOverlapCameraAction would silently drop its ExplosionHoldStart.
+            Assert.Equal(-1, GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(
+                liveMemberIdx: 11, liveMatchesWatched: false));
+        }
+
         // === Self-healing unit-handoff retarget (deferred-transfer retry) ===
         // The host transfer can defer when the target member's ghost is still being built
         // (time-sliced respawns). ResolveUnitHandoffStoredRenderingEdge decides whether to preserve
