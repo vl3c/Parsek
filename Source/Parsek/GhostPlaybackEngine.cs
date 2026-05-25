@@ -2300,10 +2300,24 @@ namespace Parsek
             IReadOnlyList<IPlaybackTrajectory> trajectories,
             double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex)
         {
-            // Live camera member = in-window member with highest StartUT (newest segment). -1 in the
-            // inter-cycle wait or before the span.
+            // Live camera member = the in-window member to point the watch camera at. -1 in the
+            // inter-cycle wait or before the span. Selection is two-tier so a structural fork
+            // (e.g. a crew EVA peeling off at the same UT the parent vessel continues) does not
+            // steal the camera from the through-line the player is watching:
+            //   tier 1 - a member whose VesselName matches the WATCHED member's VesselName always
+            //            beats a non-match (keeps the camera on the continuing craft L->cont, not
+            //            L->EVA-kerbal which shares the same StartUT);
+            //   tier 2 - within the same tier, the newest segment (highest StartUT) wins.
+            // watchedVesselName is null when nothing is watched, so unwatched playback keeps the
+            // pure highest-StartUT behavior.
+            string watchedVesselName = null;
+            if (watchedIndex >= 0 && watchedIndex < trajectories.Count
+                && trajectories[watchedIndex] != null)
+                watchedVesselName = trajectories[watchedIndex].VesselName;
+
             int liveMemberIdx = -1;
             double liveStartUT = double.NegativeInfinity;
+            bool liveMatchesWatched = false;
             if (!isInInterCycleTail)
             {
                 int[] members = unit.MemberIndices;
@@ -2315,12 +2329,26 @@ namespace Parsek
                         if (idx < 0 || idx >= trajectories.Count || trajectories[idx] == null)
                             continue;
                         var member = trajectories[idx];
-                        if (GhostPlaybackLogic.IsLoopUTInMemberWindow(
-                                spanLoopUT, member.StartUT, member.EndUT)
-                            && member.StartUT >= liveStartUT)
+                        if (!GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                                spanLoopUT, member.StartUT, member.EndUT))
+                            continue;
+
+                        bool matchesWatched = watchedVesselName != null
+                            && string.Equals(member.VesselName, watchedVesselName,
+                                StringComparison.Ordinal);
+
+                        // Tier 1 beats tier 0; within a tier, highest StartUT wins.
+                        bool better;
+                        if (matchesWatched != liveMatchesWatched)
+                            better = matchesWatched;
+                        else
+                            better = member.StartUT >= liveStartUT;
+
+                        if (better)
                         {
                             liveStartUT = member.StartUT;
                             liveMemberIdx = idx;
+                            liveMatchesWatched = matchesWatched;
                         }
                     }
                 }
