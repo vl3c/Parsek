@@ -121,7 +121,7 @@ namespace Parsek
             return view;
         }
 
-        private static string ContinuationSuccessor(MissionStructure s, MissionLeg leg)
+        internal static string ContinuationSuccessor(MissionStructure s, MissionLeg leg)
         {
             if (leg.SequenceNextId != null)
                 return leg.SequenceNextId;

@@ -50,6 +50,11 @@ namespace Parsek
                 new Dictionary<string, (MissionStructure structure, MissionThroughLineView view)>();
         private int missionViewCacheFrame = -1;
 
+        // Per-frame cache of the composition-over-time trees (one list of root nodes per tree id),
+        // built from the same MissionStructure. Cleared alongside missionViewCache each frame.
+        private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
+            new Dictionary<string, List<MissionCompositionNode>>();
+
         private const string InputLockId = "Parsek_MissionsWindow";
         private const float MinWindowWidth = 450f;
         private const float MinWindowHeight = 150f;
@@ -296,11 +301,14 @@ namespace Parsek
                     HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
                         view, mission.ExcludedThroughLineHeadIds);
 
-                    var visited = new HashSet<string>();
-                    for (int r = 0; r < view.RootHeadIds.Count; r++)
+                    // Composition-over-time tree (the vessel rows). Each node is a stable
+                    // composition interval; the tree branches at composition-change events.
+                    var compRoots = GetCompositionRoots(tree);
+                    for (int r = 0; r < compRoots.Count; r++)
                     {
-                        bool isLast = r == view.RootHeadIds.Count - 1;
-                        rowCount += DrawThroughLine(structure, view, mission, includedHeads, view.RootHeadIds[r], 1, isLast, false, visited);
+                        bool isLast = r == compRoots.Count - 1;
+                        rowCount += DrawCompositionNode(
+                            compRoots[r], view, mission, includedHeads, 1, isLast, false);
                     }
                 }
 
@@ -340,6 +348,7 @@ namespace Parsek
             if (frame != missionViewCacheFrame)
             {
                 missionViewCache.Clear();
+                compositionCache.Clear();
                 missionViewCacheFrame = frame;
             }
 
@@ -352,6 +361,129 @@ namespace Parsek
             }
 
             return cached;
+        }
+
+        // Returns the cached composition-over-time root nodes for a tree (built once per frame
+        // from the same MissionStructure that GetMissionView caches).
+        private List<MissionCompositionNode> GetCompositionRoots(RecordingTree tree)
+        {
+            if (!compositionCache.TryGetValue(tree.Id, out var roots))
+            {
+                var (structure, _) = GetMissionView(tree);
+                roots = MissionCompositionBuilder.Build(structure);
+                compositionCache[tree.Id] = roots;
+            }
+            return roots;
+        }
+
+        // Renders one composition node (a stable-composition interval, a peeled-off piece, or a
+        // roster atom) and recurses into its children. A node whose HeadLegId is a through-line
+        // head carries the include checkbox, so the loop include/exclude selection is unchanged;
+        // interval and atom nodes carry none. Exclusion (greyed) cascades down from an excluded
+        // head, matching MissionSelection. Returns the number of rows drawn.
+        private int DrawCompositionNode(MissionCompositionNode node, MissionThroughLineView view,
+            Mission mission, HashSet<string> includedHeads, int depth, bool isLast, bool ancestorHeadExcluded)
+        {
+            if (node == null)
+                return 0;
+
+            bool isHead = view.ByHeadId.ContainsKey(node.HeadLegId);
+            bool selfExcluded = isHead && mission.ExcludedThroughLineHeadIds.Contains(node.HeadLegId);
+            bool hasChildren = node.Children.Count > 0;
+            bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
+
+            DrawCompositionRow(node, mission, includedHeads, depth, isLast, isHead, selfExcluded,
+                ancestorHeadExcluded, hasChildren, collapsed);
+            int rows = 1;
+
+            if (hasChildren && !collapsed)
+            {
+                // Exclusion only deepens at a head node; interval / atom nodes pass it through.
+                bool childAncestorExcluded = isHead ? (ancestorHeadExcluded || selfExcluded) : ancestorHeadExcluded;
+                for (int i = 0; i < node.Children.Count; i++)
+                {
+                    bool childLast = i == node.Children.Count - 1;
+                    rows += DrawCompositionNode(node.Children[i], view, mission, includedHeads,
+                        depth + 1, childLast, childAncestorExcluded);
+                }
+            }
+            return rows;
+        }
+
+        private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
+            HashSet<string> includedHeads, int depth, bool isLast, bool isHead, bool selfExcluded,
+            bool ancestorHeadExcluded, bool hasChildren, bool collapsed)
+        {
+            GUILayout.BeginHorizontal();
+
+            // First column: include checkbox on through-line heads (keeps the loop selection
+            // working); a blank cell on interval / atom rows.
+            if (isHead)
+            {
+                bool shownChecked = includedHeads.Contains(node.HeadLegId);
+                GUI.enabled = !ancestorHeadExcluded;
+                bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Index));
+                GUI.enabled = true;
+                if (!ancestorHeadExcluded && toggled != shownChecked)
+                {
+                    if (toggled) mission.ExcludedThroughLineHeadIds.Remove(node.HeadLegId);
+                    else mission.ExcludedThroughLineHeadIds.Add(node.HeadLegId);
+                }
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
+            }
+
+            Color prevColor = GUI.color;
+            if (ancestorHeadExcluded || selfExcluded)
+                GUI.color = DimColor;
+
+            float indent = RecordingsTableUI.SelfConnectorIndent(depth);
+            if (indent > 0f)
+                GUILayout.Space(indent);
+            string connector = depth > 0 ? RecordingsTableUI.TreeConnector(isLast) : "";
+            string caret = hasChildren ? (collapsed ? CaretRight : CaretDown) : "";
+            // "Vessel (composition)" for vessel/interval rows; the bare label for atoms and for
+            // single-piece rows whose name already equals the composition (e.g. an EVA kerbal).
+            string label = (!string.IsNullOrEmpty(node.VesselName) && node.VesselName != node.CompositionLabel)
+                ? node.VesselName + " (" + node.CompositionLabel + ")"
+                : node.CompositionLabel;
+            string wide = connector + caret + label;
+
+            if (hasChildren)
+            {
+                if (GUILayout.Button(wide, bodyCellLabel, GUILayout.ExpandWidth(true)))
+                {
+                    string key = CollapseKey(mission, node.HeadLegId);
+                    if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
+                    else collapsedLegs.Add(key);
+                }
+            }
+            else
+            {
+                GUILayout.Label(wide, bodyCellLabel, GUILayout.ExpandWidth(true));
+            }
+
+            // Interval / vessel rows show their span + bounding events; roster atoms inherit the
+            // parent's span, so their time columns stay blank.
+            if (!node.IsAtom)
+            {
+                GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label(node.StartEvent ?? "", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label(node.EndEvent ?? "", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
+            }
+
+            GUI.color = prevColor;
+            GUILayout.EndHorizontal();
         }
 
         // Mission header bar: a non-modifiable index cell, the mission name (section-header

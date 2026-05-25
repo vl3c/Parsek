@@ -12,6 +12,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## In progress - v0.10.0 Missions window: vessel composition over time (first cut, playtesting)
+
+- Goal (from 2026-05-25 design chat): show each vessel's COMPOSITION (controllers + crew) broken into intervals of compositional stability, as a nested tree. A node = a stable composition labeled with counts ("pod x1, probe x1, crew x3"); it branches at composition-change events; a stable composition that ends as a whole is a terminal leaf.
+- **Rules agreed:** a node becomes a `v` subtree only when its composition CHANGES (a controller separates, a kerbal EVAs, dock/board); part count never forces a subtree. A composition stable until it ends as a whole (Destroyed/Recovered/intact) is a terminal interval, regardless of controller count (a `probe x2` booster that crashes intact is one leaf). Single atom (1 controller or 1 kerbal) = plain leaf; a stable multi-atom terminal expands one optional level into its atoms. Each node's [start,end] + start/end events are its interval; deeper rows are finer sub-intervals.
+- **Data (all directly available, confirmed by investigation):** `Recording.Controllers` (ControllerInfo.type: CrewedPod/ProbeCore/ExternalSeat/KerbalEVA) gives controller counts per leg; `Recording.StartCrew` (per-trait) gives crew count; the fork tree (BranchPointType {Undock,EVA,JointBreak,Breakup}=split; {Dock,Board}=merge) gives the timing; `TerminalState` {Destroyed,Recovered}=terminal-as-a-whole. No controller-count inference needed.
+- **Implementation:** `MissionLeg` enriched with PodCount/ProbeCount/SeatCount/CrewCount (populated in `MissionStructureBuilder` from the Recording). New pure `MissionCompositionBuilder.Build(structure)` walks continuation chains, groups consecutive equal-composition legs into one interval, branches at composition changes (continuing-next interval first, then peeled pieces), and emits terminal leaves / roster atoms. `MissionCompositionNode` carries label/span/events/IsLeaf/IsAtom. Rendered in the Missions window by `DrawCompositionNode`/`DrawCompositionRow`, REPLACING the through-line body rows: the wide column holds "Vessel (composition)" or the atom name, the four existing columns hold the interval's start/end time + events, and the include checkbox stays on through-line-head nodes so the loop selection is unchanged.
+- **First-cut limitations (follow-ups):** crew shown as counts only (per-name leaves need start-crew names threaded from `CrewEndStates`/snapshot); intra-vessel crew transfers are not recorded so they do not appear; debris-only stage separations (no controller on the jettisoned stage) do not create an interval (controller/crew composition genuinely unchanged); merges (dock/board) handled simply via the visited guard, not yet nested richly; the now-unused through-line render methods (`DrawThroughLine`/`DrawThroughLineRow`/`DrawReferenceRow`/`StartEventText`/`EndEventText`) are kept temporarily pending playtest confirmation, then removable.
+- **Tests:** `MissionCompositionTests` (7): label format, single-controller leaf, crewed multi-atom terminal, env-split grouping, decouple branch, EVA peel, empty. Full suite green (12544).
+- **Status:** FIRST CUT deployed for playtest 2026-05-25.
+
+---
+
 ## Done - v0.10.0 Missions window: index column, sorting, rename, clone order, watch, effective-period
 
 - Batch of Missions-window UX from the 2026-05-25 playtest, all in `MissionsWindowUI.cs` (+ `MissionStore.cs`, `ParsekConfig.cs`):

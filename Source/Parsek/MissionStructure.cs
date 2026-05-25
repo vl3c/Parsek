@@ -56,6 +56,17 @@ namespace Parsek
         // A leg with no run-predecessor and no branch-parent: a launch root or a
         // disconnected continuation root (ParentBranchPointId == null).
         public bool IsRoot;
+
+        // Composition at this leg's start, derived from the recording's Controllers list
+        // (classified by ControllerInfo.type) and StartCrew manifest. Drives the Missions
+        // window "vessel composition over time" view: a controlled leg is rendered with
+        // these counts (pod x1, probe x1, crew x3), and the composition tree branches
+        // wherever the counts change between continuation legs. An EVA-kerbal leg
+        // (EvaCrewName != null) carries no pod/probe/seat and is labeled by its kerbal name.
+        public int PodCount;     // CrewedPod controllers (crewed command parts)
+        public int ProbeCount;   // ProbeCore controllers (uncrewed command parts)
+        public int SeatCount;    // ExternalSeat controllers
+        public int CrewCount;    // total crew aboard at start (sum of StartCrew counts)
     }
 
     /// <summary>
@@ -100,7 +111,7 @@ namespace Parsek
                     debrisExcluded++;
                     continue;
                 }
-                structure.LegsById[rec.RecordingId] = new MissionLeg
+                var leg = new MissionLeg
                 {
                     RecordingId = rec.RecordingId,
                     VesselName = rec.VesselName,
@@ -113,6 +124,8 @@ namespace Parsek
                     EvaCrewName = rec.EvaCrewName,
                     IsAnchoredOffshoot = !string.IsNullOrEmpty(rec.ParentAnchorRecordingId)
                 };
+                PopulateComposition(leg, rec);
+                structure.LegsById[rec.RecordingId] = leg;
             }
 
             // 2. Within-run sequence links.
@@ -170,6 +183,30 @@ namespace Parsek
                 $"sequenceEdges={sequenceEdges} branchEdges={branchEdges} " +
                 $"merges={merges} roots={structure.RootLegIds.Count}");
             return structure;
+        }
+
+        // Fills a leg's controller/crew composition from the recording. Controllers are
+        // classified by ControllerInfo.type (KerbalEVA contributes nothing here - an EVA
+        // kerbal leg is labeled by EvaCrewName, not a controller count). Crew is the sum of
+        // the per-trait StartCrew manifest. Both are null-safe (legacy / uncrewed recordings).
+        private static void PopulateComposition(MissionLeg leg, Recording rec)
+        {
+            if (rec.Controllers != null)
+            {
+                for (int i = 0; i < rec.Controllers.Count; i++)
+                {
+                    string t = rec.Controllers[i].type;
+                    if (t == "CrewedPod") leg.PodCount++;
+                    else if (t == "ProbeCore") leg.ProbeCount++;
+                    else if (t == "ExternalSeat") leg.SeatCount++;
+                    // "KerbalEVA": the leg IS an EVA kerbal (EvaCrewName set); no command count.
+                }
+            }
+            if (rec.StartCrew != null)
+            {
+                foreach (var kv in rec.StartCrew)
+                    leg.CrewCount += kv.Value;
+            }
         }
 
         private static int BuildSequenceLinks(MissionStructure structure)
