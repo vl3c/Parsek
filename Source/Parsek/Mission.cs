@@ -17,6 +17,13 @@ namespace Parsek
         public string Name;
         public readonly HashSet<string> ExcludedThroughLineHeadIds = new HashSet<string>();
 
+        // Interval-level start/end trim selection (finer than ExcludedThroughLineHeadIds): the
+        // set of EXCLUDED composition-interval keys (a MissionCompositionNode.HeadLegId). Dropping
+        // a vessel's leading interval start-trims it (e.g. show the pod only after the decouple,
+        // not the launch); dropping a peeled branch's interval drops that branch. Empty = nothing
+        // trimmed. Consumed by MissionIntervalSelection to derive per-vessel render windows.
+        public readonly HashSet<string> ExcludedIntervalKeys = new HashSet<string>();
+
         // Mission-level loop configuration. Multiple Missions may loop concurrently, but at
         // most one per recording tree: MissionStore.SetLoopEnabled clears only looping
         // siblings that share this Mission's TreeId (same-tree variants share trunk legs, so
@@ -55,6 +62,8 @@ namespace Parsek
             var copy = new Mission(newId, TreeId, (Name ?? "Mission") + " copy");
             foreach (string h in ExcludedThroughLineHeadIds)
                 copy.ExcludedThroughLineHeadIds.Add(h);
+            foreach (string k in ExcludedIntervalKeys)
+                copy.ExcludedIntervalKeys.Add(k);
             copy.LoopPlayback = LoopPlayback;
             copy.LoopIntervalSeconds = LoopIntervalSeconds;
             copy.LoopTimeUnit = LoopTimeUnit;
@@ -77,6 +86,8 @@ namespace Parsek
             node.AddValue("archived", Archived);
             foreach (string h in ExcludedThroughLineHeadIds)
                 node.AddValue("excludedHead", h ?? "");
+            foreach (string k in ExcludedIntervalKeys)
+                node.AddValue("excludedInterval", k ?? "");
         }
 
         public static Mission Load(ConfigNode node)
@@ -110,6 +121,10 @@ namespace Parsek
             for (int i = 0; i < heads.Length; i++)
                 if (!string.IsNullOrEmpty(heads[i]))
                     m.ExcludedThroughLineHeadIds.Add(heads[i]);
+            string[] intervals = node.GetValues("excludedInterval");
+            for (int i = 0; i < intervals.Length; i++)
+                if (!string.IsNullOrEmpty(intervals[i]))
+                    m.ExcludedIntervalKeys.Add(intervals[i]);
             return m;
         }
     }

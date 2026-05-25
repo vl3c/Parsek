@@ -29,6 +29,17 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## In progress - v0.10.0 Missions window: interval-level start/end trim (render a sub-segment of a mission)
+
+- Goal (2026-05-25 design chat): let a player render only PART of a mission - keep a peeled branch while dropping its trunk (only "Kerbal X Probe" after the separation), or start-trim a continuing vessel at a structural change (only the pod AFTER the decouple, not the launch/ascent). Cuts are always at STRUCTURAL composition changes (decouple / undock), never at EVA - which is exactly where the composition tree already splits intervals.
+- **Doability (traced):** the recording data already supports rendering any segment in isolation. Mesh is self-contained per leg (each recording has its own start snapshot; `ApplyPartEvents` walks a cursor from index 0 and applies every event with `ut <= currentUT`, so a ghost entered mid-recording catches up the staged-down state - the decouple is applied so the probe is gone in the first frame). Position is self-contained for Absolute/body-fixed legs; Relative anchors resolve from the recorded trajectory, not a rendered ghost, and fail closed. The span clock has no launch/root assumption. INVARIANT: never purge a recording that is the Relative anchor of a kept downstream segment (we hide-from-render, data stays resident, so safe today).
+- **Scope decision:** INTERVAL level (each structural segment of a vessel is its own toggle); deeper per-leg trim deferred.
+- **Phase 1 (DONE, pure model, no callers yet):** `MissionCompositionNode` gained `OwnerHeadId` (the through-line head a structural interval belongs to - all of a vessel's intervals share it; a peeled branch is its own) + `IsSelectable` (true for intervals/branches, false for roster atoms). New `Mission.ExcludedIntervalKeys` (excluded interval HeadLegIds), persisted (`excludedInterval` values) + copied by `Clone`. New pure `MissionIntervalSelection.ComputeRenderWindows(roots, excludedKeys)` -> per-vessel `[StartUT,EndUT]` render window (min start / max end over a vessel's INCLUDED intervals; vessel absent when all its intervals are excluded; no cascade - intervals toggle independently). 6 new tests (full-window; exclude-launch start-trims the pod to the decouple; exclude-all drops the pod but keeps branches; only-probe; null). Full suite green (12566).
+- **Phase 2 (TODO, UI):** an include checkbox on every interval / branch row of the composition tree (bound to `ExcludedIntervalKeys`, no cascade), plus an "exclude this and everything after" convenience. Replaces the through-line-head-only checkbox.
+- **Phase 3 (TODO, render):** feed the per-vessel render windows into `MissionLoopUnitBuilder` (trimmed member ranges -> trimmed span) and the three scene drivers (member renders within its trimmed window); prime the mesh to the trimmed start via the existing catch-up with transient effects suppressed (no decouple puff at the trim boundary).
+
+---
+
 ## Done - v0.10.0 Missions window: Archive column (long-list management)
 
 - Player request: a way to deal with long mission lists, copying the recordings window's Archive mechanism.

@@ -253,6 +253,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveLoad_AndClone_RoundTripExcludedIntervalKeys()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission m = First();
+            m.ExcludedIntervalKeys.Add("L");        // dropped launch interval
+            m.ExcludedIntervalKeys.Add("L/seg1");   // dropped survivor too
+
+            // Clone copies the interval-trim selection independently.
+            Mission copy = m.Clone("m-copy");
+            Assert.Equal(2, copy.ExcludedIntervalKeys.Count);
+            Assert.Contains("L", copy.ExcludedIntervalKeys);
+            copy.ExcludedIntervalKeys.Add("extra");
+            Assert.DoesNotContain("extra", m.ExcludedIntervalKeys); // independent set
+
+            var node = new ConfigNode("PARSEK");
+            MissionStore.Save(node);
+            MissionStore.ResetForTesting();
+            MissionStore.Load(node);
+
+            Mission loaded = First();
+            Assert.Equal(2, loaded.ExcludedIntervalKeys.Count);
+            Assert.Contains("L", loaded.ExcludedIntervalKeys);
+            Assert.Contains("L/seg1", loaded.ExcludedIntervalKeys);
+        }
+
+        [Fact]
         public void Clone_CopiesArchivedFlag()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });

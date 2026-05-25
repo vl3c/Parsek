@@ -36,6 +36,20 @@ namespace Parsek
         public string EndEvent;           // what ended it (a split/merge event, or a terminal)
         public bool IsLeaf;               // single atom: nothing to expand
         public bool IsAtom;               // a roster atom (one pod/probe/crew) under a terminal: no own interval
+
+        // The through-line head this interval belongs to: the recording id of the physical vessel
+        // whose timeline this interval is a slice of. Every structural interval of one vessel
+        // (e.g. the launch stack and the post-decouple survivor) shares the same OwnerHeadId, so
+        // including a subset of them defines that vessel's render window. A peeled branch (probe,
+        // EVA kerbal) is its own through-line, so its OwnerHeadId == its HeadLegId. Null on roster
+        // atoms (they are not independently selectable). Used by MissionIntervalSelection.
+        public string OwnerHeadId;
+
+        // True when this node is an independently selectable interval / branch (every node except
+        // a roster atom). The interval-level Missions selection (start-trim, branch keep/drop)
+        // toggles these by HeadLegId; atoms carry no checkbox.
+        public bool IsSelectable;
+
         public readonly List<MissionCompositionNode> Children = new List<MissionCompositionNode>();
     }
 
@@ -181,6 +195,10 @@ namespace Parsek
                 var node = new MissionCompositionNode
                 {
                     HeadLegId = segLeg.RecordingId,
+                    // All structural intervals of this physical vessel share the through-line head
+                    // so the selection can derive ONE render window per vessel from them.
+                    OwnerHeadId = headLegId,
+                    IsSelectable = true,
                     VesselName = VesselLabel(segLeg),
                     CompositionLabel = FormatComposition(segLeg),
                     StartUT = segStart,

@@ -284,5 +284,75 @@ namespace Parsek.Tests
         {
             Assert.Empty(MissionCompositionBuilder.Build(MissionStructureBuilder.Build(new RecordingTree { Id = "t" })));
         }
+
+        // --- Interval-level selection -> per-vessel render windows (start/end trim) ---
+
+        // The full Kerbal X composition tree as roots, for the interval-selection tests below.
+        // Intervals: "L" (launch stack, [0,29.56]) + "L/seg1" (post-decouple survivor, [29.56,200])
+        // share owner "L"; "probe" ([29.56,84]) and "bob" ([38.88,150]) are their own through-lines.
+        private static List<MissionCompositionNode> BuildKerbalX()
+            => Build(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 122, pods: 1, probes: 1,
+                        crewNames: new[] { "Jebediah Kerman", "Bill Kerman", "Bob Kerman" }),
+                    Leg("probe", "C2", 0, 29.56, 84, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
+                    Leg("cont", "C3", 0, 38.88, 200, pods: 1, crewNames: new[] { "Jebediah Kerman", "Bill Kerman" }),
+                    Leg("bob", "C4", 0, 38.88, 150, eva: "Bob Kerman", parentAnchor: "L"),
+                },
+                new[]
+                {
+                    BP("dp", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" }, splitCause: "DECOUPLE"),
+                    BP("ev", BranchPointType.EVA, new[] { "L" }, new[] { "cont", "bob" }),
+                });
+
+        [Fact]
+        public void IntervalSelection_AllIncluded_FullWindowPerVessel()
+        {
+            var w = MissionIntervalSelection.ComputeRenderWindows(BuildKerbalX(), new HashSet<string>());
+            Assert.Equal(3, w.Count); // pod (L), probe, bob
+            Assert.Equal(0.0, w["L"].StartUT);    // pod spans launch
+            Assert.Equal(200.0, w["L"].EndUT);    // ... to terminal (trunk + survivor)
+            Assert.True(w.ContainsKey("probe"));
+            Assert.True(w.ContainsKey("bob"));
+        }
+
+        [Fact]
+        public void IntervalSelection_ExcludeLaunchInterval_StartTrimsPodToDecouple()
+        {
+            // Case 2: drop the launch-stack interval, keep the post-decouple survivor -> the pod's
+            // render window now STARTS at the decouple (the launch/ascent is trimmed off).
+            var w = MissionIntervalSelection.ComputeRenderWindows(
+                BuildKerbalX(), new HashSet<string> { "L" });
+            Assert.Equal(29.56, w["L"].StartUT); // not 0 (launch) anymore
+            Assert.Equal(200.0, w["L"].EndUT);
+        }
+
+        [Fact]
+        public void IntervalSelection_ExcludeAllPodIntervals_DropsPod_KeepsBranchesIndependently()
+        {
+            var w = MissionIntervalSelection.ComputeRenderWindows(
+                BuildKerbalX(), new HashSet<string> { "L", "L/seg1" });
+            Assert.False(w.ContainsKey("L")); // pod fully dropped (no included interval)
+            Assert.True(w.ContainsKey("probe")); // a peeled branch is independent of its trunk
+            Assert.True(w.ContainsKey("bob"));
+        }
+
+        [Fact]
+        public void IntervalSelection_OnlyProbe_RendersJustTheBooster()
+        {
+            // Case 1: keep only the peeled "Kerbal X Probe" branch, drop the pod and the EVA kerbal.
+            var w = MissionIntervalSelection.ComputeRenderWindows(
+                BuildKerbalX(), new HashSet<string> { "L", "L/seg1", "bob" });
+            Assert.Single(w);
+            Assert.True(w.ContainsKey("probe"));
+            Assert.Equal(29.56, w["probe"].StartUT); // booster span starts at the separation
+        }
+
+        [Fact]
+        public void IntervalSelection_NullRoots_ReturnsEmpty()
+        {
+            Assert.Empty(MissionIntervalSelection.ComputeRenderWindows(null, new HashSet<string>()));
+        }
     }
 }
