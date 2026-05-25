@@ -3329,6 +3329,22 @@ namespace Parsek
             GhostPlaybackState state = null;
             if (watchedOverlapCycleIndex >= 0)
             {
+                // A loop-cycle watch whose recording has LEFT its mission loop unit (the player
+                // trimmed it out via the composition checkboxes, or turned the loop off) has no
+                // live loop ghost to follow. Falling back to a stale/dying primary below would
+                // point the camera at a destroyed transform (null FlightCamera.Target), which
+                // floods stock KSP with NREs. Return null so the per-frame no-target safety net
+                // exits watch cleanly and restores the active-vessel camera.
+                if (!host.Engine.IsLoopUnitMember(watchedRecordingIndex))
+                {
+                    ParsekLog.VerboseRateLimited("CameraFollow",
+                        "watch-member-dropped:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                        $"Watched recording #{watchedRecordingIndex} \"{watchedRecordingId}\" left its mission " +
+                        "loop unit (interval trimmed out or loop off); releasing watch target (the " +
+                        "no-target safety net will exit watch)",
+                        5.0);
+                    return null;
+                }
                 // Look for the watched cycle in the overlap list
                 List<GhostPlaybackState> overlaps;
                 if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps))

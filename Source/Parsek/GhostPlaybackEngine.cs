@@ -257,6 +257,17 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the committed recording index is currently a member of some Mission loop
+        /// unit. The watch controller uses this to detect when a loop-cycle-watched recording has
+        /// been dropped from its mission (interval trim toggle, or the loop turned off) so it can
+        /// exit watch instead of clinging to a dying ghost.
+        /// </summary>
+        internal bool IsLoopUnitMember(int recordingIndex)
+        {
+            return currentLoopUnits.IsMember(recordingIndex);
+        }
+
+        /// <summary>
         /// Resolves the Mission span-clock loopUT for a committed recording index that is a
         /// member of a Mission loop unit. Watch entry must synchronize a watched member's ghost
         /// visuals at the SAME span loopUT the per-frame scheduler renders that member at in
