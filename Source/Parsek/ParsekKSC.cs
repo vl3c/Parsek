@@ -912,6 +912,7 @@ namespace Parsek
                         $"Ghost #{recIdx} \"{rec.VesselName}\" cycle change {oldCycle}→{cycleIndex}");
                 }
 
+                bool justSpawned = false;
                 if (!ghostActive)
                 {
                     state = SpawnKscGhost(rec, recIdx);
@@ -919,6 +920,7 @@ namespace Parsek
                     state.loopCycleIndex = cycleIndex;
                     kscGhosts[recIdx] = state;
                     PauseGhostAudioIfMenuOpen(state);
+                    justSpawned = true;
                     if (loggedGhostSpawn.Add(recIdx))
                         ParsekLog.Verbose("KSCGhost",
                             $"Ghost #{recIdx} \"{rec.VesselName}\" entered range: " +
@@ -944,7 +946,13 @@ namespace Parsek
                 bool canRunRuntimeEvents = positioned && ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(state.ghost));
                 if (canRunRuntimeEvents)
                 {
-                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state);
+                    // On the just-spawned frame the cursor catches up from index 0 to targetUT; if
+                    // the member is start-trimmed (or first appears mid-trajectory) that catch-up
+                    // crosses the decouple, so suppress its transient puff (the mesh still hides the
+                    // decoupled part). Matches the flight engine's silent prime-on-spawn. Untrimmed
+                    // ghosts spawning at their start catch up zero events, so this is a no-op there.
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, targetUT, state,
+                        allowTransientEffects: !justSpawned);
                     GhostPlaybackLogic.ApplyFlagEvents(state, rec, targetUT);
                 }
                 if (positioned)
@@ -1392,7 +1400,12 @@ namespace Parsek
                 bool canRunPrimaryEvents = primaryPositioned && ShouldApplyRuntimeGhostEvents(pauseMenuOpen, IsGhostInCullRange(primaryState.ghost));
                 if (canRunPrimaryEvents)
                 {
-                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState);
+                    // On the frame this primary is freshly spawned its cursor catches up from index
+                    // 0 to loopUT; suppress that catch-up's transient puff (a start-trimmed member
+                    // crosses the decouple on its first frame). Older overlap ghosts were primed
+                    // when they were the primary, so they play forward with effects on.
+                    GhostPlaybackLogic.ApplyPartEvents(recIdx, rec, loopUT, primaryState,
+                        allowTransientEffects: !primaryCycleChanged);
                     GhostPlaybackLogic.ApplyFlagEvents(primaryState, rec, loopUT);
                 }
                 if (primaryPositioned)
