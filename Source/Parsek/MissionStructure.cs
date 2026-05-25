@@ -53,6 +53,13 @@ namespace Parsek
         public BranchPointType? EndBranchPointType;
         public BranchPointType? OriginBranchPointType;
 
+        // The cause string of the origin / end branch point (BranchPoint.SplitCause, e.g.
+        // "DECOUPLE" / "UNDOCK", or BranchPoint.BreakupCause, e.g. "CRASH"). Lets the event
+        // label distinguish a deliberate decouple from a structural joint break (both are
+        // BranchPointType.JointBreak). Null when the branch carries no cause.
+        public string OriginCause;
+        public string EndCause;
+
         // A leg with no run-predecessor and no branch-parent: a launch root or a
         // disconnected continuation root (ParentBranchPointId == null).
         public bool IsRoot;
@@ -322,6 +329,7 @@ namespace Parsek
                         if (pid != null && structure.LegsById.TryGetValue(pid, out var pleg))
                         {
                             pleg.EndBranchPointType = bp.Type;
+                            pleg.EndCause = bp.SplitCause ?? bp.BreakupCause;
                             controlledParents.Add(pleg);
                         }
                     }
@@ -336,6 +344,7 @@ namespace Parsek
                     if (cid == null || !structure.LegsById.TryGetValue(cid, out var cleg))
                         continue;
                     cleg.OriginBranchPointType = bp.Type;
+                    cleg.OriginCause = bp.SplitCause ?? bp.BreakupCause;
 
                     foreach (var pleg in controlledParents)
                     {

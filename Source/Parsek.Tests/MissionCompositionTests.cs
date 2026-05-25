@@ -47,7 +47,8 @@ namespace Parsek.Tests
             return rec;
         }
 
-        private static BranchPoint BP(string id, BranchPointType type, string[] parents, string[] children)
+        private static BranchPoint BP(string id, BranchPointType type, string[] parents, string[] children,
+            string splitCause = null)
             => new BranchPoint
             {
                 Id = id,
@@ -55,6 +56,7 @@ namespace Parsek.Tests
                 UT = 0,
                 ParentRecordingIds = new List<string>(parents),
                 ChildRecordingIds = new List<string>(children),
+                SplitCause = splitCause,
             };
 
         private static RecordingTree Tree(Recording[] recs, BranchPoint[] bps = null)
@@ -125,16 +127,44 @@ namespace Parsek.Tests
                     Leg("L", "C", 0, 0, 200, pods: 1, probes: 1, crewNames: new[] { "Jeb", "Bill", "Bob" }),
                     Leg("probe", "C2", 0, 60, 115, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
                 },
-                new[] { BP("bp", BranchPointType.Undock, new[] { "L" }, new[] { "probe" }) });
+                new[] { BP("bp", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" }, splitCause: "DECOUPLE") });
 
             Assert.Single(set);
             MissionCompositionNode root = set[0];
             Assert.Equal("pod x1, probe x1, crew x3", root.CompositionLabel);
+            Assert.Equal("Decoupled", root.EndEvent); // the probe decouple ends the launch composition
             Assert.Equal(2, root.Children.Count);
             Assert.Equal("pod x1, crew x3", root.Children[0].CompositionLabel); // synthesized remainder, first
             Assert.Equal("Kerbal X", root.Children[0].VesselName);
             Assert.Equal("probe x1", root.Children[1].CompositionLabel);         // the peeled probe
+            Assert.Equal("Decoupled", root.Children[1].StartEvent);             // DECOUPLE -> "Decoupled"
             Assert.True(root.Children[1].IsLeaf);
+        }
+
+        [Fact]
+        public void EndEvent_IsFirstCompositionChange_NotRecordingTerminalFork()
+        {
+            // Mirrors the real Kerbal X: the recording forks at a LATER EVA, but the launch's
+            // composition first changes when the probe decouples earlier. The launch node's end
+            // event must be the decouple, NOT the EVA the recording happens to fork at.
+            var set = Build(
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 122, pods: 1, probes: 1, crewNames: new[] { "Jeb", "Bill", "Bob" }),
+                    Leg("probe", "C2", 0, 59, 84, probes: 1, parentAnchor: "L", vessel: "Kerbal X Probe"),
+                    Leg("cont", "C3", 0, 122, 200, pods: 1, crewNames: new[] { "Bill", "Jeb" }),
+                    Leg("bob", "C4", 0, 122, 150, eva: "Bob Kerman", parentAnchor: "L"),
+                },
+                new[]
+                {
+                    BP("dp", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" }, splitCause: "DECOUPLE"),
+                    BP("ev", BranchPointType.EVA, new[] { "L" }, new[] { "cont", "bob" }),
+                });
+
+            Assert.Single(set);
+            MissionCompositionNode root = set[0];
+            Assert.Equal("pod x1, probe x1, crew x3", root.CompositionLabel);
+            Assert.Equal("Decoupled", root.EndEvent); // earliest change (probe @59), not the EVA @122
         }
 
         [Fact]
@@ -182,18 +212,18 @@ namespace Parsek.Tests
                     Leg("cont", "C2", 0, 42, 200, pods: 1, crew: 3),          // continuing (not anchored)
                     Leg("probe", "C3", 0, 42, 115, probes: 1, parentAnchor: "L"), // peeled (anchored offshoot)
                 },
-                new[] { BP("bp1", BranchPointType.Undock, new[] { "L" }, new[] { "cont", "probe" }) });
+                new[] { BP("bp1", BranchPointType.JointBreak, new[] { "L" }, new[] { "cont", "probe" }, splitCause: "DECOUPLE") });
 
             Assert.Single(set);
             MissionCompositionNode root = set[0];
             Assert.Equal("pod x1, probe x1, crew x3", root.CompositionLabel);
             Assert.Equal("Launch", root.StartEvent);
-            Assert.Equal("Undock", root.EndEvent);
+            Assert.Equal("Decoupled", root.EndEvent); // DECOUPLE cause -> "Decoupled", not "Broke off"
             Assert.Equal(2, root.Children.Count);
 
             // Continuing vessel first, then the peeled probe.
             Assert.Equal("pod x1, crew x3", root.Children[0].CompositionLabel);
-            Assert.Equal("Undock", root.Children[0].StartEvent);
+            Assert.Equal("Decoupled", root.Children[0].StartEvent);
             Assert.Equal("probe x1", root.Children[1].CompositionLabel);
             Assert.True(root.Children[1].IsLeaf);
         }

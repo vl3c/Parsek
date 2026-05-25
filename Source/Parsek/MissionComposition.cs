@@ -113,10 +113,27 @@ namespace Parsek
             }
             peels.Sort((a, b) => CompareLegStart(s, a, b));
 
-            // 4. End event: a composition change (split/merge) vs a clean terminal.
-            node.EndEvent = (hasContinuation || peels.Count > 0)
-                ? EndEventName(lastLeg)
-                : TerminalName(lastLeg.TerminalStateValue);
+            // 4. End of this composition = the FIRST change: the earliest peel, or the
+            //    continuation fork, by ITS OWN origin event + UT. Not the recording's terminal-
+            //    fork type, because the composition can end earlier than the recording forks (a
+            //    probe decoupling mid-recording ends the pod+probe composition long before a
+            //    later EVA fork ends the recording). When nothing changes, use the terminal.
+            MissionLeg firstChange = null;
+            if (hasContinuation && s.LegsById.TryGetValue(contSucc, out MissionLeg contChangeLeg))
+                firstChange = contChangeLeg;
+            for (int i = 0; i < peels.Count; i++)
+                if (s.LegsById.TryGetValue(peels[i], out MissionLeg peelChangeLeg)
+                    && (firstChange == null || peelChangeLeg.StartUT < firstChange.StartUT))
+                    firstChange = peelChangeLeg;
+            if (firstChange != null)
+            {
+                node.EndUT = firstChange.StartUT;
+                node.EndEvent = OriginEventName(firstChange);
+            }
+            else
+            {
+                node.EndEvent = TerminalName(lastLeg.TerminalStateValue);
+            }
 
             // 5. Children: continuing vessel first, then peeled pieces (the user's nesting order).
             if (hasContinuation)
@@ -344,7 +361,7 @@ namespace Parsek
             if (leg == null) return "";
             if (!string.IsNullOrEmpty(leg.EvaCrewName)) return "EVA";
             return leg.OriginBranchPointType.HasValue
-                ? BranchEventName(leg.OriginBranchPointType.Value)
+                ? BranchEventName(leg.OriginBranchPointType.Value, leg.OriginCause)
                 : (leg.IsRoot ? "Launch" : "");
         }
 
@@ -352,18 +369,30 @@ namespace Parsek
         {
             if (leg == null) return "";
             return leg.EndBranchPointType.HasValue
-                ? BranchEventName(leg.EndBranchPointType.Value)
+                ? BranchEventName(leg.EndBranchPointType.Value, leg.EndCause)
                 : TerminalName(leg.TerminalStateValue);
         }
 
-        private static string BranchEventName(BranchPointType t)
+        // Maps a branch point to a short label. The CAUSE wins over the bare type, because a
+        // deliberate decoupler firing and a structural joint break are BOTH BranchPointType.
+        // JointBreak (and a separator can also surface as Undock): only the cause distinguishes
+        // a clean "Decoupled" from an accidental "Broke off".
+        internal static string BranchEventName(BranchPointType t, string cause)
         {
+            switch (cause)
+            {
+                case "DECOUPLE": return "Decoupled";
+                case "UNDOCK": return "Undocked";
+                case "CRASH": return "Crashed";
+                case "OVERHEAT": return "Overheated";
+                case "STRUCTURAL_FAILURE": return "Broke up";
+            }
             switch (t)
             {
-                case BranchPointType.Undock: return "Undock";
+                case BranchPointType.Undock: return "Undocked";
                 case BranchPointType.EVA: return "EVA";
-                case BranchPointType.Dock: return "Dock";
-                case BranchPointType.Board: return "Board";
+                case BranchPointType.Dock: return "Docked";
+                case BranchPointType.Board: return "Boarded";
                 case BranchPointType.JointBreak: return "Broke off";
                 case BranchPointType.Breakup: return "Broke up";
                 case BranchPointType.Launch: return "Launch";
