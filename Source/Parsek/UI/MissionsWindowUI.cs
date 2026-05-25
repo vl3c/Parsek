@@ -152,15 +152,28 @@ namespace Parsek
 
             if (windowRect.width < 1f)
             {
-                float h = parentUI.InFlightMode ? mainWindowRect.height : mainWindowRect.height * 2f;
+                float defaultH = parentUI.InFlightMode ? mainWindowRect.height : mainWindowRect.height * 2f;
+                // Restore the player's last size when one was persisted (clamped to the minimums);
+                // otherwise fall back to the default width and a height derived from the main window.
+                float w = (!float.IsNaN(MissionStore.WindowWidth) && MissionStore.WindowWidth > 0f)
+                    ? Mathf.Max(MinWindowWidth, MissionStore.WindowWidth)
+                    : DefaultWidth;
+                float h = (!float.IsNaN(MissionStore.WindowHeight) && MissionStore.WindowHeight > 0f)
+                    ? Mathf.Max(MinWindowHeight, MissionStore.WindowHeight)
+                    : defaultH;
                 windowRect = new Rect(
                     mainWindowRect.x + mainWindowRect.width + 10f,
                     mainWindowRect.y,
-                    DefaultWidth, h);
+                    w, h);
             }
 
             ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
                 MinWindowWidth, MinWindowHeight, "Missions window");
+
+            // Remember the current size so it survives a reload (persisted with the missions via
+            // MissionStore.Save). Cheap two-field copy each frame; the scenario save reads it.
+            MissionStore.WindowWidth = windowRect.width;
+            MissionStore.WindowHeight = windowRect.height;
 
             var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
             if (opaqueWindowStyle == null)

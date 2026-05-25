@@ -18,12 +18,20 @@ namespace Parsek
         // Persisted alongside the missions so the view state survives a reload.
         internal static bool HideArchived;
 
+        // Persisted Missions window size (the player's last resize). NaN = unset, so the window
+        // falls back to its default width / height. The window pushes its current size here each
+        // frame and reads it back on first open, and it round-trips through Save / Load.
+        internal static float WindowWidth = float.NaN;
+        internal static float WindowHeight = float.NaN;
+
         internal static IReadOnlyList<Mission> Missions => missions;
 
         internal static void ResetForTesting()
         {
             missions.Clear();
             HideArchived = false;
+            WindowWidth = float.NaN;
+            WindowHeight = float.NaN;
         }
 
         internal static int CountForTree(string treeId)
@@ -258,6 +266,14 @@ namespace Parsek
         {
             node.RemoveValues("missionHideArchived");
             node.AddValue("missionHideArchived", HideArchived);
+            node.RemoveValues("missionWindowWidth");
+            node.RemoveValues("missionWindowHeight");
+            if (!float.IsNaN(WindowWidth) && WindowWidth > 0f)
+                node.AddValue("missionWindowWidth",
+                    WindowWidth.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+            if (!float.IsNaN(WindowHeight) && WindowHeight > 0f)
+                node.AddValue("missionWindowHeight",
+                    WindowHeight.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
             node.RemoveNodes("MISSION");
             for (int i = 0; i < missions.Count; i++)
             {
@@ -272,6 +288,12 @@ namespace Parsek
         {
             missions.Clear();
             HideArchived = bool.TryParse(node.GetValue("missionHideArchived"), out bool hide) && hide;
+            WindowWidth = float.TryParse(node.GetValue("missionWindowWidth"),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                out float w) ? w : float.NaN;
+            WindowHeight = float.TryParse(node.GetValue("missionWindowHeight"),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+                out float h) ? h : float.NaN;
             ConfigNode[] mNodes = node.GetNodes("MISSION");
             for (int i = 0; i < mNodes.Length; i++)
                 missions.Add(Mission.Load(mNodes[i]));

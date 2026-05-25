@@ -226,6 +226,33 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SaveLoad_RoundTripsWindowSize_AndUnsetStaysNaN()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            MissionStore.WindowWidth = 912.5f;
+            MissionStore.WindowHeight = 480f;
+
+            var node = new ConfigNode("PARSEK");
+            MissionStore.Save(node);
+            MissionStore.ResetForTesting();
+            Assert.True(float.IsNaN(MissionStore.WindowWidth)); // reset cleared it
+
+            MissionStore.Load(node);
+            Assert.Equal(912.5f, MissionStore.WindowWidth);
+            Assert.Equal(480f, MissionStore.WindowHeight);
+
+            // An unset (NaN) size is not written, and loads back as NaN (use the default).
+            MissionStore.WindowWidth = float.NaN;
+            MissionStore.WindowHeight = float.NaN;
+            var node2 = new ConfigNode("PARSEK");
+            MissionStore.Save(node2);
+            Assert.False(node2.HasValue("missionWindowWidth"));
+            MissionStore.WindowWidth = 123f; // dirty it
+            MissionStore.Load(node2);
+            Assert.True(float.IsNaN(MissionStore.WindowWidth));
+        }
+
+        [Fact]
         public void Clone_CopiesArchivedFlag()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
