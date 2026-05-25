@@ -1791,6 +1791,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PositionLoopAtPlaybackUT_ParentAnchoredChildAbsoluteSection_UsesAbsoluteLoopNotBodyFixed()
+        {
+            // The reported "Kerbal X Probe was not watchable": a parent-anchored controlled-decoupled
+            // child (ParentAnchorRecordingId set) whose ACTIVE section is ABSOLUTE must play through
+            // the normal absolute loop path, NOT be forced into the body-fixed-primary route (which
+            // only handles Relative sections). WHAT MAKES IT FAIL: without the activeSectionIsRelative
+            // gate, the loop path calls TryPositionFromBodyFixedPrimary (fails for an Absolute section
+            // with no body-fixed frames) and retires the ghost every frame, so it never renders.
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredChildWithAbsoluteSection();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Probe",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 8,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.False(usedBodyFixed);
+            Assert.False(state.anchorRetiredThisFrame); // NOT retired - it rendered absolutely
+            Assert.Equal(1, positioner.PositionLoopCalls); // took the normal absolute loop path
+            Assert.Equal(0, positioner.ShadowPositionCalls); // body-fixed route skipped for Absolute
+        }
+
+        [Fact]
         public void PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_NoBodyFixed_StaysRetired()
         {
             // Negative: the same top-level vessel WITHOUT a body-fixed surface on its section stays
@@ -2128,6 +2161,38 @@ namespace Parsek.Tests
                     },
                 },
             });
+            return traj;
+        }
+
+        /// <summary>
+        /// A parent-anchored controlled-decoupled child (ParentAnchorRecordingId set) whose ACTIVE
+        /// section is ABSOLUTE (the post-decouple tail it records after leaving its parent's bubble).
+        /// Models the Kerbal X Probe: it decoupled, flew off on its own, and recorded a plain Absolute
+        /// track with no body-fixed frames. The loop path must NOT force it through the
+        /// body-fixed-primary route (which only handles Relative sections); it must play through the
+        /// normal absolute loop path.
+        /// </summary>
+        private static MockTrajectory MakeParentAnchoredChildWithAbsoluteSection()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "probe-rec";
+            traj.VesselName = "Kerbal X Probe";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = false; // controlled-decoupled child
+            traj.ParentAnchorRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+            });
+            traj.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            traj.Points.Add(new TrajectoryPoint { ut = 110.0 });
             return traj;
         }
 

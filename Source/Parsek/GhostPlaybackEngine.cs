@@ -4692,13 +4692,25 @@ namespace Parsek
                 return false;
             }
 
+            // The body-fixed-primary route only applies while the ACTIVE section at loopUT is
+            // Relative (its bodyFixedFrames are the recorded fallback for the relative anchor). A
+            // parent-anchored controlled-decoupled child (probe, lander, separated stage) also
+            // records ABSOLUTE tail sections after it leaves its parent's bubble; those have no
+            // bodyFixedFrames and must play through the normal absolute loop path below. Without this
+            // gate such a child whose CURRENT section is Absolute (e.g. a probe that decoupled and
+            // flew off on its own) is forced into TryPositionBodyFixedPrimary, which fails for a
+            // non-Relative section, and is retired every frame -> never visible / not watchable. The
+            // non-loop path already bails out the same way via TryGetRelativeSectionAtUT.
+            bool activeSectionIsRelative =
+                TryGetRelativeSectionAtUT(traj, loopUT, out RelativeSectionPlaybackTarget _);
             if (parentAnchored
                 && !loopAnchoredDebrisChain
+                && activeSectionIsRelative
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite))
             {
                 return true;
             }
-            if (parentAnchored && !loopAnchoredDebrisChain)
+            if (parentAnchored && !loopAnchoredDebrisChain && activeSectionIsRelative)
             {
                 var diagnostic =
                     DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic.Create(
