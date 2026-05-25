@@ -3469,6 +3469,32 @@ namespace Parsek
                 DestroyOverlapCameraAnchor();
                 overlapRetargetAfterUT = -1;
 
+                // Mission through-line restart: when the held recording is a Mission loop-unit
+                // member (its terminal stage just exploded), restart the camera on the unit's
+                // THROUGH-LINE ROOT (the first stage of a fresh mission instance, at the trimmed
+                // start) rather than the exploded member's own primary cycle. That cycle is the
+                // upper stage mid-flight, and for a relative-anchored member it can be retired at an
+                // invalid position the very frame the hold ends (the "jump to an invalid spot" the
+                // player saw). The root's newest cycle is a fresh launch near the mission start, so
+                // the watch loops cleanly: launch -> stages -> explosion -> hold -> launch again.
+                if (host.Engine.TryGetUnitThroughLineRoot(watchedRecordingIndex, out int rootIndex)
+                    && rootIndex != watchedRecordingIndex)
+                {
+                    if (TransferWatchToNextSegment(rootIndex))
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, restarted mission watch on through-line root #{rootIndex}");
+                    else
+                    {
+                        // Root not spawned yet -- wait for the next spawn rather than falling back to
+                        // the exploded member's (possibly invalid) primary.
+                        watchedOverlapCycleIndex = -1;
+                        watchNoTargetFrames = 0;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, mission through-line root #{rootIndex} not spawned yet — waiting for next spawn");
+                    }
+                    return false;
+                }
+
                 // Immediately target the current primary ghost so FlightCamera
                 // doesn't reference the destroyed anchor
                 GhostPlaybackState primary;

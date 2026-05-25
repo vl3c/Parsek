@@ -268,6 +268,27 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves the through-line ROOT of the Mission loop unit containing
+        /// <paramref name="memberIndex"/>: the unit's earliest member (<c>OwnerIndex</c>, the
+        /// mission's first-rendered stage at the trimmed start). The watch controller uses this to
+        /// RESTART the camera at the start of a fresh mission instance after the watched
+        /// through-line's terminal explosion hold, instead of clinging to the just-exploded member's
+        /// own primary cycle (the upper stage mid-flight, which can also be relative-anchor-retired
+        /// at an invalid position). Returns false (rootIndex = memberIndex) when the index is not a
+        /// unit member, so single-recording overlap watch keeps its existing primary retarget.
+        /// </summary>
+        internal bool TryGetUnitThroughLineRoot(int memberIndex, out int rootIndex)
+        {
+            if (currentLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit))
+            {
+                rootIndex = unit.OwnerIndex;
+                return true;
+            }
+            rootIndex = memberIndex;
+            return false;
+        }
+
+        /// <summary>
         /// Resolves the Mission span-clock loopUT for a committed recording index that is a
         /// member of a Mission loop unit. Watch entry must synchronize a watched member's ghost
         /// visuals at the SAME span loopUT the per-frame scheduler renders that member at in
@@ -2057,12 +2078,22 @@ namespace Parsek
                 double handoffLoopUT;
                 long handoffCycle;
                 double watchedInstLoopUT = 0;
-                bool watchPinnedToInstance =
+                bool watchingThisUnitInstance =
                     ctx.protectedLoopCycleIndex >= 0
-                    && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0
+                    && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0;
+                bool watchPinnedToInstance = watchingThisUnitInstance
                     && GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
                         unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
                         ctx.currentUT, ctx.protectedLoopCycleIndex, out watchedInstLoopUT);
+                // When the watched instance has ENDED (it IS a member of this unit, but its own span
+                // clock is past the span end), the through-line the player was following is done.
+                // Suppress the handoff retarget so it does NOT fall back to the newest instance and
+                // yank the camera onto a fresh launch's same-named member: that cross-instance jump
+                // would preempt the watched member's own terminal explosion hold (which fires later
+                // this frame in UpdateOverlapPlayback and only applies while watchedRecordingIndex
+                // still equals the ending member). The post-hold retarget then restarts the camera
+                // on the through-line root. Diagnostics below still use the newest clock.
+                bool watchedInstanceEnded = watchingThisUnitInstance && !watchPinnedToInstance;
                 if (watchPinnedToInstance)
                 {
                     handoffLoopUT = watchedInstLoopUT;
@@ -2077,7 +2108,8 @@ namespace Parsek
                 }
                 LogUnitTransitionIfChanged(
                     unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,
-                    isInInterCycleTail: false, watchedIndex: ctx.protectedIndex);
+                    isInInterCycleTail: false, watchedIndex: ctx.protectedIndex,
+                    suppressWatchRetarget: watchedInstanceEnded);
 
                 ParsekLog.VerboseRateLimited(
                     "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
@@ -2114,7 +2146,7 @@ namespace Parsek
             // StartUT) by scanning all members against spanLoopUT.
             LogUnitTransitionIfChanged(
                 unit, unitKey, trajectories, spanLoopUT, unitCycle, ctx.currentUT,
-                isInInterCycleTail, ctx.protectedIndex);
+                isInInterCycleTail, ctx.protectedIndex, suppressWatchRetarget: false);
 
             if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
             {
@@ -2298,7 +2330,8 @@ namespace Parsek
         private void LogUnitTransitionIfChanged(
             GhostPlaybackLogic.LoopUnit unit, string unitKey,
             IReadOnlyList<IPlaybackTrajectory> trajectories,
-            double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex)
+            double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
+            bool suppressWatchRetarget)
         {
             // Live camera member = the in-window member to point the watch camera at. -1 in the
             // inter-cycle wait or before the span. Selection is two-tier so a structural fork
@@ -2421,9 +2454,26 @@ namespace Parsek
             // watchedVesselName is null when nothing is watched, so liveMatchesWatched is false and
             // retargetMemberIdx is -1; the retarget already cannot fire unwatched, so this is inert
             // there.
-            int retargetMemberIdx = GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(
-                liveMemberIdx, liveMatchesWatched);
-            if (retargetMemberIdx < 0 && watchedIndex >= 0 && watchedWasRendering
+            // The watched through-line's END suppresses the handoff in two ways: (a) the watched
+            // INSTANCE has ended (suppressWatchRetarget) - the whole instance is done, so the camera
+            // must NOT jump to a fresh launch's same-named member (cross-instance); (b) within a live
+            // instance, the only remaining in-window member is a DIFFERENT vessel (a peeled EVA kerbal
+            // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
+            // the ending member so its terminal explosion hold applies and the post-hold retarget
+            // restarts on the through-line root.
+            int retargetMemberIdx = suppressWatchRetarget
+                ? -1
+                : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+            if (suppressWatchRetarget && watchedIndex >= 0)
+                ParsekLog.VerboseRateLimited(
+                    "CameraFollow", unitKey + "-handoff-instance-ended",
+                    "unit watch handoff suppressed owner="
+                        + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " watched #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                        + " instance ended - holding for its own terminal end / post-hold restart"
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            else if (retargetMemberIdx < 0 && watchedIndex >= 0 && watchedWasRendering
                 && !watchedIsRendering && liveMemberIdx >= 0)
                 ParsekLog.VerboseRateLimited(
                     "CameraFollow", unitKey + "-handoff-noncontinuation",
