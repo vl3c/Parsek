@@ -2018,26 +2018,39 @@ namespace Parsek
                     suppressOverlapGhosts = true;
                 }
 
-                // Watch-newest pin + member handoff WITHIN the newest instance. The camera follows the
-                // newest mission instance (every member's primary ghost sits on its newest overlap
-                // cycle), and must hand off from member A to member B as the NEWEST instance crosses a
-                // member boundary - never to an older instance. Drive the existing per-unit transition
-                // detector (LogUnitTransitionIfChanged + the watch retarget it fires) with the NEWEST
-                // instance's span-progress loopUT instead of the single span clock. The newest mission
-                // instance's progress: missionCycle = floor((currentUT - anchor) / overlapCadence),
-                // capped at the instance cap; span phase = currentUT - (anchor + missionCycle*cadence)
-                // clamped to [0, span]; loopUT = spanStart + phase. IsLoopUTInMemberWindow on that
-                // loopUT picks the newest-instance live member for the camera. isInInterCycleTail is
-                // false here (overlap relaunches with no gap). Each member computes the same value
-                // deterministically, so calling this per-member stays consistent (only the first acts).
-                double newestMissionLoopUT;
-                long newestMissionCycle;
-                GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
-                    unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
-                    ctx.currentUT, GhostPlayback.MaxOverlapMissionInstances,
-                    out newestMissionLoopUT, out newestMissionCycle);
+                // Member handoff for the camera. By default the camera follows the NEWEST mission
+                // instance (its span-progress loopUT picks the live member to hand off to). BUT when
+                // the player is WATCHING an instance of THIS unit and that instance is still in
+                // flight, drive the handoff off the WATCHED instance's clock instead, so watching an
+                // overlapping mission tracks one launch all the way through its stages rather than
+                // jumping to each new launch. When the watched instance ENDS (or before it launches)
+                // we fall back to the newest instance, and the watch's own cycle-lost fallback then
+                // snaps the camera onto the newest in-flight launch. isInInterCycleTail is false
+                // (overlap relaunches with no gap). Computed deterministically per member (only the
+                // first to run this frame acts, via the lastUnitSelection dedup).
+                double handoffLoopUT;
+                long handoffCycle;
+                double watchedInstLoopUT = 0;
+                bool watchPinnedToInstance =
+                    ctx.protectedLoopCycleIndex >= 0
+                    && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0
+                    && GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
+                        ctx.currentUT, ctx.protectedLoopCycleIndex, out watchedInstLoopUT);
+                if (watchPinnedToInstance)
+                {
+                    handoffLoopUT = watchedInstLoopUT;
+                    handoffCycle = ctx.protectedLoopCycleIndex;
+                }
+                else
+                {
+                    GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
+                        ctx.currentUT, GhostPlayback.MaxOverlapMissionInstances,
+                        out handoffLoopUT, out handoffCycle);
+                }
                 LogUnitTransitionIfChanged(
-                    unit, unitKey, trajectories, newestMissionLoopUT, newestMissionCycle, ctx.currentUT,
+                    unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,
                     isInInterCycleTail: false, watchedIndex: ctx.protectedIndex);
 
                 ParsekLog.VerboseRateLimited(
@@ -2048,7 +2061,9 @@ namespace Parsek
                         + " span=" + unitSpan.ToString("F2", CultureInfo.InvariantCulture)
                         + " memberDur=" + memberDuration.ToString("F2", CultureInfo.InvariantCulture)
                         + " schedStart=" + memberScheduleStartUT.ToString("F2", CultureInfo.InvariantCulture)
-                        + " newestInstLoopUT=" + newestMissionLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                        + " handoffLoopUT=" + handoffLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " handoffCycle=" + handoffCycle.ToString(CultureInfo.InvariantCulture)
+                        + (watchPinnedToInstance ? " (watched-instance pin)" : " (newest)"),
                     5.0);
 
                 UpdateOverlapPlayback(

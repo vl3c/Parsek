@@ -375,6 +375,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryComputeMissionInstanceSpanLoopUT_LiveInstance_ReturnsSpanProgress()
+        {
+            // anchor 100, span [0,50], cadence 10. Instance (cycle) 0 launches at 100; at UT 120 it
+            // is 20s into its span, so the watch camera follows it at loopUT 20.
+            bool ok = GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 50, 10, currentUT: 120, cycle: 0, out double loopUT);
+            Assert.True(ok);
+            Assert.Equal(20.0, loopUT, 6);
+
+            // Instance 2 launches at 100 + 2*10 = 120; at UT 130 it is 10s in.
+            ok = GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 50, 10, currentUT: 130, cycle: 2, out loopUT);
+            Assert.True(ok);
+            Assert.Equal(10.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryComputeMissionInstanceSpanLoopUT_EndedOrNotLaunched_ReturnsFalse()
+        {
+            // Instance 0 launched at 100; at UT 160 it is 60s in, past the 50s span -> ended (the
+            // caller then snaps the camera to the newest in-flight instance).
+            Assert.False(GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 50, 10, currentUT: 160, cycle: 0, out _));
+            // Instance 2 launches at 120; at UT 110 it has not launched yet.
+            Assert.False(GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 50, 10, currentUT: 110, cycle: 2, out _));
+            // Degenerate span / negative cycle.
+            Assert.False(GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 0, 10, currentUT: 120, cycle: 0, out _));
+            Assert.False(GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                100, 0, 50, 10, currentUT: 120, cycle: -1, out _));
+        }
+
+        [Fact]
         public void ComputeMemberOverlapScheduleStartUT_StaggersByMemberOffsetFromAnchor()
         {
             // The owner member (memberStart == spanStart) launches at the phase anchor; a later

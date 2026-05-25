@@ -6835,6 +6835,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The span-progress loopUT for a SPECIFIC mission overlap instance (cycle), used to drive
+        /// the watch camera's stage-handoff off the instance the player is FOLLOWING instead of the
+        /// newest one (so watching an overlapping mission tracks one launch all the way through,
+        /// not jumping to each new launch). Returns false when that instance has not launched yet
+        /// (<paramref name="currentUT"/> before its start) or has already ENDED (phase past the
+        /// span) - the caller then falls back to the newest instance (snap to the newest in-flight
+        /// launch on completion). Pure.
+        /// </summary>
+        internal static bool TryComputeMissionInstanceSpanLoopUT(
+            double phaseAnchorUT, double spanStartUT, double span,
+            double overlapCadenceSeconds, double currentUT, long cycle, out double loopUT)
+        {
+            loopUT = spanStartUT;
+            if (span <= 0 || cycle < 0)
+                return false;
+            double cadence = Math.Max(overlapCadenceSeconds, LoopTiming.MinCycleDuration);
+            double phase = currentUT - (phaseAnchorUT + cycle * cadence);
+            if (phase < 0 || phase > span)
+                return false; // not launched yet, or already ended -> caller uses the newest instance
+            loopUT = spanStartUT + phase;
+            return true;
+        }
+
+        /// <summary>
         /// True if <paramref name="loopUT"/> falls inside the member window
         /// [<paramref name="memberStartUT"/>, <paramref name="memberEndUT"/>] (epsilon-tolerant).
         /// Pure: a member renders iff the shared mission clock is inside its own window. Uses
