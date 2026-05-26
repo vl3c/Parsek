@@ -76,6 +76,11 @@ namespace Parsek
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
         // taller than the plain-label cells.
         private const float ColHeaderHeight = 32f;
+        // Minimum height for each composition (vessel) row, matching the recordings table's per-row
+        // stride (RecordingsTableUI scrolls at 22 px/row). The composition cells are mostly plain
+        // labels, which alone measure shorter than a recordings row; without this floor the rows
+        // pack too tightly and leave no room for the per-row Fly / Seal button.
+        private const float CompositionRowMinHeight = 22f;
         // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
         // header carries the global "hide archived" toggle, each mission row a per-mission check.
         // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
@@ -403,7 +408,10 @@ namespace Parsek
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
             bool hasChildren, bool collapsed)
         {
-            GUILayout.BeginHorizontal();
+            // MinHeight floors the row at the recordings-table row stride so the rows do not pack
+            // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
+            // shorter than a recordings row).
+            GUILayout.BeginHorizontal(GUILayout.MinHeight(CompositionRowMinHeight));
 
             // Blank enable slot (no per-row enable in missions) so the first column totals the
             // recordings tab's [enable+index] width and the vessel name lines up with the
