@@ -24,7 +24,12 @@ namespace Parsek
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
         private const float ResizeHandleSize = 16f;
-        private const float MinWindowWidth = 350f;
+        // Minimum resize width = the Recordings tab's collapsed width (Info toggled off), so the
+        // window can never be dragged narrow enough to clip the Recordings table. Shared by both
+        // tabs (one window, one resize clamp in DrawIfOpen -> HandleResizeDrag), so the Missions
+        // tab also cannot shrink below it. C# resolves the forward const reference regardless of
+        // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
+        private const float MinWindowWidth = DefaultCollapsedWindowWidth;
         private const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment

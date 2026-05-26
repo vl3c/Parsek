@@ -113,6 +113,15 @@ namespace Parsek
         // the whole cell, label + checkbox included.
         private GUIStyle colHdrCellContainerStyle;
         private GUIStyle boldHeaderInnerLabel;
+        // Mission-header ROW bubble: the dark section-header box used as the background of the
+        // WHOLE mission header row (index, title, Loop, period, Watch, Clone, Delete, Archive),
+        // so the bubble spans the full row width with every control sitting on it. Cloned from
+        // the shared section-header box with left/right margin + padding zeroed so the bubble
+        // reaches the row edges and the contents are not inset (keeps the Archive checkbox under
+        // its column header). The index + title use missionHeaderTextStyle (bold transparent
+        // text) instead of their own boxes so they don't double-box on top of the bubble.
+        private GUIStyle missionHeaderRowStyle;
+        private GUIStyle missionHeaderTextStyle;
 
         // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
         // body labels land under their header text).
@@ -183,6 +192,24 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleCenter,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
+            };
+
+            // Mission-header row bubble: the section-header box stretched across the whole row,
+            // with left/right margin + padding zeroed so the dark bar reaches the row edges and
+            // its contents are not inset (the Archive checkbox stays under its column header).
+            var sectionHeader = parentUI.GetSectionHeaderStyle();
+            missionHeaderRowStyle = new GUIStyle(sectionHeader)
+            {
+                margin = new RectOffset(0, 0, sectionHeader.margin.top, sectionHeader.margin.bottom),
+                padding = new RectOffset(0, 0, sectionHeader.padding.top, sectionHeader.padding.bottom)
+            };
+
+            // Bold transparent text for the index + title sitting on the row bubble (no box of
+            // their own, so they don't double-box over the bubble background).
+            missionHeaderTextStyle = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleLeft
             };
         }
 
@@ -442,21 +469,24 @@ namespace Parsek
             GUILayout.EndHorizontal();
         }
 
-        // Mission header bar: a non-modifiable index cell, the mission name (section-header
-        // style, double-click to rename inline), a loop toggle + loop-period cell, then Watch,
-        // Clone and Delete. Delete is disabled when this is the tree's last mission; Watch is
-        // flight-only and enabled when a member ghost is watchable. Clone/Delete mutate
-        // MissionStore; the draw loop iterates a snapshot so that is safe. The loop toggle goes
-        // through MissionStore.SetLoopEnabled, which allows concurrent looping across trees but
-        // at most one looping mission per tree (it only flips bools on same-tree siblings, never
-        // adds/removes, so it is safe to call from inside the draw loop).
+        // Mission header bar: a dark section-header bubble spanning the WHOLE row (index cell,
+        // the mission name, a loop toggle + loop-period cell, then Watch, Clone, Delete, and the
+        // Archive checkbox all sit on it). Delete is disabled when this is the tree's last
+        // mission; Watch is flight-only and enabled when a member ghost is watchable. Clone/Delete
+        // mutate MissionStore; the draw loop iterates a snapshot so that is safe. The loop toggle
+        // goes through MissionStore.SetLoopEnabled, which allows concurrent looping across trees
+        // but at most one looping mission per tree (it only flips bools on same-tree siblings,
+        // never adds/removes, so it is safe to call from inside the draw loop).
         private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view)
         {
-            GUILayout.BeginHorizontal();
+            // The whole row's background is the dark section-header bubble (missionHeaderRowStyle),
+            // so the bubble spans index -> Archive and every control sits inside it.
+            GUILayout.BeginHorizontal(missionHeaderRowStyle);
 
             // Index cell (first column): the per-tree number, non-modifiable. Shared by clones.
+            // Bold transparent text on the row bubble (no box of its own).
             GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "",
-                parentUI.GetSectionHeaderStyle(), GUILayout.Width(ColW_Index));
+                missionHeaderTextStyle, GUILayout.Width(ColW_Index));
 
             DrawMissionTitleOrRename(mission);
 
@@ -533,7 +563,9 @@ namespace Parsek
                 return;
             }
 
-            if (GUILayout.Button(display, parentUI.GetSectionHeaderStyle(), GUILayout.ExpandWidth(true)))
+            // Bold transparent text on the row bubble (clickable for rename); no box of its own,
+            // since the row's missionHeaderRowStyle already supplies the dark background.
+            if (GUILayout.Button(display, missionHeaderTextStyle, GUILayout.ExpandWidth(true)))
             {
                 float t = Time.realtimeSinceStartup;
                 if (lastClickedMissionId == mission.Id && t - lastMissionClickTime < DoubleClickThreshold)
