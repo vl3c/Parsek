@@ -81,9 +81,9 @@ namespace Parsek
         // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
         private const float ColW_Archive = 80f;
 
-        // Mission-header loop controls (live on the header row, not the table columns).
-        // Wide enough to fit the "Loop" label plus the trailing checkbox side by side.
-        private const float ColW_Loop = 64f;
+        // Mission-header loop-period cell width (lives on the header row, not the table columns).
+        // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
+        // sized loop control here is the period cell.
         private const float ColW_Period = 90f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
@@ -569,13 +569,13 @@ namespace Parsek
                 MissionStore.Delete(mission);
             GUI.enabled = true;
 
-            // "Loop [x]": the label first, then the checkbox (mirrors the recordings window's
-            // "Loop" select-all header cell, which also reads label-then-toggle). A bare
-            // Toggle(value, "Loop") would render "[x] Loop" instead.
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            // "Loop [x]": the label first, then the checkbox (a bare Toggle(value, "Loop") would
+            // render "[x] Loop" instead). Emitted as two direct siblings (no fixed-width wrapper):
+            // a wrapper wider than the content left slack after the checkbox, making the gap to the
+            // period field larger than the other element gaps. Bare label + toggle gives the normal
+            // ~4 px margin on each side, matching the rest of the row.
             GUILayout.Label("Loop");
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
-            GUILayout.EndHorizontal();
             if (loopNow != mission.LoopPlayback)
                 MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
 
