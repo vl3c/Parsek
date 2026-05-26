@@ -1,11 +1,14 @@
 # Design: Mission Periodicity (launch-window phase-locked looping)
 
 *Status: design note for a feature that follows the Mission Abstraction +
-whole-mission looping work (PR #958). It does NOT change the recording format or
-the recorded trajectory; it changes only WHEN a looped mission relaunches, so the
-replay lines up with the live sky. Builds directly on `MissionLoopUnitBuilder`,
-the span clock in `GhostPlaybackLogic`, and the map-presence loop fix. To ship as
-its own PR after #958 merges.*
+whole-mission looping work (PR #958, now merged to `main`). It does NOT change the
+recording format or the recorded trajectory; it changes only WHEN a looped mission
+relaunches, so the replay lines up with the live sky. Builds directly on
+`MissionLoopUnitBuilder` / `ComputeTrimmedMemberWindows`, the span clock in
+`GhostPlaybackLogic`, and the map-presence loop fix. This is the accuracy foundation
+for SUPPLY ROUTES (which consume "when does this mission faithfully repeat"), so the
+window scheduling must be physically correct, not approximate-looking. Ships as its
+own PR, built in the phases in `docs/dev/plans/mission-periodicity-phases.md`.*
 
 ---
 
@@ -99,12 +102,25 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
    segment of B is adjacent (the ascent->orbit / orbit->descent hand-off must line
    up over the launch / landing site).
 
-3. **SOI entry into body C** (an intercept inside the included span) -> constrains
-   **C's orbital phase**, repeating every `C.orbit.period` (Mun ~138,984 s). Because
-   the transfer time (launch -> encounter) is fixed in the recording, aligning C's
-   *mean anomaly* at the encounter is equivalent to constraining the launch UT modulo
-   `C.orbit.period`. The transited bodies are read from the SOI changes (the `body`
-   field across `OrbitSegments`) WITHIN the included segments only.
+3. **SOI entry into body C** (any intercept inside the included span - a capture, a
+   transient flyby, OR a gravity assist; a non-capturing pass is just as binding as a
+   capture, because the recorded arc still only reaches C where C will be) ->
+   constrains C's **phase relative to the launch body's parent**, because the transfer
+   time (launch -> encounter) is fixed in the recording, so aligning C's position at
+   the encounter constrains the launch UT modulo that recurrence period:
+   - **C orbits the SAME parent as the launch body** (Mun / Minmus from Kerbin):
+     the recurrence is simply `C.orbit.period` (Mun ~138,984 s) - the launch body and
+     the transfer frame are the same fixed reference, so aligning C's mean anomaly
+     aligns the whole geometry.
+   - **C orbits a DIFFERENT parent** (an interplanetary target like Duna, reached via
+     the Sun): the launch body ALSO moves around the shared parent (the Sun) during
+     the transfer, so the recurrence is the **synodic period** of the launch body and
+     C about their common parent (`1 / |1/T_launchParentOrbit - 1/T_C|`), NOT
+     `C.orbit.period`. Using `C.orbit.period` here would NOT realign the transfer.
+     (Multi-hop transfers - Kerbin -> Mun -> elsewhere, gravity-assist chains - stack
+     one such constraint per transited body; see the phased plan for when these land.)
+   The transited bodies are read from the SOI changes (the `body` field across
+   `OrbitSegments`) WITHIN the included segments only.
 
 `P` is the joint resonance (least common period) of just the constraints the
 included segments impose. An empty constraint set (e.g. looping a bare Kerbin orbit
@@ -184,35 +200,62 @@ Mechanics:
 
 ## Where it plugs into the existing code
 
-- **`MissionLoopUnitBuilder.TryBuildMissionUnit`** already computes `spanStartUT`
-  (= `UT0`), the cadence, and the `phaseAnchorUT`. This is where `P` is computed
-  and where `phaseAnchor` + the quantized cadence are derived. The body sequence
-  comes from the member recordings' `OrbitSegments` (`body` field) and the launch
-  surface; `launchBody.rotationPeriod` and `transitBody.orbit.period` are read from
-  `FlightGlobals` / the body's `Orbit` at build time.
-- **`MissionLoopUnitBuilder.BuildSignature`** must fold in `P` (or its inputs) so
-  the cached unit rebuilds when the body geometry or the faithful/free mode
-  changes.
-- **`GhostPlaybackLogic.ComputeEffectiveLaunchCadence`** (or a wrapper) gains the
-  `P`-quantization step on top of the existing `MinCycleDuration` / overlap-cap
-  floors.
-- **`Mission`** gains the faithful/free mode flag (persisted, cloned, reset) if we
-  go with a toggle (see Open questions).
-- No change to the recording format, `Recording`, the span clock, the map
-  epoch-shift, or the watch handoff.
+- **A new pure constraint extractor** turns the trimmed member set
+  (`MissionLoopUnitBuilder.ComputeTrimmedMemberWindows`) into the ordered list of
+  phase constraints (rotation-of-B / orbital-of-C-relative-to-its-parent), reading
+  the per-segment frame (surface vs inertial orbit vs SOI entry) from the recordings'
+  `OrbitSegments` / TrackSection reference frames and the bodies from `FlightGlobals`.
+  Pure + unit-testable (synthetic body sequences); this is the heart of the feature.
+- **A new pure `P` solver** takes that constraint list + the recorded inter-segment
+  time offsets and returns the best-fit recurrence period `P`, the next launch UT
+  (`UT0 + k*P >= now`), and a residual/quality (max phase error vs the physics
+  tolerance). Best-fit = smallest `P` within tolerance via continued-fraction /
+  Stern-Brocot rational approximation of the period ratios, bounded by a max-`P`
+  search. The **tolerance is derived from physics, not a free knob**: for an orbital
+  constraint, `tol ~ SOI_radius(C) / orbital_velocity(C)` (a tight bound - the Mun
+  moves ~543 m/s, so a few hundred seconds of error already misses its ~2.4 Mm SOI);
+  for a rotation constraint, a small fraction of a degree of the body's spin.
+- **`MissionLoopUnitBuilder.TryBuildMissionUnit`** consumes the solver: it snaps
+  `phaseAnchorUT` to the next faithful launch (`UT0 + k*P`) and quantizes the cadence
+  to a multiple of `P` (on top of the existing `MinCycleDuration` / overlap-cap floors
+  in `ComputeEffectiveLaunchCadence`). The snapped anchor is stored in
+  `Mission.LoopAnchorUT` (already persisted + already hashed by `BuildSignature`).
+- **`MissionLoopUnitBuilder.BuildSignature`** folds in the constraint inputs (the
+  transited-body set + their periods) so the cached unit rebuilds when the included
+  segments or the live body geometry change. (It already folds `ExcludedIntervalKeys`
+  + `LoopAnchorUT`.)
+- No new persisted `Mission` field is required for faithful-only behavior (`P` is
+  derived; the snapped anchor reuses `LoopAnchorUT`). No change to the recording
+  format, `Recording`, the span clock, the map epoch-shift, or the watch handoff.
 
 ---
 
 ## UX
 
-- The Missions tab period cell currently shows the effective launch cadence
-  (tinted when the overlap cap raised it). Under phase lock it would show the
-  cadence snapped to a multiple of `P`, and ideally why (for example "every Mun
-  window ~1.6 d").
-- If we keep a faithful/free toggle, it is a per-mission control on the mission
-  header row (next to Loop), defaulting to faithful.
-- For inter-body missions the displayed cadence will be long; the UI should make
-  clear this is the launch-window cadence, not an arbitrary cap.
+Looping is **always faithful** (it always respects the included config's
+constraints); there is no "free / decorative" mode. The configuration the user
+checks IS the contract, and the loop launches only at faithful windows.
+
+- **New "T- to launch window" column** in the Missions tab (next to the period
+  cell): a live countdown to the next faithful launch (`UT0 + k*P`). This is the
+  primary surface for the periodicity - the user sees exactly when the next replay
+  fires (for a Mun mission, the next Mun window; for a single-body launch, the next
+  rotation-aligned slot). When a launch is in progress it shows the time to the next
+  one; when `P = MinCycleDuration` (unconstrained config) it effectively reads "now"
+  / continuous.
+- The period cell still shows the effective cadence, now snapped to a multiple of
+  `P`, labeled with why (e.g. "every Mun window ~1.6 d").
+- **Quality / residual readout** (in the T- column or its tooltip): for an
+  over-constrained config (no exact joint window - see Risks), the best-fit window
+  carries a residual phase error. Surface it: green when within the physics tolerance
+  (the intercept/landing site genuinely lines up), amber/flagged when the best
+  achievable window still misses tolerance, so the user knows the config cannot be
+  looped accurately as checked and can adjust which segments are included.
+- Accuracy is non-negotiable: this scheduling (next-window UT + faithful cadence) is
+  the **foundation for supply routes**, which consume "when does this mission
+  faithfully repeat" directly. A window that silently misses its intercept would
+  break a route, so the residual readout and the physics-derived tolerance are core,
+  not cosmetic.
 
 ---
 
@@ -221,34 +264,42 @@ Mechanics:
 - **Replay as-is; do not re-aim the trajectory.** We choose WHEN to launch the
   recorded mission; we do NOT transform / re-plan the recorded inertial trajectory
   to intercept the target's *current* position. Re-aiming would mean re-solving the
-  transfer per launch (a different mission each time) and is explicitly out of
-  scope.
+  transfer per launch (a different mission each time) and is explicitly out of scope.
+- **Faithful-only; no free / decorative mode.** Looping always phase-locks to the
+  included config's constraints. The checked configuration is the contract.
+- **Over-constrained configs are never refused.** When no exact joint window exists
+  (e.g. a Mun landing-AND-return that pins Kerbin's rotation at two incompatible
+  offsets - see Risks), we take the best-fit window, show a **T- to launch window**
+  countdown, and surface the residual; we still respect the full constraint set
+  (never silently drop one). The user adjusts which segments are included if the
+  residual is unacceptable.
+- **Tolerance is physics-derived, not a free knob** (`SOI_radius / orbital_velocity`
+  for orbital constraints; a fraction of a degree for rotation). Accuracy is
+  paramount because this is the **supply-routes foundation** - routes consume the
+  next-window schedule, so a window must actually hit its intercept.
 - **Read all periods at runtime** from the live bodies (`rotationPeriod`,
-  `orbit.period`); never hardcode stock values. Planet packs must work.
-- **Build on #958.** This depends on `MissionLoopUnitBuilder`, the span clock, and
-  the map epoch-shift already shipped there. Branch base: `design-mission-abstractions`
-  (rebase onto `main` after #958 merges).
+  `orbit.period`, and the synodic combination for cross-parent targets); never
+  hardcode stock values. Planet packs must work.
+- **Same-parent targets first; interplanetary (synodic) is a later phase.** The
+  early phases handle single-body + same-parent intercepts (Mun / Minmus from
+  Kerbin), where the constraint is exactly `C.orbit.period`. Sun-orbiting targets
+  (the synodic model) and multi-hop / gravity-assist chains come in a later phase;
+  until then a cross-parent target is detected and reported as "not yet supported"
+  rather than silently mis-scheduled.
+- **Build on #958** (now merged to `main`): depends on `MissionLoopUnitBuilder`,
+  `ComputeTrimmedMemberWindows`, the span clock, and the shipped map epoch-shift.
 - **No recording-format change.** The body sequence + `UT0` are already derivable
-  from existing recorded data.
+  from existing recorded data; `P` is derived (not persisted); the snapped anchor
+  reuses the existing `Mission.LoopAnchorUT`.
 
-## Open questions
+## Still open (to tune in playtest, not blockers)
 
-1. **Faithful-only vs faithful/free toggle.** Should phase lock always apply
-   (cadence always snapped to `P`), or should there be a per-mission "faithful /
-   free (decorative)" mode where free keeps the current arbitrary-cadence behavior
-   (frequent, but trajectories do not intercept)? Default if toggled: faithful.
-2. **Exact vs approximate for inter-body.** Accept an approximately-faithful window
-   (small residual phase error, much more usable) or insist on exact-only (rare,
-   very long `P`)? A tolerance parameter; what default?
-3. **Tier 1 residual.** Is the Tier-1 launch-site offset (intercept aligned but the
-   orbit slightly off the live launch site) acceptable to ship before Tier 2, or do
-   we need the joint best-fit from the start for it to look right?
-4. **Cadence quantization UX.** Snap the user's typed period up to the nearest
-   multiple of `P` silently, show the snapped value tinted (like the overlap cap),
-   or surface `P` explicitly ("next window in X")?
-5. **Multi-transfer / interplanetary** missions: ship Tier 1 (lock to the final
-   target's period) first and treat multi-body joint alignment as Tier 2, or scope
-   it in from the start?
+- The exact tolerance constants (the `SOI_radius / orbital_velocity` fraction, the
+  rotation degrees) and the max-`P` search bound - pin starting values, refine by
+  feel.
+- Whether to draw the orbit/transfer **decoratively** during a long T- wait (so the
+  map is not empty before the first faithful launch) or show nothing until launch.
+- Whether the residual readout warrants a dedicated icon/state vs a tooltip color.
 
 ---
 
@@ -265,20 +316,49 @@ Mechanics:
 
 ## Risks / edge cases
 
-- **Incommensurate periods:** no exact common period; the joint best-fit needs a
-  tolerance and a max-`P` search bound (continued-fraction / best-rational
-  approximation of the period ratio).
-- **No-target missions:** if the mission never leaves the launch body's SOI, there
-  is no orbital term and `P = rotationPeriod`. Pure on-surface missions that never
-  reach orbit may not even need rotation alignment (no inertial arc to connect);
-  detect "has an orbital segment" before applying rotation lock.
-- **Multi-SOI / gravity assists:** more than one transited body; each adds a term.
-- **Tidally locked / odd-rotation bodies:** use the actual `rotationPeriod`
-  (Mun's equals its orbital period); do not assume.
-- **Phase-anchor re-snap on enable:** snapping `phaseAnchor` forward to the next
-  faithful window means the first replay may not start immediately on enable; the
-  UI should make the wait legible (or start the span clock parked until the first
-  window).
+- **Over-constrained configs (no exact joint `P`).** A Mun landing-AND-return pins
+  Kerbin's rotation at BOTH the launch site (t_launch) and the re-entry site
+  (t_reentry); since the recording fixes `t_reentry - t_launch`, both are satisfiable
+  only if that separation is itself a multiple of `Kerbin.rotationPeriod`, which it
+  generically is NOT. So some configs have no exact faithful window. Handling (per
+  Key decisions): take the best-fit window, show the T- countdown + residual, never
+  refuse; flag amber when the residual exceeds tolerance so the user can re-trim
+  (e.g. drop the re-entry segment to loop just the outbound mission). Two same-body
+  surface constraints at incompatible offsets are the canonical over-constrained
+  case; design tests around it.
+- **Interplanetary uses the synodic period, not the target's orbital period.** A
+  cross-parent target (Duna via the Sun) recurs on the launch-body/target synodic
+  period; using `C.orbit.period` would mis-schedule. Same-parent targets (Mun /
+  Minmus) are unaffected. Cross-parent is a later phase; until then, detect it and
+  report "not yet supported" rather than produce a wrong window.
+- **Transient SOI passes / gravity assists are binding.** A flyby that does not
+  capture, and a free-return, still require the assist body's phase (the recorded arc
+  only reaches it where it will be). The SOI-change rule already registers them via
+  the `body` field; treat a transient pass exactly like a capture.
+- **Rendezvous / docking with another vessel is out of scope (for now).** Aligning to
+  another (looped or live) vessel is not a celestial-body period; the solver only
+  models bodies. Detect a rendezvous/dock in the included span and report it as
+  unsupported for faithful looping rather than emit a body-only `P` that ignores it.
+- **Tidally-locked bodies collapse two constraints into one (automatically).** The
+  Mun's `rotationPeriod == orbit.period`, so a Mun-surface segment's rotation
+  constraint and a Mun intercept's orbital constraint share the same period and
+  phase. The joint-resonance solver handles this for free (one effective constraint);
+  no special case, but worth a confirming test.
+- **`rotationPeriod == 0` or retrograde / odd rotation.** Guard against divide-by-zero
+  (a zero/near-zero rotation period = no rotation constraint) and handle the sign of
+  retrograde rotation; read the actual value, never assume.
+- **Future-dated recordings** (`UT0 > liveUT`, e.g. after a career rewind/warp): the
+  next-window `k` is the smallest integer with `UT0 + k*P >= now`, which can be
+  negative; and the span clock early-returns while `currentUT < phaseAnchorUT`, so a
+  forward-snapped anchor simply parks the loop until the clock reaches it (which is
+  the intended "wait for the window"). Reconcile the two so the T- countdown reads
+  correctly across that boundary.
+- **No-target / no-inertial-arc missions:** a config with no SOI entry and no
+  rotating-surface-to-orbit hand-off imposes no constraint -> `P = MinCycleDuration`
+  (loop freely). Detect the empty constraint set rather than forcing a rotation lock.
+- **Scope:** this affects ONLY looping Missions. Non-looping ghosts and per-recording
+  (non-mission) auto-loop are untouched; state this in the implementation so nobody
+  expects single-recording ghosts to phase-lock.
 
 ## References
 
