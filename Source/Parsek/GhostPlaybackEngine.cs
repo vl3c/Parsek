@@ -1138,19 +1138,28 @@ namespace Parsek
                     continue;
                 }
 
-                // Clean up overlap ghosts if recording switched from looping to non-looping
-                if (overlapGhosts.ContainsKey(i))
-                {
-                    DestroyAllOverlapGhosts(i);
-                    overlapGhosts.Remove(i);
-                }
-
                 // === Loop-synced debris: use parent's loop clock ===
+                // Runs BEFORE the loop->non-loop overlap cleanup below. A ride-along debris whose
+                // parent loops renders through the OVERLAP path (UpdateOverlapPlayback owns
+                // overlapGhosts[i] and expires its own staggered instances). The cleanup below must
+                // NOT wipe that list every frame: doing so destroys each demoted background instance
+                // (the older debris pieces still coasting to their crash) the very next frame, so
+                // only the freshest instance survives and it resets every cadence - the debris
+                // "disappears" long before its recorded flight ends. Non-debris recordings and a
+                // debris whose parent is NOT looping return false here and fall through to the
+                // cleanup, which is correct for them.
                 if (TryUpdateLoopSyncedDebris(
                         i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
                         activationStartUT, hasPointData, hasInterpolatedPoints,
                         hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
                     continue;
+
+                // Clean up overlap ghosts if recording switched from looping to non-looping.
+                if (overlapGhosts.ContainsKey(i))
+                {
+                    DestroyAllOverlapGhosts(i);
+                    overlapGhosts.Remove(i);
+                }
 
                 // === Warp suppression: hide moving ghosts during high warp ===
                 if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
@@ -1785,6 +1794,9 @@ namespace Parsek
                                 parentUnit.OverlapCadenceSeconds, debrisDuration,
                                 debrisPlaybackStartUT, debrisScheduleStartUT,
                                 suppressVisualFx, suppressDebrisOverlapGhosts);
+                            LogLoopSyncedDebrisOverlapVisibility(
+                                i, traj, ctx.currentUT, parentUnit.OverlapCadenceSeconds,
+                                debrisDuration, debrisPlaybackStartUT, debrisScheduleStartUT);
                             return true;
                         }
 
@@ -1874,6 +1886,63 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Non-gated per-frame visibility diagnostic for a ride-along debris rendered through the
+        /// mission self-overlap path. Unlike <see cref="GhostRenderTrace"/> (which only logs an
+        /// ~4 s window after each spawn, then goes silent in steady state), this reports the
+        /// debris's ACTUAL rendered-instance count every frame (rate-limited 2 s), so a playtest
+        /// log shows how long the debris is really visible across overlap cycles and whether the
+        /// staggered background instances (which should collectively cover its whole flight) render
+        /// at all. <c>totalVisible</c> dropping to 0 between cycles, or <c>overlapActive</c> staying
+        /// 0 while the primary resets every cadence, is the "debris disappears too quickly" signal.
+        /// </summary>
+        private void LogLoopSyncedDebrisOverlapVisibility(
+            int index, IPlaybackTrajectory traj, double currentUT,
+            double cadenceSeconds, double duration, double playbackStartUT, double scheduleStartUT)
+        {
+            int primaryActive = 0;
+            long primaryCycle = -1;
+            if (ghostStates.TryGetValue(index, out GhostPlaybackState primary) && primary != null)
+            {
+                primaryCycle = primary.loopCycleIndex;
+                if (primary.ghost != null && primary.ghost.activeSelf)
+                    primaryActive = 1;
+            }
+
+            int overlapActive = 0;
+            int overlapTotal = 0;
+            if (overlapGhosts.TryGetValue(index, out List<GhostPlaybackState> overlaps) && overlaps != null)
+            {
+                overlapTotal = overlaps.Count;
+                for (int k = 0; k < overlaps.Count; k++)
+                {
+                    if (overlaps[k]?.ghost != null && overlaps[k].ghost.activeSelf)
+                        overlapActive++;
+                }
+            }
+
+            GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                currentUT, cadenceSeconds, duration, playbackStartUT, scheduleStartUT,
+                out double newestLoopUT, out long newestCycle);
+
+            ParsekLog.VerboseRateLimited(
+                "Engine", "debris-vis-" + index.ToString(CultureInfo.InvariantCulture),
+                "Loop-synced debris #" + index.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj?.VesselName ?? "?") + "\" visibility:"
+                    + " totalVisible=" + (primaryActive + overlapActive).ToString(CultureInfo.InvariantCulture)
+                    + " (primaryActive=" + primaryActive.ToString(CultureInfo.InvariantCulture)
+                    + " cycle=" + primaryCycle.ToString(CultureInfo.InvariantCulture)
+                    + ", overlapActive=" + overlapActive.ToString(CultureInfo.InvariantCulture)
+                    + "/" + overlapTotal.ToString(CultureInfo.InvariantCulture) + ")"
+                    + " newestCycle=" + newestCycle.ToString(CultureInfo.InvariantCulture)
+                    + " newestLoopUT=" + newestLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " cadence=" + cadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                    + " window=[" + playbackStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + "," + (playbackStartUT + duration).ToString("F2", CultureInfo.InvariantCulture) + "]"
+                    + " at UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                2.0);
         }
 
         /// <summary>
