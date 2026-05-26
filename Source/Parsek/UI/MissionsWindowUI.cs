@@ -817,12 +817,6 @@ namespace Parsek
             return double.IsInfinity(min) ? 0.0 : min;
         }
 
-        // The mission span in seconds = (max EndUT - min StartUT) over the COMMITTED member
-        // recordings of the included through-lines, computed exactly the way
-        // MissionLoopUnitBuilder derives the span it caps the overlap cadence to (only members
-        // present in CommittedRecordings count, by RecordingId). Used only for the period cell's
-        // effective-cadence display, so the shown value matches the cadence actually running.
-        // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
         // loop members, computed via the SAME MissionLoopUnitBuilder.ComputeTrimmedMemberWindows the
         // loop builder derives its span from - so the period cell's effective-cadence display matches
