@@ -65,7 +65,8 @@ namespace Parsek
         private const float ColW_Watch = 50f;
         // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
         // header carries the global "hide archived" toggle, each mission row a per-mission check.
-        private const float ColW_Archive = 60f;
+        // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
+        private const float ColW_Archive = 80f;
 
         // Mission-header loop controls (live on the header row, not the table columns).
         // Wide enough to fit the "Loop" label plus the trailing checkbox side by side.
