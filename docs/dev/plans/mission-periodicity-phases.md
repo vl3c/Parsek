@@ -70,23 +70,35 @@ change in game (nothing calls it).
 **Goal:** phase-lock the simple, common cases so a looped Kerbin-orbit mission sits
 over KSC and a looped Mun mission's transfer actually reaches the Mun.
 
-**Scope**
-- Pure `P` solver for the easy cases only: 0 constraints -> `MinCycleDuration`;
-  exactly one `Rotation` -> `P = rotationPeriod`; exactly one same-parent `Orbital`
-  -> `P = orbit.period`; a `Rotation`+same-parent-`Orbital` pair that happens to share
-  a period (tidally-locked) -> that one period. More than one independent constraint
-  -> defer to Phase 2 (until then, lock the dominant orbital one + report residual
-  unknown, OR leave unlocked - pick the conservative path and note it).
+**Scope (the Tier-1 contract from the design doc - lock the SINGLE dominant
+constraint, never "leave unlocked"):**
+- Pure `P` solver, Tier 1: 0 constraints -> `MinCycleDuration`; the dominant
+  constraint determines `P` and the rest are KNOWINGLY dropped (logged):
+  - exactly one `Rotation` -> `P = rotationPeriod`;
+  - one direct-child `Orbital` (`C.referenceBody == launchBody`, e.g. Mun) -> `P =
+    C.orbit.period`, even when a `Rotation(launchBody)` is also present (the flagship
+    Mun case: lock the intercept, accept the launch-site rotation residual - this is
+    the explicit Tier-1 simplification, NOT the Phase-2 best-fit);
+  - a `Rotation`+direct-child-`Orbital` pair on a tidally-locked body (same period)
+    -> that one period (collapses for free).
+  Joint best-fit over MULTIPLE INDEPENDENT constraints (e.g. Mun landing-and-return's
+  two Kerbin-rotation offsets, or rotation + a non-tidally-locked intercept where the
+  residual matters) -> Phase 2; Phase 1 still locks the dominant intercept and logs
+  the dropped constraint(s) as a Tier-1 residual.
 - Next-window: smallest `k` with `UT0 + k*P >= now` (k may be negative for
-  future-dated `UT0`); guard `rotationPeriod <= 0`.
+  future-dated `UT0`); guard `rotationPeriod <= 0` (treat as no rotation constraint).
 - Wire into `MissionLoopUnitBuilder.TryBuildMissionUnit`: snap `phaseAnchorUT` to the
   next window, quantize the cadence to a multiple of `P` (above the existing floors).
   Fold the constraint inputs (transited bodies + periods) into `BuildSignature`.
-- Cross-parent / rendezvous / multi-constraint -> reported unsupported, fall back to
-  today's arbitrary-phase behavior (so we never mis-schedule before Phase 2/4).
+- Cross-parent (sibling/interplanetary) / rendezvous -> reported unsupported, fall
+  back to today's arbitrary-phase behavior (so we never mis-schedule before Phase 4 /
+  ever for rendezvous). This is the only "leave unlocked" case, and it is for configs
+  we cannot yet schedule correctly - NOT for the supported Mun case.
 
 **Files:** `MissionPeriodicity.cs` (solver); `MissionLoopUnitBuilder.cs`
-(`TryBuildMissionUnit`, `BuildSignature`); maybe `GhostPlaybackLogic` cadence helper.
+(`TryBuildMissionUnit` does the cadence quantization + anchor snap, `BuildSignature`).
+No `GhostPlaybackLogic` change (the quantization sits in the builder, matching the
+design's "everything downstream is unchanged").
 
 **Tests:** solver unit tests (each easy case + next-window `k` incl. future-dated);
 a `MissionLoopUnitBuilderTests` case asserting the snapped anchor for a single-body
@@ -102,10 +114,16 @@ this phase** (it is the first behavior-changing wiring).
 
 **Goal:** correct `P` for any number of constraints, with an honest residual.
 
+**Pre-phase spec needed:** the best-fit `P` algorithm must be pinned at Phase 2
+PLANNING (not hand-waved): the objective is to minimize the max over constraints of
+`dist( (UT0 + k*P + offset_i) mod period_i , recordedPhase_i )` (the phase OFFSETS
+enter, not just the period ratios), searched over `P` (continued-fraction /
+Stern-Brocot on the period ratios) and `k`, bounded by a max-`P`. Write the worked
+algorithm + a couple of hand-checked numeric cases before coding.
+
 **Scope**
-- Generalize the solver to N constraints: joint resonance / best-fit over the
-  constraint periods + phase offsets, via continued-fraction / Stern-Brocot rational
-  approximation of the period ratios, bounded by a max-`P` search.
+- Generalize the solver to N constraints: joint best-fit over the constraint periods
+  AND phase offsets (per the objective above), bounded by a max-`P` search.
 - Physics-derived tolerance per constraint; compute the best-fit window's residual
   (max phase error across constraints) and whether it is within tolerance.
 - Over-constrained (no exact joint window, e.g. Mun landing-and-return): return the

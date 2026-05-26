@@ -123,29 +123,39 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
 
 2. **Inertial orbit segment around body B** -> by itself imposes **no** phase
    constraint (B is always there; an inertial orbit is faithful at any UT). It
-   inherits B's rotation constraint ONLY when an included surface / atmospheric
-   segment of B is adjacent (the ascent->orbit / orbit->descent hand-off must line
-   up over the launch / landing site).
+   inherits B's rotation constraint ONLY when the INCLUDED constraint set already
+   contains a surface/atmospheric segment of the SAME body B (the ascent->orbit /
+   orbit->descent hand-off must line up over that launch/landing site). "Adjacent" is
+   NOT list-adjacency or UT-adjacency: inheritance is a property of the included set
+   (does any included surface segment of B exist?), so trimming the ascent away
+   removes the inherited constraint and the bare orbit is free. In practice this means
+   the orbit adds nothing the surface segment did not already add - rule 1 alone
+   produces B's rotation constraint - so the inertial-orbit case is effectively
+   "contributes no NEW constraint."
 
 3. **SOI entry into body C** (any intercept inside the included span - a capture, a
    transient flyby, OR a gravity assist; a non-capturing pass is just as binding as a
    capture, because the recorded arc still only reaches C where C will be) ->
-   constrains C's **phase relative to the launch body's parent**, because the transfer
-   time (launch -> encounter) is fixed in the recording, so aligning C's position at
-   the encounter constrains the launch UT modulo that recurrence period:
-   - **C orbits the SAME parent as the launch body** (Mun / Minmus from Kerbin):
-     the recurrence is simply `C.orbit.period` (Mun ~138,984 s) - the launch body and
-     the transfer frame are the same fixed reference, so aligning C's mean anomaly
-     aligns the whole geometry.
-   - **C orbits a DIFFERENT parent** (an interplanetary target like Duna, reached via
-     the Sun): the launch body ALSO moves around the shared parent (the Sun) during
-     the transfer, so the recurrence is the **synodic period** of the launch body and
-     C about their common parent (`1 / |1/T_launchParentOrbit - 1/T_C|`), NOT
-     `C.orbit.period`. Using `C.orbit.period` here would NOT realign the transfer.
-     (Multi-hop transfers - Kerbin -> Mun -> elsewhere, gravity-assist chains - stack
-     one such constraint per transited body; see the phased plan for when these land.)
-   The transited bodies are read from the SOI changes (the `body` field across
-   `OrbitSegments`) WITHIN the included segments only.
+   constrains C's position at the encounter; because the transfer time
+   (launch -> encounter) is fixed in the recording, that constrains the launch UT
+   modulo a recurrence period that depends on C's relationship to the LAUNCH BODY:
+   - **C orbits the launch body directly** (`C.referenceBody == launchBody`; Mun /
+     Minmus from Kerbin): the recurrence is simply `C.orbit.period` (Mun ~138,984 s) -
+     the launch body and the transfer frame are the same fixed reference, so aligning
+     C's mean anomaly aligns the whole geometry.
+   - **C is a sibling of the launch body** (`C.referenceBody == launchBody.referenceBody`;
+     an interplanetary target like Duna, both orbiting the Sun): the launch body ALSO
+     moves around the shared parent during the transfer, so the recurrence is the
+     **synodic period** of the launch body and C about that shared parent
+     (`1 / |1/T_launchBodyOrbit - 1/T_C|`), NOT `C.orbit.period`. Using `C.orbit.period`
+     here would NOT realign the transfer.
+   - **Anything deeper** (C is a moon of a sibling, multi-hop / gravity-assist chains
+     stacking several transited bodies): each transited body adds its own constraint;
+     see the phased plan for when these land.
+   The **launch body** is the body of the earliest INCLUDED surface/atmospheric
+   segment (or, if none, the `bodyName` of the earliest included `OrbitSegment`). The
+   transited bodies are read from the SOI changes (the `bodyName` field across the
+   included segments' `OrbitSegments`).
 
 `P` is the joint resonance (least common period) of just the constraints the
 included segments impose. An empty constraint set (e.g. looping a bare Kerbin orbit
@@ -192,14 +202,21 @@ Compute `P` per looping mission and phase-lock the loop:
   `P = the launch/landing body's rotationPeriod` when an included surface /
   atmospheric segment must line up, else `MinCycleDuration` (a bare inertial orbit
   with no surface segment imposes no phase constraint).
-- **Config that reaches another body:** `P` = the dominant intercept period (the
-  target / last transited body's orbital period within the included span), so the
-  transfer actually reaches the target. Accept a small residual launch-body-rotation
-  offset (the orbit may sit slightly off the live launch site) for Tier 1; the
-  intercept is the dominant visual break.
+- **Config that reaches another body** (the flagship Mun case, which has TWO
+  constraints: `Rotation(Kerbin)` + `Orbital(Mun)`): Tier 1 deliberately locks ONLY
+  the dominant intercept constraint - `P` = the target's recurrence period (rule 3) -
+  so the transfer actually reaches the target, and **accepts the residual
+  launch-body-rotation offset** (the orbit may sit slightly off the live launch site).
+  The intercept is the dominant visual break; the launch-site offset is the smaller
+  one and is closed in Tier 2.
 
-Both cases derive their bodies/frames from the INCLUDED segments (the trimmed member
-set), so changing which intervals are checked re-derives `P`.
+This is an explicit Tier-1 SIMPLIFICATION, not the over-constrained best-fit: Tier 1
+locks the single dominant constraint and ignores the others; **Tier 2** (the joint
+best-fit, below) is what respects ALL the included config's constraints simultaneously
+and reports the residual. The "never silently drop a constraint" rule in Key decisions
+is the Tier-2/over-constrained contract; Tier 1 drops the rotation residual KNOWINGLY
+and logs that it did. Both tiers derive their bodies/frames from the INCLUDED segments
+(the trimmed member set), so changing which intervals are checked re-derives `P`.
 
 Mechanics:
 
@@ -271,16 +288,25 @@ struct PhaseConstraint            // one per constraining included segment
     double PhaseOffsetSeconds     // segment's recorded UT - UT0 (the fixed offset)
     bool   RelativeToParent       // Orbital: same-parent (false) vs cross-parent (true)
 
+enum Support                      // Supported, or a reason it is not yet solvable:
+    Supported
+    UnsupportedCrossParent        //   sibling/interplanetary target (until Phase 4)
+    UnsupportedRendezvous         //   aligns to another vessel, not a body (out of scope)
+    UnsupportedMultiConstraintPreP2  // >1 independent constraint before Phase 2
+
 struct PeriodicitySolution
-    double P                      // recurrence period (MinCycleDuration if unconstrained)
-    double NextWindowUT           // smallest UT0 + k*P >= now (k may be negative)
-    double ResidualSeconds        // best-fit max phase error across constraints
-    bool   WithinTolerance        // ResidualSeconds <= tolerance
-    Support Support               // Supported | UnsupportedCrossParent | UnsupportedRendezvous | UnsupportedMultiConstraint(<P2)
+    double  P                     // recurrence period (MinCycleDuration if unconstrained)
+    double  NextWindowUT          // smallest UT0 + k*P >= now (k may be negative)
+    double  ResidualSeconds       // best-fit max phase error across constraints
+    bool    WithinTolerance       // ResidualSeconds <= tolerance
+    Support Support
 
 interface IBodyInfo               // test seam over FlightGlobals
-    double RotationPeriod(name)   //   (also referenceBody, orbit.period)
-    ... 
+    double RotationPeriod(string bodyName)
+    double OrbitPeriod(string bodyName)
+    string ReferenceBodyName(string bodyName)   // parent body (for same-parent vs sibling)
+    double SoiRadius(string bodyName)           // for the tolerance formula
+    double OrbitalVelocity(string bodyName)     // approx, for the tolerance formula
 ```
 
 - `MissionPeriodicity.ExtractConstraints(view, compRoots, committed, excludedKeys, IBodyInfo)`
@@ -448,8 +474,25 @@ Each is scenario -> expected behavior -> [v1 phase / deferred]. v1 = Phases 0-3
   next-window `k` is the smallest integer with `UT0 + k*P >= now`, which can be
   negative; and the span clock early-returns while `currentUT < phaseAnchorUT`, so a
   forward-snapped anchor simply parks the loop until the clock reaches it (which is
-  the intended "wait for the window"). Reconcile the two so the T- countdown reads
-  correctly across that boundary.
+  the intended "wait for the window"). Reconcile the two: `T- = NextWindowUT - now`
+  in ALL cases (whether the anchor is behind or ahead of now); while the loop is
+  parked (`now < phaseAnchorUT`) nothing renders and the T- column shows the same
+  positive countdown. [v1: Phase 1 next-window math + Phase 3 readout.]
+- **Config changed during a long T- wait:** while a window is counting down (loop
+  parked), toggling an interval moves `BuildSignature`, rebuilds the unit, and
+  re-derives `UT0` + constraints, so `phaseAnchorUT` re-snaps and the countdown can
+  jump (possibly by in-game days). Expected: the T- column simply reflects the new
+  next window immediately; this is correct (the config IS the contract). Log the
+  re-snap (old->new window) so the jump is not a mystery. [v1: Phase 1/3.]
+- **Backgrounded / on-rails transfer coast.** Per CLAUDE.md, on-rails BG vessels emit
+  no env-classified per-frame TrackSections; a packed close emits
+  `OrbitalCheckpoint`/`Checkpoint`-wrapped `OrbitSegment`s (orbit-only bridges). The
+  extractor keys on the `bodyName` transition across `OrbitSegments`, so a SOI change
+  that happened while backgrounded must still surface as a `bodyName` change in those
+  checkpoint-wrapped segments. Expected: it does (the segment still carries its body);
+  Phase 0 must include a test with a checkpoint-bridged SOI change so a backgrounded
+  transfer does NOT silently extract zero `Orbital(C)` constraints and mis-schedule.
+  [v1: Phase 0 test.]
 - **No-target / no-inertial-arc missions:** a config with no SOI entry and no
   rotating-surface-to-orbit hand-off imposes no constraint -> `P = MinCycleDuration`
   (loop freely). Detect the empty constraint set rather than forcing a rotation lock.
