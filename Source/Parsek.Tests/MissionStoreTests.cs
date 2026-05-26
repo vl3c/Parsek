@@ -226,33 +226,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SaveLoad_RoundTripsWindowSize_AndUnsetStaysNaN()
-        {
-            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
-            MissionStore.WindowWidth = 912.5f;
-            MissionStore.WindowHeight = 480f;
-
-            var node = new ConfigNode("PARSEK");
-            MissionStore.Save(node);
-            MissionStore.ResetForTesting();
-            Assert.True(float.IsNaN(MissionStore.WindowWidth)); // reset cleared it
-
-            MissionStore.Load(node);
-            Assert.Equal(912.5f, MissionStore.WindowWidth);
-            Assert.Equal(480f, MissionStore.WindowHeight);
-
-            // An unset (NaN) size is not written, and loads back as NaN (use the default).
-            MissionStore.WindowWidth = float.NaN;
-            MissionStore.WindowHeight = float.NaN;
-            var node2 = new ConfigNode("PARSEK");
-            MissionStore.Save(node2);
-            Assert.False(node2.HasValue("missionWindowWidth"));
-            MissionStore.WindowWidth = 123f; // dirty it
-            MissionStore.Load(node2);
-            Assert.True(float.IsNaN(MissionStore.WindowWidth));
-        }
-
-        [Fact]
         public void SaveLoad_AndClone_RoundTripExcludedIntervalKeys()
         {
             MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
@@ -501,6 +474,57 @@ namespace Parsek.Tests
             Assert.Equal(0, removed);
             Assert.Contains(headId, m.ExcludedThroughLineHeadIds);
             Assert.DoesNotContain(logLines, l => l.Contains("ReconcileSelections"));
+        }
+
+        [Fact]
+        public void ReconcileSelections_RemovesStaleIntervalKey_KeepsValidKey_AndWarns()
+        {
+            var logLines = new List<string>();
+            ParsekLog.SuppressLogging = false;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            MissionStore.SuppressLogging = false;
+
+            const string headId = "headLeg";
+            var tree = TreeWithThroughLineHead("t1", headId);
+            // A genuine selectable composition key for this tree (the same set ReconcileSelections
+            // validates against), so the "valid key survives" assertion does not hard-code an id.
+            string validKey = FirstSelectableHeadLegId(
+                MissionCompositionBuilder.Build(MissionStructureBuilder.Build(tree)));
+            Assert.False(string.IsNullOrEmpty(validKey)); // sanity: the tree has a selectable interval
+
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { tree });
+            Mission m = First();
+            m.ExcludedIntervalKeys.Add(validKey);            // valid: a current composition node
+            m.ExcludedIntervalKeys.Add("bogusIntervalKey");  // stale: not a current composition key
+
+            int removed = MissionStore.ReconcileSelections(new List<RecordingTree> { tree });
+
+            Assert.Equal(1, removed);
+            Assert.DoesNotContain("bogusIntervalKey", m.ExcludedIntervalKeys); // dropped
+            Assert.Contains(validKey, m.ExcludedIntervalKeys);                 // survives
+            Assert.Contains(logLines,
+                l => l.Contains("[Mission]") && l.Contains("ReconcileSelections")
+                  && l.Contains("stale interval key"));
+        }
+
+        // First selectable composition-node HeadLegId in a depth-first walk (null if none).
+        private static string FirstSelectableHeadLegId(
+            System.Collections.Generic.IReadOnlyList<MissionCompositionNode> nodes)
+        {
+            if (nodes == null)
+                return null;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                var n = nodes[i];
+                if (n == null)
+                    continue;
+                if (n.IsSelectable && !string.IsNullOrEmpty(n.HeadLegId))
+                    return n.HeadLegId;
+                string child = FirstSelectableHeadLegId(n.Children);
+                if (child != null)
+                    return child;
+            }
+            return null;
         }
     }
 }

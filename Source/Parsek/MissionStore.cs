@@ -18,20 +18,12 @@ namespace Parsek
         // Persisted alongside the missions so the view state survives a reload.
         internal static bool HideArchived;
 
-        // Persisted Missions window size (the player's last resize). NaN = unset, so the window
-        // falls back to its default width / height. The window pushes its current size here each
-        // frame and reads it back on first open, and it round-trips through Save / Load.
-        internal static float WindowWidth = float.NaN;
-        internal static float WindowHeight = float.NaN;
-
         internal static IReadOnlyList<Mission> Missions => missions;
 
         internal static void ResetForTesting()
         {
             missions.Clear();
             HideArchived = false;
-            WindowWidth = float.NaN;
-            WindowHeight = float.NaN;
         }
 
         internal static int CountForTree(string treeId)
@@ -84,13 +76,20 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Drops stale through-line head ids from every Mission's excluded set: ids that
-        /// are no longer a current through-line head for the Mission's tree (the branch
-        /// they referred to was edited away, re-flown, or merged out from under them). A
-        /// stale exclusion would otherwise silently re-include a branch the player had
-        /// dropped once it stopped being a head, so this fails loudly with a warn. Builds
-        /// each tree's through-line view at most once and reuses it across Missions that
-        /// share the tree. Returns the total number of ids removed across all Missions.
+        /// Drops stale selection ids from every Mission's excluded sets when the underlying tree
+        /// topology has changed (a branch/segment was edited away, re-flown, or merged out):
+        /// <list type="bullet">
+        /// <item><see cref="Mission.ExcludedThroughLineHeadIds"/> ids that are no longer a current
+        /// through-line head; and</item>
+        /// <item><see cref="Mission.ExcludedIntervalKeys"/> keys that are no longer a selectable
+        /// composition node (the keys are composition node HeadLegIds, including synthetic
+        /// <c>&lt;head&gt;/segN</c> sub-segment ids whose N shifts when the structural-peel count
+        /// changes - a stale /segN would otherwise silently re-target a DIFFERENT segment).</item>
+        /// </list>
+        /// A stale exclusion would otherwise silently re-include / mis-target a piece the player had
+        /// dropped, so this fails loudly with a warn. Builds each tree's structure / view /
+        /// composition at most once and reuses them across Missions that share the tree. Returns the
+        /// total number of ids removed across all Missions.
         /// </summary>
         internal static int ReconcileSelections(IEnumerable<RecordingTree> trees)
         {
@@ -100,37 +99,93 @@ namespace Parsek
                     if (tree != null && !string.IsNullOrEmpty(tree.Id))
                         byId[tree.Id] = tree;
 
+            var structureCache = new Dictionary<string, MissionStructure>(StringComparer.Ordinal);
             var viewCache = new Dictionary<string, MissionThroughLineView>(StringComparer.Ordinal);
-            int removed = 0;
+            var intervalKeyCache = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+            int removedHeads = 0;
+            int removedIntervals = 0;
             for (int i = 0; i < missions.Count; i++)
             {
                 Mission m = missions[i];
-                if (m == null || string.IsNullOrEmpty(m.TreeId)
-                    || m.ExcludedThroughLineHeadIds.Count == 0)
+                if (m == null || string.IsNullOrEmpty(m.TreeId))
+                    continue;
+                bool hasHeadExcl = m.ExcludedThroughLineHeadIds.Count > 0;
+                bool hasIntervalExcl = m.ExcludedIntervalKeys.Count > 0;
+                if (!hasHeadExcl && !hasIntervalExcl)
                     continue;
                 if (!byId.TryGetValue(m.TreeId, out RecordingTree tree))
                     continue;
 
-                if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
+                if (!structureCache.TryGetValue(m.TreeId, out MissionStructure structure))
                 {
-                    view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
-                    viewCache[m.TreeId] = view;
+                    structure = MissionStructureBuilder.Build(tree);
+                    structureCache[m.TreeId] = structure;
                 }
 
-                var stale = new List<string>();
-                foreach (string headId in m.ExcludedThroughLineHeadIds)
-                    if (!view.ByHeadId.ContainsKey(headId))
-                        stale.Add(headId);
-                for (int s = 0; s < stale.Count; s++)
-                    m.ExcludedThroughLineHeadIds.Remove(stale[s]);
-                removed += stale.Count;
+                if (hasHeadExcl)
+                {
+                    if (!viewCache.TryGetValue(m.TreeId, out MissionThroughLineView view))
+                    {
+                        view = MissionThroughLineBuilder.Build(structure);
+                        viewCache[m.TreeId] = view;
+                    }
+                    removedHeads += RemoveStale(m.ExcludedThroughLineHeadIds,
+                        id => view.ByHeadId.ContainsKey(id));
+                }
+
+                if (hasIntervalExcl)
+                {
+                    if (!intervalKeyCache.TryGetValue(m.TreeId, out HashSet<string> validKeys))
+                    {
+                        validKeys = new HashSet<string>(StringComparer.Ordinal);
+                        CollectSelectableHeadLegIds(MissionCompositionBuilder.Build(structure), validKeys);
+                        intervalKeyCache[m.TreeId] = validKeys;
+                    }
+                    removedIntervals += RemoveStale(m.ExcludedIntervalKeys, validKeys.Contains);
+                }
             }
 
+            int removed = removedHeads + removedIntervals;
             if (removed > 0 && !SuppressLogging)
                 ParsekLog.Warn("Mission",
-                    $"ReconcileSelections: removed {removed} stale excluded through-line head id(s) " +
-                    "(branches no longer current heads; re-included to avoid silently dropping them)");
+                    $"ReconcileSelections: removed {removedHeads} stale through-line head id(s) + " +
+                    $"{removedIntervals} stale interval key(s) (no longer current after a topology " +
+                    "change; cleared to avoid silently dropping / mis-targeting segments)");
             return removed;
+        }
+
+        // Removes from <paramref name="excluded"/> every id for which <paramref name="isStillValid"/>
+        // returns false. Returns the count removed.
+        private static int RemoveStale(HashSet<string> excluded, Func<string, bool> isStillValid)
+        {
+            List<string> stale = null;
+            foreach (string id in excluded)
+                if (!isStillValid(id))
+                    (stale ?? (stale = new List<string>())).Add(id);
+            if (stale == null)
+                return 0;
+            for (int s = 0; s < stale.Count; s++)
+                excluded.Remove(stale[s]);
+            return stale.Count;
+        }
+
+        // Collects the HeadLegId of every SELECTABLE composition node (intervals / branches that
+        // carry an include checkbox; not roster atoms) into <paramref name="into"/>, recursing into
+        // children. These are exactly the keys a Mission may hold in ExcludedIntervalKeys.
+        private static void CollectSelectableHeadLegIds(
+            IReadOnlyList<MissionCompositionNode> nodes, HashSet<string> into)
+        {
+            if (nodes == null)
+                return;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                MissionCompositionNode n = nodes[i];
+                if (n == null)
+                    continue;
+                if (n.IsSelectable && !string.IsNullOrEmpty(n.HeadLegId))
+                    into.Add(n.HeadLegId);
+                CollectSelectableHeadLegIds(n.Children, into);
+            }
         }
 
         /// <summary>
@@ -266,14 +321,10 @@ namespace Parsek
         {
             node.RemoveValues("missionHideArchived");
             node.AddValue("missionHideArchived", HideArchived);
+            // Purge the retired Missions-window size keys from older saves (the Missions view is now
+            // a tab in the Recordings window and no longer persists its own size).
             node.RemoveValues("missionWindowWidth");
             node.RemoveValues("missionWindowHeight");
-            if (!float.IsNaN(WindowWidth) && WindowWidth > 0f)
-                node.AddValue("missionWindowWidth",
-                    WindowWidth.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
-            if (!float.IsNaN(WindowHeight) && WindowHeight > 0f)
-                node.AddValue("missionWindowHeight",
-                    WindowHeight.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
             node.RemoveNodes("MISSION");
             for (int i = 0; i < missions.Count; i++)
             {
@@ -288,12 +339,6 @@ namespace Parsek
         {
             missions.Clear();
             HideArchived = bool.TryParse(node.GetValue("missionHideArchived"), out bool hide) && hide;
-            WindowWidth = float.TryParse(node.GetValue("missionWindowWidth"),
-                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
-                out float w) ? w : float.NaN;
-            WindowHeight = float.TryParse(node.GetValue("missionWindowHeight"),
-                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
-                out float h) ? h : float.NaN;
             ConfigNode[] mNodes = node.GetNodes("MISSION");
             for (int i = 0; i < mNodes.Length; i++)
                 missions.Add(Mission.Load(mNodes[i]));

@@ -34,6 +34,8 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- Watching a looped mission with some segments trimmed out no longer hands the camera to (or keeps it on) a vessel that is currently hidden by the trim; the stage handoff now uses each segment's trimmed window, matching what is actually shown.
+- A mission's per-segment include selections are now cleared if the underlying flight's structure changes (for example after a re-fly or a dock/undock edit), so a stale selection can no longer silently re-include or mis-target a different segment.
 - Watching a looped mission no longer shows the wrong ghost (just the capsule and parachute). Watch entry now syncs the watched vessel's parts to the mission's shared loop clock, so the full rocket appears instead of replaying every staging and decouple event to the raw game time.
 - A separated piece that flew off on its own (for example a probe that decoupled and coasted away) is now visible and watchable in a looped mission. Such a vessel records a plain absolute track after it leaves its parent, and the loop was incorrectly forcing it down the anchored-debris path and hiding it every frame. It now plays its own recorded track.
 - Jettisoned debris (a spent booster, a separated stage) now stays visible for its whole recorded flight in a looped mission, all the way to where it crashes, instead of vanishing after one loop period. When the mission relaunches faster than the debris finishes falling, several of the debris pieces are now correctly shown at once, each completing its own arc.

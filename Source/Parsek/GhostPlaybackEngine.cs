@@ -2250,8 +2250,8 @@ namespace Parsek
                         "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
                             + " member #" + i.ToString(CultureInfo.InvariantCulture)
                             + " hidden: loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + " outside its window [" + traj.StartUT.ToString("F2", CultureInfo.InvariantCulture)
-                            + "," + traj.EndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
+                            + " outside its window [" + memberStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + "," + memberEndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
                         5.0);
                 }
                 GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
@@ -2431,8 +2431,13 @@ namespace Parsek
                         if (idx < 0 || idx >= trajectories.Count || trajectories[idx] == null)
                             continue;
                         var member = trajectories[idx];
-                        if (!GhostPlaybackLogic.IsLoopUTInMemberWindow(
-                                spanLoopUT, member.StartUT, member.EndUT))
+                        // Use the unit's TRIMMED member window (interval start/end trim), matching
+                        // DecideUnitMemberRender. The raw [StartUT,EndUT] would treat a start/end-
+                        // trimmed member as live while the engine is hiding it, so the watch camera
+                        // could hand off to (or stay on) a member that is not actually rendered.
+                        double mStart = unit.MemberStartUT(idx, member.StartUT);
+                        double mEnd = unit.MemberEndUT(idx, member.EndUT);
+                        if (!GhostPlaybackLogic.IsLoopUTInMemberWindow(spanLoopUT, mStart, mEnd))
                             continue;
 
                         bool matchesWatched = watchedVesselName != null
@@ -2440,9 +2445,9 @@ namespace Parsek
                                 StringComparison.Ordinal);
 
                         if (GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
-                                matchesWatched, member.StartUT, liveMatchesWatched, liveStartUT))
+                                matchesWatched, mStart, liveMatchesWatched, liveStartUT))
                         {
-                            liveStartUT = member.StartUT;
+                            liveStartUT = mStart;
                             liveMemberIdx = idx;
                             liveMatchesWatched = matchesWatched;
                         }
@@ -2450,14 +2455,19 @@ namespace Parsek
                 }
             }
 
-            // Is the watched member rendering this frame (for the retarget transition)?
+            // Is the watched member rendering this frame (for the retarget transition)? Use the
+            // TRIMMED member window so this matches the actual render decision (a trimmed watched
+            // member is "not rendering" once the shared clock leaves its trimmed window, even if it
+            // is still inside the raw recording range).
             bool watchedIsRendering = false;
             if (watchedIndex >= 0 && watchedIndex < trajectories.Count
                 && trajectories[watchedIndex] != null && !isInInterCycleTail)
             {
                 var w = trajectories[watchedIndex];
                 watchedIsRendering = GhostPlaybackLogic.IsLoopUTInMemberWindow(
-                    spanLoopUT, w.StartUT, w.EndUT);
+                    spanLoopUT,
+                    unit.MemberStartUT(watchedIndex, w.StartUT),
+                    unit.MemberEndUT(watchedIndex, w.EndUT));
             }
 
             if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
