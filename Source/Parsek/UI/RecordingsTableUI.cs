@@ -2764,7 +2764,9 @@ namespace Parsek
             return false;
         }
 
-        private void DrawLegacyRewindForwardCell(
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact R/FF cell for a
+        // mission's root (launch) recording. Passing rec == null draws a blank ColW_Rewind cell.
+        internal void DrawLegacyRewindForwardCell(
             Recording rec, int ri, double now, ParsekFlight flight)
         {
             if (rec == null)

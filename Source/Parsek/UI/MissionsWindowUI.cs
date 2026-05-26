@@ -194,14 +194,17 @@ namespace Parsek
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
 
-            // Mission-header row bubble: the section-header box stretched across the whole row,
-            // with left/right margin + padding zeroed so the dark bar reaches the row edges and
-            // its contents are not inset (the Archive checkbox stays under its column header).
+            // Mission-header row bubble: the section-header box stretched across the whole row.
+            // ALL margins + horizontal padding are zeroed so the dark bar reaches the row edges,
+            // its contents are not inset (the Archive checkbox stays under its column header), and
+            // it adds NO extra vertical space - the box exactly fits the row's controls, so the
+            // line spacing matches the recordings tab's rows (whose header is a plain, unboxed
+            // BeginHorizontal). The bar still reads as a dark bubble; it just doesn't inflate the row.
             var sectionHeader = parentUI.GetSectionHeaderStyle();
             missionHeaderRowStyle = new GUIStyle(sectionHeader)
             {
-                margin = new RectOffset(0, 0, sectionHeader.margin.top, sectionHeader.margin.bottom),
-                padding = new RectOffset(0, 0, sectionHeader.padding.top, sectionHeader.padding.bottom)
+                margin = new RectOffset(0, 0, 0, 0),
+                padding = new RectOffset(0, 0, 0, 0)
             };
 
             // Bold transparent text for the index + title sitting on the row bubble (no box of
@@ -490,6 +493,15 @@ namespace Parsek
 
             DrawMissionTitleOrRename(mission);
 
+            // Clone / Delete sit to the LEFT of the Loop area (just right of the expanding
+            // title). Delete is disabled when this is the tree's last mission.
+            if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
+                MissionStore.Clone(mission);
+            GUI.enabled = MissionStore.CanDelete(mission);
+            if (GUILayout.Button("Delete", GUILayout.Width(ColW_Action)))
+                MissionStore.Delete(mission);
+            GUI.enabled = true;
+
             // "Loop [x]": the label first, then the checkbox (mirrors the recordings window's
             // "Loop" select-all header cell, which also reads label-then-toggle). A bare
             // Toggle(value, "Loop") would render "[x] Loop" instead.
@@ -504,12 +516,17 @@ namespace Parsek
 
             DrawMissionWatchButton(mission, view);
 
-            if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
-                MissionStore.Clone(mission);
-            GUI.enabled = MissionStore.CanDelete(mission);
-            if (GUILayout.Button("Delete", GUILayout.Width(ColW_Action)))
-                MissionStore.Delete(mission);
-            GUI.enabled = true;
+            // Rewind / Forward cell (right of Watch): reuses the recordings tab's exact R / FF
+            // button, scoped to the mission's root (launch) recording, so it rewinds the game to
+            // the mission's launch (or fast-forwards to it when the launch is still in the future).
+            // [ERS-exempt] reason: the legacy R/FF path is keyed on the RAW committed index (it
+            // takes a committed index + recording and resolves the rewind owner / save by
+            // identity), not the ERS index; same rationale as the watch button above.
+            var rewindCommitted = RecordingStore.CommittedRecordings;
+            int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
+            parentUI.GetRecordingsTableUI().DrawLegacyRewindForwardCell(
+                rootIdx >= 0 ? rewindCommitted[rootIdx] : null,
+                rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight);
 
             // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive
             // header toggle controls. Centered in the column like the recordings window's cell.
@@ -835,6 +852,45 @@ namespace Parsek
                     target = i;
             }
             return target;
+        }
+
+        // The committed index of the mission's ROOT (launch) recording = the earliest-StartUT
+        // committed member across all of the mission's through-lines. Used by the header's
+        // Rewind/Forward cell so it rewinds the game to the mission's launch (or fast-forwards
+        // to it). The legacy R/FF path resolves the rewind owner / save by identity from there,
+        // so passing the launch member is correct for both directions. Returns -1 when no
+        // committed member is found (the R/FF cell then renders blank).
+        private static int ResolveMissionRootRecordingIndex(
+            MissionThroughLineView view, IReadOnlyList<Recording> committed)
+        {
+            if (view == null || committed == null)
+                return -1;
+
+            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
+            foreach (var kv in view.ByHeadId)
+            {
+                MissionThroughLine tl = kv.Value;
+                if (tl == null) continue;
+                for (int m = 0; m < tl.MemberLegIds.Count; m++)
+                    if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
+                        memberIds.Add(tl.MemberLegIds[m]);
+            }
+
+            int best = -1;
+            double bestStart = double.PositiveInfinity;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording rec = committed[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
+                    || !memberIds.Contains(rec.RecordingId))
+                    continue;
+                if (rec.StartUT < bestStart)
+                {
+                    bestStart = rec.StartUT;
+                    best = i;
+                }
+            }
+            return best;
         }
 
         // Loop-period cell: a value text field plus a unit button cycling Sec/Min/Hour/
