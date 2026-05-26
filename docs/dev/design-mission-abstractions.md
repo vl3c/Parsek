@@ -542,6 +542,92 @@ Two distinct kinds of "overlap", both DONE:
 
 ---
 
+## Docking & undocking (v1)
+
+How dock / undock events affect the Mission structure, and what a player can
+loop. Resolves the docking half of open question 6.
+
+### The decision
+
+Dock / undock are recorded **entirely as tree topology** (the merge / fork
+branch points that already exist), and the loopable "segments" a player wants
+are expressed as **Mission selections over that topology**. We do NOT give the
+Mission *entity* a dock/undock lifecycle: nothing auto-creates an "AB" Mission
+on dock or auto-closes it on undock. A Mission stays a player-configured,
+named, persisted selection (layer 5); the physical merge/fork lives only in
+`RecordingTree.BranchPoints`. This keeps one source of truth for continuity
+(the DAG) and keeps the Missions list free of machine-generated rows.
+
+Rationale for *not* lifting a pause/resume/close lifecycle onto the Mission
+entity: the recorder ALREADY does the equivalent "pause B, record the combined
+stack, resume B" dance physically (background-record the co-vessel, merge at
+`OnPartCouple`, fork at `OnVesselsUndocking`). Encoding it a second time as
+Mission entities would duplicate continuity the branch-point DAG owns and
+pollute the saved-Mission list.
+
+"Main controller A or B" is not a choice we impose: a docked stack has exactly
+one KSP active controller, and `CreateMergeBranch` (`ParsekFlight.cs`) records
+the combined leg from that controller into its tree. The co-parent is the
+other incoming line.
+
+### What is loopable today (verified against the code)
+
+The loop adapter (`MissionLoopUnitBuilder`) drives looping from the
+**interval-level** selection (`MissionIntervalSelection.ComputeRenderWindows`
+over `Mission.ExcludedIntervalKeys`), and composition intervals
+(`MissionCompositionBuilder`) split at **structural peels** — a controller
+separating (decouple / undock / EVA). So, given two vessels A and B that dock
+into stack "AB" and later undock:
+
+- A solo (pre-dock), B solo (pre-dock): each is its own through-line / interval
+  -> individually loopable. OK
+- A after undock, B after undock: undock is a structural peel, so the surviving
+  line splits into a pre-undock interval and a post-undock interval, and the
+  departing vessel becomes its own offshoot through-line -> both post-undock
+  segments individually loopable. OK
+- Peeled offshoots in general (probe / lander / EVA kerbal / the undocked
+  vessel): own through-line -> individually loopable. OK
+- A vessel's whole journey as one unit (the headline case): the through-line
+  spans its env-splits, forks it continues through, and the docked stretch.
+  Loopable as one selection. OK
+
+### Known gaps (deferred to after supply-routes v0 integration; do NOT fix yet)
+
+1. **Dock is not an interval boundary.** `MissionCompositionBuilder.BuildNode`
+   creates interval edges only at structural *peel* UTs (children leaving),
+   never at a Dock / Board *merge* UT (a vessel joining). So the docked "AB"
+   stretch is lumped into the continuing vessel's pre-dock interval and CANNOT
+   be isolated for looping on its own. Fix sketch: emit an interval edge on the
+   continuing line at the merge UT when its controller count increases.
+2. **Docked composition is understated.** Interval composition is computed as
+   the head leg's start composition MINUS the structural peels removed so far
+   (`BuildNode` step 4); it never ADDS controllers gained at a dock. A post-dock
+   interval label therefore undercounts parts, and a later undock peel subtracts
+   the departing vessel's parts that were never in the head count (clamped at 0).
+   Tied to gap 1.
+3. **Undock continuation vs offshoot is non-deterministic.** RESOLVED.
+   `BuildSplitBranchData` gives an Undock's backgrounded child `IsDebris=false`
+   and NO `ParentAnchorRecordingId` (only the EVA path sets a parent link), and
+   both undock children share the branch UT, so `ContinuationSuccessor` used to
+   pick which post-undock vessel is the "main line" by GUID `RecordingId`
+   tiebreaker rather than by which vessel held control. Fixed by honoring the
+   recorder's `BranchPoint.ChildRecordingIds[0]` convention (the continuing /
+   active vessel, or the single merged child of a Dock/Board): the read model
+   marks that leg `MissionLeg.IsBranchContinuation` (in `MissionStructureBuilder`,
+   derived not serialized) and `MissionThroughLineBuilder.ContinuationSuccessor`
+   prefers it among the children that already pass its non-anchored / non-EVA
+   filter. No schema change (the child order is already serialized in the tree).
+4. **Cross-tree dock (foreign vessel) — deferred by design.** When A and B are
+   independent trees, the combined leg and the post-undock continuation land in
+   the *controller's* tree while the foreign partner's pre-dock flight stays in
+   its own tree, so "loop the whole shared docked journey from the foreign side"
+   spans two trees and is not a single contiguous selection. This is the
+   remaining half of open question 6; revisit after supply-routes v0 (it likely
+   wants the cross-tree dock link followed via the same PID-linking playback
+   already does in `GhostChainWalker`).
+
+---
+
 ## Key decisions
 
 - Atom = the post-optimizer recording. Recorder-vs-optimizer boundary creation is
@@ -625,8 +711,12 @@ Two distinct kinds of "overlap", both DONE:
 6. Merge / DAG handling. Dock / Board within one tree are two-parent merges; a dock
    to a foreign vessel is single-parent (the cross-tree link is reconstructed at
    playback). v1 rule: a path follows its own incoming line into the merged child and
-   does not pull in the co-parent. Open: how the multi-path (whole-mission) outline
-   renders a reconvergence, and whether a foreign dock target is ever surfaced.
+   does not pull in the co-parent. PARTIALLY RESOLVED: the docking/undocking effect on
+   Mission structure and looping is settled in "Docking & undocking (v1)" above (no
+   Mission-entity lifecycle; loopable segments are interval selections; four gaps
+   listed and deferred to after supply-routes v0). Still open: how the multi-path
+   (whole-mission) outline renders a reconvergence, and the cross-tree foreign dock
+   target (gap 4 there).
 7. Overlapping looping Missions. RESOLVED (two parts):
    (a) SINGLE-mission self-overlap (DONE): a looping mission whose period is shorter than
    its span now overlaps ITSELF (relaunches every period, several staggered instances

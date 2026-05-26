@@ -125,16 +125,27 @@ namespace Parsek
         {
             if (leg.SequenceNextId != null)
                 return leg.SequenceNextId;
+            // Among the controlled (non-anchored, non-EVA) branch children, prefer the one the
+            // recorder marked as the continuing vessel (IsBranchContinuation). This makes the
+            // continuation deterministic at a split where several children survive - notably an
+            // Undock fork, whose two non-anchored, non-EVA children share the branch UT, so the
+            // old "first by StartUT/RecordingId" pick was an arbitrary GUID tiebreak. Falls back
+            // to the first controlled child by the structure's deterministic sort when none is
+            // marked (legacy data, or a producer that does not designate a continuation).
+            string firstControlled = null;
             for (int i = 0; i < leg.BranchChildIds.Count; i++)
             {
                 if (s.LegsById.TryGetValue(leg.BranchChildIds[i], out MissionLeg child)
                     && !child.IsAnchoredOffshoot
                     && string.IsNullOrEmpty(child.EvaCrewName))
                 {
-                    return child.RecordingId;
+                    if (child.IsBranchContinuation)
+                        return child.RecordingId;
+                    if (firstControlled == null)
+                        firstControlled = child.RecordingId;
                 }
             }
-            return null;
+            return firstControlled;
         }
 
         private static int CompareHead(MissionThroughLineView v, string a, string b)

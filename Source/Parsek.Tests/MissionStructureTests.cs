@@ -414,6 +414,113 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void BranchContinuation_IsMarkedOnFirstChild_OfFork()
+        {
+            // Fork: child[0] ("active") is the continuation; the second child is not.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("AB", "C0", 0, 0, 100),
+                    Leg("active", "C1", 0, 100, 200),
+                    Leg("bg", "C2", 0, 100, 180)
+                },
+                new[]
+                {
+                    BP("u", BranchPointType.Undock, new[] { "AB" }, new[] { "active", "bg" }, ut: 100)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+
+            Assert.True(s.LegsById["active"].IsBranchContinuation);
+            Assert.False(s.LegsById["bg"].IsBranchContinuation);
+            // The parent (root) is not a branch child of anything, so it is not flagged.
+            Assert.False(s.LegsById["AB"].IsBranchContinuation);
+        }
+
+        [Fact]
+        public void UndockFork_ContinuationFollowsActiveChild_NotGuidTiebreak()
+        {
+            // Undock fork: both children are non-anchored, non-EVA, and share the branch UT,
+            // so the old "first by StartUT/RecordingId" pick was arbitrary. Names are chosen so
+            // the backgrounded vessel ("a_bg") sorts BEFORE the active one ("z_active") - the old
+            // code would have made "a_bg" the main line. The recorder lists the active vessel
+            // first in ChildRecordingIds, so the through-line must continue into "z_active" and
+            // hang "a_bg" off as an offshoot, regardless of the GUID ordering.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("AB", "C0", 0, 0, 100),
+                    Leg("z_active", "C1", 0, 100, 200),
+                    Leg("a_bg", "C2", 0, 100, 180)
+                },
+                new[]
+                {
+                    BP("u", BranchPointType.Undock, new[] { "AB" }, new[] { "z_active", "a_bg" }, ut: 100)
+                });
+
+            var view = MissionThroughLineBuilder.Build(MissionStructureBuilder.Build(tree));
+
+            Assert.Equal(new[] { "AB" }, view.RootHeadIds.ToArray());
+            var line = view.ByHeadId["AB"];
+            Assert.Equal(new[] { "AB", "z_active" }, line.MemberLegIds.ToArray());
+            Assert.Contains("a_bg", line.OffshootHeadIds);
+            // The backgrounded vessel is its own through-line (individually loopable).
+            Assert.True(view.ByHeadId.ContainsKey("a_bg"));
+            Assert.Equal(new[] { "a_bg" }, view.ByHeadId["a_bg"].MemberLegIds.ToArray());
+        }
+
+        [Fact]
+        public void Eva_ActiveChildIsKerbal_ShipStillContinues()
+        {
+            // KSP can keep focus on the kerbal after EVA, so the recorder lists the kerbal
+            // (EvaCrewName set) as child[0] -> it gets IsBranchContinuation. It is filtered out
+            // by the non-EVA gate before the preference runs, so the ship (child[1], unflagged)
+            // is the continuation via the fallback. The kerbal hangs off as an offshoot.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("L", "C0", 0, 0, 60),
+                    Leg("bob", "C1", 0, 60, 90, eva: "Bob Kerman", parentAnchor: "L"),
+                    Leg("ship", "C2", 0, 60, 200)
+                },
+                new[]
+                {
+                    BP("ev", BranchPointType.EVA, new[] { "L" }, new[] { "bob", "ship" }, ut: 60)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+            Assert.True(s.LegsById["bob"].IsBranchContinuation);   // flagged as child[0]...
+            Assert.Equal("ship", MissionThroughLineBuilder.ContinuationSuccessor(s, s.LegsById["L"]));
+
+            var view = MissionThroughLineBuilder.Build(s);
+            Assert.Equal(new[] { "L", "ship" }, view.ByHeadId["L"].MemberLegIds.ToArray());
+            Assert.Contains("bob", view.ByHeadId["L"].OffshootHeadIds);
+        }
+
+        [Fact]
+        public void SameTreeDock_MergedChild_ContinuesBothParents()
+        {
+            // Two same-tree lines dock: the single merged child is the continuation of BOTH
+            // parents (the existing reconvergence contract is preserved by the flag).
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("A", "C0", 0, 0, 50),
+                    Leg("B", "C1", 0, 0, 50),
+                    Leg("AB", "C2", 0, 50, 200)
+                },
+                new[]
+                {
+                    BP("dk", BranchPointType.Dock, new[] { "A", "B" }, new[] { "AB" }, ut: 50)
+                });
+
+            var s = MissionStructureBuilder.Build(tree);
+            Assert.True(s.LegsById["AB"].IsBranchContinuation);
+            Assert.Equal("AB", MissionThroughLineBuilder.ContinuationSuccessor(s, s.LegsById["A"]));
+            Assert.Equal("AB", MissionThroughLineBuilder.ContinuationSuccessor(s, s.LegsById["B"]));
+        }
+
+        [Fact]
         public void EmptyOrNullTree_ReturnsEmptyStructure()
         {
             var sNull = MissionStructureBuilder.Build(null);

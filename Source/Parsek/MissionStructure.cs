@@ -64,6 +64,16 @@ namespace Parsek
         // disconnected continuation root (ParentBranchPointId == null).
         public bool IsRoot;
 
+        // True when this leg is the CONTINUING vessel of its origin branch point: the
+        // recorder lists the continuing vessel first in BranchPoint.ChildRecordingIds (the
+        // active vessel a split follows, or the single merged child of a Dock/Board). Set
+        // on ChildRecordingIds[0]. Lets ContinuationSuccessor follow the controlled vessel
+        // deterministically at a split where several children survive (an Undock fork has
+        // two non-anchored, non-EVA children at the same UT, so without this the "main line"
+        // vs offshoot assignment was an arbitrary GUID/StartUT tiebreak). Derived, not
+        // serialized: recomputed from the (serialized) child order on every Build.
+        public bool IsBranchContinuation;
+
         // Composition at this leg's start, derived from the recording's Controllers list
         // (classified by ControllerInfo.type) and StartCrew manifest. Drives the Missions
         // window "vessel composition over time" view: a controlled leg is rendered with
@@ -337,6 +347,19 @@ namespace Parsek
 
                 if (bp.ChildRecordingIds == null)
                     continue;
+
+                // The recorder lists the CONTINUING vessel first in ChildRecordingIds (the
+                // active vessel a split follows, or the single merged child of a Dock/Board),
+                // so mark it as the branch continuation. ContinuationSuccessor consults this
+                // only among children that already pass its non-anchored / non-EVA filter, so
+                // flagging an anchored peel that happens to be child[0] (a decouple BP with a
+                // single anchored child) is harmless.
+                if (bp.ChildRecordingIds.Count > 0
+                    && bp.ChildRecordingIds[0] != null
+                    && structure.LegsById.TryGetValue(bp.ChildRecordingIds[0], out var contLeg))
+                {
+                    contLeg.IsBranchContinuation = true;
+                }
 
                 foreach (var cid in bp.ChildRecordingIds)
                 {
