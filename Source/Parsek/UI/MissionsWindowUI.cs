@@ -79,7 +79,8 @@ namespace Parsek
         private const float ColW_Archive = 60f;
 
         // Mission-header loop controls (live on the header row, not the table columns).
-        private const float ColW_Loop = 52f;
+        // Wide enough to fit the "Loop" label plus the trailing checkbox side by side.
+        private const float ColW_Loop = 64f;
         private const float ColW_Period = 90f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
@@ -115,6 +116,13 @@ namespace Parsek
         // box and unit button render the same as RecordingsTableUI.DrawLoopPeriodCell.
         private GUIStyle bodyCellTextFieldFlush;
         private GUIStyle bodyCellButtonFlush;
+        // Boxed header-cell container + bold inner label for a header cell that shares its
+        // dark box with a toggle (Archive), mirroring RecordingsTableUI.colHdrCellContainerStyle
+        // / boldHeaderInnerLabel. The container's left/right margin is zeroed (so its footprint
+        // is exactly Width(X), matching the body cells below it) while the box background spans
+        // the whole cell, label + checkbox included.
+        private GUIStyle colHdrCellContainerStyle;
+        private GUIStyle boldHeaderInnerLabel;
 
         // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
         // body labels land under their header text).
@@ -249,6 +257,26 @@ namespace Parsek
                 margin = new RectOffset(
                     0, 0,
                     GUI.skin.textField.margin.top, GUI.skin.textField.margin.bottom)
+            };
+
+            // Boxed container for the Archive header cell: clone the shared column-header
+            // box but zero only the LEFT/RIGHT margin so the BeginHorizontal footprint is
+            // exactly Width(ColW_Archive) (top/bottom margin kept for the header-to-list gap).
+            // This is what lets the dark box wrap the whole cell (label + checkbox) without
+            // shifting the column relative to the body rows.
+            colHdrCellContainerStyle = new GUIStyle(parentUI.GetColumnHeaderStyle())
+            {
+                margin = new RectOffset(0, 0, 4, 4)
+            };
+
+            // Bold inner label for the Archive header cell: the container box already supplies
+            // the dark background, so the label uses a plain bold style (boxing it again would
+            // double-box).
+            boldHeaderInnerLabel = new GUIStyle(GUI.skin.label)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
         }
 
@@ -503,7 +531,13 @@ namespace Parsek
 
             // Empty trailing cell so the vessel rows' right edge lines up with the Archive
             // column header above (the Archive checkbox itself lives only on the mission row).
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Archive));
+            // This MUST be a margin-0 container (not a bodyCellLabel, which carries a 4px right
+            // margin the header's margin-0 Archive cell lacks): the last cell's right margin
+            // sets where the whole right-side column block sits relative to the scrollbar, so a
+            // mismatch here drifts every time/event column ~4px left of its header.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
 
             GUI.color = prevColor;
             GUILayout.EndHorizontal();
@@ -527,7 +561,13 @@ namespace Parsek
 
             DrawMissionTitleOrRename(mission);
 
-            bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "Loop", GUILayout.Width(ColW_Loop));
+            // "Loop [x]": the label first, then the checkbox (mirrors the recordings window's
+            // "Loop" select-all header cell, which also reads label-then-toggle). A bare
+            // Toggle(value, "Loop") would render "[x] Loop" instead.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+            GUILayout.Label("Loop");
+            bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
+            GUILayout.EndHorizontal();
             if (loopNow != mission.LoopPlayback)
                 MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
 
@@ -1034,9 +1074,11 @@ namespace Parsek
             // Archive column header + global toggle (mirrors the recordings window): label +
             // a checkbox bound to MissionStore.HideArchived. When on, archived missions drop
             // out of the list; the per-mission Archive checkbox lives on each mission's row.
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
+            // The dark box (colHdrCellContainerStyle) wraps the WHOLE cell, label + checkbox,
+            // matching RecordingsTableUI; boldHeaderInnerLabel keeps the label unboxed inside.
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Archive));
             GUILayout.FlexibleSpace();
-            GUILayout.Label("Archive", colHdr);
+            GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHide = GUILayout.Toggle(MissionStore.HideArchived, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
