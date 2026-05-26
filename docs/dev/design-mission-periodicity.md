@@ -55,6 +55,31 @@ recorded inertial ellipse.
 
 ---
 
+## Terminology
+
+- **Faithful (replay):** the looped ghost's map/Tracking-Station trajectory lines up
+  with the live sky - the orbit sits over the launch site and any transfer reaches
+  the target body where it actually is.
+- **Constraint:** a phase requirement one included segment imposes. `Rotation(B)` (a
+  surface/atmospheric segment must sit over its ground spot and connect to its
+  inertial orbit) or `Orbital(C)` (an SOI entry must reach body C where C will be).
+  Each carries a recurrence period + a phase offset (the segment's recorded UT
+  relative to `UT0`).
+- **`UT0`:** the recorded launch UT = the trimmed mission's span start (the earliest
+  included member's start, from `ComputeTrimmedMemberWindows`).
+- **`P`:** the recurrence period at which the included config's constraints all line
+  up (best-fit within tolerance). The next faithful launch is the smallest
+  `UT0 + k*P >= now`.
+- **Tolerance:** the max phase error still counted as faithful, derived from physics
+  (orbital: `~SOI_radius(C) / orbital_velocity(C)`; rotation: a small fraction of a
+  degree).
+- **Residual:** the best-fit window's actual max phase error across constraints;
+  green when `<= tolerance`, flagged when not (over-constrained config).
+- **Config:** which composition intervals are checked (`Mission.ExcludedIntervalKeys`)
+  - this determines the included segments and therefore which constraints exist.
+
+---
+
 ## The goal
 
 For each replay of a looped mission to be geometrically faithful, the launch must
@@ -230,6 +255,72 @@ Mechanics:
 
 ---
 
+## Data Model
+
+All new types are derived (computed each loop-unit build) - **nothing new is
+persisted** (`P` is recomputed; the snapped launch UT reuses the existing
+`Mission.LoopAnchorUT`). Shape (indented, not final names):
+
+```
+enum ConstraintKind { Rotation, Orbital }
+
+struct PhaseConstraint            // one per constraining included segment
+    ConstraintKind Kind
+    string BodyName               // B (Rotation) or C (Orbital)
+    double PeriodSeconds          // rotationPeriod, orbit.period, or synodic (Phase 4)
+    double PhaseOffsetSeconds     // segment's recorded UT - UT0 (the fixed offset)
+    bool   RelativeToParent       // Orbital: same-parent (false) vs cross-parent (true)
+
+struct PeriodicitySolution
+    double P                      // recurrence period (MinCycleDuration if unconstrained)
+    double NextWindowUT           // smallest UT0 + k*P >= now (k may be negative)
+    double ResidualSeconds        // best-fit max phase error across constraints
+    bool   WithinTolerance        // ResidualSeconds <= tolerance
+    Support Support               // Supported | UnsupportedCrossParent | UnsupportedRendezvous | UnsupportedMultiConstraint(<P2)
+
+interface IBodyInfo               // test seam over FlightGlobals
+    double RotationPeriod(name)   //   (also referenceBody, orbit.period)
+    ... 
+```
+
+- `MissionPeriodicity.ExtractConstraints(view, compRoots, committed, excludedKeys, IBodyInfo)`
+  -> `List<PhaseConstraint>` + a Support flag. Pure.
+- `MissionPeriodicity.Solve(constraints, ut0, nowUT, tolerance)` -> `PeriodicitySolution`.
+  Pure.
+
+## Behavior
+
+- **On loop enable / config change** (anything that moves `BuildSignature`):
+  `TryBuildMissionUnit` extracts constraints from the trimmed member set, solves for
+  `P` + the next window, snaps `phaseAnchorUT = NextWindowUT`, and quantizes the
+  cadence to a multiple of `P`. The span clock then drives playback off that anchor
+  exactly as today.
+- **Unsupported config** (cross-parent before Phase 4 / rendezvous / multi-constraint
+  before Phase 2): the solver returns a Support flag; `TryBuildMissionUnit` does NOT
+  phase-lock and keeps today's behavior (anchor = raw `LoopAnchorUT`), so nothing
+  regresses for cases we don't yet handle.
+- **Per frame:** the Missions tab shows the live `T- = NextWindowUT - now` countdown
+  and the residual/quality state. No engine work per frame beyond the existing draw.
+- **Unconstrained config** (`P = MinCycleDuration`): behaves like today's free loop
+  (T- reads continuous).
+
+## Diagnostic Logging
+
+Every decision point logs (subsystem tag `Mission` / `MissionPeriodicity`):
+- **Constraint extraction:** one `Verbose` summary per build: mission id, included
+  member count, the constraint list (kind/body/period/offset), and the Support flag
+  (and WHY when unsupported - which segment/body triggered cross-parent/rendezvous).
+- **Solve:** one `Verbose` line: `P`, NextWindowUT, ResidualSeconds, WithinTolerance,
+  and the method (single-constraint / joint-best-fit / unconstrained).
+- **Phase-lock applied vs skipped:** `Info`-on-change when `phaseAnchorUT` is snapped
+  (old->new + the window) and a distinct line when phase-lock is SKIPPED (the
+  unsupported reason), so a misbehaving config is never a silent branch.
+- **Over-constrained:** `Warn` when `WithinTolerance == false` (residual vs tolerance,
+  the dominant missed constraint) - this is the "config can't loop accurately" signal.
+- Reuse `VerboseRateLimited` for any per-frame countdown diagnostics (shared key).
+
+---
+
 ## UX
 
 Looping is **always faithful** (it always respects the included config's
@@ -246,7 +337,7 @@ checks IS the contract, and the loop launches only at faithful windows.
 - The period cell still shows the effective cadence, now snapped to a multiple of
   `P`, labeled with why (e.g. "every Mun window ~1.6 d").
 - **Quality / residual readout** (in the T- column or its tooltip): for an
-  over-constrained config (no exact joint window - see Risks), the best-fit window
+  over-constrained config (no exact joint window - see Edge cases), the best-fit window
   carries a residual phase error. Surface it: green when within the physics tolerance
   (the intercept/landing site genuinely lines up), amber/flagged when the best
   achievable window still misses tolerance, so the user knows the config cannot be
@@ -269,7 +360,7 @@ checks IS the contract, and the loop launches only at faithful windows.
   included config's constraints. The checked configuration is the contract.
 - **Over-constrained configs are never refused.** When no exact joint window exists
   (e.g. a Mun landing-AND-return that pins Kerbin's rotation at two incompatible
-  offsets - see Risks), we take the best-fit window, show a **T- to launch window**
+  offsets - see Edge cases), we take the best-fit window, show a **T- to launch window**
   countdown, and surface the residual; we still respect the full constraint set
   (never silently drop one). The user adjusts which segments are included if the
   residual is unacceptable.
@@ -314,7 +405,11 @@ checks IS the contract, and the loop launches only at faithful windows.
   inter-body cadence is naturally long, so the instance count stays small without
   changing the cap. Revisit only if frequent same-body looping still needs it.
 
-## Risks / edge cases
+## Edge cases
+
+Each is scenario -> expected behavior -> [v1 phase / deferred]. v1 = Phases 0-3
+(single-body + same-parent intercepts, the common cases); the phase numbers refer to
+`docs/dev/plans/mission-periodicity-phases.md`.
 
 - **Over-constrained configs (no exact joint `P`).** A Mun landing-AND-return pins
   Kerbin's rotation at BOTH the launch site (t_launch) and the re-entry site
@@ -330,7 +425,8 @@ checks IS the contract, and the loop launches only at faithful windows.
   cross-parent target (Duna via the Sun) recurs on the launch-body/target synodic
   period; using `C.orbit.period` would mis-schedule. Same-parent targets (Mun /
   Minmus) are unaffected. Cross-parent is a later phase; until then, detect it and
-  report "not yet supported" rather than produce a wrong window.
+  report "not yet supported" rather than produce a wrong window. **[Deferred: Phase 4;
+  same-parent intercepts are v1.]**
 - **Transient SOI passes / gravity assists are binding.** A flyby that does not
   capture, and a free-return, still require the assist body's phase (the recorded arc
   only reaches it where it will be). The SOI-change rule already registers them via
@@ -339,6 +435,7 @@ checks IS the contract, and the loop launches only at faithful windows.
   another (looped or live) vessel is not a celestial-body period; the solver only
   models bodies. Detect a rendezvous/dock in the included span and report it as
   unsupported for faithful looping rather than emit a body-only `P` that ignores it.
+  **[Deferred / out of scope for now; detected + reported, not solved.]**
 - **Tidally-locked bodies collapse two constraints into one (automatically).** The
   Mun's `rotationPeriod == orbit.period`, so a Mun-surface segment's rotation
   constraint and a Mun intercept's orbital constraint share the same period and
@@ -359,6 +456,73 @@ checks IS the contract, and the loop launches only at faithful windows.
 - **Scope:** this affects ONLY looping Missions. Non-looping ghosts and per-recording
   (non-mission) auto-loop are untouched; state this in the implementation so nobody
   expects single-recording ghosts to phase-lock.
+
+## What doesn't change
+
+- **The recording format / `Recording` / sidecars.** `P` is derived; the body
+  sequence + `UT0` come from existing data.
+- **The span clock, the map epoch-shift, the watch handoff, KSC/TS parity.** They
+  consume `phaseAnchorUT` + cadence as they do today; we only choose a geometry-aware
+  anchor + cadence.
+- **Non-looping ghosts and per-recording (non-mission) auto-loop.** Untouched - only
+  looping Missions phase-lock.
+- **The `ExcludedIntervalKeys` / `ComputeTrimmedMemberWindows` contract.** We read it;
+  we do not change how trimming works.
+- **The "one loop per tree" rule and concurrent-mission looping.** Each looping
+  mission solves its own `P` independently; no cross-mission coupling.
+
+## Backward compatibility
+
+- **Existing looped missions (saved before this lands):** on first build after the
+  update, their `phaseAnchorUT` is re-snapped to the next faithful window for their
+  config. A supported config starts launching on its real cadence; an unsupported one
+  keeps today's behavior. No save migration is needed (nothing new is persisted; the
+  snapped anchor reuses `LoopAnchorUT`, already saved/loaded/cloned).
+- **Saves load unchanged**; `BuildSignature` simply rebuilds the unit once with the
+  new constraint inputs folded in.
+
+## Test plan
+
+Pure math is fully unit-testable (the whole point of the `IBodyInfo` seam); the
+phase-lock wiring + UI are playtest-verified. Each test states the regression it
+guards.
+
+- **Constraint extraction** (Phase 0), synthetic body sequences via `IBodyInfo`:
+  - single-body orbit, ascent trimmed -> empty set (guards: we don't invent a
+    rotation lock for a bare inertial orbit).
+  - launch + Kerbin orbit -> one `Rotation(Kerbin)` (guards: surface segment
+    produces a rotation constraint; the orbit alone does not).
+  - Mun mission -> `Rotation(Kerbin)` + same-parent `Orbital(Mun)` (guards: SOI entry
+    produces the orbital constraint with the right offset).
+  - cross-parent (Duna) -> `UnsupportedCrossParent` (guards: we never emit a
+    same-parent `orbit.period` constraint for a heliocentric target).
+  - transient flyby -> `Orbital` constraint present (guards: a non-capture still
+    binds).
+- **Solver** (Phases 1-2):
+  - 0 constraints -> `P = MinCycleDuration` (guards: unconstrained = free loop).
+  - 1 `Rotation` -> `P = rotationPeriod`; 1 same-parent `Orbital` -> `P = orbit.period`
+    (guards: the single-constraint cases).
+  - next-window `k` incl. `UT0` in the future -> negative/forward `k` resolves to the
+    smallest `UT0 + k*P >= now` (guards: future-dated recordings).
+  - tidally-locked Mun -> rotation+orbital collapse to one period (guards: no double
+    counting).
+  - over-constrained (two `Rotation(Kerbin)` at incompatible offsets) -> a best-fit
+    `P` with `WithinTolerance == false` and a non-zero residual; never throws (guards:
+    over-constrained is handled, not refused).
+  - `rotationPeriod == 0` -> no divide-by-zero, treated as no rotation constraint
+    (guards: degenerate body data).
+  - tolerance boundary: residual just within vs just outside flips `WithinTolerance`
+    (guards: the green/amber readout threshold).
+- **Builder wiring** (Phase 1), `MissionLoopUnitBuilderTests`:
+  - a supported single-body / same-parent config snaps `phaseAnchorUT` to the next
+    window and quantizes cadence (guards: the lock is applied).
+  - an unsupported config leaves `phaseAnchorUT` at the raw `LoopAnchorUT` (guards: no
+    regression for cases we don't handle).
+- **Log assertion tests:** capture the test sink and assert the constraint-summary,
+  solve, and phase-lock-applied/skipped lines appear with the right fields (guards:
+  the diagnostic coverage in the Diagnostic Logging section survives refactoring).
+- **UI countdown formatting** (Phase 3): pure `T-` formatting helper (guards: the
+  countdown string; the rest of the UI is playtest-verified).
 
 ## References
 
