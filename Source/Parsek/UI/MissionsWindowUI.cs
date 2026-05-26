@@ -29,10 +29,16 @@ namespace Parsek
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
         private readonly HashSet<string> collapsedLegs = new HashSet<string>();
 
-        // Per-Mission loop-period edit buffer, keyed by Mission.Id. Transient UI state:
-        // holds the in-progress text while the player types, committed on field change.
-        private readonly Dictionary<string, string> loopPeriodEditBuffers =
-            new Dictionary<string, string>();
+        // Loop-period inline edit state (mirrors RecordingsTableUI's loopPeriodFocusedRi /
+        // loopPeriodEditText / loopPeriodEditRect). At most one period field is being edited at a
+        // time, so a single set of fields suffices. The value is held in the buffer while the
+        // player types and COMMITTED on Enter or click-away (a window-level MouseDown outside the
+        // field rect) - NOT on every keystroke, so it does not depend on per-frame keyboard-focus
+        // detection staying stable (which the old commit-on-type path relied on and which broke
+        // when the header layout changed). loopPeriodFocusedMissionId == null means not editing.
+        private string loopPeriodFocusedMissionId;
+        private string loopPeriodEditText = "";
+        private Rect loopPeriodEditRect;
 
         // Per-frame cache of the derived mission read model (structure + through-line
         // view) keyed by tree id. OnGUI fires several times per frame (Layout, Repaint,
@@ -270,6 +276,15 @@ namespace Parsek
                 && !activeMissionRenameRect.Contains(Event.current.mousePosition))
             {
                 CommitMissionRenameById(renamingMissionId);
+            }
+
+            // Click outside an active loop-period field -> commit (mirrors RecordingsTableUI's
+            // window-level loop-period commit). Uses the field rect captured last frame; runs
+            // before the cells are drawn so the in-progress buffer is committed on click-away.
+            if (Event.current.type == EventType.MouseDown && loopPeriodFocusedMissionId != null
+                && !loopPeriodEditRect.Contains(Event.current.mousePosition))
+            {
+                CommitMissionLoopPeriodEdit(FindMissionById(loopPeriodFocusedMissionId));
             }
 
             var trees = RecordingStore.CommittedTrees;
@@ -612,7 +627,12 @@ namespace Parsek
             GUILayout.Label("Loop");
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
             if (loopNow != mission.LoopPlayback)
+            {
                 MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
+                // Turning loop off disables the period field; end any in-progress edit on it.
+                if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
+                    loopPeriodFocusedMissionId = null;
+            }
 
             DrawMissionLoopPeriodCell(mission, view);
 
@@ -1053,8 +1073,9 @@ namespace Parsek
                 string autoText = ParsekUI.FormatLoopValue(
                         ParsekUI.ConvertFromSeconds(autoShown, globalDisplayUnit), globalDisplayUnit)
                     + ParsekUI.UnitSuffix(globalDisplayUnit);
-                // Drop any stale edit buffer so re-entering a manual unit re-seeds cleanly.
-                loopPeriodEditBuffers.Remove(mission.Id);
+                // A non-editable field cannot be the one being edited; drop any stale edit focus.
+                if (loopPeriodFocusedMissionId == mission.Id)
+                    loopPeriodFocusedMissionId = null;
                 GUI.enabled = false;
                 Color prevAuto = GUI.contentColor;
                 if (showEffective) GUI.contentColor = LoopPeriodClampColor;
@@ -1062,38 +1083,55 @@ namespace Parsek
                 GUI.contentColor = prevAuto;
                 GUI.enabled = true;
             }
-            else
+            else if (loopPeriodFocusedMissionId != mission.Id)
             {
-                // Manual mode: while editing, the field shows the raw value the player is typing;
-                // when not editing it shows the EFFECTIVE (capped) cadence so the real launch
-                // interval is visible. The edit buffer is always seeded from the raw stored value
-                // so focusing the field starts editing the typed value, not the capped one.
-                bool focused = GUI.GetNameOfFocusedControl() == controlName;
-                if (!focused || !loopPeriodEditBuffers.ContainsKey(mission.Id))
-                {
-                    loopPeriodEditBuffers[mission.Id] = ParsekUI.FormatLoopValue(
-                        ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit),
-                        mission.LoopTimeUnit);
-                }
-
-                string fieldText = (!focused && showEffective)
+                // Manual mode, NOT editing this field: show the EFFECTIVE (capped) cadence (or the
+                // raw stored value), and begin editing when the field gains keyboard focus (seeding
+                // the buffer from the raw stored value). Commit happens on Enter / click-away, not
+                // on every keystroke, so it does not rely on per-frame focus detection.
+                string shownText = showEffective
                     ? ParsekUI.FormatLoopValue(
                         ParsekUI.ConvertFromSeconds(effectiveSeconds, mission.LoopTimeUnit), mission.LoopTimeUnit)
-                    : loopPeriodEditBuffers[mission.Id];
+                    : ParsekUI.FormatLoopValue(
+                        ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit), mission.LoopTimeUnit);
 
                 GUI.enabled = enabled;
                 GUI.SetNextControlName(controlName);
                 Color prevManual = GUI.contentColor;
-                if (!focused && showEffective) GUI.contentColor = LoopPeriodClampColor;
-                string newText = GUILayout.TextField(
-                    fieldText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                if (showEffective) GUI.contentColor = LoopPeriodClampColor;
+                GUILayout.TextField(shownText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
                 GUI.contentColor = prevManual;
-                // Only treat edits as edits while focused (when unfocused+clamped the field shows
-                // the computed value, which must not be written back as a typed period).
-                if (focused && newText != loopPeriodEditBuffers[mission.Id])
+                loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                if (enabled && GUI.GetNameOfFocusedControl() == controlName)
                 {
-                    loopPeriodEditBuffers[mission.Id] = newText;
-                    CommitMissionLoopPeriod(mission, newText);
+                    loopPeriodFocusedMissionId = mission.Id;
+                    loopPeriodEditText = ParsekUI.FormatLoopValue(
+                        ParsekUI.ConvertFromSeconds(mission.LoopIntervalSeconds, mission.LoopTimeUnit),
+                        mission.LoopTimeUnit);
+                    ParsekLog.Verbose("Mission",
+                        $"Loop period edit started for '{mission.Name}': value='{loopPeriodEditText}'");
+                }
+                GUI.enabled = true;
+            }
+            else
+            {
+                // Manual mode, editing THIS field: show the in-progress buffer. Commit on Enter
+                // (checked before the TextField, which consumes the KeyDown); click-away commit is
+                // handled at the window level in DrawMissionsTabContent.
+                bool submit = Event.current.type == EventType.KeyDown &&
+                    (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+
+                GUI.enabled = enabled;
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(
+                    loopPeriodEditText, bodyCellTextFieldFlush, GUILayout.Width(valueW));
+                loopPeriodEditRect = GUILayoutUtility.GetLastRect();
+                if (newText != loopPeriodEditText)
+                    loopPeriodEditText = newText;
+                if (submit)
+                {
+                    CommitMissionLoopPeriodEdit(mission);
+                    Event.current.Use();
                 }
                 GUI.enabled = true;
             }
@@ -1103,12 +1141,37 @@ namespace Parsek
             if (GUILayout.Button(ParsekUI.UnitLabel(mission.LoopTimeUnit), bodyCellButtonFlush, GUILayout.Width(unitBtnW)))
             {
                 mission.LoopTimeUnit = RecordingsTableUI.CycleRecordingUnit(mission.LoopTimeUnit);
-                loopPeriodEditBuffers.Remove(mission.Id);
+                if (loopPeriodFocusedMissionId == mission.Id)
+                    loopPeriodFocusedMissionId = null;
                 GUIUtility.keyboardControl = 0;
                 ParsekLog.Info("Mission",
                     $"Loop unit for '{mission.Name}' changed to {mission.LoopTimeUnit}");
             }
             GUI.enabled = true;
+        }
+
+        // Commits the in-progress loop-period buffer to the mission (parse / clamp via
+        // CommitMissionLoopPeriod), then ends the edit (clears focus + keyboard control). Safe to
+        // call with a null mission (just ends the edit).
+        private void CommitMissionLoopPeriodEdit(Mission mission)
+        {
+            if (mission != null)
+                CommitMissionLoopPeriod(mission, loopPeriodEditText);
+            loopPeriodFocusedMissionId = null;
+            loopPeriodEditText = "";
+            GUIUtility.keyboardControl = 0;
+        }
+
+        // Finds a mission by id (for the window-level click-away commit). Null if not found.
+        private static Mission FindMissionById(string id)
+        {
+            if (string.IsNullOrEmpty(id))
+                return null;
+            var ms = MissionStore.Missions;
+            for (int i = 0; i < ms.Count; i++)
+                if (ms[i] != null && ms[i].Id == id)
+                    return ms[i];
+            return null;
         }
 
         // Parses an edited loop-period value and writes it to the Mission, mirroring

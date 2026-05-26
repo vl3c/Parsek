@@ -34,6 +34,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- The loop-period box in the Missions tab again accepts your typed value when you press Enter or click away. It now commits on Enter / click-away like the Recordings tab's period field, instead of relying on per-frame keyboard-focus detection (which the header layout broke).
 - Watching a looped mission with some segments trimmed out no longer hands the camera to (or keeps it on) a vessel that is currently hidden by the trim; the stage handoff now uses each segment's trimmed window, matching what is actually shown.
 - A mission's per-segment include selections are now cleared if the underlying flight's structure changes (for example after a re-fly or a dock/undock edit), so a stale selection can no longer silently re-include or mis-target a different segment.
 - Watching a looped mission no longer shows the wrong ghost (just the capsule and parachute). Watch entry now syncs the watched vessel's parts to the mission's shared loop clock, so the full rocket appears instead of replaying every staging and decouple event to the raw game time.
