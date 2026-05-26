@@ -57,10 +57,10 @@ namespace Parsek
         // Start event | End event | End time. The first column doubles as the mission
         // index cell (on header bars) and the include checkbox (on through-line rows).
         private const float ColW_Index = 30f;
-        private const float ColW_StartTime = 100f;
+        private const float ColW_StartTime = 120f;
         private const float ColW_StartEvent = 85f;
         private const float ColW_EndEvent = 85f;
-        private const float ColW_EndTime = 100f;
+        private const float ColW_EndTime = 120f;
         private const float ColW_Action = 60f;
         private const float ColW_Watch = 50f;
         // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
