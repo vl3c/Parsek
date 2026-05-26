@@ -713,6 +713,18 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Ghost PIDs whose orbit + <see cref="ghostOrbitBounds"/> are currently shifted into the
+        /// live frame by a Mission-loop epoch shift (loopEpochShiftSeconds != 0). For these,
+        /// <see cref="TryGetVisibleOrbitBoundsForGhostVessel"/> MUST return the stored (already
+        /// shifted) bounds instead of re-deriving them from the raw recorded OrbitSegments at the
+        /// live UT: the re-derivation would hand back raw recorded UTs that no longer match the
+        /// shifted orbit epoch, mis-clipping the arc / icon in the (rewind/warp) edge where the
+        /// live clock falls inside the member's recorded window. Empty off the loop path, so
+        /// non-loop ghosts keep the existing segment re-derivation.
+        /// </summary>
+        internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -2060,6 +2072,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;
@@ -3099,6 +3112,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -3317,6 +3331,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -6706,6 +6721,14 @@ namespace Parsek
             // the live frame for loop replay (see the epoch note above).
             ghostOrbitBounds[vessel.persistentId] =
                 (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
+            // Mark/unmark this ghost as loop-shifted so TryGetVisibleOrbitBoundsForGhostVessel
+            // returns these (shifted) bounds rather than re-deriving raw recorded bounds from the
+            // OrbitSegments at the live UT, which would desync the arc/icon clip from the shifted
+            // orbit epoch when the live clock falls inside the member's recorded window.
+            if (loopEpochShiftSeconds != 0.0)
+                ghostOrbitLoopShiftedPids.Add(vessel.persistentId);
+            else
+                ghostOrbitLoopShiftedPids.Remove(vessel.persistentId);
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -7520,6 +7543,22 @@ namespace Parsek
             startUT = 0;
             endUT = 0;
 
+            // Loop-shifted ghost: the stored bounds are already in the live frame and match the
+            // shifted orbit epoch, so use them directly. Re-deriving from the raw recorded
+            // OrbitSegments at the live UT (below) would return raw recorded UTs that desync from
+            // the shifted orbit when the live clock falls inside the member's recorded window.
+            // Empty set off the loop path, so this never fires for non-loop ghosts.
+            if (ghostOrbitLoopShiftedPids.Contains(vesselPid)
+                && TryGetStoredOrbitBoundsForGhostVessel(
+                    vesselPid,
+                    currentUT,
+                    "loop-shifted",
+                    out startUT,
+                    out endUT))
+            {
+                return true;
+            }
+
             int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
             if (IsEndpointTailRecordingGhost(vesselPid, recordingIndex)
                 && TryGetStoredOrbitBoundsForGhostVessel(
@@ -7630,9 +7669,13 @@ namespace Parsek
 
             startUT = bounds.startUT;
             endUT = bounds.endUT;
-            string source = string.Equals(reason, "endpoint-tail", StringComparison.Ordinal)
-                ? "stored-bounds-endpoint-tail"
-                : "stored-bounds-fallback";
+            string source;
+            if (string.Equals(reason, "endpoint-tail", StringComparison.Ordinal))
+                source = "stored-bounds-endpoint-tail";
+            else if (string.Equals(reason, "loop-shifted", StringComparison.Ordinal))
+                source = "stored-bounds-loop-shifted";
+            else
+                source = "stored-bounds-fallback";
             ParsekLog.VerboseOnChange(Tag,
                 string.Format(ic, "visible-window-stored-bounds|{0}|{1}", vesselPid, reason),
                 string.Format(ic, "stored-bounds|{0}|{1:F3}-{2:F3}", reason, startUT, endUT),
@@ -7653,6 +7696,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -7714,6 +7758,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

@@ -1176,8 +1176,11 @@ namespace Parsek
 
         // Parses an edited loop-period value and writes it to the Mission, mirroring
         // RecordingsTableUI.CommitLoopPeriodEdit: reject negatives, clamp below
-        // MinCycleDuration. Invalid text is ignored (the field keeps the typed buffer so
-        // the player can finish typing). Auto unit does not commit a value.
+        // MinCycleDuration. Invalid text is ignored (no write); the caller
+        // (CommitMissionLoopPeriodEdit) then ends the edit and the field reverts to the stored
+        // value display, exactly as the Recordings tab does on Enter / click-away. Auto unit
+        // does not commit a value. (While editing, the TextField keeps whatever you type between
+        // frames; this method only runs at the commit, not per keystroke.)
         private static void CommitMissionLoopPeriod(Mission mission, string text)
         {
             if (mission.LoopTimeUnit == LoopTimeUnit.Auto)

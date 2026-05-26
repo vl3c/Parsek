@@ -1377,9 +1377,12 @@ namespace Parsek
                             // Per-chain dedup before deferred creation
                             RemovePreviousChainMapVessel(idx);
                             // Create at the loop-mapped effUT so the source/segment/point match the
-                            // looped phase (effUT == currentUT off the loop path). The per-frame
-                            // update pass below re-seeds with the live-frame epoch shift within a
-                            // tick, so the brief create-time epoch is self-correcting.
+                            // looped phase (effUT == currentUT off the loop path). The orbit epoch is
+                            // not yet shifted here; the rate-limited update pass below (every
+                            // MapOrbitUpdateIntervalSec ~0.5s) re-seeds it with the live-frame epoch
+                            // shift, so a freshly (re)materialized loop ghost can show the wrong
+                            // orbital phase for up to ~0.5s after each window re-entry before it
+                            // snaps to the replayed position.
                             Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                                 idx,
                                 traj,
