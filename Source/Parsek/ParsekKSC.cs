@@ -1240,11 +1240,16 @@ namespace Parsek
                         if (idx < 0 || idx >= committed.Count || committed[idx] == null)
                             continue;
                         var member = committed[idx];
+                        // Use the TRIMMED member window (interval-level start/end trim), matching the
+                        // flight engine's live-member scan, so a start-trimmed member's camera-live
+                        // diagnostic reflects the segment actually rendered, not its raw recorded range.
+                        double memberStartUT = unit.MemberStartUT(idx, member.StartUT);
+                        double memberEndUT = unit.MemberEndUT(idx, member.EndUT);
                         if (GhostPlaybackLogic.IsLoopUTInMemberWindow(
-                                spanLoopUT, member.StartUT, member.EndUT)
-                            && member.StartUT >= liveStartUT)
+                                spanLoopUT, memberStartUT, memberEndUT)
+                            && memberStartUT >= liveStartUT)
                         {
-                            liveStartUT = member.StartUT;
+                            liveStartUT = memberStartUT;
                             liveMemberIdx = idx;
                         }
                     }

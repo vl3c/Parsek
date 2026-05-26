@@ -6783,19 +6783,19 @@ namespace Parsek
         /// self-overlap the mission relaunches every <paramref name="overlapCadenceSeconds"/> (the
         /// cap-clamped true period, shorter than the span), so the newest instance is the one launched
         /// at <c>anchor + missionCycle * cadence</c> where
-        /// <c>missionCycle = floor((currentUT - anchor) / cadence)</c> (capped at
-        /// <paramref name="maxInstances"/>, mirroring <see cref="GetActiveCycles"/>'s newest-cycle
-        /// clamp). Its progress through the span is the phase since that launch, clamped to
-        /// [0, <paramref name="span"/>], and the returned <paramref name="loopUT"/> is
-        /// <c>spanStartUT + phase</c>. Feeding this into
+        /// <c>missionCycle = floor((currentUT - anchor) / cadence)</c>. Its progress through the
+        /// span is the phase since that launch, clamped to [0, <paramref name="span"/>], and the
+        /// returned <paramref name="loopUT"/> is <c>spanStartUT + phase</c>. Feeding this into
         /// <see cref="IsLoopUTInMemberWindow"/> picks the newest-instance live member for the watch
         /// camera, so the cross-member handoff follows the newest instance and never an older one.
-        /// Returns <paramref name="loopUT"/> = spanStartUT, cycle 0 before the anchor or for a
-        /// degenerate span. Pure: no logging.
+        /// The overlap-instance cap bounds only how many OLDER instances stay alive (the engine
+        /// applies it when enumerating active instances); it never clamps the newest cycle, so no
+        /// cap is applied here. Returns <paramref name="loopUT"/> = spanStartUT, cycle 0 before the
+        /// anchor or for a degenerate span. Pure: no logging.
         /// </summary>
         internal static void ComputeNewestMissionInstanceSpanLoopUT(
             double phaseAnchorUT, double spanStartUT, double span,
-            double overlapCadenceSeconds, double currentUT, int maxInstances,
+            double overlapCadenceSeconds, double currentUT,
             out double loopUT, out long missionCycle)
         {
             loopUT = spanStartUT;
@@ -6809,24 +6809,6 @@ namespace Parsek
             missionCycle = (long)Math.Floor(elapsed / cadence);
             if (missionCycle < 0)
                 missionCycle = 0;
-
-            // Mirror GetActiveCycles: the newest live instance is at most maxInstances ahead of the
-            // oldest still-playing instance. This only affects the index label; the span phase below
-            // is computed from the same newest cycle, so the camera tracks the genuinely newest one.
-            if (maxInstances > 0)
-            {
-                long firstActive = 0;
-                double elapsedMinusSpan = elapsed - span;
-                if (elapsedMinusSpan >= 0)
-                {
-                    firstActive = (long)Math.Floor(elapsedMinusSpan / cadence) + 1;
-                    if (firstActive < 0)
-                        firstActive = 0;
-                }
-                if (firstActive < missionCycle - maxInstances + 1)
-                    firstActive = missionCycle - maxInstances + 1;
-                // (firstActive is the oldest live; missionCycle stays the newest.)
-            }
 
             double phase = elapsed - (missionCycle * cadence);
             if (phase < 0) phase = 0;

@@ -132,53 +132,23 @@ namespace Parsek
             MissionThroughLineView view = MissionThroughLineBuilder.Build(structure);
             List<MissionCompositionNode> compRoots = MissionCompositionBuilder.Build(structure);
 
-            // 3. Per-vessel render windows from the interval-level selection. A vessel with no
-            //    included interval is dropped; the rest carry a [start,end] window. Empty
-            //    ExcludedIntervalKeys => every window spans the whole vessel.
-            Dictionary<string, MissionIntervalSelection.RenderWindow> vesselWindows =
-                MissionIntervalSelection.ComputeRenderWindows(compRoots, mission.ExcludedIntervalKeys);
-
-            // 4. Map each included vessel's members to committed indices + their TRIMMED render
-            //    window (the vessel window intersected with the member's own [StartUT, EndUT]; a
-            //    member entirely outside the window is dropped). With no exclusions every window
-            //    spans the whole vessel, so each member keeps its full range (no behavior change).
-            var memberIndices = new List<int>();
-            var memberWindowByIndex = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>();
-            int skippedNotCommitted = 0;
-            foreach (var vw in vesselWindows)
-            {
-                if (!view.ByHeadId.TryGetValue(vw.Key, out MissionThroughLine tl))
-                    continue;
-                double winStart = vw.Value.StartUT;
-                double winEnd = vw.Value.EndUT;
-                var members = tl.MemberLegIds;
-                for (int i = 0; i < members.Count; i++)
-                {
-                    string id = members[i];
-                    if (string.IsNullOrEmpty(id))
-                        continue;
-                    if (!indexById.TryGetValue(id, out int idx))
-                    {
-                        skippedNotCommitted++;
-                        continue;
-                    }
-                    if (memberWindowByIndex.ContainsKey(idx))
-                        continue; // first wins on duplicate ids
-                    Recording rec = committed[idx];
-                    double rStart = Math.Max(winStart, rec.StartUT);
-                    double rEnd = Math.Min(winEnd, rec.EndUT);
-                    if (rEnd <= rStart)
-                        continue; // member entirely outside the vessel's render window (trimmed off)
-                    memberIndices.Add(idx);
-                    memberWindowByIndex[idx] =
-                        new GhostPlaybackLogic.LoopUnit.MemberWindow(rStart, rEnd);
-                }
-            }
+            // 3-5. Per-vessel render windows from the interval-level selection, mapped to committed
+            //      indices + their TRIMMED render window (the vessel window intersected with the
+            //      member's own [StartUT, EndUT]; a member entirely outside the window is dropped).
+            //      Extracted into ComputeTrimmedMemberWindows so the Missions UI (period-cell span
+            //      display + watch target) consumes the IDENTICAL member set + windows this builder
+            //      uses - otherwise the UI (which keyed off the legacy ExcludedThroughLineHeadIds)
+            //      would ignore the interval-level trims the loop actually applies. With no
+            //      exclusions every window spans the whole vessel (no behavior change).
+            var memberWindowByIndex = ComputeTrimmedMemberWindows(
+                view, compRoots, committed, mission.ExcludedIntervalKeys, indexById,
+                out int vesselWindowCount, out int skippedNotCommitted);
+            var memberIndices = new List<int>(memberWindowByIndex.Keys);
             if (memberIndices.Count == 0)
             {
                 ParsekLog.Verbose("Mission",
                     $"MissionLoopUnit: mission='{mission.Name}' tree={tree.Id} " +
-                    $"vessels={vesselWindows.Count} no committed members in window; no unit");
+                    $"vessels={vesselWindowCount} no committed members in window; no unit");
                 return false;
             }
 
@@ -261,6 +231,73 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Maps a Mission's interval-level selection (<see cref="Mission.ExcludedIntervalKeys"/>) to
+        /// its committed loop members + their TRIMMED render windows, keyed by committed index. This
+        /// is the single source of truth for "which recordings does this looped mission include, and
+        /// over what time window" - <see cref="TryBuildMissionUnit"/> builds the actual span clock
+        /// from it, and the Missions UI (period-cell effective-cadence display + watch target) reads
+        /// it so the displayed cadence and watch candidates match the looped reality exactly (rather
+        /// than the legacy through-line-head selection, which ignored interval trims).
+        ///
+        /// Each included vessel's render window (from <see cref="MissionIntervalSelection.ComputeRenderWindows"/>)
+        /// is intersected with each member recording's own [StartUT, EndUT]; a member entirely
+        /// outside the window is dropped, and the first claimant wins on duplicate RecordingIds.
+        /// <paramref name="indexById"/> is the committed RecordingId -> index map (pass the shared one
+        /// from <see cref="Build"/>, or null to build it here). Empty exclusions => every window spans
+        /// the whole vessel, so each member keeps its full range. Pure: no Unity, no shared state.
+        /// </summary>
+        internal static Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow> ComputeTrimmedMemberWindows(
+            MissionThroughLineView view,
+            List<MissionCompositionNode> compRoots,
+            IReadOnlyList<Recording> committed,
+            ICollection<string> excludedIntervalKeys,
+            Dictionary<string, int> indexById,
+            out int vesselWindowCount,
+            out int skippedNotCommitted)
+        {
+            var memberWindowByIndex = new Dictionary<int, GhostPlaybackLogic.LoopUnit.MemberWindow>();
+            vesselWindowCount = 0;
+            skippedNotCommitted = 0;
+            if (view == null || compRoots == null || committed == null)
+                return memberWindowByIndex;
+            if (indexById == null)
+                indexById = BuildIndexById(committed);
+
+            Dictionary<string, MissionIntervalSelection.RenderWindow> vesselWindows =
+                MissionIntervalSelection.ComputeRenderWindows(compRoots, excludedIntervalKeys);
+            vesselWindowCount = vesselWindows.Count;
+            foreach (var vw in vesselWindows)
+            {
+                if (!view.ByHeadId.TryGetValue(vw.Key, out MissionThroughLine tl))
+                    continue;
+                double winStart = vw.Value.StartUT;
+                double winEnd = vw.Value.EndUT;
+                var members = tl.MemberLegIds;
+                for (int i = 0; i < members.Count; i++)
+                {
+                    string id = members[i];
+                    if (string.IsNullOrEmpty(id))
+                        continue;
+                    if (!indexById.TryGetValue(id, out int idx))
+                    {
+                        skippedNotCommitted++;
+                        continue;
+                    }
+                    if (memberWindowByIndex.ContainsKey(idx))
+                        continue; // first wins on duplicate ids
+                    Recording rec = committed[idx];
+                    double rStart = Math.Max(winStart, rec.StartUT);
+                    double rEnd = Math.Min(winEnd, rec.EndUT);
+                    if (rEnd <= rStart)
+                        continue; // member entirely outside the vessel's render window (trimmed off)
+                    memberWindowByIndex[idx] =
+                        new GhostPlaybackLogic.LoopUnit.MemberWindow(rStart, rEnd);
+                }
+            }
+            return memberWindowByIndex;
         }
 
         /// <summary>

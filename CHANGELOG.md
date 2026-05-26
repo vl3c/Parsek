@@ -34,6 +34,7 @@ All notable changes to Parsek are documented here.
 
 ### Bug Fixes
 
+- When a mission has some segments trimmed out (per-segment include checkboxes), the loop period cell now shows the trimmed mission's true effective cadence, and the Watch button now targets only the segments still in the loop. Previously both ignored the segment trim and used the whole mission.
 - In the flight map view and the Tracking Station, a looped mission's orbit lines and map icons now track the replay instead of showing a stale, wrong, or missing orbit. The flight map view ignored the mission loop clock entirely (sampling the orbit at the live time, far past the recording), and orbital icons in both views were drawn at the wrong point along the orbit.
 - The loop-period box in the Missions tab again accepts your typed value when you press Enter or click away. It now commits on Enter / click-away like the Recordings tab's period field, instead of relying on per-frame keyboard-focus detection (which the header layout broke).
 - Watching a looped mission with some segments trimmed out no longer hands the camera to (or keeps it on) a vessel that is currently hidden by the trim; the stage handoff now uses each segment's trimmed window, matching what is actually shown.

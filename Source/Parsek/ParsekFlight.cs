@@ -18397,10 +18397,12 @@ namespace Parsek
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
         // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
         // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
-        // (LoopIntervalSeconds + LoopTimeUnit), and selection (sorted ExcludedThroughLineHeadIds),
-        // plus the committed-list identity (count + a rolling hash of RecordingIds, since member
-        // indices are committed-list indices). No looping mission -> a constant "none:" prefix over
-        // the same committed signature, so toggling looping off still rebuilds to Empty exactly once.
+        // (LoopIntervalSeconds + LoopTimeUnit), phase anchor (LoopAnchorUT), and selection (both the
+        // sorted ExcludedThroughLineHeadIds and the interval-level ExcludedIntervalKeys that actually
+        // drive the members + span), plus the looping tree's topology (branch + recording counts) and
+        // the committed-list identity (count + a rolling hash of RecordingIds, since member indices
+        // are committed-list indices). No looping mission -> a constant "none:" prefix over the same
+        // committed signature, so toggling looping off still rebuilds to Empty exactly once.
         private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
         {
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds

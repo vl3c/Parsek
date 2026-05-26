@@ -2182,8 +2182,7 @@ namespace Parsek
                 {
                     GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
                         unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
-                        ctx.currentUT, GhostPlayback.MaxOverlapMissionInstances,
-                        out handoffLoopUT, out handoffCycle);
+                        ctx.currentUT, out handoffLoopUT, out handoffCycle);
                 }
                 LogUnitTransitionIfChanged(
                     unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,

@@ -823,31 +823,31 @@ namespace Parsek
         // present in CommittedRecordings count, by RecordingId). Used only for the period cell's
         // effective-cadence display, so the shown value matches the cadence actually running.
         // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
-        private static double MissionSpanSeconds(
+        // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
+        // loop members, computed via the SAME MissionLoopUnitBuilder.ComputeTrimmedMemberWindows the
+        // loop builder derives its span from - so the period cell's effective-cadence display matches
+        // the cadence actually running, including interval-level start/end trims (the old path keyed
+        // off ExcludedThroughLineHeadIds, which the UI never writes, so it ignored interval trims).
+        // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
+        private double MissionSpanSeconds(
             MissionThroughLineView view, Mission mission, IReadOnlyList<Recording> committed)
         {
             if (view == null || committed == null)
                 return 0.0;
+            RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+            if (tree == null)
+                return 0.0;
 
-            HashSet<string> included = MissionSelection.ComputeIncludedHeadIds(
-                view, mission.ExcludedThroughLineHeadIds);
-            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
-            foreach (string head in included)
-                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
-                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
-                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
-                            memberIds.Add(tl.MemberLegIds[m]);
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
+                null, out _, out _);
 
             double min = double.PositiveInfinity;
             double max = double.NegativeInfinity;
-            for (int i = 0; i < committed.Count; i++)
+            foreach (var w in windows.Values)
             {
-                Recording rec = committed[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
-                    || !memberIds.Contains(rec.RecordingId))
-                    continue;
-                if (rec.StartUT < min) min = rec.StartUT;
-                if (rec.EndUT > max) max = rec.EndUT;
+                if (w.StartUT < min) min = w.StartUT;
+                if (w.EndUT > max) max = w.EndUT;
             }
             if (double.IsInfinity(min) || double.IsInfinity(max))
                 return 0.0;
@@ -958,23 +958,24 @@ namespace Parsek
             isWatchingThisMission = false;
             if (committed == null || view == null || flight == null)
                 return -1;
+            RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+            if (tree == null)
+                return -1;
 
-            HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
-                view, mission.ExcludedThroughLineHeadIds);
-            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
-            foreach (string head in includedHeads)
-                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
-                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
-                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
-                            memberIds.Add(tl.MemberLegIds[m]);
+            // The TRIMMED loop members keyed by committed index - the SAME set
+            // MissionLoopUnitBuilder actually spawns - so a watch target (and the "watching this
+            // mission" check) never picks a vessel that the interval-level trim dropped from the
+            // loop. (The old path keyed off ExcludedThroughLineHeadIds, which the UI never writes,
+            // so it considered every vessel regardless of interval trims.)
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
+                null, out _, out _);
 
             int watchedIdx = flight.WatchedRecordingIndex;
             int target = -1;
             for (int i = 0; i < committed.Count; i++)
             {
-                Recording rec = committed[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
-                    || !memberIds.Contains(rec.RecordingId))
+                if (!windows.ContainsKey(i))
                     continue;
                 if (i == watchedIdx)
                     isWatchingThisMission = true;
