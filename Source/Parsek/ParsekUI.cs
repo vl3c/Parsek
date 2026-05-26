@@ -202,15 +202,10 @@ namespace Parsek
             }
 
             // Top-level Recordings button. The per-state count lives inside the
-            // window; the launch-surface label stays short.
+            // window; the launch-surface label stays short. The Missions view now
+            // lives as a second tab inside this same window (no separate button).
             if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
-
-            if (GUILayout.Button("Missions"))
-            {
-                missionsUI.IsOpen = !missionsUI.IsOpen;
-                ParsekLog.Verbose("UI", $"Missions window toggled: {(missionsUI.IsOpen ? "open" : "closed")}");
-            }
 
             GUILayout.Space(SpacingLarge);
 
@@ -357,10 +352,9 @@ namespace Parsek
             recordingsTableUI.DrawIfOpen(mainWindowRect);
         }
 
-        public void DrawMissionsWindowIfOpen(Rect mainWindowRect)
-        {
-            missionsUI.DrawIfOpen(mainWindowRect);
-        }
+        // The Missions view is drawn as a tab inside the Recordings window
+        // (RecordingsTableUI dispatches to it); it is no longer a standalone window.
+        internal MissionsWindowUI GetMissionsUI() => missionsUI;
 
         internal void ToggleRecordingsWindow()
         {

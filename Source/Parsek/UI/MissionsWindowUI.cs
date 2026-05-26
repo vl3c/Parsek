@@ -1,32 +1,28 @@
 using System.Collections.Generic;
-using ClickThroughFix;
 using UnityEngine;
 
 namespace Parsek
 {
     /// <summary>
-    /// The Missions window. A standalone class that reuses <see cref="RecordingsTableUI"/>'s
-    /// visual style and rendering helpers (column-header style, dark table-body box,
-    /// tree-branch connector glyphs, expand/collapse carets, section-header bar) without
-    /// inheriting it. Unlike the recordings window (which groups individual recordings:
-    /// groups -> chains -> recordings), this groups the higher mission abstraction: it
-    /// lists saved <see cref="Mission"/>s (from <see cref="MissionStore"/>), and renders
-    /// each one's tree as collapsed continuous-vessel through-lines (from
-    /// <see cref="MissionThroughLineBuilder"/>) with the offshoots that left them as
-    /// children. Per Mission: a name + Clone/Delete, and include checkboxes bound to that
-    /// Mission's selection (persisted). Individual recording legs never appear here.
-    /// Not yet wired: looping a Mission as a unit. See docs/dev/design-mission-abstractions.md.
+    /// The Missions tab content, drawn INSIDE the Recordings window (<see cref="RecordingsTableUI"/>
+    /// hosts the window chrome and a two-tab bar; this class draws the body of the "Missions" tab
+    /// via <see cref="DrawMissionsTabContent"/>). It reuses RecordingsTableUI's visual style and
+    /// rendering helpers (column-header style, dark table-body box, tree-branch connector glyphs,
+    /// expand/collapse carets, section-header bar) without inheriting it. Where the recordings tab
+    /// groups individual recordings (groups -> chains -> recordings), this groups the higher
+    /// mission abstraction: it lists saved <see cref="Mission"/>s (from <see cref="MissionStore"/>),
+    /// and renders each tree's continuous-vessel composition over time with the offshoots that left
+    /// each vessel as children. Per Mission: a name + Loop/period + Watch + Clone/Delete + Archive,
+    /// and include checkboxes bound to that Mission's selection (persisted). A Mission loops as a
+    /// single unit. See docs/dev/design-mission-abstractions.md.
     /// </summary>
     internal class MissionsWindowUI
     {
         private readonly ParsekUI parentUI;
 
-        private bool showWindow;
-        private Rect windowRect;
-        private Rect lastWindowRect;
+        // Scroll position of the Missions tab's list. The host Recordings window owns the
+        // window rect, resize, drag, and input lock; this tab only keeps its own scroll.
         private Vector2 scrollPos;
-        private bool isResizing;
-        private bool hasInputLock;
 
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
@@ -54,13 +50,6 @@ namespace Parsek
         // built from the same MissionStructure. Cleared alongside missionViewCache each frame.
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
-
-        private const string InputLockId = "Parsek_MissionsWindow";
-        private const float MinWindowWidth = 450f;
-        private const float MinWindowHeight = 150f;
-        // Default width: the prior 680 plus 30 px of breathing room plus the new
-        // per-mission Watch button column plus the rightmost Archive column.
-        private const float DefaultWidth = 680f + 30f + ColW_Watch + ColW_Archive;
 
         // Fixed-width columns to the right of the expanding "Missions and vessels" column,
         // mirroring the recordings window's fixed-width cells so the window reads as the
@@ -144,90 +133,6 @@ namespace Parsek
             this.parentUI = parentUI;
         }
 
-        public bool IsOpen
-        {
-            get { return showWindow; }
-            set { showWindow = value; }
-        }
-
-        public void DrawIfOpen(Rect mainWindowRect)
-        {
-            if (!showWindow)
-            {
-                ReleaseInputLock();
-                return;
-            }
-
-            if (windowRect.width < 1f)
-            {
-                float defaultH = parentUI.InFlightMode ? mainWindowRect.height : mainWindowRect.height * 2f;
-                // Restore the player's last size when one was persisted (clamped to the minimums);
-                // otherwise fall back to the default width and a height derived from the main window.
-                float w = (!float.IsNaN(MissionStore.WindowWidth) && MissionStore.WindowWidth > 0f)
-                    ? Mathf.Max(MinWindowWidth, MissionStore.WindowWidth)
-                    : DefaultWidth;
-                float h = (!float.IsNaN(MissionStore.WindowHeight) && MissionStore.WindowHeight > 0f)
-                    ? Mathf.Max(MinWindowHeight, MissionStore.WindowHeight)
-                    : defaultH;
-                windowRect = new Rect(
-                    mainWindowRect.x + mainWindowRect.width + 10f,
-                    mainWindowRect.y,
-                    w, h);
-            }
-
-            ParsekUI.HandleResizeDrag(ref windowRect, ref isResizing,
-                MinWindowWidth, MinWindowHeight, "Missions window");
-
-            // Remember the current size so it survives a reload (persisted with the missions via
-            // MissionStore.Save). Cheap two-field copy each frame; the scenario save reads it.
-            MissionStore.WindowWidth = windowRect.width;
-            MissionStore.WindowHeight = windowRect.height;
-
-            var opaqueWindowStyle = parentUI.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-
-            ParsekUI.ResetWindowGuiColors(out Color prevColor, out Color prevBackground, out Color prevContent);
-            try
-            {
-                windowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekMissions".GetHashCode(),
-                    windowRect,
-                    DrawWindow,
-                    "Parsek - Missions",
-                    opaqueWindowStyle,
-                    GUILayout.Width(windowRect.width),
-                    GUILayout.Height(windowRect.height));
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackground, prevContent);
-            }
-
-            parentUI.LogWindowPosition("Missions", ref lastWindowRect, windowRect);
-
-            if (windowRect.Contains(Event.current.mousePosition))
-            {
-                if (!hasInputLock)
-                {
-                    InputLockManager.SetControlLock(ControlTypes.CAMERACONTROLS, InputLockId);
-                    hasInputLock = true;
-                }
-            }
-            else
-            {
-                ReleaseInputLock();
-            }
-        }
-
-        internal void ReleaseInputLock()
-        {
-            if (!hasInputLock)
-                return;
-            InputLockManager.RemoveControlLock(InputLockId);
-            hasInputLock = false;
-        }
-
         // Lazily rebuilds the body-cell label and dark table-body box styles the
         // recordings window uses. Same definitions as RecordingsTableUI.EnsurePhaseStyles
         // (cell label padding = left-only indent matching the header text inset;
@@ -280,12 +185,20 @@ namespace Parsek
             };
         }
 
-        private void DrawWindow(int windowID)
+        /// <summary>
+        /// Draws the Missions tab's body inside the host Recordings window. The host
+        /// (<see cref="RecordingsTableUI"/>) supplies the window chrome (title, tab bar,
+        /// breathing-room space, bottom Close button, resize handle, drag, and input lock);
+        /// this method only draws the column header + the scrollable mission list, mirroring
+        /// the recordings tab's own header-plus-scroll structure (no outer vertical, no Close,
+        /// no resize/drag of its own).
+        /// </summary>
+        internal void DrawMissionsTabContent()
         {
             EnsureStyles();
 
-            // Click outside an active rename field -> commit and close (mirrors the
-            // recordings window's defocus handling).
+            // Click outside an active rename field -> commit (mirrors the recordings
+            // window's defocus handling).
             if (Event.current.type == EventType.MouseDown && renamingMissionId != null
                 && activeMissionRenameRect.width > 0
                 && !activeMissionRenameRect.Contains(Event.current.mousePosition))
@@ -293,82 +206,67 @@ namespace Parsek
                 CommitMissionRenameById(renamingMissionId);
             }
 
-            // Breathing room below the title bar (matches the recordings window).
-            GUILayout.Space(5);
-
-            GUILayout.BeginVertical();
-
             var trees = RecordingStore.CommittedTrees;
             MissionStore.EnsureDefaultsForTrees(trees);
             var missions = MissionStore.Missions;
             if (missions == null || missions.Count == 0)
             {
                 GUILayout.Label("No missions recorded yet.");
-                GUILayout.FlexibleSpace();
+                return;
             }
-            else
+
+            // Fixed column-header row (outside the scroll view), styled with the
+            // recordings window's shared column-header style.
+            DrawColumnHeader();
+
+            scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
+
+            // Dark list-area background (matches the recordings window) with no
+            // horizontal padding so columns align with the header above.
+            GUILayout.BeginVertical(tableBodyBoxStyle);
+
+            // Per-tree index numbers (1-based, in committed-tree order). Clones share a
+            // tree, so they share its index; renaming a mission never changes it.
+            Dictionary<string, int> treeIndex = BuildTreeIndexMap(trees);
+
+            // Snapshot + sort for display. Clone / Delete (which mutate the store) are
+            // invoked from within the draw loop; the change takes effect next frame.
+            var ordered = BuildSortedMissionRows(missions, trees, treeIndex);
+            int missionCount = 0;
+            int rowCount = 0;
+            for (int i = 0; i < ordered.Count; i++)
             {
-                // Fixed column-header row (outside the scroll view), styled with the
-                // recordings window's shared column-header style.
-                DrawColumnHeader();
+                Mission mission = ordered[i].mission;
+                RecordingTree tree = FindTree(trees, mission.TreeId);
+                if (tree == null)
+                    continue;
+                // Archive: when the Archive toggle is on, archived missions drop out of the
+                // list (mirrors the recordings tab hiding Hidden rows). Their loop / ghost
+                // state is untouched; un-archive or toggle off to see them again.
+                if (MissionStore.HideArchived && mission.Archived)
+                    continue;
+                missionCount++;
 
-                scrollPos = GUILayout.BeginScrollView(scrollPos, false, true, GUILayout.ExpandHeight(true));
+                var (_, view) = GetMissionView(tree);
 
-                // Dark list-area background (matches the recordings window) with no
-                // horizontal padding so columns align with the header above.
-                GUILayout.BeginVertical(tableBodyBoxStyle);
+                DrawMissionHeader(mission, ordered[i].index, view);
 
-                // Per-tree index numbers (1-based, in committed-tree order). Clones share a
-                // tree, so they share its index; renaming a mission never changes it.
-                Dictionary<string, int> treeIndex = BuildTreeIndexMap(trees);
-
-                // Snapshot + sort for display. Clone / Delete (which mutate the store) are
-                // invoked from within the draw loop; the change takes effect next frame.
-                var ordered = BuildSortedMissionRows(missions, trees, treeIndex);
-                int missionCount = 0;
-                int rowCount = 0;
-                for (int i = 0; i < ordered.Count; i++)
+                // Composition-over-time tree (the vessel rows). Each node is a structural
+                // interval / branch with its own independent include checkbox (interval-level
+                // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
+                var compRoots = GetCompositionRoots(tree);
+                for (int r = 0; r < compRoots.Count; r++)
                 {
-                    Mission mission = ordered[i].mission;
-                    RecordingTree tree = FindTree(trees, mission.TreeId);
-                    if (tree == null)
-                        continue;
-                    // Archive: when the window's Archive toggle is on, archived missions drop out
-                    // of the list (mirrors the recordings window hiding Hidden rows). Their loop /
-                    // ghost state is untouched; un-archive or toggle off to see them again.
-                    if (MissionStore.HideArchived && mission.Archived)
-                        continue;
-                    missionCount++;
-
-                    var (_, view) = GetMissionView(tree);
-
-                    DrawMissionHeader(mission, ordered[i].index, view);
-
-                    // Composition-over-time tree (the vessel rows). Each node is a structural
-                    // interval / branch with its own independent include checkbox (interval-level
-                    // start/end trim), bound to Mission.ExcludedIntervalKeys - no cascade.
-                    var compRoots = GetCompositionRoots(tree);
-                    for (int r = 0; r < compRoots.Count; r++)
-                    {
-                        bool isLast = r == compRoots.Count - 1;
-                        rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false);
-                    }
+                    bool isLast = r == compRoots.Count - 1;
+                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false);
                 }
-
-                GUILayout.EndVertical();
-                GUILayout.EndScrollView();
-
-                ParsekLog.VerboseRateLimited("UI", "missions-window-draw",
-                    $"Missions window: missions={missionCount} rows={rowCount}", 5.0);
             }
-
-            // Full-width Close button at the bottom (matches the Timeline window).
-            if (GUILayout.Button("Close"))
-                IsOpen = false;
 
             GUILayout.EndVertical();
-            ParsekUI.DrawResizeHandle(windowRect, ref isResizing, "Missions window");
-            GUI.DragWindow();
+            GUILayout.EndScrollView();
+
+            ParsekLog.VerboseRateLimited("UI", "missions-tab-draw",
+                $"Missions tab: missions={missionCount} rows={rowCount}", 5.0);
         }
 
         private static RecordingTree FindTree(List<RecordingTree> trees, string treeId)

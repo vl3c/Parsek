@@ -111,6 +111,15 @@ namespace Parsek
         private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
 
+        // Two-tab bar (Recordings | Missions). The Missions tab renders the higher mission
+        // abstraction over the same recordings (delegated to MissionsWindowUI); switching tabs
+        // swaps the content inside this one window. Transient (not persisted), matching the
+        // Kerbals / Career State tab idiom.
+        private const int TabRecordings = 0;
+        private const int TabMissions = 1;
+        private int selectedTab = TabRecordings;
+        private static readonly string[] TabLabels = new[] { "Recordings", "Missions" };
+
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
         private enum RootItemType { Group, Chain, Recording, VirtualGroup }
 
@@ -238,6 +247,10 @@ namespace Parsek
         // horizontal flow. Top/bottom margin preserved (4/4) so the vertical gap
         // between the header row and the body box remains intact.
         private GUIStyle colHdrCellContainerStyle;
+
+        // Tab-bar button style: the selected tab looks pressed (onNormal/onHover background
+        // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
+        private GUIStyle toggleButtonStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -535,6 +548,18 @@ namespace Parsek
             {
                 margin = new RectOffset(0, 0, 4, 4)
             };
+
+            // Tab-bar button: selected tab looks pressed via onNormal/onHover background copied
+            // from GUI.skin.button.active.background (matches KerbalsWindowUI / CareerStateWindowUI).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
 
             // One-shot diagnostic log of the runtime GUI skin margins — dictates
             // exactly how much space each cell leaks or collapses in the layout.
@@ -1066,6 +1091,35 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        // Bottom bar for the Missions tab: just a shared Close (the recordings-specific
+        // Info / New Group buttons live only on the recordings tab) plus the same window
+        // chrome (resize handle + drag) so the merged window behaves identically on both tabs.
+        private void DrawMissionsTabBottomBar()
+        {
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Close"))
+            {
+                showRecordingsWindow = false;
+                groupPicker.Close();
+                ParsekLog.Verbose("UI", "Recordings window closed via button (Missions tab)");
+            }
+            GUILayout.EndHorizontal();
+
+            ParsekUI.DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
+
+            GUI.DragWindow();
+        }
+
+        // Pure tab-switch log helper (extracted so the log contract is unit-testable outside
+        // IMGUI; mirrors KerbalsWindowUI.SwitchTab).
+        internal static void LogTabSwitch(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"Recordings window: tab switched {oldTab}->{newTab}");
+        }
+
         private void DrawTimeRangeFilterIndicator()
         {
             var filter = parentUI.TimeRangeFilter;
@@ -1099,6 +1153,28 @@ namespace Parsek
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
 
+            // Ensure body + tab-bar styles exist before the tab bar draws.
+            EnsurePhaseStyles();
+
+            // Two-tab bar (Recordings | Missions), each half the window width. The Missions
+            // tab is the higher mission abstraction over the same recordings; switching tabs
+            // swaps the content inside this one window (delegated to MissionsWindowUI).
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+            if (newTab != selectedTab)
+            {
+                LogTabSwitch(selectedTab, newTab);
+                selectedTab = newTab;
+            }
+            GUILayout.Space(3);
+
+            if (selectedTab == TabMissions)
+            {
+                parentUI.GetMissionsUI().DrawMissionsTabContent();
+                DrawMissionsTabBottomBar();
+                return;
+            }
+
+            // ===== Recordings tab =====
             // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
             if (pendingDeleteGhostOnlyIndex >= 0)
             {
