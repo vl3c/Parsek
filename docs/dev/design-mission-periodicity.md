@@ -171,7 +171,9 @@ period rarely exists; the joint period is a best-fit: the smallest `P` for which
   not in the included span, so its phase is irrelevant.
 - **Full mission** (through the Mun landing): Kerbin rotation AND the Mun's orbital
   phase must both line up -> `P = joint(Kerbin rotation, Mun orbit)` - the long
-  launch-window cadence.
+  launch-window cadence. (This joint result is the Tier-2 / Phase-2 best-fit; Tier-1 /
+  Phase-1 locks only the dominant `Orbital(Mun)` intercept and accepts the
+  Kerbin-rotation residual - see Proposed design.)
 - **Orbital coast only** (ascent + all surface segments trimmed off): no
   rotating-surface segment is included, so nothing constrains the phase ->
   `P = MinCycleDuration`, loop as fast as you like.
