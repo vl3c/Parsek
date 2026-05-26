@@ -53,6 +53,18 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## TODO - v0.10.0 Missions: docking/undocking effect on mission structure (decision recorded, gaps deferred)
+
+- **Decision (2026-05-26 design chat, recorded in `docs/dev/design-mission-abstractions.md` "Docking & undocking (v1)"):** dock / undock affect the mission structure ONLY as tree topology (the existing Dock/Board merge + Undock fork branch points). NO Mission-entity lifecycle is auto-created/closed on dock/undock; loopable segments are interval-level Mission selections over that topology. "Main controller A or B" is not a choice we impose - the docked stack has one KSP active controller and the combined leg records into its tree.
+- **Verified loopable today:** A-solo / B-solo (pre-dock), A-after / B-after undock (undock is a structural peel so the line splits + the departing vessel is its own offshoot), peeled offshoots, and a whole-vessel journey. Audited against `MissionLoopUnitBuilder` (drives looping from `Mission.ExcludedIntervalKeys` via `MissionIntervalSelection`) + `MissionCompositionBuilder` (intervals split at structural peels).
+- **Gaps (DEFERRED until after supply-routes v0 integration; do NOT fix yet):**
+  1. **Dock is not an interval boundary.** `MissionCompositionBuilder.BuildNode` edges only at structural-peel UTs (children leaving), never at a Dock/Board merge UT (a vessel joining), so the docked "AB" stretch is lumped into the continuing vessel's pre-dock interval and can't be looped in isolation. Fix sketch: emit a merge-UT edge on the continuing line when its controller count increases.
+  2. **Docked composition understated.** Interval composition = head start composition MINUS structural peels; it never ADDS controllers gained at a dock, and a later undock peel subtracts the departing vessel's parts that were never in the head count (clamped at 0). Tied to gap 1.
+  3. **Undock continuation vs offshoot is non-deterministic.** `BuildSplitBranchData` gives an Undock's backgrounded child `IsDebris=false` and no `ParentAnchorRecordingId` (only EVA sets a parent link), both undock children share the branch UT, so `ContinuationSuccessor` picks the "main line" by GUID `RecordingId` tiebreaker, not by which vessel held control. Both stay loopable (one continuation, one offshoot) - correctness/labeling gap, not a loopability blocker. Fix sketch: deterministically mark the non-active undock child as the offshoot (stamp `ParentAnchorRecordingId` = active child, or an explicit is-continuation flag).
+  4. **Cross-tree (foreign-vessel) dock.** Combined leg + post-undock continuation land in the controller's tree while the foreign partner's pre-dock flight stays in its own tree, so "loop the whole shared docked journey from the foreign side" spans two trees. Remaining half of design-doc open question 6; revisit with cross-tree dock-link following (PID-linking like `GhostChainWalker`).
+
+---
+
 ## Done - v0.10.0 Missions window: Archive column (long-list management)
 
 - Player request: a way to deal with long mission lists, copying the recordings window's Archive mechanism.
