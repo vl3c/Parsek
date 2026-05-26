@@ -125,6 +125,12 @@ namespace Parsek
         // we cannot reach those instances from a subclass, so we lazily rebuild
         // the same styles here (verbatim, adapted) to match the look exactly.
         private GUIStyle bodyCellLabel;
+        // Composition (vessel) row cell label: same as bodyCellLabel but vertically centered and
+        // stretched to the row height, so the name + time text sit centered in the (MinHeight'd)
+        // row instead of floating at the top - matching how the recordings rows read (their cells
+        // fill the row height via the row's buttons). The include checkbox is centered separately
+        // (ExpandHeight on the toggle).
+        private GUIStyle compositionCellLabel;
         private GUIStyle tableBodyBoxStyle;
         // Zero-horizontal-margin field/button styles for the loop-period cell, identical to
         // the recordings window's bodyCellTextFieldFlush / bodyCellButtonFlush so the value
@@ -179,6 +185,14 @@ namespace Parsek
 
             var cellLabelPadding = new RectOffset(BodyCellTextIndent, 0, 0, 0);
             bodyCellLabel = new GUIStyle(GUI.skin.label) { padding = cellLabelPadding };
+
+            // Composition-row cell: same padding, but vertically centered + stretched to the row
+            // height so the text sits centered in the MinHeight'd row (not floating at the top).
+            compositionCellLabel = new GUIStyle(bodyCellLabel)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                stretchHeight = true
+            };
 
             tableBodyBoxStyle = new GUIStyle(GUI.skin.box)
             {
@@ -429,7 +443,10 @@ namespace Parsek
             if (selectable)
             {
                 bool shownChecked = !selfExcluded;
-                bool toggled = GUILayout.Toggle(shownChecked, "", GUILayout.Width(ColW_Index));
+                // ExpandHeight so the checkbox fills the row height and the toggle style centers it
+                // vertically (matching the vertically-centered name text), rather than top-aligning.
+                bool toggled = GUILayout.Toggle(shownChecked, "",
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
                 if (toggled != shownChecked)
                 {
                     if (toggled) mission.ExcludedIntervalKeys.Remove(node.HeadLegId);
@@ -461,7 +478,7 @@ namespace Parsek
 
             if (hasChildren)
             {
-                if (GUILayout.Button(wide, bodyCellLabel, GUILayout.ExpandWidth(true)))
+                if (GUILayout.Button(wide, compositionCellLabel, GUILayout.ExpandWidth(true)))
                 {
                     string key = CollapseKey(mission, node.HeadLegId);
                     if (collapsedLegs.Contains(key)) collapsedLegs.Remove(key);
@@ -470,17 +487,17 @@ namespace Parsek
             }
             else
             {
-                GUILayout.Label(wide, bodyCellLabel, GUILayout.ExpandWidth(true));
+                GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
             }
 
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
             // parent's span, so their time columns stay blank.
             if (!node.IsAtom)
             {
-                GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), bodyCellLabel, GUILayout.Width(ColW_StartTime));
-                GUILayout.Label(node.StartEvent ?? "", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
-                GUILayout.Label(node.EndEvent ?? "", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
-                GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), bodyCellLabel, GUILayout.Width(ColW_EndTime));
+                GUILayout.Label(KSPUtil.PrintDateCompact(node.StartUT, true), compositionCellLabel, GUILayout.Width(ColW_StartTime));
+                GUILayout.Label(node.StartEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_StartEvent));
+                GUILayout.Label(node.EndEvent ?? "", compositionCellLabel, GUILayout.Width(ColW_EndEvent));
+                GUILayout.Label(KSPUtil.PrintDateCompact(node.EndUT, true), compositionCellLabel, GUILayout.Width(ColW_EndTime));
             }
             else
             {
