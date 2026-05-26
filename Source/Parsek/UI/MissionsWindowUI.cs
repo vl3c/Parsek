@@ -69,6 +69,13 @@ namespace Parsek
         // Uniform width for the mission-header-bar buttons (Clone, Delete, Watch, Rewind/Forward):
         // the old Clone width (60) + 10 px, so they all read as one button group.
         private const float ColW_HeaderButton = 70f;
+        // Width of the mission-header bar's right-side control block (Clone..Rewind + Archive). It
+        // equals the data columns' total footprint (the 6 cells right of "Missions and vessels" plus
+        // their 5 inter-cell margins), so the expanding title fills exactly the same width as the
+        // data rows' name column and the buttons begin at the data-column boundary (where "Start
+        // time" starts) instead of being pushed to the far right.
+        private const float MissionHeaderRightBlockWidth =
+            ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_ReFly + ColW_Archive + 5 * 4f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
@@ -213,16 +220,15 @@ namespace Parsek
             };
 
             // Mission-header row bubble: the section-header box stretched across the whole row.
-            // ALL margins + horizontal padding are zeroed so the dark bar reaches the row edges,
-            // its contents are not inset (the Archive checkbox stays under its column header), and
-            // it adds NO extra vertical space - the box exactly fits the row's controls, so the
-            // line spacing matches the recordings tab's rows (whose header is a plain, unboxed
-            // BeginHorizontal). The bar still reads as a dark bubble; it just doesn't inflate the row.
+            // L/R margin + padding are zeroed so the dark bar reaches the row edges and its contents
+            // are not inset (the Archive checkbox stays under its column header). A small bottom
+            // padding gives the title text breathing room under it (the box's own border supplies the
+            // top space); without it the title sat too close to the bubble's bottom edge.
             var sectionHeader = parentUI.GetSectionHeaderStyle();
             missionHeaderRowStyle = new GUIStyle(sectionHeader)
             {
                 margin = new RectOffset(0, 0, 0, 0),
-                padding = new RectOffset(0, 0, 0, 0)
+                padding = new RectOffset(0, 0, 0, 4)
             };
 
             // Bold transparent text for the index + title sitting on the row bubble (no box of
@@ -565,11 +571,21 @@ namespace Parsek
             GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "",
                 missionHeaderTextStyle, GUILayout.Width(ColW_Index));
 
+            // Small left inset on the title so its text starts at the same x as the "Missions and
+            // vessels" column header text (the header box insets its label; the bare title label
+            // does not), then the title expands to fill the name column.
+            GUILayout.Space(BodyCellTextIndent);
             DrawMissionTitleOrRename(mission);
 
-            // Clone / Delete sit to the LEFT of the Loop area (just right of the expanding
-            // title). Delete is disabled when this is the tree's last mission. Clone, Delete,
-            // Watch, and Rewind/Forward all share ColW_HeaderButton so they read as one button group.
+            // Right-side control block, a FIXED width equal to the data columns' footprint, so the
+            // expanding title above fills exactly the data rows' name-column width and the buttons
+            // begin at the data-column boundary (just right of where "Missions and vessels" ends)
+            // instead of being shoved to the far right. Inside: the buttons left-aligned, then a
+            // FlexibleSpace, then the Archive checkbox pinned to the right (under the Archive header).
+            GUILayout.BeginHorizontal(GUILayout.Width(MissionHeaderRightBlockWidth));
+
+            // Clone / Delete first. Delete is disabled when this is the tree's last mission. Clone,
+            // Delete, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as one group.
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -577,11 +593,8 @@ namespace Parsek
                 MissionStore.Delete(mission);
             GUI.enabled = true;
 
-            // "Loop [x]": the label first, then the checkbox (a bare Toggle(value, "Loop") would
-            // render "[x] Loop" instead). Emitted as two direct siblings (no fixed-width wrapper):
-            // a wrapper wider than the content left slack after the checkbox, making the gap to the
-            // period field larger than the other element gaps. Bare label + toggle gives the normal
-            // ~4 px margin on each side, matching the rest of the row.
+            // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
+            // wrapper left slack that widened the gap before the period field).
             GUILayout.Label("Loop");
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
             if (loopNow != mission.LoopPlayback)
@@ -605,8 +618,13 @@ namespace Parsek
                 rootIdx >= 0 ? rewindCommitted[rootIdx] : null,
                 rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight, ColW_HeaderButton);
 
-            // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive
-            // header toggle controls. Centered in the column like the recordings window's cell.
+            // FlexibleSpace fills the gap between the buttons and the right-pinned Archive checkbox
+            // (the buttons are narrower than the data-column block they sit in).
+            GUILayout.FlexibleSpace();
+
+            // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive header
+            // toggle controls. Centered in the column like the recordings window's cell, and under
+            // the Archive column header.
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Archive));
             GUILayout.FlexibleSpace();
             bool archived = GUILayout.Toggle(mission.Archived, "");
@@ -617,6 +635,8 @@ namespace Parsek
                 mission.Archived = archived;
                 ParsekLog.Info("Mission", $"Mission '{mission.Name}' archived={archived}");
             }
+
+            GUILayout.EndHorizontal();
 
             GUILayout.EndHorizontal();
         }
