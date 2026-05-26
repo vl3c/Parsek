@@ -2868,6 +2868,57 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
         }
 
+        // Missions-tab header-bar variant of the legacy rewind/forward control: a plain fixed-width
+        // button labelled "Rewind" / "Forward" (so it matches the mission header's other buttons),
+        // over the mission's root (launch) recording. Reuses the SAME rewind/forward decision
+        // (ShouldShow* + RecordingStore.CanRewind/CanFastForward) and confirmation dialogs as the
+        // recordings-tab R/FF cell; only the rendering (plain button, full-word labels, caller-set
+        // width) differs. rec == null draws a blank cell of the given width.
+        internal void DrawMissionRewindForwardButton(
+            Recording rec, int ri, double now, ParsekFlight flight, float width)
+        {
+            if (rec == null)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+                return;
+            }
+
+            bool isRecording = parentUI.InFlightMode && flight != null && flight.IsRecording;
+
+            if (ShouldShowForwardButton(rec, now))
+            {
+                bool canFF = RecordingStore.CanFastForward(rec, out string ffReason, isRecording: isRecording);
+                GUI.enabled = canFF;
+                if (GUILayout.Button(
+                        new GUIContent("Forward", canFF ? "Fast-forward to this launch" : ffReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Forward button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowFastForwardConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            if (ShouldShowLegacyRewindButton(rec, now))
+            {
+                bool canRewind = RecordingStore.CanRewind(rec, out string rewindReason, isRecording: isRecording);
+                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
+                GUI.enabled = canRewind;
+                if (GUILayout.Button(
+                        new GUIContent("Rewind", canRewind ? "Rewind to this launch" : rewindReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Rewind button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowRewindConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+        }
+
         // internal so the Missions tab (MissionsWindowUI) can reuse the exact Re-Fly (Fly / Seal)
         // cell for a vessel row's recording. Shows Fly / Seal only for unfinished-flight recordings;
         // otherwise a blank ColW_ReFly cell.

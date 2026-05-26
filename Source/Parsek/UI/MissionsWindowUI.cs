@@ -61,11 +61,16 @@ namespace Parsek
         private const float ColW_StartEvent = 85f;
         private const float ColW_EndEvent = 85f;
         private const float ColW_EndTime = 120f;
-        private const float ColW_Action = 60f;
-        private const float ColW_Watch = 50f;
+        // Uniform width for the mission-header-bar buttons (Clone, Delete, Watch, Rewind/Forward):
+        // the old Clone width (60) + 10 px, so they all read as one button group.
+        private const float ColW_HeaderButton = 70f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
+        // Fixed column-header height so every Missions header cell is the same height (matches
+        // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
+        // taller than the plain-label cells.
+        private const float ColHeaderHeight = 32f;
         // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
         // header carries the global "hide archived" toggle, each mission row a per-mission check.
         // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
@@ -542,11 +547,12 @@ namespace Parsek
             DrawMissionTitleOrRename(mission);
 
             // Clone / Delete sit to the LEFT of the Loop area (just right of the expanding
-            // title). Delete is disabled when this is the tree's last mission.
-            if (GUILayout.Button("Clone", GUILayout.Width(ColW_Action)))
+            // title). Delete is disabled when this is the tree's last mission. Clone, Delete,
+            // Watch, and Rewind/Forward all share ColW_HeaderButton so they read as one button group.
+            if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
-            if (GUILayout.Button("Delete", GUILayout.Width(ColW_Action)))
+            if (GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Delete(mission);
             GUI.enabled = true;
 
@@ -564,17 +570,19 @@ namespace Parsek
 
             DrawMissionWatchButton(mission, view);
 
-            // Rewind / Forward cell (right of Watch): reuses the recordings tab's exact R / FF
-            // button, scoped to the mission's root (launch) recording, so it rewinds the game to
-            // the mission's launch (or fast-forwards to it when the launch is still in the future).
-            // [ERS-exempt] reason: the legacy R/FF path is keyed on the RAW committed index (it
+            // Rewind / Forward button (right of Watch): a plain fixed-width button (matching the
+            // other header buttons) labelled "Rewind" / "Forward", scoped to the mission's root
+            // (launch) recording, so it rewinds the game to the mission's launch (or fast-forwards
+            // to it when the launch is still in the future). Reuses the recordings-tab rewind/forward
+            // decision + confirmation logic via DrawMissionRewindForwardButton.
+            // [ERS-exempt] reason: the rewind/forward path is keyed on the RAW committed index (it
             // takes a committed index + recording and resolves the rewind owner / save by
             // identity), not the ERS index; same rationale as the watch button above.
             var rewindCommitted = RecordingStore.CommittedRecordings;
             int rootIdx = ResolveMissionRootRecordingIndex(view, rewindCommitted);
-            parentUI.GetRecordingsTableUI().DrawLegacyRewindForwardCell(
+            parentUI.GetRecordingsTableUI().DrawMissionRewindForwardButton(
                 rootIdx >= 0 ? rewindCommitted[rootIdx] : null,
-                rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight);
+                rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight, ColW_HeaderButton);
 
             // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive
             // header toggle controls. Centered in the column like the recordings window's cell.
@@ -663,7 +671,7 @@ namespace Parsek
             {
                 // Keep the column width stable when not in flight (greyed placeholder).
                 GUI.enabled = false;
-                GUILayout.Button("Watch", GUILayout.Width(ColW_Watch));
+                GUILayout.Button("Watch", GUILayout.Width(ColW_HeaderButton));
                 GUI.enabled = true;
                 return;
             }
@@ -680,7 +688,7 @@ namespace Parsek
             bool canWatch = watchTarget >= 0 || isWatchingThisMission;
             GUI.enabled = canWatch;
             string label = isWatchingThisMission ? "W*" : "Watch";
-            if (GUILayout.Button(label, GUILayout.Width(ColW_Watch)))
+            if (GUILayout.Button(label, GUILayout.Width(ColW_HeaderButton)))
             {
                 if (isWatchingThisMission)
                 {
@@ -1096,26 +1104,29 @@ namespace Parsek
             // Sortable headers (click to sort, click again to flip direction), mirroring the
             // recordings window. The first (index) column, the expanding name column, and the
             // Start time column sort Missions; the per-leg event columns stay static.
+            // Every header cell is forced to ColHeaderHeight so the row reads as one uniform band
+            // (the Archive cell carries a toggle and would otherwise be taller), matching the
+            // recordings tab. The sortable headers take the height via DrawSortableHeaderCore.
             parentUI.DrawSortableHeaderCore("#", MissionSortColumn.Index,
-                ref sortColumn, ref sortAscending, ColW_Index, false, LogSortChanged);
+                ref sortColumn, ref sortAscending, ColW_Index, false, LogSortChanged, ColHeaderHeight);
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
-                ref sortColumn, ref sortAscending, 0f, true, LogSortChanged);
+                ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
-                ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged);
-            GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent));
-            GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent));
-            GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime));
+                ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);
+            GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime), GUILayout.Height(ColHeaderHeight));
 
             // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for
             // unfinished-flight recordings (reusing the recordings tab's Re-Fly cell).
-            GUILayout.Label("Re-Fly", colHdr, GUILayout.Width(ColW_ReFly));
+            GUILayout.Label("Re-Fly", colHdr, GUILayout.Width(ColW_ReFly), GUILayout.Height(ColHeaderHeight));
 
             // Archive column header + global toggle (mirrors the recordings window): label +
             // a checkbox bound to MissionStore.HideArchived. When on, archived missions drop
             // out of the list; the per-mission Archive checkbox lives on each mission's row.
             // The dark box (colHdrCellContainerStyle) wraps the WHOLE cell, label + checkbox,
             // matching RecordingsTableUI; boldHeaderInnerLabel keeps the label unboxed inside.
-            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Archive));
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Archive), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Archive", boldHeaderInnerLabel);
             bool newHide = GUILayout.Toggle(MissionStore.HideArchived, "");
