@@ -56,6 +56,11 @@ namespace Parsek
         // same table style. Layout: [index/check] Missions and vessels | Start time |
         // Start event | End event | End time. The first column doubles as the mission
         // index cell (on header bars) and the include checkbox (on through-line rows).
+        // ColW_Enable mirrors the recordings tab's leading enable-toggle column (which the Missions
+        // tab has no equivalent for): a blank cell of this width precedes the index/checkbox in
+        // every Missions row, and the header's "#" cell is the same merged [enable+index] width, so
+        // the "Missions and vessels" column lines up with the recordings tab's "Name" column.
+        private const float ColW_Enable = 20f;
         private const float ColW_Index = 30f;
         private const float ColW_StartTime = 120f;
         private const float ColW_StartEvent = 85f;
@@ -400,8 +405,13 @@ namespace Parsek
         {
             GUILayout.BeginHorizontal();
 
-            // First column: an independent include checkbox on every interval / branch (no
-            // cascade - unchecking drops just this segment); a blank cell on roster atoms.
+            // Blank enable slot (no per-row enable in missions) so the first column totals the
+            // recordings tab's [enable+index] width and the vessel name lines up with the
+            // recordings "Name" column. The include checkbox then sits in the index slot, under "#".
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Enable));
+
+            // Include checkbox on every interval / branch (no cascade - unchecking drops just this
+            // segment); a blank cell on roster atoms.
             if (selectable)
             {
                 bool shownChecked = !selfExcluded;
@@ -539,8 +549,11 @@ namespace Parsek
             // so the bubble spans index -> Archive and every control sits inside it.
             GUILayout.BeginHorizontal(missionHeaderRowStyle);
 
-            // Index cell (first column): the per-tree number, non-modifiable. Shared by clones.
-            // Bold transparent text on the row bubble (no box of its own).
+            // First column = blank enable slot + the index number, totalling the recordings tab's
+            // [enable+index] width so the title lines up with the recordings "Name" column.
+            GUILayout.Label("", missionHeaderTextStyle, GUILayout.Width(ColW_Enable));
+            // Index cell: the per-tree number, non-modifiable. Shared by clones. Bold transparent
+            // text on the row bubble (no box of its own).
             GUILayout.Label(index > 0 ? index.ToString(System.Globalization.CultureInfo.InvariantCulture) : "",
                 missionHeaderTextStyle, GUILayout.Width(ColW_Index));
 
@@ -1107,8 +1120,24 @@ namespace Parsek
             // Every header cell is forced to ColHeaderHeight so the row reads as one uniform band
             // (the Archive cell carries a toggle and would otherwise be taller), matching the
             // recordings tab. The sortable headers take the height via DrawSortableHeaderCore.
-            parentUI.DrawSortableHeaderCore("#", MissionSortColumn.Index,
-                ref sortColumn, ref sortAscending, ColW_Index, false, LogSortChanged, ColHeaderHeight);
+            //
+            // First column = a merged [enable+index] cell of the SAME width as the recordings tab's
+            // first header (Width(ColW_Enable + ColW_Index + 8)), so the expanding "Missions and
+            // vessels" column starts at the same x as the recordings "Name" column. There is no
+            // per-row enable in missions, so the enable slot is blank; the sortable "#" lives inline
+            // (boldHeaderInnerLabel) in the index slot so the dark container is not double-boxed.
+            GUILayout.BeginHorizontal(colHdrCellContainerStyle,
+                GUILayout.Width(ColW_Enable + ColW_Index + 8f), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("", GUILayout.Width(ColW_Enable));
+            string hashArrow = (sortColumn == MissionSortColumn.Index)
+                ? (sortAscending ? " \u25b2" : " \u25bc") : "";
+            if (GUILayout.Button("#" + hashArrow, boldHeaderInnerLabel, GUILayout.Width(ColW_Index)))
+            {
+                if (sortColumn == MissionSortColumn.Index) sortAscending = !sortAscending;
+                else { sortColumn = MissionSortColumn.Index; sortAscending = true; }
+                LogSortChanged();
+            }
+            GUILayout.EndHorizontal();
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
                 ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
