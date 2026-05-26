@@ -65,6 +65,18 @@ namespace Parsek
         /// </summary>
         private bool lastKnownShowGhosts = true;
 
+        // Mission loop-unit descriptors for THIS frame (Phase F: TS span-clock parity). Built from
+        // the SAME MissionLoopUnitBuilder.Build the flight engine and KSC consume, so a looped
+        // Mission renders in the tracking station identically. Empty (LoopUnitSet.Empty) means no
+        // Mission loops, which keeps the feature dormant and TS behavior byte-identical to before.
+        // Rebuilt only when the cheap signature changes (cachedLoopUnits + lastLoopUnitSignature),
+        // then read by BOTH the ProtoVessel lifecycle pass (passed into
+        // GhostMapPresence.UpdateTrackingStationGhostLifecycle once per Update tick) and the OnGUI
+        // atmospheric-marker pass (DrawAtmosphericMarkers reads cachedLoopUnits directly), so the
+        // (allocating, Verbose-logging) Build never runs per OnGUI frame.
+        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+        private string lastLoopUnitSignature;
+
         internal enum AtmosphericMarkerSkipReason
         {
             None,
@@ -94,6 +106,7 @@ namespace Parsek
             public int OrbitSegmentActive;
             public int BracketMiss;
             public int MissingBody;
+            public int LoopMemberHidden; // Phase F: member outside its loop window this cycle
 
             internal bool HasSignal =>
                 Candidates > 0
@@ -109,14 +122,15 @@ namespace Parsek
                 || SuppressedByChainFilter > 0
                 || OrbitSegmentActive > 0
                 || BracketMiss > 0
-                || MissingBody > 0;
+                || MissingBody > 0
+                || LoopMemberHidden > 0;
         }
 
         internal static string FormatAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} hiddenBySetting={4} noCommitted={5} nativeIcon={6} nullRecording={7} debris={8} noPoints={9} outsideTimeRange={10} chainSuppressed={11} orbitSegment={12} bracketMiss={13} missingBody={14}",
+                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} hiddenBySetting={4} noCommitted={5} nativeIcon={6} nullRecording={7} debris={8} noPoints={9} outsideTimeRange={10} chainSuppressed={11} orbitSegment={12} bracketMiss={13} missingBody={14} loopMemberHidden={15}",
                 string.IsNullOrEmpty(summary.EventTypeName) ? "(unknown)" : summary.EventTypeName,
                 summary.Candidates,
                 summary.Drawn,
@@ -131,7 +145,8 @@ namespace Parsek
                 summary.SuppressedByChainFilter,
                 summary.OrbitSegmentActive,
                 summary.BracketMiss,
-                summary.MissingBody);
+                summary.MissingBody,
+                summary.LoopMemberHidden);
         }
 
         private static void LogAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
@@ -241,10 +256,40 @@ namespace Parsek
             UpdateSelectedGhostPopup();
             UpdateAtmosphericFocusTarget();
 
+            // Phase F: refresh the Mission loop-unit set once per Update tick (change-detected),
+            // before both the lifecycle pass below and the OnGUI atmospheric-marker pass that reads
+            // the cached field. The OnGUI pass never rebuilds.
+            DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
+
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
-            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle(cachedLoopUnits);
+        }
+
+        /// <summary>
+        /// Recompute the Mission LoopUnitSet only when its inputs change (cheap signature compare),
+        /// caching it on the addon. Mirrors <c>ParsekKSC.DriveMissionLoopUnits</c> /
+        /// <c>ParsekFlight.DriveMissionLoopUnits</c>: the SAME committed list passed to
+        /// <see cref="MissionLoopUnitBuilder.BuildSignature"/> and
+        /// <see cref="MissionLoopUnitBuilder.Build"/> is what the per-recording lifecycle and
+        /// atmospheric passes iterate, so member indices align. Build (and its Verbose log) only
+        /// fires on an actual input change; the cached set is read every frame by both passes.
+        /// </summary>
+        private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
+        {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+            if (!string.Equals(signature, lastLoopUnitSignature, System.StringComparison.Ordinal))
+            {
+                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                lastLoopUnitSignature = signature;
+                ParsekLog.Verbose("Mission",
+                    $"TS Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+            }
         }
 
         void OnGUI()
@@ -320,13 +365,30 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             var suppressed = GhostMapPresence.CachedTrackingStationSuppressedIds;
+            // Phase F: the per-frame cached Mission loop-unit set (built by DriveMissionLoopUnits in
+            // Update, never rebuilt here). Empty => the substitution below is inert.
+            var loopUnits = cachedLoopUnits;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 summary.Candidates++;
+
+                // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
+                // committed index is a loop-unit member. A member outside its loop window this cycle
+                // is skipped (no marker). Inert (effUT == currentUT, renderHidden false) for
+                // non-members and when loopUnits is Empty.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i, rec != null ? rec.StartUT : currentUT, rec != null ? rec.EndUT : currentUT,
+                    currentUT, loopUnits, out bool renderHidden);
+                if (renderHidden)
+                {
+                    summary.LoopMemberHidden++;
+                    continue;
+                }
+
                 AtmosphericMarkerSkipReason skipReason =
-                    ClassifyAtmosphericMarkerSkip(rec, i, currentUT, suppressed);
+                    ClassifyAtmosphericMarkerSkip(rec, i, effUT, suppressed);
                 if (skipReason != AtmosphericMarkerSkipReason.None)
                 {
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
@@ -338,7 +400,7 @@ namespace Parsek
                 int cached = atmosCachedIndices[i];
                 if (!TryResolveRecordingWorldPosition(
                         rec,
-                        currentUT,
+                        effUT,
                         ref cached,
                         out Vector3d worldPos,
                         out _,
@@ -1426,7 +1488,8 @@ namespace Parsek
                         CultureInfo.InvariantCulture,
                         "Warp to Spawn handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
                         selection.RecordingId ?? "(none)"));
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle(
+                    cachedLoopUnits, refreshStockList: false);
                 nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
                 GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-spawn-handoff");
 

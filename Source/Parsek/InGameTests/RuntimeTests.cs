@@ -4534,6 +4534,96 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "Phase F: ResolveTrackingStationSampleUT maps a loop member to its span-clock loopUT, hides out-of-window members, and passes non-members through the live UT")]
+        public void TrackingStationSpanClock_ResolvesEffectiveSampleUT()
+        {
+            // The full ProtoVessel lifecycle wiring is exercised in-scene by the existing toggle /
+            // orbit TS tests; here we verify the pure span-clock substitution seam directly against
+            // a synthetic LoopUnitSet so the Mission-loop UT mapping is covered in the runtime
+            // (Unity-only) environment without a Unity-xUnit harness. The xUnit suite covers the
+            // same helper with broader cases (MissionSpanClockTests).
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 5, memberIndices: new[] { 5 },
+                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150, phaseAnchorUT: 100);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit>
+            {
+                { 5, unit }
+            };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 5, 5 } };
+            var units = new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+
+            // Member 5, window [150,200], live UT 175 -> loopUT 175, not hidden.
+            double effInWindow = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 175.0, units,
+                out bool hiddenInWindow);
+            InGameAssert.IsFalse(hiddenInWindow, "Member inside its window must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effInWindow - 175.0) < 1e-6,
+                "Member inside its window must resolve to the span-clock loopUT (175)");
+
+            // Member 5, window [150,200], live UT 120 -> outside window -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 120.0, units,
+                out bool hiddenOutOfWindow);
+            InGameAssert.IsTrue(hiddenOutOfWindow,
+                "Member outside its loop window this cycle must report renderHidden=true");
+
+            // Index 9 is not a unit member -> live UT passes through unchanged, not hidden.
+            double effNonMember = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 9, memberStartUT: 100, memberEndUT: 150, liveUT: 9999.0, units,
+                out bool hiddenNonMember);
+            InGameAssert.IsFalse(hiddenNonMember, "Non-member must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effNonMember - 9999.0) < 1e-6,
+                "Non-member must pass through the live UT unchanged (9999)");
+
+            // Empty set is the inertness contract: live UT, never hidden.
+            double effEmpty = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 42.0,
+                GhostPlaybackLogic.LoopUnitSet.Empty, out bool hiddenEmpty);
+            InGameAssert.IsFalse(hiddenEmpty, "Empty loop-unit set must never hide a recording");
+            InGameAssert.IsTrue(System.Math.Abs(effEmpty - 42.0) < 1e-6,
+                "Empty loop-unit set must pass through the live UT (42)");
+        }
+
+        [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
+            Description = "Mission self-overlap: a looping unit with overlap cadence shorter than its span resolves the watched member to its NEWEST staggered instance, not the single span-clock UT")]
+        public void MissionSelfOverlap_ResolvesNewestInstanceMemberUT()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Full multi-instance ghost rendering (overlapGhosts) is exercised by the live engine
+            // path and bounded by OverlapGhostCountWithinCap; here we verify the engine's self-overlap
+            // UT reduction in the Unity runtime against a synthetic unit (no live spawning needed).
+            // Span [1000,1300] (300s), overlap cadence 60 < span -> self-overlap. Anchor 1000, member
+            // window == span. At UT 1250: lastCycle = floor(250/60) = 4; cycleStart = 1000+240 = 1240;
+            // phase = 10 -> newest-instance member UT = memberStart(1000) + 10 = 1010.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000, spanEndUT: 1300, cadenceSeconds: 300, phaseAnchorUT: 1000,
+                overlapCadenceSeconds: 60);
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            InGameAssert.IsTrue(unit.OverlapCadenceSeconds < span,
+                "Synthetic unit must self-overlap (overlap cadence < span)");
+
+            var engine = new GhostPlaybackEngine(null);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 0, 0 } };
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1250.0, memberStartUT: 1000.0, memberEndUT: 1300.0, out double loopUT);
+
+            InGameAssert.IsTrue(resolved, "Self-overlap member UT must resolve");
+            InGameAssert.IsTrue(System.Math.Abs(loopUT - 1010.0) < 1e-6,
+                $"Watch must pin the newest instance (expected 1010, got {loopUT:F3})");
+
+            ParsekLog.Info("TestRunner",
+                string.Format(CultureInfo.InvariantCulture,
+                    "MissionSelfOverlap_ResolvesNewestInstanceMemberUT: span={0} overlapCadence={1} loopUT={2}",
+                    span, unit.OverlapCadenceSeconds, loopUT));
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             Description = "#554: synthetic orbital TS ghost is removed when hidden and recreated when shown")]
         public void TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates()
         {

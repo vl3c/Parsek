@@ -38,6 +38,9 @@ namespace Parsek
         // Recordings table window (extracted to RecordingsTableUI)
         private RecordingsTableUI recordingsTableUI;
 
+        // Missions window (extracted to MissionsWindowUI)
+        private MissionsWindowUI missionsUI;
+
         private const float ResizeHandleSize = 16f;
 
         // Settings window (extracted to SettingsWindowUI)
@@ -106,6 +109,7 @@ namespace Parsek
             this.flight = flight;
             this.mode = UIMode.Flight;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -121,6 +125,7 @@ namespace Parsek
             this.flight = null;
             this.mode = mode;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -197,7 +202,8 @@ namespace Parsek
             }
 
             // Top-level Recordings button. The per-state count lives inside the
-            // window; the launch-surface label stays short.
+            // window; the launch-surface label stays short. The Missions view now
+            // lives as a second tab inside this same window (no separate button).
             if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
 
@@ -345,6 +351,10 @@ namespace Parsek
         {
             recordingsTableUI.DrawIfOpen(mainWindowRect);
         }
+
+        // The Missions view is drawn as a tab inside the Recordings window
+        // (RecordingsTableUI dispatches to it); it is no longer a standalone window.
+        internal MissionsWindowUI GetMissionsUI() => missionsUI;
 
         internal void ToggleRecordingsWindow()
         {

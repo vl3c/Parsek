@@ -713,6 +713,18 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Ghost PIDs whose orbit + <see cref="ghostOrbitBounds"/> are currently shifted into the
+        /// live frame by a Mission-loop epoch shift (loopEpochShiftSeconds != 0). For these,
+        /// <see cref="TryGetVisibleOrbitBoundsForGhostVessel"/> MUST return the stored (already
+        /// shifted) bounds instead of re-deriving them from the raw recorded OrbitSegments at the
+        /// live UT: the re-derivation would hand back raw recorded UTs that no longer match the
+        /// shifted orbit epoch, mis-clipping the arc / icon in the (rewind/warp) edge where the
+        /// live clock falls inside the member's recorded window. Empty off the loop path, so
+        /// non-loop ghosts keep the existing segment re-derivation.
+        /// </summary>
+        internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -2060,6 +2072,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;
@@ -3099,6 +3112,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -3317,6 +3331,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -5193,8 +5208,34 @@ namespace Parsek
         /// In the flight scene, this lifecycle is handled by ParsekPlaybackPolicy.CheckPendingMapVessels;
         /// in the tracking station, this method provides the equivalent.
         /// </summary>
+        /// <summary>
+        /// Back-compat / inert overload (no Mission loop units). Used by in-game tests and any
+        /// caller that has no cached <see cref="GhostPlaybackLogic.LoopUnitSet"/>. Passes
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/>, so behavior is identical to before
+        /// Phase F: every recording resolves to the live UT and nothing is hidden.
+        /// </summary>
         internal static void UpdateTrackingStationGhostLifecycle(bool refreshStockList = true)
         {
+            UpdateTrackingStationGhostLifecycle(
+                GhostPlaybackLogic.LoopUnitSet.Empty, refreshStockList);
+        }
+
+        /// <summary>
+        /// Phase F: tracking-station ProtoVessel ghost lifecycle under the shared Mission span
+        /// clock. <paramref name="loopUnits"/> is the per-frame cached set built once by
+        /// <c>ParsekTrackingStation.DriveMissionLoopUnits</c>. For each committed index the
+        /// effective sample UT is resolved via
+        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/>; a member outside its
+        /// loop window this cycle is skipped on create and torn down on refresh. With
+        /// <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> this is byte-identical to the
+        /// pre-Phase-F behavior (effUT == liveUT, renderHidden never true).
+        /// </summary>
+        internal static void UpdateTrackingStationGhostLifecycle(
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            bool refreshStockList = true)
+        {
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
             double currentUT = CurrentUTNow();
             var committed = RecordingStore.CommittedRecordings;
             bool hasCommittedRecordings = committed != null && committed.Count > 0;
@@ -5223,6 +5264,10 @@ namespace Parsek
                 return;
             }
 
+            // Phase F v1 simplification: suppression is resolved at the LIVE currentUT, not the
+            // per-member span-clock effUT. Loop-unit members are already gated by the per-recording
+            // render decision (ResolveTrackingStationSampleUT) in the create / refresh / atmospheric
+            // passes below, so the chain-filter suppression set never needs the loop UT here.
             var suppressed = hasCommittedRecordings
                 ? FindTrackingStationSuppressedRecordingIds(committed, currentUT)
                 : new HashSet<string>();
@@ -5232,7 +5277,7 @@ namespace Parsek
             if (hasCommittedRecordings)
                 GhostPlaybackLogic.InvalidateVesselCache();
 
-            RefreshTrackingStationGhosts(committed, suppressed, currentUT);
+            RefreshTrackingStationGhosts(committed, suppressed, currentUT, loopUnits);
 
             if (!hasCommittedRecordings)
             {
@@ -5249,6 +5294,7 @@ namespace Parsek
             var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-lifecycle");
             int lifecycleCreated = 0;
             int alreadyTracked = 0;
+            int loopMemberHidden = 0; // Phase F: members outside their loop window this cycle (skip create)
             for (int i = 0; i < committed.Count; i++)
             {
                 // Skip recordings that already have a ghost
@@ -5259,6 +5305,18 @@ namespace Parsek
                 }
 
                 var rec = committed[i];
+
+                // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
+                // committed index is a loop-unit member. Inert (effUT == currentUT, renderHidden
+                // false) for every non-member and when loopUnits is Empty.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i, rec.StartUT, rec.EndUT, currentUT, loopUnits, out bool renderHidden);
+                if (renderHidden)
+                {
+                    loopMemberHidden++;
+                    continue; // member outside its window this cycle: do not create a ghost
+                }
+
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
@@ -5269,7 +5327,7 @@ namespace Parsek
                     rec,
                     isSuppressed,
                     realVesselExists,
-                    currentUT,
+                    effUT,
                     ref cachedStateVectorIndex,
                     out OrbitSegment segment,
                     out TrajectoryPoint stateVectorPoint,
@@ -5286,7 +5344,7 @@ namespace Parsek
                     source,
                     segment,
                     stateVectorPoint,
-                    currentUT);
+                    effUT);
 
                 if (v != null)
                 {
@@ -5300,7 +5358,7 @@ namespace Parsek
                     ParsekLog.Info(Tag,
                         string.Format(ic,
                             "Deferred ghost creation for #{0} \"{1}\" — UT {2:F1} entered visible orbit range source={3}",
-                            i, rec.VesselName ?? "(null)", currentUT, FormatTrackingStationGhostSource(source)));
+                            i, rec.VesselName ?? "(null)", effUT, FormatTrackingStationGhostSource(source)));
                 }
             }
 
@@ -5309,6 +5367,18 @@ namespace Parsek
                 committed.Count,
                 lifecycleCreated,
                 alreadyTracked);
+
+            // Phase F: per-frame member render/hide summary (rate-limited, shared key — per the
+            // project's per-frame logging convention). Only meaningful when a Mission loops.
+            if (loopUnits.Count > 0)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    "ts-loop-member-render",
+                    string.Format(ic,
+                        "TS Mission loop active: units={0} created={1} hiddenOutOfWindow={2} UT {3:F1}",
+                        loopUnits.Count, lifecycleCreated, loopMemberHidden, currentUT),
+                    2.0);
+            }
 
             RefreshTrackingStationVesselListAfterLifecycleMutation(
                 createdBefore,
@@ -5360,10 +5430,13 @@ namespace Parsek
         private static void RefreshTrackingStationGhosts(
             IReadOnlyList<Recording> committed,
             HashSet<string> suppressed,
-            double currentUT)
+            double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
             if (vesselsByRecordingIndex.Count == 0)
                 return;
+            if (loopUnits == null)
+                loopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
 
             List<(int idx, string reason)> toRemove = null;
             foreach (var kvp in vesselsByRecordingIndex)
@@ -5384,6 +5457,33 @@ namespace Parsek
                 }
 
                 var rec = committed[idx];
+
+                // Phase F: resolve the effective sample UT for this member under the shared Mission
+                // span clock. A member outside its loop window this cycle is torn down (queued for
+                // removal) so it stops rendering, exactly like the create pass skips it. Inert when
+                // idx is not a unit member or loopUnits is Empty (effUT == currentUT, renderHidden
+                // false): every live-UT read below becomes the unchanged live UT.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    idx,
+                    rec != null ? rec.StartUT : currentUT,
+                    rec != null ? rec.EndUT : currentUT,
+                    currentUT,
+                    loopUnits,
+                    out bool renderHidden);
+                if (renderHidden)
+                {
+                    if (toRemove == null) toRemove = new List<(int, string)>();
+                    toRemove.Add((idx, "mission-loop-out-of-window"));
+                    continue;
+                }
+
+                // Live-frame epoch shift for loop members (0 off the loop path). The orbit / point
+                // were sampled at effUT, but the icon + arc patches run against the live tracking
+                // station clock, so the seeded orbit epoch + stored arc bounds are pushed forward by
+                // (currentUT - effUT) to put the icon at the replayed phase. See ApplyOrbitToVessel /
+                // UpdateGhostOrbitFromStateVectors loopEpochShiftSeconds.
+                double tsLoopEpochShift = currentUT - effUT;
+
                 bool isSuppressed = rec != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressed != null
@@ -5403,7 +5503,7 @@ namespace Parsek
                     : -1;
                 bool fromCheckpoint = TryResolveCheckpointStateVectorMapPoint(
                     rec,
-                    currentUT,
+                    effUT,
                     ref cachedStateVectorIndex,
                     out TrajectoryPoint checkpointPoint,
                     out _,
@@ -5415,13 +5515,13 @@ namespace Parsek
                     alreadyMaterialized,
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
-                    currentUT);
+                    effUT);
                 if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out _,
                         out _,
                         out _))
@@ -5438,7 +5538,8 @@ namespace Parsek
                 if (fromCheckpoint)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, currentUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
+                        loopEpochShiftSeconds: tsLoopEpochShift))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5450,7 +5551,7 @@ namespace Parsek
                 {
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
                         rec.Points,
-                        currentUT,
+                        effUT,
                         ref cachedStateVectorIndex);
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
@@ -5476,7 +5577,7 @@ namespace Parsek
                     // UpdateGhostOrbitFromStateVectors already dispatches on
                     // referenceFrame and resolves world position via the
                     // anchor for that branch.
-                    bool inRelativeFrame = IsInRelativeFrame(rec, currentUT);
+                    bool inRelativeFrame = IsInRelativeFrame(rec, effUT);
                     if (!inRelativeFrame)
                     {
                         double atmosphereDepth = GetAtmosphereDepth(pt.Value.bodyName);
@@ -5491,7 +5592,8 @@ namespace Parsek
                         }
                     }
 
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, currentUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT,
+                        loopEpochShiftSeconds: tsLoopEpochShift))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5502,14 +5604,14 @@ namespace Parsek
                 if (!hasOrbitBounds)
                     continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
                 if (seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         seg.Value,
-                        IsTerminalMapPresenceRegion(rec, currentUT),
+                        IsTerminalMapPresenceRegion(rec, effUT),
                         out OrbitSegment endpointTailSegment,
                         out _,
                         out _))
@@ -5520,9 +5622,9 @@ namespace Parsek
                 else if (!seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
                         rec,
-                        currentUT,
+                        effUT,
                         selectedSegment: null,
-                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, currentUT),
+                        terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out endpointTailSegment,
                         out _,
                         out _))
@@ -5536,8 +5638,14 @@ namespace Parsek
                     toRemove.Add((idx, "tracking-station-expired"));
                     continue;
                 }
-                if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
-                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource);
+                // For loop members the stored bounds are shifted into the live frame while
+                // seg.Value carries the raw recorded UTs, so this comparison stays true and the
+                // orbit re-applies each tick (re-snapping the per-cycle shift); for non-loop members
+                // (shift 0) it skips an unchanged orbit exactly as before.
+                if (bounds.startUT != seg.Value.startUT + tsLoopEpochShift
+                    || bounds.endUT != seg.Value.endUT + tsLoopEpochShift)
+                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource,
+                        loopEpochShiftSeconds: tsLoopEpochShift);
             }
 
             if (toRemove == null)
@@ -5731,11 +5839,13 @@ namespace Parsek
         internal static void UpdateGhostOrbitForRecording(
             int recordingIndex,
             OrbitSegment segment,
-            TrackingStationGhostSource source = TrackingStationGhostSource.Segment)
+            TrackingStationGhostSource source = TrackingStationGhostSource.Segment,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
-            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex));
+            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
+                loopEpochShiftSeconds);
             lifecycleUpdatedThisTick++;
 
             Vector3d worldPos = vessel.GetWorldPos3D();
@@ -6347,13 +6457,22 @@ namespace Parsek
         /// Handles SOI transitions (body change + orbit renderer rebuild).
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
         /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
+        ///
+        /// <paramref name="loopEpochShiftSeconds"/> (default 0) is the Mission-loop epoch shift
+        /// <c>liveUT - effUT</c>: the world position/velocity in <paramref name="point"/> were
+        /// sampled at the loop-mapped <c>effUT</c> (a past recorded UT), but the map icon renders
+        /// at <c>orbit.getPositionAtUT(liveUT)</c>, so the reseeded orbit epoch is pushed forward
+        /// by the shift to <c>ut + loopEpochShiftSeconds == liveUT</c>. The icon then sits exactly
+        /// at the replayed position now instead of being propagated a fraction of an orbit. Zero
+        /// for non-loop ghosts (effUT == liveUT), so behavior is unchanged off the loop path.
         /// </summary>
         internal static bool UpdateGhostOrbitFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
             TrajectoryPoint point,
             double ut,
             bool allowOrbitalCheckpointStateVector = false,
-            string stateVectorUpdateReason = null)
+            string stateVectorUpdateReason = null,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return false;
@@ -6481,12 +6600,15 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
+            // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
+            // being propagated forward along the ellipse. Zero shift for non-loop ghosts.
             OrbitReseed.FromWorldPosAndRecordedVelocity(
                 vessel.orbitDriver.orbit,
                 body,
                 worldPos,
                 vel,
-                ut);
+                ut + loopEpochShiftSeconds);
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
@@ -6541,7 +6663,8 @@ namespace Parsek
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
-        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext)
+        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (vessel.orbitDriver == null)
             {
@@ -6571,6 +6694,15 @@ namespace Parsek
 
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
+            //
+            // Loop replay (loopEpochShiftSeconds = liveUT - effUT, 0 off the loop path): the
+            // segment was selected at the loop-mapped effUT, but the icon + arc patches operate
+            // against the LIVE Planetarium clock. Pushing the orbit epoch AND the stored arc
+            // bounds forward by the same shift puts the orbit, the bounds, and the live clock in
+            // one frame, so the icon sits at the replayed phase and GhostOrbitArcPatch /
+            // GhostOrbitIconClampPatch keep clipping correctly. The shift is constant within a
+            // loop cycle (effUT tracks liveUT 1:1), so natural propagation between the rate-limited
+            // reseeds matches the replay; it jumps once per cycle wrap and is re-snapped next tick.
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
@@ -6579,14 +6711,24 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch,
+                segment.epoch + loopEpochShiftSeconds,
                 body);
 
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
 
-            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
-            ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch), shifted into
+            // the live frame for loop replay (see the epoch note above).
+            ghostOrbitBounds[vessel.persistentId] =
+                (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
+            // Mark/unmark this ghost as loop-shifted so TryGetVisibleOrbitBoundsForGhostVessel
+            // returns these (shifted) bounds rather than re-deriving raw recorded bounds from the
+            // OrbitSegments at the live UT, which would desync the arc/icon clip from the shifted
+            // orbit epoch when the live clock falls inside the member's recorded window.
+            if (loopEpochShiftSeconds != 0.0)
+                ghostOrbitLoopShiftedPids.Add(vessel.persistentId);
+            else
+                ghostOrbitLoopShiftedPids.Remove(vessel.persistentId);
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -7401,6 +7543,22 @@ namespace Parsek
             startUT = 0;
             endUT = 0;
 
+            // Loop-shifted ghost: the stored bounds are already in the live frame and match the
+            // shifted orbit epoch, so use them directly. Re-deriving from the raw recorded
+            // OrbitSegments at the live UT (below) would return raw recorded UTs that desync from
+            // the shifted orbit when the live clock falls inside the member's recorded window.
+            // Empty set off the loop path, so this never fires for non-loop ghosts.
+            if (ghostOrbitLoopShiftedPids.Contains(vesselPid)
+                && TryGetStoredOrbitBoundsForGhostVessel(
+                    vesselPid,
+                    currentUT,
+                    "loop-shifted",
+                    out startUT,
+                    out endUT))
+            {
+                return true;
+            }
+
             int recordingIndex = FindRecordingIndexByVesselPid(vesselPid);
             if (IsEndpointTailRecordingGhost(vesselPid, recordingIndex)
                 && TryGetStoredOrbitBoundsForGhostVessel(
@@ -7511,9 +7669,13 @@ namespace Parsek
 
             startUT = bounds.startUT;
             endUT = bounds.endUT;
-            string source = string.Equals(reason, "endpoint-tail", StringComparison.Ordinal)
-                ? "stored-bounds-endpoint-tail"
-                : "stored-bounds-fallback";
+            string source;
+            if (string.Equals(reason, "endpoint-tail", StringComparison.Ordinal))
+                source = "stored-bounds-endpoint-tail";
+            else if (string.Equals(reason, "loop-shifted", StringComparison.Ordinal))
+                source = "stored-bounds-loop-shifted";
+            else
+                source = "stored-bounds-fallback";
             ParsekLog.VerboseOnChange(Tag,
                 string.Format(ic, "visible-window-stored-bounds|{0}|{1}", vesselPid, reason),
                 string.Format(ic, "stored-bounds|{0}|{1:F3}-{2:F3}", reason, startUT, endUT),
@@ -7534,6 +7696,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -7595,6 +7758,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

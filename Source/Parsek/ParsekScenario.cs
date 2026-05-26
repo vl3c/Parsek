@@ -870,6 +870,8 @@ namespace Parsek
 
                 savePhase = "recordings";
                 SaveTreeRecordings(node);
+                savePhase = "missions";
+                MissionStore.Save(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
@@ -2612,6 +2614,12 @@ namespace Parsek
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
                 loadedRecordingCount = recordings.Count;
+                loadPhase = "missions";
+                MissionStore.Load(node);
+                MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
+                MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+                MissionStore.ReconcileSelections(RecordingStore.CommittedTrees);
+                MissionStore.NormalizeOneLoopPerTree();
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved

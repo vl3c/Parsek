@@ -742,8 +742,9 @@ namespace Parsek.Tests
             Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
             Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
-            int helperStart = uiSrc.IndexOf("private void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
-            int helperEnd = uiSrc.IndexOf("private void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
+            // internal (not private): the Missions tab reuses these cells for its vessel rows.
+            int helperStart = uiSrc.IndexOf("internal void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
+            int helperEnd = uiSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
             string helperBlock = uiSrc.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
@@ -1753,6 +1754,23 @@ namespace Parsek.Tests
             logLines.Clear();
             ParsekUI.ApplyAutoLoopRange(rec, true);
             Assert.Contains(logLines, l => l.Contains("Auto loop range") && l.Contains("TestShip"));
+        }
+
+        // ── Tab switch (Recordings | Missions) ──
+
+        [Fact]
+        public void LogTabSwitch_Logs_OldAndNew()
+        {
+            // Regression: fails if the tab-switch helper stops logging the old and new
+            // tab indices, losing the Recordings/Missions tab-change diagnostic trail.
+            ParsekLog.SuppressLogging = false;
+            logLines.Clear();
+            RecordingsTableUI.LogTabSwitch(oldTab: 0, newTab: 1);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Recordings window: tab switched")
+                && l.Contains("0->1"));
         }
 
         // ── BuildGroupTreeData ──

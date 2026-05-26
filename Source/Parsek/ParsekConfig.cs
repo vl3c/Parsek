@@ -68,7 +68,7 @@ namespace Parsek
             /// Does not affect relative-frame anchoring or background sampling,
             /// which key off <see cref="PhysicsBubbleMeters"/> directly.
             /// </summary>
-            internal const double FullFidelityRangeMeters = 5000.0;
+            internal const double FullFidelityRangeMeters = 10000.0;
 
             internal const double LoopFullFidelityMeters = FullFidelityRangeMeters;
             internal const double LoopSimplifiedMeters = 50000.0;
@@ -78,9 +78,9 @@ namespace Parsek
             /// ghost that has dropped to reduced fidelity must move back inside
             /// this distance before full-fidelity renderers are restored. Slightly
             /// below <see cref="FullFidelityRangeMeters"/> to suppress boundary
-            /// chatter.
+            /// chatter (kept ~300 m under it).
             /// </summary>
-            internal const double FullFidelityRestoreMeters = 4700.0;
+            internal const double FullFidelityRestoreMeters = 9700.0;
 
             // Keep the watch camera available through typical ascent/coast ghosts
             // without letting it stay latched to whole-orbit distant playback.
@@ -148,6 +148,24 @@ namespace Parsek
         /// (floor = <c>duration / cap</c>).
         /// </summary>
         internal const int MaxOverlapGhostsPerRecording = 20;
+
+        /// <summary>
+        /// Hard ceiling on simultaneously-live MISSION instances when a looping
+        /// Mission overlaps itself (its loop period is shorter than its span).
+        /// Mirrors <see cref="MaxOverlapGhostsPerRecording"/> at the mission
+        /// granularity: each mission instance is a full staggered replay of EVERY
+        /// member, so the live ghost count is roughly this value times the member
+        /// count. Set equal to the per-recording cap so a looped mission overlaps
+        /// as generously as a single looped recording does (the per-member overlap
+        /// path already re-bounds each member by
+        /// <see cref="MaxOverlapGhostsPerRecording"/>). Combined with
+        /// <see cref="GhostPlaybackLogic.ComputeEffectiveLaunchCadence"/> in
+        /// <see cref="MissionLoopUnitBuilder"/> the cap is strictly observed: the
+        /// mission's overlap cadence is raised to the minimum value that keeps
+        /// <c>ceil(span / cadence)</c> within the cap, so no mission instance is
+        /// ever silently culled mid-span.
+        /// </summary>
+        internal const int MaxOverlapMissionInstances = 20;
 
         /// <summary>
         /// Bug #414: cap on throttle-eligible ghost-visual builds per

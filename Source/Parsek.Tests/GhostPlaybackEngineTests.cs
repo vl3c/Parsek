@@ -216,6 +216,10 @@ namespace Parsek.Tests
             internal bool ShadowPositionShouldSucceed = false;
             internal double PrimedShadowBracketBeforeUT = double.NaN;
             internal double PrimedShadowBracketAfterUT = double.NaN;
+            // When true, PositionLoop marks the frame as anchor-retired (simulating a Relative
+            // section whose anchor could not resolve), so the engine's post-position body-fixed
+            // fallback path is exercised.
+            internal bool PositionLoopShouldRetire = false;
 
             public void InterpolateAndPosition(int index, IPlaybackTrajectory traj,
                 GhostPlaybackState state, double ut, bool suppressFx)
@@ -271,6 +275,8 @@ namespace Parsek.Tests
                 PositionLoopCalls++;
                 LastLoopUT = ut;
                 InterpolateAndPosition(index, traj, state, ut, suppressFx);
+                if (PositionLoopShouldRetire && state != null)
+                    state.anchorRetiredThisFrame = true;
             }
 
             public bool TryResolveExplosionAnchorPosition(int index,
@@ -1236,6 +1242,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_ControlledChild_True()
+        {
+            // The reported bug: a controlled-decoupled child (IsDebris=false) that carries a
+            // ParentAnchorRecordingId (a continuing upper stage transiently recorded Relative to a
+            // sibling) MUST be a body-fixed-primary candidate so the loop path renders it from its
+            // own bodyFixedFrames. WHAT MAKES IT FAIL: gating on IsDebris (the old loop-path gate)
+            // returns false here, dropping the child to the plain relative resolver, which retires
+            // it to a garbage position once its sibling anchor ends early.
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.IsDebris = false;
+            Assert.True(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_GenuineDebris_True()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.IsDebris = true;
+            Assert.True(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
+        public void IsParentAnchoredBodyFixedPrimaryCandidate_NoParentAnchor_False()
+        {
+            var traj = MakeParentAnchoredDebrisWithRelativeSection();
+            traj.ParentAnchorRecordingId = null;
+            Assert.False(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+
+            traj.ParentAnchorRecordingId = "";
+            Assert.False(GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate(traj));
+        }
+
+        [Fact]
         public void ResolveRecordingEndpointCoverageUT_OrbitEndpointPastRelativeCoverage_UsesOrbitEndpoint()
         {
             var traj = MakeParentAnchoredDebrisWithShadowFrames();
@@ -1711,6 +1750,116 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_FallsBackToBodyFixed()
+        {
+            // The reported gap: a TOP-LEVEL vessel (not parent-anchored) whose active Relative
+            // section is anchored to a sibling that ended early. PositionLoop retires the frame
+            // (the recorded sibling anchor ran out), and the engine must fall back to the recording's
+            // own bodyFixedFrames instead of leaving the ghost retired (which froze it at a garbage
+            // position, hid the anchored EVA kerbal, and threw the watch camera ~798 km away).
+            // WHAT MAKES IT FAIL: the old fallback condition (parentAnchored && loopAnchoredDebrisChain)
+            // skipped this top-level vessel, so the ghost stayed retired through its window.
+            var positioner = new SpawnPrimingPositioner
+            {
+                PositionLoopShouldRetire = true,
+                ShadowPositionShouldSucceed = true,
+                PrimedShadowBracketBeforeUT = 100.0,
+                PrimedShadowBracketAfterUT = 110.0,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeTopLevelVesselWithRelativeSectionToSibling();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 10,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.True(usedBodyFixed);
+            Assert.False(state.anchorRetiredThisFrame); // body-fixed positioning cleared the retire
+            Assert.Equal(1, positioner.PositionLoopCalls); // took the else (non-parent-anchored) branch
+            Assert.Equal(1, positioner.ShadowPositionCalls); // then fell back to body-fixed
+            Assert.Equal(105.0, positioner.LastShadowUT);
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_ParentAnchoredChildAbsoluteSection_UsesAbsoluteLoopNotBodyFixed()
+        {
+            // The reported "Kerbal X Probe was not watchable": a parent-anchored controlled-decoupled
+            // child (ParentAnchorRecordingId set) whose ACTIVE section is ABSOLUTE must play through
+            // the normal absolute loop path, NOT be forced into the body-fixed-primary route (which
+            // only handles Relative sections). WHAT MAKES IT FAIL: without the activeSectionIsRelative
+            // gate, the loop path calls TryPositionFromBodyFixedPrimary (fails for an Absolute section
+            // with no body-fixed frames) and retires the ghost every frame, so it never renders.
+            var positioner = new SpawnPrimingPositioner();
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeParentAnchoredChildWithAbsoluteSection();
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X Probe",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 8,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.False(usedBodyFixed);
+            Assert.False(state.anchorRetiredThisFrame); // NOT retired - it rendered absolutely
+            Assert.Equal(1, positioner.PositionLoopCalls); // took the normal absolute loop path
+            Assert.Equal(0, positioner.ShadowPositionCalls); // body-fixed route skipped for Absolute
+        }
+
+        [Fact]
+        public void PositionLoopAtPlaybackUT_TopLevelRelativeAnchorRetired_NoBodyFixed_StaysRetired()
+        {
+            // Negative: the same top-level vessel WITHOUT a body-fixed surface on its section stays
+            // retired (no data to fall back to) - the fallback is self-gating, never inventing a pose.
+            var positioner = new SpawnPrimingPositioner
+            {
+                PositionLoopShouldRetire = true,
+                ShadowPositionShouldSucceed = true,
+            };
+            var engine = new GhostPlaybackEngine(positioner);
+            var traj = MakeTopLevelVesselWithRelativeSectionToSibling();
+            TrackSection section = traj.TrackSections[0];
+            section.bodyFixedFrames = null;
+            traj.TrackSections[0] = section;
+            var state = new GhostPlaybackState
+            {
+                vesselName = "Kerbal X",
+                ghost = MakeLoadedGhostForRoutingTest(),
+            };
+
+            bool usedBodyFixed = InvokePositionLoopAtPlaybackUT(
+                engine,
+                index: 10,
+                traj: traj,
+                state: state,
+                loopUT: 105.0,
+                suppressFx: true,
+                callsite: "test-loop");
+
+            Assert.False(usedBodyFixed);
+            Assert.True(state.anchorRetiredThisFrame);
+            Assert.Equal(1, positioner.PositionLoopCalls);
+            Assert.Equal(0, positioner.ShadowPositionCalls); // BodyFixedPrimaryCoversPlaybackUT short-circuits
+        }
+
+        [Fact]
         public void IsInterpolationResultValid_BodyNameNull_TreatsAsFailure()
         {
             // Regression guard for the fail-closed contract on the body-fixed
@@ -1969,6 +2118,81 @@ namespace Parsek.Tests
                     },
                 },
             });
+            return traj;
+        }
+
+        /// <summary>
+        /// A TOP-LEVEL vessel (NOT parent-anchored: ParentAnchorRecordingId == null) whose active
+        /// section is Relative against a sibling recording, with a populated bodyFixedFrames surface
+        /// covering the window. Models the Kerbal X upper stage that recorded a stretch relative to a
+        /// probe which decoupled and crashed: the recorded section anchor runs out, PositionLoop
+        /// retires the frame, and the engine must fall back to the recording's own bodyFixedFrames.
+        /// </summary>
+        private static MockTrajectory MakeTopLevelVesselWithRelativeSectionToSibling()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "upper-stage-rec";
+            traj.VesselName = "Kerbal X";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = false;
+            traj.ParentAnchorRecordingId = null; // top-level vessel, not parent-anchored
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                anchorRecordingId = "sibling-rec", // a sibling, not a tree parent
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint
+                    {
+                        ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0,
+                        rotation = Quaternion.identity,
+                    },
+                    new TrajectoryPoint
+                    {
+                        ut = 110.0, latitude = 0.001, longitude = 0.001, altitude = 1.0,
+                        rotation = Quaternion.identity,
+                    },
+                },
+            });
+            return traj;
+        }
+
+        /// <summary>
+        /// A parent-anchored controlled-decoupled child (ParentAnchorRecordingId set) whose ACTIVE
+        /// section is ABSOLUTE (the post-decouple tail it records after leaving its parent's bubble).
+        /// Models the Kerbal X Probe: it decoupled, flew off on its own, and recorded a plain Absolute
+        /// track with no body-fixed frames. The loop path must NOT force it through the
+        /// body-fixed-primary route (which only handles Relative sections); it must play through the
+        /// normal absolute loop path.
+        /// </summary>
+        private static MockTrajectory MakeParentAnchoredChildWithAbsoluteSection()
+        {
+            var traj = new MockTrajectory().WithTimeRange(100.0, 110.0);
+            traj.RecordingId = "probe-rec";
+            traj.VesselName = "Kerbal X Probe";
+            traj.RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
+            traj.IsDebris = false; // controlled-decoupled child
+            traj.ParentAnchorRecordingId = "parent-rec";
+            traj.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0 },
+                    new TrajectoryPoint { ut = 110.0 },
+                },
+            });
+            traj.Points.Add(new TrajectoryPoint { ut = 100.0 });
+            traj.Points.Add(new TrajectoryPoint { ut = 110.0 });
             return traj;
         }
 
@@ -6187,6 +6411,130 @@ namespace Parsek.Tests
             logLines.Clear();
             engine.Dispose();
             Assert.Contains(logLines, l => l.Contains("GhostPlaybackEngine disposed"));
+        }
+
+        #endregion
+
+        // ===================================================================
+        // TryResolveUnitMemberPlaybackUT — Mission loop-unit watch-sync resolver.
+        // Watch entry must sync a watched member's ghost visuals at the unit's
+        // shared span loopUT, NOT the raw Planetarium UT, or ApplyPartEvents
+        // (monotonic) replays staging/decouple events past the member's window
+        // end and leaves only the never-jettisoned parts visible.
+        // ===================================================================
+
+        #region TryResolveUnitMemberPlaybackUT
+
+        private static GhostPlaybackLogic.LoopUnitSet BuildSingleMemberUnit(
+            int memberIndex, double spanStartUT, double spanEndUT, double cadenceSeconds,
+            double phaseAnchorUT)
+        {
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: memberIndex,
+                memberIndices: new[] { memberIndex },
+                spanStartUT: spanStartUT,
+                spanEndUT: spanEndUT,
+                cadenceSeconds: cadenceSeconds,
+                phaseAnchorUT: phaseAnchorUT);
+            var unitsByOwner = new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { memberIndex, unit } };
+            var ownerByIndex = new Dictionary<int, int> { { memberIndex, memberIndex } };
+            return new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_Member_ReturnsSpanLoopUT_NotRawUT()
+        {
+            // Mission span [1000, 1100], cadence == span (100s). The raw UT is well past spanEnd
+            // (after several loop cycles): the resolver must fold it back onto the span clock so
+            // watch sync replays only the events up to the in-span loopUT, matching the live ghost.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            // rawUT 3520: elapsed 2520 over cadence 100 => cycle 25, phaseInCycle 20 => loopUT 1020.
+            // Member window == span (cadence == span -> no self-overlap, single span-clock instance).
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
+
+            Assert.True(resolved);
+            Assert.Equal(1020.0, loopUT, 6);
+            Assert.True(loopUT >= 1000.0 && loopUT <= 1100.0);
+            Assert.NotEqual(3520.0, loopUT);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_NonMember_ReturnsFalse_AndRawUT()
+        {
+            // A different index is not a unit member: behavior is identical to today (false + raw UT).
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                7, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(3520.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_NoUnits_ReturnsFalse_AndRawUT()
+        {
+            // No looping mission => LoopUnitSet.Empty => resolver is inert (false + raw UT).
+            var engine = new GhostPlaybackEngine(null);
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 3520.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(3520.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_BeforeSpanStart_ReturnsFalse_AndRawUT()
+        {
+            // Span clock unresolved (currentUT before phase anchor): fall back to raw UT so the
+            // caller keeps its existing fallback path.
+            var engine = new GhostPlaybackEngine(null);
+            engine.SetLoopUnits(BuildSingleMemberUnit(
+                memberIndex: 0, spanStartUT: 1000.0, spanEndUT: 1100.0,
+                cadenceSeconds: 100.0, phaseAnchorUT: 1000.0));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 500.0, memberStartUT: 1000.0, memberEndUT: 1100.0, out double loopUT);
+
+            Assert.False(resolved);
+            Assert.Equal(500.0, loopUT, 6);
+        }
+
+        [Fact]
+        public void TryResolveUnitMemberPlaybackUT_SelfOverlap_ReturnsNewestInstanceMemberUT()
+        {
+            // Mission span [1000, 1300] (span 300). Overlap cadence 60 < span => self-overlap.
+            // Member window == the full span here. Newest-instance member UT: with anchor 1000,
+            // scheduleStart = 1000 + (1000 - 1000) = 1000, duration 300, cadence 60. At rawUT 1250:
+            // GetActiveCycles -> lastCycle = floor((1250-1000)/60) = 4; cycleStart = 1000 + 4*60 = 1240;
+            // phase = 1250 - 1240 = 10 => playbackUT = memberStart 1000 + 10 = 1010.
+            var engine = new GhostPlaybackEngine(null);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0,
+                memberIndices: new[] { 0 },
+                spanStartUT: 1000.0,
+                spanEndUT: 1300.0,
+                cadenceSeconds: 300.0,        // span-clock cadence (raised to span)
+                phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 60.0); // true period < span -> overlap
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(
+                new Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } },
+                new Dictionary<int, int> { { 0, 0 } }));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1250.0, memberStartUT: 1000.0, memberEndUT: 1300.0, out double loopUT);
+
+            Assert.True(resolved);
+            Assert.Equal(1010.0, loopUT, 6); // newest instance, NOT the span-clock single-instance UT
         }
 
         #endregion

@@ -310,6 +310,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true when a Mission loop unit should SELF-OVERLAP: its launch-to-launch overlap
+        /// cadence is shorter than the whole-mission span, so the mission relaunches before the
+        /// prior instance finishes and several staggered instances play at once (a launch every
+        /// period). False (the span is degenerate or the cadence is >= the span) means a single
+        /// span-clock instance, one replay at a time. Used identically by the flight engine and the
+        /// Space Center so a looped mission overlaps in both, exactly like a single recording with a
+        /// period shorter than its duration.
+        /// </summary>
+        internal static bool UnitMemberOverlaps(LoopUnit unit)
+        {
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            return span > 0 && unit.OverlapCadenceSeconds < span;
+        }
+
+        /// <summary>
+        /// The schedule-start UT for ONE member inside a self-overlapping mission: the instant THIS
+        /// member would launch in each mission instance. Each member overlaps on the shared launch
+        /// cadence but staggered by its offset within the span (memberStart - spanStart) from the
+        /// mission's phase anchor, so the whole mission relaunches as a unit every overlap cadence.
+        /// </summary>
+        internal static double ComputeMemberOverlapScheduleStartUT(
+            double phaseAnchorUT, double spanStartUT, double memberStartUT)
+        {
+            return phaseAnchorUT + (memberStartUT - spanStartUT);
+        }
+
+        /// <summary>
         /// Computes the playback UT for a specific cycle of an overlapping-loop recording.
         /// Given the cycle's index and the loop's effective start UT, returns the UT within
         /// [loopStartUT, loopStartUT + duration] that the ghost for that cycle should be at.
@@ -6481,6 +6508,614 @@ namespace Parsek
         }
 
         #endregion
+
+        // --- Span-clock primitives (lifted for Mission-level looping; wired in a later phase) ---
+
+        /// <summary>
+        /// One loop unit: the recordings a looping Mission replays together as a single unit. The
+        /// MEMBERS (<see cref="MemberIndices"/>) are the Mission's included through-line legs ONLY;
+        /// ride-along debris is NOT a member - it follows its parent member's span clock via the
+        /// engine's debris seam (ShouldSourceDebrisFromUnitSpan). Built by
+        /// <see cref="MissionLoopUnitBuilder"/> from the Mission's selection, NOT auto-detected. The
+        /// whole span [SpanStartUT, SpanEndUT] loops on ONE shared mission clock at
+        /// <see cref="CadenceSeconds"/>. Members render concurrently when the shared clock is inside
+        /// their own window, debris alongside their parent, exactly like a rewind. Indices are
+        /// committed-recording-list indices (the alignment invariant).
+        /// </summary>
+        internal readonly struct LoopUnit
+        {
+            /// <summary>A member's trimmed render window [StartUT, EndUT] (interval-level start/end trim).</summary>
+            internal readonly struct MemberWindow
+            {
+                internal MemberWindow(double startUT, double endUT) { StartUT = startUT; EndUT = endUT; }
+                internal double StartUT { get; }
+                internal double EndUT { get; }
+            }
+
+            // committed index -> trimmed render window. Null / absent = no trim (the member renders
+            // its full [rec.StartUT, rec.EndUT], so untrimmed missions behave exactly as before).
+            private readonly IReadOnlyDictionary<int, MemberWindow> memberWindows;
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT,
+                       cadenceSeconds, phaseAnchorUT, cadenceSeconds, null)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT,
+                       cadenceSeconds, phaseAnchorUT, overlapCadenceSeconds, null)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds,
+                IReadOnlyDictionary<int, MemberWindow> memberWindows)
+            {
+                OwnerIndex = ownerIndex;
+                MemberIndices = memberIndices ?? System.Array.Empty<int>();
+                SpanStartUT = spanStartUT;
+                SpanEndUT = spanEndUT;
+                CadenceSeconds = cadenceSeconds;
+                PhaseAnchorUT = phaseAnchorUT;
+                OverlapCadenceSeconds = overlapCadenceSeconds;
+                this.memberWindows = memberWindows;
+            }
+
+            /// <summary>
+            /// This member's trimmed render START (interval-level start-trim), or <paramref name="fallback"/>
+            /// (the recording's own StartUT) when the member is not trimmed. Drives the member's render
+            /// window in every scene driver, so dropping a vessel's leading interval starts it later.
+            /// </summary>
+            internal double MemberStartUT(int committedIndex, double fallback)
+                => memberWindows != null && memberWindows.TryGetValue(committedIndex, out MemberWindow w)
+                    ? w.StartUT : fallback;
+
+            /// <summary>This member's trimmed render END, or <paramref name="fallback"/> (the recording's EndUT) when untrimmed.</summary>
+            internal double MemberEndUT(int committedIndex, double fallback)
+                => memberWindows != null && memberWindows.TryGetValue(committedIndex, out MemberWindow w)
+                    ? w.EndUT : fallback;
+
+            /// <summary>Earliest member's committed-recording index (owns the span clock).</summary>
+            internal int OwnerIndex { get; }
+
+            /// <summary>Committed-recording indices of all members (mission legs + ride-along debris), StartUT order.</summary>
+            internal int[] MemberIndices { get; }
+
+            /// <summary>Min member StartUT.</summary>
+            internal double SpanStartUT { get; }
+
+            /// <summary>Max member EndUT (a ride-along debris tail can extend it).</summary>
+            internal double SpanEndUT { get; }
+
+            /// <summary>
+            /// Span-clock cadence: the Mission's loop period raised to at least the span so a SINGLE
+            /// span instance never truncates (Auto = span). Consumed by the single-instance scenes
+            /// (KSC, Tracking Station) and the flight engine's no-overlap branch via
+            /// <see cref="TryComputeSpanLoopUT"/>. NOT the true launch cadence: when the user period
+            /// is shorter than the span the mission overlaps itself instead (see
+            /// <see cref="OverlapCadenceSeconds"/>); this field stays at the span so the
+            /// single-instance scenes keep showing the whole mission.
+            /// </summary>
+            internal double CadenceSeconds { get; }
+
+            /// <summary>The UT the loop phase is measured from (elapsed = currentUT - PhaseAnchorUT). Equals <see cref="SpanStartUT"/> when no explicit anchor was supplied, which preserves the old absolute-phase behavior.</summary>
+            internal double PhaseAnchorUT { get; }
+
+            /// <summary>
+            /// True launch-to-launch cadence for MISSION self-overlap: the Mission's loop period
+            /// (Auto = the global auto-loop interval, NOT the span), cap-clamped so
+            /// <c>ceil(span / cadence)</c> stays within
+            /// <see cref="GhostPlayback.MaxOverlapMissionInstances"/>. When this is SHORTER than the
+            /// span the flight engine relaunches the whole mission every
+            /// <see cref="OverlapCadenceSeconds"/> seconds, so several staggered instances of the
+            /// mission play concurrently (exactly like a single recording with period &lt; duration).
+            /// When it is &gt;= the span there is no self-overlap and the engine falls back to the
+            /// single span-clock instance. Defaults to <see cref="CadenceSeconds"/> for the
+            /// non-overlapping constructor so legacy callers keep the single-instance behavior.
+            /// </summary>
+            internal double OverlapCadenceSeconds { get; }
+        }
+
+        /// <summary>
+        /// Immutable snapshot of the Mission loop units: one unit per looping Mission (multiple
+        /// Missions loop concurrently, at most one per tree, so member indices never overlap across
+        /// units). Built by <see cref="MissionLoopUnitBuilder"/> and handed to flight, KSC, and the
+        /// tracking station so all three consume an identical view. <see cref="Empty"/> means no
+        /// Mission is looping, which keeps the entire feature dormant.
+        /// </summary>
+        internal sealed class LoopUnitSet
+        {
+            internal static readonly LoopUnitSet Empty = new LoopUnitSet(
+                new Dictionary<int, LoopUnit>(), new Dictionary<int, int>());
+
+            private readonly Dictionary<int, LoopUnit> unitsByOwner;
+            private readonly Dictionary<int, int> ownerByIndex;
+
+            internal LoopUnitSet(
+                Dictionary<int, LoopUnit> unitsByOwner,
+                Dictionary<int, int> ownerByIndex)
+            {
+                this.unitsByOwner = unitsByOwner ?? new Dictionary<int, LoopUnit>();
+                this.ownerByIndex = ownerByIndex ?? new Dictionary<int, int>();
+            }
+
+            /// <summary>Owner index -> unit descriptor.</summary>
+            internal IReadOnlyDictionary<int, LoopUnit> UnitsByOwner => unitsByOwner;
+
+            /// <summary>Member index -> owning unit's owner index (absent = not a unit member).</summary>
+            internal IReadOnlyDictionary<int, int> OwnerByIndex => ownerByIndex;
+
+            /// <summary>Number of distinct units in this set.</summary>
+            internal int Count => unitsByOwner.Count;
+
+            /// <summary>True if the given committed index is a member of any unit.</summary>
+            internal bool IsMember(int index)
+            {
+                return ownerByIndex.ContainsKey(index);
+            }
+
+            /// <summary>
+            /// Resolves the unit that owns <paramref name="memberIndex"/>. Returns false when
+            /// the index is not a unit member (the common case until two consecutive auto-loop
+            /// members exist).
+            /// </summary>
+            internal bool TryGetUnitForMember(int memberIndex, out LoopUnit unit)
+            {
+                if (ownerByIndex.TryGetValue(memberIndex, out int ownerIndex)
+                    && unitsByOwner.TryGetValue(ownerIndex, out unit))
+                {
+                    return true;
+                }
+                unit = default;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
+        /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
+        /// returns the <paramref name="loopUT"/> inside that span plus the 0-based unit cycle
+        /// index. v1 cadence == span duration, so the wrap from spanEnd back to spanStart is
+        /// seamless (no pause window): unlike <see cref="ComputeLoopPhaseFromUT"/> there is no
+        /// inter-cycle pause to report.
+        ///
+        /// The cadence is clamped to <see cref="LoopTiming.MinCycleDuration"/> INSIDE this
+        /// helper (edge 14): the span clock does NOT route through ResolveLoopInterval, so it
+        /// does not inherit that clamp for free. A clamped cadence longer than the span leaves
+        /// the clock parked at spanEndUT for the tail of each cycle.
+        ///
+        /// Returns false (loopUT = spanStartUT, cycleIndex = 0) when currentUT is before the
+        /// span start or the span has zero/negative duration, so callers never see a negative
+        /// phase. Pure: no logging (per-frame callers own rate-limiting).
+        ///
+        /// <paramref name="isInInterCycleTail"/> (mirrors <see cref="ComputeLoopPhaseFromUT"/>'s
+        /// isInPause) is true exactly when the phase has run past the span and the clock is parked
+        /// at spanEndUT waiting for the next cycle: the idle "tail" that only exists when
+        /// cadence > span. For the loop feature cadence == span, so the phase never reaches the
+        /// span in the play branch and the boundary-rollback branch reports false — the flag is
+        /// ALWAYS false there (zero behavior change). A future cadence > span producer (logistics
+        /// supply routes: dispatch interval >= transit) reads this to HIDE the ghost during the
+        /// parked tail (vessel delivered, nothing in transit) instead of freezing the last
+        /// segment's ghost at the dock. False on both early return paths and at the legitimate
+        /// end-of-cycle / wrap boundary.
+        /// </summary>
+        internal static bool TryComputeSpanLoopUT(
+            double currentUT,
+            double phaseAnchorUT,
+            double spanStartUT,
+            double spanEndUT,
+            double cadenceSeconds,
+            out double loopUT,
+            out long cycleIndex,
+            out bool isInInterCycleTail)
+        {
+            loopUT = spanStartUT;
+            cycleIndex = 0;
+            isInInterCycleTail = false;
+
+            if (currentUT < phaseAnchorUT)
+                return false;
+
+            double span = spanEndUT - spanStartUT;
+            if (span <= 0)
+                return false;
+
+            // Edge 14: clamp the cadence here. The span clock has no ResolveLoopInterval clamp.
+            double cycleDuration = Math.Max(cadenceSeconds, LoopTiming.MinCycleDuration);
+
+            // Phase is measured from the anchor (the UT the loop was enabled at), NOT the absolute
+            // span start: at enable-time elapsed == 0 -> phase 0 -> loopUT == spanStartUT, so every
+            // enable (and re-enable) restarts the looped mission from the recording's start. When
+            // phaseAnchorUT == spanStartUT this reduces to the old absolute-phase behavior.
+            double elapsed = currentUT - phaseAnchorUT;
+            cycleIndex = (long)(elapsed / cycleDuration);
+            double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
+
+            // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
+            // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
+            // final frame (spanEnd), not the next cycle's first frame. This makes "currentUT ==
+            // spanEnd" report spanEnd in cycle 0 when cadence == span, and the wrap to spanStart
+            // happen one sliver later in cycle+1 (seamless, no pause). Without this, a UT landing
+            // exactly on a back-to-back boundary would flicker to spanStart a frame early.
+            if (cycleIndex > 0 && phaseInCycle <= LoopTiming.BoundaryEpsilon)
+            {
+                cycleIndex -= 1;
+                loopUT = spanEndUT;
+                // NOT the parked idle tail: this is the legitimate end-of-cycle final frame at the
+                // back-to-back wrap boundary (cadence == span). The ghost is still mid-loop, just
+                // showing the prior cycle's last frame, so the tail flag stays false.
+                isInInterCycleTail = false;
+                return true;
+            }
+
+            // Park at spanEnd once the phase reaches the span (cadence > span clamp leaves a tail
+            // parked at spanEnd; cadence == span never reaches span except at the rolled-back
+            // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
+            // the phase ran past the span and we are idling at spanEnd until the next cycle.
+            double clampedPhase = phaseInCycle >= span ? span : phaseInCycle;
+            loopUT = spanStartUT + clampedPhase;
+            isInInterCycleTail = (phaseInCycle >= span);
+            return true;
+        }
+
+        /// <summary>
+        /// Span-progress loopUT of the NEWEST instance of a SELF-OVERLAPPING mission. Under
+        /// self-overlap the mission relaunches every <paramref name="overlapCadenceSeconds"/> (the
+        /// cap-clamped true period, shorter than the span), so the newest instance is the one launched
+        /// at <c>anchor + missionCycle * cadence</c> where
+        /// <c>missionCycle = floor((currentUT - anchor) / cadence)</c> (capped at
+        /// <paramref name="maxInstances"/>, mirroring <see cref="GetActiveCycles"/>'s newest-cycle
+        /// clamp). Its progress through the span is the phase since that launch, clamped to
+        /// [0, <paramref name="span"/>], and the returned <paramref name="loopUT"/> is
+        /// <c>spanStartUT + phase</c>. Feeding this into
+        /// <see cref="IsLoopUTInMemberWindow"/> picks the newest-instance live member for the watch
+        /// camera, so the cross-member handoff follows the newest instance and never an older one.
+        /// Returns <paramref name="loopUT"/> = spanStartUT, cycle 0 before the anchor or for a
+        /// degenerate span. Pure: no logging.
+        /// </summary>
+        internal static void ComputeNewestMissionInstanceSpanLoopUT(
+            double phaseAnchorUT, double spanStartUT, double span,
+            double overlapCadenceSeconds, double currentUT, int maxInstances,
+            out double loopUT, out long missionCycle)
+        {
+            loopUT = spanStartUT;
+            missionCycle = 0;
+
+            if (span <= 0 || currentUT < phaseAnchorUT)
+                return;
+
+            double cadence = Math.Max(overlapCadenceSeconds, LoopTiming.MinCycleDuration);
+            double elapsed = currentUT - phaseAnchorUT;
+            missionCycle = (long)Math.Floor(elapsed / cadence);
+            if (missionCycle < 0)
+                missionCycle = 0;
+
+            // Mirror GetActiveCycles: the newest live instance is at most maxInstances ahead of the
+            // oldest still-playing instance. This only affects the index label; the span phase below
+            // is computed from the same newest cycle, so the camera tracks the genuinely newest one.
+            if (maxInstances > 0)
+            {
+                long firstActive = 0;
+                double elapsedMinusSpan = elapsed - span;
+                if (elapsedMinusSpan >= 0)
+                {
+                    firstActive = (long)Math.Floor(elapsedMinusSpan / cadence) + 1;
+                    if (firstActive < 0)
+                        firstActive = 0;
+                }
+                if (firstActive < missionCycle - maxInstances + 1)
+                    firstActive = missionCycle - maxInstances + 1;
+                // (firstActive is the oldest live; missionCycle stays the newest.)
+            }
+
+            double phase = elapsed - (missionCycle * cadence);
+            if (phase < 0) phase = 0;
+            if (phase > span) phase = span;
+            loopUT = spanStartUT + phase;
+        }
+
+        /// <summary>
+        /// The span-progress loopUT for a SPECIFIC mission overlap instance (cycle), used to drive
+        /// the watch camera's stage-handoff off the instance the player is FOLLOWING instead of the
+        /// newest one (so watching an overlapping mission tracks one launch all the way through,
+        /// not jumping to each new launch). Returns false when that instance has not launched yet
+        /// (<paramref name="currentUT"/> before its start) or has already ENDED (phase past the
+        /// span) - the caller then falls back to the newest instance (snap to the newest in-flight
+        /// launch on completion). Pure.
+        /// </summary>
+        internal static bool TryComputeMissionInstanceSpanLoopUT(
+            double phaseAnchorUT, double spanStartUT, double span,
+            double overlapCadenceSeconds, double currentUT, long cycle, out double loopUT)
+        {
+            loopUT = spanStartUT;
+            if (span <= 0 || cycle < 0)
+                return false;
+            double cadence = Math.Max(overlapCadenceSeconds, LoopTiming.MinCycleDuration);
+            double phase = currentUT - (phaseAnchorUT + cycle * cadence);
+            if (phase < 0 || phase > span)
+                return false; // not launched yet, or already ended -> caller uses the newest instance
+            loopUT = spanStartUT + phase;
+            return true;
+        }
+
+        /// <summary>
+        /// True if <paramref name="loopUT"/> falls inside the member window
+        /// [<paramref name="memberStartUT"/>, <paramref name="memberEndUT"/>] (epsilon-tolerant).
+        /// Pure: a member renders iff the shared mission clock is inside its own window. Uses
+        /// <see cref="LoopTiming.BoundaryEpsilon"/> so boundary handling agrees with the rest of
+        /// the loop math.
+        /// </summary>
+        internal static bool IsLoopUTInMemberWindow(
+            double loopUT, double memberStartUT, double memberEndUT)
+        {
+            return loopUT >= memberStartUT - LoopTiming.BoundaryEpsilon
+                && loopUT <= memberEndUT + LoopTiming.BoundaryEpsilon;
+        }
+
+        /// <summary>The render outcome for one member of a chain-loop unit on a given frame.</summary>
+        internal enum UnitMemberRenderDecision
+        {
+            /// <summary>The span clock could not resolve (before span start or degenerate span).</summary>
+            SpanClockUnresolved,
+            /// <summary>The shared mission clock is in this member's own window — render it at <c>SpanLoopUT</c>.</summary>
+            Render,
+            /// <summary>The shared clock is in the inter-cycle tail-wait (cadence &gt; span) — hide ALL members.</summary>
+            HiddenInterCycleTail,
+            /// <summary>The shared clock is outside this member's own window — hide this member.</summary>
+            HiddenOutsideWindow,
+        }
+
+        /// <summary>
+        /// Pure per-member render decision for the engine's follower dispatch under the shared
+        /// mission clock model. There is NO cross-member selection: each member renders
+        /// independently based ONLY on whether the shared clock is in its own
+        /// [<paramref name="memberStartUT"/>, <paramref name="memberEndUT"/>] window. Multiple
+        /// members render concurrently (debris alongside their parent), exactly like a rewind.
+        ///
+        /// Computes the shared <c>spanLoopUT</c> via <see cref="TryComputeSpanLoopUT"/>:
+        /// - span clock unresolved (before span start / degenerate span) -> SpanClockUnresolved.
+        /// - inter-cycle tail (cadence &gt; span, the "wait" between cycles) -> HiddenInterCycleTail
+        ///   (the caller hides ALL members - render nothing during the wait).
+        /// - else: Render if spanLoopUT is in THIS member's own window, HiddenOutsideWindow otherwise.
+        ///
+        /// This is the testable seam for <c>GhostPlaybackEngine.UpdateUnitMemberPlayback</c> - the
+        /// GameObject activation itself is verified in-game. Pure: no logging.
+        /// </summary>
+        internal static UnitMemberRenderDecision DecideUnitMemberRender(
+            double currentUT,
+            double phaseAnchorUT,
+            double spanStartUT,
+            double spanEndUT,
+            double cadenceSeconds,
+            double memberStartUT,
+            double memberEndUT,
+            out double spanLoopUT,
+            out long unitCycle,
+            out bool isInInterCycleTail)
+        {
+            spanLoopUT = spanStartUT;
+            unitCycle = 0;
+            isInInterCycleTail = false;
+
+            if (!TryComputeSpanLoopUT(
+                    currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
+                    out unitCycle, out isInInterCycleTail))
+                return UnitMemberRenderDecision.SpanClockUnresolved;
+
+            // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
+            if (isInInterCycleTail)
+                return UnitMemberRenderDecision.HiddenInterCycleTail;
+
+            // Each member renders independently iff the shared clock is in its own window.
+            return IsLoopUTInMemberWindow(spanLoopUT, memberStartUT, memberEndUT)
+                ? UnitMemberRenderDecision.Render
+                : UnitMemberRenderDecision.HiddenOutsideWindow;
+        }
+
+        /// <summary>
+        /// Tracking-Station per-recording effective sample UT under the shared mission clock.
+        /// The TS scene has no playback engine: it positions ProtoVessel ghosts (orbit lines +
+        /// icons) and OnGUI atmospheric markers at an explicit UT. This is the single seam that
+        /// substitutes the span-clock loopUT for that explicit UT so a looped Mission renders in
+        /// the tracking station identically to flight / KSC.
+        ///
+        /// - <paramref name="units"/> null or committed index <paramref name="i"/> is NOT a unit
+        ///   member -> return <paramref name="liveUT"/>, <paramref name="renderHidden"/>=false
+        ///   (unchanged behavior; this is the common case until a Mission loops).
+        /// - i IS a member -> resolve the owning unit's shared clock via
+        ///   <see cref="DecideUnitMemberRender"/>: <c>Render</c> returns the span-clock loopUT with
+        ///   renderHidden=false; ANY other decision (SpanClockUnresolved / HiddenInterCycleTail /
+        ///   HiddenOutsideWindow) returns liveUT with renderHidden=true so the caller skips creation
+        ///   / tears down the ghost / skips the marker for this frame.
+        ///
+        /// Pure: no logging (per-frame callers own rate-limiting). Inert when <paramref name="units"/>
+        /// is <see cref="LoopUnitSet.Empty"/>: returns liveUT / renderHidden=false for every index.
+        /// </summary>
+        internal static double ResolveTrackingStationSampleUT(
+            int i, double memberStartUT, double memberEndUT, double liveUT,
+            LoopUnitSet units, out bool renderHidden)
+        {
+            renderHidden = false;
+            if (units == null || !units.TryGetUnitForMember(i, out LoopUnit unit))
+                return liveUT;
+
+            // Interval-level start/end trim: clamp to this member's trimmed render window (falls
+            // back to the passed recording bounds when untrimmed), so the tracking-station icon
+            // shows the same trimmed segment the other scenes render.
+            memberStartUT = unit.MemberStartUT(i, memberStartUT);
+            memberEndUT = unit.MemberEndUT(i, memberEndUT);
+
+            UnitMemberRenderDecision decision = DecideUnitMemberRender(
+                liveUT,
+                unit.PhaseAnchorUT,
+                unit.SpanStartUT,
+                unit.SpanEndUT,
+                unit.CadenceSeconds,
+                memberStartUT,
+                memberEndUT,
+                out double loopUT,
+                out _,
+                out _);
+
+            if (decision == UnitMemberRenderDecision.Render)
+                return loopUT;
+
+            renderHidden = true;
+            return liveUT;
+        }
+
+        /// <summary>
+        /// Edge 9 branch predicate for <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>: returns
+        /// true when a loop-synced debris's parent (<paramref name="parentIdx"/>) is itself a
+        /// chain-loop unit member, in which case the debris must source the unit's SHARED span clock
+        /// (resolving the owner unit via <paramref name="resolvedUnit"/>) instead of the parent's own
+        /// per-recording loop clock — a unit member's standalone loop clock never sweeps into a
+        /// sibling's window, so it is the wrong phase for the debris. Returns false (and the engine
+        /// keeps the existing per-recording loop-clock path) when the parent is not a unit member or
+        /// the set is empty. Pure: the GameObject render decision downstream is verified in-game (P8).
+        /// </summary>
+        internal static bool ShouldSourceDebrisFromUnitSpan(
+            int parentIdx, LoopUnitSet units, out LoopUnit resolvedUnit)
+        {
+            resolvedUnit = default;
+            if (units == null || parentIdx < 0)
+                return false;
+            return units.TryGetUnitForMember(parentIdx, out resolvedUnit);
+        }
+
+        /// <summary>
+        /// Two-tier comparison used when scanning a unit's members to pick the live CAMERA member
+        /// for a watch handoff. A member whose vessel name matches the WATCHED member's vessel name
+        /// (the continuing through-line) always beats a non-match; within a tier, the newest segment
+        /// (highest StartUT) wins. Returns true when the candidate should replace the current best.
+        ///
+        /// This keeps the camera on the craft the player is watching across a structural fork where a
+        /// piece peels off at the same UT the parent vessel continues (e.g. a crew EVA: the
+        /// continuing pod and the EVA kerbal share the same StartUT, so a plain highest-StartUT pick
+        /// would tie and could grab the kerbal). The caller seeds the scan with
+        /// currentMatchesWatched=false and currentStartUT=NegativeInfinity, so the first in-window
+        /// member always wins. When nothing is watched the caller passes matchesWatched=false for
+        /// every member, degrading this to a pure highest-StartUT pick. Pure; unit-tested.
+        /// </summary>
+        internal static bool IsBetterUnitCameraLiveMember(
+            bool candidateMatchesWatched, double candidateStartUT,
+            bool currentMatchesWatched, double currentStartUT)
+        {
+            if (candidateMatchesWatched != currentMatchesWatched)
+                return candidateMatchesWatched;
+            return candidateStartUT >= currentStartUT;
+        }
+
+        /// <summary>
+        /// Gates the unit-handoff retarget so the camera only follows a SAME-VESSEL continuation of
+        /// the through-line the player is watching. Returns <paramref name="liveMemberIdx"/> when the
+        /// chosen live member matches the watched vessel name (a continuation, e.g. launch stage ->
+        /// upper stage of the same craft), and -1 otherwise. A -1 result tells
+        /// <see cref="ShouldRetargetWatchOnUnitHandoff"/> there is no member to hand off to, so the
+        /// watch stays on the ending member and its own terminal end (explosion hold -> return to
+        /// anchor) takes over instead of the camera jumping onto a different-vessel sibling (a kerbal
+        /// who went EVA, a separated booster) at the moment of impact. Pure; unit-tested.
+        /// </summary>
+        internal static int ResolveUnitHandoffRetargetMember(int liveMemberIdx, bool liveMatchesWatched)
+            => liveMatchesWatched ? liveMemberIdx : -1;
+
+        /// <summary>
+        /// Edge 10 decision: should the engine fire a unit-handoff camera retarget this frame?
+        /// Under the shared-clock concurrent model there is no single "selected" member - every
+        /// member renders when the clock is in its own window. The camera follows ONE watched
+        /// member; when the shared clock leaves that member's window it stops rendering, so the
+        /// camera must move to a member that IS still rendering this frame. Returns true ONLY when
+        /// (a) the watched index is a member of <paramref name="unit"/> (the camera is following this
+        /// unit), AND (b) the watched member was rendering last frame
+        /// (<paramref name="watchedWasRendering"/>) but is NOT rendering this frame
+        /// (<paramref name="watchedIsRendering"/> == false), AND (c) there is a different live member
+        /// to retarget to (<paramref name="newLiveMemberIndex"/> &gt;= 0). When this returns true the
+        /// engine fires <c>CameraActionType.UnitHandoffRetarget</c> carrying
+        /// <paramref name="newLiveMemberIndex"/> and the host transfers the camera. Pure; the
+        /// FlightCamera transfer itself is verified in-game. Returns false while the watched member
+        /// is still rendering (steady state), and when no live member exists (the inter-cycle wait /
+        /// a gap), so the camera holds its current anchor rather than yanking to nothing.
+        /// </summary>
+        internal static bool ShouldRetargetWatchOnUnitHandoff(
+            int watchedIndex, bool watchedWasRendering, bool watchedIsRendering,
+            int newLiveMemberIndex, LoopUnit unit)
+        {
+            if (watchedIndex < 0)
+                return false;
+            // The camera must be following a member of THIS unit.
+            bool watchingThisUnit = false;
+            int[] members = unit.MemberIndices;
+            if (members != null)
+            {
+                for (int m = 0; m < members.Length; m++)
+                {
+                    if (members[m] == watchedIndex)
+                    {
+                        watchingThisUnit = true;
+                        break;
+                    }
+                }
+            }
+            if (!watchingThisUnit)
+                return false;
+            // Only fire on the transition from "watched member rendering" to "watched member no
+            // longer rendering" (its window just ended), and only when there is a real different
+            // live member to move to. Steady state (still rendering) and "nothing live" hold.
+            if (!watchedWasRendering || watchedIsRendering)
+                return false;
+            if (newLiveMemberIndex < 0 || newLiveMemberIndex == watchedIndex)
+                return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Self-healing edge for the unit-handoff retarget: decides what value the engine should
+        /// store for the "watched member was rendering" edge of its per-unit transition state after
+        /// it fired (or considered firing) a <c>UnitHandoffRetarget</c> this frame.
+        ///
+        /// The host transfer can DEFER when the target member's ghost is still being built
+        /// (unit-member respawns are time-sliced over several frames). If the engine advanced its
+        /// edge unconditionally, the steady-state early-return would suppress any re-fire for the
+        /// rest of the cycle and the camera would stay stranded on the now-hidden old member. To make
+        /// the retarget retry every frame until it lands, the engine must PRESERVE the
+        /// rendering-edge (return <c>true</c>) while the retarget fired but the watch camera has not
+        /// yet moved to <paramref name="newLiveMemberIndex"/> (detected via
+        /// <paramref name="watchedIndex"/>, which is the live watched index the engine reads each
+        /// frame). Once the transfer lands (<paramref name="watchedIndex"/> ==
+        /// <paramref name="newLiveMemberIndex"/>) or the retarget did not fire this frame, the real
+        /// <paramref name="watchedIsRendering"/> value is stored and re-firing stops.
+        ///
+        /// Returns the value to store for the edge. Pure; no infinite re-fire because the stored
+        /// <c>true</c> only persists while <paramref name="watchedIndex"/> still lags
+        /// <paramref name="newLiveMemberIndex"/>.
+        /// </summary>
+        internal static bool ResolveUnitHandoffStoredRenderingEdge(
+            bool retargetFired, int watchedIndex, int newLiveMemberIndex, bool watchedIsRendering)
+        {
+            if (retargetFired && watchedIndex != newLiveMemberIndex)
+                return true; // transfer pending (target ghost not spawned yet) -> re-fire next frame
+            return watchedIsRendering;
+        }
     }
 
     /// <summary>

@@ -24,7 +24,12 @@ namespace Parsek
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
         private const float ResizeHandleSize = 16f;
-        private const float MinWindowWidth = 350f;
+        // Minimum resize width = the Recordings tab's collapsed width (Info toggled off), so the
+        // window can never be dragged narrow enough to clip the Recordings table. Shared by both
+        // tabs (one window, one resize clamp in DrawIfOpen -> HandleResizeDrag), so the Missions
+        // tab also cannot shrink below it. C# resolves the forward const reference regardless of
+        // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
+        private const float MinWindowWidth = DefaultCollapsedWindowWidth;
         private const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment
@@ -110,6 +115,15 @@ namespace Parsek
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
         private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
+
+        // Two-tab bar (Recordings | Missions). The Missions tab renders the higher mission
+        // abstraction over the same recordings (delegated to MissionsWindowUI); switching tabs
+        // swaps the content inside this one window. Transient (not persisted), matching the
+        // Kerbals / Career State tab idiom.
+        private const int TabRecordings = 0;
+        private const int TabMissions = 1;
+        private int selectedTab = TabRecordings;
+        private static readonly string[] TabLabels = new[] { "Recordings", "Missions" };
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
         private enum RootItemType { Group, Chain, Recording, VirtualGroup }
@@ -238,6 +252,10 @@ namespace Parsek
         // horizontal flow. Top/bottom margin preserved (4/4) so the vertical gap
         // between the header row and the body box remains intact.
         private GUIStyle colHdrCellContainerStyle;
+
+        // Tab-bar button style: the selected tab looks pressed (onNormal/onHover background
+        // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
+        private GUIStyle toggleButtonStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -535,6 +553,18 @@ namespace Parsek
             {
                 margin = new RectOffset(0, 0, 4, 4)
             };
+
+            // Tab-bar button: selected tab looks pressed via onNormal/onHover background copied
+            // from GUI.skin.button.active.background (matches KerbalsWindowUI / CareerStateWindowUI).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
 
             // One-shot diagnostic log of the runtime GUI skin margins — dictates
             // exactly how much space each cell leaks or collapses in the layout.
@@ -1066,6 +1096,35 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        // Bottom bar for the Missions tab: just a shared Close (the recordings-specific
+        // Info / New Group buttons live only on the recordings tab) plus the same window
+        // chrome (resize handle + drag) so the merged window behaves identically on both tabs.
+        private void DrawMissionsTabBottomBar()
+        {
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Close"))
+            {
+                showRecordingsWindow = false;
+                groupPicker.Close();
+                ParsekLog.Verbose("UI", "Recordings window closed via button (Missions tab)");
+            }
+            GUILayout.EndHorizontal();
+
+            ParsekUI.DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
+
+            GUI.DragWindow();
+        }
+
+        // Pure tab-switch log helper (extracted so the log contract is unit-testable outside
+        // IMGUI; mirrors KerbalsWindowUI.SwitchTab).
+        internal static void LogTabSwitch(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"Recordings window: tab switched {oldTab}->{newTab}");
+        }
+
         private void DrawTimeRangeFilterIndicator()
         {
             var filter = parentUI.TimeRangeFilter;
@@ -1099,6 +1158,28 @@ namespace Parsek
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
 
+            // Ensure body + tab-bar styles exist before the tab bar draws.
+            EnsurePhaseStyles();
+
+            // Two-tab bar (Recordings | Missions), each half the window width. The Missions
+            // tab is the higher mission abstraction over the same recordings; switching tabs
+            // swaps the content inside this one window (delegated to MissionsWindowUI).
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+            if (newTab != selectedTab)
+            {
+                LogTabSwitch(selectedTab, newTab);
+                selectedTab = newTab;
+            }
+            GUILayout.Space(3);
+
+            if (selectedTab == TabMissions)
+            {
+                parentUI.GetMissionsUI().DrawMissionsTabContent();
+                DrawMissionsTabBottomBar();
+                return;
+            }
+
+            // ===== Recordings tab =====
             // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
             if (pendingDeleteGhostOnlyIndex >= 0)
             {
@@ -1789,7 +1870,7 @@ namespace Parsek
         // virtual header). A depth-D item leaves D-1 connector-width steps blank;
         // the connector itself fills the Dth step. Depth 0 (top level) has no
         // connector and no indent.
-        private static float SelfConnectorIndent(int depth)
+        internal static float SelfConnectorIndent(int depth)
         {
             return Math.Max(0, depth - 1) * ConnectorWidth();
         }
@@ -2683,7 +2764,9 @@ namespace Parsek
             return false;
         }
 
-        private void DrawLegacyRewindForwardCell(
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact R/FF cell for a
+        // mission's root (launch) recording. Passing rec == null draws a blank ColW_Rewind cell.
+        internal void DrawLegacyRewindForwardCell(
             Recording rec, int ri, double now, ParsekFlight flight)
         {
             if (rec == null)
@@ -2785,7 +2868,61 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
         }
 
-        private void DrawReFlyColumnCell(Recording rec, int ri, double now)
+        // Missions-tab header-bar variant of the legacy rewind/forward control: a plain fixed-width
+        // button labelled "Rewind" / "Forward" (so it matches the mission header's other buttons),
+        // over the mission's root (launch) recording. Reuses the SAME rewind/forward decision
+        // (ShouldShow* + RecordingStore.CanRewind/CanFastForward) and confirmation dialogs as the
+        // recordings-tab R/FF cell; only the rendering (plain button, full-word labels, caller-set
+        // width) differs. rec == null draws a blank cell of the given width.
+        internal void DrawMissionRewindForwardButton(
+            Recording rec, int ri, double now, ParsekFlight flight, float width)
+        {
+            if (rec == null)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+                return;
+            }
+
+            bool isRecording = parentUI.InFlightMode && flight != null && flight.IsRecording;
+
+            if (ShouldShowForwardButton(rec, now))
+            {
+                bool canFF = RecordingStore.CanFastForward(rec, out string ffReason, isRecording: isRecording);
+                GUI.enabled = canFF;
+                if (GUILayout.Button(
+                        new GUIContent("Forward", canFF ? "Fast-forward to this launch" : ffReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Forward button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowFastForwardConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            if (ShouldShowLegacyRewindButton(rec, now))
+            {
+                bool canRewind = RecordingStore.CanRewind(rec, out string rewindReason, isRecording: isRecording);
+                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
+                GUI.enabled = canRewind;
+                if (GUILayout.Button(
+                        new GUIContent("Rewind", canRewind ? "Rewind to this launch" : rewindReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Rewind button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowRewindConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+        }
+
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact Re-Fly (Fly / Seal)
+        // cell for a vessel row's recording. Shows Fly / Seal only for unfinished-flight recordings;
+        // otherwise a blank ColW_ReFly cell.
+        internal void DrawReFlyColumnCell(Recording rec, int ri, double now)
         {
             ReFlyColumnAction action = ResolveReFlyColumnAction(rec);
             SetStashSealInReFlyColumnState(rec, ri, action == ReFlyColumnAction.StashSeal);

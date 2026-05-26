@@ -582,6 +582,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Adopts a captured per-trait start-crew manifest only when this recording does not
+        /// already carry one. Mirrors <see cref="AdoptControllersIfEmpty"/>'s no-overwrite
+        /// contract: the StartRecording backstop forwards the just-captured start crew onto the
+        /// always-tree-root recording (which is created before the crew snapshot exists), without
+        /// clobbering a manifest a recording already captured directly. Returns true if adopted.
+        /// </summary>
+        internal bool AdoptStartCrewIfEmpty(Dictionary<string, int> source)
+        {
+            if (source == null || source.Count == 0)
+                return false;
+            if (StartCrew != null && StartCrew.Count > 0)
+                return false;
+            StartCrew = new Dictionary<string, int>(source);
+            return true;
+        }
+
+        /// <summary>
         /// Centralized "mark this recording as destroyed at <paramref name="terminalUT"/>"
         /// hygiene helper. Sets the terminal verdict (<see cref="TerminalStateValue"/>,
         /// <see cref="VesselDestroyed"/>, <see cref="ExplicitEndUT"/>) AND clears every

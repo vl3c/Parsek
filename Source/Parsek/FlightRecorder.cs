@@ -6511,14 +6511,29 @@ namespace Parsek
             if (ActiveTree != null
                 && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
                 && ActiveTree.Recordings != null
-                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecForControllers)
-                && treeRecForControllers != null
-                && treeRecForControllers.AdoptControllersIfEmpty(pendingStartControllers))
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecBackstop)
+                && treeRecBackstop != null)
             {
-                treeRecForControllers.MarkFilesDirty();
-                ParsekLog.Verbose("Recorder",
-                    $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
-                    $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                bool backstopChanged = false;
+                if (treeRecBackstop.AdoptControllersIfEmpty(pendingStartControllers))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                // Forward the start-crew manifest too (same always-tree-root gap as controllers):
+                // the root recording is created before the crew snapshot exists, so without this it
+                // never carries StartCrew even though its vessel snapshot has the crew.
+                if (treeRecBackstop.AdoptStartCrewIfEmpty(pendingStartCrew))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded {pendingStartCrew.Count} start crew trait(s) " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                if (backstopChanged)
+                    treeRecBackstop.MarkFilesDirty();
             }
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()

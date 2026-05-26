@@ -854,10 +854,25 @@ namespace Parsek
             return TryComputeLoopPlaybackUT(rec, currentUT,
                 out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
+        // Mission loop-unit watch sync (Phase D2): resolve a watched member's span loopUT so
+        // watch entry syncs ghost visuals at the same clock the engine renders the member at.
+        // Returns false (loopUT = currentUT) for non-unit-member / non-looping watch.
+        internal bool TryResolveUnitMemberPlaybackUTForWatch(
+            int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
+            => engine.TryResolveUnitMemberPlaybackUT(
+                recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
+
+        // Mission loop-unit drive cache (Phase D2). The LoopUnitSet only changes when the looping
+        // mission, its tree/selection/cadence, or the committed list changes, so the (allocating,
+        // Verbose-logging) MissionLoopUnitBuilder.Build is gated behind a cheap signature compare.
+        // SetLoopUnits still runs every frame with the cached value so the engine always sees the
+        // current set.
+        private string lastLoopUnitSignature;
+        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
@@ -18309,6 +18324,14 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
                 cachedTrajectories.Add(committed[i]);
 
+            // === Mission loop-unit drive (Phase D2) ===
+            // Recompute the LoopUnitSet only when the inputs that shape it change. A cheap signature
+            // string over the looping mission's identity/selection/cadence plus the committed list
+            // identity gates the allocating, Verbose-logging MissionLoopUnitBuilder.Build. The cached
+            // set is pushed into the engine EVERY frame (member-index alignment is the engine's
+            // contract), but Build (and its log) only fires on an actual input change.
+            DriveMissionLoopUnits(committed);
+
             if (HasAnchorReFlyUnstableFlag(flags))
             {
                 reFlySettlePoseLogActiveFrame = Time.frameCount;
@@ -18369,6 +18392,50 @@ namespace Parsek
 
             // Watch-mode ghost validity check
             watchMode.ValidateWatchedGhostStillActive();
+        }
+
+        // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
+        // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
+        // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
+        // (LoopIntervalSeconds + LoopTimeUnit), and selection (sorted ExcludedThroughLineHeadIds),
+        // plus the committed-list identity (count + a rolling hash of RecordingIds, since member
+        // indices are committed-list indices). No looping mission -> a constant "none:" prefix over
+        // the same committed signature, so toggling looping off still rebuilds to Empty exactly once.
+        private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
+        {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+            if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
+            {
+                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                lastLoopUnitSignature = signature;
+                ParsekLog.Verbose("Mission",
+                    $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+            }
+            engine.SetLoopUnits(cachedLoopUnits);
+
+            // If the player is WATCHING a member of a mission loop and the new selection just
+            // dropped that member from the unit (interval trimmed out, the loop turned off, or
+            // every segment unchecked), exit watch NOW - this runs BEFORE the engine's
+            // UpdatePlayback tears the member's ghost down (and, for a Destroyed-terminal member,
+            // explodes it). Otherwise the policy starts a watch-hold on the now-dying ghost and the
+            // camera latches onto a destroyed transform, leaving FlightCamera.Target null and
+            // flooding stock KSP (FlightGlobals / Sun / CrewHatchController / AmbienceControl) with
+            // NREs. Gated on WatchedLoopCycleIndex >= 0 so only loop-cycle watches are affected (a
+            // plain non-loop watch is never a unit member and must not be disturbed).
+            if (watchMode != null
+                && watchMode.WatchedRecordingIndex >= 0
+                && watchMode.WatchedLoopCycleIndex >= 0
+                && !cachedLoopUnits.IsMember(watchMode.WatchedRecordingIndex))
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"Watched mission member #{watchMode.WatchedRecordingIndex} left the loop unit " +
+                    "(interval trimmed out or loop off) - exiting watch before its ghost is torn down");
+                watchMode.ExitWatchModePreservingLineage();
+            }
         }
 
         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)
