@@ -5462,6 +5462,13 @@ namespace Parsek
                     continue;
                 }
 
+                // Live-frame epoch shift for loop members (0 off the loop path). The orbit / point
+                // were sampled at effUT, but the icon + arc patches run against the live tracking
+                // station clock, so the seeded orbit epoch + stored arc bounds are pushed forward by
+                // (currentUT - effUT) to put the icon at the replayed phase. See ApplyOrbitToVessel /
+                // UpdateGhostOrbitFromStateVectors loopEpochShiftSeconds.
+                double tsLoopEpochShift = currentUT - effUT;
+
                 bool isSuppressed = rec != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressed != null
@@ -5516,7 +5523,8 @@ namespace Parsek
                 if (fromCheckpoint)
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
+                        loopEpochShiftSeconds: tsLoopEpochShift))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5569,7 +5577,8 @@ namespace Parsek
                         }
                     }
 
-                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT))
+                    if (UpdateGhostOrbitFromStateVectors(idx, rec, pt.Value, effUT,
+                        loopEpochShiftSeconds: tsLoopEpochShift))
                     {
                         if (toRemove == null) toRemove = new List<(int, string)>();
                         toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
@@ -5614,8 +5623,14 @@ namespace Parsek
                     toRemove.Add((idx, "tracking-station-expired"));
                     continue;
                 }
-                if (bounds.startUT != seg.Value.startUT || bounds.endUT != seg.Value.endUT)
-                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource);
+                // For loop members the stored bounds are shifted into the live frame while
+                // seg.Value carries the raw recorded UTs, so this comparison stays true and the
+                // orbit re-applies each tick (re-snapping the per-cycle shift); for non-loop members
+                // (shift 0) it skips an unchanged orbit exactly as before.
+                if (bounds.startUT != seg.Value.startUT + tsLoopEpochShift
+                    || bounds.endUT != seg.Value.endUT + tsLoopEpochShift)
+                    UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource,
+                        loopEpochShiftSeconds: tsLoopEpochShift);
             }
 
             if (toRemove == null)
@@ -5809,11 +5824,13 @@ namespace Parsek
         internal static void UpdateGhostOrbitForRecording(
             int recordingIndex,
             OrbitSegment segment,
-            TrackingStationGhostSource source = TrackingStationGhostSource.Segment)
+            TrackingStationGhostSource source = TrackingStationGhostSource.Segment,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
-            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex));
+            ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
+                loopEpochShiftSeconds);
             lifecycleUpdatedThisTick++;
 
             Vector3d worldPos = vessel.GetWorldPos3D();
@@ -6425,13 +6442,22 @@ namespace Parsek
         /// Handles SOI transitions (body change + orbit renderer rebuild).
         /// Honours the originating TrackSection's <see cref="ReferenceFrame"/> — see
         /// <see cref="CreateGhostVesselFromStateVectors"/> for the contract.
+        ///
+        /// <paramref name="loopEpochShiftSeconds"/> (default 0) is the Mission-loop epoch shift
+        /// <c>liveUT - effUT</c>: the world position/velocity in <paramref name="point"/> were
+        /// sampled at the loop-mapped <c>effUT</c> (a past recorded UT), but the map icon renders
+        /// at <c>orbit.getPositionAtUT(liveUT)</c>, so the reseeded orbit epoch is pushed forward
+        /// by the shift to <c>ut + loopEpochShiftSeconds == liveUT</c>. The icon then sits exactly
+        /// at the replayed position now instead of being propagated a fraction of an orbit. Zero
+        /// for non-loop ghosts (effUT == liveUT), so behavior is unchanged off the loop path.
         /// </summary>
         internal static bool UpdateGhostOrbitFromStateVectors(
             int recordingIndex, IPlaybackTrajectory traj,
             TrajectoryPoint point,
             double ut,
             bool allowOrbitalCheckpointStateVector = false,
-            string stateVectorUpdateReason = null)
+            string stateVectorUpdateReason = null,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return false;
@@ -6559,12 +6585,15 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
+            // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
+            // being propagated forward along the ellipse. Zero shift for non-loop ghosts.
             OrbitReseed.FromWorldPosAndRecordedVelocity(
                 vessel.orbitDriver.orbit,
                 body,
                 worldPos,
                 vel,
-                ut);
+                ut + loopEpochShiftSeconds);
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
@@ -6619,7 +6648,8 @@ namespace Parsek
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
-        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext)
+        private static void ApplyOrbitToVessel(Vessel vessel, OrbitSegment segment, string logContext,
+            double loopEpochShiftSeconds = 0.0)
         {
             if (vessel.orbitDriver == null)
             {
@@ -6649,6 +6679,15 @@ namespace Parsek
 
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
+            //
+            // Loop replay (loopEpochShiftSeconds = liveUT - effUT, 0 off the loop path): the
+            // segment was selected at the loop-mapped effUT, but the icon + arc patches operate
+            // against the LIVE Planetarium clock. Pushing the orbit epoch AND the stored arc
+            // bounds forward by the same shift puts the orbit, the bounds, and the live clock in
+            // one frame, so the icon sits at the replayed phase and GhostOrbitArcPatch /
+            // GhostOrbitIconClampPatch keep clipping correctly. The shift is constant within a
+            // loop cycle (effUT tracks liveUT 1:1), so natural propagation between the rate-limited
+            // reseeds matches the replay; it jumps once per cycle wrap and is re-snapped next tick.
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
@@ -6657,14 +6696,16 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch,
+                segment.epoch + loopEpochShiftSeconds,
                 body);
 
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
 
-            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch)
-            ghostOrbitBounds[vessel.persistentId] = (segment.startUT, segment.endUT);
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch), shifted into
+            // the live frame for loop replay (see the epoch note above).
+            ghostOrbitBounds[vessel.persistentId] =
+                (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.

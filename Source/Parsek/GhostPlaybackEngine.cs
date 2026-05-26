@@ -257,6 +257,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The current per-frame Mission loop unit set (never null; <see
+        /// cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when no Mission loops). Exposed so the
+        /// flight-scene map-presence driver (<see cref="ParsekPlaybackPolicy.CheckPendingMapVessels"/>)
+        /// can remap the live UT through the shared span clock exactly like the Tracking Station
+        /// and KSC drivers do, instead of sampling orbit lines / icons at the raw live UT (which is
+        /// far outside a looped member's recorded UT range).
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentLoopUnits => currentLoopUnits;
+
+        /// <summary>
         /// True when the committed recording index is currently a member of some Mission loop
         /// unit. The watch controller uses this to detect when a loop-cycle-watched recording has
         /// been dropped from its mission (interval trim toggle, or the loop turned off) so it can

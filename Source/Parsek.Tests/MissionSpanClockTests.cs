@@ -563,6 +563,57 @@ namespace Parsek.Tests
             Assert.Equal(100.0, eff, 6);
         }
 
+        // ─── Map-presence orbit epoch shift (loopEpochShiftSeconds = liveUT - effUT) ──
+        // These guard the arithmetic the map drivers feed into the shared orbit-seed path
+        // (GhostMapPresence.UpdateGhostOrbitFromStateVectors / ApplyOrbitToVessel): the seeded
+        // orbit epoch + stored arc bounds are pushed forward by (liveUT - effUT) so the icon,
+        // drawn at the live clock, lands on the world position recorded at effUT instead of being
+        // propagated a fraction of an orbit ahead. The Unity orbit math itself is verified in-game.
+
+        [Fact]
+        public void MapPresenceEpochShift_NonMember_IsZero()
+        {
+            // Off the loop path effUT == liveUT, so the shift is exactly 0 and the seed path is
+            // byte-identical to before (epoch == liveUT, bounds unshifted).
+            var units = MakeSingleUnitSet(5, new[] { 5, 6, 7 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 9, memberStartUT: 100, memberEndUT: 150, liveUT: 12345.0,
+                units, out bool hidden);
+            double shift = 12345.0 - eff;
+            Assert.False(hidden);
+            Assert.Equal(0.0, shift, 6);
+        }
+
+        [Fact]
+        public void MapPresenceEpochShift_WrappedCycle_EqualsWholeCadenceOffset()
+        {
+            // liveUT 275 folds to effUT 125 in cycle 1 (cadence 150), so the epoch is pushed forward
+            // by exactly one cadence (150). The shift is constant within a cycle, so natural orbit
+            // propagation between the rate-limited reseeds matches the replay.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 275.0,
+                units, out bool hidden);
+            double shift = 275.0 - eff;
+            Assert.False(hidden);
+            Assert.Equal(150.0, shift, 6);
+        }
+
+        [Fact]
+        public void MapPresenceEpochShift_AnchoredUnit_EqualsAnchorMinusSpanStart()
+        {
+            // Anchored at liveUT 8000, span start 100. At liveUT 8030 the phase is 30 -> effUT 130,
+            // so the icon epoch is pushed forward by 7900 (= liveUT - effUT) to sit at the replayed
+            // pose now rather than ~7900 s ahead along the orbit.
+            var units = MakeSingleUnitSet(5, new[] { 5 }, 100, 250, 150, phaseAnchorUT: 8000);
+            double eff = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 100, memberEndUT: 150, liveUT: 8030.0,
+                units, out bool hidden);
+            double shift = 8030.0 - eff;
+            Assert.False(hidden);
+            Assert.Equal(7900.0, shift, 6);
+        }
+
         // ─── Payload-activation gate (Fix 1) ────────────────────────────────────
 
         [Fact]
