@@ -63,6 +63,9 @@ namespace Parsek
         private const float ColW_EndTime = 120f;
         private const float ColW_Action = 60f;
         private const float ColW_Watch = 50f;
+        // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
+        // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
+        private const float ColW_ReFly = 90f;
         // Rightmost Archive column (mirrors the recordings window's Archive/Hide column): the
         // header carries the global "hide archived" toggle, each mission row a per-mission check.
         // Width matches RecordingsTableUI.ColW_Hide (80) so the column reads the same on both tabs.
@@ -458,6 +461,27 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
             }
 
+            // Restore the normal colour before the actionable Re-Fly cell + the trailing Archive
+            // cell, so an excluded (greyed) interval's Fly / Seal buttons are not dimmed (the
+            // recording's re-fly state is independent of whether the interval is looped).
+            GUI.color = prevColor;
+
+            // Re-Fly cell (per-vessel Fly / Seal for unfinished-flight recordings), left of Archive.
+            // Only real (non-atom) rows map to a recording; resolve node.HeadLegId to its committed
+            // recording and reuse the recordings tab's Re-Fly cell (it shows Fly / Seal only when the
+            // recording is an unfinished flight, otherwise a blank cell). Atoms + unresolved rows get
+            // a blank ColW_ReFly cell so the Archive column stays aligned.
+            if (!node.IsAtom
+                && TryResolveCommittedRecording(node.HeadLegId, out int reFlyIdx, out Recording reFlyRec))
+            {
+                parentUI.GetRecordingsTableUI().DrawReFlyColumnCell(
+                    reFlyRec, reFlyIdx, Planetarium.GetUniversalTime());
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_ReFly));
+            }
+
             // Empty trailing cell so the vessel rows' right edge lines up with the Archive
             // column header above (the Archive checkbox itself lives only on the mission row).
             // This MUST be a margin-0 container (not a bodyCellLabel, which carries a 4px right
@@ -468,8 +492,32 @@ namespace Parsek
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
-            GUI.color = prevColor;
             GUILayout.EndHorizontal();
+        }
+
+        // Linear lookup of a committed recording by id (the Missions tab maps a composition row to
+        // its recording for the Re-Fly cell). Returns false when the id is empty or not committed.
+        // [ERS-exempt] reason: Re-Fly is keyed on the RAW committed index, same as the watch /
+        // rewind buttons (which shift under an ERS supersede); MissionsWindowUI.cs is allowlisted.
+        private static bool TryResolveCommittedRecording(
+            string recordingId, out int index, out Recording rec)
+        {
+            index = -1;
+            rec = null;
+            if (string.IsNullOrEmpty(recordingId))
+                return false;
+            var committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording r = committed[i];
+                if (r != null && r.RecordingId == recordingId)
+                {
+                    index = i;
+                    rec = r;
+                    return true;
+                }
+            }
+            return false;
         }
 
         // Mission header bar: a dark section-header bubble spanning the WHOLE row (index cell,
@@ -1057,6 +1105,10 @@ namespace Parsek
             GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent));
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime));
+
+            // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for
+            // unfinished-flight recordings (reusing the recordings tab's Re-Fly cell).
+            GUILayout.Label("Re-Fly", colHdr, GUILayout.Width(ColW_ReFly));
 
             // Archive column header + global toggle (mirrors the recordings window): label +
             // a checkbox bound to MissionStore.HideArchived. When on, archived missions drop

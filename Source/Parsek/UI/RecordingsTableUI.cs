@@ -2868,7 +2868,10 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
         }
 
-        private void DrawReFlyColumnCell(Recording rec, int ri, double now)
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact Re-Fly (Fly / Seal)
+        // cell for a vessel row's recording. Shows Fly / Seal only for unfinished-flight recordings;
+        // otherwise a blank ColW_ReFly cell.
+        internal void DrawReFlyColumnCell(Recording rec, int ri, double now)
         {
             ReFlyColumnAction action = ResolveReFlyColumnAction(rec);
             SetStashSealInReFlyColumnState(rec, ri, action == ReFlyColumnAction.StashSeal);

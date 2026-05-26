@@ -742,9 +742,9 @@ namespace Parsek.Tests
             Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
             Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
-            // internal (not private): the Missions tab reuses this cell for a mission's root recording.
+            // internal (not private): the Missions tab reuses these cells for its vessel rows.
             int helperStart = uiSrc.IndexOf("internal void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
-            int helperEnd = uiSrc.IndexOf("private void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
+            int helperEnd = uiSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
             string helperBlock = uiSrc.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
