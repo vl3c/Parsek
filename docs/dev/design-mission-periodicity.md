@@ -77,43 +77,67 @@ clock's `phaseAnchor` aligned so cycle 0 lands on a faithful `UT0 + k*P`.
 
 ## What determines `P`
 
-`P` is the combination of two independent periodicities, read from the live
-universe at build time (never hardcoded - planet packs like RSS change them):
+`P` is set by which bodies and frames the LOOPED replay actually depends on, and
+that depends on the mission CONFIGURATION - which composition intervals are checked
+(`Mission.ExcludedIntervalKeys`). So `P` is derived from the trimmed member set
+(`MissionLoopUnitBuilder.ComputeTrimmedMemberWindows`, the same source of truth the
+span + cadence already use), NOT from the full recorded tree. All periods are read
+from the live universe at build time (never hardcoded - planet packs like RSS change
+them).
 
-1. **Launch-body rotation phase.** Realigns the orbit over the launch site and the
-   ascent-to-orbit insertion. Repeats every `launchBody.rotationPeriod` (sidereal
-   day; Kerbin ~21,549 s). The launch body is the body of the mission's first
-   recorded segment / the surface the launch happened from.
+Each INCLUDED segment contributes only the phase constraint its own frame imposes:
 
-2. **Each transited body's orbital phase.** Realigns the intercept. Repeats every
-   `transitBody.orbit.period` (Mun ~138,984 s). Because the transfer time
-   (launch -> encounter) is fixed in the recording, aligning the target's *mean
-   anomaly* at the encounter is equivalent to constraining the launch UT modulo
-   the target's orbital period. The transited bodies are read from the recorded
-   SOI sequence (the `body` changes across the recording's `OrbitSegments`, e.g.
-   Kerbin -> Mun for #15).
+1. **Surface / atmospheric segment on a rotating body B** (launch ascent, landing,
+   surface ops) -> constrains **B's rotation phase**, repeating every
+   `B.rotationPeriod` (Kerbin sidereal day ~21,549 s). This is what realigns the
+   segment over its ground location AND connects an ascent to its inertial orbit
+   (or an orbit to its descent).
 
-For the whole mission to be faithful, the launch UT must satisfy ALL of these
-simultaneously, so `P` is the joint resonance (least common period) of the
-launch-body rotation period and every transited body's orbital period. These
-periods are generally **incommensurate**, so an exact common period does not
-exist; the joint period is a best-fit: the smallest `P` for which `P mod
-rotationPeriod` and `P mod eachOrbitalPeriod` are all within a chosen tolerance.
+2. **Inertial orbit segment around body B** -> by itself imposes **no** phase
+   constraint (B is always there; an inertial orbit is faithful at any UT). It
+   inherits B's rotation constraint ONLY when an included surface / atmospheric
+   segment of B is adjacent (the ascent->orbit / orbit->descent hand-off must line
+   up over the launch / landing site).
+
+3. **SOI entry into body C** (an intercept inside the included span) -> constrains
+   **C's orbital phase**, repeating every `C.orbit.period` (Mun ~138,984 s). Because
+   the transfer time (launch -> encounter) is fixed in the recording, aligning C's
+   *mean anomaly* at the encounter is equivalent to constraining the launch UT modulo
+   `C.orbit.period`. The transited bodies are read from the SOI changes (the `body`
+   field across `OrbitSegments`) WITHIN the included segments only.
+
+`P` is the joint resonance (least common period) of just the constraints the
+included segments impose. An empty constraint set (e.g. looping a bare Kerbin orbit
+with the ascent trimmed off) collapses `P` to `MinCycleDuration` - faithful at any
+time. The constraint periods are generally **incommensurate**, so an exact common
+period rarely exists; the joint period is a best-fit: the smallest `P` for which
+`P mod` each constraint period is within a chosen tolerance.
+
+### Worked examples (same recorded Mun-landing tree, different configs)
+
+- **Launch + Kerbin orbit only** (Mun transfer / landing intervals unchecked): only
+  Kerbin's rotation matters -> `P = Kerbin.rotationPeriod` (~21,549 s). The Mun is
+  not in the included span, so its phase is irrelevant.
+- **Full mission** (through the Mun landing): Kerbin rotation AND the Mun's orbital
+  phase must both line up -> `P = joint(Kerbin rotation, Mun orbit)` - the long
+  launch-window cadence.
+- **Orbital coast only** (ascent + all surface segments trimmed off): no
+  rotating-surface segment is included, so nothing constrains the phase ->
+  `P = MinCycleDuration`, loop as fast as you like.
 
 ### Important consequences
 
-- **Single-body missions** (never leave the launch body's SOI: suborbital, orbit,
-  same-body surface): no target-body term, so `P = launchBody.rotationPeriod`.
-  Fully faithful and reasonably frequent. This is the clean, easy case.
-- **Inter-body missions** (the Mun landing): `P` is dominated by the target body's
-  orbital period and is long. This is also the **physically real launch-window
-  cadence** - you cannot faithfully launch to the Mun more often than Mun windows
-  recur - so the long cadence is correct, not a limitation of the feature.
+- Because `P` is **config-dependent**, it must be recomputed whenever the included
+  segments change and folded into the loop-unit rebuild signature alongside
+  `ExcludedIntervalKeys` (which `BuildSignature` already hashes).
+- For a config that reaches another body, the long `P` is the **physically real
+  launch-window cadence** - you cannot faithfully launch to the Mun more often than
+  Mun windows recur - so it is correct, not a limitation of the feature.
 - This **naturally bounds the instance count**: a faithful inter-body cadence is
-  long, so overlap (period < span) rarely engages and only a few instances are
-  ever live. The separate "limit ghosts per render distance instead of per whole
-  mission span" idea (see Relationship to other work) is therefore parked behind
-  this; revisit it only if frequent same-body looping still needs it.
+  long, so overlap (period < span) rarely engages and only a few instances are ever
+  live. The separate "limit ghosts per render distance instead of per whole mission
+  span" idea (see Relationship to other work) is therefore parked behind this;
+  revisit it only if frequent same-body looping still needs it.
 
 ---
 
@@ -123,11 +147,18 @@ rotationPeriod` and `P mod eachOrbitalPeriod` are all within a chosen tolerance.
 
 Compute `P` per looping mission and phase-lock the loop:
 
-- **Single-body:** `P = launchBody.rotationPeriod`.
-- **Inter-body:** `P` = the dominant intercept period (the target / last transited
-  body's orbital period), so the transfer actually reaches the target. Accept a
-  small residual launch-body-rotation offset (the orbit may sit slightly off the
-  live launch site) for Tier 1; the intercept is the dominant visual break.
+- **Config that stays in one body's SOI** (no intercept in the included span):
+  `P = the launch/landing body's rotationPeriod` when an included surface /
+  atmospheric segment must line up, else `MinCycleDuration` (a bare inertial orbit
+  with no surface segment imposes no phase constraint).
+- **Config that reaches another body:** `P` = the dominant intercept period (the
+  target / last transited body's orbital period within the included span), so the
+  transfer actually reaches the target. Accept a small residual launch-body-rotation
+  offset (the orbit may sit slightly off the live launch site) for Tier 1; the
+  intercept is the dominant visual break.
+
+Both cases derive their bodies/frames from the INCLUDED segments (the trimmed member
+set), so changing which intervals are checked re-derives `P`.
 
 Mechanics:
 
