@@ -54,6 +54,10 @@ All notable changes to Parsek are documented here.
 - Switching to a vessel still sitting on the launch pad (Tracking Station Fly, KSC marker Fly, or map Switch To) no longer starts a recording immediately. It now follows the normal launch rules and begins recording when you launch or stage, like any other vehicle on the pad.
 - Leaving the flight scene with such an idle on-pad recording no longer leaves a stray Merge/Discard dialog that popped up on your next game load instead of on exit.
 
+### Known limitations
+
+- Looping a mission that travels between bodies (for example a Mun landing) does not yet line up the replay with the live sky. The ghost flies its recorded trajectory, but because each loop launches at an arbitrary time the orbit may not sit over the launch site and the transfer may not actually reach the target body. A future update will launch looped missions at the correct window so the map and Tracking Station trajectories line up; missions that stay at one body are unaffected.
+
 ---
 
 ## 0.9.3
