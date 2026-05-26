@@ -119,6 +119,59 @@ namespace Parsek
     }
 
     /// <summary>
+    /// The result of solving an extracted constraint set for the recurrence period P + the next
+    /// faithful launch window. Pure value; nothing persisted. See the design doc Data Model.
+    /// </summary>
+    internal struct PeriodicitySolution
+    {
+        /// <summary>The recurrence period (MinCycleDuration when unconstrained). NaN on the
+        /// "do not phase-lock" sentinel (an unsupported config).</summary>
+        public double P;
+
+        /// <summary>The smallest UT0 + k*P &gt;= now (k may be negative for a future-dated UT0).
+        /// NaN on the sentinel.</summary>
+        public double NextWindowUT;
+
+        /// <summary>The Tier-1 residual: the max phase error (seconds) of the constraints
+        /// KNOWINGLY dropped by locking only the dominant one. 0 for a single-constraint or
+        /// tidally-collapsed config; the launch-body rotation offset for the Mun case.</summary>
+        public double ResidualSeconds;
+
+        /// <summary>True when <see cref="ResidualSeconds"/> is within the physics-derived
+        /// tolerance for the dominant dropped constraint. A single-constraint config is always
+        /// within tolerance (residual 0).</summary>
+        public bool WithinTolerance;
+
+        /// <summary>The Support classification carried through from extraction. When != Supported
+        /// the solution is the sentinel (no phase-lock).</summary>
+        public Support Support;
+
+        /// <summary>True when the caller should phase-lock (anchor = NextWindowUT, cadence
+        /// quantized to a multiple of P). False = keep today's behavior (the sentinel).</summary>
+        public bool ShouldPhaseLock;
+
+        /// <summary>Which constraint set P (for the diagnostic summary): "unconstrained",
+        /// "single-rotation", "single-orbital", "tidal-collapse", or "dominant-intercept".</summary>
+        public string Method;
+
+        /// <summary>The "do not phase-lock" sentinel for an unsupported / non-lockable config.
+        /// The caller keeps today's arbitrary-phase behavior.</summary>
+        internal static PeriodicitySolution NoLock(Support support, string method)
+        {
+            return new PeriodicitySolution
+            {
+                P = double.NaN,
+                NextWindowUT = double.NaN,
+                ResidualSeconds = double.NaN,
+                WithinTolerance = false,
+                Support = support,
+                ShouldPhaseLock = false,
+                Method = method
+            };
+        }
+    }
+
+    /// <summary>
     /// Test seam over FlightGlobals: the live-body data the extractor + solver read. A
     /// FlightGlobals-backed implementation lives in <see cref="FlightGlobalsBodyInfo"/>; tests
     /// pass a fake with synthetic bodies. Never hardcode stock values - planet packs (RSS, etc.)
@@ -362,6 +415,317 @@ namespace Parsek
                 memberWindows.Count,
                 null);
             return result;
+        }
+
+        // Fraction of a body's rotation period that counts as "within tolerance" for a rotation
+        // constraint (a small fraction of a degree of spin). Starting value per the design's
+        // "Still open" note; refined by playtest. 0.25 degrees / 360 = ~0.0007 of a full turn.
+        private const double RotationToleranceFraction = 0.25 / 360.0;
+
+        /// <summary>
+        /// Tier-1 solver (design doc Proposed design / Tier 1; plan Phase 1). Locks the SINGLE
+        /// dominant constraint and returns P + the next faithful launch UT + the (knowingly
+        /// dropped) residual. Pure. The full joint best-fit + accurate multi-constraint residual is
+        /// Phase 2; this deliberately does NOT implement it.
+        ///
+        /// Rules:
+        /// - <paramref name="support"/> != Supported -> the NoLock sentinel (caller keeps today's
+        ///   arbitrary-phase behavior; never mis-schedules a cross-parent / rendezvous /
+        ///   multi-constraint-pre-P2 config).
+        /// - 0 constraints -> P = MinCycleDuration (unconstrained = free loop).
+        /// - exactly one Rotation -> P = rotationPeriod; one direct-child Orbital -> P =
+        ///   C.orbit.period; a Rotation+direct-child-Orbital pair on a tidally-locked body (equal
+        ///   periods) -> that one period (collapses for free).
+        /// - the Mun case (Rotation(Kerbin) + Orbital(Mun), differing periods) -> lock Orbital(Mun)
+        ///   (the dominant intercept) and KNOWINGLY drop the Rotation(Kerbin) residual (logged).
+        ///   Any other multiple-independent-constraint set still locks the dominant intercept and
+        ///   logs the residual.
+        /// - NextWindowUT = smallest UT0 + k*P &gt;= nowUT (k may be negative for a future-dated
+        ///   UT0). Guards rotationPeriod &lt;= 0 / NaN / P &lt;= 0 -> MinCycleDuration / no lock.
+        /// </summary>
+        internal static PeriodicitySolution Solve(
+            IReadOnlyList<PhaseConstraint> constraints,
+            Support support,
+            double ut0,
+            double nowUT,
+            IBodyInfo bodyInfo)
+        {
+            // Unsupported config: never phase-lock (keep today's behavior).
+            if (support != Support.Supported)
+            {
+                PeriodicitySolution sentinel = PeriodicitySolution.NoLock(support, "unsupported-no-lock");
+                LogSolve("?", sentinel, ut0, nowUT);
+                return sentinel;
+            }
+
+            int count = constraints?.Count ?? 0;
+
+            // 0 constraints -> unconstrained free loop at the minimum cycle.
+            if (count == 0)
+            {
+                double pFree = LoopTiming.MinCycleDuration;
+                var free = new PeriodicitySolution
+                {
+                    P = pFree,
+                    NextWindowUT = NextWindow(ut0, pFree, nowUT),
+                    ResidualSeconds = 0.0,
+                    WithinTolerance = true,
+                    Support = Support.Supported,
+                    ShouldPhaseLock = true,
+                    Method = "unconstrained"
+                };
+                LogSolve("?", free, ut0, nowUT);
+                return free;
+            }
+
+            // Pick the dominant constraint: the Orbital intercept (the dominant visual break) if
+            // any, else the single Rotation. Among multiple Orbital constraints, the longest period
+            // dominates (the hardest window to hit). Among multiple Rotations with no Orbital, the
+            // longest period dominates.
+            int dominantIdx = SelectDominantConstraintIndex(constraints);
+            PhaseConstraint dominant = constraints[dominantIdx];
+            double p = dominant.PeriodSeconds;
+
+            // Guard a degenerate dominant period (should not happen post-extraction, but be safe):
+            // fall back to the free loop rather than divide-by-zero / no lock.
+            if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+            {
+                double pFree = LoopTiming.MinCycleDuration;
+                var guarded = new PeriodicitySolution
+                {
+                    P = pFree,
+                    NextWindowUT = NextWindow(ut0, pFree, nowUT),
+                    ResidualSeconds = 0.0,
+                    WithinTolerance = true,
+                    Support = Support.Supported,
+                    ShouldPhaseLock = true,
+                    Method = "degenerate-dominant-period-free"
+                };
+                LogSolve(dominant.BodyName, guarded, ut0, nowUT);
+                return guarded;
+            }
+
+            double nextWindow = NextWindow(ut0, p, nowUT);
+
+            // Residual: the max phase error of the constraints NOT locked, at the chosen launch UT.
+            // Locking the dominant constraint shifts every segment's absolute UT by k*P from its
+            // recorded UT (where k*P = nextWindow - ut0). A dropped constraint i lands faithfully
+            // only if that shift is a whole multiple of period_i; its phase error is the circular
+            // distance of (k*P mod period_i) from 0. The dominant constraint itself collapses to 0
+            // (k*P is a multiple of P == period_dominant). A constraint sharing the dominant period
+            // (tidal-lock collapse) also collapses to 0.
+            double kP = nextWindow - ut0;
+            double residual = 0.0;
+            string dominantMissed = null;
+            for (int i = 0; i < count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                double err = CircularPhaseError(kP, constraints[i].PeriodSeconds);
+                if (err > residual)
+                {
+                    residual = err;
+                    dominantMissed = constraints[i].ToString();
+                }
+            }
+
+            // Classify the method by the STRUCTURAL relationship (not the incidental k=0 residual):
+            // - 1 constraint: single-rotation / single-orbital (nothing dropped).
+            // - >1 but every dropped constraint shares the dominant PERIOD: tidal-collapse (the
+            //   constraints genuinely line up at every window - e.g. Mun rotation + Mun intercept).
+            // - otherwise: dominant-intercept (a real, generally-incommensurate residual is dropped;
+            //   it may be 0 at a particular window but is not structurally guaranteed).
+            string method;
+            bool withinTolerance;
+            if (count == 1)
+            {
+                method = dominant.Kind == ConstraintKind.Orbital ? "single-orbital" : "single-rotation";
+                withinTolerance = true; // nothing dropped
+            }
+            else if (AllDroppedSharePeriod(constraints, dominantIdx, p))
+            {
+                method = "tidal-collapse";
+                withinTolerance = true;
+            }
+            else
+            {
+                method = "dominant-intercept";
+                withinTolerance = residual <= ToleranceSecondsForDroppedConstraint(constraints, dominantIdx, bodyInfo);
+            }
+
+            var sol = new PeriodicitySolution
+            {
+                P = p,
+                NextWindowUT = nextWindow,
+                ResidualSeconds = residual,
+                WithinTolerance = withinTolerance,
+                Support = Support.Supported,
+                ShouldPhaseLock = true,
+                Method = method
+            };
+            LogSolve(dominant.BodyName, sol, ut0, nowUT, dominantMissed);
+            return sol;
+        }
+
+        /// <summary>
+        /// Selects the dominant constraint index (the one whose period sets P in Tier 1). The
+        /// Orbital intercept is the dominant visual break, so any Orbital outranks any Rotation;
+        /// within a kind, the LONGEST period dominates (the hardest window to hit). Ties broken by
+        /// the smaller phase offset, then index, for determinism.
+        /// </summary>
+        internal static int SelectDominantConstraintIndex(IReadOnlyList<PhaseConstraint> constraints)
+        {
+            int best = 0;
+            for (int i = 1; i < constraints.Count; i++)
+            {
+                if (IsMoreDominant(constraints[i], constraints[best]))
+                    best = i;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// True when EVERY non-dominant constraint shares the dominant period (within a tiny
+        /// tolerance) - the tidal-lock collapse case, where the constraints line up at every window.
+        /// </summary>
+        private static bool AllDroppedSharePeriod(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, double dominantPeriod)
+        {
+            const double tol = 1e-6;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                if (Math.Abs(constraints[i].PeriodSeconds - dominantPeriod) > tol * Math.Max(1.0, dominantPeriod))
+                    return false;
+            }
+            return true;
+        }
+
+        private static bool IsMoreDominant(PhaseConstraint candidate, PhaseConstraint current)
+        {
+            // Orbital beats Rotation.
+            bool candOrbital = candidate.Kind == ConstraintKind.Orbital;
+            bool curOrbital = current.Kind == ConstraintKind.Orbital;
+            if (candOrbital != curOrbital)
+                return candOrbital;
+            // Same kind: longer period dominates.
+            if (candidate.PeriodSeconds > current.PeriodSeconds)
+                return true;
+            if (candidate.PeriodSeconds < current.PeriodSeconds)
+                return false;
+            // Equal period: earlier offset dominates (deterministic).
+            return candidate.PhaseOffsetSeconds < current.PhaseOffsetSeconds;
+        }
+
+        /// <summary>
+        /// The smallest UT0 + k*P that is &gt;= nowUT (k may be negative when UT0 is in the future).
+        /// P must be &gt; 0.
+        /// </summary>
+        internal static double NextWindow(double ut0, double p, double nowUT)
+        {
+            if (double.IsNaN(ut0) || double.IsNaN(p) || p <= 0.0)
+                return double.NaN;
+            // k = ceil((now - ut0) / P). Use a small epsilon so a window landing exactly on now is
+            // treated as "now" rather than skipping to the next one.
+            double kReal = (nowUT - ut0) / p;
+            double k = Math.Ceiling(kReal - 1e-9);
+            double window = ut0 + k * p;
+            // Floating-point guard: ensure window >= now (and not more than one P past).
+            if (window < nowUT - 1e-6)
+                window += p;
+            return window;
+        }
+
+        /// <summary>
+        /// Circular phase error: how far <paramref name="deltaSeconds"/> is from a whole multiple
+        /// of <paramref name="period"/>, in seconds (always in [0, period/2]). Returns 0 for a
+        /// non-positive / degenerate period (no constraint to miss).
+        /// </summary>
+        internal static double CircularPhaseError(double deltaSeconds, double period)
+        {
+            if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
+                return 0.0;
+            double m = deltaSeconds % period;
+            if (m < 0.0)
+                m += period;
+            return Math.Min(m, period - m);
+        }
+
+        // The physics-derived tolerance (seconds) for the dominant DROPPED constraint - the largest
+        // phase error the missed constraint can carry and still be "faithful". Orbital: the time the
+        // target moves through its own SOI radius (~SoiRadius / OrbitalVelocity). Rotation: a small
+        // fraction of the body's spin. Phase 1 only uses this for the green/amber WithinTolerance
+        // readout; the accurate best-fit residual is Phase 2.
+        private static double ToleranceSecondsForDroppedConstraint(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, IBodyInfo bodyInfo)
+        {
+            // The dominant DROPPED constraint is the one that produced the residual; find the
+            // largest-period dropped constraint to size the tolerance against (matches the residual
+            // selection's "largest err" intent closely enough for the readout).
+            double worstTol = 0.0;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                double tol = ToleranceSecondsFor(constraints[i], bodyInfo);
+                if (tol > worstTol)
+                    worstTol = tol;
+            }
+            return worstTol;
+        }
+
+        private static double ToleranceSecondsFor(PhaseConstraint c, IBodyInfo bodyInfo)
+        {
+            if (c.Kind == ConstraintKind.Rotation)
+                return c.PeriodSeconds * RotationToleranceFraction;
+
+            // Orbital: SoiRadius / OrbitalVelocity (the time the body crosses its own SOI).
+            if (bodyInfo != null)
+            {
+                double soi = bodyInfo.SoiRadius(c.BodyName);
+                double vel = bodyInfo.OrbitalVelocity(c.BodyName);
+                if (!double.IsNaN(soi) && !double.IsNaN(vel) && vel > 0.0)
+                    return soi / vel;
+            }
+            // Fallback: a small fraction of the orbital period.
+            return c.PeriodSeconds * RotationToleranceFraction;
+        }
+
+        private static void LogSolve(
+            string dominantBody,
+            PeriodicitySolution sol,
+            double ut0,
+            double nowUT,
+            string dominantMissed = null)
+        {
+            if (SuppressLogging)
+                return;
+            var ic = CultureInfo.InvariantCulture;
+            var sb = new System.Text.StringBuilder(128);
+            sb.Append("Solve: dominant=").Append(dominantBody ?? "<none>")
+              .Append(" method=").Append(sol.Method ?? "?")
+              .Append(" P=").Append(sol.P.ToString("R", ic))
+              .Append(" ut0=").Append(ut0.ToString("R", ic))
+              .Append(" now=").Append(nowUT.ToString("R", ic))
+              .Append(" nextWindow=").Append(sol.NextWindowUT.ToString("R", ic))
+              .Append(" residual=").Append(sol.ResidualSeconds.ToString("R", ic))
+              .Append(" withinTol=").Append(sol.WithinTolerance ? "yes" : "no")
+              .Append(" lock=").Append(sol.ShouldPhaseLock ? "yes" : "no")
+              .Append(" support=").Append(sol.Support.ToString());
+            if (!string.IsNullOrEmpty(dominantMissed))
+                sb.Append(" missed=").Append(dominantMissed);
+            ParsekLog.Verbose("MissionPeriodicity", sb.ToString());
+
+            // Over-constrained signal (design Diagnostic Logging): Warn when the Tier-1 residual
+            // exceeds tolerance so a config that cannot loop accurately is never a silent branch.
+            if (sol.ShouldPhaseLock && !sol.WithinTolerance && sol.ResidualSeconds > 0.0)
+            {
+                ParsekLog.Warn("MissionPeriodicity",
+                    $"Solve: Tier-1 residual {sol.ResidualSeconds.ToString("R", ic)}s exceeds tolerance " +
+                    $"(dropped constraint {dominantMissed ?? "?"}); window is best-effort until the " +
+                    "Phase-2 joint best-fit lands");
+            }
         }
 
         /// <summary>

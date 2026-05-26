@@ -38,7 +38,8 @@ namespace Parsek
             IReadOnlyList<Mission> missions,
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
-            double autoLoopIntervalSeconds)
+            double autoLoopIntervalSeconds,
+            IBodyInfo bodyInfo = null)
         {
             if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
@@ -56,7 +57,7 @@ namespace Parsek
                     continue;
 
                 if (!TryBuildMissionUnit(
-                        mission, trees, committed, indexById, autoLoopIntervalSeconds,
+                        mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
                         out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
                     continue;
 
@@ -110,6 +111,7 @@ namespace Parsek
             IReadOnlyList<Recording> committed,
             Dictionary<string, int> indexById,
             double autoLoopIntervalSeconds,
+            IBodyInfo bodyInfo,
             out GhostPlaybackLogic.LoopUnit unit,
             out int[] memberArray)
         {
@@ -202,19 +204,55 @@ namespace Parsek
             // 7. Owner = earliest-start member (first after the StartUT sort).
             int ownerIndex = memberIndices[0];
 
-            // 7b. Phase anchor: the UT the loop was enabled at. The span clock measures phase from
-            //     this (elapsed = currentUT - phaseAnchorUT) so re-enabling the loop restarts from
-            //     the recording's start. An unset (NaN) anchor falls back to spanStartUT, which
-            //     reproduces the old absolute-phase behavior.
-            double phaseAnchorUT = double.IsNaN(mission.LoopAnchorUT)
+            // 7b. Phase anchor: today's behavior is "the UT the loop was enabled at" (the span clock
+            //     measures phase from this so re-enabling restarts from the recording's start; an
+            //     unset NaN anchor falls back to spanStartUT, the old absolute-phase behavior).
+            double baseAnchorUT = double.IsNaN(mission.LoopAnchorUT)
                 ? spanStartUT
                 : mission.LoopAnchorUT;
+
+            // 7c. Mission periodicity (Phase 1, Tier 1): when the included config's constraints can
+            //      be phase-locked, SNAP the anchor to the next faithful launch (UT0 + k*P at or
+            //      after the loop-enable UT) and quantize the cadence to a multiple of P. This is a
+            //      STRICT SUPERSET of today's behavior: with no body-info (tests / not yet wired) or
+            //      an unsupported config (cross-parent / rendezvous / no constraints to lock) the
+            //      solver returns the no-lock sentinel and we keep baseAnchorUT + the raw cadences
+            //      EXACTLY as before (byte-identical to the merged #958 looping). Affects ONLY
+            //      looping Missions; non-looping ghosts and per-recording auto-loop are untouched.
+            double phaseAnchorUT = baseAnchorUT;
+            double effectiveCadence = cadence;
+            double effectiveOverlapCadence = overlapCadence;
+            bool phaseLocked = false;
+            PeriodicitySolution solution = default;
+            if (bodyInfo != null)
+            {
+                ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
+                    view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
+                // Reference time for "the next window at or after the loop was enabled": the
+                // loop-enable UT (LoopAnchorUT), so the snap is stable across frames (it does not
+                // drift with the live clock). NaN anchor -> reference the span start (cycle-0 lands
+                // on UT0 itself).
+                double referenceUT = double.IsNaN(mission.LoopAnchorUT)
+                    ? extraction.UT0
+                    : mission.LoopAnchorUT;
+                solution = MissionPeriodicity.Solve(
+                    extraction.Constraints, extraction.Support, extraction.UT0, referenceUT, bodyInfo);
+                if (solution.ShouldPhaseLock
+                    && !double.IsNaN(solution.NextWindowUT)
+                    && !double.IsNaN(solution.P) && solution.P > 0.0)
+                {
+                    phaseAnchorUT = solution.NextWindowUT;
+                    effectiveCadence = QuantizeCadenceToMultipleOfP(cadence, solution.P);
+                    effectiveOverlapCadence = QuantizeCadenceToMultipleOfP(overlapCadence, solution.P);
+                    phaseLocked = true;
+                }
+            }
 
             // 8. Build the unit (carrying the per-member trimmed render windows).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
-                ownerIndex, memberArray, spanStartUT, spanEndUT, cadence, phaseAnchorUT,
-                overlapCadence, memberWindowByIndex);
+                ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
+                effectiveOverlapCadence, memberWindowByIndex);
 
             if (!SuppressLogging)
             {
@@ -224,13 +262,52 @@ namespace Parsek
                     $"members={memberArray.Length} skipped={skippedNotCommitted} " +
                     $"span=[{spanStartUT.ToString("R", ic)},{spanEndUT.ToString("R", ic)}] " +
                     $"spanDur={span.ToString("R", ic)} unit={mission.LoopTimeUnit} " +
-                    $"cadence={cadence.ToString("R", ic)} " +
-                    $"overlapCadence={overlapCadence.ToString("R", ic)} " +
-                    $"overlaps={(overlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
+                    $"cadence={effectiveCadence.ToString("R", ic)} " +
+                    $"overlapCadence={effectiveOverlapCadence.ToString("R", ic)} " +
+                    $"overlaps={(effectiveOverlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
+
+                // Phase-lock applied vs skipped (design Diagnostic Logging): Info so a misbehaving
+                // config is never a silent branch.
+                if (phaseLocked)
+                {
+                    ParsekLog.Info("MissionPeriodicity",
+                        $"PhaseLock APPLIED: mission='{mission.Name}' tree={tree.Id} " +
+                        $"anchor {baseAnchorUT.ToString("R", ic)}->{phaseAnchorUT.ToString("R", ic)} " +
+                        $"P={solution.P.ToString("R", ic)} method={solution.Method} " +
+                        $"cadence {cadence.ToString("R", ic)}->{effectiveCadence.ToString("R", ic)} " +
+                        $"residual={solution.ResidualSeconds.ToString("R", ic)} " +
+                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}");
+                }
+                else if (bodyInfo != null)
+                {
+                    ParsekLog.Info("MissionPeriodicity",
+                        $"PhaseLock SKIPPED: mission='{mission.Name}' tree={tree.Id} " +
+                        $"support={solution.Support} keeping anchor={phaseAnchorUT.ToString("R", ic)} " +
+                        "(today's behavior)");
+                }
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Quantizes a cadence to the nearest multiple of <paramref name="p"/> at or ABOVE the
+        /// cadence (which is already floored at MinCycleDuration / the overlap cap). Rounds UP so
+        /// the quantized cadence never drops below the existing floor, keeping the instance-count
+        /// cap intact. A degenerate P (&lt;= 0 / NaN) leaves the cadence unchanged. Pure.
+        /// </summary>
+        internal static double QuantizeCadenceToMultipleOfP(double cadence, double p)
+        {
+            if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                return cadence;
+            if (double.IsNaN(cadence) || double.IsInfinity(cadence) || cadence <= 0.0)
+                return p;
+            // Smallest k >= 1 with k*P >= cadence.
+            double k = Math.Ceiling(cadence / p - 1e-9);
+            if (k < 1.0)
+                k = 1.0;
+            return k * p;
         }
 
         /// <summary>
@@ -309,15 +386,19 @@ namespace Parsek
         /// LoopIntervalSeconds, LoopTimeUnit, LoopAnchorUT, sorted ExcludedThroughLineHeadIds, and its
         /// tree's BranchPoints.Count + Recordings.Count; then the global
         /// <paramref name="autoLoopIntervalSeconds"/> (which sets an Auto mission's overlap cadence),
-        /// the committed-list count, and a rolling RecordingId hash. Constant "none:" prefix when no
-        /// mission loops, so toggling looping off still rebuilds to Empty exactly once. Pure: no Unity
-        /// calls, no shared mutable state.
+        /// the committed-list count, and a rolling RecordingId hash. When <paramref name="bodyInfo"/>
+        /// is non-null (the phase-lock wiring), it ALSO folds in each looping tree's transited-body
+        /// set + their rotation/orbit periods, so a body-geometry change (e.g. a planet pack / a
+        /// different save's universe) re-derives P and rebuilds the unit. Constant "none:" prefix
+        /// when no mission loops, so toggling looping off still rebuilds to Empty exactly once.
+        /// Pure: no Unity calls, no shared mutable state.
         /// </summary>
         internal static string BuildSignature(
             IReadOnlyList<Mission> missions,
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
-            double autoLoopIntervalSeconds)
+            double autoLoopIntervalSeconds,
+            IBodyInfo bodyInfo = null)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
@@ -359,6 +440,14 @@ namespace Parsek
                     RecordingTree loopTree = FindTree(trees, m.TreeId);
                     sb.Append((loopTree?.BranchPoints?.Count ?? 0).ToString(ic)).Append('/');
                     sb.Append((loopTree?.Recordings?.Count ?? 0).ToString(ic)).Append('#');
+
+                    // Phase-lock constraint inputs: the looping tree's transited-body set + their
+                    // live rotation/orbit periods. A body-geometry change (planet pack / different
+                    // universe) moves these even when the recordings + selection are unchanged, so
+                    // P re-derives and the unit rebuilds. Only computed when bodyInfo is supplied
+                    // (the phase-lock wiring); without it the signature is byte-identical to before.
+                    if (bodyInfo != null)
+                        AppendTransitedBodyDigest(sb, loopTree, bodyInfo, ic);
                 }
             }
 
@@ -382,6 +471,57 @@ namespace Parsek
             }
             sb.Append(rollingHash.ToString(ic));
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Appends a compact digest of a looping tree's transited bodies + their live rotation/orbit
+        /// periods to the signature, so a body-geometry change rebuilds the cached unit. Scans only
+        /// this one tree's recordings (bounded), gathering the distinct body names from each
+        /// recording's OrbitSegments + OrbitalCheckpoint checkpoints + the recording-level
+        /// Start/Segment body fields. Sorted so enumeration order never perturbs the digest.
+        /// </summary>
+        private static void AppendTransitedBodyDigest(
+            System.Text.StringBuilder sb, RecordingTree loopTree, IBodyInfo bodyInfo, CultureInfo ic)
+        {
+            sb.Append("B:");
+            if (loopTree == null || loopTree.Recordings == null)
+                return;
+            var bodies = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var rec in loopTree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                if (rec.OrbitSegments != null)
+                    for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                        if (!string.IsNullOrEmpty(rec.OrbitSegments[i].bodyName))
+                            bodies.Add(rec.OrbitSegments[i].bodyName);
+                if (rec.TrackSections != null)
+                {
+                    for (int i = 0; i < rec.TrackSections.Count; i++)
+                    {
+                        TrackSection sec = rec.TrackSections[i];
+                        if (sec.checkpoints != null)
+                            for (int c = 0; c < sec.checkpoints.Count; c++)
+                                if (!string.IsNullOrEmpty(sec.checkpoints[c].bodyName))
+                                    bodies.Add(sec.checkpoints[c].bodyName);
+                    }
+                }
+                if (!string.IsNullOrEmpty(rec.SegmentBodyName))
+                    bodies.Add(rec.SegmentBodyName);
+                if (!string.IsNullOrEmpty(rec.StartBodyName))
+                    bodies.Add(rec.StartBodyName);
+            }
+            var sorted = new List<string>(bodies);
+            sorted.Sort(StringComparer.Ordinal);
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                string b = sorted[i];
+                sb.Append(b).Append('=')
+                  .Append(bodyInfo.RotationPeriod(b).ToString("R", ic)).Append(',')
+                  .Append(bodyInfo.OrbitPeriod(b).ToString("R", ic)).Append(',')
+                  .Append(bodyInfo.ReferenceBodyName(b) ?? "-").Append(';');
+            }
+            sb.Append('@');
         }
 
         private static RecordingTree FindTree(IReadOnlyList<RecordingTree> trees, string treeId)

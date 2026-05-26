@@ -18407,12 +18407,16 @@ namespace Parsek
         {
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): pass the live-body seam so a supported looping
+            // mission snaps its phase anchor to the next faithful launch window. An unsupported
+            // config (cross-parent / rendezvous / no constraint) falls back to today's behavior.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");

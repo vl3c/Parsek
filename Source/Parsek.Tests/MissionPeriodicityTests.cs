@@ -21,6 +21,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
             MissionPeriodicity.SuppressLogging = false;
+            MissionLoopUnitBuilder.SuppressLogging = false;
         }
 
         public void Dispose()
@@ -28,6 +29,7 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
             MissionPeriodicity.SuppressLogging = false;
+            MissionLoopUnitBuilder.SuppressLogging = false;
         }
 
         // --- Fake IBodyInfo (synthetic stock-like system) ---
@@ -596,6 +598,487 @@ namespace Parsek.Tests
             Assert.Equal(MinmusOrbit, orb.PeriodSeconds);
             Assert.False(orb.RelativeToParent);
             Assert.Equal(Support.Supported, ex.Support);
+        }
+
+        // ===================== Phase 1: Solve (Tier-1 phase-lock) =====================
+
+        private static PhaseConstraint Rotation(string body, double period, double offset)
+            => new PhaseConstraint { Kind = ConstraintKind.Rotation, BodyName = body,
+                PeriodSeconds = period, PhaseOffsetSeconds = offset, RelativeToParent = false };
+
+        private static PhaseConstraint Orbital(string body, double period, double offset,
+            bool crossParent = false)
+            => new PhaseConstraint { Kind = ConstraintKind.Orbital, BodyName = body,
+                PeriodSeconds = period, PhaseOffsetSeconds = offset, RelativeToParent = crossParent };
+
+        [Fact]
+        public void Solve_ZeroConstraints_UsesMinCycleDuration()
+        {
+            // Guards: an unconstrained config = free loop at MinCycleDuration; it still phase-locks
+            // (cycle 0 lands at UT0) but P is the minimum cycle.
+            var sol = MissionPeriodicity.Solve(
+                new List<PhaseConstraint>(), Support.Supported, 1000.0, 1000.0, StockFake());
+
+            Assert.Equal(LoopTiming.MinCycleDuration, sol.P);
+            Assert.True(sol.ShouldPhaseLock);
+            Assert.Equal("unconstrained", sol.Method);
+            Assert.Equal(0.0, sol.ResidualSeconds);
+            Assert.True(sol.WithinTolerance);
+        }
+
+        [Fact]
+        public void Solve_SingleRotation_PIsRotationPeriod_ResidualZero()
+        {
+            // Guards: one Rotation constraint -> P = rotation period; nothing dropped -> residual 0,
+            // within tolerance.
+            var sol = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", KerbinRotation, 0.0) }, Support.Supported,
+                1000.0, 1000.0, StockFake());
+
+            Assert.Equal(KerbinRotation, sol.P);
+            Assert.Equal("single-rotation", sol.Method);
+            Assert.Equal(0.0, sol.ResidualSeconds);
+            Assert.True(sol.WithinTolerance);
+            Assert.True(sol.ShouldPhaseLock);
+        }
+
+        [Fact]
+        public void Solve_SingleDirectChildOrbital_PIsOrbitPeriod()
+        {
+            // Guards: one direct-child Orbital -> P = C.orbit.period.
+            var sol = MissionPeriodicity.Solve(
+                new[] { Orbital("Mun", MunOrbit, 600.0) }, Support.Supported,
+                1000.0, 1000.0, StockFake());
+
+            Assert.Equal(MunOrbit, sol.P);
+            Assert.Equal("single-orbital", sol.Method);
+            Assert.Equal(0.0, sol.ResidualSeconds);
+            Assert.True(sol.WithinTolerance);
+        }
+
+        [Fact]
+        public void Solve_MunCase_LocksOrbitalDropsRotationResidual()
+        {
+            // Guards: the flagship Mun case (Rotation(Kerbin) + Orbital(Mun), different periods) ->
+            // P = Mun orbit period (the dominant intercept), and the Kerbin-rotation residual is
+            // KNOWINGLY dropped + non-zero (Tier-1). The intercept is locked, the launch-site offset
+            // is the accepted residual (closed in Phase 2).
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Orbital("Mun", MunOrbit, 600.0)
+            };
+            var sol = MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0, StockFake());
+
+            Assert.Equal(MunOrbit, sol.P);                 // locked the intercept, not the rotation
+            Assert.Equal("dominant-intercept", sol.Method);
+            Assert.True(sol.ShouldPhaseLock);
+            // Residual = circular phase error of (k*P) against the Kerbin rotation period. With
+            // nowUT == UT0, k = 0, so k*P == 0 -> residual 0; this case lands on UT0 itself.
+            // Force a future window to exercise a non-zero residual instead.
+            var future = MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0 + MunOrbit + 5000.0, StockFake());
+            Assert.Equal(MunOrbit, future.P);
+            Assert.True(future.ResidualSeconds > 0.0);     // Kerbin rotation residual dropped
+        }
+
+        [Fact]
+        public void Solve_TidallyLockedMun_RotationAndOrbitalCollapse()
+        {
+            // Guards: a Mun-surface Rotation + a Mun Orbital share the SAME period (tidal lock), so
+            // the residual collapses to 0 and WithinTolerance is true (no double-counting).
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("Mun", MunOrbit, 600.0),
+                Rotation("Mun", MunRotation, 1000.0) // same period as the orbit
+            };
+            var sol = MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0 + 3 * MunOrbit, StockFake());
+
+            Assert.Equal(MunOrbit, sol.P);
+            Assert.Equal(0.0, sol.ResidualSeconds);   // same period -> collapses
+            Assert.True(sol.WithinTolerance);
+            Assert.Equal("tidal-collapse", sol.Method);
+        }
+
+        [Fact]
+        public void Solve_NextWindow_FutureWindowK()
+        {
+            // Guards: NextWindowUT is the smallest UT0 + k*P >= now. With now well past UT0, k>0.
+            double ut0 = 1000.0;
+            double p = KerbinRotation;
+            double now = ut0 + 3.5 * p; // between k=3 and k=4
+            var sol = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", p, 0.0) }, Support.Supported, ut0, now, StockFake());
+
+            // Smallest k with ut0 + k*p >= now is k=4.
+            Assert.Equal(ut0 + 4 * p, sol.NextWindowUT, 3);
+            Assert.True(sol.NextWindowUT >= now);
+        }
+
+        [Fact]
+        public void Solve_FutureDatedUT0_NegativeK_ResolvesToFirstWindowAtOrAfterNow()
+        {
+            // Guards: a future-dated recording (UT0 > now, e.g. after a career rewind) -> the
+            // smallest UT0 + k*P >= now uses a NEGATIVE k, landing on the first window at or after now.
+            double ut0 = 100000.0;
+            double p = KerbinRotation;
+            double now = 1000.0; // far before UT0
+            var sol = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", p, 0.0) }, Support.Supported, ut0, now, StockFake());
+
+            Assert.True(sol.NextWindowUT >= now);
+            Assert.True(sol.NextWindowUT < now + p); // first window at/after now, not skipping one
+            // It must be of the form ut0 + k*p.
+            double k = (sol.NextWindowUT - ut0) / p;
+            Assert.Equal(Math.Round(k), k, 3); // integer k
+        }
+
+        [Fact]
+        public void Solve_NowEqualsUT0_WindowIsUT0()
+        {
+            // Guards: when now == UT0 the next window IS UT0 (k=0), not the next cycle.
+            double ut0 = 5000.0;
+            var sol = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", KerbinRotation, 0.0) }, Support.Supported,
+                ut0, ut0, StockFake());
+
+            Assert.Equal(ut0, sol.NextWindowUT, 3);
+        }
+
+        [Fact]
+        public void Solve_ZeroRotationPeriodConstraint_NeverReachesSolve_ButGuardedAnyway()
+        {
+            // Guards: a degenerate dominant period (P <= 0) falls back to the free loop rather than
+            // dividing by zero / refusing. (Extraction already drops zero-period constraints, so
+            // this guards the solver's own defense.)
+            var sol = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", 0.0, 0.0) }, Support.Supported, 1000.0, 1000.0, StockFake());
+
+            Assert.Equal(LoopTiming.MinCycleDuration, sol.P);
+            Assert.True(sol.ShouldPhaseLock);
+            Assert.False(double.IsNaN(sol.NextWindowUT));
+        }
+
+        [Fact]
+        public void Solve_Unsupported_ReturnsNoLockSentinel()
+        {
+            // Guards: an unsupported config (cross-parent / rendezvous / multi-constraint-pre-P2)
+            // returns the no-lock sentinel - the caller keeps today's behavior, never mis-scheduling.
+            var crossParent = MissionPeriodicity.Solve(
+                new[] { Orbital("Duna", DunaOrbit, 4000.0, crossParent: true) },
+                Support.UnsupportedCrossParent, 1000.0, 1000.0, StockFake());
+            Assert.False(crossParent.ShouldPhaseLock);
+            Assert.True(double.IsNaN(crossParent.P));
+            Assert.True(double.IsNaN(crossParent.NextWindowUT));
+            Assert.Equal(Support.UnsupportedCrossParent, crossParent.Support);
+
+            var rendezvous = MissionPeriodicity.Solve(
+                new[] { Rotation("Kerbin", KerbinRotation, 0.0) },
+                Support.UnsupportedRendezvous, 1000.0, 1000.0, StockFake());
+            Assert.False(rendezvous.ShouldPhaseLock);
+        }
+
+        [Fact]
+        public void Solve_OverConstrainedTwoRotations_BestEffortLockNonZeroResidual_NeverThrows()
+        {
+            // Guards: two Rotation(Kerbin) at incompatible offsets (the over-constrained Mun
+            // landing-and-return case, modeled as two distinct same-body rotation constraints with
+            // different periods to force a residual) still locks the dominant one and reports a
+            // non-zero residual without throwing. (The accurate joint best-fit is Phase 2.)
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Rotation("Minmus", 40400.0, 5000.0) // different period -> incommensurate
+            };
+            var sol = MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0 + 2.3 * 40400.0, StockFake());
+
+            Assert.True(sol.ShouldPhaseLock);
+            // Both are Rotation constraints, so the longer period dominates: 40400 (Minmus) >
+            // KerbinRotation (21549). The lock picks the longer period; the Kerbin residual drops.
+            Assert.Equal(40400.0, sol.P);
+            Assert.True(sol.ResidualSeconds > 0.0); // Kerbin rotation residual is non-zero
+        }
+
+        [Fact]
+        public void Solve_ToleranceBoundary_FlipsWithinTolerance()
+        {
+            // Guards: the green/amber readout threshold. A dropped rotation constraint's residual
+            // just within vs just outside the rotation tolerance flips WithinTolerance. The rotation
+            // tolerance is RotationToleranceFraction (0.25/360) of the period. We construct a
+            // dominant orbital with period chosen so the residual lands either side of the boundary.
+            // Use a Rotation drop: lock an Orbital with P, drop a Rotation. Choose periods so that
+            // k*P mod rotPeriod is a controlled small value.
+            double rotPeriod = 36000.0;
+            double tol = rotPeriod * (0.25 / 360.0); // 25 s
+            // Dominant orbital period = rotPeriod + delta, so after one cycle k=1, residual = delta.
+            // Within: delta < tol; outside: delta > tol.
+            double deltaWithin = tol * 0.5;
+            double deltaOutside = tol * 2.0;
+
+            var within = MissionPeriodicity.Solve(
+                new List<PhaseConstraint>
+                {
+                    Orbital("Mun", rotPeriod + deltaWithin, 0.0),
+                    Rotation("Kerbin", rotPeriod, 0.0)
+                },
+                Support.Supported, 1000.0, 1000.0 + (rotPeriod + deltaWithin), StockFake());
+            Assert.True(within.ResidualSeconds <= tol);
+            Assert.True(within.WithinTolerance);
+
+            var outside = MissionPeriodicity.Solve(
+                new List<PhaseConstraint>
+                {
+                    Orbital("Mun", rotPeriod + deltaOutside, 0.0),
+                    Rotation("Kerbin", rotPeriod, 0.0)
+                },
+                Support.Supported, 1000.0, 1000.0 + (rotPeriod + deltaOutside), StockFake());
+            Assert.True(outside.ResidualSeconds > tol);
+            Assert.False(outside.WithinTolerance);
+        }
+
+        [Fact]
+        public void Solve_LogsVerboseSummary()
+        {
+            // Guards: the per-solve Verbose summary (Diagnostic Logging contract) with P, the next
+            // window, residual, within-tolerance, and method.
+            MissionPeriodicity.Solve(
+                new[] { Orbital("Mun", MunOrbit, 600.0) }, Support.Supported, 1000.0, 1000.0, StockFake());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("Solve:") &&
+                l.Contains("method=single-orbital") && l.Contains("nextWindow="));
+        }
+
+        [Fact]
+        public void Solve_OverConstrainedLogsWarn()
+        {
+            // Guards: the over-constrained Warn (residual exceeds tolerance) so a config that cannot
+            // loop accurately is never a silent branch.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Orbital("Mun", MunOrbit, 600.0)
+            };
+            MissionPeriodicity.Solve(
+                constraints, Support.Supported, 1000.0, 1000.0 + MunOrbit + 5000.0, StockFake());
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]") && l.Contains("[MissionPeriodicity]") &&
+                l.Contains("exceeds tolerance"));
+        }
+
+        // ===================== Quantize helper =====================
+
+        [Fact]
+        public void Quantize_RaisesToMultipleOfP_AtOrAboveCadence()
+        {
+            // Guards: the cadence is quantized UP to the nearest multiple of P (never below the
+            // existing floor). cadence 50, P 30 -> 60 (2*P).
+            Assert.Equal(60.0, MissionPeriodicity_QuantizePublic(50.0, 30.0), 6);
+            // cadence exactly a multiple stays put.
+            Assert.Equal(90.0, MissionPeriodicity_QuantizePublic(90.0, 30.0), 6);
+            // cadence below P -> P.
+            Assert.Equal(30.0, MissionPeriodicity_QuantizePublic(10.0, 30.0), 6);
+            // degenerate P leaves cadence unchanged.
+            Assert.Equal(50.0, MissionPeriodicity_QuantizePublic(50.0, 0.0), 6);
+        }
+
+        // Thin wrapper so the quantize test reads through the builder's internal helper.
+        private static double MissionPeriodicity_QuantizePublic(double cadence, double p)
+            => MissionLoopUnitBuilder.QuantizeCadenceToMultipleOfP(cadence, p);
+
+        // ===================== Phase 1: builder wiring (gated) =====================
+
+        private static Mission LoopMissionFor(string treeId, double anchorUT,
+            LoopTimeUnit unit = LoopTimeUnit.Auto, double interval = 0.0)
+        {
+            return new Mission("m1", treeId, "Loopy")
+            {
+                LoopPlayback = true,
+                LoopTimeUnit = unit,
+                LoopIntervalSeconds = interval,
+                LoopAnchorUT = anchorUT
+            };
+        }
+
+        [Fact]
+        public void Build_SupportedSingleBody_SnapsPhaseAnchorToNextWindow()
+        {
+            // Guards: a supported single-body config (a Kerbin-rotation constraint) SNAPS
+            // phaseAnchorUT to the next faithful launch (UT0 + k*rotationPeriod >= LoopAnchorUT),
+            // instead of leaving it at the raw LoopAnchorUT. The lock is applied.
+            var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            // Loop enabled at UT0 + 2.5 rotation periods -> next window is UT0 + 3*period.
+            double ut0 = 1000.0;
+            double anchorEnable = ut0 + 2.5 * KerbinRotation;
+            var mission = LoopMissionFor("t", anchorEnable);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            double expectedWindow = ut0 + 3 * KerbinRotation;
+            Assert.Equal(expectedWindow, unit.PhaseAnchorUT, 3); // snapped, NOT anchorEnable
+            Assert.NotEqual(anchorEnable, unit.PhaseAnchorUT);
+            // The applied-phase-lock Info line fired.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
+                l.Contains("method=single-rotation"));
+        }
+
+        [Fact]
+        public void Build_SupportedSameParentMun_SnapsToMunWindowAndQuantizesCadence()
+        {
+            // Guards: a supported same-parent Mun config snaps to the next Mun window (P = Mun orbit
+            // period) and quantizes the cadence to a multiple of P (above the existing floor).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            double ut0 = 1000.0;
+            double anchorEnable = ut0 + 1.5 * MunOrbit;
+            var mission = LoopMissionFor("t", anchorEnable);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            double expectedWindow = ut0 + 2 * MunOrbit;
+            Assert.Equal(expectedWindow, unit.PhaseAnchorUT, 3);
+            // Cadence is a multiple of Mun orbit period (and >= the span floor). The span is
+            // [1000,2000] = 1000s; Auto span-clock cadence floor is the span, quantized up to the
+            // nearest multiple of MunOrbit -> 1 * MunOrbit (since MunOrbit > 1000).
+            Assert.Equal(MunOrbit, unit.CadenceSeconds, 1);
+            // The overlap cadence (Auto = global 30s) is quantized up to 1*MunOrbit too.
+            Assert.Equal(MunOrbit, unit.OverlapCadenceSeconds, 1);
+            // The Mun config has TWO constraints (Rotation(Kerbin) + Orbital(Mun) at different
+            // periods), so Tier-1 locks the dominant intercept and drops the Kerbin rotation.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
+                l.Contains("method=dominant-intercept"));
+        }
+
+        [Fact]
+        public void Build_UnsupportedCrossParent_LeavesAnchorAtRawLoopAnchorUT_NoRegression()
+        {
+            // Guards: an unsupported (cross-parent Duna) config does NOT phase-lock - the anchor
+            // stays at the raw LoopAnchorUT and the cadence is the today's-behavior value, so
+            // nothing regresses for cases we don't yet handle.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Duna");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
+            double anchorEnable = 123456.0;
+            var mission = LoopMissionFor("t", anchorEnable);
+
+            // With body-info (phase-lock wired) but unsupported config.
+            var lockedSet = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.True(lockedSet.TryGetUnitForMember(0, out var lockedUnit));
+
+            // Without body-info (today's behavior).
+            var todaySet = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, null);
+            Assert.True(todaySet.TryGetUnitForMember(0, out var todayUnit));
+
+            // The unsupported config is byte-identical to today's behavior: same anchor + cadences.
+            Assert.Equal(anchorEnable, lockedUnit.PhaseAnchorUT);
+            Assert.Equal(todayUnit.PhaseAnchorUT, lockedUnit.PhaseAnchorUT);
+            Assert.Equal(todayUnit.CadenceSeconds, lockedUnit.CadenceSeconds);
+            Assert.Equal(todayUnit.OverlapCadenceSeconds, lockedUnit.OverlapCadenceSeconds);
+            // The skipped Info line fired with the unsupported reason.
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock SKIPPED") &&
+                l.Contains("UnsupportedCrossParent"));
+        }
+
+        [Fact]
+        public void Build_NoBodyInfo_ByteIdenticalToTodaysBehavior()
+        {
+            // Guards: with no IBodyInfo (the default overload, used by every existing caller/test),
+            // the builder NEVER phase-locks - the result is byte-identical to the merged #958 loop
+            // behavior (anchor = LoopAnchorUT, raw cadences). This is the strict-superset guarantee.
+            var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 8888.0);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0); // no bodyInfo overload
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Equal(8888.0, unit.PhaseAnchorUT); // raw LoopAnchorUT, no snap
+        }
+
+        [Fact]
+        public void BuildSignature_BodyGeometryChange_Rebuilds()
+        {
+            // Guards: a body-geometry change (the live rotation/orbit period of a transited body)
+            // moves the signature when bodyInfo is supplied, so the cached unit re-derives P.
+            var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 8888.0);
+
+            var fakeA = StockFake();
+            var fakeB = StockFake();
+            fakeB.Rotation["Kerbin"] = KerbinRotation + 100.0; // a planet-pack-like change
+
+            string sigA = MissionLoopUnitBuilder.BuildSignature(
+                new[] { mission }, new[] { tree }, committed, 30.0, fakeA);
+            string sigB = MissionLoopUnitBuilder.BuildSignature(
+                new[] { mission }, new[] { tree }, committed, 30.0, fakeB);
+
+            Assert.NotEqual(sigA, sigB);
+        }
+
+        [Fact]
+        public void BuildSignature_NoBodyInfo_ByteIdenticalToOldSignature()
+        {
+            // Guards: without bodyInfo the signature is byte-identical to the pre-periodicity
+            // signature (no transited-body digest appended), so nothing about the cache changes for
+            // the non-phase-lock path.
+            var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 8888.0);
+
+            string noBody = MissionLoopUnitBuilder.BuildSignature(
+                new[] { mission }, new[] { tree }, committed, 30.0);
+            string nullBody = MissionLoopUnitBuilder.BuildSignature(
+                new[] { mission }, new[] { tree }, committed, 30.0, null);
+
+            Assert.Equal(noBody, nullBody);
+            // And the body-info variant DIFFERS (it appends the digest).
+            string withBody = MissionLoopUnitBuilder.BuildSignature(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.NotEqual(noBody, withBody);
         }
     }
 }

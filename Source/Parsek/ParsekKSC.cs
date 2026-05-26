@@ -1022,12 +1022,14 @@ namespace Parsek
         {
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): the same live-body seam the flight engine + TS use.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
