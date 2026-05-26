@@ -605,17 +605,18 @@ into stack "AB" and later undock:
    interval label therefore undercounts parts, and a later undock peel subtracts
    the departing vessel's parts that were never in the head count (clamped at 0).
    Tied to gap 1.
-3. **Undock continuation vs offshoot is non-deterministic.**
+3. **Undock continuation vs offshoot is non-deterministic.** RESOLVED.
    `BuildSplitBranchData` gives an Undock's backgrounded child `IsDebris=false`
    and NO `ParentAnchorRecordingId` (only the EVA path sets a parent link), and
-   both undock children share the branch UT. So `ContinuationSuccessor` picks
-   which post-undock vessel is the "main line" by GUID `RecordingId` tiebreaker
-   rather than by which vessel held control. Both vessels stay individually
-   loopable (one as the through-line continuation, one as an offshoot), so this
-   is a correctness/labeling gap, not a loopability blocker. Fix sketch: mark
-   the non-active undock child as the offshoot deterministically (e.g. stamp its
-   `ParentAnchorRecordingId` = the active child, or carry an explicit
-   is-continuation flag the read model honors).
+   both undock children share the branch UT, so `ContinuationSuccessor` used to
+   pick which post-undock vessel is the "main line" by GUID `RecordingId`
+   tiebreaker rather than by which vessel held control. Fixed by honoring the
+   recorder's `BranchPoint.ChildRecordingIds[0]` convention (the continuing /
+   active vessel, or the single merged child of a Dock/Board): the read model
+   marks that leg `MissionLeg.IsBranchContinuation` (in `MissionStructureBuilder`,
+   derived not serialized) and `MissionThroughLineBuilder.ContinuationSuccessor`
+   prefers it among the children that already pass its non-anchored / non-EVA
+   filter. No schema change (the child order is already serialized in the tree).
 4. **Cross-tree dock (foreign vessel) — deferred by design.** When A and B are
    independent trees, the combined leg and the post-undock continuation land in
    the *controller's* tree while the foreign partner's pre-dock flight stays in
