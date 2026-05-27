@@ -119,10 +119,12 @@ namespace Parsek
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
         // sized loop control here is the period cell.
         private const float ColW_Period = 90f;
-        // Wider width for the read-only phase-locked period label ("~P (basis)", e.g.
-        // "~6.4d (Mun window)"). The "Time to launch" countdown moved off the header bar onto the
-        // launch vessel row, so the period cell reclaims that freed width here and the period + its
-        // basis label fit on one line. (The editable value+unit cell stays at ColW_Period.)
+        // Fixed width of the whole loop-period cell on the mission header bar, sized to the widest
+        // state (the read-only phase-locked "~P (basis)" label, e.g. "~6.4d (Mun window)"). EVERY
+        // period-cell state is wrapped in a container of this width (the narrower editable value+unit
+        // pads the remainder with a FlexibleSpace), so the Watch / Rewind buttons that follow start
+        // at the same x on every mission row. The width is ColW_Period + the freed "Time to launch"
+        // column width (the countdown moved off the bar onto the launch vessel row).
         private const float ColW_PeriodLocked = ColW_Period + ColW_TMinus + 4f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
@@ -180,6 +182,11 @@ namespace Parsek
         // text) instead of their own boxes so they don't double-box on top of the bubble.
         private GUIStyle missionHeaderRowStyle;
         private GUIStyle missionHeaderTextStyle;
+        // Inline (non-bold) header-bar label, vertically centered + stretched to the row height, so
+        // the "Loop" word and the read-only phase-locked period label ("~6.4d (Mun window)") sit on
+        // the same baseline as each other and the row's buttons (a plain GUI.skin.label / bodyCellLabel
+        // top-aligns and reads a few pixels high against the centered buttons).
+        private GUIStyle missionHeaderInlineLabel;
 
         // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
         // body labels land under their header text).
@@ -275,6 +282,14 @@ namespace Parsek
             {
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft
+            };
+
+            // Inline header-bar label (non-bold), vertically centered + stretched so "Loop" and the
+            // read-only locked period label share a baseline with each other and the centered buttons.
+            missionHeaderInlineLabel = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                stretchHeight = true
             };
         }
 
@@ -717,8 +732,9 @@ namespace Parsek
             GUI.enabled = true;
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
-            // wrapper left slack that widened the gap before the period field).
-            GUILayout.Label("Loop");
+            // wrapper left slack that widened the gap before the period field). The label uses the
+            // vertically-centered inline style so it lines up with the centered period label/buttons.
+            GUILayout.Label("Loop", missionHeaderInlineLabel);
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
             if (loopNow != mission.LoopPlayback)
             {
@@ -1472,6 +1488,12 @@ namespace Parsek
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
+            // FIXED-width period cell (always ColW_PeriodLocked, the widest state) so the Watch /
+            // Rewind buttons that follow start at the SAME x on every mission row, regardless of the
+            // cell's content (a wide read-only "~P (basis)" locked label vs a narrow editable
+            // value+unit). A trailing FlexibleSpace pads the unused width inside the container.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_PeriodLocked));
+
             // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
             // determined by physics (quantized to a multiple of P), not freely editable, so show the
             // faithful period P + its basis label ("~6h (Kerbin rot)" / "~1.6d (Mun window)") as a
@@ -1488,13 +1510,15 @@ namespace Parsek
                 GUI.enabled = false;
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
-                // Wider than the editable cell so "~P (basis)" (e.g. "~6.4d (Mun window)") fits on
-                // one line - reclaiming the width freed by moving the T- countdown to the launch row.
-                GUILayout.Label(locked, bodyCellLabel, GUILayout.Width(ColW_PeriodLocked));
+                // missionHeaderInlineLabel (vertically centered) so "~6.4d (Mun window)" sits on the
+                // same baseline as the "Loop" label and the buttons; ExpandWidth(false) lets the
+                // trailing FlexibleSpace below own the rest of the fixed-width cell.
+                GUILayout.Label(locked, missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;
-                return;
             }
+            else
+            {
 
             // The EFFECTIVE launch cadence: the requested period (manual value, or the global
             // auto-loop interval for Auto) raised by the overlap cap to keep ceil(span/cadence)
@@ -1604,6 +1628,13 @@ namespace Parsek
                     $"Loop unit for '{mission.Name}' changed to {mission.LoopTimeUnit}");
             }
             GUI.enabled = true;
+            }
+
+            // Pad the rest of the fixed-width cell so the period cell always occupies exactly
+            // ColW_PeriodLocked and the following Watch / Rewind buttons stay column-aligned across
+            // every mission row regardless of which period-cell state rendered above.
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
         }
 
         // Commits the in-progress loop-period buffer to the mission (parse / clamp via
