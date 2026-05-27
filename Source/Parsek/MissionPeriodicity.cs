@@ -805,83 +805,84 @@ namespace Parsek
         // === Zero-drift per-window reschedule solver (plan section 2) ===========================
 
         /// <summary>
-        /// The smallest UT &gt; <paramref name="afterUT"/> at which every DROPPED constraint is
-        /// simultaneously within its own tolerance, with the dominant constraint locked EXACTLY
-        /// (the candidate launches are <c>UT0 + k*dominantPeriod</c>, so the dominant body is in
-        /// its recorded position at every candidate). Returns the smallest within-tolerance launch
-        /// in the look-ahead window, else the BOUNDED-BEST (min worst-dropped-residual) launch in
-        /// the window - never accumulating, since the residual at launch k is the ABSOLUTE worst
-        /// dropped-body error (the phase offsets cancel, plan section 2.1). NaN on a degenerate
-        /// dominant period. Pure. <paramref name="residualSeconds"/> = the worst dropped phase error
-        /// at the chosen launch; <paramref name="withinTolerance"/> = whether it was within
-        /// tolerance (vs the bounded-best fallback). See docs/dev/plans/zero-drift-reschedule.md.
+        /// The smallest faithful launch UT &gt; <paramref name="afterUT"/>: the ANCHOR constraint is
+        /// pinned EXACTLY (candidate launches are <c>UT0 + k*anchorPeriod</c>) and every OTHER
+        /// constraint must fall within its own tolerance there. Returns the first such launch in the
+        /// look-ahead window, else the BOUNDED-BEST (min worst-other-residual) launch in the window -
+        /// never accumulating, since the residual at launch k is the ABSOLUTE worst other-body error
+        /// (the phase offsets cancel, plan section 2.1). NaN on a degenerate anchor period. The anchor
+        /// is chosen by <see cref="SelectAnchorConstraintIndex"/> (the tightest-tolerance constraint,
+        /// e.g. the launch pad) which maximizes the faithful-window frequency. Pure.
+        /// <paramref name="residualSeconds"/> = the worst other-constraint phase error at the chosen
+        /// launch; <paramref name="withinTolerance"/> = whether it was within tolerance (vs the
+        /// bounded-best fallback). See docs/dev/plans/zero-drift-reschedule.md.
         /// </summary>
         internal static double NextJointNearCoincidenceUT(
-            double afterUT, double ut0, double dominantPeriod,
-            IReadOnlyList<double> droppedPeriods, IReadOnlyList<double> droppedTolerances,
+            double afterUT, double ut0, double anchorPeriod,
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
             int lookaheadMultiples,
             out double residualSeconds, out bool withinTolerance)
         {
             residualSeconds = double.NaN;
             withinTolerance = false;
             if (double.IsNaN(ut0) || double.IsNaN(afterUT)
-                || double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod)
-                || dominantPeriod <= 0.0)
+                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod)
+                || anchorPeriod <= 0.0)
                 return double.NaN;
 
             // k of afterUT (small epsilon so a launch landing exactly on afterUT is not re-returned).
-            long kPrev = (long)Math.Floor((afterUT - ut0) / dominantPeriod + 1e-6);
+            long kPrev = (long)Math.Floor((afterUT - ut0) / anchorPeriod + 1e-6);
             long kStart = kPrev + 1;
             if (kStart < 1)
                 kStart = 1; // k=0 is UT0 itself (the original recorded play), never a relaunch.
 
             if (TryFindNextScheduleK(
-                    dominantPeriod, droppedPeriods, droppedTolerances, kStart, lookaheadMultiples,
+                    anchorPeriod, otherPeriods, otherTolerances, kStart, lookaheadMultiples,
                     out long k, out residualSeconds, out withinTolerance))
-                return ut0 + k * dominantPeriod;
+                return ut0 + k * anchorPeriod;
             return double.NaN;
         }
 
         /// <summary>
-        /// Scans whole dominant-multiples k in [<paramref name="kStart"/>,
-        /// kStart + <paramref name="lookaheadMultiples"/>) for the FIRST k where every dropped
-        /// constraint is within its tolerance; if none, the k with the smallest worst-dropped
-        /// residual in that window (ties -> smallest k). Returns false only on a degenerate dominant
-        /// period or a non-positive look-ahead. The dropped residual at k is
-        /// <c>max_j CircularPhaseError(k*dominantPeriod, droppedPeriods[j])</c> - an absolute
-        /// function of k, so picking good k never accumulates. Pure.
+        /// Scans whole anchor-multiples k in [<paramref name="kStart"/>,
+        /// kStart + <paramref name="lookaheadMultiples"/>) for the FIRST k where every OTHER
+        /// constraint is within its tolerance; if none, the k with the smallest worst-other residual
+        /// in that window (ties -> smallest k). Returns false only on a degenerate anchor period or a
+        /// non-positive look-ahead. The other-residual at k is
+        /// <c>max_j CircularPhaseError(k*anchorPeriod, otherPeriods[j])</c> - an absolute function of
+        /// k, so picking good k never accumulates. The anchor itself is exact at every k. Pure.
         /// </summary>
         internal static bool TryFindNextScheduleK(
-            double dominantPeriod,
-            IReadOnlyList<double> droppedPeriods, IReadOnlyList<double> droppedTolerances,
+            double anchorPeriod,
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
             long kStart, int lookaheadMultiples,
             out long foundK, out double residualSeconds, out bool withinTolerance)
         {
             foundK = 0;
             residualSeconds = double.NaN;
             withinTolerance = false;
-            if (double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod) || dominantPeriod <= 0.0)
+            if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
                 return false;
             if (lookaheadMultiples <= 0)
                 return false;
 
-            int count = droppedPeriods?.Count ?? 0;
+            int count = otherPeriods?.Count ?? 0;
             long bestK = -1;
             double bestResidual = double.PositiveInfinity;
 
             for (int step = 0; step < lookaheadMultiples; step++)
             {
                 long k = kStart + step;
-                double delta = k * dominantPeriod;
+                double delta = k * anchorPeriod;
                 double worst = 0.0;
                 bool allWithin = true;
                 for (int j = 0; j < count; j++)
                 {
-                    double err = CircularPhaseError(delta, droppedPeriods[j]);
+                    double err = CircularPhaseError(delta, otherPeriods[j]);
                     if (err > worst)
                         worst = err;
-                    double tol = (droppedTolerances != null && j < droppedTolerances.Count)
-                        ? droppedTolerances[j] : 0.0;
+                    double tol = (otherTolerances != null && j < otherTolerances.Count)
+                        ? otherTolerances[j] : 0.0;
                     if (err > tol)
                         allWithin = false;
                 }
@@ -907,16 +908,55 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Selects the ANCHOR constraint for the zero-drift schedule: the one with the SMALLEST duty
+        /// cycle (tolerance / period) - the tightest band, hardest to satisfy. Pinning the tightest
+        /// constraint EXACTLY and letting the looser ones fall within their tolerance MAXIMIZES the
+        /// faithful-window frequency: the window rate is roughly anchorPeriod / product(other duty
+        /// cycles), so you never want to divide the period by the smallest duty - pin it instead. For
+        /// a Mun mission this picks the launch-pad rotation (tight, a fraction of a degree), NOT the
+        /// Mun intercept (a generous SOI-width tolerance), so faithful windows recur every few days
+        /// instead of every few years - and the launch lands pixel-perfect over the pad. Ties broken
+        /// by shorter period, then index. Pure. Degenerate-period constraints are skipped.
+        /// </summary>
+        internal static int SelectAnchorConstraintIndex(
+            IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo)
+        {
+            int best = 0;
+            double bestDuty = double.PositiveInfinity;
+            double bestPeriod = double.PositiveInfinity;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                double p = constraints[i].PeriodSeconds;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                    continue;
+                double duty = ToleranceSecondsFor(constraints[i], bodyInfo) / p; // fractional tolerance
+                bool better = duty < bestDuty - 1e-12
+                    || (duty <= bestDuty + 1e-12 && p < bestPeriod);
+                if (better)
+                {
+                    best = i;
+                    bestDuty = duty;
+                    bestPeriod = p;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
         /// Builds the zero-drift relaunch schedule for a phase-locked, drifting (multi-constraint
         /// incommensurate) config, or returns false (no schedule -&gt; the caller keeps the existing
         /// fixed cadence) for unsupported / single-constraint / tidal-collapse / unconstrained
-        /// configs. The dominant constraint (the longest-period intercept, via
-        /// <see cref="SelectDominantConstraintIndex"/>) is locked exactly; the remaining (dropped)
-        /// constraints with a DISTINCT period drive the per-window search. Degenerate dropped
-        /// periods (NaN / non-positive) are FILTERED (with a Warn) rather than read as spuriously
-        /// satisfied. <paramref name="floorUT"/> = the first-play floor (max of the loop reference
-        /// and spanEndUT); the first scheduled launch is at or after it. Pure apart from the
-        /// degenerate-period Warn. See docs/dev/plans/zero-drift-reschedule.md sections 2/4.
+        /// configs. The ANCHOR constraint (the tightest-tolerance one, via
+        /// <see cref="SelectAnchorConstraintIndex"/> - the launch pad for a Mun mission) is locked
+        /// EXACTLY; the remaining (other) constraints with a DISTINCT period must fall within their
+        /// own physics tolerance at each launch. Anchoring on the tightest constraint MAXIMIZES the
+        /// faithful-window frequency (the densest attainable cadence); <paramref name="minSpacingSeconds"/>
+        /// then THROTTLES the schedule DOWN to the player's chosen relaunch period (0 = every faithful
+        /// window = the maximum cadence). Degenerate other-periods (NaN / non-positive) are FILTERED
+        /// (with a Warn) rather than read as spuriously satisfied. <paramref name="floorUT"/> = the
+        /// first-play floor (max of the loop reference and spanEndUT); the first scheduled launch is at
+        /// or after it. Pure apart from the degenerate-period Warn. See
+        /// docs/dev/plans/zero-drift-reschedule.md sections 2/4.
         /// </summary>
         internal static bool TryBuildRelaunchSchedule(
             IReadOnlyList<PhaseConstraint> constraints,
@@ -924,7 +964,8 @@ namespace Parsek
             double ut0,
             double floorUT,
             IBodyInfo bodyInfo,
-            out MissionRelaunchSchedule schedule)
+            out MissionRelaunchSchedule schedule,
+            double minSpacingSeconds = 0.0)
         {
             schedule = null;
             if (support != Support.Supported)
@@ -935,9 +976,12 @@ namespace Parsek
             if (double.IsNaN(ut0) || double.IsNaN(floorUT))
                 return false;
 
-            int dominantIdx = SelectDominantConstraintIndex(constraints);
-            double dom = constraints[dominantIdx].PeriodSeconds;
-            if (double.IsNaN(dom) || double.IsInfinity(dom) || dom <= 0.0)
+            // Anchor on the TIGHTEST-tolerance constraint (the pad), not the longest period (the Mun):
+            // pinning the tightest exactly and letting the looser ones float within tolerance is what
+            // maximizes the faithful-window frequency (plan section 2.2).
+            int anchorIdx = SelectAnchorConstraintIndex(constraints, bodyInfo);
+            double anchorPeriod = constraints[anchorIdx].PeriodSeconds;
+            if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
                 return false;
 
             var periods = new List<double>(count - 1);
@@ -946,7 +990,7 @@ namespace Parsek
             bool anyDistinct = false;
             for (int i = 0; i < count; i++)
             {
-                if (i == dominantIdx)
+                if (i == anchorIdx)
                     continue;
                 double p = constraints[i].PeriodSeconds;
                 if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
@@ -956,23 +1000,24 @@ namespace Parsek
                 }
                 periods.Add(p);
                 tolerances.Add(ToleranceSecondsFor(constraints[i], bodyInfo));
-                if (Math.Abs(p - dom) > PeriodEqualityRelTolerance * Math.Max(1.0, dom))
+                if (Math.Abs(p - anchorPeriod) > PeriodEqualityRelTolerance * Math.Max(1.0, anchorPeriod))
                     anyDistinct = true;
             }
 
             if (filtered > 0 && !SuppressLogging)
                 ParsekLog.Warn("MissionPeriodicity",
                     $"TryBuildRelaunchSchedule: filtered {filtered.ToString(CultureInfo.InvariantCulture)} " +
-                    "dropped constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
+                    "non-anchor constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
                     "scheduled (bad body data?)");
 
-            // No valid distinct-period dropped constraint -> single-constraint / tidal-collapse:
+            // No valid distinct-period other constraint -> single-constraint / tidal-collapse:
             // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
             if (periods.Count == 0 || !anyDistinct)
                 return false;
 
             var candidate = new MissionRelaunchSchedule(
-                ut0, dom, periods.ToArray(), tolerances.ToArray(), floorUT, ScheduleLookaheadMultiples);
+                ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
+                ScheduleLookaheadMultiples, minSpacingSeconds);
             if (double.IsNaN(candidate.FirstLaunchUT))
                 return false; // could not resolve a first launch (degenerate)
 
@@ -1319,9 +1364,12 @@ namespace Parsek
     /// (KSP/Unity is single-threaded), so the mutable cache needs no locking; this object is held
     /// as a nullable field on the immutable <see cref="GhostPlaybackLogic.LoopUnit"/> struct - struct
     /// copies share the one cache object, which is the intended aliasing. The launches are
-    /// <c>UT0 + k*dominantPeriod</c> for an increasing, non-uniform sequence of dominant-multiples
-    /// k (each within tolerance when reachable, else bounded-best), generated by
-    /// <see cref="MissionPeriodicity.TryFindNextScheduleK"/>. See
+    /// <c>UT0 + k*anchorPeriod</c> for an increasing, non-uniform sequence of anchor-multiples k
+    /// (each with every OTHER constraint within tolerance when reachable, else bounded-best),
+    /// generated by <see cref="MissionPeriodicity.TryFindNextScheduleK"/>. The anchor is the
+    /// tightest-tolerance constraint (the pad), so this is the DENSEST attainable cadence;
+    /// <see cref="MinSpacingSeconds"/> throttles it down to the player's chosen relaunch period
+    /// (0 = every faithful window = the maximum cadence). See
     /// docs/dev/plans/zero-drift-reschedule.md section 3.
     /// </summary>
     internal sealed class MissionRelaunchSchedule
@@ -1336,15 +1384,16 @@ namespace Parsek
         private const int MinIntervalProbeLaunches = 8;
 
         private readonly double ut0;
-        private readonly double dominantPeriod;
-        private readonly double[] droppedPeriods;
-        private readonly double[] droppedTolerances;
+        private readonly double anchorPeriod;
+        private readonly double[] otherPeriods;
+        private readonly double[] otherTolerances;
         private readonly double floorUT;
         private readonly int lookaheadMultiples;
+        private readonly double minSpacing;   // player throttle: relaunches are >= this far apart
 
         // Cached relaunch UTs in increasing order (launches[0] == FirstLaunchUT). Grown on demand.
         private readonly List<double> launches = new List<double>();
-        private long lastK;        // dominant-multiple index of the last cached launch
+        private long lastK;        // anchor-multiple index of the last cached launch
         private bool capWarned;     // rate-limit the safety-cap Warn
 
         /// <summary>The first scheduled relaunch UT (= the unit's phase anchor). NaN if none could
@@ -1352,41 +1401,48 @@ namespace Parsek
         internal double FirstLaunchUT { get; }
 
         /// <summary>The minimum relaunch interval over the eager prefix (the builder rejects the
-        /// schedule when this is &lt; the mission span, keeping the fixed-cadence overlap path).</summary>
+        /// schedule when this is &lt; the mission span, keeping the fixed-cadence overlap path). With
+        /// the player throttle applied this reflects the ACTUAL spacing the schedule runs at.</summary>
         internal double MinIntervalSeconds { get; }
 
+        /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
+        /// (the maximum attainable cadence).</summary>
+        internal double MinSpacingSeconds => minSpacing;
+
         internal MissionRelaunchSchedule(
-            double ut0, double dominantPeriod,
-            double[] droppedPeriods, double[] droppedTolerances,
-            double floorUT, int lookaheadMultiples)
+            double ut0, double anchorPeriod,
+            double[] otherPeriods, double[] otherTolerances,
+            double floorUT, int lookaheadMultiples, double minSpacingSeconds = 0.0)
         {
             this.ut0 = ut0;
-            this.dominantPeriod = dominantPeriod;
-            this.droppedPeriods = droppedPeriods ?? System.Array.Empty<double>();
-            this.droppedTolerances = droppedTolerances ?? System.Array.Empty<double>();
+            this.anchorPeriod = anchorPeriod;
+            this.otherPeriods = otherPeriods ?? System.Array.Empty<double>();
+            this.otherTolerances = otherTolerances ?? System.Array.Empty<double>();
             this.floorUT = floorUT;
             this.lookaheadMultiples = lookaheadMultiples;
+            this.minSpacing = (double.IsNaN(minSpacingSeconds) || minSpacingSeconds < 0.0) ? 0.0 : minSpacingSeconds;
             FirstLaunchUT = double.NaN;
             MinIntervalSeconds = double.NaN;
 
             if (double.IsNaN(ut0) || double.IsNaN(floorUT)
-                || double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod) || dominantPeriod <= 0.0)
+                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
                 return;
 
-            // L_0: first qualifying k with UT0 + k*dominantPeriod at or after the first-play floor
-            // (ceil-based kStart so a launch exactly at the floor is included), k >= 1.
-            long kFloor = (long)Math.Ceiling((floorUT - ut0) / dominantPeriod - 1e-6);
+            // L_0: first qualifying k with UT0 + k*anchorPeriod at or after the first-play floor
+            // (ceil-based kStart so a launch exactly at the floor is included), k >= 1. The throttle
+            // does NOT apply to L_0 (there is no previous relaunch); it spaces SUBSEQUENT launches.
+            long kFloor = (long)Math.Ceiling((floorUT - ut0) / anchorPeriod - 1e-6);
             if (kFloor < 1)
                 kFloor = 1;
             if (!MissionPeriodicity.TryFindNextScheduleK(
-                    dominantPeriod, this.droppedPeriods, this.droppedTolerances,
+                    anchorPeriod, this.otherPeriods, this.otherTolerances,
                     kFloor, lookaheadMultiples, out long k0, out _, out _))
                 return;
-            launches.Add(ut0 + k0 * dominantPeriod);
+            launches.Add(ut0 + k0 * anchorPeriod);
             lastK = k0;
             FirstLaunchUT = launches[0];
 
-            // Eager prefix to determine the min interval (the overlap gate).
+            // Eager prefix to determine the min interval (the overlap gate + the display cadence).
             double minInterval = double.PositiveInfinity;
             for (int i = 0; i < MinIntervalProbeLaunches; i++)
             {
@@ -1396,11 +1452,13 @@ namespace Parsek
                 if (interval < minInterval)
                     minInterval = interval;
             }
-            MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? dominantPeriod : minInterval;
+            MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? anchorPeriod : minInterval;
         }
 
-        // Appends one more launch after the cached tail. False on the safety cap or a degenerate
-        // generation (which cannot happen post-construction for a valid dominant period).
+        // Appends one more launch after the cached tail, honoring the player throttle: the next
+        // launch is the first faithful window whose anchor-multiple is at least the throttle skip
+        // (minSpacing) past the last launch. False on the safety cap or a degenerate generation
+        // (which cannot happen post-construction for a valid anchor period).
         private bool ExtendOnce()
         {
             if (double.IsNaN(FirstLaunchUT))
@@ -1413,15 +1471,20 @@ namespace Parsek
                     ParsekLog.Warn("MissionPeriodicity",
                         $"MissionRelaunchSchedule: reached MaxScheduleSteps " +
                         $"({MissionPeriodicity.MaxScheduleSteps.ToString(CultureInfo.InvariantCulture)}); " +
-                        "parking at the last cached launch (pathological short dominant period?)");
+                        "parking at the last cached launch (pathological short anchor period?)");
                 }
                 return false;
             }
+            // Throttle: skip ahead so the next launch is >= lastLaunch + minSpacing, snapped to the
+            // anchor grid; then search forward for the next faithful window from there.
+            long throttleK = (long)Math.Ceiling(
+                (launches[launches.Count - 1] + minSpacing - ut0) / anchorPeriod - 1e-9);
+            long kStart = Math.Max(lastK + 1, throttleK);
             if (!MissionPeriodicity.TryFindNextScheduleK(
-                    dominantPeriod, droppedPeriods, droppedTolerances,
-                    lastK + 1, lookaheadMultiples, out long k, out _, out _))
+                    anchorPeriod, otherPeriods, otherTolerances,
+                    kStart, lookaheadMultiples, out long k, out _, out _))
                 return false;
-            launches.Add(ut0 + k * dominantPeriod);
+            launches.Add(ut0 + k * anchorPeriod);
             lastK = k;
             return true;
         }
@@ -1457,7 +1520,7 @@ namespace Parsek
         /// The next scheduled relaunch strictly after <paramref name="currentUT"/> (the first launch
         /// when parked before it). Returns NaN if no future launch can be resolved because the
         /// safety cap was reached (so the UI shows "not aligned" rather than a past target / a
-        /// negative countdown) - this only happens for a pathological short dominant period that the
+        /// negative countdown) - this only happens for a pathological short anchor period that the
         /// builder's overlap gate already rejects, so realistic schedules always return a future UT.
         /// Drives the UI "Time to launch" countdown and the "Warp to..." target.
         /// </summary>

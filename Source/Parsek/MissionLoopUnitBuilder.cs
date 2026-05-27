@@ -268,18 +268,25 @@ namespace Parsek
                     // 7d. Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md):
                     //     for a DRIFTING multi-constraint incommensurate config, replace the fixed
                     //     cadence with a NON-UNIFORM schedule so each relaunch is independently within
-                    //     tolerance instead of accumulating drift. TryBuildRelaunchSchedule returns no
-                    //     schedule for single-constraint / tidal-collapse / unsupported configs (they
-                    //     keep the fixed cadence above, byte-identical). The schedule is attached ONLY
-                    //     when it is non-overlapping (its minimum interval >= the span), which keeps the
-                    //     INVARIANT that a scheduled unit's OverlapCadenceSeconds >= span (so
-                    //     UnitMemberOverlaps is false and the overlap engine path never sees it). The
-                    //     realistic faithful inter-body cadence is long (>> span), so this holds; a
-                    //     would-overlap schedule (a pathological short dominant period vs a long span)
-                    //     is rejected and the fixed cadence is kept.
+                    //     tolerance instead of accumulating drift. The schedule anchors on the TIGHTEST
+                    //     constraint (the pad) for the densest attainable cadence, then THROTTLES down to
+                    //     the player's requested relaunch period (minSpacing) - the player picks how
+                    //     often to launch, never faster than physics allows. TryBuildRelaunchSchedule
+                    //     returns no schedule for single-constraint / tidal-collapse / unsupported
+                    //     configs (they keep the fixed cadence above, byte-identical). The schedule is
+                    //     attached ONLY when it is non-overlapping (its minimum interval >= the span),
+                    //     which keeps the INVARIANT that a scheduled unit's OverlapCadenceSeconds >= span
+                    //     (so UnitMemberOverlaps is false and the overlap engine path never sees it). A
+                    //     would-overlap schedule (a pathological short anchor period vs a long span) is
+                    //     rejected and the fixed cadence is kept.
+                    // minSpacing = the player's requested relaunch period: Auto (rawOverlapPeriod = the
+                    // global auto interval, e.g. ~30s - much smaller than any inter-window gap, which is
+                    // days for an inter-body mission) -> every faithful window (the maximum cadence); an
+                    // explicit period -> launch no more often than that, snapped to faithful windows.
+                    double minSpacing = Math.Max(rawOverlapPeriod, LoopTiming.MinCycleDuration);
                     if (MissionPeriodicity.TryBuildRelaunchSchedule(
                             extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
-                            bodyInfo, out MissionRelaunchSchedule sched))
+                            bodyInfo, out MissionRelaunchSchedule sched, minSpacing))
                     {
                         if (sched.MinIntervalSeconds >= span)
                         {

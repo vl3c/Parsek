@@ -1087,11 +1087,12 @@ namespace Parsek.Tests
         {
             // Guards: a supported same-parent Mun config (Rotation(Kerbin) + Orbital(Mun), two
             // incommensurate constraints) is a DRIFTING config, so the builder attaches the zero-drift
-            // per-window schedule that REPLACES the fixed m*P cadence: phaseAnchorUT is the schedule's
-            // first launch (a WITHIN-TOLERANCE window, the Mun locked exactly so it is UT0 + k*MunOrbit),
-            // the unit is non-overlapping (the INVARIANT), and the log says zeroDrift=yes. This is the
-            // behavior change vs the prior fixed-cadence Phase-2 (which used m=9 ~14.5 d and accumulated
-            // the launch-pad drift).
+            // per-window schedule. The schedule anchors on the TIGHTEST constraint - the launch-pad
+            // ROTATION (a fraction of a degree), NOT the Mun (a generous SOI tolerance) - so the launch
+            // lands PIXEL-PERFECT over the pad (UT0 + k*KerbinRotation) with the Mun within its SOI
+            // tolerance, and faithful windows recur every few days instead of the ~3.5 years the
+            // wrong "lock the Mun exactly" choice produced. The unit is non-overlapping (the INVARIANT),
+            // and the log says zeroDrift=yes.
             var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
             var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
             WithSoiEntry(transfer, 1600, 2000, "Mun");
@@ -1113,16 +1114,22 @@ namespace Parsek.Tests
             Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));
             Assert.Equal(unit.RelaunchSchedule.FirstLaunchUT, unit.PhaseAnchorUT, 3);
             Assert.True(unit.PhaseAnchorUT >= anchorEnable);             // first-play / enable floor honored
-            // The Mun (dominant) is locked EXACTLY: the launch is UT0 + k*MunOrbit for integer k >= 1.
-            double k = (unit.PhaseAnchorUT - ut0) / MunOrbit;
+            // The PAD (Kerbin rotation, the tightest constraint) is locked EXACTLY: the launch is
+            // UT0 + k*KerbinRotation for integer k >= 1, so the pad residual is ZERO.
+            double k = (unit.PhaseAnchorUT - ut0) / KerbinRotation;
             Assert.Equal(Math.Round(k), k, 3);
             Assert.True(k >= 1.0);
-            // The dropped Kerbin-rotation residual at the launch is WITHIN tolerance (a genuine joint
-            // near-coincidence, not the ~993 s the fixed m=9 carried).
-            double tolRot = KerbinRotation * (0.25 / 360.0);
             double padResidual = MissionPeriodicity.CircularPhaseError(unit.PhaseAnchorUT - ut0, KerbinRotation);
-            Assert.True(padResidual <= tolRot,
-                $"pad residual {padResidual} should be within tolerance {tolRot} at a scheduled launch");
+            Assert.True(padResidual < 1e-3, $"pad residual {padResidual} should be ~0 (pad locked exactly)");
+            // The Mun is WITHIN its SOI tolerance (SoiRadius/OrbitalVelocity), so the transfer reaches it.
+            double munTol = 2429559.0 / 543.0; // StockFake Mun SoiRadius / OrbitalVelocity
+            double munResidual = MissionPeriodicity.CircularPhaseError(unit.PhaseAnchorUT - ut0, MunOrbit);
+            Assert.True(munResidual <= munTol,
+                $"Mun residual {munResidual} should be within SOI tolerance {munTol}");
+            // The window is FREQUENT (found within a few dozen pad rotations of the enable time), not
+            // the ~3.5 years the old exact-Mun lock produced.
+            Assert.True(unit.PhaseAnchorUT - anchorEnable < 100.0 * KerbinRotation,
+                "the first faithful window should be reached within ~100 pad rotations (days), not years");
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
                 l.Contains("zeroDrift=yes"));
@@ -1205,18 +1212,18 @@ namespace Parsek.Tests
             // anchor); the floor must push both to >= spanEnd.
             var mission = LoopMissionFor("t", anchorUT: 500.0);
 
-            // Phase-locked (Mun) path: the zero-drift schedule's first launch stays a faithful window
-            // (UT0 + k*MunOrbit, dominant locked exactly) AND is clamped >= spanEnd. Without the floor
-            // the first window could fall at/before spanEnd (a relaunch during the first play); the
-            // floor pushes the schedule's first launch past it.
+            // Phase-locked path: the zero-drift schedule's first launch stays a faithful window
+            // (UT0 + k*KerbinRotation, the pad locked exactly) AND is clamped >= spanEnd. Without the
+            // floor the first window could fall at/before spanEnd (a relaunch during the first play);
+            // the floor pushes the schedule's first launch past it.
             var locked = MissionLoopUnitBuilder.Build(
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
             Assert.True(locked.TryGetUnitForMember(0, out var lockedUnit));
             Assert.NotNull(lockedUnit.RelaunchSchedule);
             Assert.True(lockedUnit.PhaseAnchorUT >= spanEnd,
                 $"locked anchor {lockedUnit.PhaseAnchorUT} must be >= first-play end {spanEnd}");
-            double k = (lockedUnit.PhaseAnchorUT - ut0) / MunOrbit; // dominant (Mun) locked exactly
-            Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*MunOrbit window
+            double k = (lockedUnit.PhaseAnchorUT - ut0) / KerbinRotation; // pad (Kerbin rot) locked exactly
+            Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*KerbinRotation window
             Assert.True(k >= 1.0, "the clamp pushed past the k=0 (UT0) window that precedes spanEnd");
 
             // No-body-info (no phase-lock) path: clamps the raw anchor straight to spanEnd.

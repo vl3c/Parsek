@@ -357,8 +357,8 @@ namespace Parsek.Tests
             // Guards future-dated recordings (UT0 > live, e.g. after a career rewind): L_0 is the
             // first faithful window at or after the floor, never before it.
             var schedule = new MissionRelaunchSchedule(
-                ut0: 1_000_000.0, dominantPeriod: 100.0,
-                droppedPeriods: new double[] { 31.0 }, droppedTolerances: new double[] { 2.0 },
+                ut0: 1_000_000.0, anchorPeriod: 100.0,
+                otherPeriods: new double[] { 31.0 }, otherTolerances: new double[] { 2.0 },
                 floorUT: 1_005_000.0, lookaheadMultiples: 200);
             Assert.False(double.IsNaN(schedule.FirstLaunchUT));
             Assert.True(schedule.FirstLaunchUT >= 1_005_000.0);
@@ -592,6 +592,69 @@ namespace Parsek.Tests
                 }
                 Assert.Equal(a.NextLaunchAfter(probe), b.NextLaunchAfter(probe), 6);
             }
+        }
+
+        // A fake that supplies the Mun's SOI radius + orbital velocity, so an Orbital constraint's
+        // tolerance (SoiRadius/OrbitalVelocity) is the generous SOI-width value (~4475 s for the Mun),
+        // far looser than the rotation tolerance (a fraction of a degree).
+        private sealed class SoiFake : IBodyInfo
+        {
+            public double RotationPeriod(string b) => double.NaN;
+            public double OrbitPeriod(string b) => double.NaN;
+            public string ReferenceBodyName(string b) => null;
+            public double SoiRadius(string b) => b == "Mun" ? 2429559.0 : double.NaN;
+            public double OrbitalVelocity(string b) => b == "Mun" ? 543.0 : double.NaN;
+        }
+
+        // ===================== Anchor = tightest band (max cadence) =====================
+
+        [Fact]
+        public void SelectAnchorConstraintIndex_PicksTightestBand_ThePadNotTheMun()
+        {
+            // Guards the max-cadence rule: the schedule anchors on the constraint with the SMALLEST duty
+            // cycle (tolerance/period). The launch-pad rotation (tol ~0.25 deg) is far tighter than the
+            // Mun intercept (tol ~ one SOI width), so the anchor is the ROTATION, not the longest-period
+            // Mun. (The OLD wrong choice - longest period = the Mun - made windows ~3.5 years apart.)
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("Mun", MunOrbit),        // index 0: generous SOI tolerance
+                Rotation("Kerbin", KerbinRotation) // index 1: tight rotation tolerance
+            };
+            int anchor = MissionPeriodicity.SelectAnchorConstraintIndex(constraints, new SoiFake());
+            Assert.Equal(1, anchor); // the Kerbin rotation (tightest band), NOT the Mun
+        }
+
+        // ===================== Player throttle (launch less often than the max cadence) =====================
+
+        [Fact]
+        public void Schedule_NoThrottle_LaunchesEveryFaithfulWindow_MaxCadence()
+        {
+            // Guards: minSpacing=0 (default / Auto) launches at EVERY faithful window - the maximum
+            // attainable cadence. Synthetic 100/31 faithful windows: 900, 1300, 1800, 2200, ...
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100, minSpacingSeconds: 0.0);
+            Assert.Equal(900.0, schedule.FirstLaunchUT, 6);
+            Assert.Equal(1300.0, schedule.NextLaunchAfter(900.0), 6); // the very next faithful window
+            Assert.Equal(1800.0, schedule.NextLaunchAfter(1300.0), 6);
+        }
+
+        [Fact]
+        public void Schedule_PlayerThrottle_SkipsFaithfulWindowsToHonorPeriod()
+        {
+            // Guards the throttle: the player picks a LOWER cadence than the max, so the schedule skips
+            // faithful windows. minSpacing=700: each relaunch is >= 700 past the prior, snapped to the
+            // next faithful window. Faithful windows: 900,1300,1800,2200,3100,...; with the throttle the
+            // schedule launches 900 -> 1800 (>= 900+700, skips 1300) -> 3100 (>= 1800+700, skips 2200).
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100, minSpacingSeconds: 700.0);
+            Assert.Equal(900.0, schedule.FirstLaunchUT, 6);             // L_0 unaffected by the throttle
+            Assert.Equal(1800.0, schedule.NextLaunchAfter(900.0), 6);    // skipped 1300 (only 400 past 900)
+            Assert.Equal(3100.0, schedule.NextLaunchAfter(1800.0), 6);   // skipped 2200 (only 400 past 1800)
+            // Every scheduled gap honors the throttle.
+            Assert.True(1800.0 - 900.0 >= 700.0);
+            Assert.True(3100.0 - 1800.0 >= 700.0);
         }
 
         [Fact]

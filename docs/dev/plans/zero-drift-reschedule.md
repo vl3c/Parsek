@@ -38,15 +38,20 @@ years` for this case), which is useless as a cadence.
 ## 1. The goal
 
 Replace the fixed cadence (for the configs that drift, see gating in section 4) with a
-**per-window reschedule**: each relaunch UT is computed INDEPENDENTLY as the next true
-joint near-coincidence after the previous relaunch, where every constraint is
-simultaneously within its own physics tolerance (or, if none is reachable within a
-bounded look-ahead, the bounded-best window). The relaunch schedule becomes NON-UNIFORM
-(intervals vary). Because the dropped-constraint error at a launch `L = UT0 + k*P_dom`
-is `CircularPhaseError(k * dominantPeriod, period_drop)` and depends ONLY on `k` (the
-phase offsets cancel, see section 2.1), picking GOOD `k` values keeps each launch's
-error BOUNDED (`<= tolerance` when reachable, else the bounded-best in the window),
-instead of forcing `k in {m, 2m, 3m, ...}` whose error grows.
+**per-window reschedule** that produces the densest attainable sequence of faithful
+launch windows, which the player then THROTTLES down to their chosen relaunch period:
+
+- Each candidate relaunch pins the TIGHTEST-tolerance constraint exactly (the launch pad
+  for a Mun mission) and requires the others within their own physics tolerance (section
+  2.2). This MAXIMIZES the faithful-window frequency and lands the launch pixel-perfect on
+  the thing the player sees (the pad), with the looser bodies (the Mun) within tolerance.
+- The relaunch error at each launch is the ABSOLUTE per-constraint error (the phase offsets
+  cancel, section 2.1), so picking good windows keeps every launch BOUNDED instead of
+  accumulating drift the way a fixed cadence does.
+- The player's chosen period is a THROTTLE (`minSpacing`): the schedule launches at faithful
+  windows no more often than the player asked (section 2.3). The point is a good MAXIMUM
+  cadence; the player picks a lower one (supply routes launch once in a while, not every
+  possible window).
 
 Constraints preserved: replay-as-is; the first-play floor (never relaunch before the
 original recording's first real play completes at `spanEndUT`); existing overlap /
@@ -78,73 +83,72 @@ the design doc discusses is handled by the extractor emitting only ONE `Rotation
 body; two constraints with the SAME period are always jointly satisfied here, residual
 0.)
 
-### 2.2 Lock the dominant exactly; search `k`
+### 2.2 Anchor on the TIGHTEST constraint; search `k` (REVISED)
 
-We keep the design's "dominant locked exactly" rule (a DELIBERATE restriction inherited
-from the locked "replay as-is" / "lock the dominant intercept" decision, not a claim that
-exact-locking is uniquely optimal - relaxing the dominant within its own tolerance could
-in principle surface earlier joint windows, but that is explicitly out of scope here):
-candidate launches are `L = UT0 + k * dominantPeriod` for integer `k >= 1` (the dominant
-body, the visible intercept, is in its recorded position at every such `L` for ANY `k`,
-since `CircularPhaseError(k*dominantPeriod, dominantPeriod) == 0`). For each candidate
-define:
+> **Model revision (2026-05-27, after the s15 Mun-mission segment review).** The first
+> cut anchored on the DOMINANT = longest-period constraint (the Mun) and required the rest
+> within tolerance. That is the worst pairing: it pins the constraint with the *generous*
+> tolerance to zero error while demanding the *tight* one (the pad) line up too, so for the
+> stock Mun the first faithful window was ~803 Mun periods (~3.5 years) out - unusable.
+> The frame-boundary analysis (the Mun-relative segments self-anchor to the live Mun, so
+> the Mun only needs to be within its SOI-width tolerance at the SOI seam) shows the Mun
+> should NOT be pinned. The corrected model anchors on the **tightest** constraint and
+> maximizes window frequency, then lets the player throttle down.
+
+Define each constraint's **duty cycle** `tol_i / period_i` (its fractional tolerance). The
+ANCHOR is the constraint with the SMALLEST duty cycle (the tightest band - the launch pad
+for a Mun mission). Pin the anchor EXACTLY: candidate launches are `L = UT0 + k *
+anchorPeriod` for integer `k >= 1` (the anchor body is in its recorded phase at every such
+`L`, since `CircularPhaseError(k*anchorPeriod, anchorPeriod) == 0`). For each candidate:
 
 ```
-residual(k)    = max over DROPPED constraints j of CircularPhaseError(k*dominantPeriod, period_j)
-withinTol(k)   = every dropped j has CircularPhaseError(k*dominantPeriod, period_j) <= tol_j
+residual(k)  = max over OTHER constraints j of CircularPhaseError(k*anchorPeriod, period_j)
+withinTol(k) = every other j has CircularPhaseError(k*anchorPeriod, period_j) <= tol_j
 ```
 
-`residual(k)` is the ABSOLUTE worst dropped-body error at launch `k` (not relative to
-the previous launch), so it does not accumulate by construction.
+**Why the tightest anchor maximizes frequency:** the faithful-window rate is roughly
+`anchorPeriod / product(other duty cycles)`. To make windows frequent you must NOT divide
+the period by the smallest duty cycle - so you PIN the tightest constraint (taking it out
+of the product) and let the looser ones fall within tolerance. Pinning the Mun (duty
+~0.064) and requiring the pad (duty ~0.0014) gives `~138984/0.0014 ≈ 3.5 years`; pinning
+the pad and requiring the Mun gives `~21549/0.064 ≈ 3.9 days`. ~45x better, and the launch
+is now pixel-perfect over the pad (what the player sees) with the Mun within its SOI
+tolerance (the transfer still reaches it - the Mun-relative arc re-anchors to the live Mun).
 
-`tol_j`: the existing physics-derived tolerance (`MissionPeriodicity.ToleranceSecondsFor`)
-- rotation: `period_j * RotationToleranceFraction` (0.25 deg); orbital:
-`SoiRadius / OrbitalVelocity`. Reused verbatim, never widened by this task.
+`residual(k)` is the ABSOLUTE worst other-body error at launch `k` (not relative to the
+previous launch), so it never accumulates. `tol_j`: the existing physics-derived tolerance
+(`ToleranceSecondsFor`) - rotation `period_j * RotationToleranceFraction` (0.25 deg);
+orbital `SoiRadius / OrbitalVelocity` (one SOI-crossing time). Reused verbatim.
 
-### 2.3 `NextJointNearCoincidenceUT(afterUT)`
+### 2.3 `NextJointNearCoincidenceUT(afterUT)` + the player throttle
 
-Let `kPrev = floor((afterUT - UT0) / dominantPeriod)` (the dominant-multiple index at or
-just below `afterUT`). Search `k` in `(kPrev, kPrev + LookaheadMultiples]`:
+`NextJointNearCoincidenceUT(afterUT)` = the smallest faithful `L > afterUT`: let
+`kPrev = floor((afterUT - UT0)/anchorPeriod)`, search `k` in `(kPrev, kPrev +
+LookaheadMultiples]`, return the SMALLEST `withinTol(k)` (its `L`), else the `k` with the
+smallest `residual(k)` (bounded-best; ties -> smallest `k`). Because we step on the TIGHT
+anchor grid and the OTHER constraints are loose, a faithful `k` is found within a small
+look-ahead (the Mun's first is ~13 anchor steps), so the search is cheap. `LookaheadMultiples`
+**4096** keeps generous headroom for planet packs / 3-constraint configs (the search returns
+early at the first `withinTol`). A too-small look-ahead only yields more amber
+(bounded-best) launches, never runaway drift (the search always restarts from `kPrev`).
 
-1. Return the SMALLEST `k` in that window with `withinTol(k) == true` (its `L = UT0 +
-   k*dominantPeriod`).
-2. If none is within tolerance in the window, return the `k` in the window with the
-   smallest `residual(k)` (ties -> smallest `k`). This is the bounded-best fallback: the
-   launch is still the best achievable within the look-ahead and is `residual`-bounded,
-   never accumulating relative to `UT0`.
-
-`LookaheadMultiples` (a documented, tunable constant, mirroring `MaxJointMultiples`):
-chosen large enough to span at least one within-tolerance recurrence for the supported
-(same-parent, 2-3 constraint) configs, so each relaunch is genuinely within-tolerance,
-not merely "less bad". The bound it must clear is the largest gap between consecutive
-within-tolerance `k` for those configs; for the stock Mun case the first within-tolerance
-`k` is `O(100)` dominant-multiples and the recurrence is similar, so a few hundred
-comfortably suffices. Starting value **4096** (generous headroom for planet packs; the
-search is `O(Lookahead)` `CircularPhaseError` calls per relaunch, a few thousand cheap
-doubles, amortized + cached per build - see section 3.3; cost validated, not guessed).
-
-Note the failure mode of a TOO-SMALL look-ahead precisely, because the first review
-round corrected an earlier mis-statement: the search ALWAYS restarts from `kPrev` and
-returns the next good `k`, so it does NOT "re-pick multiples and re-accumulate like a
-fixed cadence". Instead, if no within-tolerance `k` falls inside the window, that one
-relaunch takes the bounded-best (min-residual) `k`, which can be amber (over tolerance)
-but is still bounded by the window's best and never grows unboundedly across relaunches.
-So an under-sized look-ahead produces MORE amber launches, not runaway drift. The bound
-is therefore an accuracy lever (how often a relaunch is within tolerance), and the test
-plan guards that the Mun case stays within tolerance at the chosen value.
-
-The schedule is the increasing sequence `L_0 < L_1 < L_2 < ...` where:
-- `L_0` = `NextJointNearCoincidenceUT(floorUT - epsilon)` clamped so `L_0 >= floorUT`
-  (`floorUT = max(referenceUT, spanEndUT)` - the existing first-play floor + loop-enable
-  reference). `L_0` IS the phase anchor (`PhaseAnchorUT`), and it is itself a within-tol
-  (or bounded-best) window, not merely the next dominant multiple.
-- `L_{n+1}` = `NextJointNearCoincidenceUT(L_n)`.
+The schedule is the increasing sequence `L_0 < L_1 < ...`:
+- `L_0` = first faithful window `>= floorUT` (`floorUT = max(referenceUT, spanEndUT)`, the
+  first-play floor + loop-enable reference). `L_0` IS the phase anchor (`PhaseAnchorUT`).
+- `L_{n+1}` = `NextJointNearCoincidenceUT(L_n + minSpacing - epsilon)` where **`minSpacing`
+  is the player's requested relaunch period** (the throttle). `minSpacing = 0` (or Auto)
+  launches at EVERY faithful window = the **maximum attainable cadence**; a larger
+  `minSpacing` skips faithful windows so the mission launches no more often than the player
+  asked (snapped to a faithful window). The player can never launch FASTER than the max
+  cadence (physics floor), only slower. This is the key product point: **engineer the best
+  maximum cadence, then let the player pick a lower one** - supply routes will typically
+  launch once in a while, not every possible window.
 
 ### 2.4 Worked case A - synthetic, fully hand-checkable
 
-`dominantPeriod = 100`, one dropped constraint `period = 31`, `tol = 2`, `UT0 = 0`.
-`L = k*100`; `residual(k) = CircularPhaseError(100k, 31) = CircularPhaseError(7k mod 31, 31)`
-(since `100 mod 31 = 7`). Folded error `min(m, 31-m)`:
+`anchorPeriod = 100` (the tightest constraint, pinned), one other `period = 31`,
+`tol = 2`, `UT0 = 0`. `L = k*100`; `residual(k) = CircularPhaseError(100k, 31) =
+CircularPhaseError(7k mod 31, 31)` (since `100 mod 31 = 7`). Folded error `min(m, 31-m)`:
 
 ```
 k :  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22
@@ -156,53 +160,51 @@ resid: 7 14 10  3  4 11 13  6  1  8 15  9  2  5 12 12  5  2  9 15  8  1
   `residual(m)` -> `m=9` (residual 1). Launches at `k = 9, 18, 27, 36, 45, ...`,
   residuals **1, 2, 3, 4, 5, ...** - within `tol=2` only for the first two, then drifts
   out (`k=27` is 3 > 2). Accumulating.
-- **Zero-drift:** within-tol `k` (`residual <= 2`) are `k = 9, 13, 18, 22, ...`,
-  residuals **1, 2, 2, 1, ...** (all `<= tol`). Intervals `(13-9)*100, (18-13)*100,
-  (22-18)*100 = 400, 500, 400` - **non-uniform**, **non-accumulating**. A reviewer can
-  verify `7k mod 31` by hand.
+- **Zero-drift, no throttle (max cadence):** faithful `k` (`residual <= 2`) are `k = 9, 13,
+  18, 22, ...`, residuals **1, 2, 2, 1, ...** (all `<= tol`). Intervals `400, 500, 400` -
+  **non-uniform**, **non-accumulating**.
+- **Zero-drift, throttle `minSpacing = 700`:** launches `900 -> 1800 -> 3100` (each `>= 700`
+  past the prior, snapped to a faithful window; skips `1300`, `2200`). The player launches
+  less often than the max cadence. A reviewer can verify `7k mod 31` by hand.
 
-### 2.5 Worked case B - the stock Kerbin-rotation + Mun-orbit case
+### 2.5 Worked case B - the stock Kerbin-rotation + Mun-orbit case (REVISED)
 
-`dominantPeriod = MunOrbit = 138984.38 s`, dropped `period = KerbinRotation =
-21549.425 s`, `tol_rot = 21549.425 * 0.25/360 = ~14.96 s`. `138984.38 mod 21549.425 =
-9687.83`, so `residual(k) = CircularPhaseError(9687.83 * k, 21549.425)`.
-
-The continued-fraction convergents of `9687.83 / 21549.425` give the best `k` (the
-quasi-periodic "good window" `k` values) with rapidly shrinking residual:
+Duty cycles: pad rotation `tol_rot = 21549.425 * 0.25/360 = ~14.96 s` -> duty `~7e-4`; Mun
+intercept `tol_mun = SoiRadius/OrbitalVelocity = 2429559/543 = ~4475 s` -> duty `~0.064`.
+The pad is ~45x tighter, so the **anchor is the pad** (`anchorPeriod = 21549.425 s`); the
+Mun is the OTHER constraint (`period = 138984.38 s`, `tol = 4475 s`). Faithful `L = UT0 +
+j*21549.425` where `CircularPhaseError(j*21549.425, 138984.38) <= 4475`:
 
 ```
-k   :   9      20      109     ...
-resid:  ~993s  ~188s   ~52s    ... -> first k with residual <= ~15s
+j   :  1      6      13                ...
+Mun resid: ~21549  ~9687  ~2174 (<=4475) ...   first faithful j = 13
 ```
 
-- **Fixed cadence** (`m=9`) launches at `k = 9, 18, 27, ...`, residuals `~993, ~1986,
-  ~2978, ...` - the accumulating drift the todo entry calls out.
-- **Zero-drift** picks the convergent `k` (and within-tol `k`) values, residuals `~993,
-  ~188, ~52, ... -> <= 15 s`; once a within-tolerance `k` is reached (and its
-  quasi-periodic successors), EVERY relaunch is pad-aligned to `< 0.25 deg`. The actual
-  within-tolerance `k` for the stock values are `~803, 1259, 2062, ...` (gaps alternating
-  `~456 / ~803` dominant-multiples), well inside `ScheduleLookaheadMultiples = 4096`. The
-  exact `k` and the schedule are PINNED by a unit test computed from the exact stock values
-  at test time (not hardcoded here, since they depend on the precise doubles).
+- **First faithful window:** `j=13` -> `L - UT0 = 13*21549.425 = 280142 s ≈ 3.24 Earth
+  days`. The pad is EXACT (j is integer, anchor pinned), the Mun is within `~2174 s ≈ 0.49
+  SOI`. Subsequent faithful `j` recur quasi-periodically every ~13 anchor steps, so the
+  **maximum cadence is ~3-4 Earth days**.
+- **vs the prior (wrong) model** that anchored on the Mun (longest period) and required the
+  pad within 0.25 deg: first window `~803 Mun periods ≈ 3.5 YEARS`. The corrected anchor is
+  ~400x more frequent AND lands the pad pixel-perfect.
+- The exact `j` sequence + the schedule are PINNED by unit tests computed from the exact
+  stock values at test time (not hardcoded here, since they depend on the precise doubles).
 
-Consequence (call it out in UI + docs): the FIRST faithful Mun relaunch is much further
-out under zero-drift than under the `m=9` fixed cadence (a within-tol window is rarer
-than a "dominant-only" window). This is physically correct - a launch where BOTH KSC and
-the Mun line up to tolerance genuinely recurs rarely - and is exactly why the shipped
-"Warp to..." button exists. The countdown + warp target both retarget to the next
-SCHEDULED relaunch (section 5).
+So the maximum cadence for a Mun supply route is every few days; the player throttles down
+to whatever period suits the route (e.g. monthly), and "Warp to..." jumps to the next
+scheduled relaunch (section 5).
 
 ### 2.6 Degenerate / boundary cases (all pinned by tests)
 
-- `dominantPeriod <= 0` / NaN -> no schedule (fall back to fixed cadence / free loop, as
+- `anchorPeriod <= 0` / NaN -> no schedule (fall back to fixed cadence / free loop, as
   `Solve` already guards).
-- 0 dropped constraints (single-constraint, unconstrained) -> `residual(k) == 0` for all
-  `k` -> within-tol at `k=1` -> schedule is uniform `UT0 + k*dominantPeriod`. **Identical
+- 0 other constraints (single-constraint, unconstrained) -> `residual(k) == 0` for all
+  `k` -> within-tol at `k=1` -> schedule is uniform `UT0 + k*anchorPeriod`. **Identical
   to today's fixed cadence**, so we do NOT attach a schedule for these (section 4).
-- Tidal-collapse (all dropped share the dominant period) -> `residual(k) == 0` -> same as
-  above, no schedule.
-- A multi-constraint config where the dropped constraints have a DISTINCT period from the
-  dominant DRIFTS regardless of whether Phase-2's `[1,16]` search landed on `m>1`
+- Tidal-collapse (all other constraints share the anchor period) -> `residual(k) == 0` ->
+  same as above, no schedule.
+- A multi-constraint config where the other constraints have a DISTINCT period from the
+  anchor DRIFTS regardless of whether Phase-2's `[1,16]` search landed on `m>1`
   (`Method="joint-best-fit"`) or `m=1` (`Method="dominant-intercept"`, "the best of a bad
   set"). Both drift and both need the schedule. So the schedule gate keys on the STRUCTURAL
   property "at least two constraints with distinct periods (a non-zero achievable residual)"
@@ -246,12 +248,14 @@ keeping the math pure.
 internal sealed class MissionRelaunchSchedule
     // inputs (immutable):
     double   UT0
-    double   DominantPeriodSeconds
-    double[] DroppedPeriods           // the dropped constraints' periods
-    double[] DroppedTolerances        // their physics tolerances (precomputed)
+    double   AnchorPeriodSeconds      // the tightest constraint's period (pinned exactly)
+    double[] OtherPeriods             // the other constraints' periods (within-tolerance)
+    double[] OtherTolerances          // their physics tolerances (precomputed)
     double   FloorUT                  // max(referenceUT, spanEndUT)
     int      LookaheadMultiples
+    double   MinSpacingSeconds        // the player throttle (0 = every faithful window)
     double   FirstLaunchUT            // == L_0 == the unit's PhaseAnchorUT
+    double   MinIntervalSeconds       // representative cadence (for the overlap gate + UI)
     // resolve (lazily extends an internal cache; pure given inputs):
     bool   TryResolveActiveLaunch(double currentUT, out double launchUT, out long cycleIndex)
     double NextLaunchAfter(double currentUT)   // next scheduled L > currentUT (UI / warp)
@@ -261,9 +265,11 @@ internal sealed class MissionRelaunchSchedule
 
 ```
 internal static double NextJointNearCoincidenceUT(
-    double afterUT, double ut0, double dominantPeriod,
-    IReadOnlyList<double> droppedPeriods, IReadOnlyList<double> droppedTolerances,
+    double afterUT, double ut0, double anchorPeriod,
+    IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
     int lookaheadMultiples, out double residualSeconds, out bool withinTolerance)
+internal static int SelectAnchorConstraintIndex(   // the tightest duty-cycle constraint
+    IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo)
 
 internal static bool TryBuildRelaunchSchedule(   // null/false for non-drifting configs
     IReadOnlyList<PhaseConstraint> constraints, Support support, double ut0,
@@ -277,7 +283,8 @@ constructor overload threads it; existing overloads pass null.
 ### 3.3 Caching / extension
 
 The cache holds the generated launch UTs as a growing `List<double>` plus the last
-`(launchUT, dominant-k)` pair so generation RESUMES from the tail rather than from `L_0`:
+`(launchUT, anchor-k)` pair so generation RESUMES from the tail rather than from `L_0`
+(honoring the `minSpacing` throttle when stepping ahead):
 - `TryResolveActiveLaunch(currentUT)`: extend the list forward (calling
   `NextJointNearCoincidenceUT` from the tail) until the last entry `> currentUT`, then
   return the largest entry `<= currentUT` (binary search). Returns false (parked) when
@@ -289,7 +296,7 @@ The cache holds the generated launch UTs as a growing `List<double>` plus the la
   cached. The schedule always extends to cover `currentUT` (it never stops short and
   reintroduces drift for a legitimate warp - even a warp to the LCM horizon of section 0
   is just more within-tol launches). The ONLY safety cap is on total generation STEPS to
-  bound per-frame CPU against a pathological tiny dominant period (e.g. a malformed body):
+  bound per-frame CPU against a pathological tiny anchor period (e.g. a malformed body):
   `MaxScheduleSteps` (generously above any realistic within-tol count). If a single
   resolve would exceed it, that unit FALLS BACK to the fixed-cadence path (drop the
   schedule, log a Warn) rather than to a drifting uniform extrapolation - the fallback is
@@ -346,12 +353,12 @@ fall into the overlap engine path. The contract:
   scheduled interval)` (and `CadenceSeconds` likewise `>= span`), so `UnitMemberOverlaps`
   is ALWAYS false for a scheduled unit. INVARIANT: a `LoopUnit` with `RelaunchSchedule !=
   null` satisfies `UnitMemberOverlaps == false`.
-- Gating condition 4 is computed from the SCHEDULE's actual minimum interval, NOT from a
-  pre-existing `OverlapCadenceSeconds`. The realistic case (the dominant is the longest
-  period and multi-constraint within-tol windows are rare) gives a mean/min interval `>>
-  span` so this is comfortably satisfied. The edge the review raised - a multi-DAY mission
-  span (a long Mun stay) where `span > dominantPeriod` and the within-tol interval could
-  approach the span - is handled by the rule: if the schedule's MINIMUM interval `< span`,
+- Gating condition 4 is computed from the SCHEDULE's actual minimum interval (after the
+  player throttle), NOT from a pre-existing `OverlapCadenceSeconds`. The realistic case (the
+  faithful windows are days apart, longer once throttled) gives a min interval `>> span` so
+  this is comfortably satisfied. The edge the review raised - a multi-DAY mission span (a
+  long Mun stay) where `span` could approach the min interval - is handled by the rule: if
+  the schedule's MINIMUM interval `< span`,
   the builder REJECTS the schedule (drop it, keep the existing fixed-cadence overlap path,
   log a Warn). So a scheduled unit is non-overlapping by the invariant above, never by
   hope.
@@ -369,16 +376,16 @@ overlapping mission still overlaps (no schedule attached).
 A schedule is attached (and the fixed cadence replaced) ONLY when ALL hold:
 1. `bodyInfo != null` (phase-lock wiring active; tests / unwired -> no schedule).
 2. The solution phase-locks (`ShouldPhaseLock`) and is Supported, AND the constraint set is
-   STRUCTURALLY drifting: it has at least two constraints with DISTINCT periods after
-   dominant selection (a non-zero achievable residual). This is computed directly from the
-   constraints, NOT from the `Method` display string - it captures BOTH `joint-best-fit`
-   (`m>1`) AND `dominant-intercept` (`m=1`, the best of a bad `[1,16]` set) configs, since
-   both drift and both benefit from zero-drift's wider `k` search. `single-rotation` /
+   STRUCTURALLY drifting: after picking the anchor there is at least one OTHER constraint
+   with a DISTINCT period (a non-zero achievable residual). This is computed directly from
+   the constraints, NOT from the `Method` display string - it captures both the Phase-2
+   `joint-best-fit` (`m>1`) and `dominant-intercept` (`m=1`, the best of a bad `[1,16]` set)
+   configs, since both drift and both benefit from zero-drift. `single-rotation` /
    `single-orbital` / `tidal-collapse` / `unconstrained` configs have residual 0 (a uniform
    schedule), so they keep the exact fixed cadence and get NO schedule.
-3. `TryBuildRelaunchSchedule` succeeds (after filtering degenerate dropped periods, at
-   least one valid distinct-period dropped constraint remains; finite floor; the safety
-   step-cap not tripped, section 3.3).
+3. `TryBuildRelaunchSchedule` succeeds (after filtering degenerate other-periods, at least
+   one valid distinct-period other constraint remains; finite floor; the safety step-cap not
+   tripped, section 3.3).
 4. The resulting schedule is non-overlapping: its MINIMUM interval `>= span` (section 3.5).
    If not, the schedule is rejected and the unit keeps the fixed-cadence overlap path.
 
@@ -425,11 +432,11 @@ is derived each build, `PhaseAnchorUT` still reuses `Mission.LoopAnchorUT` seman
 ## 6. Diagnostic logging
 
 Subsystem tags `MissionPeriodicity` / `Mission` (existing). Every decision logged:
-- **Schedule build:** one `Info`-on-build line when a schedule is attached: mission, tree,
-  `L_0`, dominant period, dropped periods, `LookaheadMultiples`, and the first few
-  intervals + their residuals (bounded, e.g. first 3). A distinct `Info` line when a
-  drifting config does NOT get a schedule (gating reason: would-overlap / build-failed),
-  so the branch is never silent. Extends the existing `PhaseLock APPLIED/SKIPPED` lines.
+- **Schedule build:** the `PhaseLock APPLIED` line carries `zeroDrift=yes` + `firstLaunch`
+  + `minInterval` (anchor period, the player throttle, and the first scheduled interval), or
+  `zeroDrift=no` / `zeroDrift=rejected-would-overlap` when a drifting config does NOT get a
+  schedule (so the branch is never silent). Implemented on the existing `PhaseLock APPLIED`
+  line.
 - **Generator (`NextJointNearCoincidenceUT`):** `Verbose` per relaunch generated:
   `afterK -> chosenK`, residual, withinTol, method (within-tol vs bounded-best). Schedule
   EXTENSION events `VerboseRateLimited` (shared key) to avoid spam during a warp.
@@ -459,7 +466,9 @@ states the regression it guards.
   hardcoded).
 - Tolerance boundary: a `k` whose residual is just within vs just outside flips
   `withinTolerance` (guards the green/amber threshold).
-- Degenerate: `dominantPeriod <= 0` / NaN, NaN dropped period, 0 dropped constraints
+- `SelectAnchorConstraintIndex` picks the tightest duty-cycle constraint (the pad, not the
+  Mun); the throttle (`minSpacing`) skips faithful windows; no-throttle = every window.
+- Degenerate: `anchorPeriod <= 0` / NaN, NaN other period, 0 other constraints
   (uniform schedule), tidal-collapse (uniform) -> no throw, correct fallback.
 - First-play floor: `L_0 >= floorUT`; future-dated `UT0` resolves a forward `L_0`.
 - Bounded-best fallback: a config with no within-tol `k` in the look-ahead returns the
