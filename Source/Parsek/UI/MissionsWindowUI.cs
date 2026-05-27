@@ -1680,7 +1680,7 @@ namespace Parsek
 
             // "T- to launch" column header (left of Re-Fly): the per-mission header bar shows a
             // live countdown to the next faithful launch window (the vessel rows leave it blank).
-            GUILayout.Label("T- to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+            GUILayout.Label("Time to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for
             // unfinished-flight recordings (reusing the recordings tab's Re-Fly cell).
