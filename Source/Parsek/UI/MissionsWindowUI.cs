@@ -98,7 +98,8 @@ namespace Parsek
         // "Time to launch" column (mission periodicity, design doc UX): a live countdown to the next
         // faithful launch window, shown ONLY on each mission's launch (first) vessel row, under this
         // column header; every other vessel row + the mission header bar leave a same-width blank
-        // cell so the data columns stay aligned. Sits between "End time" and "Re-Fly".
+        // cell so the data columns stay aligned. Sits right after "Missions and vessels" (the name
+        // column), before "Start time".
         private const float ColW_TMinus = 90f;
         // Fixed column-header height so every Missions header cell is the same height (matches
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
@@ -573,6 +574,27 @@ namespace Parsek
                 GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
             }
 
+            // "Time to launch" cell: the live countdown to the mission's next faithful launch
+            // window (mission periodicity, design doc UX), sitting right after the name column (and
+            // before "Start time"). The countdown is a per-mission value, so it shows ONLY on the
+            // launch row (the mission's first vessel row) under the "Time to launch" header; every
+            // other vessel row leaves a same-width blank cell so the time/event columns stay
+            // aligned. The cell is drawn at the normal (un-dimmed) colour even when the launch
+            // interval is excluded/greyed, since the countdown is mission-level data rather than a
+            // property of that interval. A compositionCellLabel is fine here (the margin-0 caveat
+            // only applies to the right-EDGE cell, the trailing Archive cell below).
+            if (isLaunchRow)
+            {
+                Color prevTm = GUI.color;
+                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
+                DrawTMinusVesselCell(mission, periodicity);
+                GUI.color = prevTm;
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            }
+
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
             // parent's span, so their time columns stay blank.
             if (!node.IsAtom)
@@ -588,27 +610,6 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_StartEvent));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndEvent));
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
-            }
-
-            // "Time to launch" cell: the live countdown to the mission's next faithful launch
-            // window (mission periodicity, design doc UX). The countdown is a per-mission value, so
-            // it shows ONLY on the launch row (the mission's first vessel row) under the "Time to
-            // launch" header; every other vessel row leaves a same-width blank cell so the Re-Fly +
-            // Archive columns stay aligned. The cell is drawn at the normal (un-dimmed) colour even
-            // when the launch interval is excluded/greyed, since the countdown is mission-level data
-            // rather than a property of that interval. A compositionCellLabel is fine here (the
-            // margin-0 caveat only applies to the right-EDGE cell, the trailing Archive cell below;
-            // this cell is followed by the Re-Fly cell).
-            if (isLaunchRow)
-            {
-                Color prevTm = GUI.color;
-                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
-                DrawTMinusVesselCell(mission, periodicity);
-                GUI.color = prevTm;
-            }
-            else
-            {
-                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
             }
 
             // Restore the normal colour before the actionable Re-Fly cell + the trailing Archive
@@ -1703,16 +1704,18 @@ namespace Parsek
             GUILayout.EndHorizontal();
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
                 ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
+
+            // "Time to launch" column header (right after the name column, before "Start time"):
+            // each mission's launch (first) vessel row shows a live countdown to the next faithful
+            // launch window under this header (every other vessel row + the mission header bar
+            // leave it blank).
+            GUILayout.Label("Time to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
                 ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);
             GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime), GUILayout.Height(ColHeaderHeight));
-
-            // "Time to launch" column header (left of Re-Fly): each mission's launch (first) vessel
-            // row shows a live countdown to the next faithful launch window under this header (every
-            // other vessel row + the mission header bar leave it blank).
-            GUILayout.Label("Time to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for
             // unfinished-flight recordings (reusing the recordings tab's Re-Fly cell).
