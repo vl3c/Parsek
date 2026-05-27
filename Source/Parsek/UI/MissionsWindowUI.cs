@@ -57,6 +57,16 @@ namespace Parsek
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
+        // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
+        // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
+        // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
+        // the next faithful P-window (which the engine SKIPS when the relaunch cadence is a multiple
+        // m*P with m>=2). Built at most once per frame (keyed by Time.frameCount, like the view cache
+        // above) and read-only: this is a DISPLAY mirror of the engine's schedule and never feeds the
+        // engine/scene drivers, so it cannot affect playback. Lazily computed by GetLoopUnitSet.
+        private GhostPlaybackLogic.LoopUnitSet loopUnitSetCache;
+        private int loopUnitSetCacheFrame = -1;
+
         // Fixed-width columns to the right of the expanding "Missions and vessels" column,
         // mirroring the recordings window's fixed-width cells so the window reads as the
         // same table style. Layout: [index/check] Missions and vessels | Start time |
@@ -401,6 +411,41 @@ namespace Parsek
                 compositionCache[tree.Id] = roots;
             }
             return roots;
+        }
+
+        // Returns the REAL Mission LoopUnitSet, built at most once per frame, EXACTLY as the scene
+        // drivers build it (MissionLoopUnitBuilder.Build over MissionStore.Missions +
+        // RecordingStore.CommittedTrees/CommittedRecordings, with the global auto-loop interval and
+        // FlightGlobalsBodyInfo.Instance). The unit the engine actually relaunches on is read off
+        // this set so the T- countdown is drift-free against playback. Display-only: never pushed to
+        // the engine. Build's per-build Verbose summary is suppressed (the UI runs every frame).
+        // [ERS-exempt] reason: this reads the RAW committed list to match MissionLoopUnitBuilder
+        // (which keys loop members by committed RecordingId); display-only, file allowlisted.
+        private GhostPlaybackLogic.LoopUnitSet GetLoopUnitSet()
+        {
+            int frame = Time.frameCount;
+            if (frame != loopUnitSetCacheFrame || loopUnitSetCache == null)
+            {
+                var settings = ParsekSettings.Current;
+                double autoLoopIntervalSeconds = settings != null
+                    ? settings.autoLoopIntervalSeconds
+                    : LoopTiming.DefaultLoopIntervalSeconds;
+                bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                MissionLoopUnitBuilder.SuppressLogging = true;
+                try
+                {
+                    loopUnitSetCache = MissionLoopUnitBuilder.Build(
+                        MissionStore.Missions, RecordingStore.CommittedTrees,
+                        RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
+                        FlightGlobalsBodyInfo.Instance);
+                }
+                finally
+                {
+                    MissionLoopUnitBuilder.SuppressLogging = prevSuppress;
+                }
+                loopUnitSetCacheFrame = frame;
+            }
+            return loopUnitSetCache ?? GhostPlaybackLogic.LoopUnitSet.Empty;
         }
 
         // Renders one composition node (a structural interval, a peeled-off branch, or a roster
@@ -857,6 +902,20 @@ namespace Parsek
             public ConstraintKind DominantKind;  // valid only when IsPhaseLockedConstrained
             public string DominantBodyName;      // valid only when IsPhaseLockedConstrained
 
+            // The engine's ACTUAL next relaunch UT for this mission, read off the REAL LoopUnitSet
+            // (PhaseAnchorUT + n*relaunchCadence). This is what the T- countdown targets - NOT the
+            // periodicity solution's NextWindowUT (the next faithful P-window), which the engine
+            // SKIPS whenever the relaunch cadence is a multiple m*P with m>=2 (the recording span or
+            // the user period exceeds P). The two coincide only when the relaunch cadence == P.
+            // NaN when no real unit was built for this mission (see UnitBuilt).
+            public double NextRelaunchUT;
+
+            // True when MissionLoopUnitBuilder built a real unit for this mission (the mission maps
+            // to at least one committed loop member). When false the engine relaunches nothing, so
+            // the T- cell reads "not aligned" - the same word an unsupported config gets, since both
+            // mean "this mission is not on a faithful launch schedule".
+            public bool UnitBuilt;
+
             // Supported + constrained: the loop is phase-locked to a real period P (not the free
             // MinCycleDuration). This is the state where the period cell shows P + basis label and
             // the T- cell shows a live countdown.
@@ -921,28 +980,73 @@ namespace Parsek
                 result.DominantBodyName = dom.BodyName;
             }
 
+            // The ENGINE's actual next relaunch UT for this mission. The countdown must point here,
+            // NOT at solution.NextWindowUT: the engine relaunches every effectiveOverlapCadence /
+            // effectiveCadence (a MULTIPLE m*P of the period when the span / user period exceeds P),
+            // so it SKIPS the in-between P-windows. Read the REAL unit (the same one the scene
+            // drivers build) for this mission and derive the next relaunch from its schedule, so the
+            // displayed countdown can never drift away from when a ghost actually launches.
+            result.UnitBuilt = TryResolveMissionUnit(
+                tree, committed, mission.ExcludedIntervalKeys, out GhostPlaybackLogic.LoopUnit unit);
+            result.NextRelaunchUT = result.UnitBuilt
+                ? ComputeNextRelaunchUT(unit, nowUT)
+                : double.NaN;
+
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
                 $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
                 $"support={solution.Support} P={solution.P.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"lock={(solution.ShouldPhaseLock ? "yes" : "no")} " +
                 $"nextWindow={solution.NextWindowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"unitBuilt={(result.UnitBuilt ? "yes" : "no")} " +
+                $"nextRelaunch={result.NextRelaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
                 $"now={nowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}",
                 3.0);
 
             return result;
         }
 
+        // Resolves the REAL LoopUnit the engine built for this mission, by mapping the mission's
+        // trimmed loop members to committed indices (the SAME ComputeTrimmedMemberWindows the builder
+        // keys members on) and looking any one of them up in the per-frame LoopUnitSet. Returns false
+        // (unit = default) when the mission has no committed members or no unit was built for it (an
+        // unsupported config / phase-lock skip still builds a unit; "no unit" means the mission maps
+        // to no live loop member at all - e.g. every member was trimmed off). Display-only.
+        // [ERS-exempt] reason: maps members via the RAW committed list to match MissionLoopUnitBuilder
+        // (keyed by committed RecordingId); display-only, file allowlisted.
+        private bool TryResolveMissionUnit(
+            RecordingTree tree, IReadOnlyList<Recording> committed,
+            ICollection<string> excludedIntervalKeys, out GhostPlaybackLogic.LoopUnit unit)
+        {
+            unit = default;
+            if (tree == null || committed == null)
+                return false;
+
+            var (_, view) = GetMissionView(tree);
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, excludedIntervalKeys,
+                null, out _, out _);
+
+            GhostPlaybackLogic.LoopUnitSet units = GetLoopUnitSet();
+            foreach (int idx in windows.Keys)
+                if (units.TryGetUnitForMember(idx, out unit))
+                    return true;
+            return false;
+        }
+
         // Draws the "T- to launch" cell on the mission header bar (design doc UX): a live countdown
-        // to the next faithful launch window, or one of the state words (continuous / not aligned).
-        // The countdown reads NextWindowUT - now from the supplied (already-computed) solution.
+        // to the engine's ACTUAL next relaunch, or one of the state words (continuous / not aligned).
+        // The countdown reads NextRelaunchUT - now (PhaseAnchorUT + n*relaunchCadence off the REAL
+        // loop unit), NOT the periodicity solution's next P-window, so it never ticks to "T- 0s" on a
+        // window the engine skips (relaunch cadence = m*P with m>=2).
         private void DrawMissionTMinusCell(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             string text = BuildTMinusCellText(
                 mission != null && mission.LoopPlayback,
                 periodicity.Solved,
                 periodicity.Solution.ShouldPhaseLock,
+                periodicity.UnitBuilt,
                 periodicity.Solution.P,
-                periodicity.Solution.NextWindowUT,
+                periodicity.NextRelaunchUT,
                 periodicity.NowUT);
 
             // Tint a live countdown amber when the best-effort window misses its physics tolerance
@@ -959,28 +1063,75 @@ namespace Parsek
         // ----- Pure display helpers (unit-tested; the IMGUI layout above is playtest-verified) -----
 
         /// <summary>
+        /// The engine's ACTUAL next relaunch UT for a built loop unit, derived from the SAME schedule
+        /// <see cref="MissionLoopUnitBuilder.TryBuildMissionUnit"/> produces, so the T- countdown can
+        /// never drift away from when a ghost really launches. The engine relaunches the whole mission
+        /// every <see cref="GhostPlaybackLogic.LoopUnit.OverlapCadenceSeconds"/> when that overlaps the
+        /// span (it is &lt; the span duration), else once per <see cref="GhostPlaybackLogic.LoopUnit.CadenceSeconds"/>
+        /// (the single span instance). Either cadence is already quantized to a multiple m*P of the
+        /// faithful period P, so the relaunches land on every m-th P-window - the in-between windows
+        /// are SKIPPED. Next relaunch from now = <c>PhaseAnchorUT + n * interval</c> with
+        /// <c>n = max(0, ceil((now - PhaseAnchorUT) / interval))</c> (n == 0 while the loop is still
+        /// parked before its forward-snapped anchor). Pure; a degenerate interval (&lt;= 0 / NaN /
+        /// infinity) falls back to the anchor itself.
+        /// </summary>
+        internal static double ComputeNextRelaunchUT(GhostPlaybackLogic.LoopUnit unit, double nowUT)
+        {
+            double anchor = unit.PhaseAnchorUT;
+            if (double.IsNaN(anchor) || double.IsInfinity(anchor))
+                return double.NaN;
+
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            // The engine overlaps the whole mission with itself when the overlap cadence is shorter
+            // than the span (relaunch on the overlap cadence); otherwise there is a single span
+            // instance that relaunches once per span-clock cadence. Mirror that exact choice.
+            double interval = unit.OverlapCadenceSeconds < span
+                ? unit.OverlapCadenceSeconds
+                : unit.CadenceSeconds;
+            if (double.IsNaN(interval) || double.IsInfinity(interval) || interval <= 0.0)
+                return anchor; // degenerate cadence: the anchor is the only launch we can name
+
+            // n = ceil((now - anchor) / interval), clamped at 0 so a future-snapped anchor (loop
+            // parked, now < anchor) reports the anchor itself rather than a negative cycle.
+            double n = System.Math.Ceiling((nowUT - anchor) / interval - 1e-9);
+            if (n < 0.0)
+                n = 0.0;
+            double next = anchor + n * interval;
+            // Floating-point guard: keep the result at or after now (and not a whole interval past).
+            if (next < nowUT - 1e-6)
+                next += interval;
+            return next;
+        }
+
+        /// <summary>
         /// The "T- to launch" cell text for the four states (design doc UX):
-        /// - not looping -> "" (blank);
+        /// - not looping / not solved -> "" (blank);
         /// - unsupported (cross-parent / rendezvous; the no-lock sentinel, ShouldPhaseLock==false)
-        ///   -> "not aligned";
+        ///   OR no engine unit built for this mission -> "not aligned";
         /// - unconstrained (P == MinCycleDuration) -> "continuous";
-        /// - supported + constrained -> "T-" + a compact countdown of (nextWindowUT - nowUT).
-        /// Pure (no Unity); the inputs are pulled straight off the PeriodicitySolution.
+        /// - supported + constrained -> "T-" + a compact countdown to the ENGINE's next relaunch.
+        /// The countdown targets <paramref name="nextRelaunchUT"/> (the engine's actual next
+        /// relaunch, PhaseAnchorUT + n*relaunchCadence), NOT the periodicity solution's next faithful
+        /// P-window: when the relaunch cadence is m*P (m&gt;=2) the engine launches only every m-th
+        /// window, so a P-window countdown would tick to "T- 0s" with no launch. Pure (no Unity).
         /// </summary>
         internal static string BuildTMinusCellText(
-            bool looping, bool solved, bool shouldPhaseLock, double p, double nextWindowUT, double nowUT)
+            bool looping, bool solved, bool shouldPhaseLock, bool unitBuilt,
+            double p, double nextRelaunchUT, double nowUT)
         {
             if (!looping || !solved)
                 return "";
-            if (!shouldPhaseLock)
-                return "not aligned";   // unsupported: cross-parent / rendezvous (no-lock sentinel)
+            if (!shouldPhaseLock || !unitBuilt)
+                // Unsupported (cross-parent / rendezvous, the no-lock sentinel) or no live loop
+                // member maps to a unit: this mission is not on a faithful launch schedule.
+                return "not aligned";
             if (double.IsNaN(p) || p <= LoopTiming.MinCycleDuration + 1e-6)
                 return "continuous";    // unconstrained free loop (nothing to line up)
-            if (double.IsNaN(nextWindowUT))
-                return "continuous";    // defensive: a locked P with no window resolves as free
-            double delta = nextWindowUT - nowUT;
+            if (double.IsNaN(nextRelaunchUT))
+                return "continuous";    // defensive: a locked P with no relaunch resolves as free
+            double delta = nextRelaunchUT - nowUT;
             if (delta < 0.0)
-                delta = 0.0;            // window is at/behind now -> launching now
+                delta = 0.0;            // relaunch is at/behind now -> launching now
             return "T- " + FormatCountdownCompact(delta);
         }
 

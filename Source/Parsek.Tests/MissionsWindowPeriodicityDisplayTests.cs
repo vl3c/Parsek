@@ -169,8 +169,8 @@ namespace Parsek.Tests
         {
             // Fails if a non-looping mission shows anything in the T- cell.
             Assert.Equal("", BuildTMinusCellText(
-                looping: false, solved: true, shouldPhaseLock: true,
-                p: 21549.0, nextWindowUT: 5000.0, nowUT: 1000.0));
+                looping: false, solved: true, shouldPhaseLock: true, unitBuilt: true,
+                p: 21549.0, nextRelaunchUT: 5000.0, nowUT: 1000.0));
         }
 
         [Fact]
@@ -178,8 +178,8 @@ namespace Parsek.Tests
         {
             // Fails if a looping mission with no computed solution (default) shows stale text.
             Assert.Equal("", BuildTMinusCellText(
-                looping: true, solved: false, shouldPhaseLock: false,
-                p: double.NaN, nextWindowUT: double.NaN, nowUT: 1000.0));
+                looping: true, solved: false, shouldPhaseLock: false, unitBuilt: false,
+                p: double.NaN, nextRelaunchUT: double.NaN, nowUT: 1000.0));
         }
 
         [Fact]
@@ -189,8 +189,20 @@ namespace Parsek.Tests
             // NOT read "not aligned" (cross-parent / rendezvous - the body-only solver can't
             // schedule it yet).
             Assert.Equal("not aligned", BuildTMinusCellText(
-                looping: true, solved: true, shouldPhaseLock: false,
-                p: double.NaN, nextWindowUT: double.NaN, nowUT: 1000.0));
+                looping: true, solved: true, shouldPhaseLock: false, unitBuilt: true,
+                p: double.NaN, nextRelaunchUT: double.NaN, nowUT: 1000.0));
+        }
+
+        [Fact]
+        public void BuildTMinus_NoUnitBuilt_NotAligned()
+        {
+            // Fails if a phase-lockable mission with NO engine unit (every loop member was trimmed
+            // off, so the engine relaunches nothing) does not read "not aligned". The engine builds
+            // no unit -> there is no schedule to count down to, so the cell must not show a stale
+            // "T- ..." countdown derived from the periodicity solution alone.
+            Assert.Equal("not aligned", BuildTMinusCellText(
+                looping: true, solved: true, shouldPhaseLock: true, unitBuilt: false,
+                p: 138984.0, nextRelaunchUT: double.NaN, nowUT: 1000.0));
         }
 
         [Fact]
@@ -199,33 +211,128 @@ namespace Parsek.Tests
             // Fails if an unconstrained config (P == MinCycleDuration) does not read "continuous"
             // (nothing to line up -> loop freely).
             Assert.Equal("continuous", BuildTMinusCellText(
-                looping: true, solved: true, shouldPhaseLock: true,
-                p: LoopTiming.MinCycleDuration, nextWindowUT: 1000.0, nowUT: 1000.0));
+                looping: true, solved: true, shouldPhaseLock: true, unitBuilt: true,
+                p: LoopTiming.MinCycleDuration, nextRelaunchUT: 1000.0, nowUT: 1000.0));
         }
 
         [Fact]
-        public void BuildTMinus_Supported_ShowsCountdown()
+        public void BuildTMinus_Supported_ShowsCountdownToRelaunch()
         {
-            // Fails if a supported + constrained config does not read "T- <countdown>" to the next
-            // window. now=1000, nextWindow=1000+2h14m9s -> "T- 2h 14m".
+            // Fails if a supported + constrained config does not read "T- <countdown>" to the
+            // engine's next RELAUNCH. now=1000, nextRelaunch=1000+2h14m9s -> "T- 2h 14m".
             double now = 1000.0;
             double next = now + (2 * 3600 + 14 * 60 + 9);
             Assert.Equal("T- 2h 14m", BuildTMinusCellText(
-                looping: true, solved: true, shouldPhaseLock: true,
-                p: 138984.0, nextWindowUT: next, nowUT: now));
+                looping: true, solved: true, shouldPhaseLock: true, unitBuilt: true,
+                p: 138984.0, nextRelaunchUT: next, nowUT: now));
         }
 
         [Fact]
-        public void BuildTMinus_WindowAtOrBehindNow_ZeroCountdown()
+        public void BuildTMinus_RelaunchAtOrBehindNow_ZeroCountdown()
         {
-            // Fails if a window at/behind now produces a negative countdown instead of "T- 0s"
-            // (the loop is launching now / parked exactly on the window).
+            // Fails if a relaunch at/behind now produces a negative countdown instead of "T- 0s"
+            // (the loop is launching now / parked exactly on the relaunch).
             Assert.Equal("T- 0s", BuildTMinusCellText(
-                looping: true, solved: true, shouldPhaseLock: true,
-                p: 138984.0, nextWindowUT: 900.0, nowUT: 1000.0));
+                looping: true, solved: true, shouldPhaseLock: true, unitBuilt: true,
+                p: 138984.0, nextRelaunchUT: 900.0, nowUT: 1000.0));
             Assert.Equal("T- 0s", BuildTMinusCellText(
-                looping: true, solved: true, shouldPhaseLock: true,
-                p: 138984.0, nextWindowUT: 1000.0, nowUT: 1000.0));
+                looping: true, solved: true, shouldPhaseLock: true, unitBuilt: true,
+                p: 138984.0, nextRelaunchUT: 1000.0, nowUT: 1000.0));
+        }
+
+        // ===================== ComputeNextRelaunchUT (the no-drift relaunch schedule) =====================
+
+        [Fact]
+        public void ComputeNextRelaunchUT_OverlapShorterThanSpan_UsesOverlapCadence()
+        {
+            // Fails if a mission whose overlap cadence is shorter than its span does NOT relaunch on
+            // the overlap cadence. The engine overlaps the whole mission with itself here, relaunching
+            // every OverlapCadenceSeconds. anchor=1000, overlapCadence=600, span=900 -> the relaunches
+            // are 1000, 1600, 2200, ...; at now=1700 the next is 2200.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1900.0,   // span = 900
+                cadenceSeconds: 900.0, phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 600.0);
+            Assert.Equal(2200.0, ComputeNextRelaunchUT(unit, 1700.0), 6);
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_OverlapAtOrAboveSpan_UsesSpanCadence()
+        {
+            // Fails if a mission with no self-overlap (overlap cadence >= span) does NOT relaunch on
+            // the span-clock cadence (the single span instance). anchor=1000, cadence=900,
+            // overlapCadence=900 (== span, so no overlap) -> relaunches 1000, 1900, 2800; at now=2000
+            // the next is 2800.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1900.0,   // span = 900
+                cadenceSeconds: 900.0, phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 900.0);
+            Assert.Equal(2800.0, ComputeNextRelaunchUT(unit, 2000.0), 6);
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_CadenceIsMultipleOfP_TargetsRelaunchNotNextPWindow()
+        {
+            // The REGRESSION this guards: the old countdown targeted solution.NextWindowUT = the next
+            // P-lattice window from now (anchor + the SMALLEST k*P >= now), but the engine relaunches
+            // only every m*P (here m=2) and SKIPS the in-between P-window. The countdown must point at
+            // the engine's relaunch (anchor + n*2P), not the skipped P-window.
+            //
+            // P=1000, relaunch cadence = 2*P = 2000 (overlap, span=5000 so it overlaps). anchor=10000.
+            // Engine relaunches: 10000, 12000, 14000, ... at now=10500 the next RELAUNCH is 12000.
+            // The next P-WINDOW from now would be 11000 (10000 + 1*P) - which the engine SKIPS.
+            double p = 1000.0;
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 10000.0, spanEndUT: 15000.0,   // span = 5000
+                cadenceSeconds: 6000.0, phaseAnchorUT: 10000.0,
+                overlapCadenceSeconds: 2.0 * p);            // 2000 < span -> overlaps
+            double next = ComputeNextRelaunchUT(unit, 10500.0);
+            Assert.Equal(12000.0, next, 6);                 // the engine relaunch
+            Assert.NotEqual(10000.0 + p, next);             // NOT the skipped 11000 P-window
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_ParkedBeforeForwardAnchor_ReportsAnchor()
+        {
+            // Fails if a forward-snapped anchor (loop parked, now < anchor) reports a negative cycle
+            // instead of the anchor itself. anchor=5000, now=2000 -> next relaunch = 5000 (n clamps
+            // to 0; the loop simply waits for the window).
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 5000.0, spanEndUT: 5900.0,
+                cadenceSeconds: 900.0, phaseAnchorUT: 5000.0,
+                overlapCadenceSeconds: 600.0);
+            Assert.Equal(5000.0, ComputeNextRelaunchUT(unit, 2000.0), 6);
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_AnchorExactlyOnWindowBoundary_DoesNotSkip()
+        {
+            // Fails if a now landing exactly on a relaunch boundary skips to the NEXT relaunch
+            // instead of reporting the current one (the eps in the ceil keeps an exact hit at "now").
+            // anchor=1000, interval=600 -> relaunch at 1600; at now=1600 the next relaunch is 1600.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1900.0,
+                cadenceSeconds: 900.0, phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 600.0);
+            Assert.Equal(1600.0, ComputeNextRelaunchUT(unit, 1600.0), 6);
+        }
+
+        [Fact]
+        public void ComputeNextRelaunchUT_DegenerateCadence_FallsBackToAnchor()
+        {
+            // Fails if a degenerate (<= 0) interval throws / divides by zero instead of naming the
+            // anchor as the only launch. overlapCadence=0 (< span) selects 0 -> guarded to the anchor.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000.0, spanEndUT: 1900.0,
+                cadenceSeconds: 0.0, phaseAnchorUT: 1000.0,
+                overlapCadenceSeconds: 0.0);
+            Assert.Equal(1000.0, ComputeNextRelaunchUT(unit, 5000.0), 6);
         }
     }
 }

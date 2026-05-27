@@ -332,8 +332,23 @@ interface IBodyInfo               // test seam over FlightGlobals
   before Phase 2): the solver returns a Support flag; `TryBuildMissionUnit` does NOT
   phase-lock and keeps today's behavior (anchor = raw `LoopAnchorUT`), so nothing
   regresses for cases we don't yet handle.
-- **Per frame:** the Missions tab shows the live `T- = NextWindowUT - now` countdown
-  and the residual/quality state. No engine work per frame beyond the existing draw.
+- **Per frame:** the Missions tab shows a live `T-` countdown to the ENGINE's next
+  ACTUAL relaunch and the residual/quality state. The countdown is NOT
+  `NextWindowUT - now` (the next faithful `P`-window): the loop builder relaunches the
+  whole mission every `relaunchCadence = QuantizeCadenceToMultipleOfP(cadence, P) = m*P`
+  (m can be >= 2 when the recording span or the user period exceeds `P`), so it LAUNCHES
+  only every m-th `P`-window and skips the rest. The UI rebuilds the real `LoopUnitSet`
+  (display-only, same inputs as the scene drivers) and reads the unit's relaunch cadence
+  (`OverlapCadenceSeconds` when it overlaps the span, else `CadenceSeconds`) + its
+  `phaseAnchorUT`, then counts down to `T- = nextRelaunchUT - now` where
+  `nextRelaunchUT = phaseAnchorUT + n * relaunchCadence`,
+  `n = max(0, ceil((now - phaseAnchorUT) / relaunchCadence))`. This coincides with the
+  next `P`-window only when `relaunchCadence == P` (the common single-body / Mun case);
+  for `m >= 2` it correctly targets the m-th window the engine actually launches at, so
+  the countdown never reaches "T- 0s" on a window with no launch. A mission with no
+  engine unit built (every loop member trimmed off) reads "not aligned". No engine work
+  per frame beyond the existing draw (the UI's `LoopUnitSet` is cached per frame and
+  never fed back to the engine).
 - **Unconstrained config** (`P = MinCycleDuration`): behaves like today's free loop
   (T- reads continuous).
 
@@ -361,12 +376,17 @@ constraints); there is no "free / decorative" mode. The configuration the user
 checks IS the contract, and the loop launches only at faithful windows.
 
 - **New "T- to launch window" column** in the Missions tab (next to the period
-  cell): a live countdown to the next faithful launch (`UT0 + k*P`). This is the
-  primary surface for the periodicity - the user sees exactly when the next replay
-  fires (for a Mun mission, the next Mun window; for a single-body launch, the next
-  rotation-aligned slot). When a launch is in progress it shows the time to the next
-  one; when `P = MinCycleDuration` (unconstrained config) it effectively reads "now"
-  / continuous.
+  cell): a live countdown to the engine's next ACTUAL relaunch
+  (`phaseAnchorUT + n * relaunchCadence`, where the relaunch cadence is the faithful
+  period `P` quantized up to the cap, i.e. `m*P`). This is the primary surface for the
+  periodicity - the user sees exactly when the next replay fires (for a Mun mission, the
+  next launched Mun window; for a single-body launch, the next rotation-aligned slot the
+  engine launches at). It equals the next `P`-window only when the relaunch cadence ==
+  `P`; when the cadence is `m*P` (`m >= 2`) the engine launches only every m-th window
+  and the countdown targets that one, not an intervening skipped window. When a launch
+  is in progress it shows the time to the next one; when `P = MinCycleDuration`
+  (unconstrained config) it reads "continuous"; a mission with no engine unit reads
+  "not aligned".
 - The period cell still shows the effective cadence, now snapped to a multiple of
   `P`, labeled with why (e.g. "every Mun window ~1.6 d").
 - **Quality / residual readout** (in the T- column or its tooltip): for an
@@ -478,13 +498,17 @@ Each is scenario -> expected behavior -> [v1 phase / deferred]. v1 = Phases 0-3
   (a zero/near-zero rotation period = no rotation constraint) and handle the sign of
   retrograde rotation; read the actual value, never assume.
 - **Future-dated recordings** (`UT0 > liveUT`, e.g. after a career rewind/warp): the
-  next-window `k` is the smallest integer with `UT0 + k*P >= now`, which can be
-  negative; and the span clock early-returns while `currentUT < phaseAnchorUT`, so a
-  forward-snapped anchor simply parks the loop until the clock reaches it (which is
-  the intended "wait for the window"). Reconcile the two: `T- = NextWindowUT - now`
-  in ALL cases (whether the anchor is behind or ahead of now); while the loop is
-  parked (`now < phaseAnchorUT`) nothing renders and the T- column shows the same
-  positive countdown. [v1: Phase 1 next-window math + Phase 3 readout.]
+  `phaseAnchorUT` is snapped to `NextWindowUT` (the smallest `UT0 + k*P >= now`, `k` may
+  be negative); the span clock early-returns while `currentUT < phaseAnchorUT`, so a
+  forward-snapped anchor simply parks the loop until the clock reaches it (which is the
+  intended "wait for the window"). Reconcile the two: the `T-` countdown is to the next
+  ACTUAL engine relaunch (`nextRelaunchUT = phaseAnchorUT + n * relaunchCadence`,
+  `n = max(0, ceil((now - phaseAnchorUT) / relaunchCadence))`), which coincides with the
+  next `P`-window only when `relaunchCadence == P`; for a multiple-of-`P` relaunch cadence
+  (`m >= 2`) it targets the m-th window the engine actually launches at, never an
+  intervening skipped window. While the loop is parked (`now < phaseAnchorUT`) `n` clamps
+  to 0, nothing renders, and the T- column shows the positive countdown to the anchor.
+  [v1: Phase 1 next-window math + Phase 3 readout, corrected to the real relaunch cadence.]
 - **Config changed during a long T- wait:** while a window is counting down (loop
   parked), toggling an interval moves `BuildSignature`, rebuilds the unit, and
   re-derives `UT0` + constraints, so `phaseAnchorUT` re-snaps and the countdown can
