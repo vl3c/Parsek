@@ -1705,11 +1705,11 @@ namespace Parsek
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
                 ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
 
-            // "Time to launch" column header (right after the name column, before "Start time"):
-            // each mission's launch (first) vessel row shows a live countdown to the next faithful
-            // launch window under this header (every other vessel row + the mission header bar
-            // leave it blank).
-            GUILayout.Label("Time to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+            // "TTL" (time to launch) column header (right after the name column, before "Start
+            // time"): each mission's launch (first) vessel row shows a live countdown to the next
+            // faithful launch window under this header (every other vessel row + the mission header
+            // bar leave it blank).
+            GUILayout.Label("TTL", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
                 ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);
