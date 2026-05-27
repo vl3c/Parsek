@@ -565,6 +565,36 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Schedule_Deterministic_TwoIndependentBuildsResolveIdentically()
+        {
+            // Guards the determinism the engine/UI separation relies on: two schedules built from the
+            // SAME snapshotted inputs (e.g. the engine's LoopUnitSet and the UI's display mirror, or a
+            // schedule re-derived after a save/reload) produce IDENTICAL launches, so the displayed
+            // countdown can never drift from when the engine actually relaunches.
+            var a = new MissionRelaunchSchedule(
+                0.0, MunOrbit, new double[] { KerbinRotation },
+                new double[] { KerbinRotation * (0.25 / 360.0) }, floorUT: 5000.0, lookaheadMultiples: 4096);
+            var b = new MissionRelaunchSchedule(
+                0.0, MunOrbit, new double[] { KerbinRotation },
+                new double[] { KerbinRotation * (0.25 / 360.0) }, floorUT: 5000.0, lookaheadMultiples: 4096);
+
+            Assert.Equal(a.FirstLaunchUT, b.FirstLaunchUT, 6);
+            Assert.Equal(a.MinIntervalSeconds, b.MinIntervalSeconds, 6);
+            foreach (double probe in new[] { 0.0, a.FirstLaunchUT, a.FirstLaunchUT + MunOrbit, 5e8 })
+            {
+                bool ra = a.TryResolveActiveLaunch(probe, out double la, out long ca);
+                bool rb = b.TryResolveActiveLaunch(probe, out double lb, out long cb);
+                Assert.Equal(ra, rb);
+                if (ra)
+                {
+                    Assert.Equal(la, lb, 6);
+                    Assert.Equal(ca, cb);
+                }
+                Assert.Equal(a.NextLaunchAfter(probe), b.NextLaunchAfter(probe), 6);
+            }
+        }
+
+        [Fact]
         public void LoopUnit_WithSchedule_IsNonOverlapping_Invariant()
         {
             // Guards the INVARIANT: a unit carrying a schedule is built non-overlapping
