@@ -146,7 +146,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WithMarkerOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
+        public void WithMarkerOpacity_SetsSixtyPercentAlphaWithoutChangingRgb()
         {
             Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
 
@@ -155,7 +155,7 @@ namespace Parsek.Tests
             Assert.Equal(source.r, markerColor.r);
             Assert.Equal(source.g, markerColor.g);
             Assert.Equal(source.b, markerColor.b);
-            Assert.Equal(0.8f, markerColor.a, 0.001f);
+            Assert.Equal(0.6f, markerColor.a, 0.001f);
         }
 
         [Fact]
@@ -171,35 +171,36 @@ namespace Parsek.Tests
             Assert.Equal(1f, markerColor.a, 0.001f);
         }
 
-        // IsToggleClick — only left-button MouseDown toggles sticky state.
-        // Non-left clicks must pass through so stock map/tracking handlers can
-        // still react normally. The production click handler gates on this
-        // predicate, so the matrix here defines the full toggle contract.
+        // IsToggleClick — only right-button MouseDown toggles sticky state.
+        // Left and other clicks must pass through so stock map/tracking handlers
+        // can still react normally (e.g. the Tracking Station context menu). The
+        // production click handler gates on this predicate, so the matrix here
+        // defines the full toggle contract.
         [Theory]
-        [InlineData(EventType.MouseDown, 0, true)]   // left click down
-        [InlineData(EventType.MouseDown, 1, false)]  // right click down — pass through
+        [InlineData(EventType.MouseDown, 1, true)]   // right click down — toggle
+        [InlineData(EventType.MouseDown, 0, false)]  // left click down — pass through
         [InlineData(EventType.MouseDown, 2, false)]  // middle click down — not a toggle
         [InlineData(EventType.MouseDown, 3, false)]  // any other button — not a toggle
         [InlineData(EventType.MouseUp,   0, false)]  // left click up — not a toggle
         [InlineData(EventType.MouseUp,   1, false)]  // right click up — not a toggle
-        [InlineData(EventType.KeyDown,   0, false)]  // key event — not a toggle
-        [InlineData(EventType.Repaint,   0, false)]  // repaint — not a toggle
-        [InlineData(EventType.Layout,    0, false)]  // layout — not a toggle
-        [InlineData(EventType.MouseDrag, 0, false)]  // drag — not a toggle
-        public void IsToggleClick_MatchesMouseDownLeftOnly(
+        [InlineData(EventType.KeyDown,   1, false)]  // key event — not a toggle
+        [InlineData(EventType.Repaint,   1, false)]  // repaint — not a toggle
+        [InlineData(EventType.Layout,    1, false)]  // layout — not a toggle
+        [InlineData(EventType.MouseDrag, 1, false)]  // drag — not a toggle
+        public void IsToggleClick_MatchesMouseDownRightOnly(
             EventType type, int button, bool expected)
         {
             Assert.Equal(expected, MapMarkerRenderer.IsToggleClick(type, button));
         }
 
         [Theory]
-        [InlineData(true, true, "rec-1", EventType.MouseDown, 0, true)]
-        [InlineData(false, true, "rec-1", EventType.MouseDown, 0, false)]
-        [InlineData(true, false, "rec-1", EventType.MouseDown, 0, false)]
-        [InlineData(true, true, "", EventType.MouseDown, 0, false)]
-        [InlineData(true, true, "rec-1", EventType.MouseDown, 1, false)]
-        [InlineData(true, true, "rec-1", EventType.MouseUp, 0, false)]
-        public void ShouldRouteMarkerClickToHandler_MatchesHandledLeftClickContract(
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 1, true)]
+        [InlineData(false, true, "rec-1", EventType.MouseDown, 1, false)]
+        [InlineData(true, false, "rec-1", EventType.MouseDown, 1, false)]
+        [InlineData(true, true, "", EventType.MouseDown, 1, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 0, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseUp, 1, false)]
+        public void ShouldRouteMarkerClickToHandler_MatchesHandledRightClickContract(
             bool hasHandler,
             bool mouseOver,
             string markerKey,
@@ -223,62 +224,62 @@ namespace Parsek.Tests
             string line = MapMarkerRenderer.FormatHandledClickLogLine(
                 label: "Ghost Marker",
                 markerKey: "rec-handled",
-                button: 0);
+                button: 1);
 
             Assert.Contains("handled by caller", line);
             Assert.Contains("rec-handled", line);
-            Assert.Contains("button=0", line);
+            Assert.Contains("button=1", line);
         }
 
         // The click log line keeps the button id in the payload so log reviews
-        // can confirm the production left-click path. This test pins the wire
+        // can confirm the production right-click path. This test pins the wire
         // format (label / sticky on/off / key / button) by format-building
         // directly — driving DrawMarkerAtScreen requires a live Unity GUI
         // context, but the pure formatter owns the contract.
         [Fact]
-        public void FormatClickLogLine_LeftButtonToggleOn_IncludesButtonAndStickyOn()
+        public void FormatClickLogLine_RightButtonToggleOn_IncludesButtonAndStickyOn()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
                 label: "Bob Kerman Lander", markerKey: "rec-42",
-                nowSticky: true, button: 0);
+                nowSticky: true, button: 1);
             Assert.Contains("sticky=on", line);
-            Assert.Contains("button=0", line);
+            Assert.Contains("button=1", line);
             Assert.Contains("key=rec-42", line);
             Assert.Contains("Bob Kerman Lander", line);
         }
 
         [Fact]
-        public void FormatClickLogLine_LeftButtonToggleOff_IncludesButtonAndStickyOff()
+        public void FormatClickLogLine_RightButtonToggleOff_IncludesButtonAndStickyOff()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
                 label: "Probe 7", markerKey: "rec-7",
-                nowSticky: false, button: 0);
+                nowSticky: false, button: 1);
             Assert.Contains("sticky=off", line);
-            Assert.Contains("button=0", line);
+            Assert.Contains("button=1", line);
         }
 
         [Fact]
         public void FormatClickLogLine_NullLabel_RendersAsPlaceholder()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
-                label: null, markerKey: "rec-x", nowSticky: true, button: 0);
+                label: null, markerKey: "rec-x", nowSticky: true, button: 1);
             Assert.Contains("(null)", line);
         }
 
         // Log-assertion test: emit via ParsekLog.Info and assert the captured
         // line goes under tag MapMarker and carries the button id + sticky=on
-        // after a left-button toggle.
+        // after a right-button toggle.
         [Fact]
-        public void ClickLogLine_LeftButtonToggleOn_LoggedUnderMapMarkerTagWithButton()
+        public void ClickLogLine_RightButtonToggleOn_LoggedUnderMapMarkerTagWithButton()
         {
             string line = MapMarkerRenderer.FormatClickLogLine(
-                label: "Ghost A", markerKey: "rec-log", nowSticky: true, button: 0);
+                label: "Ghost A", markerKey: "rec-log", nowSticky: true, button: 1);
             ParsekLog.Info("MapMarker", line);
 
             Assert.Contains(logLines, l =>
                 l.Contains("[MapMarker]") &&
                 l.Contains("sticky=on") &&
-                l.Contains("button=0") &&
+                l.Contains("button=1") &&
                 l.Contains("key=rec-log"));
         }
 

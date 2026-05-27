@@ -806,23 +806,63 @@ namespace Parsek
                 GhostTrackingStationSelection.ClearSelectedGhost(reason);
         }
 
+        // Frames to ignore after the popup opens before an outside press can
+        // dismiss it. The opening click's press fires the frame before the
+        // popup exists, so this is belt-and-suspenders against event-order
+        // edge cases.
+        private const int GhostPopupOutsideClickArmFrames = 5;
+
         private void CheckGhostPopupOutsideClick()
         {
             if (currentGhostPopup == null)
                 return;
-            if (Time.frameCount - ghostPopupOpenFrame < 5)
-                return;
-            if (!Input.GetMouseButtonUp(0) && !Input.GetMouseButtonUp(1))
-                return;
 
-            if (IsMouseOverCurrentGhostPopup())
+            // Dismiss on a fresh outside PRESS, not a release. Releasing the
+            // very click that opened the popup used to close it: the popup
+            // anchors just below the cursor, so the cursor sits at/above its
+            // top edge (outside the rect), and the opening click's release was
+            // treated as an outside click. That is why the menu only stayed
+            // visible while the button was held down. A press starts a new
+            // interaction, so the opening click no longer closes the menu it
+            // just opened.
+            int framesSinceOpen = Time.frameCount - ghostPopupOpenFrame;
+            bool freshClick = Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1);
+            bool mouseOverPopup = IsMouseOverCurrentGhostPopup();
+
+            if (framesSinceOpen >= GhostPopupOutsideClickArmFrames
+                && freshClick
+                && mouseOverPopup)
             {
                 ParsekLog.Verbose(Tag,
                     "Tracking Station ghost popup click ignored: inside-popup");
                 return;
             }
 
+            if (!ShouldDismissGhostPopupOnOutsideClick(
+                    framesSinceOpen, freshClick, mouseOverPopup))
+                return;
+
             DismissCurrentGhostPopup("outside-click", clearSelection: true);
+        }
+
+        /// <summary>
+        /// Pure: should an open ghost popup be dismissed this frame? Dismiss
+        /// only on a fresh outside press once the arm window has elapsed, so
+        /// neither the press nor the release of the click that opened the popup
+        /// can close it. Extracted so the decision is unit-testable without a
+        /// Unity Input context — callers pass the frame delta, whether a mouse
+        /// button went down this frame, and whether the cursor is over the popup.
+        /// </summary>
+        internal static bool ShouldDismissGhostPopupOnOutsideClick(
+            int framesSinceOpen, bool freshClickThisFrame, bool mouseOverPopup)
+        {
+            if (framesSinceOpen < GhostPopupOutsideClickArmFrames)
+                return false;
+            if (!freshClickThisFrame)
+                return false;
+            if (mouseOverPopup)
+                return false;
+            return true;
         }
 
         private bool IsMouseOverCurrentGhostPopup()

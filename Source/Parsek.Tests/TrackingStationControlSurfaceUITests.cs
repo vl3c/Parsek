@@ -400,6 +400,31 @@ namespace Parsek.Tests
                     pointerOverGhostPopup));
         }
 
+        // The ghost popup must survive the click that opened it. It anchors
+        // just below the cursor, so the cursor sits outside the popup rect;
+        // dismissing on the opening click's release was why the menu only
+        // stayed visible while the button was held. Dismiss only on a fresh
+        // outside press once the arm window has elapsed.
+        [Theory]
+        [InlineData(10, true, false, true)]    // armed + fresh outside press -> dismiss
+        [InlineData(10, false, false, false)]  // armed, no press this frame -> stay (opening release ignored)
+        [InlineData(10, true, true, false)]    // armed + press, but over popup -> stay
+        [InlineData(2, true, false, false)]    // within arm window -> stay (opening press ignored)
+        [InlineData(0, true, false, false)]    // open frame -> stay
+        public void ShouldDismissGhostPopupOnOutsideClick_OnlyOnFreshArmedOutsidePress(
+            int framesSinceOpen,
+            bool freshClickThisFrame,
+            bool mouseOverPopup,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                ParsekTrackingStation.ShouldDismissGhostPopupOnOutsideClick(
+                    framesSinceOpen,
+                    freshClickThisFrame,
+                    mouseOverPopup));
+        }
+
         [Fact]
         public void IsPointerOverOpenWindow_RequiresOpenSizedRectContainingMouse()
         {
