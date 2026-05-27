@@ -14,8 +14,11 @@ namespace Parsek
     // data is read through the IBodyInfo seam so the whole thing is unit-testable against
     // synthetic bodies.
     //
-    // Phase 0 (this commit's scope): ExtractConstraints only.
-    // Phase 1 adds Solve.
+    // Implemented here: ExtractConstraints (Phase 0), Solve with the single-constraint Tier-1
+    // phase-lock (Phase 1), and the whole-multiples joint best-fit for incommensurate
+    // multi-constraint configs (Phase 2: FindBestJointMultiple / JointStepResidual). Phase 2.5
+    // (zero-drift per-window reschedule) and Phase 4 (cross-parent / interplanetary) remain
+    // deferred; cross-parent targets are reported unsupported (no-lock sentinel).
 
     /// <summary>The kind of phase requirement an included segment imposes.</summary>
     internal enum ConstraintKind

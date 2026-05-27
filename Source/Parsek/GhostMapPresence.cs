@@ -96,6 +96,14 @@ namespace Parsek
         /// none covers effUT the loop removes the proto-vessel instead, matching the flight scene's
         /// segment-update path. Loop membership is read from the per-tick epoch shift
         /// (<c>liveUT - effUT</c>): zero for non-loop members, non-zero for loop replay.
+        ///
+        /// INVARIANT (load-bearing): this "shift == 0 means non-loop" signal is sound only because
+        /// the first-play floor in <c>MissionLoopUnitBuilder.TryBuildMissionUnit</c> clamps every
+        /// looping mission's <c>phaseAnchorUT</c> to at least <c>spanEndUT</c> (&gt; spanStartUT), so a
+        /// loop member's effUT can never equal liveUT (it always maps to a past recorded UT, giving a
+        /// non-zero shift). If that floor is ever weakened/removed, a cycle-0 member with
+        /// <c>phaseAnchorUT == spanStartUT</c> would produce shift 0 and silently re-enable the
+        /// endpoint tail here. Keep the two in sync.
         /// </summary>
         internal static bool EndpointTailAllowedInTrackingStationUpdate(double loopEpochShiftSeconds)
         {
