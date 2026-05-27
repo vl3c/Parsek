@@ -119,13 +119,14 @@ namespace Parsek
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
         // sized loop control here is the period cell.
         private const float ColW_Period = 90f;
-        // Fixed width of the whole loop-period cell on the mission header bar, sized to the widest
-        // state (the read-only phase-locked "~P (basis)" label, e.g. "~6.4d (Mun window)"). EVERY
-        // period-cell state is wrapped in a container of this width (the narrower editable value+unit
-        // pads the remainder with a FlexibleSpace), so the Watch / Rewind buttons that follow start
-        // at the same x on every mission row. The width is ColW_Period + the freed "Time to launch"
-        // column width (the countdown moved off the bar onto the launch vessel row).
-        private const float ColW_PeriodLocked = ColW_Period + ColW_TMinus + 4f;
+        // Fixed width of the whole loop-period cell on the mission header bar, sized to fit the widest
+        // state (the read-only phase-locked "~P (basis)" label, e.g. "~6.4d (Mun window)" /
+        // "~14.5d (Minmus window)"). EVERY period-cell state is wrapped in a container of this width
+        // (the narrower editable value+unit pads the remainder with a FlexibleSpace), so the Watch /
+        // Rewind buttons that follow start at the same x on every mission row. 160 fits the longest
+        // basis label and leaves room in the (fixed-width) header right block for the "Warp to..."
+        // button added before Loop.
+        private const float ColW_PeriodLocked = 160f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
@@ -723,13 +724,24 @@ namespace Parsek
             GUILayout.BeginHorizontal(GUILayout.Width(MissionHeaderRightBlockWidth));
 
             // Clone / Delete first. Delete is disabled when this is the tree's last mission. Clone,
-            // Delete, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as one group.
+            // Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as
+            // one group.
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
             if (GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Delete(mission);
             GUI.enabled = true;
+
+            // "Warp to..." (after Delete, before Loop): jumps the game clock to this mission's next
+            // faithful relaunch (the TTL countdown target = periodicity.NextRelaunchUT), reusing the
+            // Timeline "Warp to time" flow (confirmation dialog; in flight it defers to the Space
+            // Center so the Merge / Discard dialog handles the active recording first). The next
+            // relaunch is always in the future, so this is a forward (fast-forward) warp. Enabled only
+            // when the mission is looping, an engine unit was built, the next relaunch is in the
+            // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
+            // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
+            DrawMissionWarpToWindowButton(mission, periodicity);
 
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
             // wrapper left slack that widened the gap before the period field). The label uses the
@@ -893,6 +905,58 @@ namespace Parsek
                 }
             }
             GUI.enabled = true;
+        }
+
+        // "Warp to..." button: fast-forwards the game clock to this mission's next faithful relaunch
+        // (periodicity.NextRelaunchUT, the same UT the TTL countdown targets), reusing the Timeline
+        // "Warp to time" flow via WarpToTimeController.RequestWarp (confirmation dialog; in flight it
+        // defers the warp to the Space Center so the scene-exit Merge / Discard dialog handles the
+        // active recording first). The next relaunch is always in the future -> a forward warp. The
+        // target UT is decomposed into the Year/Day/Hour/Minute the controller takes (minute
+        // precision, which is negligible against the multi-day inter-body cadence). Disabled (greyed,
+        // width-stable) unless the mission is looping, an engine unit was built, the next relaunch is
+        // in the future, and we are in a warp-capable scene (flight or Space Center).
+        private void DrawMissionWarpToWindowButton(Mission mission, MissionPeriodicityDisplay periodicity)
+        {
+            bool inFlight = parentUI.InFlightMode;
+            bool warpScene = inFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER;
+
+            double now = periodicity.Solved ? periodicity.NowUT : Planetarium.GetUniversalTime();
+            bool actionable = warpScene && ShouldEnableWarpToWindow(
+                mission != null && mission.LoopPlayback,
+                periodicity.UnitBuilt,
+                periodicity.NextRelaunchUT,
+                now);
+
+            GUI.enabled = actionable;
+            if (GUILayout.Button("Warp to...", GUILayout.Width(ColW_HeaderButton)))
+            {
+                double targetUT = periodicity.NextRelaunchUT;
+                WarpToTimeMath.ComputeComponentsFromUT(targetUT, out int y, out int d, out int h, out int m);
+                ParsekLog.Info("Mission", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Warp to next window for mission '{0}': targetUT={1} -> Y{2} D{3} {4}:{5:00} inFlight={6}",
+                    mission.Name, targetUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                    y, d, h, m, inFlight));
+                WarpToTimeController.RequestWarp(y, d, h, m, parentUI.Flight, inFlight);
+            }
+            GUI.enabled = true;
+        }
+
+        /// <summary>
+        /// Whether the per-mission "Warp to..." button is actionable: the mission must be looping,
+        /// have a built engine loop unit, and have a next relaunch UT that is finite and strictly in
+        /// the future (more than a second ahead, so an at-or-behind-now relaunch does not offer a
+        /// no-op warp). Pure (the scene gate is applied by the caller). The actual warp is a forward
+        /// fast-forward via WarpToTimeController.
+        /// </summary>
+        internal static bool ShouldEnableWarpToWindow(
+            bool looping, bool unitBuilt, double nextRelaunchUT, double nowUT)
+        {
+            return looping
+                && unitBuilt
+                && !double.IsNaN(nextRelaunchUT)
+                && !double.IsInfinity(nextRelaunchUT)
+                && nextRelaunchUT > nowUT + 1.0;
         }
 
         private void LogSortChanged()

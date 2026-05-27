@@ -334,5 +334,35 @@ namespace Parsek.Tests
                 overlapCadenceSeconds: 0.0);
             Assert.Equal(1000.0, ComputeNextRelaunchUT(unit, 5000.0), 6);
         }
+
+        // ===================== ShouldEnableWarpToWindow =====================
+
+        [Fact]
+        public void ShouldEnableWarpToWindow_LoopingBuiltFutureRelaunch_Enabled()
+        {
+            // Fails if a looping mission with a built unit and a future relaunch is not warp-able.
+            Assert.True(ShouldEnableWarpToWindow(
+                looping: true, unitBuilt: true, nextRelaunchUT: 1_250_000.0, nowUT: 10_000.0));
+        }
+
+        [Theory]
+        [InlineData(false, true, 1_250_000.0, 10_000.0)]   // not looping
+        [InlineData(true, false, 1_250_000.0, 10_000.0)]   // no engine unit built
+        [InlineData(true, true, 10_000.0, 1_250_000.0)]    // relaunch in the past -> nothing to warp to
+        [InlineData(true, true, 10_000.5, 10_000.0)]       // relaunch <= now + 1s -> no-op, disabled
+        public void ShouldEnableWarpToWindow_Disabled_Cases(
+            bool looping, bool unitBuilt, double nextRelaunchUT, double nowUT)
+        {
+            Assert.False(ShouldEnableWarpToWindow(looping, unitBuilt, nextRelaunchUT, nowUT));
+        }
+
+        [Fact]
+        public void ShouldEnableWarpToWindow_NaNOrInfiniteRelaunch_Disabled()
+        {
+            // Fails if a NaN / infinite relaunch UT (no faithful window / unsupported config) is
+            // treated as a valid warp target.
+            Assert.False(ShouldEnableWarpToWindow(true, true, double.NaN, 10_000.0));
+            Assert.False(ShouldEnableWarpToWindow(true, true, double.PositiveInfinity, 10_000.0));
+        }
     }
 }

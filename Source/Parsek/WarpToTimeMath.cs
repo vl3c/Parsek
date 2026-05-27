@@ -67,6 +67,33 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Inverse of <see cref="ComputeTargetUT"/>: decomposes a UT into the Year / Day / Hour /
+        /// Minute fields the warp UI uses (Year/Day 1-based, Hour/Minute 0-based), respecting the
+        /// Kerbin vs Earth calendar. Truncates to the whole MINUTE (drops seconds), so
+        /// <c>ComputeTargetUT(ComputeComponentsFromUT(ut)) &lt;= ut</c> and is within one minute of it
+        /// - lossless to the minute, which is all the warp UI carries. A negative / NaN / infinite ut
+        /// clamps to 0 (Year 1, Day 1, 0:00). Pure.
+        /// </summary>
+        internal static void ComputeComponentsFromUT(
+            double ut, out int year, out int day, out int hour, out int minute)
+        {
+            ParsekTimeFormat.GetDayAndYearConstants(out int secsPerDay, out int daysPerYear);
+            long secsPerYear = (long)daysPerYear * secsPerDay;
+
+            if (double.IsNaN(ut) || double.IsInfinity(ut) || ut < 0.0)
+                ut = 0.0;
+
+            long total = (long)ut; // floor to the second; the minute division below drops seconds
+            year = (int)(total / secsPerYear) + 1;
+            long rem = total % secsPerYear;
+            day = (int)(rem / secsPerDay) + 1;
+            rem %= secsPerDay;
+            hour = (int)(rem / 3600L);
+            rem %= 3600L;
+            minute = (int)(rem / 60L);
+        }
+
+        /// <summary>
         /// Parses a draft string into a validated integer field value. Returns false for
         /// non-integer / empty input (caller keeps the prior committed value). Year/Day
         /// floor at 1; Hour/Minute floor at 0.

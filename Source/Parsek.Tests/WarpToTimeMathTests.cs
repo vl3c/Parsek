@@ -49,6 +49,43 @@ namespace Parsek.Tests
             Assert.Equal(3600.0, WarpToTimeMath.ComputeTargetUT(1, 1, 0, 60), 3);
         }
 
+        // ── ComputeComponentsFromUT (inverse of ComputeTargetUT, Kerbin) ──
+
+        [Theory]
+        [InlineData(0.0, 1, 1, 0, 0)]                  // game start
+        [InlineData(21600.0, 1, 2, 0, 0)]              // +1 Kerbin day
+        [InlineData(9201600.0, 2, 1, 0, 0)]            // +1 Kerbin year
+        [InlineData(3600.0, 1, 1, 1, 0)]               // +1 hour
+        [InlineData(60.0, 1, 1, 0, 1)]                 // +1 minute
+        [InlineData(9000.0, 1, 1, 2, 30)]              // 2h30m
+        [InlineData(125.0, 1, 1, 0, 2)]                // 2m05s -> truncates seconds to 2 min
+        [InlineData(-100.0, 1, 1, 0, 0)]               // negative clamps to start
+        public void ComputeComponentsFromUT_Kerbin(double ut, int ey, int ed, int eh, int em)
+        {
+            WarpToTimeMath.ComputeComponentsFromUT(ut, out int y, out int d, out int h, out int m);
+            Assert.Equal(ey, y);
+            Assert.Equal(ed, d);
+            Assert.Equal(eh, h);
+            Assert.Equal(em, m);
+        }
+
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(21600.0)]
+        [InlineData(1250859.39)]   // ~9 Mun periods (the joint-best-fit relaunch UT)
+        [InlineData(9201659.0)]    // just past 1 Kerbin year, with seconds
+        [InlineData(123456.78)]
+        public void ComputeComponentsFromUT_RoundTripsToTheMinute(double ut)
+        {
+            // The inverse truncates to the whole minute, so ComputeTargetUT(components) lands at or
+            // before ut and within one minute of it - lossless to the minute, which is all the warp
+            // UI carries.
+            WarpToTimeMath.ComputeComponentsFromUT(ut, out int y, out int d, out int h, out int m);
+            double back = WarpToTimeMath.ComputeTargetUT(y, d, h, m);
+            Assert.True(back <= ut + 1e-6, $"round-trip {back} should be <= {ut}");
+            Assert.True(back > ut - 60.0, $"round-trip {back} should be within a minute of {ut}");
+        }
+
         // ── TryParseField ──
 
         // Field kind passed as a string (the enum is internal, so it cannot be a public
