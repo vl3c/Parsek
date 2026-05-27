@@ -171,14 +171,14 @@ namespace Parsek.Tests
             Assert.Equal(1f, markerColor.a, 0.001f);
         }
 
-        // IsToggleClick — only right-button MouseDown toggles sticky state.
-        // Left and other clicks must pass through so stock map/tracking handlers
-        // can still react normally (e.g. the Tracking Station context menu). The
-        // production click handler gates on this predicate, so the matrix here
-        // defines the full toggle contract.
+        // IsToggleClick — only right-button MouseDown toggles the sticky label.
+        // A left click instead routes to the marker's onClick handler (the menu)
+        // and other clicks pass through to stock map/tracking handlers. The
+        // production click handler gates the sticky toggle on this predicate, so
+        // the matrix here defines the full toggle contract.
         [Theory]
-        [InlineData(EventType.MouseDown, 1, true)]   // right click down — toggle
-        [InlineData(EventType.MouseDown, 0, false)]  // left click down — pass through
+        [InlineData(EventType.MouseDown, 1, true)]   // right click down — toggle label
+        [InlineData(EventType.MouseDown, 0, false)]  // left click down — opens menu, not a toggle
         [InlineData(EventType.MouseDown, 2, false)]  // middle click down — not a toggle
         [InlineData(EventType.MouseDown, 3, false)]  // any other button — not a toggle
         [InlineData(EventType.MouseUp,   0, false)]  // left click up — not a toggle
@@ -193,14 +193,30 @@ namespace Parsek.Tests
             Assert.Equal(expected, MapMarkerRenderer.IsToggleClick(type, button));
         }
 
+        // IsHandlerClick — only left-button MouseDown opens the marker menu via
+        // the onClick handler. Right-click is the sticky-label toggle instead.
         [Theory]
-        [InlineData(true, true, "rec-1", EventType.MouseDown, 1, true)]
-        [InlineData(false, true, "rec-1", EventType.MouseDown, 1, false)]
-        [InlineData(true, false, "rec-1", EventType.MouseDown, 1, false)]
-        [InlineData(true, true, "", EventType.MouseDown, 1, false)]
-        [InlineData(true, true, "rec-1", EventType.MouseDown, 0, false)]
-        [InlineData(true, true, "rec-1", EventType.MouseUp, 1, false)]
-        public void ShouldRouteMarkerClickToHandler_MatchesHandledRightClickContract(
+        [InlineData(EventType.MouseDown, 0, true)]   // left click down — opens menu
+        [InlineData(EventType.MouseDown, 1, false)]  // right click down — toggles label, not the menu
+        [InlineData(EventType.MouseDown, 2, false)]  // middle click down — not a menu click
+        [InlineData(EventType.MouseUp,   0, false)]  // left click up — not a menu click
+        [InlineData(EventType.Repaint,   0, false)]  // repaint — not a menu click
+        public void IsHandlerClick_MatchesMouseDownLeftOnly(
+            EventType type, int button, bool expected)
+        {
+            Assert.Equal(expected, MapMarkerRenderer.IsHandlerClick(type, button));
+        }
+
+        // The marker menu (onClick handler) opens on a LEFT click; right-click
+        // is the separate sticky-label toggle and must not route to the handler.
+        [Theory]
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 0, true)]
+        [InlineData(false, true, "rec-1", EventType.MouseDown, 0, false)]
+        [InlineData(true, false, "rec-1", EventType.MouseDown, 0, false)]
+        [InlineData(true, true, "", EventType.MouseDown, 0, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseDown, 1, false)]
+        [InlineData(true, true, "rec-1", EventType.MouseUp, 0, false)]
+        public void ShouldRouteMarkerClickToHandler_MatchesHandledLeftClickContract(
             bool hasHandler,
             bool mouseOver,
             string markerKey,
@@ -224,11 +240,11 @@ namespace Parsek.Tests
             string line = MapMarkerRenderer.FormatHandledClickLogLine(
                 label: "Ghost Marker",
                 markerKey: "rec-handled",
-                button: 1);
+                button: 0);
 
             Assert.Contains("handled by caller", line);
             Assert.Contains("rec-handled", line);
-            Assert.Contains("button=1", line);
+            Assert.Contains("button=0", line);
         }
 
         // The click log line keeps the button id in the payload so log reviews

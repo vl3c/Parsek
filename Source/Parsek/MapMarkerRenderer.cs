@@ -18,9 +18,11 @@ namespace Parsek
     /// so ghost icons match stock ProtoVessel icons for every VesselType (#387).
     ///
     /// Label is hidden by default, revealed while hovering the icon, and
-    /// toggled sticky by right-clicking the icon. Left and other clicks pass
-    /// through so KSP's stock map/tracking handlers still see them (e.g. the
-    /// Tracking Station context menu). The sticky set is keyed by
+    /// toggled sticky by right-clicking the icon (mirroring how the ProtoVessel
+    /// ghost icons keep their label). A left click instead opens the marker's
+    /// menu when a click handler is supplied (the Tracking Station ghost popup);
+    /// where none is (flight map view) the left click passes through to KSP's
+    /// stock map handlers. The sticky set is keyed by
     /// recording ID and cleared on scene change. The custom marker is only
     /// drawn when the stock MapNode for the same recording is absent or
     /// suppressed, so there is no double-labeling when a ghost ProtoVessel
@@ -194,10 +196,12 @@ namespace Parsek
 
             Rect iconRect = new Rect(x - IconSize / 2f, y - IconSize / 2f, IconSize, IconSize);
 
-            // Label hover + sticky click toggle. Right click only so left and
-            // other clicks still reach KSP's stock handlers (e.g. the Tracking
-            // Station context menu). This runs before icon draw so a newly-pinned
-            // marker reaches full opacity immediately.
+            // Marker click handling: a LEFT click opens the marker menu via the
+            // onClick handler (e.g. the Tracking Station ghost popup); a RIGHT
+            // click toggles the sticky yellow label, mirroring the ProtoVessel
+            // ghost icons. Both run before the icon draw so a newly-pinned marker
+            // reaches full opacity immediately; clicks with no matching action
+            // pass through to KSP's stock map/tracking handlers.
             bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
             bool mouseOver = false;
 
@@ -286,16 +290,28 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: is this event a label-toggle click (MouseDown + right button)?
-        /// Left and other clicks must pass through so stock map/tracking
-        /// handlers still receive them (e.g. the Tracking Station context menu);
-        /// this also mirrors how the ProtoVessel ghost icons keep their label.
-        /// Extracted so the decision is unit-testable without a Unity GUI
-        /// context — callers pass <c>Event.current.type</c> and
-        /// <c>Event.current.button</c> explicitly. (Unity button index 1 = right.)
+        /// Pure: is this event a sticky-label toggle click (MouseDown + right
+        /// button)? Right-click pins/unpins the yellow label, mirroring how the
+        /// ProtoVessel ghost icons keep their label. A left click instead routes
+        /// to the marker's onClick handler (see
+        /// <see cref="ShouldRouteMarkerClickToHandler"/>), and other clicks pass
+        /// through to KSP's stock map/tracking handlers. Extracted so the
+        /// decision is unit-testable without a Unity GUI context — callers pass
+        /// <c>Event.current.type</c> and <c>Event.current.button</c> explicitly.
+        /// (Unity button index 1 = right.)
         /// </summary>
         internal static bool IsToggleClick(EventType type, int button)
             => type == EventType.MouseDown && button == 1;
+
+        /// <summary>
+        /// Pure: is this event a marker-menu click (MouseDown + left button)?
+        /// Left-click opens the marker's menu via the onClick handler (e.g. the
+        /// Tracking Station ghost popup); pinning the yellow label is the
+        /// separate right-click toggle (see <see cref="IsToggleClick"/>).
+        /// (Unity button index 0 = left.)
+        /// </summary>
+        internal static bool IsHandlerClick(EventType type, int button)
+            => type == EventType.MouseDown && button == 0;
 
         internal static bool ShouldRouteMarkerClickToHandler(
             bool hasHandler,
@@ -307,7 +323,7 @@ namespace Parsek
             return hasHandler
                 && mouseOver
                 && !string.IsNullOrEmpty(markerKey)
-                && IsToggleClick(type, button);
+                && IsHandlerClick(type, button);
         }
 
         /// <summary>
