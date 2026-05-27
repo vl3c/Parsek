@@ -236,6 +236,8 @@ namespace Parsek
             double effectiveCadence = cadence;
             double effectiveOverlapCadence = overlapCadence;
             bool phaseLocked = false;
+            MissionRelaunchSchedule relaunchSchedule = null;
+            bool scheduleRejectedForOverlap = false;
             PeriodicitySolution solution = default;
             if (bodyInfo != null)
             {
@@ -262,14 +264,44 @@ namespace Parsek
                     effectiveCadence = QuantizeCadenceToMultipleOfP(cadence, solution.P);
                     effectiveOverlapCadence = QuantizeCadenceToMultipleOfP(overlapCadence, solution.P);
                     phaseLocked = true;
+
+                    // 7d. Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md):
+                    //     for a DRIFTING multi-constraint incommensurate config, replace the fixed
+                    //     cadence with a NON-UNIFORM schedule so each relaunch is independently within
+                    //     tolerance instead of accumulating drift. TryBuildRelaunchSchedule returns no
+                    //     schedule for single-constraint / tidal-collapse / unsupported configs (they
+                    //     keep the fixed cadence above, byte-identical). The schedule is attached ONLY
+                    //     when it is non-overlapping (its minimum interval >= the span), which keeps the
+                    //     INVARIANT that a scheduled unit's OverlapCadenceSeconds >= span (so
+                    //     UnitMemberOverlaps is false and the overlap engine path never sees it). The
+                    //     realistic faithful inter-body cadence is long (>> span), so this holds; a
+                    //     would-overlap schedule (a pathological short dominant period vs a long span)
+                    //     is rejected and the fixed cadence is kept.
+                    if (MissionPeriodicity.TryBuildRelaunchSchedule(
+                            extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
+                            bodyInfo, out MissionRelaunchSchedule sched))
+                    {
+                        if (sched.MinIntervalSeconds >= span)
+                        {
+                            relaunchSchedule = sched;
+                            phaseAnchorUT = sched.FirstLaunchUT;             // L_0 (>= the first-play floor)
+                            effectiveCadence = Math.Max(span, sched.MinIntervalSeconds);
+                            effectiveOverlapCadence = effectiveCadence;       // >= span -> never overlaps
+                        }
+                        else
+                        {
+                            scheduleRejectedForOverlap = true;                // would self-overlap: keep fixed cadence
+                        }
+                    }
                 }
             }
 
-            // 8. Build the unit (carrying the per-member trimmed render windows).
+            // 8. Build the unit (carrying the per-member trimmed render windows + the optional
+            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
-                effectiveOverlapCadence, memberWindowByIndex);
+                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule);
 
             if (!SuppressLogging)
             {
@@ -282,19 +314,26 @@ namespace Parsek
                     $"cadence={effectiveCadence.ToString("R", ic)} " +
                     $"overlapCadence={effectiveOverlapCadence.ToString("R", ic)} " +
                     $"overlaps={(effectiveOverlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
+                    $"scheduled={(relaunchSchedule != null ? "yes" : "no")} " +
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
 
                 // Phase-lock applied vs skipped (design Diagnostic Logging): Info so a misbehaving
                 // config is never a silent branch.
                 if (phaseLocked)
                 {
+                    string scheduleNote = relaunchSchedule != null
+                        ? $" zeroDrift=yes firstLaunch={relaunchSchedule.FirstLaunchUT.ToString("R", ic)} " +
+                          $"minInterval={relaunchSchedule.MinIntervalSeconds.ToString("R", ic)}"
+                        : (scheduleRejectedForOverlap
+                            ? " zeroDrift=rejected-would-overlap-keeping-fixed-cadence"
+                            : " zeroDrift=no");
                     ParsekLog.Info("MissionPeriodicity",
                         $"PhaseLock APPLIED: mission='{mission.Name}' tree={tree.Id} " +
                         $"anchor {baseAnchorUT.ToString("R", ic)}->{phaseAnchorUT.ToString("R", ic)} " +
                         $"P={solution.P.ToString("R", ic)} method={solution.Method} " +
                         $"cadence {cadence.ToString("R", ic)}->{effectiveCadence.ToString("R", ic)} " +
                         $"residual={solution.ResidualSeconds.ToString("R", ic)} " +
-                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}");
+                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}" + scheduleNote);
                 }
                 else if (bodyInfo != null)
                 {
@@ -536,7 +575,13 @@ namespace Parsek
                 sb.Append(b).Append('=')
                   .Append(bodyInfo.RotationPeriod(b).ToString("R", ic)).Append(',')
                   .Append(bodyInfo.OrbitPeriod(b).ToString("R", ic)).Append(',')
-                  .Append(bodyInfo.ReferenceBodyName(b) ?? "-").Append(';');
+                  .Append(bodyInfo.ReferenceBodyName(b) ?? "-").Append(',')
+                  // SoiRadius + OrbitalVelocity feed the orbital tolerance (SoiRadius/OrbitalVelocity),
+                  // which determines the zero-drift schedule's within-tolerance windows. Fold them in
+                  // so a planet pack that changes a body's SOI (without changing its orbit period)
+                  // still re-derives the schedule.
+                  .Append(bodyInfo.SoiRadius(b).ToString("R", ic)).Append(',')
+                  .Append(bodyInfo.OrbitalVelocity(b).ToString("R", ic)).Append(';');
             }
             sb.Append('@');
         }

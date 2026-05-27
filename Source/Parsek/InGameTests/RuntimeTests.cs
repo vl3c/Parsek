@@ -4584,6 +4584,55 @@ namespace Parsek.InGameTests
                 "Empty loop-unit set must pass through the live UT (42)");
         }
 
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "Zero-drift: a scheduled loop unit maps a member to its NON-UNIFORM scheduled-launch loopUT, hides it in the inter-launch tail, and is parked before the first scheduled launch")]
+        public void TrackingStationSpanClock_ZeroDriftSchedule_ResolvesScheduledLaunch()
+        {
+            // The scheduled span clock is fully xUnit-tested (MissionZeroDriftScheduleTests); here we
+            // verify it is consumed correctly through the TS/map seam (ResolveTrackingStationSampleUT)
+            // in the Unity runtime against a synthetic scheduled unit. Synthetic 100/31 schedule:
+            // launches at UT 900, 1300, 1800, ...; span [0,50] (< the ~400s interval, so the clock
+            // parks between launches).
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+            double span = 50.0;
+            double cad = System.Math.Max(span, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 5, memberIndices: new[] { 5 },
+                spanStartUT: 0.0, spanEndUT: span, cadenceSeconds: cad, phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+            InGameAssert.IsFalse(GhostPlaybackLogic.UnitMemberOverlaps(unit),
+                "A scheduled unit must be non-overlapping (the invariant)");
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 5, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 5, 5 } };
+            var units = new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+
+            // 25 s into the first scheduled launch (UT 900) -> loopUT = spanStart + 25, not hidden.
+            double effInSpan = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 925.0, units, out bool hiddenInSpan);
+            InGameAssert.IsFalse(hiddenInSpan, "Member inside the scheduled span must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effInSpan - 25.0) < 1e-6,
+                $"Member must resolve to the scheduled-launch loopUT (expected 25, got {effInSpan:F3})");
+
+            // 70 s in (past the 50 s span) -> parked in the inter-launch tail -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 970.0, units, out bool hiddenTail);
+            InGameAssert.IsTrue(hiddenTail, "Member parked in the inter-launch tail must report hidden");
+
+            // Before the first scheduled launch (UT 500 < 900) -> parked -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 500.0, units, out bool hiddenBefore);
+            InGameAssert.IsTrue(hiddenBefore, "Member before the first scheduled launch must report hidden");
+
+            // The SECOND scheduled launch (UT 1300) -> in-window again, not hidden.
+            double effSecond = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 1310.0, units, out bool hiddenSecond);
+            InGameAssert.IsFalse(hiddenSecond, "Member inside the second scheduled launch's span must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effSecond - 10.0) < 1e-6,
+                $"Second scheduled launch must resolve to spanStart + 10 (expected 10, got {effSecond:F3})");
+        }
+
         [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
             Description = "Mission self-overlap: a looping unit with overlap cadence shorter than its span resolves the watched member to its NEWEST staggered instance, not the single span-clock UT")]
         public void MissionSelfOverlap_ResolvesNewestInstanceMemberUT()

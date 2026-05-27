@@ -6756,17 +6756,37 @@ namespace Parsek
             double cadenceSeconds,
             out double loopUT,
             out long cycleIndex,
-            out bool isInInterCycleTail)
+            out bool isInInterCycleTail,
+            MissionRelaunchSchedule schedule = null)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
             isInInterCycleTail = false;
 
-            if (currentUT < phaseAnchorUT)
-                return false;
-
             double span = spanEndUT - spanStartUT;
             if (span <= 0)
+                return false;
+
+            // Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md): when a
+            // non-uniform schedule is attached, the active relaunch is the largest scheduled launch
+            // <= currentUT (NOT phaseAnchorUT + n*cadence). The phase within the span is measured
+            // from that launch; the clock parks at spanEnd between launches (interval > span always
+            // for a scheduled unit, so the tail engages and the caller hides all members - render
+            // nothing in the gap). Null schedule -> the uniform path below, byte-identical.
+            if (schedule != null)
+            {
+                if (!schedule.TryResolveActiveLaunch(currentUT, out double launchUT, out long sIdx))
+                    return false; // parked before the first scheduled launch
+                double scheduledPhase = currentUT - launchUT;
+                if (scheduledPhase < 0.0)
+                    scheduledPhase = 0.0;
+                cycleIndex = sIdx;
+                isInInterCycleTail = (scheduledPhase >= span);
+                loopUT = spanStartUT + (scheduledPhase >= span ? span : scheduledPhase);
+                return true;
+            }
+
+            if (currentUT < phaseAnchorUT)
                 return false;
 
             // Edge 14: clamp the cadence here. The span clock has no ResolveLoopInterval clamp.
@@ -6922,7 +6942,8 @@ namespace Parsek
             double memberEndUT,
             out double spanLoopUT,
             out long unitCycle,
-            out bool isInInterCycleTail)
+            out bool isInInterCycleTail,
+            MissionRelaunchSchedule schedule = null)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -6930,7 +6951,7 @@ namespace Parsek
 
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
-                    out unitCycle, out isInInterCycleTail))
+                    out unitCycle, out isInInterCycleTail, schedule))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -6986,7 +7007,8 @@ namespace Parsek
                 memberEndUT,
                 out double loopUT,
                 out _,
-                out _);
+                out _,
+                unit.RelaunchSchedule);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;

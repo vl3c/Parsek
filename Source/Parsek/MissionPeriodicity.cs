@@ -1320,8 +1320,13 @@ namespace Parsek
     internal sealed class MissionRelaunchSchedule
     {
         // Eagerly probe this many launches at construction to determine MinIntervalSeconds (the
-        // builder's overlap gate). A small bounded prefix; the rest is generated lazily.
-        private const int MinIntervalProbeLaunches = 4;
+        // builder's overlap-REJECT estimate). A bounded prefix; the rest is generated lazily. This
+        // only feeds the builder's decision whether to ATTACH the schedule (reject if MinInterval <
+        // span); the non-overlap INVARIANT itself does not depend on it, because the builder sets
+        // OverlapCadenceSeconds = max(span, MinInterval) >= span UNCONDITIONALLY, so a scheduled
+        // unit's UnitMemberOverlaps is false regardless of any later interval. A larger prefix just
+        // makes the reject estimate tighter.
+        private const int MinIntervalProbeLaunches = 8;
 
         private readonly double ut0;
         private readonly double dominantPeriod;

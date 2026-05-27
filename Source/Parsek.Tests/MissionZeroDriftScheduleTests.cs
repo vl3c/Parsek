@@ -471,5 +471,115 @@ namespace Parsek.Tests
             Assert.Equal(aMid, aMid2, 6);
             Assert.Equal(cMid, cMid2);
         }
+
+        // ===================== Span-clock consumption (Phase B) =====================
+
+        // A schedule with launches at UT 900, 1300, 1800, ... (synthetic 100/31 case), used to drive
+        // the span clock. The span is 50 s, far shorter than the ~400 s relaunch interval, so the
+        // clock parks (inter-cycle tail) between launches.
+        private static MissionRelaunchSchedule SyntheticSchedule()
+            => new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+
+        [Fact]
+        public void SpanClock_Scheduled_ParkedBeforeFirstLaunch()
+        {
+            var schedule = SyntheticSchedule();
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                500.0, phaseAnchorUT: 900.0, spanStartUT: 0.0, spanEndUT: 50.0, cadenceSeconds: 50.0,
+                out _, out _, out _, schedule);
+            Assert.False(ok); // before the first scheduled launch -> unresolved (render nothing)
+        }
+
+        [Fact]
+        public void SpanClock_Scheduled_RendersDuringSpan_ThenParksInTailBetweenLaunches()
+        {
+            var schedule = SyntheticSchedule();
+
+            // On the first launch (UT 900): phase 0 -> loopUT = spanStart, cycle 0, not tail.
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                900.0, 900.0, 0.0, 50.0, 50.0, out double l0, out long c0, out bool tail0, schedule));
+            Assert.Equal(0.0, l0, 6);
+            Assert.Equal(0, c0);
+            Assert.False(tail0);
+
+            // 25 s into the first launch's span: loopUT = spanStart + 25, still rendering.
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                925.0, 900.0, 0.0, 50.0, 50.0, out double lMid, out _, out bool tailMid, schedule));
+            Assert.Equal(25.0, lMid, 6);
+            Assert.False(tailMid);
+
+            // 70 s in (past the 50 s span): parked at spanEnd, inter-cycle tail (render nothing).
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                970.0, 900.0, 0.0, 50.0, 50.0, out double lTail, out _, out bool tailGap, schedule));
+            Assert.Equal(50.0, lTail, 6);
+            Assert.True(tailGap);
+
+            // On the second scheduled launch (UT 1300): phase 0 again, cycle 1.
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                1300.0, 900.0, 0.0, 50.0, 50.0, out double l1, out long c1, out bool tail1, schedule));
+            Assert.Equal(0.0, l1, 6);
+            Assert.Equal(1, c1);
+            Assert.False(tail1);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_Scheduled_RenderInSpan_HiddenInTail_UnresolvedBeforeFirst()
+        {
+            var schedule = SyntheticSchedule();
+
+            // Member window covers the whole span [0,50].
+            var inSpan = GhostPlaybackLogic.DecideUnitMemberRender(
+                925.0, 900.0, 0.0, 50.0, 50.0, 0.0, 50.0, out _, out _, out _, schedule);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.Render, inSpan);
+
+            var inGap = GhostPlaybackLogic.DecideUnitMemberRender(
+                970.0, 900.0, 0.0, 50.0, 50.0, 0.0, 50.0, out _, out _, out _, schedule);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail, inGap);
+
+            var beforeFirst = GhostPlaybackLogic.DecideUnitMemberRender(
+                500.0, 900.0, 0.0, 50.0, 50.0, 0.0, 50.0, out _, out _, out _, schedule);
+            Assert.Equal(GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved, beforeFirst);
+        }
+
+        [Fact]
+        public void SpanClock_NullSchedule_ByteIdenticalToUniformPath()
+        {
+            // Guards no-regression: with a null schedule the uniform path is unchanged. anchor=1000,
+            // span [0,100], cadence=100. At currentUT=1025 -> cycle 0, loopUT = 0 + 25 = 25.
+            Assert.True(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                1025.0, 1000.0, 0.0, 100.0, 100.0, out double loopUT, out long cycle, out bool tail));
+            Assert.Equal(25.0, loopUT, 6);
+            Assert.Equal(0, cycle);
+            Assert.False(tail);
+            // Before the anchor -> unresolved (the uniform parked-before-anchor behavior).
+            Assert.False(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                900.0, 1000.0, 0.0, 100.0, 100.0, out _, out _, out _));
+            // Degenerate span -> unresolved (guards the reordered span<=0 check: both after-anchor and
+            // before-anchor cases must still return false when span<=0, null schedule).
+            Assert.False(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                1025.0, 1000.0, 0.0, 0.0, 100.0, out _, out _, out _));
+            Assert.False(GhostPlaybackLogic.TryComputeSpanLoopUT(
+                900.0, 1000.0, 0.0, 0.0, 100.0, out _, out _, out _));
+        }
+
+        [Fact]
+        public void LoopUnit_WithSchedule_IsNonOverlapping_Invariant()
+        {
+            // Guards the INVARIANT: a unit carrying a schedule is built non-overlapping
+            // (OverlapCadenceSeconds >= span), so UnitMemberOverlaps is false and the overlap engine
+            // path never sees a scheduled unit.
+            var schedule = SyntheticSchedule();
+            double span = 50.0;
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 }, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: Math.Max(span, schedule.MinIntervalSeconds),
+                phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: Math.Max(span, schedule.MinIntervalSeconds),
+                memberWindows: null, relaunchSchedule: schedule);
+            Assert.NotNull(unit.RelaunchSchedule);
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));
+        }
     }
 }
