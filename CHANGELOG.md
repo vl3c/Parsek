@@ -31,7 +31,7 @@ All notable changes to Parsek are documented here.
 - Recordings window groups and chains now draw tree-branch connectors on each row under an expanded caret, so it is clearer which entries belong to which group. This matches the style already used in the Kerbals window lists.
 - The main window's "Recordings" button no longer shows a count in parentheses; the per-state counts live inside the window.
 - Removed the Parsek panel and toolbar button from the Tracking Station. Ghosts still appear there with orbit lines and atmospheric markers; the "Show ghosts in Tracking Station" toggle stays in Settings.
-- Ghost map markers that have no map vessel (the ones with a yellow "Ghost:" label) now pin their label on right-click instead of left-click, matching how the ProtoVessel ghost icons keep their label. Left-click still opens the marker's menu (the ghost popup in the Tracking Station) and is otherwise left free for the stock map and Tracking Station handlers. These markers are also a little more transparent.
+- Ghost map markers that have no map vessel (the ones with a yellow "Ghost:" label) now pin their label on right-click instead of left-click, matching how the ProtoVessel ghost icons keep their label. Left-click still opens the marker's menu (the ghost popup in the Tracking Station) and is otherwise left free for the stock map and Tracking Station handlers. The marker icon is now tinted the same muted grey KSP uses for a vessel's map icon, so a ghost looks the same whether it is in atmosphere (this marker) or in orbit (a stock map icon).
 
 ### Bug Fixes
 

@@ -33,7 +33,19 @@ namespace Parsek
         private const string Tag = "MapMarker";
         private const int IconSize = 20;
         private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
-        private const float UnpinnedMarkerAlpha = 0.6f;
+        private const float UnpinnedMarkerAlpha = 0.8f;
+
+        // Tint for the atlas icon, chosen to match the stock map icon the same
+        // ghost shows once it has a ProtoVessel (orbital phase): KSP's
+        // OrbitRenderer sets every vessel's nodeColor to (0.71,0.71,0.71,1) and
+        // draws the object icon at nodeColor.A(lineOpacity), with lineOpacity ==
+        // 1 for a visible, in-front node (it only fades to 0.5 behind a body).
+        // Both paths draw the same atlas sprite, so using the same tint makes a
+        // recording with no map ProtoVessel (atmospheric phase) look identical
+        // to one that has a ProtoVessel. Source: decompiled OrbitRenderer /
+        // OrbitRendererBase.objectNode_OnUpdateIcon / MapNode (img.color =
+        // vData.color). Not opacity-modulated by sticky/hover, matching stock.
+        internal static readonly Color StockVesselIconColor = new Color(0.71f, 0.71f, 0.71f, 1f);
 
         // VesselType -> sprite index in MapNode.iconSprites, taken from the
         // decompiled KSP.UI.Screens.Mapview.MapNode icon-index lookup.
@@ -250,7 +262,7 @@ namespace Parsek
                 && vesselIconEntries.TryGetValue(vtype, out entry)
                 && entry.Atlas != null)
             {
-                GUI.color = WithMarkerOpacity(Color.white, sticky);
+                GUI.color = StockVesselIconColor;
                 GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
             }
             else if (fallbackDiamond != null)

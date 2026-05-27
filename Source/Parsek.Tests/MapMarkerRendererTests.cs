@@ -146,7 +146,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void WithMarkerOpacity_SetsSixtyPercentAlphaWithoutChangingRgb()
+        public void WithMarkerOpacity_SetsEightyPercentAlphaWithoutChangingRgb()
         {
             Color source = new Color(0.1f, 0.2f, 0.3f, 0.4f);
 
@@ -155,7 +155,22 @@ namespace Parsek.Tests
             Assert.Equal(source.r, markerColor.r);
             Assert.Equal(source.g, markerColor.g);
             Assert.Equal(source.b, markerColor.b);
-            Assert.Equal(0.6f, markerColor.a, 0.001f);
+            Assert.Equal(0.8f, markerColor.a, 0.001f);
+        }
+
+        // The atlas icon is tinted to match the stock map icon the same ghost
+        // shows once it has a ProtoVessel: KSP's OrbitRenderer sets a vessel's
+        // nodeColor to (0.71,0.71,0.71,1) and draws the object icon at that
+        // color with full opacity when visible. Pinning this value guards
+        // against drift away from the stock look.
+        [Fact]
+        public void StockVesselIconColor_MatchesStockUnfocusedVesselNodeColor()
+        {
+            Color c = MapMarkerRenderer.StockVesselIconColor;
+            Assert.Equal(0.71f, c.r, 0.001f);
+            Assert.Equal(0.71f, c.g, 0.001f);
+            Assert.Equal(0.71f, c.b, 0.001f);
+            Assert.Equal(1f, c.a, 0.001f);
         }
 
         [Fact]

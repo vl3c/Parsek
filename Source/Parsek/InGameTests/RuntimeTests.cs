@@ -4393,8 +4393,8 @@ namespace Parsek.InGameTests
             InGameAssert.ApproxEqual(source.r, unpinned.r, 0.0001f, "unpinned red should be preserved");
             InGameAssert.ApproxEqual(source.g, unpinned.g, 0.0001f, "unpinned green should be preserved");
             InGameAssert.ApproxEqual(source.b, unpinned.b, 0.0001f, "unpinned blue should be preserved");
-            InGameAssert.ApproxEqual(0.6f, unpinned.a, 0.0001f,
-                "unpinned marker alpha should be 60%");
+            InGameAssert.ApproxEqual(0.8f, unpinned.a, 0.0001f,
+                "unpinned marker alpha should be 80%");
 
             Color pinned = MapMarkerRenderer.WithMarkerOpacity(source, sticky: true);
             InGameAssert.ApproxEqual(source.r, pinned.r, 0.0001f, "pinned red should be preserved");
