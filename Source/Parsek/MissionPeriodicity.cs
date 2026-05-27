@@ -132,14 +132,15 @@ namespace Parsek
         /// NaN on the sentinel.</summary>
         public double NextWindowUT;
 
-        /// <summary>The Tier-1 residual: the max phase error (seconds) of the constraints
-        /// KNOWINGLY dropped by locking only the dominant one. 0 for a single-constraint or
-        /// tidally-collapsed config; the launch-body rotation offset for the Mun case.</summary>
+        /// <summary>The worst (max) circular phase error (seconds) of the DROPPED constraints over
+        /// one cadence step at the chosen joint multiple (Phase 2) - i.e. the per-cycle drift the
+        /// fixed cadence carries (the launch-pad offset for the Mun case). 0 for a single-constraint
+        /// or tidally-collapsed config (nothing dropped).</summary>
         public double ResidualSeconds;
 
-        /// <summary>True when <see cref="ResidualSeconds"/> is within the physics-derived
-        /// tolerance for the dominant dropped constraint. A single-constraint config is always
-        /// within tolerance (residual 0).</summary>
+        /// <summary>True when EVERY dropped constraint is within ITS OWN physics-derived tolerance at
+        /// the chosen joint multiple (not just the worst residual vs one tolerance). A
+        /// single-constraint / tidal-collapse config is always within tolerance (residual 0).</summary>
         public bool WithinTolerance;
 
         /// <summary>The Support classification carried through from extraction. When != Supported
@@ -150,8 +151,10 @@ namespace Parsek
         /// quantized to a multiple of P). False = keep today's behavior (the sentinel).</summary>
         public bool ShouldPhaseLock;
 
-        /// <summary>Which constraint set P (for the diagnostic summary): "unconstrained",
-        /// "single-rotation", "single-orbital", "tidal-collapse", or "dominant-intercept".</summary>
+        /// <summary>Which rule set P (for the diagnostic summary): "unconstrained",
+        /// "single-rotation", "single-orbital", "tidal-collapse", "joint-best-fit" (a multi-constraint
+        /// joint near-resonance at m&gt;1), or "dominant-intercept" (multi-constraint but m=1 was the
+        /// best alignment within the search bound).</summary>
         public string Method;
 
         /// <summary>The "do not phase-lock" sentinel for an unsupported / non-lockable config.
@@ -578,8 +581,12 @@ namespace Parsek
                 // dominant period for the one that minimizes the worst dropped-constraint phase error
                 // over one cadence step (m*P); the dominant stays locked at any m.
                 multiple = FindBestJointMultiple(constraints, dominantIdx, p, out residual);
-                double tol = ToleranceSecondsForDroppedConstraint(constraints, dominantIdx, bodyInfo);
-                withinTolerance = residual <= tol;
+                // Within tolerance iff EVERY dropped constraint is within ITS OWN tolerance at the
+                // chosen step (not the worst residual vs a single tolerance, which could compare a
+                // short-period constraint's residual against a long-period constraint's larger
+                // tolerance when 3+ constraints are dropped).
+                withinTolerance = AllDroppedWithinTolerance(
+                    constraints, dominantIdx, multiple * p, bodyInfo);
                 // m>1 = a genuine joint near-resonance was found; m=1 = the dominant period itself was
                 // already the best alignment within the search bound (old Tier-1 wholesale drop).
                 method = multiple > 1 ? "joint-best-fit" : "dominant-intercept";
@@ -761,27 +768,23 @@ namespace Parsek
             return Math.Min(m, period - m);
         }
 
-        // The physics-derived tolerance (seconds) for the dominant DROPPED constraint - the largest
-        // phase error the missed constraint can carry and still be "faithful". Orbital: the time the
-        // target moves through its own SOI radius (~SoiRadius / OrbitalVelocity). Rotation: a small
-        // fraction of the body's spin. Phase 1 only uses this for the green/amber WithinTolerance
-        // readout; the accurate best-fit residual is Phase 2.
-        private static double ToleranceSecondsForDroppedConstraint(
-            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, IBodyInfo bodyInfo)
+        // True iff EVERY dropped constraint (all except dominantIdx) is within ITS OWN physics-derived
+        // tolerance at the cadence <paramref name="step"/> (= multiple * dominantPeriod). Each
+        // constraint's circular phase error at the step is compared against its own tolerance, so a
+        // short-period constraint is never judged against a long-period constraint's larger tolerance
+        // (which matters once 3+ constraints are dropped). Pure.
+        internal static bool AllDroppedWithinTolerance(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, double step, IBodyInfo bodyInfo)
         {
-            // The dominant DROPPED constraint is the one that produced the residual; find the
-            // largest-period dropped constraint to size the tolerance against (matches the residual
-            // selection's "largest err" intent closely enough for the readout).
-            double worstTol = 0.0;
             for (int i = 0; i < constraints.Count; i++)
             {
                 if (i == dominantIdx)
                     continue;
-                double tol = ToleranceSecondsFor(constraints[i], bodyInfo);
-                if (tol > worstTol)
-                    worstTol = tol;
+                double err = CircularPhaseError(step, constraints[i].PeriodSeconds);
+                if (err > ToleranceSecondsFor(constraints[i], bodyInfo))
+                    return false;
             }
-            return worstTol;
+            return true;
         }
 
         private static double ToleranceSecondsFor(PhaseConstraint c, IBodyInfo bodyInfo)

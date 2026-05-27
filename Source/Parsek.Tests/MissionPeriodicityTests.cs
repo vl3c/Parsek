@@ -784,6 +784,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void AllDroppedWithinTolerance_JudgesEachConstraintAgainstItsOwnTolerance()
+        {
+            // Guards the 3+-dropped fix: a SHORT-period dropped constraint whose phase error exceeds
+            // ITS OWN (tiny) tolerance must fail the check, even though that error is within the
+            // LONGEST-period constraint's larger tolerance (a max-residual vs max-tolerance check
+            // would wrongly read OK). Rotation tolerance = period * 0.25/360. At step = 30 s:
+            //   B(3600): tol ~2.5 s, err 30 s -> OUT of its own tolerance.
+            //   C(100000): tol ~69.4 s, err 30 s -> within its own tolerance.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("A", 10000.0, 0.0), // dominant (idx 0) - skipped
+                Rotation("B", 3600.0, 0.0),
+                Rotation("C", 100000.0, 0.0)
+            };
+            Assert.False(MissionPeriodicity.AllDroppedWithinTolerance(
+                constraints, dominantIdx: 0, step: 30.0, bodyInfo: StockFake()));
+
+            // A step where BOTH dropped constraints are within their own tolerance -> true. step = 1 s
+            // is < both tolerances (~2.5 s and ~69.4 s).
+            Assert.True(MissionPeriodicity.AllDroppedWithinTolerance(
+                constraints, dominantIdx: 0, step: 1.0, bodyInfo: StockFake()));
+        }
+
+        [Fact]
         public void JointStepResidual_WorstDroppedError_OverOneCadenceStep()
         {
             // Guards: the per-step residual is the MAX circular phase error across all dropped
