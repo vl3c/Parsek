@@ -62,6 +62,29 @@ namespace Parsek
             return fromCheckpoint && !segmentCoversEffUT;
         }
 
+        /// <summary>
+        /// True when at least one OrbitSegment begins strictly after <paramref name="ut"/>, i.e. the
+        /// recording still has orbital playback AHEAD of the current effective UT. Used by the
+        /// tracking-station update path to distinguish a mid-recording gap (between the parking
+        /// orbit and a later destination orbit, e.g. during a transfer burn / coast) from the
+        /// genuine terminal region. The endpoint-tail (terminal-orbit) fallback must fire only at
+        /// the terminal region; firing it in a mid-recording gap reseeds the looped proto-vessel
+        /// onto the FINAL orbit for the whole rest of the replay and suppresses the non-proto
+        /// atmospheric position marker. Mirrors the flight-scene gap check in
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>.
+        /// </summary>
+        internal static bool HasOrbitSegmentStartingAfter(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null)
+                return false;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (segments[i].startUT > ut)
+                    return true;
+            }
+            return false;
+        }
+
         internal struct TrackingStationSpawnHandoffState
         {
             internal readonly uint GhostPid;
@@ -5635,6 +5658,20 @@ namespace Parsek
                 // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
                 OrbitSegment? seg = coveringSegment;
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
+
+                // A mid-recording gap (orbit segments still ahead of effUT) must NOT fall back to
+                // the endpoint tail. IsTerminalMapPresenceRegion is true for the whole post-launch
+                // replay of an orbit-terminating recording, so without this guard the endpoint-tail
+                // branch reseeds the looped proto-vessel onto the FINAL (e.g. Mun terminal) orbit
+                // the moment it leaves the parking orbit for the transfer, which shows the wrong
+                // orbit, jumps the camera to the destination body, and suppresses the non-proto
+                // atmospheric position marker (a live ghost makes ClassifyAtmosphericMarkerSkip
+                // return NativeIconActive). Instead remove the proto-vessel during the gap (matching
+                // the flight scene's "gap-between-orbit-segments"): the atmospheric marker then draws
+                // the transfer/coast position, and the create pass re-materializes the orbit at the
+                // next real segment. The endpoint tail stays reserved for the terminal region.
+                bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(rec.OrbitSegments, effUT);
+
                 if (seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
                         rec,
@@ -5649,6 +5686,7 @@ namespace Parsek
                     orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
                 }
                 else if (!seg.HasValue
+                    && !hasFutureOrbitSegment
                     && TryResolveEndpointTailForMapPresence(
                         rec,
                         effUT,
@@ -5664,7 +5702,9 @@ namespace Parsek
                 if (!seg.HasValue)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, hasFutureOrbitSegment
+                        ? "gap-between-orbit-segments"
+                        : "tracking-station-expired"));
                     continue;
                 }
                 // For loop members the stored bounds are shifted into the live frame while

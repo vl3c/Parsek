@@ -45,6 +45,32 @@ namespace Parsek.Tests
                     fromCheckpoint, segmentCoversEffUT));
         }
 
+        // The endpoint-tail (terminal-orbit) fallback must fire only at the terminal region, not in a
+        // mid-recording gap. HasOrbitSegmentStartingAfter distinguishes the two: a transfer/coast gap
+        // (parking orbit done, Mun orbit ahead) has a future segment, so the looped proto-vessel is
+        // removed (the non-proto atmospheric marker takes over) instead of jumping to the Mun terminal
+        // orbit. At the genuine terminal (no future segment) the endpoint tail still applies.
+        [Fact]
+        public void HasOrbitSegmentStartingAfter_DetectsMidRecordingGapVsTerminal()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 4181.0, endUT = 4779.0, bodyName = "Kerbin" }, // parking
+                new OrbitSegment { startUT = 24000.0, endUT = 27888.0, bodyName = "Mun" },  // destination
+            };
+
+            // In the transfer gap (after parking, before the Mun orbit): a future segment exists.
+            Assert.True(GhostMapPresence.HasOrbitSegmentStartingAfter(segments, 6000.0));
+            // Inside the parking orbit: the Mun orbit is still ahead.
+            Assert.True(GhostMapPresence.HasOrbitSegmentStartingAfter(segments, 4500.0));
+            // At/after the last segment (terminal region): no future segment.
+            Assert.False(GhostMapPresence.HasOrbitSegmentStartingAfter(segments, 27000.0));
+            Assert.False(GhostMapPresence.HasOrbitSegmentStartingAfter(segments, 30000.0));
+            // Null/empty lists are inert.
+            Assert.False(GhostMapPresence.HasOrbitSegmentStartingAfter(null, 6000.0));
+            Assert.False(GhostMapPresence.HasOrbitSegmentStartingAfter(new List<OrbitSegment>(), 6000.0));
+        }
+
         [Fact]
         public void ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackAccepted_ReturnsMunStateVectorSource()
         {
