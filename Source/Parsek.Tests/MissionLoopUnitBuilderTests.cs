@@ -206,7 +206,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_NaNAnchor_FallsBackToSpanStartUT()
+        public void Build_NaNAnchor_ClampsToSpanEndUT_FirstPlayFloor()
         {
             var tree = LinearTree();
             var committed = new List<Recording>(tree.Recordings.Values);
@@ -217,9 +217,11 @@ namespace Parsek.Tests
             var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            // NaN anchor falls back to spanStartUT, preserving the old absolute-phase behavior.
-            Assert.Equal(unit.SpanStartUT, unit.PhaseAnchorUT);
-            Assert.Equal(100.0, unit.PhaseAnchorUT);
+            // A NaN anchor would fall back to spanStartUT (the old absolute-phase behavior), but the
+            // first-play floor clamps it to spanEndUT: a looped mission must not relaunch before its
+            // first real play (the original recording, [spanStart, spanEnd]) completes.
+            Assert.Equal(unit.SpanEndUT, unit.PhaseAnchorUT);
+            Assert.Equal(410.0, unit.PhaseAnchorUT);
         }
 
         [Fact]

@@ -1121,6 +1121,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Build_LoopAnchorBeforeFirstPlay_ClampsAnchorToAfterTheFirstPlay()
+        {
+            // Guards: a looped mission must never relaunch before its first real play completes - the
+            // original recording, [spanStart, spanEnd], which spawns a real vessel at spanEnd. A
+            // LoopAnchorUT set BEFORE the recording finished (e.g. a future-dated recording after a
+            // career rewind, or a NaN anchor) must be clamped so the phase anchor lands at/after
+            // spanEndUT, since the span clock plays nothing before the phase anchor.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            const double spanEnd = 2000.0; // last member end (the first play's end)
+
+            // Anchor BEFORE the first play ends (mid-recording).
+            var mission = LoopMissionFor("t", anchorUT: 1200.0);
+
+            // Phase-locked (Mun) path: the anchor stays a faithful window AND is clamped >= spanEnd.
+            var locked = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.True(locked.TryGetUnitForMember(0, out var lockedUnit));
+            Assert.True(lockedUnit.PhaseAnchorUT >= spanEnd,
+                $"locked anchor {lockedUnit.PhaseAnchorUT} must be >= first-play end {spanEnd}");
+            double k = (lockedUnit.PhaseAnchorUT - 1000.0) / (9 * MunOrbit);
+            Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*P window
+
+            // No-body-info (no phase-lock) path: clamps the raw anchor straight to spanEnd.
+            var today = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, null);
+            Assert.True(today.TryGetUnitForMember(0, out var todayUnit));
+            Assert.Equal(spanEnd, todayUnit.PhaseAnchorUT, 3);
+        }
+
+        [Fact]
         public void Build_UnsupportedCrossParent_LeavesAnchorAtRawLoopAnchorUT_NoRegression()
         {
             // Guards: an unsupported (cross-parent Duna) config does NOT phase-lock - the anchor

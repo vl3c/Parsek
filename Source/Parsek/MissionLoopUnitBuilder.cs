@@ -211,6 +211,19 @@ namespace Parsek
                 ? spanStartUT
                 : mission.LoopAnchorUT;
 
+            // 7b-i. First-play floor: a looped mission must NEVER relaunch before its first real play
+            //       completes - the original recording, which runs [spanStart, spanEnd] and spawns a
+            //       real vessel at spanEnd. The span clock (TryComputeSpanLoopUT /
+            //       ComputeNewestMissionInstanceSpanLoopUT) never produces an instance before
+            //       phaseAnchorUT, so clamping the anchor (and the phase-lock window-search reference
+            //       below) to at least spanEndUT is sufficient to guarantee it. In the normal flow
+            //       (loop enabled after the recording finished) LoopAnchorUT is already > spanEndUT,
+            //       so this is a no-op; it only bites a NaN anchor or a future-dated recording (e.g.
+            //       after a career rewind, whose faithful window can otherwise fall before the launch),
+            //       where it stops the loop from playing the mission before it ever actually flew.
+            double firstPlayEndUT = spanEndUT;
+            baseAnchorUT = Math.Max(baseAnchorUT, firstPlayEndUT);
+
             // 7c. Mission periodicity (Phase 1, Tier 1): when the included config's constraints can
             //      be phase-locked, SNAP the anchor to the next faithful launch (UT0 + k*P at or
             //      after the loop-enable UT) and quantize the cadence to a multiple of P. This is a
@@ -235,6 +248,10 @@ namespace Parsek
                 double referenceUT = double.IsNaN(mission.LoopAnchorUT)
                     ? extraction.UT0
                     : mission.LoopAnchorUT;
+                // Same first-play floor as baseAnchorUT: never snap to a faithful window before the
+                // first play. NextWindow returns the smallest UT0 + k*P >= referenceUT, so clamping
+                // the reference keeps the result a faithful window AND >= spanEndUT.
+                referenceUT = Math.Max(referenceUT, firstPlayEndUT);
                 solution = MissionPeriodicity.Solve(
                     extraction.Constraints, extraction.Support, extraction.UT0, referenceUT, bodyInfo);
                 if (solution.ShouldPhaseLock
