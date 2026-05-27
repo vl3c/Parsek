@@ -26744,6 +26744,42 @@ namespace Parsek
         }
 
         /// <summary>
+        /// In-place fast-forward (NO scene change) to <see cref="RecordingStore.RewindToLaunchLeadTimeSeconds"/>
+        /// before an arbitrary FUTURE event UT - the same mechanism as <see cref="FastForwardToRecording"/>
+        /// but for a target that is not a recording (e.g. a looped Mission's next faithful relaunch
+        /// window). Applies the launch lead, notifies the recorder of the jump, then advances the clock
+        /// via <see cref="TimeJumpManager.ExecuteForwardJump"/>. No-op on an invalid (past / degenerate)
+        /// jump. <paramref name="label"/> is used only for the log + screen message.
+        /// </summary>
+        internal void FastForwardToEventUT(double eventUT, string label)
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before the event, matching the Forward button's lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "FastForwardToEventUT: invalid jump current={0:F1} target={1:F1} ({2}) - aborted",
+                        currentUT, targetUT, label));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FastForwardToEventUT: jumping to UT={0:F1} for {1} (delta={2:F1}s, eventUT={3:F1})",
+                    targetUT, label, targetUT - currentUT, eventUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
+            TimeJumpManager.ExecuteForwardJump(targetUT);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Fast-forwarded to {0} ({1:F0}s)", label, targetUT - currentUT), 3f);
+        }
+
+        /// <summary>
         /// Warps to the earliest nearby spawn candidate.
         /// If the candidate will depart, warps to departure UT instead of EndUT.
         /// </summary>

@@ -365,30 +365,5 @@ namespace Parsek.Tests
             Assert.False(ShouldEnableWarpToWindow(true, true, double.PositiveInfinity, 10_000.0));
         }
 
-        // ===================== RoundWarpTargetUpToMinute =====================
-
-        [Theory]
-        [InlineData(120.0, 120.0)]     // already on a minute boundary -> unchanged
-        [InlineData(120.7, 180.0)]     // mid-minute rounds UP to the next minute
-        [InlineData(150.0, 180.0)]     // 2.5 min -> 3 min
-        [InlineData(0.0, 0.0)]
-        [InlineData(1_250_859.39, 1_250_880.0)] // the Mun joint relaunch UT rounds up to the minute
-        public void RoundWarpTargetUpToMinute_RoundsUpToTheMinute(double relaunchUT, double expected)
-        {
-            Assert.Equal(expected, RoundWarpTargetUpToMinute(relaunchUT), 6);
-        }
-
-        [Theory]
-        [InlineData(150.7)]
-        [InlineData(130.0)]
-        [InlineData(1_250_859.39)]
-        public void RoundWarpTargetUpToMinute_NeverPrecedesTheRelaunch(double relaunchUT)
-        {
-            // The whole point of the fix: the warp target is at/after the relaunch (forward warp),
-            // so a sub-minute-away relaunch can never floor to a moment at/behind now.
-            double target = RoundWarpTargetUpToMinute(relaunchUT);
-            Assert.True(target >= relaunchUT, $"warp target {target} must be >= relaunch {relaunchUT}");
-            Assert.True(target - relaunchUT < 60.0, "rounding adds less than a minute");
-        }
     }
 }

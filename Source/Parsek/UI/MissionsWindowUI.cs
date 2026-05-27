@@ -267,14 +267,14 @@ namespace Parsek
 
             // Mission-header row bubble: the section-header box stretched across the whole row.
             // L/R margin + padding are zeroed so the dark bar reaches the row edges and its contents
-            // are not inset (the Archive checkbox stays under its column header). A small bottom
-            // padding gives the title text breathing room under it (the box's own border supplies the
-            // top space); without it the title sat too close to the bubble's bottom edge.
+            // are not inset (the Archive checkbox stays under its column header). Top/bottom padding
+            // are EQUAL (2 px each) so the gap above the buttons/text matches the gap below - the old
+            // 0-top / 4-bottom split left a visible extra band under the buttons inside the bubble.
             var sectionHeader = parentUI.GetSectionHeaderStyle();
             missionHeaderRowStyle = new GUIStyle(sectionHeader)
             {
                 margin = new RectOffset(0, 0, 0, 0),
-                padding = new RectOffset(0, 0, 0, 4)
+                padding = new RectOffset(0, 0, 2, 2)
             };
 
             // Bold transparent text for the index + title sitting on the row bubble (no box of
@@ -908,14 +908,14 @@ namespace Parsek
         }
 
         // "Warp to..." button: fast-forwards the game clock to this mission's next faithful relaunch
-        // (periodicity.NextRelaunchUT, the same UT the TTL countdown targets), reusing the Timeline
-        // "Warp to time" flow via WarpToTimeController.RequestWarp (confirmation dialog; in flight it
-        // defers the warp to the Space Center so the scene-exit Merge / Discard dialog handles the
-        // active recording first). The next relaunch is always in the future -> a forward warp. The
-        // target UT is decomposed into the Year/Day/Hour/Minute the controller takes (minute
-        // precision, which is negligible against the multi-day inter-body cadence). Disabled (greyed,
-        // width-stable) unless the mission is looping, an engine unit was built, the next relaunch is
-        // in the future, and we are in a warp-capable scene (flight or Space Center).
+        // (periodicity.NextRelaunchUT, the same UT the TTL countdown targets) using the SAME
+        // mechanism as the Recordings/Missions "Forward" button - an IN-PLACE forward jump (no scene
+        // change) that lands RewindToLaunchLeadTimeSeconds (15 s) before the launch. In flight it
+        // goes through ParsekFlight.FastForwardToEventUT (notifies the recorder, then
+        // TimeJumpManager.ExecuteForwardJump); at the Space Center it calls ExecuteForwardJump
+        // directly. A confirmation dialog precedes the jump (matching the Forward button). Disabled
+        // (greyed, width-stable) unless the mission is looping, an engine unit was built, the next
+        // relaunch is in the future, and we are in a warp-capable scene (flight or Space Center).
         private void DrawMissionWarpToWindowButton(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             bool inFlight = parentUI.InFlightMode;
@@ -930,24 +930,75 @@ namespace Parsek
 
             GUI.enabled = actionable;
             if (GUILayout.Button("Warp to...", GUILayout.Width(ColW_HeaderButton)))
-            {
-                double targetUT = RoundWarpTargetUpToMinute(periodicity.NextRelaunchUT);
-                WarpToTimeMath.ComputeComponentsFromUT(targetUT, out int y, out int d, out int h, out int m);
-                ParsekLog.Info("Mission", string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Warp to next window for mission '{0}': targetUT={1} -> Y{2} D{3} {4}:{5:00} inFlight={6}",
-                    mission.Name, targetUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
-                    y, d, h, m, inFlight));
-                WarpToTimeController.RequestWarp(y, d, h, m, parentUI.Flight, inFlight);
-            }
+                ShowMissionWarpToWindowConfirmation(mission, periodicity.NextRelaunchUT, inFlight);
             GUI.enabled = true;
+        }
+
+        // Confirmation dialog for the "Warp to..." button, then the in-place forward jump (the same
+        // FF mechanism as the Forward button - NO scene change). On confirm: in flight ->
+        // ParsekFlight.FastForwardToEventUT; at the Space Center -> a direct ExecuteForwardJump to
+        // RewindToLaunchLeadTimeSeconds before the relaunch. now/lead are recomputed at confirm time.
+        private void ShowMissionWarpToWindowConfirmation(Mission mission, double relaunchUT, bool inFlight)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string missionName = mission != null ? mission.Name : "mission";
+            string label = string.Format(ic, "next launch of \"{0}\"", missionName);
+            double previewNow = Planetarium.GetUniversalTime();
+            double previewDelta = TimeJumpManager.ApplyJumpLead(relaunchUT, previewNow) - previewNow;
+            string message = string.Format(ic,
+                "Fast-forward to just before \"{0}\" next launch at {1}?\n\nTime will advance by {2}.",
+                missionName, KSPUtil.PrintDateCompact(relaunchUT, true),
+                ParsekTimeFormat.FormatDurationFull(previewDelta));
+
+            var flight = parentUI.Flight;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekMissionWarpToWindowConfirm",
+                    message,
+                    "Confirm: Warp to Launch",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Warp", () =>
+                    {
+                        ParsekLog.Info("Mission", string.Format(ic,
+                            "Warp to next window confirmed for '{0}': relaunchUT={1} inFlight={2}",
+                            missionName, relaunchUT.ToString("R", ic), inFlight));
+                        if (inFlight && flight != null)
+                        {
+                            flight.FastForwardToEventUT(relaunchUT, label);
+                        }
+                        else
+                        {
+                            // Space Center: advance the clock directly (no recorder notify needed).
+                            double curUT = Planetarium.GetUniversalTime();
+                            double target = TimeJumpManager.ApplyJumpLead(relaunchUT, curUT);
+                            if (!TimeJumpManager.IsValidJump(curUT, target))
+                            {
+                                ParsekLog.Warn("Mission", string.Format(ic,
+                                    "Warp to next window aborted (invalid jump): current={0:F1} target={1:F1} for {2}",
+                                    curUT, target, label));
+                                return;
+                            }
+                            ParsekLog.Info("Mission", string.Format(ic,
+                                "Warp to next window (KSC): jumping to UT={0:F1} for {1} (delta={2:F1}s, relaunchUT={3:F1})",
+                                target, label, target - curUT, relaunchUT));
+                            TimeJumpManager.ExecuteForwardJump(target);
+                            ParsekLog.ScreenMessage(string.Format(ic,
+                                "Fast-forwarded to {0} ({1:F0}s)", label, target - curUT), 3f);
+                        }
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                        ParsekLog.Info("Mission", "Warp to next window cancelled"))
+                ),
+                false, HighLogic.UISkin);
         }
 
         /// <summary>
         /// Whether the per-mission "Warp to..." button is actionable: the mission must be looping,
         /// have a built engine loop unit, and have a next relaunch UT that is finite and strictly in
         /// the future (more than a second ahead, so an at-or-behind-now relaunch does not offer a
-        /// no-op warp). Pure (the scene gate is applied by the caller). The actual warp is a forward
-        /// fast-forward via WarpToTimeController.
+        /// no-op warp). Pure (the scene gate is applied by the caller). The actual warp is the same
+        /// in-place forward fast-forward the Forward button uses.
         /// </summary>
         internal static bool ShouldEnableWarpToWindow(
             bool looping, bool unitBuilt, double nextRelaunchUT, double nowUT)
@@ -957,21 +1008,6 @@ namespace Parsek
                 && !double.IsNaN(nextRelaunchUT)
                 && !double.IsInfinity(nextRelaunchUT)
                 && nextRelaunchUT > nowUT + 1.0;
-        }
-
-        /// <summary>
-        /// Rounds a relaunch UT UP to the next whole minute, the warp target the "Warp to..." button
-        /// feeds the (minute-precision) Timeline warp flow. The warp UI's UT->components conversion
-        /// truncates DOWN, so rounding up here keeps the resolved warp target at or AFTER the
-        /// relaunch (always a strictly-forward warp landing just inside the launch window), instead
-        /// of flooring to a minute boundary that could sit at/behind now. Pure; a non-finite input
-        /// returns it unchanged (the caller only warps on a finite, future relaunch).
-        /// </summary>
-        internal static double RoundWarpTargetUpToMinute(double relaunchUT)
-        {
-            if (double.IsNaN(relaunchUT) || double.IsInfinity(relaunchUT))
-                return relaunchUT;
-            return System.Math.Ceiling(relaunchUT / 60.0) * 60.0;
         }
 
         private void LogSortChanged()
