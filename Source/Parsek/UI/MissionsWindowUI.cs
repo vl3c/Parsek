@@ -95,10 +95,10 @@ namespace Parsek
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
-        // "T- to launch" column (mission periodicity, design doc UX): a live countdown to the next
-        // faithful launch window, shown ONLY on the per-mission header bar (the vessel rows leave a
-        // blank cell of this width so the data columns stay aligned). Sits between "End time" and
-        // "Re-Fly" in the header, and is drawn on the mission bar right after the period cell.
+        // "Time to launch" column (mission periodicity, design doc UX): a live countdown to the next
+        // faithful launch window, shown ONLY on each mission's launch (first) vessel row, under this
+        // column header; every other vessel row + the mission header bar leave a same-width blank
+        // cell so the data columns stay aligned. Sits between "End time" and "Re-Fly".
         private const float ColW_TMinus = 90f;
         // Fixed column-header height so every Missions header cell is the same height (matches
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
@@ -118,6 +118,11 @@ namespace Parsek
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
         // sized loop control here is the period cell.
         private const float ColW_Period = 90f;
+        // Wider width for the read-only phase-locked period label ("~P (basis)", e.g.
+        // "~6.4d (Mun window)"). The "Time to launch" countdown moved off the header bar onto the
+        // launch vessel row, so the period cell reclaims that freed width here and the period + its
+        // basis label fit on one line. (The editable value+unit cell stays at ColW_Period.)
+        private const float ColW_PeriodLocked = ColW_Period + ColW_TMinus + 4f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
@@ -345,7 +350,15 @@ namespace Parsek
 
                 var (_, view) = GetMissionView(tree);
 
-                DrawMissionHeader(mission, ordered[i].index, view);
+                // Mission periodicity (Phase-1 / Tier-1 solution), computed ONCE per mission here
+                // and shared by the header's period cell + the launch row's "Time to launch" cell,
+                // so we extract/solve only once per frame per mission. Only looping missions need
+                // it; a non-looping mission gets the no-solution default (blank cells).
+                MissionPeriodicityDisplay periodicity = mission.LoopPlayback
+                    ? ComputeMissionPeriodicity(mission, view)
+                    : default;
+
+                DrawMissionHeader(mission, ordered[i].index, view, periodicity);
 
                 // Composition-over-time tree (the vessel rows). Each node is a structural
                 // interval / branch with its own independent include checkbox (interval-level
@@ -354,7 +367,12 @@ namespace Parsek
                 for (int r = 0; r < compRoots.Count; r++)
                 {
                     bool isLast = r == compRoots.Count - 1;
-                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false);
+                    // The launch row (the very first rendered composition row = the first root's
+                    // head node) carries the mission's "Time to launch" countdown under that
+                    // column; every other vessel row leaves it blank.
+                    bool isLaunchRoot = r == 0;
+                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
+                        isLaunchRoot, periodicity);
                 }
             }
 
@@ -455,7 +473,8 @@ namespace Parsek
         // the post-decouple survivor checked, which is the whole point). A roster atom carries no
         // checkbox and greys with its owning interval. Returns the number of rows drawn.
         private int DrawCompositionNode(MissionCompositionNode node,
-            Mission mission, int depth, bool isLast, bool parentExcluded)
+            Mission mission, int depth, bool isLast, bool parentExcluded,
+            bool isLaunchRow, MissionPeriodicityDisplay periodicity)
         {
             if (node == null)
                 return 0;
@@ -468,8 +487,10 @@ namespace Parsek
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
+            // Only the head node of the mission's first root is the launch row; its children and
+            // every later root row leave the "Time to launch" cell blank.
             DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
-                hasChildren, collapsed);
+                hasChildren, collapsed, isLaunchRow, periodicity);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -480,7 +501,7 @@ namespace Parsek
                 {
                     bool childLast = i == node.Children.Count - 1;
                     rows += DrawCompositionNode(node.Children[i], mission,
-                        depth + 1, childLast, childParentExcluded);
+                        depth + 1, childLast, childParentExcluded, false, periodicity);
                 }
             }
             return rows;
@@ -488,7 +509,7 @@ namespace Parsek
 
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
-            bool hasChildren, bool collapsed)
+            bool hasChildren, bool collapsed, bool isLaunchRow, MissionPeriodicityDisplay periodicity)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
             // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
@@ -569,12 +590,26 @@ namespace Parsek
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_EndTime));
             }
 
-            // Blank "T- to launch" cell on vessel rows: the T- countdown is a per-mission value, so
-            // it lives only on the mission header bar; the vessel rows leave a same-width blank cell
-            // so the Re-Fly + Archive columns stay aligned under their headers. A bodyCellLabel is
-            // fine here (the margin-0 caveat only applies to the right-EDGE cell, the trailing
-            // Archive cell below; this cell is followed by the Re-Fly cell).
-            GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            // "Time to launch" cell: the live countdown to the mission's next faithful launch
+            // window (mission periodicity, design doc UX). The countdown is a per-mission value, so
+            // it shows ONLY on the launch row (the mission's first vessel row) under the "Time to
+            // launch" header; every other vessel row leaves a same-width blank cell so the Re-Fly +
+            // Archive columns stay aligned. The cell is drawn at the normal (un-dimmed) colour even
+            // when the launch interval is excluded/greyed, since the countdown is mission-level data
+            // rather than a property of that interval. A compositionCellLabel is fine here (the
+            // margin-0 caveat only applies to the right-EDGE cell, the trailing Archive cell below;
+            // this cell is followed by the Re-Fly cell).
+            if (isLaunchRow)
+            {
+                Color prevTm = GUI.color;
+                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
+                DrawTMinusVesselCell(mission, periodicity);
+                GUI.color = prevTm;
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
+            }
 
             // Restore the normal colour before the actionable Re-Fly cell + the trailing Archive
             // cell, so an excluded (greyed) interval's Fly / Seal buttons are not dimmed (the
@@ -643,7 +678,8 @@ namespace Parsek
         // goes through MissionStore.SetLoopEnabled, which allows concurrent looping across trees
         // but at most one looping mission per tree (it only flips bools on same-tree siblings,
         // never adds/removes, so it is safe to call from inside the draw loop).
-        private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view)
+        private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view,
+            MissionPeriodicityDisplay periodicity)
         {
             // The whole row's background is the dark section-header bubble (missionHeaderRowStyle),
             // so the bubble spans index -> Archive and every control sits inside it.
@@ -691,21 +727,12 @@ namespace Parsek
                     loopPeriodFocusedMissionId = null;
             }
 
-            // Mission periodicity (Phase-1 / Tier-1 solution), computed ONCE per mission here and
-            // shared by the period cell + the T- cell so we extract/solve only once per frame per
-            // mission (and log one rate-limited summary, not the per-call Verbose lines). Only
-            // looping missions need it; a non-looping mission gets the no-solution default.
-            MissionPeriodicityDisplay periodicity = mission.LoopPlayback
-                ? ComputeMissionPeriodicity(mission, view)
-                : default;
-
+            // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw
+            // loop and passed in; the period cell shows the faithful period P + basis label when
+            // phase-locked. The live "Time to launch" countdown that used to sit here moved onto the
+            // mission's launch (first) vessel row, under the "Time to launch" column, so the loop
+            // period + its basis label have room to render on a single line here.
             DrawMissionLoopPeriodCell(mission, view, periodicity);
-
-            // "T- to launch" cell: the live countdown to the next faithful launch window (mission
-            // periodicity, design doc UX), sitting right after the period cell. Shows the countdown
-            // / continuous / not-aligned state. Non-looping missions show a blank cell of the same
-            // width.
-            DrawMissionTMinusCell(mission, periodicity);
 
             DrawMissionWatchButton(mission, view);
 
@@ -1033,12 +1060,14 @@ namespace Parsek
             return false;
         }
 
-        // Draws the "T- to launch" cell on the mission header bar (design doc UX): a live countdown
-        // to the engine's ACTUAL next relaunch, or one of the state words (continuous / not aligned).
-        // The countdown reads NextRelaunchUT - now (PhaseAnchorUT + n*relaunchCadence off the REAL
-        // loop unit), NOT the periodicity solution's next P-window, so it never ticks to "T- 0s" on a
-        // window the engine skips (relaunch cadence = m*P with m>=2).
-        private void DrawMissionTMinusCell(Mission mission, MissionPeriodicityDisplay periodicity)
+        // Draws the "Time to launch" cell on the mission's launch (first) vessel row (design doc UX):
+        // a live countdown to the engine's ACTUAL next relaunch, or one of the state words (continuous
+        // / not aligned). The countdown reads NextRelaunchUT - now (PhaseAnchorUT + n*relaunchCadence
+        // off the REAL loop unit), NOT the periodicity solution's next P-window, so it never ticks to
+        // "T- 0s" on a window the engine skips (relaunch cadence = m*P with m>=2). Uses the same
+        // vertically-centered compositionCellLabel as the row's other (time/event) cells so it reads
+        // as part of the vessel row, under the "Time to launch" column header.
+        private void DrawTMinusVesselCell(Mission mission, MissionPeriodicityDisplay periodicity)
         {
             string text = BuildTMinusCellText(
                 mission != null && mission.LoopPlayback,
@@ -1056,7 +1085,7 @@ namespace Parsek
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
-            GUILayout.Label(text, missionHeaderTextStyle, GUILayout.Width(ColW_TMinus));
+            GUILayout.Label(text, compositionCellLabel, GUILayout.Width(ColW_TMinus));
             GUI.contentColor = prev;
         }
 
@@ -1104,7 +1133,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The "T- to launch" cell text for the four states (design doc UX):
+        /// The "Time to launch" cell text for the four states (design doc UX):
         /// - not looping / not solved -> "" (blank);
         /// - unsupported (cross-parent / rendezvous; the no-lock sentinel, ShouldPhaseLock==false)
         ///   OR no engine unit built for this mission -> "not aligned";
@@ -1458,7 +1487,9 @@ namespace Parsek
                 GUI.enabled = false;
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
-                GUILayout.Label(locked, bodyCellLabel, GUILayout.Width(ColW_Period));
+                // Wider than the editable cell so "~P (basis)" (e.g. "~6.4d (Mun window)") fits on
+                // one line - reclaiming the width freed by moving the T- countdown to the launch row.
+                GUILayout.Label(locked, bodyCellLabel, GUILayout.Width(ColW_PeriodLocked));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;
                 return;
@@ -1678,8 +1709,9 @@ namespace Parsek
             GUILayout.Label("End event", colHdr, GUILayout.Width(ColW_EndEvent), GUILayout.Height(ColHeaderHeight));
             GUILayout.Label("End time", colHdr, GUILayout.Width(ColW_EndTime), GUILayout.Height(ColHeaderHeight));
 
-            // "T- to launch" column header (left of Re-Fly): the per-mission header bar shows a
-            // live countdown to the next faithful launch window (the vessel rows leave it blank).
+            // "Time to launch" column header (left of Re-Fly): each mission's launch (first) vessel
+            // row shows a live countdown to the next faithful launch window under this header (every
+            // other vessel row + the mission header bar leave it blank).
             GUILayout.Label("Time to launch", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
 
             // Re-Fly column header (left of Archive): the per-vessel rows show Fly / Seal for

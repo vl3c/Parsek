@@ -146,7 +146,7 @@ core).
 
 ---
 
-## Phase 3 - UI: "T- to launch window" column + quality readout
+## Phase 3 - UI: "Time to launch" column + quality readout
 
 **Goal:** make the schedule visible and the accuracy legible.
 
@@ -158,10 +158,11 @@ joint best-fit. When Phase 2 lands, the residual it computes flows into the same
 WithinTolerance flag with no UI change.
 
 **Scope**
-- New "T- to launch" column in the Missions tab: live countdown to the next faithful
-  launch (`NextWindowUT - now`, referenced to the LIVE clock). States: blank (not
-  looping) / "continuous" (`P == MinCycleDuration`) / "not aligned" (unsupported:
-  cross-parent / rendezvous) / "T- <countdown>" (supported).
+- New "Time to launch" column in the Missions tab, shown on each mission's launch
+  (first) vessel row: live countdown to the next faithful launch (`NextWindowUT - now`,
+  referenced to the LIVE clock). States: blank (not looping) / "continuous"
+  (`P == MinCycleDuration`) / "not aligned" (unsupported: cross-parent / rendezvous) /
+  "T- <countdown>" (supported).
 - Period cell: show the faithful period P + a basis label ("~6h (Kerbin rot)" /
   "~1.6d (Mun window)") as a read-only cell when phase-locked + constrained; the
   existing editable cadence cell otherwise.

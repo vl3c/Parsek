@@ -375,8 +375,9 @@ Looping is **always faithful** (it always respects the included config's
 constraints); there is no "free / decorative" mode. The configuration the user
 checks IS the contract, and the loop launches only at faithful windows.
 
-- **New "T- to launch window" column** in the Missions tab (next to the period
-  cell): a live countdown to the engine's next ACTUAL relaunch
+- **New "Time to launch" column** in the Missions tab: a live countdown shown on
+  each mission's launch (first) vessel row, under that column header, to the engine's
+  next ACTUAL relaunch
   (`phaseAnchorUT + n * relaunchCadence`, where the relaunch cadence is the faithful
   period `P` quantized up to the cap, i.e. `m*P`). This is the primary surface for the
   periodicity - the user sees exactly when the next replay fires (for a Mun mission, the
@@ -389,7 +390,7 @@ checks IS the contract, and the loop launches only at faithful windows.
   "not aligned".
 - The period cell still shows the effective cadence, now snapped to a multiple of
   `P`, labeled with why (e.g. "every Mun window ~1.6 d").
-- **Quality / residual readout** (in the T- column or its tooltip): for an
+- **Quality / residual readout** (in the "Time to launch" cell or its tooltip): for an
   over-constrained config (no exact joint window - see Edge cases), the best-fit window
   carries a residual phase error. Surface it: green when within the physics tolerance
   (the intercept/landing site genuinely lines up), amber/flagged when the best
@@ -413,7 +414,7 @@ checks IS the contract, and the loop launches only at faithful windows.
   included config's constraints. The checked configuration is the contract.
 - **Over-constrained configs are never refused.** When no exact joint window exists
   (e.g. a Mun landing-AND-return that pins Kerbin's rotation at two incompatible
-  offsets - see Edge cases), we take the best-fit window, show a **T- to launch window**
+  offsets - see Edge cases), we take the best-fit window, show a **"Time to launch"**
   countdown, and surface the residual; we still respect the full constraint set
   (never silently drop one). The user adjusts which segments are included if the
   residual is unacceptable.
