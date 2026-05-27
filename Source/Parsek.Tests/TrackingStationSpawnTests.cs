@@ -221,11 +221,10 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryRunTrackingStationSpawnHandoffs_ShowGhostsDisabled_MatchingSceneEntryPidStillMarksRecordingMaterialized()
+        public void TryRunTrackingStationSpawnHandoffs_MatchingSceneEntryPidMarksRecordingMaterialized()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
             RecordingStore.SceneEntryActiveVesselPid = 777;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
 
             GhostMapPresence.TryRunTrackingStationSpawnHandoffs(
@@ -665,21 +664,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CreateGhostVesselsFromCommittedRecordings_ShowGhostsDisabled_SkipsGhostCreation()
-        {
-            var rec = MakeEligibleTrackingStationRecording();
-            RecordingStore.AddCommittedInternal(rec);
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
-
-            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
-
-            Assert.Equal(0, created);
-            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
-            Assert.False(rec.VesselSpawned);
-            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
-        }
-
-        [Fact]
         public void CreateGhostVesselsFromCommittedRecordings_RealVesselAlreadyMaterialized_SkipsGhostCreation()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
@@ -688,7 +672,6 @@ namespace Parsek.Tests
                 new OrbitSegment { startUT = 1000, endUT = 2000, bodyName = "Mun", semiMajorAxis = 250000 }
             };
             RecordingStore.AddCommittedInternal(rec);
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
             GhostMapPresence.CurrentUTNow = () => 1500;
 

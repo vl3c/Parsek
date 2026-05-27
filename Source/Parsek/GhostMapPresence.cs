@@ -5242,27 +5242,8 @@ namespace Parsek
             int createdBefore = lifecycleCreatedThisTick;
             int destroyedBefore = lifecycleDestroyedThisTick;
 
-            // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
             if (hasCommittedRecordings)
                 TryRunTrackingStationSpawnHandoffs(committed, currentUT);
-
-            // #388: respect the user's tracking-station ghost visibility toggle.
-            // ParsekTrackingStation.Update already handles the off-flip transition
-            // (calls RemoveAllGhostVessels); here we simply skip creation so the
-            // list stays empty while the flag is off. An empty-committed cache is
-            // still published so ParsekTrackingStation.OnGUI guards still work.
-            // Reads through the persistence store so the early-scene-load case
-            // (ParsekSettings.Current still null) gets the correct user choice
-            // from settings.cfg, not the pre-#388 default.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                CachedTrackingStationSuppressedIds = new HashSet<string>();
-                ParsekLog.VerboseRateLimited(Tag,
-                    "ts-lifecycle-disabled",
-                    "UpdateTrackingStationGhostLifecycle: showGhostsInTrackingStation=false — skip",
-                    2.0);
-                return;
-            }
 
             // Phase F v1 simplification: suppression is resolved at the LIVE currentUT, not the
             // per-member span-clock effUT. Loop-unit members are already gated by the per-recording
@@ -7179,23 +7160,6 @@ namespace Parsek
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
-            // #388: respect the user's tracking-station ghost visibility toggle.
-            // This path is called from SpaceTracking.Awake prefix where
-            // ParsekSettings.Current may still be null — read through the
-            // persistence store so the user's recorded preference (from
-            // settings.cfg) wins over the pre-#388 default.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                CachedTrackingStationSuppressedIds = new HashSet<string>();
-                int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "CreateGhostVesselsFromCommittedRecordings: " +
-                        "showGhostsInTrackingStation=false — skipping {0} committed recording(s)",
-                        commCount));
-                return 0;
-            }
-
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
             {

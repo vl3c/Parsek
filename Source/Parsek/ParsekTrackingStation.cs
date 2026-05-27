@@ -58,13 +58,6 @@ namespace Parsek
         /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
         private int lastKnownCommittedCount;
 
-        /// <summary>
-        /// Tracks the last-known value of <c>ParsekSettings.Current.showGhostsInTrackingStation</c>.
-        /// When the flag flips we force a lifecycle tick so ghosts appear/disappear
-        /// immediately without waiting for the 2-second interval.
-        /// </summary>
-        private bool lastKnownShowGhosts = true;
-
         // Mission loop-unit descriptors for THIS frame (Phase F: TS span-clock parity). Built from
         // the SAME MissionLoopUnitBuilder.Build the flight engine and KSC consume, so a looped
         // Mission renders in the tracking station identically. Empty (LoopUnitSet.Empty) means no
@@ -95,7 +88,6 @@ namespace Parsek
             public int Candidates;
             public int Drawn;
             public int CameraUnavailable;
-            public int HiddenBySetting;
             public int NoCommittedRecordings;
             public int NativeIconActive;
             public int NullRecording;
@@ -112,7 +104,6 @@ namespace Parsek
                 Candidates > 0
                 || Drawn > 0
                 || CameraUnavailable > 0
-                || HiddenBySetting > 0
                 || NoCommittedRecordings > 0
                 || NativeIconActive > 0
                 || NullRecording > 0
@@ -130,12 +121,11 @@ namespace Parsek
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} hiddenBySetting={4} noCommitted={5} nativeIcon={6} nullRecording={7} debris={8} noPoints={9} outsideTimeRange={10} chainSuppressed={11} orbitSegment={12} bracketMiss={13} missingBody={14} loopMemberHidden={15}",
+                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} noCommitted={4} nativeIcon={5} nullRecording={6} debris={7} noPoints={8} outsideTimeRange={9} chainSuppressed={10} orbitSegment={11} bracketMiss={12} missingBody={13} loopMemberHidden={14}",
                 string.IsNullOrEmpty(summary.EventTypeName) ? "(unknown)" : summary.EventTypeName,
                 summary.Candidates,
                 summary.Drawn,
                 summary.CameraUnavailable,
-                summary.HiddenBySetting,
                 summary.NoCommittedRecordings,
                 summary.NativeIconActive,
                 summary.NullRecording,
@@ -192,10 +182,6 @@ namespace Parsek
 
         void Start()
         {
-            // Read through the persistence store so the startup tick uses the
-            // recorded user preference even when ParsekSettings.Current isn't
-            // resolved yet (early-scene-load case, see ParsekScenario.cs:546).
-            lastKnownShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
             int suppressedForGhosts = GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0;
@@ -210,7 +196,6 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
                 $"fixed {renderersFixed} orbit renderer(s), " +
-                $"showGhostsInTrackingStation={lastKnownShowGhosts}, " +
                 $"trackingStationSuppressed={suppressedForGhosts}, " +
                 "orbitSourceDiagnostics=aggregated");
         }
@@ -231,23 +216,6 @@ namespace Parsek
                     "— forcing immediate lifecycle tick");
                 lastKnownCommittedCount = currentCount;
                 nextLifecycleCheckTime = 0f; // force tick this frame
-            }
-
-            // #388: detect the ghost visibility flag flipping and react immediately.
-            // On off-flip, remove every ghost ProtoVessel so the vessel list empties
-            // without waiting for a committed-count change. On on-flip, force a tick
-            // so the Phase-2 loop in UpdateTrackingStationGhostLifecycle recreates
-            // ghosts for every eligible recording.
-            bool currentShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
-            if (currentShowGhosts != lastKnownShowGhosts)
-            {
-                ParsekLog.Info(Tag,
-                    $"showGhostsInTrackingStation flipped {lastKnownShowGhosts} → {currentShowGhosts} " +
-                    "— forcing immediate lifecycle tick");
-                lastKnownShowGhosts = currentShowGhosts;
-                if (!currentShowGhosts)
-                    HideTrackingStationGhostsNow("ghost-filter-disabled");
-                nextLifecycleCheckTime = 0f;
             }
 
             if (GhostTrackingStationSelection.HasSelectedGhost)
@@ -344,15 +312,6 @@ namespace Parsek
             if (PlanetariumCamera.Camera == null)
             {
                 summary.CameraUnavailable++;
-                LogAtmosphericMarkerSummary(summary);
-                return;
-            }
-
-            // #388: skip the whole atmospheric-marker pass when the user has
-            // hidden ghosts in the tracking station.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                summary.HiddenBySetting++;
                 LogAtmosphericMarkerSummary(summary);
                 return;
             }
@@ -468,20 +427,6 @@ namespace Parsek
         {
             return pointerOverGhostPopup
                 && IsAtmosphericMarkerClickEvent(eventType);
-        }
-
-        private void HideTrackingStationGhostsNow(string reason)
-        {
-            string safeReason = string.IsNullOrEmpty(reason)
-                ? "tracking-station-ghosts-hidden"
-                : reason;
-            DismissCurrentGhostPopup(safeReason, clearSelection: true);
-            DestroyAtmosphericFocusTarget(safeReason);
-            atmosCachedIndices.Clear();
-            ghostActionCacheFrame = -1;
-            ghostActionChains.Clear();
-            GhostMapPresence.RemoveAllGhostVessels(safeReason);
-            GhostMapPresence.TryRefreshLiveTrackingStationVesselList(safeReason);
         }
 
         /// <summary>
