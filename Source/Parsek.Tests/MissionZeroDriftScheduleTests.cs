@@ -674,5 +674,70 @@ namespace Parsek.Tests
             Assert.NotNull(unit.RelaunchSchedule);
             Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));
         }
+
+        // ===================== Transited-body rotation A/B mode (Drop / Loose / Tight) =====================
+
+        [Fact]
+        public void IsTransitedBodyRotation_OnlyNonLaunchBodyRotation()
+        {
+            // Guards which constraints the A/B mode governs: a Rotation of a body OTHER than the launch
+            // body (a Mun landing), and ONLY that.
+            Assert.True(MissionPeriodicity.IsTransitedBodyRotation(Rotation("Mun", MunOrbit), "Kerbin"));
+            Assert.False(MissionPeriodicity.IsTransitedBodyRotation(Rotation("Kerbin", KerbinRotation), "Kerbin")); // the pad
+            Assert.False(MissionPeriodicity.IsTransitedBodyRotation(Orbital("Mun", MunOrbit), "Kerbin"));            // not a rotation
+            Assert.False(MissionPeriodicity.IsTransitedBodyRotation(Rotation("Mun", MunOrbit), null));               // no launch body
+        }
+
+        [Fact]
+        public void ScheduleToleranceSecondsFor_LoosensOnlyTransitedBodyRotation_InLooseMode()
+        {
+            var fake = new SoiFake();
+            var munRot = Rotation("Mun", MunOrbit);
+            double tight = MissionPeriodicity.ScheduleToleranceSecondsFor(munRot, fake, "Kerbin", TransitedBodyRotationMode.Tight);
+            double loose = MissionPeriodicity.ScheduleToleranceSecondsFor(munRot, fake, "Kerbin", TransitedBodyRotationMode.Loose);
+            Assert.Equal(MunOrbit * (0.25 / 360.0), tight, 3);  // Tight = the normal 0.25 deg rotation tolerance
+            Assert.Equal(MunOrbit * (5.0 / 360.0), loose, 3);   // Loose = 5 deg (TransitedBodyLooseRotationDegrees)
+            Assert.True(loose > tight);
+            // The launch-body (pad) rotation is NEVER loosened, even in Loose mode.
+            var pad = Rotation("Kerbin", KerbinRotation);
+            double padLoose = MissionPeriodicity.ScheduleToleranceSecondsFor(pad, fake, "Kerbin", TransitedBodyRotationMode.Loose);
+            Assert.Equal(KerbinRotation * (0.25 / 360.0), padLoose, 3);
+        }
+
+        [Fact]
+        public void TryBuildRelaunchSchedule_TransitedBodyRotationMode_TighterIsRarer_DropLtLooseLtTight()
+        {
+            // A land-and-return Mun config: pad rotation + Mun intercept + Mun LANDING rotation (tidally
+            // locked, so its period == the Mun orbit). The mode sets the Mun-rotation tolerance: Drop
+            // excludes it (only the Mun SOI tolerance, ~4474s, governs); Loose uses ~5 deg (~1930s);
+            // Tight uses 0.25 deg (~96s). A tighter tolerance is a SUBSET of a looser one, so the FIRST
+            // faithful window is strictly LATER (rarer) as the tolerance tightens. We compare the first
+            // launch UT (a robust cadence proxy; the min-interval probe can coincide across modes). All
+            // anchor on the pad (Kerbin).
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation),
+                Rotation("Mun", MunOrbit),   // tidally locked: rotation period == orbit period
+                Orbital("Mun", MunOrbit)
+            };
+            var fake = new SoiFake();
+
+            double FirstLaunch(TransitedBodyRotationMode mode)
+            {
+                bool ok = MissionPeriodicity.TryBuildRelaunchSchedule(
+                    constraints, Support.Supported, ut0: 0.0, floorUT: 0.0, fake, out var sched,
+                    minSpacingSeconds: 0.0, launchBodyName: "Kerbin", mode: mode);
+                Assert.True(ok, $"schedule should build for mode {mode}");
+                Assert.False(double.IsNaN(sched.FirstLaunchUT));
+                return sched.FirstLaunchUT;
+            }
+
+            double fDrop = FirstLaunch(TransitedBodyRotationMode.Drop);
+            double fLoose = FirstLaunch(TransitedBodyRotationMode.Loose);
+            double fTight = FirstLaunch(TransitedBodyRotationMode.Tight);
+
+            Assert.True(fDrop < fLoose, $"Drop first window {fDrop} should be < Loose {fLoose}");
+            Assert.True(fLoose < fTight, $"Loose first window {fLoose} should be < Tight {fTight}");
+        }
     }
 }

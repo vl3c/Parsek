@@ -96,6 +96,32 @@ namespace Parsek
     }
 
     /// <summary>
+    /// How the zero-drift schedule treats a TRANSITED (non-launch) body's surface-handoff rotation
+    /// constraint (e.g. a Mun landing). The launch-body rotation (the pad) ALWAYS keeps its tight
+    /// 0.25 deg tolerance; this only governs the landing on a body the mission travels to. A
+    /// player-settable A/B flag (<c>ParsekSettings.transitedBodyRotationMode</c>) because it trades
+    /// the relaunch cadence against the approach-&gt;landing handoff seam. See
+    /// docs/dev/plans/zero-drift-reschedule.md.
+    /// </summary>
+    internal enum TransitedBodyRotationMode
+    {
+        /// <summary>Drop the transited-body rotation constraint entirely: the body's orbital (SOI)
+        /// tolerance governs its phase, the body-fixed landing self-anchors. SHORTEST cadence
+        /// (~15 Kerbin days for the stock Mun), largest handoff seam (up to the SOI tolerance).</summary>
+        Drop,
+
+        /// <summary>Keep the transited-body rotation constraint but at a LOOSE tolerance
+        /// (<see cref="TransitedBodyLooseRotationDegrees"/>, a few degrees). MEDIUM cadence (~1-2
+        /// Kerbin months), small handoff seam (a few km).</summary>
+        Loose,
+
+        /// <summary>Keep the transited-body rotation constraint at the TIGHT 0.25 deg launch-pad
+        /// tolerance (the original behavior). LONGEST cadence (~1.65 Kerbin years for the stock Mun
+        /// land-and-return), pixel-perfect handoff. The no-regression default for unwired callers.</summary>
+        Tight
+    }
+
+    /// <summary>
     /// The result of extracting the phase constraints for one looping Mission's trimmed config.
     /// Pure value: launch body + UT0 + the ordered constraint list + the Support classification.
     /// </summary>
@@ -447,6 +473,16 @@ namespace Parsek
         // constraint (a small fraction of a degree of spin). Starting value per the design's
         // "Still open" note; refined by playtest. 0.25 degrees / 360 = ~0.0007 of a full turn.
         private const double RotationToleranceFraction = 0.25 / 360.0;
+
+        // The LOOSE rotation tolerance (in degrees) for a TRANSITED (non-launch) body's surface
+        // handoff under TransitedBodyRotationMode.Loose. A landing on a transited body (e.g. the Mun)
+        // is recorded body-fixed, so it self-anchors to the live surface; its rotation only affects
+        // the approach->landing handoff SEAM (a small deep-space discontinuity), which tolerates far
+        // more than the tight 0.25 deg launch-pad value. A few degrees keeps the seam small (a few km)
+        // while shortening the faithful-window cadence from ~1.65 Kerbin years (Tight) to ~1-2 Kerbin
+        // months. Dropping the constraint entirely (Mode.Drop) shortens it further to ~15 Kerbin days
+        // (seam up to the SOI tolerance). Tunable; A/B-tested in playtest.
+        private const double TransitedBodyLooseRotationDegrees = 5.0;
 
         // Phase 2 joint best-fit (the FIXED-cadence FALLBACK, used now only when a drifting config's
         // schedule is rejected for overlap or cannot build - the common drifting case takes the
@@ -924,7 +960,9 @@ namespace Parsek
         /// by shorter period, then index. Pure. Degenerate-period constraints are skipped.
         /// </summary>
         internal static int SelectAnchorConstraintIndex(
-            IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo)
+            IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo,
+            string launchBodyName = null,
+            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
         {
             int best = 0;
             double bestDuty = double.PositiveInfinity;
@@ -934,7 +972,7 @@ namespace Parsek
                 double p = constraints[i].PeriodSeconds;
                 if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
                     continue;
-                double duty = ToleranceSecondsFor(constraints[i], bodyInfo) / p; // fractional tolerance
+                double duty = ScheduleToleranceSecondsFor(constraints[i], bodyInfo, launchBodyName, mode) / p;
                 bool better = duty < bestDuty - 1e-12
                     || (duty <= bestDuty + 1e-12 && p < bestPeriod);
                 if (better)
@@ -945,6 +983,46 @@ namespace Parsek
                 }
             }
             return best;
+        }
+
+        /// <summary>
+        /// The tolerance (seconds) the SCHEDULE uses for a constraint, applying the
+        /// <see cref="TransitedBodyRotationMode"/>: a TRANSITED (non-launch) body's Rotation constraint
+        /// (e.g. a Mun landing) gets the LOOSE tolerance (<see cref="TransitedBodyLooseRotationDegrees"/>)
+        /// under <see cref="TransitedBodyRotationMode.Loose"/>; everything else (the launch-body
+        /// rotation = the pad, all Orbital constraints, and every constraint under
+        /// <see cref="TransitedBodyRotationMode.Tight"/>) uses the normal physics tolerance
+        /// <see cref="ToleranceSecondsFor"/>. <see cref="TransitedBodyRotationMode.Drop"/> is handled by
+        /// the caller pre-filtering the transited-body rotation out, so it never reaches here. A
+        /// null/empty <paramref name="launchBodyName"/> treats nothing as transited (everything tight),
+        /// matching the unwired / fixed-cadence path. Pure.
+        /// </summary>
+        internal static double ScheduleToleranceSecondsFor(
+            PhaseConstraint c, IBodyInfo bodyInfo, string launchBodyName, TransitedBodyRotationMode mode)
+        {
+            if (mode == TransitedBodyRotationMode.Loose
+                && c.Kind == ConstraintKind.Rotation
+                && !string.IsNullOrEmpty(launchBodyName)
+                && c.BodyName != launchBodyName)
+            {
+                double p = c.PeriodSeconds;
+                if (!double.IsNaN(p) && !double.IsInfinity(p) && p > 0.0)
+                    return p * (TransitedBodyLooseRotationDegrees / 360.0);
+            }
+            return ToleranceSecondsFor(c, bodyInfo);
+        }
+
+        /// <summary>
+        /// True when <paramref name="c"/> is a TRANSITED-body surface rotation constraint (a Rotation
+        /// constraint on a body that is NOT the launch body, e.g. a Mun landing). Such constraints are
+        /// what <see cref="TransitedBodyRotationMode"/> governs (dropped under Drop, loosened under
+        /// Loose). A null/empty launch body treats nothing as transited.
+        /// </summary>
+        internal static bool IsTransitedBodyRotation(PhaseConstraint c, string launchBodyName)
+        {
+            return c.Kind == ConstraintKind.Rotation
+                && !string.IsNullOrEmpty(launchBodyName)
+                && c.BodyName != launchBodyName;
         }
 
         /// <summary>
@@ -970,41 +1048,65 @@ namespace Parsek
             double floorUT,
             IBodyInfo bodyInfo,
             out MissionRelaunchSchedule schedule,
-            double minSpacingSeconds = 0.0)
+            double minSpacingSeconds = 0.0,
+            string launchBodyName = null,
+            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
         {
             schedule = null;
             if (support != Support.Supported)
                 return false;
-            int count = constraints?.Count ?? 0;
-            if (count < 2)
-                return false; // need at least two constraints to drift
             if (double.IsNaN(ut0) || double.IsNaN(floorUT))
                 return false;
+            int rawCount = constraints?.Count ?? 0;
+            if (rawCount < 2)
+                return false; // need at least two constraints to drift
+
+            // TransitedBodyRotationMode.Drop: exclude a TRANSITED (non-launch) body's rotation
+            // constraint (e.g. a Mun landing). That body's phase is already pinned within its SOI by
+            // its Orbital constraint, and the body-fixed landing self-anchors to the live surface, so
+            // the tight 0.25 deg rotation lock only over-constrains the cadence. Loose/Tight keep it
+            // (its tolerance comes from ScheduleToleranceSecondsFor below: loosened under Loose, the
+            // normal tight 0.25 deg under Tight). The launch-body rotation (the pad) is never dropped.
+            int droppedTransited = 0;
+            var effective = new List<PhaseConstraint>(rawCount);
+            for (int i = 0; i < rawCount; i++)
+            {
+                if (mode == TransitedBodyRotationMode.Drop
+                    && IsTransitedBodyRotation(constraints[i], launchBodyName))
+                {
+                    droppedTransited++;
+                    continue;
+                }
+                effective.Add(constraints[i]);
+            }
+            if (effective.Count < 2)
+                return false; // dropping left too few constraints to drift
 
             // Anchor on the TIGHTEST-tolerance constraint (the pad), not the longest period (the Mun):
             // pinning the tightest exactly and letting the looser ones float within tolerance is what
-            // maximizes the faithful-window frequency (plan section 2.2).
-            int anchorIdx = SelectAnchorConstraintIndex(constraints, bodyInfo);
-            double anchorPeriod = constraints[anchorIdx].PeriodSeconds;
+            // maximizes the faithful-window frequency (plan section 2.2). The duty cycle (hence the
+            // anchor choice) respects the mode (a Loose transited-body rotation is wider-band).
+            int anchorIdx = SelectAnchorConstraintIndex(effective, bodyInfo, launchBodyName, mode);
+            double anchorPeriod = effective[anchorIdx].PeriodSeconds;
             if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
                 return false;
 
-            var periods = new List<double>(count - 1);
-            var tolerances = new List<double>(count - 1);
+            var periods = new List<double>(effective.Count - 1);
+            var tolerances = new List<double>(effective.Count - 1);
             int filtered = 0;
             bool anyDistinct = false;
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < effective.Count; i++)
             {
                 if (i == anchorIdx)
                     continue;
-                double p = constraints[i].PeriodSeconds;
+                double p = effective[i].PeriodSeconds;
                 if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
                 {
                     filtered++;
                     continue;
                 }
                 periods.Add(p);
-                tolerances.Add(ToleranceSecondsFor(constraints[i], bodyInfo));
+                tolerances.Add(ScheduleToleranceSecondsFor(effective[i], bodyInfo, launchBodyName, mode));
                 if (Math.Abs(p - anchorPeriod) > PeriodEqualityRelTolerance * Math.Max(1.0, anchorPeriod))
                     anyDistinct = true;
             }

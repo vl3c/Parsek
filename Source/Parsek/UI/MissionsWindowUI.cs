@@ -465,6 +465,10 @@ namespace Parsek
                 double autoLoopIntervalSeconds = settings != null
                     ? settings.autoLoopIntervalSeconds
                     : LoopTiming.DefaultLoopIntervalSeconds;
+                // Same transited-body rotation A/B mode the scene drivers use, so the display mirror
+                // matches the engine's schedule (a flipped flag rebuilds via the signature).
+                TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
+                                                    ?? TransitedBodyRotationMode.Loose;
                 bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
                 MissionLoopUnitBuilder.SuppressLogging = true;
                 try
@@ -472,7 +476,7 @@ namespace Parsek
                     loopUnitSetCache = MissionLoopUnitBuilder.Build(
                         MissionStore.Missions, RecordingStore.CommittedTrees,
                         RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
-                        FlightGlobalsBodyInfo.Instance);
+                        FlightGlobalsBodyInfo.Instance, tbrMode);
                 }
                 finally
                 {

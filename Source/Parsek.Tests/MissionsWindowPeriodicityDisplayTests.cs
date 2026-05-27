@@ -389,6 +389,26 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TransitedBodyRotationMode_SettingsLabelAndCycle()
+        {
+            // Guards the Settings UI A/B control: the three labels and the Drop -> Loose -> Tight -> Drop
+            // cycle order.
+            Assert.Equal("Off (frequent)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Drop));
+            Assert.Equal("Loose (~monthly)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Loose));
+            Assert.Equal("Precise (rare)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Tight));
+
+            Assert.Equal(TransitedBodyRotationMode.Loose,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Drop));
+            Assert.Equal(TransitedBodyRotationMode.Tight,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Loose));
+            Assert.Equal(TransitedBodyRotationMode.Drop,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Tight));
+        }
+
+        [Fact]
         public void BuildScheduledPeriodCellDisplay_ShowsVariesWithBasis()
         {
             // Fails if the scheduled (non-uniform) period cell does not mark the cadence as varying.

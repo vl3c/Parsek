@@ -18411,12 +18411,15 @@ namespace Parsek
             // mission snaps its phase anchor to the next faithful launch window. An unsupported
             // config (cross-parent / rendezvous / no constraint) falls back to today's behavior.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            // Zero-drift A/B flag: how a looped mission's transited-body landing rotation is treated.
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");

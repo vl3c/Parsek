@@ -39,7 +39,8 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
-            IBodyInfo bodyInfo = null)
+            IBodyInfo bodyInfo = null,
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
         {
             if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
@@ -58,6 +59,7 @@ namespace Parsek
 
                 if (!TryBuildMissionUnit(
                         mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
+                        transitedBodyRotationMode,
                         out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
                     continue;
 
@@ -112,6 +114,7 @@ namespace Parsek
             Dictionary<string, int> indexById,
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo,
+            TransitedBodyRotationMode transitedBodyRotationMode,
             out GhostPlaybackLogic.LoopUnit unit,
             out int[] memberArray)
         {
@@ -288,7 +291,8 @@ namespace Parsek
                     double minSpacing = cadence;
                     if (MissionPeriodicity.TryBuildRelaunchSchedule(
                             extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
-                            bodyInfo, out MissionRelaunchSchedule sched, minSpacing))
+                            bodyInfo, out MissionRelaunchSchedule sched, minSpacing,
+                            extraction.LaunchBodyName, transitedBodyRotationMode))
                     {
                         // minSpacing >= span guarantees sched.MinIntervalSeconds >= span; this gate is a
                         // defensive belt-and-suspenders that always passes for a built schedule.
@@ -465,10 +469,17 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
-            IBodyInfo bodyInfo = null)
+            IBodyInfo bodyInfo = null,
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
+            // The transited-body rotation mode (player A/B setting) changes the zero-drift schedule
+            // (drops / loosens a transited-body landing constraint), so flipping it must rebuild the
+            // cached LoopUnitSet. Fold it in once (only matters when bodyInfo is supplied / phase-lock
+            // wiring active; without it the schedule path is inert and the mode is irrelevant).
+            if (bodyInfo != null)
+                sb.Append("TBR:").Append(transitedBodyRotationMode.ToString()).Append('|');
 
             int loopingCount = 0;
             if (missions != null)

@@ -118,7 +118,25 @@ tolerance (the transfer still reaches it - the Mun-relative arc re-anchors to th
 `residual(k)` is the ABSOLUTE worst other-body error at launch `k` (not relative to the
 previous launch), so it never accumulates. `tol_j`: the existing physics-derived tolerance
 (`ToleranceSecondsFor`) - rotation `period_j * RotationToleranceFraction` (0.25 deg);
-orbital `SoiRadius / OrbitalVelocity` (one SOI-crossing time). Reused verbatim.
+orbital `SoiRadius / OrbitalVelocity` (one SOI-crossing time).
+
+**Transited-body landing rotation (the A/B flag).** A mission that LANDS on a body it
+travels to (e.g. a Mun landing) emits a `Rotation(transited-body)` constraint. Because the
+landing is recorded body-fixed (it self-anchors to the live surface, like the KSC ascent),
+its rotation only sets the approach->landing handoff SEAM and does NOT need the tight
+0.25 deg pad tolerance; and for a tidally-locked body it shares the orbital period, so the
+tight rotation would bind much harder than the orbital SOI tolerance and make windows rare
+(the stock Mun land-and-return: ~1.65 Kerbin years). `TransitedBodyRotationMode` (player
+setting `ParsekSettings.transitedBodyRotationModeIndex`, default `Loose`) governs ONLY a
+NON-launch body's rotation constraint (the launch pad always stays 0.25 deg):
+- **Drop** - exclude it (the body's orbital SOI tolerance governs its phase). Shortest
+  cadence (~15 Kerbin days for the stock Mun), largest handoff seam (up to the SOI).
+- **Loose** - keep it at `TransitedBodyLooseRotationDegrees` (~5 deg). ~1-2 Kerbin months,
+  small seam (a few km).
+- **Tight** - keep the 0.25 deg. ~1.65 Kerbin years, pixel-perfect handoff (original).
+`SelectAnchorConstraintIndex` / `TryBuildRelaunchSchedule` take `launchBodyName` + the mode
+(Drop pre-filters; Loose loosens via `ScheduleToleranceSecondsFor`); it folds into
+`BuildSignature` so flipping the flag rebuilds.
 
 ### 2.3 `NextJointNearCoincidenceUT(afterUT)` + the player throttle
 
