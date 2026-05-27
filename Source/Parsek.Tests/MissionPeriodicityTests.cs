@@ -266,6 +266,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Extract_AtmosphericOnly_NoOrbit_NoRotationConstraint()
+        {
+            // Guards (Q3 fix): a pure atmospheric/surface arc of B with NO inertial orbit of B to
+            // hand off to imposes NO phase constraint - it is recorded surface-relative and renders
+            // at its correct ground location at ANY universe time. The rotation constraint requires
+            // the surface<->inertial-orbit hand-off, NOT a bare surface segment. Without it the
+            // config is unconstrained and Solve collapses P to MinCycleDuration (free loop).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin"); // atmospheric ascent only, no orbit
+            var tree = TreeOf("t", ascent);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Empty(ex.Constraints); // no Rotation(Kerbin) - no hand-off
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal("Kerbin", ex.LaunchBodyName);
+
+            // End-to-end: an empty constraint set solves to the free-loop MinCycleDuration.
+            var sol = MissionPeriodicity.Solve(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, StockFake());
+            Assert.Equal(LoopTiming.MinCycleDuration, sol.P);
+            Assert.Equal("unconstrained", sol.Method);
+        }
+
+        [Fact]
+        public void Extract_LaunchPlusOrbit_StillLocksRotation_HandoffRegressionGuard()
+        {
+            // Guards (Q3 fix regression): the launch + Kerbin orbit config (an atmospheric ascent
+            // that hands off to an inertial Kerbin orbit) STILL yields Rotation(Kerbin) - the
+            // hand-off case must keep locking. This is the partner guard to the atmospheric-only
+            // test above: surface alone -> no lock; surface + orbit of the same body -> lock.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, orbit);
+
+            var ex = Extract(tree, StockFake());
+
+            PhaseConstraint rot = ex.Constraints.Single(c => c.Kind == ConstraintKind.Rotation);
+            Assert.Equal("Kerbin", rot.BodyName);
+            Assert.Equal(KerbinRotation, rot.PeriodSeconds);
+            Assert.Equal(Support.Supported, ex.Support);
+
+            // End-to-end: the single Rotation locks to the rotation period (not the free loop).
+            var sol = MissionPeriodicity.Solve(
+                ex.Constraints, ex.Support, ex.UT0, ex.UT0, StockFake());
+            Assert.Equal(KerbinRotation, sol.P);
+            Assert.Equal("single-rotation", sol.Method);
+        }
+
+        [Fact]
         public void Extract_MunMission_RotationKerbinPlusOrbitalMunDirectChild()
         {
             // Guards: an SOI entry into a direct-child target (Mun from Kerbin) produces an
@@ -480,11 +531,16 @@ namespace Parsek.Tests
         public void Extract_ZeroRotationPeriod_NoRotationConstraint()
         {
             // Guards: a body with rotationPeriod == 0 (or NaN) produces no rotation constraint
-            // (no divide-by-zero downstream).
+            // (no divide-by-zero downstream). Includes the surface<->inertial-orbit hand-off so the
+            // zero-rotation-period guard is the reason the constraint is dropped, not the missing
+            // hand-off.
             var fake = StockFake();
             fake.Rotation["Kerbin"] = 0.0;
             var surface = SurfaceLeg("s", 100, 200, "Kerbin");
-            var tree = TreeOf("t", surface);
+            var orbit = OrbitLeg("o", 200, 800, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
 
             var ex = Extract(tree, fake);
 
@@ -495,10 +551,15 @@ namespace Parsek.Tests
         public void Extract_RetrogradeRotation_UsesMagnitude()
         {
             // Guards: a retrograde (negative) rotation period is read by magnitude, not skipped.
+            // Needs the surface<->inertial-orbit hand-off (surface + orbit of the same body) for the
+            // Rotation(B) constraint to be emitted at all (a bare surface arc imposes no constraint).
             var fake = StockFake();
             fake.Rotation["Kerbin"] = -KerbinRotation;
             var surface = SurfaceLeg("s", 100, 200, "Kerbin");
-            var tree = TreeOf("t", surface);
+            var orbit = OrbitLeg("o", 200, 800, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
 
             var ex = Extract(tree, fake);
 

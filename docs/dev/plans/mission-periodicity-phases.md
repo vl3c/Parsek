@@ -8,10 +8,11 @@ math with pure unit tests before any UI/playtest.
 
 Vocabulary (from the design doc):
 - **Constraint:** a phase requirement an included segment imposes - `Rotation(body)`
-  (a surface/atmospheric segment must place over its ground spot + connect to its
-  inertial orbit) or `Orbital(body, relativeToParent)` (an SOI entry must reach the
-  body where it will be). Each carries a period + a phase offset (the recorded UT of
-  the segment relative to `UT0`).
+  (a surface/atmospheric segment must connect its hand-off to an inertial orbit of the
+  same body over its ground spot; emitted only when both a surface segment AND an
+  inertial orbit of that body are included) or `Orbital(body, relativeToParent)` (an
+  SOI entry must reach the body where it will be). Each carries a period + a phase
+  offset (the recorded UT of the segment relative to `UT0`).
 - **`UT0`:** the recorded launch UT = the trimmed mission's span start.
 - **`P`:** the recurrence period at which all the included config's constraints line
   up (best-fit within tolerance). Next faithful launch = smallest `UT0 + k*P >= now`.
@@ -39,9 +40,11 @@ of the feature; everything else consumes this.
   input = the `ComputeTrimmedMemberWindows` output (committed index -> window) +
   the committed recordings + a body-info provider; output = `List<PhaseConstraint>`.
 - Per-segment frame classification from `OrbitSegment` body/bounds + TrackSection
-  reference frames: surface/atmospheric -> `Rotation(B)`; inertial orbit -> none
-  (mark "inherits B's rotation" when an adjacent included surface segment of B
-  exists); SOI entry/transit (capture, transient flyby, or assist) -> `Orbital(C)`.
+  reference frames: surface/atmospheric -> `Rotation(B)` ONLY when the included set
+  ALSO has an inertial-orbit segment of B (the surface<->inertial-orbit hand-off; a
+  bare surface arc with no orbit of B is faithful at any time -> no constraint);
+  inertial orbit -> no constraint of its own (it only enables that hand-off);
+  SOI entry/transit (capture, transient flyby, or assist) -> `Orbital(C)`.
 - Same-parent vs cross-parent detection on each `Orbital(C)` (compare `C.referenceBody`
   to the launch body's parent); cross-parent flagged `Unsupported` (Phase 4).
 - Detect rendezvous/dock in the included span -> flag `Unsupported` (out of scope).

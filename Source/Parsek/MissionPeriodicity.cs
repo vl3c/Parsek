@@ -223,14 +223,20 @@ namespace Parsek
         /// Rules (design doc "What determines P" + Edge cases):
         /// 1. launch body = body of the earliest INCLUDED surface/atmospheric segment, else the
         ///    bodyName of the earliest included OrbitSegment.
-        /// 2. a surface/atmospheric segment on body B -> Rotation(B), phase offset = segment
-        ///    start UT - UT0. Only ONE Rotation(B) per body is emitted (the earliest), because
-        ///    rotation inheritance is a property of the included SET (multiple same-body surface
-        ///    legs collapse to that body's single rotation lock); a SECOND distinct surface body
-        ///    or a second incompatible same-body offset is what makes the config over-constrained
-        ///    (Phase 2). To keep Phase 0/1 honest we still emit the earliest per body once.
-        /// 3. an inertial orbit segment contributes NO new constraint (rule 2 already covers B if
-        ///    any included surface segment of B exists; a bare inertial orbit is free).
+        /// 2. a surface/atmospheric segment on body B emits Rotation(B) ONLY when the included set
+        ///    ALSO contains an inertial-orbit segment of B (the ascent->orbit / orbit->descent
+        ///    hand-off). The phase offset = segment start UT - UT0. The rotation phase only matters
+        ///    to line a surface segment's hand-off up to an inertial orbit of the same body; a pure
+        ///    surface/atmospheric arc renders at its correct ground location at any universe time
+        ///    (it rotates with B) and imposes NO phase constraint. Only ONE Rotation(B) per body is
+        ///    emitted (the earliest surface start): rotation inheritance is a property of the
+        ///    included SET (multiple same-body surface legs collapse to that body's single rotation
+        ///    lock); a SECOND distinct surface body or a second incompatible same-body offset is what
+        ///    makes the config over-constrained (Phase 2).
+        /// 3. an inertial orbit segment contributes NO new constraint of its own (it only enables
+        ///    rule 2's Rotation(B) hand-off when an included surface segment of B exists; a bare
+        ///    inertial orbit with no surface segment of B, and a bare surface arc with no inertial
+        ///    orbit of B, are both free).
         /// 4. an SOI entry into body C (any bodyName across the included OrbitSegments /
         ///    OrbitalCheckpoint checkpoints other than the launch body) -> Orbital(C): direct
         ///    child (C.referenceBody == launchBody) keeps period = C.OrbitPeriod and is Supported;
@@ -328,8 +334,17 @@ namespace Parsek
             string launchBody = earliestSurfaceBody ?? earliestOrbitBody;
             result.LaunchBodyName = launchBody;
 
-            // 3. Rotation constraints: one per surface body (earliest start), launch body first.
-            //    Emit in recorded-UT order (offset order).
+            // 3. Rotation constraints: ONE per surface body (earliest start), launch body first,
+            //    emitted in recorded-UT (offset) order. A Rotation(B) constraint is emitted ONLY
+            //    when the INCLUDED set has BOTH a surface/atmospheric segment of B AND an
+            //    inertial-orbit segment of B (the ascent->orbit / orbit->descent hand-off). The
+            //    rotation phase only matters to line that hand-off up over the launch/landing site:
+            //    a surface arc is recorded surface-relative and renders at its correct ground
+            //    location at ANY universe time (it rotates with B), so a surface-only /
+            //    atmospheric-only config of B imposes NO phase constraint (design "What determines
+            //    P" rule 1/2 + the "no-inertial-arc -> MinCycleDuration" edge case). Note that the
+            //    launch body's own orbit segments are kept in earliestOrbitStartByBody (rule 4 only
+            //    skips them as SOI ENTRIES), so the hand-off check sees them here.
             var rotationBodiesSorted = new List<KeyValuePair<string, double>>(earliestSurfaceStartByBody);
             rotationBodiesSorted.Sort((a, b) =>
             {
@@ -338,6 +353,11 @@ namespace Parsek
             });
             foreach (var rb in rotationBodiesSorted)
             {
+                // Hand-off gate: require an inertial-orbit segment of the SAME body B in the
+                // included set. No orbit of B -> a pure surface/atmospheric arc -> no rotation
+                // constraint (faithful at any time).
+                if (!earliestOrbitStartByBody.ContainsKey(rb.Key))
+                    continue;
                 double rotPeriod = bodyInfo.RotationPeriod(rb.Key);
                 // Guard zero / NaN / negative (a non-rotating or degenerate body imposes no
                 // rotation constraint - design doc Edge cases). Retrograde rotation has a negative

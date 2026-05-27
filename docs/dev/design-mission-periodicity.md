@@ -116,22 +116,25 @@ them).
 Each INCLUDED segment contributes only the phase constraint its own frame imposes:
 
 1. **Surface / atmospheric segment on a rotating body B** (launch ascent, landing,
-   surface ops) -> constrains **B's rotation phase**, repeating every
-   `B.rotationPeriod` (Kerbin sidereal day ~21,549 s). This is what realigns the
-   segment over its ground location AND connects an ascent to its inertial orbit
-   (or an orbit to its descent).
+   surface ops) -> constrains **B's rotation phase** (repeating every
+   `B.rotationPeriod`, Kerbin sidereal day ~21,549 s) ONLY when the INCLUDED set ALSO
+   contains an inertial-orbit segment of the SAME body B (the ascent->orbit /
+   orbit->descent hand-off). The rotation phase matters solely to line that hand-off
+   up over the launch/landing site. A surface arc is recorded surface-relative and
+   renders at its correct ground location at ANY universe time (it rotates with B), so
+   a **surface-only / atmospheric-only config of B imposes NO phase constraint** (this
+   is the "no-inertial-arc -> MinCycleDuration" edge case). The rotation constraint
+   requires the surface<->inertial-orbit hand-off, not a bare surface segment.
 
 2. **Inertial orbit segment around body B** -> by itself imposes **no** phase
-   constraint (B is always there; an inertial orbit is faithful at any UT). It
-   inherits B's rotation constraint ONLY when the INCLUDED constraint set already
-   contains a surface/atmospheric segment of the SAME body B (the ascent->orbit /
-   orbit->descent hand-off must line up over that launch/landing site). "Adjacent" is
-   NOT list-adjacency or UT-adjacency: inheritance is a property of the included set
-   (does any included surface segment of B exist?), so trimming the ascent away
-   removes the inherited constraint and the bare orbit is free. In practice this means
-   the orbit adds nothing the surface segment did not already add - rule 1 alone
-   produces B's rotation constraint - so the inertial-orbit case is effectively
-   "contributes no NEW constraint."
+   constraint (B is always there; an inertial orbit is faithful at any UT). Its only
+   role is to ENABLE rule 1's `Rotation(B)` hand-off: the rotation lock is emitted iff
+   the INCLUDED set has BOTH a surface/atmospheric segment of B AND an inertial-orbit
+   segment of B. "Adjacent" is NOT list-adjacency or UT-adjacency: the hand-off is a
+   property of the included set (does any included surface segment of B AND any
+   included inertial orbit of B exist?), so trimming away EITHER side removes the
+   constraint (the surviving bare arc/orbit is free). The orbit alone contributes no
+   NEW constraint - it only completes the pair rule 1 needs.
 
 3. **SOI entry into body C** (any intercept inside the included span - a capture, a
    transient flyby, OR a gravity assist; a non-capturing pass is just as binding as a
@@ -201,9 +204,11 @@ period rarely exists; the joint period is a best-fit: the smallest `P` for which
 Compute `P` per looping mission and phase-lock the loop:
 
 - **Config that stays in one body's SOI** (no intercept in the included span):
-  `P = the launch/landing body's rotationPeriod` when an included surface /
-  atmospheric segment must line up, else `MinCycleDuration` (a bare inertial orbit
-  with no surface segment imposes no phase constraint).
+  `P = the launch/landing body's rotationPeriod` when the included set has a
+  surface<->inertial-orbit hand-off (a surface/atmospheric segment of B AND an
+  inertial orbit of B that must line up over the launch/landing site), else
+  `MinCycleDuration` (a bare inertial orbit with no surface segment, OR a bare surface
+  /atmospheric arc with no inertial orbit of B, imposes no phase constraint).
 - **Config that reaches another body** (the flagship Mun case, which has TWO
   constraints: `Rotation(Kerbin)` + `Orbital(Mun)`): Tier 1 deliberately locks ONLY
   the dominant intercept constraint - `P` = the target's recurrence period (rule 3) -
