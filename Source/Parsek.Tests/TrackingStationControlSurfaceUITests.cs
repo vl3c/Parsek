@@ -409,6 +409,8 @@ namespace Parsek.Tests
         [InlineData(10, true, false, true)]    // armed + fresh outside press -> dismiss
         [InlineData(10, false, false, false)]  // armed, no press this frame -> stay (opening release ignored)
         [InlineData(10, true, true, false)]    // armed + press, but over popup -> stay
+        [InlineData(5, true, false, true)]     // exact arm-window boundary (< 5 is false at 5) -> dismiss
+        [InlineData(4, true, false, false)]    // one frame inside the arm window -> stay
         [InlineData(2, true, false, false)]    // within arm window -> stay (opening press ignored)
         [InlineData(0, true, false, false)]    // open frame -> stay
         public void ShouldDismissGhostPopupOnOutsideClick_OnlyOnFreshArmedOutsidePress(
