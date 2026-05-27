@@ -26,6 +26,25 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        // A wrapped OrbitSegment covering effUT must win over a co-located OrbitalCheckpoint
+        // state-vector in the tracking-station per-tick update; the checkpoint state-vector is
+        // only consumed for a genuine segment gap. This mirrors the create-path precedence and
+        // fixes the looped-ghost orbit freezing on its last segment once effUT advances into a
+        // transfer/coast OrbitalCheckpoint section (the proto-vessel-disappears-in-TS bug).
+        [Theory]
+        [InlineData(true, true, false)]   // in checkpoint section, but segment covers effUT -> prefer segment
+        [InlineData(true, false, true)]   // in checkpoint section, no covering segment -> genuine gap, consume checkpoint
+        [InlineData(false, true, false)]  // not a checkpoint section -> never consume checkpoint
+        [InlineData(false, false, false)] // not a checkpoint section, no segment -> never consume checkpoint
+        public void ShouldConsumeCheckpointStateVectorForExistingGhost_PrefersCoveringSegment(
+            bool fromCheckpoint, bool segmentCoversEffUT, bool expected)
+        {
+            Assert.Equal(
+                expected,
+                GhostMapPresence.ShouldConsumeCheckpointStateVectorForExistingGhost(
+                    fromCheckpoint, segmentCoversEffUT));
+        }
+
         [Fact]
         public void ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackAccepted_ReturnsMunStateVectorSource()
         {

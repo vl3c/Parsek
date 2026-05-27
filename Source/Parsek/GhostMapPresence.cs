@@ -45,6 +45,23 @@ namespace Parsek
                 || source == TrackingStationGhostSource.StateVectorSoiGap;
         }
 
+        /// <summary>
+        /// Tracking-station per-tick orbit-source precedence for an already-created ghost:
+        /// a wrapped/closed OrbitSegment covering the effective UT is the trusted source and
+        /// wins over a co-located OrbitalCheckpoint state-vector. The checkpoint state-vector is
+        /// distrusted (stale-frame interpretation reintroduced the #571/#584 wrong-position class)
+        /// and is only valid for a genuine segment gap, so it is consumed only when no segment
+        /// covers effUT. This mirrors the create-path <see cref="ResolveTrackingStationGhostSource"/>
+        /// and the flight-scene <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c> precedence;
+        /// without it a Segment-created looped ghost freezes on its last segment the moment effUT
+        /// advances into a transfer/coast OrbitalCheckpoint section.
+        /// </summary>
+        internal static bool ShouldConsumeCheckpointStateVectorForExistingGhost(
+            bool fromCheckpoint, bool segmentCoversEffUT)
+        {
+            return fromCheckpoint && !segmentCoversEffUT;
+        }
+
         internal struct TrackingStationSpawnHandoffState
         {
             internal readonly uint GhostPid;
@@ -5479,6 +5496,21 @@ namespace Parsek
                 bool isStateVector =
                     trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
 
+                // Mirror the create-path (ResolveTrackingStationGhostSource) and flight-scene
+                // (ParsekPlaybackPolicy.CheckPendingMapVessels) precedence: a wrapped/closed
+                // OrbitSegment covering effUT is the trusted source and wins over the distrusted
+                // OrbitalCheckpoint state-vector. `fromCheckpoint` (below) is re-derived from the
+                // section at effUT every tick; without this guard a Segment-created looped ghost is
+                // misrouted into the OrbitalCheckpoint state-vector refusal
+                // (state-vector-from-orbital-checkpoint) the moment effUT advances into a
+                // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
+                // instead of advancing through the mission's later segments. The checkpoint path
+                // stays available only for a genuine segment gap (no covering segment at effUT).
+                OrbitSegment? coveringSegment = (rec != null && rec.OrbitSegments != null)
+                    ? TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT)
+                    : (OrbitSegment?)null;
+                bool segmentCoversEffUT = coveringSegment.HasValue;
+
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
                     : -1;
@@ -5489,6 +5521,21 @@ namespace Parsek
                     out TrajectoryPoint checkpointPoint,
                     out _,
                     out _);
+                if (fromCheckpoint && segmentCoversEffUT && !isStateVector)
+                {
+                    // Deferring to the trusted segment path below. Logged (rate-limited, shared key)
+                    // so a log capture can confirm the precedence guard is active for looped ghosts
+                    // crossing from a parking-orbit segment into a transfer OrbitalCheckpoint section.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-checkpoint-defer-to-segment",
+                        string.Format(ic,
+                            "TS orbit source: OrbitalCheckpoint section at effUT={0:F1} deferring to covering OrbitSegment "
+                            + "(idx={1} pid={2} segUT={3:F1}-{4:F1} body={5})",
+                            effUT, idx, pid,
+                            coveringSegment.Value.startUT, coveringSegment.Value.endUT,
+                            coveringSegment.Value.bodyName ?? "(null)"),
+                        2.0);
+                }
 
                 string removeReason = GetTrackingStationGhostRemovalReason(
                     rec,
@@ -5516,7 +5563,7 @@ namespace Parsek
                     continue;
                 }
 
-                if (fromCheckpoint)
+                if (ShouldConsumeCheckpointStateVectorForExistingGhost(fromCheckpoint, segmentCoversEffUT))
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
                     if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
@@ -5585,7 +5632,8 @@ namespace Parsek
                 if (!hasOrbitBounds)
                     continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
+                // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
+                OrbitSegment? seg = coveringSegment;
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
                 if (seg.HasValue
                     && TryResolveEndpointTailForMapPresence(
