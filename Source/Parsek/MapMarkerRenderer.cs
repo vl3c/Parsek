@@ -18,8 +18,11 @@ namespace Parsek
     /// so ghost icons match stock ProtoVessel icons for every VesselType (#387).
     ///
     /// Label is hidden by default, revealed while hovering the icon, and
-    /// toggled sticky by left-clicking the icon. Non-left clicks pass through
-    /// so KSP's stock map/tracking handlers still see them. The sticky set is keyed by
+    /// toggled sticky by right-clicking the icon (mirroring how the ProtoVessel
+    /// ghost icons keep their label). A left click instead opens the marker's
+    /// menu when a click handler is supplied (the Tracking Station ghost popup);
+    /// where none is (flight map view) the left click passes through to KSP's
+    /// stock map handlers. The sticky set is keyed by
     /// recording ID and cleared on scene change. The custom marker is only
     /// drawn when the stock MapNode for the same recording is absent or
     /// suppressed, so there is no double-labeling when a ghost ProtoVessel
@@ -31,6 +34,18 @@ namespace Parsek
         private const int IconSize = 20;
         private const int ClickPadding = 6; // add to each side of the icon for easier hit-testing
         private const float UnpinnedMarkerAlpha = 0.8f;
+
+        // Tint for the atlas icon, chosen to match the stock map icon the same
+        // ghost shows once it has a ProtoVessel (orbital phase): KSP's
+        // OrbitRenderer sets every vessel's nodeColor to (0.71,0.71,0.71,1) and
+        // draws the object icon at nodeColor.A(lineOpacity), with lineOpacity ==
+        // 1 for a visible, in-front node (it only fades to 0.5 behind a body).
+        // Both paths draw the same atlas sprite, so using the same tint makes a
+        // recording with no map ProtoVessel (atmospheric phase) look identical
+        // to one that has a ProtoVessel. Source: decompiled OrbitRenderer /
+        // OrbitRendererBase.objectNode_OnUpdateIcon / MapNode (img.color =
+        // vData.color). Not opacity-modulated by sticky/hover, matching stock.
+        internal static readonly Color StockVesselIconColor = new Color(0.71f, 0.71f, 0.71f, 1f);
 
         // VesselType -> sprite index in MapNode.iconSprites, taken from the
         // decompiled KSP.UI.Screens.Mapview.MapNode icon-index lookup.
@@ -156,7 +171,7 @@ namespace Parsek
         internal static void DrawMarker(
             Vector3d worldPos, string markerKey, string label, Color color,
             VesselType vtype = VesselType.Ship,
-            MarkerClickHandler onLeftClick = null)
+            MarkerClickHandler onClick = null)
         {
             if (PlanetariumCamera.Camera == null) return;
 
@@ -170,7 +185,7 @@ namespace Parsek
                 label,
                 color,
                 vtype,
-                onLeftClick);
+                onClick);
         }
 
         /// <summary>
@@ -184,7 +199,7 @@ namespace Parsek
         internal static void DrawMarkerAtScreen(
             Vector2 screenPos, string markerKey, string label, Color color,
             VesselType vtype = VesselType.Ship,
-            MarkerClickHandler onLeftClick = null)
+            MarkerClickHandler onClick = null)
         {
             EnsureResources();
 
@@ -193,9 +208,12 @@ namespace Parsek
 
             Rect iconRect = new Rect(x - IconSize / 2f, y - IconSize / 2f, IconSize, IconSize);
 
-            // Label hover + sticky click toggle. Left click only so non-left
-            // clicks still reach KSP's stock handlers. This runs before icon
-            // draw so a newly-pinned marker reaches full opacity immediately.
+            // Marker click handling: a LEFT click opens the marker menu via the
+            // onClick handler (e.g. the Tracking Station ghost popup); a RIGHT
+            // click toggles the sticky yellow label, mirroring the ProtoVessel
+            // ghost icons. Both run before the icon draw so a newly-pinned marker
+            // reaches full opacity immediately; clicks with no matching action
+            // pass through to KSP's stock map/tracking handlers.
             bool sticky = !string.IsNullOrEmpty(markerKey) && stickyMarkers.Contains(markerKey);
             bool mouseOver = false;
 
@@ -208,14 +226,14 @@ namespace Parsek
 
                 bool customHandled = false;
                 if (ShouldRouteMarkerClickToHandler(
-                        onLeftClick != null,
+                        onClick != null,
                         mouseOver,
                         markerKey,
                         Event.current.type,
                         Event.current.button))
                 {
                     int button = Event.current.button;
-                    bool handled = onLeftClick(
+                    bool handled = onClick(
                         new MarkerClickContext(markerKey, label, button, screenPos));
                     if (handled)
                     {
@@ -244,7 +262,7 @@ namespace Parsek
                 && vesselIconEntries.TryGetValue(vtype, out entry)
                 && entry.Atlas != null)
             {
-                GUI.color = WithMarkerOpacity(Color.white, sticky);
+                GUI.color = StockVesselIconColor;
                 GUI.DrawTextureWithTexCoords(iconRect, entry.Atlas, entry.UV);
             }
             else if (fallbackDiamond != null)
@@ -284,14 +302,27 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pure: is this event a label-toggle click (MouseDown + left button)?
-        /// Non-left clicks must pass through so stock map/tracking handlers
-        /// still receive them. Extracted so the decision is unit-testable
-        /// without a Unity GUI context — callers pass
-        /// <c>Event.current.type</c> and <c>Event.current.button</c>
-        /// explicitly.
+        /// Pure: is this event a sticky-label toggle click (MouseDown + right
+        /// button)? Right-click pins/unpins the yellow label, mirroring how the
+        /// ProtoVessel ghost icons keep their label. A left click instead routes
+        /// to the marker's onClick handler (see
+        /// <see cref="ShouldRouteMarkerClickToHandler"/>), and other clicks pass
+        /// through to KSP's stock map/tracking handlers. Extracted so the
+        /// decision is unit-testable without a Unity GUI context — callers pass
+        /// <c>Event.current.type</c> and <c>Event.current.button</c> explicitly.
+        /// (Unity button index 1 = right.)
         /// </summary>
         internal static bool IsToggleClick(EventType type, int button)
+            => type == EventType.MouseDown && button == 1;
+
+        /// <summary>
+        /// Pure: is this event a marker-menu click (MouseDown + left button)?
+        /// Left-click opens the marker's menu via the onClick handler (e.g. the
+        /// Tracking Station ghost popup); pinning the yellow label is the
+        /// separate right-click toggle (see <see cref="IsToggleClick"/>).
+        /// (Unity button index 0 = left.)
+        /// </summary>
+        internal static bool IsHandlerClick(EventType type, int button)
             => type == EventType.MouseDown && button == 0;
 
         internal static bool ShouldRouteMarkerClickToHandler(
@@ -304,7 +335,7 @@ namespace Parsek
             return hasHandler
                 && mouseOver
                 && !string.IsNullOrEmpty(markerKey)
-                && IsToggleClick(type, button);
+                && IsHandlerClick(type, button);
         }
 
         /// <summary>
