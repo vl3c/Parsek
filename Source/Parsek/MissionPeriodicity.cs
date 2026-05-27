@@ -461,6 +461,33 @@ namespace Parsek
         // for a negligible alignment gain.
         private const double JointResidualTieEpsilonSeconds = 1.0;
 
+        // === Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md) ===
+
+        // How many whole multiples of the dominant period to scan forward from a relaunch when
+        // searching for the next joint near-coincidence (the next k where every dropped constraint
+        // is simultaneously within its tolerance). Large enough to span at least one
+        // within-tolerance recurrence for the supported same-parent multi-constraint cases: the
+        // stock Kerbin-rotation + Mun-orbit within-tolerance k are ~803, 1259, 2062, ... (gaps
+        // alternating ~456 / ~803 dominant-multiples), so 4096 clears them with ~5x headroom and
+        // leaves room for planet packs. A too-small bound does NOT cause runaway drift (the search
+        // always restarts from the previous launch and picks the next good k); it just yields more
+        // amber (over-tolerance) bounded-best launches. The search is O(this) cheap
+        // CircularPhaseError calls per relaunch, amortized + cached. Documented tunable, like
+        // MaxJointMultiples.
+        internal const int ScheduleLookaheadMultiples = 4096;
+
+        // Hard safety cap on cached schedule launches, a CPU valve against a pathological tiny
+        // dominant period (malformed body data) that would otherwise generate astronomically many
+        // launches. Far above any realistic within-tolerance launch count over a long game. On hit,
+        // the resolver logs a rate-limited Warn and parks at the last cached launch (graceful, no
+        // crash, no unbounded CPU); realistic configs never approach it.
+        internal const int MaxScheduleSteps = 8192;
+
+        // Two periods within this relative tolerance are treated as equal (tidal-collapse): such
+        // constraints line up at every window, so a config whose dropped constraints all share the
+        // dominant period does not drift and gets no schedule.
+        private const double PeriodEqualityRelTolerance = 1e-6;
+
         /// <summary>
         /// Tier-1 solver (design doc Proposed design / Tier 1; plan Phase 1). Locks the SINGLE
         /// dominant constraint and returns P + the next faithful launch UT + the (knowingly
@@ -766,6 +793,184 @@ namespace Parsek
             if (m < 0.0)
                 m += period;
             return Math.Min(m, period - m);
+        }
+
+        // === Zero-drift per-window reschedule solver (plan section 2) ===========================
+
+        /// <summary>
+        /// The smallest UT &gt; <paramref name="afterUT"/> at which every DROPPED constraint is
+        /// simultaneously within its own tolerance, with the dominant constraint locked EXACTLY
+        /// (the candidate launches are <c>UT0 + k*dominantPeriod</c>, so the dominant body is in
+        /// its recorded position at every candidate). Returns the smallest within-tolerance launch
+        /// in the look-ahead window, else the BOUNDED-BEST (min worst-dropped-residual) launch in
+        /// the window - never accumulating, since the residual at launch k is the ABSOLUTE worst
+        /// dropped-body error (the phase offsets cancel, plan section 2.1). NaN on a degenerate
+        /// dominant period. Pure. <paramref name="residualSeconds"/> = the worst dropped phase error
+        /// at the chosen launch; <paramref name="withinTolerance"/> = whether it was within
+        /// tolerance (vs the bounded-best fallback). See docs/dev/plans/zero-drift-reschedule.md.
+        /// </summary>
+        internal static double NextJointNearCoincidenceUT(
+            double afterUT, double ut0, double dominantPeriod,
+            IReadOnlyList<double> droppedPeriods, IReadOnlyList<double> droppedTolerances,
+            int lookaheadMultiples,
+            out double residualSeconds, out bool withinTolerance)
+        {
+            residualSeconds = double.NaN;
+            withinTolerance = false;
+            if (double.IsNaN(ut0) || double.IsNaN(afterUT)
+                || double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod)
+                || dominantPeriod <= 0.0)
+                return double.NaN;
+
+            // k of afterUT (small epsilon so a launch landing exactly on afterUT is not re-returned).
+            long kPrev = (long)Math.Floor((afterUT - ut0) / dominantPeriod + 1e-6);
+            long kStart = kPrev + 1;
+            if (kStart < 1)
+                kStart = 1; // k=0 is UT0 itself (the original recorded play), never a relaunch.
+
+            if (TryFindNextScheduleK(
+                    dominantPeriod, droppedPeriods, droppedTolerances, kStart, lookaheadMultiples,
+                    out long k, out residualSeconds, out withinTolerance))
+                return ut0 + k * dominantPeriod;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// Scans whole dominant-multiples k in [<paramref name="kStart"/>,
+        /// kStart + <paramref name="lookaheadMultiples"/>) for the FIRST k where every dropped
+        /// constraint is within its tolerance; if none, the k with the smallest worst-dropped
+        /// residual in that window (ties -> smallest k). Returns false only on a degenerate dominant
+        /// period or a non-positive look-ahead. The dropped residual at k is
+        /// <c>max_j CircularPhaseError(k*dominantPeriod, droppedPeriods[j])</c> - an absolute
+        /// function of k, so picking good k never accumulates. Pure.
+        /// </summary>
+        internal static bool TryFindNextScheduleK(
+            double dominantPeriod,
+            IReadOnlyList<double> droppedPeriods, IReadOnlyList<double> droppedTolerances,
+            long kStart, int lookaheadMultiples,
+            out long foundK, out double residualSeconds, out bool withinTolerance)
+        {
+            foundK = 0;
+            residualSeconds = double.NaN;
+            withinTolerance = false;
+            if (double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod) || dominantPeriod <= 0.0)
+                return false;
+            if (lookaheadMultiples <= 0)
+                return false;
+
+            int count = droppedPeriods?.Count ?? 0;
+            long bestK = -1;
+            double bestResidual = double.PositiveInfinity;
+
+            for (int step = 0; step < lookaheadMultiples; step++)
+            {
+                long k = kStart + step;
+                double delta = k * dominantPeriod;
+                double worst = 0.0;
+                bool allWithin = true;
+                for (int j = 0; j < count; j++)
+                {
+                    double err = CircularPhaseError(delta, droppedPeriods[j]);
+                    if (err > worst)
+                        worst = err;
+                    double tol = (droppedTolerances != null && j < droppedTolerances.Count)
+                        ? droppedTolerances[j] : 0.0;
+                    if (err > tol)
+                        allWithin = false;
+                }
+                if (allWithin)
+                {
+                    foundK = k;
+                    residualSeconds = worst;
+                    withinTolerance = true;
+                    return true;
+                }
+                if (worst < bestResidual)
+                {
+                    bestResidual = worst;
+                    bestK = k;
+                }
+            }
+
+            // No within-tolerance k in the window: the bounded-best (min absolute residual) launch.
+            foundK = bestK < 0 ? kStart : bestK;
+            residualSeconds = double.IsPositiveInfinity(bestResidual) ? 0.0 : bestResidual;
+            withinTolerance = false;
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the zero-drift relaunch schedule for a phase-locked, drifting (multi-constraint
+        /// incommensurate) config, or returns false (no schedule -&gt; the caller keeps the existing
+        /// fixed cadence) for unsupported / single-constraint / tidal-collapse / unconstrained
+        /// configs. The dominant constraint (the longest-period intercept, via
+        /// <see cref="SelectDominantConstraintIndex"/>) is locked exactly; the remaining (dropped)
+        /// constraints with a DISTINCT period drive the per-window search. Degenerate dropped
+        /// periods (NaN / non-positive) are FILTERED (with a Warn) rather than read as spuriously
+        /// satisfied. <paramref name="floorUT"/> = the first-play floor (max of the loop reference
+        /// and spanEndUT); the first scheduled launch is at or after it. Pure apart from the
+        /// degenerate-period Warn. See docs/dev/plans/zero-drift-reschedule.md sections 2/4.
+        /// </summary>
+        internal static bool TryBuildRelaunchSchedule(
+            IReadOnlyList<PhaseConstraint> constraints,
+            Support support,
+            double ut0,
+            double floorUT,
+            IBodyInfo bodyInfo,
+            out MissionRelaunchSchedule schedule)
+        {
+            schedule = null;
+            if (support != Support.Supported)
+                return false;
+            int count = constraints?.Count ?? 0;
+            if (count < 2)
+                return false; // need at least two constraints to drift
+            if (double.IsNaN(ut0) || double.IsNaN(floorUT))
+                return false;
+
+            int dominantIdx = SelectDominantConstraintIndex(constraints);
+            double dom = constraints[dominantIdx].PeriodSeconds;
+            if (double.IsNaN(dom) || double.IsInfinity(dom) || dom <= 0.0)
+                return false;
+
+            var periods = new List<double>(count - 1);
+            var tolerances = new List<double>(count - 1);
+            int filtered = 0;
+            bool anyDistinct = false;
+            for (int i = 0; i < count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                double p = constraints[i].PeriodSeconds;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                {
+                    filtered++;
+                    continue;
+                }
+                periods.Add(p);
+                tolerances.Add(ToleranceSecondsFor(constraints[i], bodyInfo));
+                if (Math.Abs(p - dom) > PeriodEqualityRelTolerance * Math.Max(1.0, dom))
+                    anyDistinct = true;
+            }
+
+            if (filtered > 0 && !SuppressLogging)
+                ParsekLog.Warn("MissionPeriodicity",
+                    $"TryBuildRelaunchSchedule: filtered {filtered.ToString(CultureInfo.InvariantCulture)} " +
+                    "dropped constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
+                    "scheduled (bad body data?)");
+
+            // No valid distinct-period dropped constraint -> single-constraint / tidal-collapse:
+            // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
+            if (periods.Count == 0 || !anyDistinct)
+                return false;
+
+            var candidate = new MissionRelaunchSchedule(
+                ut0, dom, periods.ToArray(), tolerances.ToArray(), floorUT, ScheduleLookaheadMultiples);
+            if (double.IsNaN(candidate.FirstLaunchUT))
+                return false; // could not resolve a first launch (degenerate)
+
+            schedule = candidate;
+            return true;
         }
 
         // True iff EVERY dropped constraint (all except dominantIdx) is within ITS OWN physics-derived
@@ -1096,6 +1301,167 @@ namespace Parsek
             if (!string.IsNullOrEmpty(emptyReason))
                 sb.Append(" note=").Append(emptyReason);
             ParsekLog.Verbose("MissionPeriodicity", sb.ToString());
+        }
+    }
+
+    /// <summary>
+    /// A zero-drift relaunch schedule for one phase-locked, drifting (multi-constraint
+    /// incommensurate) looping Mission. Immutable inputs + a lazily-extended cache of the
+    /// non-uniform relaunch UTs; pure over the snapshotted inputs (reads no live state), so the
+    /// engine's and the UI's separately-built copies produce identical schedules. Main-thread only
+    /// (KSP/Unity is single-threaded), so the mutable cache needs no locking; this object is held
+    /// as a nullable field on the immutable <see cref="GhostPlaybackLogic.LoopUnit"/> struct - struct
+    /// copies share the one cache object, which is the intended aliasing. The launches are
+    /// <c>UT0 + k*dominantPeriod</c> for an increasing, non-uniform sequence of dominant-multiples
+    /// k (each within tolerance when reachable, else bounded-best), generated by
+    /// <see cref="MissionPeriodicity.TryFindNextScheduleK"/>. See
+    /// docs/dev/plans/zero-drift-reschedule.md section 3.
+    /// </summary>
+    internal sealed class MissionRelaunchSchedule
+    {
+        // Eagerly probe this many launches at construction to determine MinIntervalSeconds (the
+        // builder's overlap gate). A small bounded prefix; the rest is generated lazily.
+        private const int MinIntervalProbeLaunches = 4;
+
+        private readonly double ut0;
+        private readonly double dominantPeriod;
+        private readonly double[] droppedPeriods;
+        private readonly double[] droppedTolerances;
+        private readonly double floorUT;
+        private readonly int lookaheadMultiples;
+
+        // Cached relaunch UTs in increasing order (launches[0] == FirstLaunchUT). Grown on demand.
+        private readonly List<double> launches = new List<double>();
+        private long lastK;        // dominant-multiple index of the last cached launch
+        private bool capWarned;     // rate-limit the safety-cap Warn
+
+        /// <summary>The first scheduled relaunch UT (= the unit's phase anchor). NaN if none could
+        /// be resolved (degenerate inputs).</summary>
+        internal double FirstLaunchUT { get; }
+
+        /// <summary>The minimum relaunch interval over the eager prefix (the builder rejects the
+        /// schedule when this is &lt; the mission span, keeping the fixed-cadence overlap path).</summary>
+        internal double MinIntervalSeconds { get; }
+
+        internal MissionRelaunchSchedule(
+            double ut0, double dominantPeriod,
+            double[] droppedPeriods, double[] droppedTolerances,
+            double floorUT, int lookaheadMultiples)
+        {
+            this.ut0 = ut0;
+            this.dominantPeriod = dominantPeriod;
+            this.droppedPeriods = droppedPeriods ?? System.Array.Empty<double>();
+            this.droppedTolerances = droppedTolerances ?? System.Array.Empty<double>();
+            this.floorUT = floorUT;
+            this.lookaheadMultiples = lookaheadMultiples;
+            FirstLaunchUT = double.NaN;
+            MinIntervalSeconds = double.NaN;
+
+            if (double.IsNaN(ut0) || double.IsNaN(floorUT)
+                || double.IsNaN(dominantPeriod) || double.IsInfinity(dominantPeriod) || dominantPeriod <= 0.0)
+                return;
+
+            // L_0: first qualifying k with UT0 + k*dominantPeriod at or after the first-play floor
+            // (ceil-based kStart so a launch exactly at the floor is included), k >= 1.
+            long kFloor = (long)Math.Ceiling((floorUT - ut0) / dominantPeriod - 1e-6);
+            if (kFloor < 1)
+                kFloor = 1;
+            if (!MissionPeriodicity.TryFindNextScheduleK(
+                    dominantPeriod, this.droppedPeriods, this.droppedTolerances,
+                    kFloor, lookaheadMultiples, out long k0, out _, out _))
+                return;
+            launches.Add(ut0 + k0 * dominantPeriod);
+            lastK = k0;
+            FirstLaunchUT = launches[0];
+
+            // Eager prefix to determine the min interval (the overlap gate).
+            double minInterval = double.PositiveInfinity;
+            for (int i = 0; i < MinIntervalProbeLaunches; i++)
+            {
+                if (!ExtendOnce())
+                    break;
+                double interval = launches[launches.Count - 1] - launches[launches.Count - 2];
+                if (interval < minInterval)
+                    minInterval = interval;
+            }
+            MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? dominantPeriod : minInterval;
+        }
+
+        // Appends one more launch after the cached tail. False on the safety cap or a degenerate
+        // generation (which cannot happen post-construction for a valid dominant period).
+        private bool ExtendOnce()
+        {
+            if (double.IsNaN(FirstLaunchUT))
+                return false;
+            if (launches.Count >= MissionPeriodicity.MaxScheduleSteps)
+            {
+                if (!capWarned)
+                {
+                    capWarned = true;
+                    ParsekLog.Warn("MissionPeriodicity",
+                        $"MissionRelaunchSchedule: reached MaxScheduleSteps " +
+                        $"({MissionPeriodicity.MaxScheduleSteps.ToString(CultureInfo.InvariantCulture)}); " +
+                        "parking at the last cached launch (pathological short dominant period?)");
+                }
+                return false;
+            }
+            if (!MissionPeriodicity.TryFindNextScheduleK(
+                    dominantPeriod, droppedPeriods, droppedTolerances,
+                    lastK + 1, lookaheadMultiples, out long k, out _, out _))
+                return false;
+            launches.Add(ut0 + k * dominantPeriod);
+            lastK = k;
+            return true;
+        }
+
+        /// <summary>
+        /// The active (most recent) scheduled launch at or before <paramref name="currentUT"/>, and
+        /// its 0-based schedule index. False (parked) when <paramref name="currentUT"/> is before
+        /// the first launch. Lazily extends the cache to cover <paramref name="currentUT"/>.
+        /// </summary>
+        internal bool TryResolveActiveLaunch(double currentUT, out double launchUT, out long cycleIndex)
+        {
+            launchUT = double.NaN;
+            cycleIndex = 0;
+            if (double.IsNaN(FirstLaunchUT) || double.IsNaN(currentUT) || currentUT < FirstLaunchUT)
+                return false;
+            while (launches[launches.Count - 1] <= currentUT)
+                if (!ExtendOnce())
+                    break;
+            // Largest launch <= currentUT (binary search; the list is increasing).
+            int lo = 0, hi = launches.Count - 1, idx = 0;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (launches[mid] <= currentUT) { idx = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            launchUT = launches[idx];
+            cycleIndex = idx;
+            return true;
+        }
+
+        /// <summary>
+        /// The next scheduled relaunch strictly after <paramref name="currentUT"/> (the first launch
+        /// when parked before it). Returns NaN if no future launch can be resolved because the
+        /// safety cap was reached (so the UI shows "not aligned" rather than a past target / a
+        /// negative countdown) - this only happens for a pathological short dominant period that the
+        /// builder's overlap gate already rejects, so realistic schedules always return a future UT.
+        /// Drives the UI "Time to launch" countdown and the "Warp to..." target.
+        /// </summary>
+        internal double NextLaunchAfter(double currentUT)
+        {
+            if (double.IsNaN(FirstLaunchUT))
+                return double.NaN;
+            if (double.IsNaN(currentUT) || currentUT < FirstLaunchUT)
+                return FirstLaunchUT;
+            while (launches[launches.Count - 1] <= currentUT)
+                if (!ExtendOnce())
+                    break;
+            for (int i = 0; i < launches.Count; i++)
+                if (launches[i] > currentUT)
+                    return launches[i];
+            return double.NaN; // cap reached: no future launch to name (never for realistic configs)
         }
     }
 

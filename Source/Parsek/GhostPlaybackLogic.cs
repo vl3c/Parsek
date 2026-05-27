@@ -6570,6 +6570,21 @@ namespace Parsek
                 double phaseAnchorUT,
                 double overlapCadenceSeconds,
                 IReadOnlyDictionary<int, MemberWindow> memberWindows)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT, cadenceSeconds,
+                       phaseAnchorUT, overlapCadenceSeconds, memberWindows, null)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds,
+                IReadOnlyDictionary<int, MemberWindow> memberWindows,
+                MissionRelaunchSchedule relaunchSchedule)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6579,6 +6594,7 @@ namespace Parsek
                 PhaseAnchorUT = phaseAnchorUT;
                 OverlapCadenceSeconds = overlapCadenceSeconds;
                 this.memberWindows = memberWindows;
+                RelaunchSchedule = relaunchSchedule;
             }
 
             /// <summary>
@@ -6634,6 +6650,19 @@ namespace Parsek
             /// non-overlapping constructor so legacy callers keep the single-instance behavior.
             /// </summary>
             internal double OverlapCadenceSeconds { get; }
+
+            /// <summary>
+            /// The zero-drift per-window relaunch schedule for a phase-locked, drifting
+            /// (multi-constraint incommensurate) Mission, or NULL for every other config (the common
+            /// case). When non-null the span clock relaunches the mission at the schedule's
+            /// non-uniform UTs instead of the uniform <see cref="PhaseAnchorUT"/> +
+            /// n*<see cref="CadenceSeconds"/>, so each relaunch stays celestially within tolerance
+            /// instead of drifting (docs/dev/plans/zero-drift-reschedule.md). INVARIANT: a unit with a
+            /// non-null schedule is non-overlapping (<see cref="UnitMemberOverlaps"/> false), so the
+            /// overlap engine path never sees one. Null keeps the existing uniform-cadence behavior
+            /// byte-identical.
+            /// </summary>
+            internal MissionRelaunchSchedule RelaunchSchedule { get; }
         }
 
         /// <summary>
