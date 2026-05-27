@@ -1409,7 +1409,15 @@ namespace Parsek
         /// <summary>
         /// The period-cell display for a ZERO-DRIFT scheduled unit: the cadence is non-uniform, so we
         /// show the representative (minimum) interval plus a "varies" marker, e.g.
-        /// "~2y (Mun window, varies)". Pure. A null/empty body shows "~P (varies)".
+        /// "~4d (Mun window, varies)". Pure. A null/empty body shows "~P (varies)".
+        ///
+        /// Note the two parts describe DIFFERENT things, intentionally (review N2): the interval is the
+        /// actual relaunch cadence (which is anchored on the tightest constraint - the launch pad - and
+        /// throttled by the player), while the basis label (<paramref name="kind"/>/<paramref name="bodyName"/>)
+        /// names the DOMINANT celestial event each window targets (the Mun intercept). So
+        /// "~4d (Mun window, varies)" reads as "a varying ~4-day cadence, each launch hitting a Mun
+        /// window" - the cadence is set by the pad alignment, the label tells the player what the
+        /// window is FOR.
         /// </summary>
         internal static string BuildScheduledPeriodCellDisplay(
             double minIntervalSeconds, ConstraintKind kind, string bodyName)

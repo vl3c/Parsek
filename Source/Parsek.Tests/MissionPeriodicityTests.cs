@@ -1159,15 +1159,18 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_DriftingButSpanExceedsInterval_RejectsScheduleKeepsFixedCadence()
+        public void Build_DriftingLongSpan_ThrottleFlooredAtSpan_NonOverlappingByConstruction()
         {
-            // Guards the non-overlap INVARIANT: a drifting Mun config whose mission SPAN exceeds the
-            // schedule's minimum relaunch interval would self-overlap, so the schedule is REJECTED and
-            // the fixed cadence kept (the overlap engine path never sees a scheduled unit). Here the
-            // transfer member spans 2000 Mun periods (far longer than the ~456-Mun-period within-tol
-            // recurrence), so MinIntervalSeconds < span -> rejected.
+            // Guards the non-overlap INVARIANT under the span-floored throttle (review S1): a drifting
+            // Mun config whose mission SPAN is very long would, without the floor, produce faithful
+            // windows closer together than the span (overlap). The builder floors the throttle
+            // (minSpacing) at the span, so consecutive launches are >= span apart and the unit is
+            // non-overlapping BY CONSTRUCTION (not by an after-the-fact min-interval probe). Here the
+            // transfer member spans 2000 Mun periods; the schedule is still ATTACHED (not rejected),
+            // throttled to >= span, and UnitMemberOverlaps is false.
             double ut0 = 1000.0;
             double hugeEnd = 1100.0 + 2000.0 * MunOrbit;
+            double span = hugeEnd - ut0;
             var ascent = SurfaceLeg("s", ut0, 1100, "Kerbin");
             var transfer = OrbitLeg("o", 1100, hugeEnd, "Kerbin");
             WithSoiEntry(transfer, 1600, 2000, "Mun");
@@ -1181,10 +1184,12 @@ namespace Parsek.Tests
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            Assert.Null(unit.RelaunchSchedule); // rejected: would self-overlap
+            Assert.NotNull(unit.RelaunchSchedule);                       // attached, throttled to >= span
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));   // non-overlapping by construction
+            Assert.True(unit.RelaunchSchedule.MinIntervalSeconds >= span);
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
-                l.Contains("zeroDrift=rejected-would-overlap"));
+                l.Contains("zeroDrift=yes"));
         }
 
         [Fact]

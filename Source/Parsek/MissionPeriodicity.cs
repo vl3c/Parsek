@@ -469,17 +469,19 @@ namespace Parsek
 
         // === Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md) ===
 
-        // How many whole multiples of the dominant period to scan forward from a relaunch when
-        // searching for the next joint near-coincidence (the next k where every dropped constraint
-        // is simultaneously within its tolerance). Large enough to span at least one
-        // within-tolerance recurrence for the supported same-parent multi-constraint cases: the
-        // stock Kerbin-rotation + Mun-orbit within-tolerance k are ~803, 1259, 2062, ... (gaps
-        // alternating ~456 / ~803 dominant-multiples), so 4096 clears them with ~5x headroom and
-        // leaves room for planet packs. A too-small bound does NOT cause runaway drift (the search
-        // always restarts from the previous launch and picks the next good k); it just yields more
-        // amber (over-tolerance) bounded-best launches. The search is O(this) cheap
-        // CircularPhaseError calls per relaunch, amortized + cached. Documented tunable, like
-        // MaxJointMultiples.
+        // How many whole multiples of the ANCHOR period (the tightest constraint, e.g. the launch
+        // pad - see SelectAnchorConstraintIndex) to scan forward from a relaunch when searching for
+        // the next faithful window (the next k where every OTHER constraint is within its tolerance).
+        // k counts ANCHOR-PERIOD steps, NOT the longest period. It must span at least one
+        // within-tolerance recurrence for the supported configs: a simple launch + orbit-to-Mun (pad
+        // + Mun SOI tolerance, ~3%) has its first faithful window at k ~= 13 pad rotations; a config
+        // that also LANDS on a tidally-locked body adds a tight (0.25 deg) Rotation(body) constraint
+        // whose recurrence is hundreds of pad rotations (~700 for the stock Mun land-and-return), so
+        // 4096 covers both with headroom and leaves room for planet packs. A too-small bound does NOT
+        // cause runaway drift (the search always restarts from the previous launch and picks the next
+        // good k); it just yields more amber (over-tolerance) bounded-best launches. The search is
+        // O(this) cheap CircularPhaseError calls per relaunch (returning early at the first faithful
+        // k), amortized + cached. Documented tunable, like MaxJointMultiples.
         internal const int ScheduleLookaheadMultiples = 4096;
 
         // Hard safety cap on cached schedule launches, a CPU valve against a pathological tiny
@@ -1536,10 +1538,17 @@ namespace Parsek
             while (launches[launches.Count - 1] <= currentUT)
                 if (!ExtendOnce())
                     break;
-            for (int i = 0; i < launches.Count; i++)
-                if (launches[i] > currentUT)
-                    return launches[i];
-            return double.NaN; // cap reached: no future launch to name (never for realistic configs)
+            // Smallest launch strictly > currentUT (binary search; the list is increasing). The UI
+            // calls this every frame, so this must not be an O(cacheSize) scan as the cache grows
+            // (review S2). NaN when none (the safety cap was reached) -> the UI shows "not aligned".
+            int lo = 0, hi = launches.Count - 1, idx = -1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (launches[mid] > currentUT) { idx = mid; hi = mid - 1; }
+                else lo = mid + 1;
+            }
+            return idx >= 0 ? launches[idx] : double.NaN;
         }
     }
 

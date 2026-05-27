@@ -353,15 +353,18 @@ fall into the overlap engine path. The contract:
   scheduled interval)` (and `CadenceSeconds` likewise `>= span`), so `UnitMemberOverlaps`
   is ALWAYS false for a scheduled unit. INVARIANT: a `LoopUnit` with `RelaunchSchedule !=
   null` satisfies `UnitMemberOverlaps == false`.
-- Gating condition 4 is computed from the SCHEDULE's actual minimum interval (after the
-  player throttle), NOT from a pre-existing `OverlapCadenceSeconds`. The realistic case (the
-  faithful windows are days apart, longer once throttled) gives a min interval `>> span` so
-  this is comfortably satisfied. The edge the review raised - a multi-DAY mission span (a
-  long Mun stay) where `span` could approach the min interval - is handled by the rule: if
-  the schedule's MINIMUM interval `< span`,
-  the builder REJECTS the schedule (drop it, keep the existing fixed-cadence overlap path,
-  log a Warn). So a scheduled unit is non-overlapping by the invariant above, never by
-  hope.
+- Non-overlap is guaranteed BY CONSTRUCTION, not by an after-the-fact probe (review S1
+  corrected an earlier "reject if the 8-launch-probe min interval < span" gate that could
+  wrongly pass if the true min gap occurred later). The throttle (`minSpacing`) is FLOORED
+  AT THE SPAN (the builder passes `minSpacing = cadence`, which is already `>= span`), and
+  the schedule places consecutive launches `>= minSpacing` apart. The minimum possible
+  interval is provably `>= max(anchorPeriod, minSpacing) >= span`, so EVERY scheduled
+  interval is `>= span` regardless of which launches the probe sampled. The realistic
+  faithful gap (days for an inter-body mission) is `>> span`, so the floor only bites a
+  pathological short-gap config, where it correctly merges to one-at-a-time single-instance
+  playback (a faithful window closer than the span is skipped, not overlapped). The builder
+  still keeps a defensive `MinIntervalSeconds >= span` gate, but with the span floor it
+  always passes for a built schedule.
 
 Therefore the overlap engine path (`UpdateOverlapPlayback` /
 `TryComputeNewestOverlapPlaybackUT` / `ComputeNewestMissionInstanceSpanLoopUT`) never sees
@@ -386,8 +389,10 @@ A schedule is attached (and the fixed cadence replaced) ONLY when ALL hold:
 3. `TryBuildRelaunchSchedule` succeeds (after filtering degenerate other-periods, at least
    one valid distinct-period other constraint remains; finite floor; the safety step-cap not
    tripped, section 3.3).
-4. The resulting schedule is non-overlapping: its MINIMUM interval `>= span` (section 3.5).
-   If not, the schedule is rejected and the unit keeps the fixed-cadence overlap path.
+4. Non-overlap is guaranteed by the span-floored throttle (`minSpacing = cadence >= span`),
+   so the schedule's every interval is `>= span` by construction (section 3.5, review S1).
+   A defensive `MinIntervalSeconds >= span` gate is kept but always passes; the
+   would-overlap reject path is therefore unreachable for a built schedule.
 
 Otherwise: `unit.RelaunchSchedule == null` and EVERYTHING is byte-identical to the merged
 Phase-2 behavior. Unsupported / single-constraint / unconstrained / non-phase-locked /

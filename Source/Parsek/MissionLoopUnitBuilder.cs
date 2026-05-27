@@ -273,21 +273,25 @@ namespace Parsek
                     //     the player's requested relaunch period (minSpacing) - the player picks how
                     //     often to launch, never faster than physics allows. TryBuildRelaunchSchedule
                     //     returns no schedule for single-constraint / tidal-collapse / unsupported
-                    //     configs (they keep the fixed cadence above, byte-identical). The schedule is
-                    //     attached ONLY when it is non-overlapping (its minimum interval >= the span),
-                    //     which keeps the INVARIANT that a scheduled unit's OverlapCadenceSeconds >= span
-                    //     (so UnitMemberOverlaps is false and the overlap engine path never sees it). A
-                    //     would-overlap schedule (a pathological short anchor period vs a long span) is
-                    //     rejected and the fixed cadence is kept.
-                    // minSpacing = the player's requested relaunch period: Auto (rawOverlapPeriod = the
-                    // global auto interval, e.g. ~30s - much smaller than any inter-window gap, which is
-                    // days for an inter-body mission) -> every faithful window (the maximum cadence); an
-                    // explicit period -> launch no more often than that, snapped to faithful windows.
-                    double minSpacing = Math.Max(rawOverlapPeriod, LoopTiming.MinCycleDuration);
+                    //     configs (they keep the fixed cadence above, byte-identical).
+                    // minSpacing = the throttle = `cadence` (the player's requested relaunch period,
+                    // already raised to at least the span and floored at MinCycleDuration). FLOORING AT
+                    // THE SPAN is the non-overlap guarantee: the schedule places consecutive launches
+                    // >= minSpacing apart, and minSpacing >= span, so EVERY interval is >= span. That
+                    // makes a scheduled unit non-overlapping BY CONSTRUCTION (UnitMemberOverlaps false),
+                    // independent of the MinIntervalSeconds probe - which only sampled the first few
+                    // launches and could otherwise miss a later short gap (review S1). Auto throttles to
+                    // one mission instance per span (faithful windows >= span apart); an explicit period
+                    // launches no more often than that. The realistic faithful gap (days for an
+                    // inter-body mission) is >> span, so this floor only bites a pathological short-gap
+                    // config (where it correctly merges to one-at-a-time single-instance playback).
+                    double minSpacing = cadence;
                     if (MissionPeriodicity.TryBuildRelaunchSchedule(
                             extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
                             bodyInfo, out MissionRelaunchSchedule sched, minSpacing))
                     {
+                        // minSpacing >= span guarantees sched.MinIntervalSeconds >= span; this gate is a
+                        // defensive belt-and-suspenders that always passes for a built schedule.
                         if (sched.MinIntervalSeconds >= span)
                         {
                             relaunchSchedule = sched;
@@ -297,7 +301,7 @@ namespace Parsek
                         }
                         else
                         {
-                            scheduleRejectedForOverlap = true;                // would self-overlap: keep fixed cadence
+                            scheduleRejectedForOverlap = true;                // (unreachable with the span floor)
                         }
                     }
                 }
