@@ -445,15 +445,18 @@ namespace Parsek
         // "Still open" note; refined by playtest. 0.25 degrees / 360 = ~0.0007 of a full turn.
         private const double RotationToleranceFraction = 0.25 / 360.0;
 
-        // Phase 2 joint best-fit: the relaunch period is a whole multiple m of the DOMINANT
-        // constraint's period (so the dominant body, e.g. the Mun intercept, stays locked at every
-        // relaunch), searched up to this many multiples for the m that best RE-ALIGNS the other
-        // ("dropped") constraints. m=1 is the old Tier-1 behavior (drop the residual wholesale); a
-        // larger m trades a longer relaunch period for a tighter joint alignment. 16 keeps the
-        // relaunch period watchable (a Mun mission lands around m=9, ~14.5 days; the launch-pad
-        // residual drops from ~9688s/161deg at m=1 to ~993s/16deg). A fixed cadence still DRIFTS on
-        // incommensurate periods (the residual is the per-cycle drift); the per-window reschedule
-        // (zero-drift) follow-up is the path to sub-degree alignment - see todo-and-known-bugs.md.
+        // Phase 2 joint best-fit (the FIXED-cadence FALLBACK, used now only when a drifting config's
+        // schedule is rejected for overlap or cannot build - the common drifting case takes the
+        // zero-drift per-window schedule instead, NOT this m): the relaunch period is a whole multiple
+        // m of the DOMINANT constraint's period (so the dominant body, e.g. the Mun intercept, stays
+        // locked at every relaunch), searched up to this many multiples for the m that best RE-ALIGNS
+        // the other ("dropped") constraints. m=1 is the old Tier-1 behavior (drop the residual
+        // wholesale); a larger m trades a longer relaunch period for a tighter joint alignment. 16
+        // keeps the relaunch period watchable (this best-fit picks m=9 / ~14.5 days for the stock Mun
+        // periods; the launch-pad residual drops from ~9688s/161deg at m=1 to ~993s/16deg). A fixed
+        // cadence still DRIFTS on incommensurate periods (the residual is the per-cycle drift); the
+        // zero-drift per-window reschedule (now implemented - see TryBuildRelaunchSchedule +
+        // docs/dev/plans/zero-drift-reschedule.md) is what closes that for the in-game Mun config.
         private const int MaxJointMultiples = 16;
 
         // Two multiples whose worst dropped-constraint phase error differ by less than this (seconds)
@@ -572,16 +575,20 @@ namespace Parsek
             }
 
             // === Joint best-fit over whole multiples of the dominant period (Phase 2) ===
+            // NOTE: for a DRIFTING config the loop builder uses this Solve result only for the
+            // diagnostic P / residual / method; the actual in-game cadence comes from the zero-drift
+            // per-window schedule (TryBuildRelaunchSchedule), NOT this fixed m*P. This branch is the
+            // fixed-cadence FALLBACK (schedule rejected/unbuildable).
             // The dominant constraint is locked EXACTLY: the relaunch period P is a whole multiple m
             // of its period, so the dominant body (e.g. the Mun intercept) is in its recorded
             // position at EVERY relaunch for any m. We then search small m to best RE-ALIGN the other
             // ("dropped") constraints over one cadence step - the joint near-resonance. m=1 is the old
             // Tier-1 behavior (the dropped residual taken wholesale); a larger m trades a longer
-            // relaunch period for a tighter joint alignment (a Mun mission's launch-pad residual drops
-            // from ~9688s/161deg at m=1 to ~993s/16deg around m=9). Single-constraint and tidal-lock
+            // relaunch period for a tighter joint alignment (this best-fit picks m=9 / ~993s/16deg for
+            // the stock Mun periods, down from ~9688s/161deg at m=1). Single-constraint and tidal-lock
             // configs skip the search (m=1, residual 0 - they line up at every window). The fixed
             // cadence cannot hold incommensurate periods aligned forever (the residual IS the
-            // per-cycle drift); the zero-drift per-window reschedule follow-up closes that - see todo.
+            // per-cycle drift); the zero-drift per-window reschedule closes that for drifting configs.
             int multiple;
             double residual;
             string method;
