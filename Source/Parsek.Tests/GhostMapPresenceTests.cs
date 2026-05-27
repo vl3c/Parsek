@@ -1506,7 +1506,6 @@ namespace Parsek.Tests
         public void CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets()
         {
             GhostMapPresence.CurrentUTNow = () => 500.0;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
 
             try
             {
@@ -1565,7 +1564,6 @@ namespace Parsek.Tests
         public void CreateGhostVesselsFromCommittedRecordings_AggregatesRepeatedSkipReasons()
         {
             GhostMapPresence.CurrentUTNow = () => 500.0;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
 
             try
             {

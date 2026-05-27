@@ -1011,6 +1011,10 @@ namespace Parsek
             public int ChainNonTip;
             public int PositionFailure;
             public int MissingBody;
+            // A looped-mission member whose shared span-clock has it OUTSIDE its render window this
+            // frame (inter-cycle tail / not yet / already past): the engine hides the mesh too, so
+            // the custom marker is intentionally skipped (distinct from a position failure).
+            public int LoopHidden;
 
             internal bool HasSignal =>
                 Candidates > 0
@@ -1022,13 +1026,14 @@ namespace Parsek
                 || Debris > 0
                 || ChainNonTip > 0
                 || PositionFailure > 0
-                || MissingBody > 0;
+                || MissingBody > 0
+                || LoopHidden > 0;
         }
 
         internal static string FormatMapMarkerSummary(MapMarkerSummary summary)
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10}",
+                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10} loopHidden={11}",
                 summary.IsMapView ? "map" : "flight",
                 summary.Candidates,
                 summary.PreviewDrawn,
@@ -1039,7 +1044,8 @@ namespace Parsek
                 summary.Debris,
                 summary.ChainNonTip,
                 summary.PositionFailure,
-                summary.MissingBody);
+                summary.MissingBody,
+                summary.LoopHidden);
         }
 
         private static void LogMapMarkerSummary(MapMarkerSummary summary)
@@ -1173,10 +1179,33 @@ namespace Parsek
                 }
                 else
                 {
+                    // A looped-mission member's recorded trajectory points sit at the ORIGINAL
+                    // (past) recorded UTs, so sampling at the LIVE UT is always OutsideTimeRange and
+                    // the custom icon never draws (the engine positions the mesh at the shared
+                    // span-clock effUT instead, but the mesh is hidden here by zone distance). Map
+                    // the live UT to that same span-clock effUT - identity for a non-loop ghost or an
+                    // Empty unit set, so non-loop behavior is unchanged - and skip the frame when the
+                    // shared clock has this member outside its render window (renderHidden), matching
+                    // the engine / proto-vessel paths.
+                    double sampleUT = currentUT;
+                    if (kvp.Key < committed.Count)
+                    {
+                        Recording recForUT = committed[kvp.Key];
+                        double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                            kvp.Key, recForUT.StartUT, recForUT.EndUT, currentUT,
+                            flight.Engine.CurrentLoopUnits, out bool loopHidden);
+                        if (loopHidden)
+                        {
+                            summary.LoopHidden++;
+                            continue;
+                        }
+                        sampleUT = effUT;
+                    }
+
                     if (!TryComputeGhostWorldPosition(
                             kvp.Key,
                             committed,
-                            currentUT,
+                            sampleUT,
                             out markerPos,
                             out MapMarkerPositionFailureReason failureReason))
                     {

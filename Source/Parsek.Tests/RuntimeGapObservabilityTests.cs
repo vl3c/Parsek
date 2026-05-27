@@ -223,7 +223,8 @@ namespace Parsek.Tests
                 NativeIcon = 2,
                 ChainNonTip = 1,
                 PositionFailure = 1,
-                MissingBody = 1
+                MissingBody = 1,
+                LoopHidden = 1
             };
 
             string line = ParsekUI.FormatMapMarkerSummary(summary);
@@ -234,6 +235,18 @@ namespace Parsek.Tests
             Assert.Contains("chainNonTip=1", line);
             Assert.Contains("positionFailure=1", line);
             Assert.Contains("missingBody=1", line);
+            Assert.Contains("loopHidden=1", line);
+        }
+
+        [Fact]
+        public void MapMarkerSummary_LoopHiddenAloneHasSignal()
+        {
+            // A looped member skipped because the shared span-clock had it outside its window must
+            // still surface a summary line (HasSignal), so the diagnostic distinguishes a loop-clock
+            // skip from a silent no-op frame.
+            var summary = new ParsekUI.MapMarkerSummary { IsMapView = true, LoopHidden = 1 };
+            Assert.True(summary.HasSignal);
+            Assert.Contains("loopHidden=1", ParsekUI.FormatMapMarkerSummary(summary));
         }
 
         [Fact]

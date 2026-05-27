@@ -196,11 +196,9 @@ namespace Parsek
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
-                s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 s.showCommittedFutureOverlays = defaults.ShowCommittedFutureOverlays;
                 s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
-                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
@@ -362,23 +360,6 @@ namespace Parsek
                 s.ghostAudioVolume = newAudioVol;
                 ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
-            }
-
-            GUILayout.Space(SpacingSmall);
-
-            bool showGhostsTS = GUILayout.Toggle(s.showGhostsInTrackingStation,
-                new GUIContent(" Show ghosts in Tracking Station",
-                    "When off, Parsek ghosts are hidden from the tracking station vessel list and map view"));
-            if (showGhostsTS != s.showGhostsInTrackingStation)
-            {
-                s.showGhostsInTrackingStation = showGhostsTS;
-                // Persist to the external settings store so the value survives
-                // rewind, quickload, and KSP restart — same treatment as
-                // writeReadableSidecarMirrors. Without this,
-                // the user's choice reverts to the GameParameters-default on the
-                // next load.
-                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhostsTS);
-                ParsekLog.Info("UI", $"Setting changed: showGhostsInTrackingStation={showGhostsTS}");
             }
         }
 

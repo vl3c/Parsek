@@ -206,7 +206,7 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_NaNAnchor_FallsBackToSpanStartUT()
+        public void Build_NaNAnchor_ClampsToSpanEndUT_FirstPlayFloor()
         {
             var tree = LinearTree();
             var committed = new List<Recording>(tree.Recordings.Values);
@@ -217,9 +217,11 @@ namespace Parsek.Tests
             var set = Build(missions, new[] { tree }, committed);
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            // NaN anchor falls back to spanStartUT, preserving the old absolute-phase behavior.
-            Assert.Equal(unit.SpanStartUT, unit.PhaseAnchorUT);
-            Assert.Equal(100.0, unit.PhaseAnchorUT);
+            // A NaN anchor would fall back to spanStartUT (the old absolute-phase behavior), but the
+            // first-play floor clamps it to spanEndUT: a looped mission must not relaunch before its
+            // first real play (the original recording, [spanStart, spanEnd]) completes.
+            Assert.Equal(unit.SpanEndUT, unit.PhaseAnchorUT);
+            Assert.Equal(410.0, unit.PhaseAnchorUT);
         }
 
         [Fact]
@@ -437,6 +439,68 @@ namespace Parsek.Tests
             // The peeled branches are gone.
             Assert.False(set.IsMember(1)); // probe
             Assert.False(set.IsMember(3)); // bob
+        }
+
+        [Fact]
+        public void ComputeTrimmedMemberWindows_HonorsIntervalTrim_SharedByBuilderAndUI()
+        {
+            // ComputeTrimmedMemberWindows is the single source of truth the loop builder AND the
+            // Missions UI (period-cell span display + watch target) consume, so this pins that the
+            // shared helper honors the interval-level trim (NOT the legacy through-line-head set the
+            // UI used before, which ignored interval trims). Same pod-keeps-recording scenario as
+            // Build_ExcludingLaunchInterval_StartTrimsSpanAndMemberWindow.
+            var tree = Tree("t1",
+                new[]
+                {
+                    Leg("L", "C", 0, 0, 120),
+                    Leg("probe", "C2", 0, 30, 84, parentAnchor: "L", vessel: "Probe"),
+                    Leg("cont", "C3", 0, 120, 200),
+                    Leg("bob", "C4", 0, 120, 150, eva: "Bob", parentAnchor: "L"),
+                },
+                new[]
+                {
+                    BP("dp", BranchPointType.JointBreak, new[] { "L" }, new[] { "probe" }, ut: 30),
+                    BP("ev", BranchPointType.EVA, new[] { "L" }, new[] { "cont", "bob" }, ut: 120),
+                });
+            tree.BranchPoints[0].SplitCause = "DECOUPLE";
+            var committed = new List<Recording>
+            {
+                tree.Recordings["L"],     // 0
+                tree.Recordings["probe"], // 1
+                tree.Recordings["cont"],  // 2
+                tree.Recordings["bob"],   // 3
+            };
+            var structure = MissionStructureBuilder.Build(tree);
+            var view = MissionThroughLineBuilder.Build(structure);
+            var compRoots = MissionCompositionBuilder.Build(structure);
+
+            // No exclusions -> every committed member present at its full range.
+            var full = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, compRoots, committed, new HashSet<string>(), null, out _, out _);
+            Assert.Equal(new[] { 0, 1, 2, 3 }, full.Keys.OrderBy(k => k).ToArray());
+            Assert.Equal(0.0, full[0].StartUT);
+            Assert.Equal(120.0, full[0].EndUT);
+
+            // Trim the launch interval + peeled branches: only the post-decouple pod survives,
+            // start-trimmed to the decouple (30) - exactly what the loop builder spans, so the
+            // period cell / watch target now see the trimmed set too.
+            var excluded = new HashSet<string> { "L", "probe", "bob" };
+            var trimmed = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, compRoots, committed, excluded, null, out _, out int skipped);
+            Assert.Equal(new[] { 0, 2 }, trimmed.Keys.OrderBy(k => k).ToArray());
+            Assert.Equal(30.0, trimmed[0].StartUT);   // L start-trimmed to the decouple, not 0
+            Assert.Equal(120.0, trimmed[0].EndUT);
+            Assert.Equal(120.0, trimmed[2].StartUT);  // cont keeps its full range
+            Assert.Equal(200.0, trimmed[2].EndUT);
+
+            // Span MissionSpanSeconds would show = max end - min start over the trimmed windows.
+            double min = double.PositiveInfinity, max = double.NegativeInfinity;
+            foreach (var w in trimmed.Values)
+            {
+                if (w.StartUT < min) min = w.StartUT;
+                if (w.EndUT > max) max = w.EndUT;
+            }
+            Assert.Equal(170.0, max - min); // 200 - 30, matches the builder's trimmed span (30..200)
         }
 
         [Fact]

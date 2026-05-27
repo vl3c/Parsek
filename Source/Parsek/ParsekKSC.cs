@@ -1022,12 +1022,14 @@ namespace Parsek
         {
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): the same live-body seam the flight engine + TS use.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
@@ -1240,11 +1242,16 @@ namespace Parsek
                         if (idx < 0 || idx >= committed.Count || committed[idx] == null)
                             continue;
                         var member = committed[idx];
+                        // Use the TRIMMED member window (interval-level start/end trim), matching the
+                        // flight engine's live-member scan, so a start-trimmed member's camera-live
+                        // diagnostic reflects the segment actually rendered, not its raw recorded range.
+                        double memberStartUT = unit.MemberStartUT(idx, member.StartUT);
+                        double memberEndUT = unit.MemberEndUT(idx, member.EndUT);
                         if (GhostPlaybackLogic.IsLoopUTInMemberWindow(
-                                spanLoopUT, member.StartUT, member.EndUT)
-                            && member.StartUT >= liveStartUT)
+                                spanLoopUT, memberStartUT, memberEndUT)
+                            && memberStartUT >= liveStartUT)
                         {
-                            liveStartUT = member.StartUT;
+                            liveStartUT = memberStartUT;
                             liveMemberIdx = idx;
                         }
                     }

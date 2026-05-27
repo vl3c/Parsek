@@ -45,6 +45,71 @@ namespace Parsek
                 || source == TrackingStationGhostSource.StateVectorSoiGap;
         }
 
+        /// <summary>
+        /// Tracking-station per-tick orbit-source precedence for an already-created ghost:
+        /// a wrapped/closed OrbitSegment covering the effective UT is the trusted source and
+        /// wins over a co-located OrbitalCheckpoint state-vector. The checkpoint state-vector is
+        /// distrusted (stale-frame interpretation reintroduced the #571/#584 wrong-position class)
+        /// and is only valid for a genuine segment gap, so it is consumed only when no segment
+        /// covers effUT. This mirrors the create-path <see cref="ResolveTrackingStationGhostSource"/>
+        /// and the flight-scene <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c> precedence;
+        /// without it a Segment-created looped ghost freezes on its last segment the moment effUT
+        /// advances into a transfer/coast OrbitalCheckpoint section.
+        /// </summary>
+        internal static bool ShouldConsumeCheckpointStateVectorForExistingGhost(
+            bool fromCheckpoint, bool segmentCoversEffUT)
+        {
+            return fromCheckpoint && !segmentCoversEffUT;
+        }
+
+        /// <summary>
+        /// True when at least one OrbitSegment begins strictly after <paramref name="ut"/>, i.e. the
+        /// recording still has orbital playback AHEAD of the current effective UT. Used by the
+        /// tracking-station update path to distinguish a mid-recording gap (between the parking
+        /// orbit and a later destination orbit, e.g. during a transfer burn / coast) from the
+        /// genuine terminal region. The endpoint-tail (terminal-orbit) fallback must fire only at
+        /// the terminal region; firing it in a mid-recording gap reseeds the looped proto-vessel
+        /// onto the FINAL orbit for the whole rest of the replay and suppresses the non-proto
+        /// atmospheric position marker. Mirrors the flight-scene gap check in
+        /// <c>ParsekPlaybackPolicy.CheckPendingMapVessels</c>.
+        /// </summary>
+        internal static bool HasOrbitSegmentStartingAfter(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null)
+                return false;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                if (segments[i].startUT > ut)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when the synthetic endpoint-tail (terminal-orbit) fallback may be applied in the
+        /// tracking-station per-tick update for this ghost. The endpoint tail is a NON-LOOP concept
+        /// (it shows where a finished flight ended up, seeded from the recorded historical body
+        /// rotation/position); for a loop member it does not survive the loop epoch shift for a
+        /// cross-body terminal (a Mun orbit seeded from the Mun's RECORDED position lands tens of
+        /// millions of metres off the live Mun). A loop member's effUT is always inside the
+        /// recording, so its covering OrbitSegment is the correct current orbit and must win; when
+        /// none covers effUT the loop removes the proto-vessel instead, matching the flight scene's
+        /// segment-update path. Loop membership is read from the per-tick epoch shift
+        /// (<c>liveUT - effUT</c>): zero for non-loop members, non-zero for loop replay.
+        ///
+        /// INVARIANT (load-bearing): this "shift == 0 means non-loop" signal is sound only because
+        /// the first-play floor in <c>MissionLoopUnitBuilder.TryBuildMissionUnit</c> clamps every
+        /// looping mission's <c>phaseAnchorUT</c> to at least <c>spanEndUT</c> (&gt; spanStartUT), so a
+        /// loop member's effUT can never equal liveUT (it always maps to a past recorded UT, giving a
+        /// non-zero shift). If that floor is ever weakened/removed, a cycle-0 member with
+        /// <c>phaseAnchorUT == spanStartUT</c> would produce shift 0 and silently re-enable the
+        /// endpoint tail here. Keep the two in sync.
+        /// </summary>
+        internal static bool EndpointTailAllowedInTrackingStationUpdate(double loopEpochShiftSeconds)
+        {
+            return loopEpochShiftSeconds == 0.0;
+        }
+
         internal struct TrackingStationSpawnHandoffState
         {
             internal readonly uint GhostPid;
@@ -5242,27 +5307,8 @@ namespace Parsek
             int createdBefore = lifecycleCreatedThisTick;
             int destroyedBefore = lifecycleDestroyedThisTick;
 
-            // Real-vessel materialization intentionally ignores the TS ghost-visibility toggle.
             if (hasCommittedRecordings)
                 TryRunTrackingStationSpawnHandoffs(committed, currentUT);
-
-            // #388: respect the user's tracking-station ghost visibility toggle.
-            // ParsekTrackingStation.Update already handles the off-flip transition
-            // (calls RemoveAllGhostVessels); here we simply skip creation so the
-            // list stays empty while the flag is off. An empty-committed cache is
-            // still published so ParsekTrackingStation.OnGUI guards still work.
-            // Reads through the persistence store so the early-scene-load case
-            // (ParsekSettings.Current still null) gets the correct user choice
-            // from settings.cfg, not the pre-#388 default.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                CachedTrackingStationSuppressedIds = new HashSet<string>();
-                ParsekLog.VerboseRateLimited(Tag,
-                    "ts-lifecycle-disabled",
-                    "UpdateTrackingStationGhostLifecycle: showGhostsInTrackingStation=false — skip",
-                    2.0);
-                return;
-            }
 
             // Phase F v1 simplification: suppression is resolved at the LIVE currentUT, not the
             // per-member span-clock effUT. Loop-unit members are already gated by the per-recording
@@ -5498,6 +5544,21 @@ namespace Parsek
                 bool isStateVector =
                     trackingStationStateVectorOrbitTrajectories.ContainsKey(idx);
 
+                // Mirror the create-path (ResolveTrackingStationGhostSource) and flight-scene
+                // (ParsekPlaybackPolicy.CheckPendingMapVessels) precedence: a wrapped/closed
+                // OrbitSegment covering effUT is the trusted source and wins over the distrusted
+                // OrbitalCheckpoint state-vector. `fromCheckpoint` (below) is re-derived from the
+                // section at effUT every tick; without this guard a Segment-created looped ghost is
+                // misrouted into the OrbitalCheckpoint state-vector refusal
+                // (state-vector-from-orbital-checkpoint) the moment effUT advances into a
+                // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
+                // instead of advancing through the mission's later segments. The checkpoint path
+                // stays available only for a genuine segment gap (no covering segment at effUT).
+                OrbitSegment? coveringSegment = (rec != null && rec.OrbitSegments != null)
+                    ? TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT)
+                    : (OrbitSegment?)null;
+                bool segmentCoversEffUT = coveringSegment.HasValue;
+
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
                     : -1;
@@ -5508,6 +5569,21 @@ namespace Parsek
                     out TrajectoryPoint checkpointPoint,
                     out _,
                     out _);
+                if (fromCheckpoint && segmentCoversEffUT && !isStateVector)
+                {
+                    // Deferring to the trusted segment path below. Logged (rate-limited, shared key)
+                    // so a log capture can confirm the precedence guard is active for looped ghosts
+                    // crossing from a parking-orbit segment into a transfer OrbitalCheckpoint section.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-checkpoint-defer-to-segment",
+                        string.Format(ic,
+                            "TS orbit source: OrbitalCheckpoint section at effUT={0:F1} deferring to covering OrbitSegment "
+                            + "(idx={1} pid={2} segUT={3:F1}-{4:F1} body={5})",
+                            effUT, idx, pid,
+                            coveringSegment.Value.startUT, coveringSegment.Value.endUT,
+                            coveringSegment.Value.bodyName ?? "(null)"),
+                        2.0);
+                }
 
                 string removeReason = GetTrackingStationGhostRemovalReason(
                     rec,
@@ -5535,7 +5611,7 @@ namespace Parsek
                     continue;
                 }
 
-                if (fromCheckpoint)
+                if (ShouldConsumeCheckpointStateVectorForExistingGhost(fromCheckpoint, segmentCoversEffUT))
                 {
                     trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
                     if (UpdateGhostOrbitFromStateVectors(idx, rec, checkpointPoint, effUT,
@@ -5604,9 +5680,33 @@ namespace Parsek
                 if (!hasOrbitBounds)
                     continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
+                // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
+                OrbitSegment? seg = coveringSegment;
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
+
+                // The synthetic endpoint-tail (terminal-orbit) seed is a NON-LOOP concept: it shows
+                // where a finished flight ended up, seeded from the recorded historical body
+                // rotation/position at the recording's end. For a LOOP member that seed does not
+                // survive the loop epoch shift: a cross-body terminal (e.g. a Mun orbit seeded from
+                // the Mun's RECORDED position) lands the proto-vessel tens of millions of metres off
+                // (~181 Mm in the Mun case) instead of beside the live Mun. A loop member's effUT is
+                // always inside the recording, so a covering OrbitSegment is the correct current
+                // orbit and must always win; when none covers effUT the loop should remove the
+                // proto-vessel (the atmospheric marker draws the transfer/coast position and the
+                // create pass re-materializes the orbit at the next real segment), exactly like the
+                // flight scene's segment-update path, which renders real covering segments and never
+                // applies the endpoint-tail override. So both endpoint-tail branches are suppressed
+                // for loop members (non-zero epoch shift) and unchanged for non-loop members.
+                //
+                // hasFutureOrbitSegment additionally gates the no-covering-segment fallback for
+                // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable via
+                // rewind/warp) must remove the ghost rather than jump to the terminal orbit; the
+                // endpoint tail stays reserved for the genuine terminal region (no future segment).
+                bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(rec.OrbitSegments, effUT);
+                bool endpointTailAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
+
                 if (seg.HasValue
+                    && endpointTailAllowed
                     && TryResolveEndpointTailForMapPresence(
                         rec,
                         effUT,
@@ -5620,6 +5720,8 @@ namespace Parsek
                     orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
                 }
                 else if (!seg.HasValue
+                    && endpointTailAllowed
+                    && !hasFutureOrbitSegment
                     && TryResolveEndpointTailForMapPresence(
                         rec,
                         effUT,
@@ -5635,7 +5737,9 @@ namespace Parsek
                 if (!seg.HasValue)
                 {
                     if (toRemove == null) toRemove = new List<(int, string)>();
-                    toRemove.Add((idx, "tracking-station-expired"));
+                    toRemove.Add((idx, hasFutureOrbitSegment
+                        ? "gap-between-orbit-segments"
+                        : "tracking-station-expired"));
                     continue;
                 }
                 // For loop members the stored bounds are shifted into the live frame while
@@ -7179,23 +7283,6 @@ namespace Parsek
         /// </summary>
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
-            // #388: respect the user's tracking-station ghost visibility toggle.
-            // This path is called from SpaceTracking.Awake prefix where
-            // ParsekSettings.Current may still be null — read through the
-            // persistence store so the user's recorded preference (from
-            // settings.cfg) wins over the pre-#388 default.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                CachedTrackingStationSuppressedIds = new HashSet<string>();
-                int commCount = RecordingStore.CommittedRecordings?.Count ?? 0;
-                ParsekLog.Info(Tag,
-                    string.Format(ic,
-                        "CreateGhostVesselsFromCommittedRecordings: " +
-                        "showGhostsInTrackingStation=false — skipping {0} committed recording(s)",
-                        commCount));
-                return 0;
-            }
-
             var committed = RecordingStore.CommittedRecordings;
             if (committed == null || committed.Count == 0)
             {

@@ -57,6 +57,16 @@ namespace Parsek
         private readonly Dictionary<string, List<MissionCompositionNode>> compositionCache =
             new Dictionary<string, List<MissionCompositionNode>>();
 
+        // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
+        // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
+        // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
+        // the next faithful P-window (which the engine SKIPS when the relaunch cadence is a multiple
+        // m*P with m>=2). Built at most once per frame (keyed by Time.frameCount, like the view cache
+        // above) and read-only: this is a DISPLAY mirror of the engine's schedule and never feeds the
+        // engine/scene drivers, so it cannot affect playback. Lazily computed by GetLoopUnitSet.
+        private GhostPlaybackLogic.LoopUnitSet loopUnitSetCache;
+        private int loopUnitSetCacheFrame = -1;
+
         // Fixed-width columns to the right of the expanding "Missions and vessels" column,
         // mirroring the recordings window's fixed-width cells so the window reads as the
         // same table style. Layout: [index/check] Missions and vessels | Start time |
@@ -76,15 +86,21 @@ namespace Parsek
         // the old Clone width (60) + 10 px, so they all read as one button group.
         private const float ColW_HeaderButton = 70f;
         // Width of the mission-header bar's right-side control block (Clone..Rewind + Archive). It
-        // equals the data columns' total footprint (the 6 cells right of "Missions and vessels" plus
-        // their 5 inter-cell margins), so the expanding title fills exactly the same width as the
+        // equals the data columns' total footprint (the 7 cells right of "Missions and vessels" plus
+        // their 6 inter-cell margins), so the expanding title fills exactly the same width as the
         // data rows' name column and the buttons begin at the data-column boundary (where "Start
         // time" starts) instead of being pushed to the far right.
         private const float MissionHeaderRightBlockWidth =
-            ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_ReFly + ColW_Archive + 5 * 4f;
+            ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
+        // "Time to launch" column (mission periodicity, design doc UX): a live countdown to the next
+        // faithful launch window, shown ONLY on each mission's launch (first) vessel row, under this
+        // column header; every other vessel row + the mission header bar leave a same-width blank
+        // cell so the data columns stay aligned. Sits right after "Missions and vessels" (the name
+        // column), before "Start time".
+        private const float ColW_TMinus = 90f;
         // Fixed column-header height so every Missions header cell is the same height (matches
         // RecordingsTableUI.ColHeaderHeight); the toggle-bearing Archive cell would otherwise be
         // taller than the plain-label cells.
@@ -103,6 +119,14 @@ namespace Parsek
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
         // sized loop control here is the period cell.
         private const float ColW_Period = 90f;
+        // Fixed width of the whole loop-period cell on the mission header bar, sized to fit the widest
+        // state (the read-only phase-locked "~P (basis)" label, e.g. "~6.4d (Mun window)" /
+        // "~14.5d (Minmus window)"). EVERY period-cell state is wrapped in a container of this width
+        // (the narrower editable value+unit pads the remainder with a FlexibleSpace), so the Watch /
+        // Rewind buttons that follow start at the same x on every mission row. 160 fits the longest
+        // basis label and leaves room in the (fixed-width) header right block for the "Warp to..."
+        // button added before Loop.
+        private const float ColW_PeriodLocked = 160f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
@@ -159,6 +183,11 @@ namespace Parsek
         // text) instead of their own boxes so they don't double-box on top of the bubble.
         private GUIStyle missionHeaderRowStyle;
         private GUIStyle missionHeaderTextStyle;
+        // Inline (non-bold) header-bar label, vertically centered + stretched to the row height, so
+        // the "Loop" word and the read-only phase-locked period label ("~6.4d (Mun window)") sit on
+        // the same baseline as each other and the row's buttons (a plain GUI.skin.label / bodyCellLabel
+        // top-aligns and reads a few pixels high against the centered buttons).
+        private GUIStyle missionHeaderInlineLabel;
 
         // Column-header text inset (matches RecordingsTableUI.BodyCellTextIndent so
         // body labels land under their header text).
@@ -238,14 +267,14 @@ namespace Parsek
 
             // Mission-header row bubble: the section-header box stretched across the whole row.
             // L/R margin + padding are zeroed so the dark bar reaches the row edges and its contents
-            // are not inset (the Archive checkbox stays under its column header). A small bottom
-            // padding gives the title text breathing room under it (the box's own border supplies the
-            // top space); without it the title sat too close to the bubble's bottom edge.
+            // are not inset (the Archive checkbox stays under its column header). Top/bottom padding
+            // are EQUAL (2 px each) so the gap above the buttons/text matches the gap below - the old
+            // 0-top / 4-bottom split left a visible extra band under the buttons inside the bubble.
             var sectionHeader = parentUI.GetSectionHeaderStyle();
             missionHeaderRowStyle = new GUIStyle(sectionHeader)
             {
                 margin = new RectOffset(0, 0, 0, 0),
-                padding = new RectOffset(0, 0, 0, 4)
+                padding = new RectOffset(0, 0, 2, 2)
             };
 
             // Bold transparent text for the index + title sitting on the row bubble (no box of
@@ -254,6 +283,14 @@ namespace Parsek
             {
                 fontStyle = FontStyle.Bold,
                 alignment = TextAnchor.MiddleLeft
+            };
+
+            // Inline header-bar label (non-bold), vertically centered + stretched so "Loop" and the
+            // read-only locked period label share a baseline with each other and the centered buttons.
+            missionHeaderInlineLabel = new GUIStyle(GUI.skin.label)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                stretchHeight = true
             };
         }
 
@@ -330,7 +367,15 @@ namespace Parsek
 
                 var (_, view) = GetMissionView(tree);
 
-                DrawMissionHeader(mission, ordered[i].index, view);
+                // Mission periodicity (Phase-1 / Tier-1 solution), computed ONCE per mission here
+                // and shared by the header's period cell + the launch row's "Time to launch" cell,
+                // so we extract/solve only once per frame per mission. Only looping missions need
+                // it; a non-looping mission gets the no-solution default (blank cells).
+                MissionPeriodicityDisplay periodicity = mission.LoopPlayback
+                    ? ComputeMissionPeriodicity(mission, view)
+                    : default;
+
+                DrawMissionHeader(mission, ordered[i].index, view, periodicity);
 
                 // Composition-over-time tree (the vessel rows). Each node is a structural
                 // interval / branch with its own independent include checkbox (interval-level
@@ -339,7 +384,12 @@ namespace Parsek
                 for (int r = 0; r < compRoots.Count; r++)
                 {
                     bool isLast = r == compRoots.Count - 1;
-                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false);
+                    // The launch row (the very first rendered composition row = the first root's
+                    // head node) carries the mission's "Time to launch" countdown under that
+                    // column; every other vessel row leaves it blank.
+                    bool isLaunchRoot = r == 0;
+                    rowCount += DrawCompositionNode(compRoots[r], mission, 1, isLast, false,
+                        isLaunchRoot, periodicity);
                 }
             }
 
@@ -398,6 +448,41 @@ namespace Parsek
             return roots;
         }
 
+        // Returns the REAL Mission LoopUnitSet, built at most once per frame, EXACTLY as the scene
+        // drivers build it (MissionLoopUnitBuilder.Build over MissionStore.Missions +
+        // RecordingStore.CommittedTrees/CommittedRecordings, with the global auto-loop interval and
+        // FlightGlobalsBodyInfo.Instance). The unit the engine actually relaunches on is read off
+        // this set so the T- countdown is drift-free against playback. Display-only: never pushed to
+        // the engine. Build's per-build Verbose summary is suppressed (the UI runs every frame).
+        // [ERS-exempt] reason: this reads the RAW committed list to match MissionLoopUnitBuilder
+        // (which keys loop members by committed RecordingId); display-only, file allowlisted.
+        private GhostPlaybackLogic.LoopUnitSet GetLoopUnitSet()
+        {
+            int frame = Time.frameCount;
+            if (frame != loopUnitSetCacheFrame || loopUnitSetCache == null)
+            {
+                var settings = ParsekSettings.Current;
+                double autoLoopIntervalSeconds = settings != null
+                    ? settings.autoLoopIntervalSeconds
+                    : LoopTiming.DefaultLoopIntervalSeconds;
+                bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
+                MissionLoopUnitBuilder.SuppressLogging = true;
+                try
+                {
+                    loopUnitSetCache = MissionLoopUnitBuilder.Build(
+                        MissionStore.Missions, RecordingStore.CommittedTrees,
+                        RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
+                        FlightGlobalsBodyInfo.Instance);
+                }
+                finally
+                {
+                    MissionLoopUnitBuilder.SuppressLogging = prevSuppress;
+                }
+                loopUnitSetCacheFrame = frame;
+            }
+            return loopUnitSetCache ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+        }
+
         // Renders one composition node (a structural interval, a peeled-off branch, or a roster
         // atom) and recurses into its children. Every selectable node (interval / branch) carries
         // an INDEPENDENT include checkbox bound to Mission.ExcludedIntervalKeys: unchecking it
@@ -405,7 +490,8 @@ namespace Parsek
         // the post-decouple survivor checked, which is the whole point). A roster atom carries no
         // checkbox and greys with its owning interval. Returns the number of rows drawn.
         private int DrawCompositionNode(MissionCompositionNode node,
-            Mission mission, int depth, bool isLast, bool parentExcluded)
+            Mission mission, int depth, bool isLast, bool parentExcluded,
+            bool isLaunchRow, MissionPeriodicityDisplay periodicity)
         {
             if (node == null)
                 return 0;
@@ -418,8 +504,10 @@ namespace Parsek
             bool hasChildren = node.Children.Count > 0;
             bool collapsed = hasChildren && collapsedLegs.Contains(CollapseKey(mission, node.HeadLegId));
 
+            // Only the head node of the mission's first root is the launch row; its children and
+            // every later root row leave the "Time to launch" cell blank.
             DrawCompositionRow(node, mission, depth, isLast, selectable, selfExcluded, greyed,
-                hasChildren, collapsed);
+                hasChildren, collapsed, isLaunchRow, periodicity);
             int rows = 1;
 
             if (hasChildren && !collapsed)
@@ -430,7 +518,7 @@ namespace Parsek
                 {
                     bool childLast = i == node.Children.Count - 1;
                     rows += DrawCompositionNode(node.Children[i], mission,
-                        depth + 1, childLast, childParentExcluded);
+                        depth + 1, childLast, childParentExcluded, false, periodicity);
                 }
             }
             return rows;
@@ -438,7 +526,7 @@ namespace Parsek
 
         private void DrawCompositionRow(MissionCompositionNode node, Mission mission,
             int depth, bool isLast, bool selectable, bool selfExcluded, bool greyed,
-            bool hasChildren, bool collapsed)
+            bool hasChildren, bool collapsed, bool isLaunchRow, MissionPeriodicityDisplay periodicity)
         {
             // MinHeight floors the row at the recordings-table row stride so the rows do not pack
             // too tightly and the per-row Fly / Seal button has room (label-only cells alone measure
@@ -500,6 +588,27 @@ namespace Parsek
             else
             {
                 GUILayout.Label(wide, compositionCellLabel, GUILayout.ExpandWidth(true));
+            }
+
+            // "Time to launch" cell: the live countdown to the mission's next faithful launch
+            // window (mission periodicity, design doc UX), sitting right after the name column (and
+            // before "Start time"). The countdown is a per-mission value, so it shows ONLY on the
+            // launch row (the mission's first vessel row) under the "Time to launch" header; every
+            // other vessel row leaves a same-width blank cell so the time/event columns stay
+            // aligned. The cell is drawn at the normal (un-dimmed) colour even when the launch
+            // interval is excluded/greyed, since the countdown is mission-level data rather than a
+            // property of that interval. A compositionCellLabel is fine here (the margin-0 caveat
+            // only applies to the right-EDGE cell, the trailing Archive cell below).
+            if (isLaunchRow)
+            {
+                Color prevTm = GUI.color;
+                GUI.color = prevColor; // mission-level value: never dim with an excluded launch interval
+                DrawTMinusVesselCell(mission, periodicity);
+                GUI.color = prevTm;
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_TMinus));
             }
 
             // Interval / vessel rows show their span + bounding events; roster atoms inherit the
@@ -586,7 +695,8 @@ namespace Parsek
         // goes through MissionStore.SetLoopEnabled, which allows concurrent looping across trees
         // but at most one looping mission per tree (it only flips bools on same-tree siblings,
         // never adds/removes, so it is safe to call from inside the draw loop).
-        private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view)
+        private void DrawMissionHeader(Mission mission, int index, MissionThroughLineView view,
+            MissionPeriodicityDisplay periodicity)
         {
             // The whole row's background is the dark section-header bubble (missionHeaderRowStyle),
             // so the bubble spans index -> Archive and every control sits inside it.
@@ -614,7 +724,8 @@ namespace Parsek
             GUILayout.BeginHorizontal(GUILayout.Width(MissionHeaderRightBlockWidth));
 
             // Clone / Delete first. Delete is disabled when this is the tree's last mission. Clone,
-            // Delete, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as one group.
+            // Delete, Warp to, Watch, and Rewind/Forward all share ColW_HeaderButton so they read as
+            // one group.
             if (GUILayout.Button("Clone", GUILayout.Width(ColW_HeaderButton)))
                 MissionStore.Clone(mission);
             GUI.enabled = MissionStore.CanDelete(mission);
@@ -622,9 +733,20 @@ namespace Parsek
                 MissionStore.Delete(mission);
             GUI.enabled = true;
 
+            // "Warp to..." (after Delete, before Loop): jumps the game clock to this mission's next
+            // faithful relaunch (the TTL countdown target = periodicity.NextRelaunchUT), reusing the
+            // Timeline "Warp to time" flow (confirmation dialog; in flight it defers to the Space
+            // Center so the Merge / Discard dialog handles the active recording first). The next
+            // relaunch is always in the future, so this is a forward (fast-forward) warp. Enabled only
+            // when the mission is looping, an engine unit was built, the next relaunch is in the
+            // future, and we are in a warp-capable scene (flight or Space Center). The ellipsis
+            // matches the existing "Warp to..." convention; the adjacent TTL column says "to what".
+            DrawMissionWarpToWindowButton(mission, periodicity);
+
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
-            // wrapper left slack that widened the gap before the period field).
-            GUILayout.Label("Loop");
+            // wrapper left slack that widened the gap before the period field). The label uses the
+            // vertically-centered inline style so it lines up with the centered period label/buttons.
+            GUILayout.Label("Loop", missionHeaderInlineLabel);
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
             if (loopNow != mission.LoopPlayback)
             {
@@ -634,7 +756,12 @@ namespace Parsek
                     loopPeriodFocusedMissionId = null;
             }
 
-            DrawMissionLoopPeriodCell(mission, view);
+            // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw
+            // loop and passed in; the period cell shows the faithful period P + basis label when
+            // phase-locked. The live "Time to launch" countdown that used to sit here moved onto the
+            // mission's launch (first) vessel row, under the "Time to launch" column, so the loop
+            // period + its basis label have room to render on a single line here.
+            DrawMissionLoopPeriodCell(mission, view, periodicity);
 
             DrawMissionWatchButton(mission, view);
 
@@ -780,6 +907,109 @@ namespace Parsek
             GUI.enabled = true;
         }
 
+        // "Warp to..." button: fast-forwards the game clock to this mission's next faithful relaunch
+        // (periodicity.NextRelaunchUT, the same UT the TTL countdown targets) using the SAME
+        // mechanism as the Recordings/Missions "Forward" button - an IN-PLACE forward jump (no scene
+        // change) that lands RewindToLaunchLeadTimeSeconds (15 s) before the launch. In flight it
+        // goes through ParsekFlight.FastForwardToEventUT (notifies the recorder, then
+        // TimeJumpManager.ExecuteForwardJump); at the Space Center it calls ExecuteForwardJump
+        // directly. A confirmation dialog precedes the jump (matching the Forward button). Disabled
+        // (greyed, width-stable) unless the mission is looping, an engine unit was built, the next
+        // relaunch is in the future, and we are in a warp-capable scene (flight or Space Center).
+        private void DrawMissionWarpToWindowButton(Mission mission, MissionPeriodicityDisplay periodicity)
+        {
+            bool inFlight = parentUI.InFlightMode;
+            bool warpScene = inFlight || HighLogic.LoadedScene == GameScenes.SPACECENTER;
+
+            double now = periodicity.Solved ? periodicity.NowUT : Planetarium.GetUniversalTime();
+            bool actionable = warpScene && ShouldEnableWarpToWindow(
+                mission != null && mission.LoopPlayback,
+                periodicity.UnitBuilt,
+                periodicity.NextRelaunchUT,
+                now);
+
+            GUI.enabled = actionable;
+            if (GUILayout.Button("Warp to...", GUILayout.Width(ColW_HeaderButton)))
+                ShowMissionWarpToWindowConfirmation(mission, periodicity.NextRelaunchUT, inFlight);
+            GUI.enabled = true;
+        }
+
+        // Confirmation dialog for the "Warp to..." button, then the in-place forward jump (the same
+        // FF mechanism as the Forward button - NO scene change). On confirm: in flight ->
+        // ParsekFlight.FastForwardToEventUT; at the Space Center -> a direct ExecuteForwardJump to
+        // RewindToLaunchLeadTimeSeconds before the relaunch. now/lead are recomputed at confirm time.
+        private void ShowMissionWarpToWindowConfirmation(Mission mission, double relaunchUT, bool inFlight)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string missionName = mission != null ? mission.Name : "mission";
+            string label = string.Format(ic, "next launch of \"{0}\"", missionName);
+            double previewNow = Planetarium.GetUniversalTime();
+            double previewDelta = TimeJumpManager.ApplyJumpLead(relaunchUT, previewNow) - previewNow;
+            string message = string.Format(ic,
+                "Fast-forward to just before \"{0}\" next launch at {1}?\n\nTime will advance by {2}.",
+                missionName, KSPUtil.PrintDateCompact(relaunchUT, true),
+                ParsekTimeFormat.FormatDurationFull(previewDelta));
+
+            var flight = parentUI.Flight;
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekMissionWarpToWindowConfirm",
+                    message,
+                    "Confirm: Warp to Launch",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Warp", () =>
+                    {
+                        ParsekLog.Info("Mission", string.Format(ic,
+                            "Warp to next window confirmed for '{0}': relaunchUT={1} inFlight={2}",
+                            missionName, relaunchUT.ToString("R", ic), inFlight));
+                        if (inFlight && flight != null)
+                        {
+                            flight.FastForwardToEventUT(relaunchUT, label);
+                        }
+                        else
+                        {
+                            // Space Center: advance the clock directly (no recorder notify needed).
+                            double curUT = Planetarium.GetUniversalTime();
+                            double target = TimeJumpManager.ApplyJumpLead(relaunchUT, curUT);
+                            if (!TimeJumpManager.IsValidJump(curUT, target))
+                            {
+                                ParsekLog.Warn("Mission", string.Format(ic,
+                                    "Warp to next window aborted (invalid jump): current={0:F1} target={1:F1} for {2}",
+                                    curUT, target, label));
+                                return;
+                            }
+                            ParsekLog.Info("Mission", string.Format(ic,
+                                "Warp to next window (KSC): jumping to UT={0:F1} for {1} (delta={2:F1}s, relaunchUT={3:F1})",
+                                target, label, target - curUT, relaunchUT));
+                            TimeJumpManager.ExecuteForwardJump(target);
+                            ParsekLog.ScreenMessage(string.Format(ic,
+                                "Fast-forwarded to {0} ({1:F0}s)", label, target - curUT), 3f);
+                        }
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                        ParsekLog.Info("Mission", "Warp to next window cancelled"))
+                ),
+                false, HighLogic.UISkin);
+        }
+
+        /// <summary>
+        /// Whether the per-mission "Warp to..." button is actionable: the mission must be looping,
+        /// have a built engine loop unit, and have a next relaunch UT that is finite and strictly in
+        /// the future (more than a second ahead, so an at-or-behind-now relaunch does not offer a
+        /// no-op warp). Pure (the scene gate is applied by the caller). The actual warp is the same
+        /// in-place forward fast-forward the Forward button uses.
+        /// </summary>
+        internal static bool ShouldEnableWarpToWindow(
+            bool looping, bool unitBuilt, double nextRelaunchUT, double nowUT)
+        {
+            return looping
+                && unitBuilt
+                && !double.IsNaN(nextRelaunchUT)
+                && !double.IsInfinity(nextRelaunchUT)
+                && nextRelaunchUT > nowUT + 1.0;
+        }
+
         private void LogSortChanged()
         {
             ParsekLog.Verbose("UI",
@@ -817,37 +1047,368 @@ namespace Parsek
             return double.IsInfinity(min) ? 0.0 : min;
         }
 
-        // The mission span in seconds = (max EndUT - min StartUT) over the COMMITTED member
-        // recordings of the included through-lines, computed exactly the way
-        // MissionLoopUnitBuilder derives the span it caps the overlap cadence to (only members
-        // present in CommittedRecordings count, by RecordingId). Used only for the period cell's
-        // effective-cadence display, so the shown value matches the cadence actually running.
+        // ===================== Mission periodicity display (Phase 3 UI) =====================
+
+        // The computed Phase-1 periodicity solution for one looping mission, plus the dominant
+        // constraint's kind/body (for the period-cell basis label). Computed once per mission per
+        // frame by ComputeMissionPeriodicity and shared by the period cell + the T- cell. The
+        // default value (Solved == false) means "not computed / not looping" -> blank cells.
+        private struct MissionPeriodicityDisplay
+        {
+            public bool Solved;                  // false on the default (not looping / no data)
+            public PeriodicitySolution Solution;
+            public double NowUT;                 // the reference UT used for the live countdown
+            public ConstraintKind DominantKind;  // valid only when IsPhaseLockedConstrained
+            public string DominantBodyName;      // valid only when IsPhaseLockedConstrained
+
+            // The engine's ACTUAL next relaunch UT for this mission, read off the REAL LoopUnitSet
+            // (PhaseAnchorUT + n*relaunchCadence). This is what the T- countdown targets - NOT the
+            // periodicity solution's NextWindowUT (the next faithful P-window), which the engine
+            // SKIPS whenever the relaunch cadence is a multiple m*P with m>=2 (the recording span or
+            // the user period exceeds P). The two coincide only when the relaunch cadence == P.
+            // NaN when no real unit was built for this mission (see UnitBuilt).
+            public double NextRelaunchUT;
+
+            // True when MissionLoopUnitBuilder built a real unit for this mission (the mission maps
+            // to at least one committed loop member). When false the engine relaunches nothing, so
+            // the T- cell reads "not aligned" - the same word an unsupported config gets, since both
+            // mean "this mission is not on a faithful launch schedule".
+            public bool UnitBuilt;
+
+            // Supported + constrained: the loop is phase-locked to a real period P (not the free
+            // MinCycleDuration). This is the state where the period cell shows P + basis label and
+            // the T- cell shows a live countdown.
+            public bool IsPhaseLockedConstrained =>
+                Solved && Solution.ShouldPhaseLock
+                && !double.IsNaN(Solution.P) && Solution.P > LoopTiming.MinCycleDuration + 1e-6;
+        }
+
+        // Computes the Phase-1 (Tier-1) periodicity solution for one looping mission, mirroring the
+        // loop builder's Extract+Solve, but referenced to the LIVE clock (Planetarium UT) so the T-
+        // countdown is "the next window from NOW". Reads RecordingStore.CommittedRecordings + the
+        // mission's interval trim + the live bodies via FlightGlobalsBodyInfo. The per-call Verbose
+        // summaries in ExtractConstraints/Solve are suppressed (the UI runs every frame); a single
+        // rate-limited summary is logged here instead.
+        // [ERS-exempt] reason: this reads the RAW committed list to match MissionLoopUnitBuilder
+        // (which keys loop members by committed RecordingId); display-only, file allowlisted.
+        private MissionPeriodicityDisplay ComputeMissionPeriodicity(
+            Mission mission, MissionThroughLineView view)
+        {
+            var result = new MissionPeriodicityDisplay { Solved = false };
+            if (mission == null || view == null)
+                return result;
+            RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+            if (tree == null)
+                return result;
+
+            var committed = RecordingStore.CommittedRecordings;
+            var compRoots = GetCompositionRoots(tree);
+            double nowUT = Planetarium.GetUniversalTime();
+
+            // Suppress the per-call Verbose lines (every frame) and emit one rate-limited summary.
+            bool prevSuppress = MissionPeriodicity.SuppressLogging;
+            MissionPeriodicity.SuppressLogging = true;
+            ConstraintExtraction extraction;
+            PeriodicitySolution solution;
+            try
+            {
+                extraction = MissionPeriodicity.ExtractConstraints(
+                    view, compRoots, committed, mission.ExcludedIntervalKeys,
+                    FlightGlobalsBodyInfo.Instance);
+                solution = MissionPeriodicity.Solve(
+                    extraction.Constraints, extraction.Support, extraction.UT0, nowUT,
+                    FlightGlobalsBodyInfo.Instance);
+            }
+            finally
+            {
+                MissionPeriodicity.SuppressLogging = prevSuppress;
+            }
+
+            result.Solved = true;
+            result.Solution = solution;
+            result.NowUT = nowUT;
+
+            // Dominant constraint (kind/body) for the period-cell basis label, picked the same way
+            // the solver picks the constraint whose period sets P.
+            if (solution.ShouldPhaseLock && extraction.Constraints != null
+                && extraction.Constraints.Count > 0)
+            {
+                int di = MissionPeriodicity.SelectDominantConstraintIndex(extraction.Constraints);
+                PhaseConstraint dom = extraction.Constraints[di];
+                result.DominantKind = dom.Kind;
+                result.DominantBodyName = dom.BodyName;
+            }
+
+            // The ENGINE's actual next relaunch UT for this mission. The countdown must point here,
+            // NOT at solution.NextWindowUT: the engine relaunches every effectiveOverlapCadence /
+            // effectiveCadence (a MULTIPLE m*P of the period when the span / user period exceeds P),
+            // so it SKIPS the in-between P-windows. Read the REAL unit (the same one the scene
+            // drivers build) for this mission and derive the next relaunch from its schedule, so the
+            // displayed countdown can never drift away from when a ghost actually launches.
+            result.UnitBuilt = TryResolveMissionUnit(
+                tree, committed, mission.ExcludedIntervalKeys, out GhostPlaybackLogic.LoopUnit unit);
+            result.NextRelaunchUT = result.UnitBuilt
+                ? ComputeNextRelaunchUT(unit, nowUT)
+                : double.NaN;
+
+            ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
+                $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
+                $"support={solution.Support} P={solution.P.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"lock={(solution.ShouldPhaseLock ? "yes" : "no")} " +
+                $"nextWindow={solution.NextWindowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"unitBuilt={(result.UnitBuilt ? "yes" : "no")} " +
+                $"nextRelaunch={result.NextRelaunchUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"now={nowUT.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}",
+                3.0);
+
+            return result;
+        }
+
+        // Resolves the REAL LoopUnit the engine built for this mission, by mapping the mission's
+        // trimmed loop members to committed indices (the SAME ComputeTrimmedMemberWindows the builder
+        // keys members on) and looking any one of them up in the per-frame LoopUnitSet. Returns false
+        // (unit = default) when the mission has no committed members or no unit was built for it (an
+        // unsupported config / phase-lock skip still builds a unit; "no unit" means the mission maps
+        // to no live loop member at all - e.g. every member was trimmed off). Display-only.
+        // [ERS-exempt] reason: maps members via the RAW committed list to match MissionLoopUnitBuilder
+        // (keyed by committed RecordingId); display-only, file allowlisted.
+        private bool TryResolveMissionUnit(
+            RecordingTree tree, IReadOnlyList<Recording> committed,
+            ICollection<string> excludedIntervalKeys, out GhostPlaybackLogic.LoopUnit unit)
+        {
+            unit = default;
+            if (tree == null || committed == null)
+                return false;
+
+            var (_, view) = GetMissionView(tree);
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, excludedIntervalKeys,
+                null, out _, out _);
+
+            GhostPlaybackLogic.LoopUnitSet units = GetLoopUnitSet();
+            foreach (int idx in windows.Keys)
+                if (units.TryGetUnitForMember(idx, out unit))
+                    return true;
+            return false;
+        }
+
+        // Draws the "Time to launch" cell on the mission's launch (first) vessel row (design doc UX):
+        // a live countdown to the engine's ACTUAL next relaunch, or one of the state words (continuous
+        // / not aligned). The countdown reads NextRelaunchUT - now (PhaseAnchorUT + n*relaunchCadence
+        // off the REAL loop unit), NOT the periodicity solution's next P-window, so it never ticks to
+        // "T- 0s" on a window the engine skips (relaunch cadence = m*P with m>=2). Uses the same
+        // vertically-centered compositionCellLabel as the row's other (time/event) cells so it reads
+        // as part of the vessel row, under the "Time to launch" column header.
+        private void DrawTMinusVesselCell(Mission mission, MissionPeriodicityDisplay periodicity)
+        {
+            string text = BuildTMinusCellText(
+                mission != null && mission.LoopPlayback,
+                periodicity.Solved,
+                periodicity.Solution.ShouldPhaseLock,
+                periodicity.UnitBuilt,
+                periodicity.Solution.P,
+                periodicity.NextRelaunchUT,
+                periodicity.NowUT);
+
+            // Tint a live countdown amber when the best-effort window misses its physics tolerance
+            // (over-constrained config - the user may want to re-trim), matching the design's
+            // green/amber readout intent. Continuous / not-aligned / blank states read plain.
+            bool amber = periodicity.IsPhaseLockedConstrained && !periodicity.Solution.WithinTolerance;
+            Color prev = GUI.contentColor;
+            if (amber)
+                GUI.contentColor = LoopPeriodClampColor;
+            GUILayout.Label(text, compositionCellLabel, GUILayout.Width(ColW_TMinus));
+            GUI.contentColor = prev;
+        }
+
+        // ----- Pure display helpers (unit-tested; the IMGUI layout above is playtest-verified) -----
+
+        /// <summary>
+        /// The engine's ACTUAL next relaunch UT for a built loop unit, derived from the SAME schedule
+        /// <see cref="MissionLoopUnitBuilder.TryBuildMissionUnit"/> produces, so the T- countdown can
+        /// never drift away from when a ghost really launches. The engine relaunches the whole mission
+        /// every <see cref="GhostPlaybackLogic.LoopUnit.OverlapCadenceSeconds"/> when that overlaps the
+        /// span (it is &lt; the span duration), else once per <see cref="GhostPlaybackLogic.LoopUnit.CadenceSeconds"/>
+        /// (the single span instance). Either cadence is already quantized to a multiple m*P of the
+        /// faithful period P, so the relaunches land on every m-th P-window - the in-between windows
+        /// are SKIPPED. Next relaunch from now = <c>PhaseAnchorUT + n * interval</c> with
+        /// <c>n = max(0, ceil((now - PhaseAnchorUT) / interval))</c> (n == 0 while the loop is still
+        /// parked before its forward-snapped anchor). Pure; a degenerate interval (&lt;= 0 / NaN /
+        /// infinity) falls back to the anchor itself.
+        /// </summary>
+        internal static double ComputeNextRelaunchUT(GhostPlaybackLogic.LoopUnit unit, double nowUT)
+        {
+            double anchor = unit.PhaseAnchorUT;
+            if (double.IsNaN(anchor) || double.IsInfinity(anchor))
+                return double.NaN;
+
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            // The engine overlaps the whole mission with itself when the overlap cadence is shorter
+            // than the span (relaunch on the overlap cadence); otherwise there is a single span
+            // instance that relaunches once per span-clock cadence. Mirror that exact choice.
+            double interval = unit.OverlapCadenceSeconds < span
+                ? unit.OverlapCadenceSeconds
+                : unit.CadenceSeconds;
+            if (double.IsNaN(interval) || double.IsInfinity(interval) || interval <= 0.0)
+                return anchor; // degenerate cadence: the anchor is the only launch we can name
+
+            // n = ceil((now - anchor) / interval), clamped at 0 so a future-snapped anchor (loop
+            // parked, now < anchor) reports the anchor itself rather than a negative cycle.
+            double n = System.Math.Ceiling((nowUT - anchor) / interval - 1e-9);
+            if (n < 0.0)
+                n = 0.0;
+            double next = anchor + n * interval;
+            // Floating-point guard: keep the result at or after now (and not a whole interval past).
+            if (next < nowUT - 1e-6)
+                next += interval;
+            return next;
+        }
+
+        /// <summary>
+        /// The "Time to launch" cell text for the four states (design doc UX):
+        /// - not looping / not solved -> "" (blank);
+        /// - unsupported (cross-parent / rendezvous; the no-lock sentinel, ShouldPhaseLock==false)
+        ///   OR no engine unit built for this mission -> "not aligned";
+        /// - unconstrained (P == MinCycleDuration) -> "continuous";
+        /// - supported + constrained -> "T-" + a compact countdown to the ENGINE's next relaunch.
+        /// The countdown targets <paramref name="nextRelaunchUT"/> (the engine's actual next
+        /// relaunch, PhaseAnchorUT + n*relaunchCadence), NOT the periodicity solution's next faithful
+        /// P-window: when the relaunch cadence is m*P (m&gt;=2) the engine launches only every m-th
+        /// window, so a P-window countdown would tick to "T- 0s" with no launch. Pure (no Unity).
+        /// </summary>
+        internal static string BuildTMinusCellText(
+            bool looping, bool solved, bool shouldPhaseLock, bool unitBuilt,
+            double p, double nextRelaunchUT, double nowUT)
+        {
+            if (!looping || !solved)
+                return "";
+            if (!shouldPhaseLock || !unitBuilt)
+                // Unsupported (cross-parent / rendezvous, the no-lock sentinel) or no live loop
+                // member maps to a unit: this mission is not on a faithful launch schedule.
+                return "not aligned";
+            if (double.IsNaN(p) || p <= LoopTiming.MinCycleDuration + 1e-6)
+                return "continuous";    // unconstrained free loop (nothing to line up)
+            if (double.IsNaN(nextRelaunchUT))
+                return "continuous";    // defensive: a locked P with no relaunch resolves as free
+            double delta = nextRelaunchUT - nowUT;
+            if (delta < 0.0)
+                delta = 0.0;            // relaunch is at/behind now -> launching now
+            return "T- " + FormatCountdownCompact(delta);
+        }
+
+        /// <summary>
+        /// Compact top-two-units duration: "12m 30s", "2h 14m", "3d 5h", "1y 42d", or "0s" / "5s"
+        /// for sub-minute. Respects the player's Kerbin/Earth day length (via ParsekTimeFormat).
+        /// Pure; negative / NaN / infinity clamp to 0. This is the NEW formatter the T- column uses
+        /// (kept separate from ParsekTimeFormat.FormatCountdown, which prints ALL components with a
+        /// T-/T+ prefix - here we want a bare, compact two-unit value).
+        /// </summary>
+        internal static string FormatCountdownCompact(double seconds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds < 0.0)
+                seconds = 0.0;
+            long total = (long)seconds;
+            if (total < 60)
+                return total.ToString(ic) + "s";
+            if (total < 3600)
+                return (total / 60).ToString(ic) + "m " + (total % 60).ToString(ic) + "s";
+
+            long secsPerDay = ParsekTimeFormat.SecsPerDay;
+            long secsPerYear = ParsekTimeFormat.SecsPerYear;
+            if (total < secsPerDay)
+                return (total / 3600).ToString(ic) + "h " + ((total % 3600) / 60).ToString(ic) + "m";
+            if (total < secsPerYear)
+            {
+                long days = total / secsPerDay;
+                long hours = (total % secsPerDay) / 3600;
+                return hours > 0
+                    ? days.ToString(ic) + "d " + hours.ToString(ic) + "h"
+                    : days.ToString(ic) + "d";
+            }
+            long years = total / secsPerYear;
+            long remDays = (total % secsPerYear) / secsPerDay;
+            return remDays > 0
+                ? years.ToString(ic) + "y " + remDays.ToString(ic) + "d"
+                : years.ToString(ic) + "y";
+        }
+
+        /// <summary>
+        /// A single-unit "~" approximate period: "~6h", "~1.6d", "~36m", "~9s", "~2.1y". Picks the
+        /// largest unit at which the value is &gt;= 1 and shows one decimal (dropping a trailing
+        /// ".0"). Respects the player's day length. Pure; non-positive / NaN -&gt; "~0s".
+        /// </summary>
+        internal static string FormatPeriodCompact(double seconds)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            if (double.IsNaN(seconds) || double.IsInfinity(seconds) || seconds <= 0.0)
+                return "~0s";
+            double secsPerDay = ParsekTimeFormat.SecsPerDay;
+            double secsPerYear = ParsekTimeFormat.SecsPerYear;
+            double value;
+            string unit;
+            if (seconds >= secsPerYear) { value = seconds / secsPerYear; unit = "y"; }
+            else if (seconds >= secsPerDay) { value = seconds / secsPerDay; unit = "d"; }
+            else if (seconds >= 3600.0) { value = seconds / 3600.0; unit = "h"; }
+            else if (seconds >= 60.0) { value = seconds / 60.0; unit = "m"; }
+            else { value = seconds; unit = "s"; }
+            string num = value.ToString("0.0", ic);
+            if (num.EndsWith(".0"))
+                num = num.Substring(0, num.Length - 2);
+            return "~" + num + unit;
+        }
+
+        /// <summary>
+        /// The basis label for a phase-locked period cell: "(Kerbin rot)" for a Rotation constraint
+        /// (the launch/landing body's rotation realigns the orbit over the site) or "(Mun window)"
+        /// for an Orbital constraint (the next intercept window). Pure; empty body -> empty label.
+        /// </summary>
+        internal static string BuildPeriodBasisLabel(ConstraintKind kind, string bodyName)
+        {
+            if (string.IsNullOrEmpty(bodyName))
+                return "";
+            return kind == ConstraintKind.Rotation
+                ? "(" + bodyName + " rot)"
+                : "(" + bodyName + " window)";
+        }
+
+        /// <summary>
+        /// The phase-locked period-cell display: the faithful period P + its basis label, e.g.
+        /// "~6h (Kerbin rot)" or "~1.6d (Mun window)". Pure. A null/empty body (no dominant
+        /// constraint) drops the basis suffix and shows just the period.
+        /// </summary>
+        internal static string BuildPeriodCellDisplay(double p, ConstraintKind kind, string bodyName)
+        {
+            string period = FormatPeriodCompact(p);
+            string basis = BuildPeriodBasisLabel(kind, bodyName);
+            return string.IsNullOrEmpty(basis) ? period : period + " " + basis;
+        }
+
+        // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
+        // loop members, computed via the SAME MissionLoopUnitBuilder.ComputeTrimmedMemberWindows the
+        // loop builder derives its span from - so the period cell's effective-cadence display matches
+        // the cadence actually running, including interval-level start/end trims (the old path keyed
+        // off ExcludedThroughLineHeadIds, which the UI never writes, so it ignored interval trims).
         // Returns 0 when no committed member is included (no overlap; cell shows the raw period).
-        private static double MissionSpanSeconds(
+        private double MissionSpanSeconds(
             MissionThroughLineView view, Mission mission, IReadOnlyList<Recording> committed)
         {
             if (view == null || committed == null)
                 return 0.0;
+            RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+            if (tree == null)
+                return 0.0;
 
-            HashSet<string> included = MissionSelection.ComputeIncludedHeadIds(
-                view, mission.ExcludedThroughLineHeadIds);
-            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
-            foreach (string head in included)
-                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
-                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
-                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
-                            memberIds.Add(tl.MemberLegIds[m]);
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
+                null, out _, out _);
 
             double min = double.PositiveInfinity;
             double max = double.NegativeInfinity;
-            for (int i = 0; i < committed.Count; i++)
+            foreach (var w in windows.Values)
             {
-                Recording rec = committed[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
-                    || !memberIds.Contains(rec.RecordingId))
-                    continue;
-                if (rec.StartUT < min) min = rec.StartUT;
-                if (rec.EndUT > max) max = rec.EndUT;
+                if (w.StartUT < min) min = w.StartUT;
+                if (w.EndUT > max) max = w.EndUT;
             }
             if (double.IsInfinity(min) || double.IsInfinity(max))
                 return 0.0;
@@ -958,23 +1519,24 @@ namespace Parsek
             isWatchingThisMission = false;
             if (committed == null || view == null || flight == null)
                 return -1;
+            RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+            if (tree == null)
+                return -1;
 
-            HashSet<string> includedHeads = MissionSelection.ComputeIncludedHeadIds(
-                view, mission.ExcludedThroughLineHeadIds);
-            var memberIds = new HashSet<string>(System.StringComparer.Ordinal);
-            foreach (string head in includedHeads)
-                if (view.ByHeadId.TryGetValue(head, out MissionThroughLine tl))
-                    for (int m = 0; m < tl.MemberLegIds.Count; m++)
-                        if (!string.IsNullOrEmpty(tl.MemberLegIds[m]))
-                            memberIds.Add(tl.MemberLegIds[m]);
+            // The TRIMMED loop members keyed by committed index - the SAME set
+            // MissionLoopUnitBuilder actually spawns - so a watch target (and the "watching this
+            // mission" check) never picks a vessel that the interval-level trim dropped from the
+            // loop. (The old path keyed off ExcludedThroughLineHeadIds, which the UI never writes,
+            // so it considered every vessel regardless of interval trims.)
+            var windows = MissionLoopUnitBuilder.ComputeTrimmedMemberWindows(
+                view, GetCompositionRoots(tree), committed, mission.ExcludedIntervalKeys,
+                null, out _, out _);
 
             int watchedIdx = flight.WatchedRecordingIndex;
             int target = -1;
             for (int i = 0; i < committed.Count; i++)
             {
-                Recording rec = committed[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)
-                    || !memberIds.Contains(rec.RecordingId))
+                if (!windows.ContainsKey(i))
                     continue;
                 if (i == watchedIdx)
                     isWatchingThisMission = true;
@@ -1030,7 +1592,8 @@ namespace Parsek
         // loop-time helpers so the parse/format/convert rules stay identical. Commit on
         // text change: parse via TryParseLoopInput, reject negatives, clamp below
         // MinCycleDuration (same contract as RecordingsTableUI.CommitLoopPeriodEdit).
-        private void DrawMissionLoopPeriodCell(Mission mission, MissionThroughLineView view)
+        private void DrawMissionLoopPeriodCell(
+            Mission mission, MissionThroughLineView view, MissionPeriodicityDisplay periodicity)
         {
             const float unitBtnW = 40f; // match RecordingsTableUI.DrawLoopPeriodCell
             float valueW = ColW_Period - unitBtnW - 4f;
@@ -1039,6 +1602,38 @@ namespace Parsek
             bool auto = mission.LoopTimeUnit == LoopTimeUnit.Auto;
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
+
+            // FIXED-width period cell (always ColW_PeriodLocked, the widest state) so the Watch /
+            // Rewind buttons that follow start at the SAME x on every mission row, regardless of the
+            // cell's content (a wide read-only "~P (basis)" locked label vs a narrow editable
+            // value+unit). A trailing FlexibleSpace pads the unused width inside the container.
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_PeriodLocked));
+
+            // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
+            // determined by physics (quantized to a multiple of P), not freely editable, so show the
+            // faithful period P + its basis label ("~6h (Kerbin rot)" / "~1.6d (Mun window)") as a
+            // read-only tinted cell instead of the raw overlap-cap cadence. The unit button is
+            // dropped here (the value is a fixed physical period, not a user-typed value in a unit).
+            // An unconstrained (continuous) or unsupported (not-aligned) config falls through to the
+            // normal editable cell below. End any stale edit focus on this field first.
+            if (enabled && periodicity.IsPhaseLockedConstrained)
+            {
+                if (loopPeriodFocusedMissionId == mission.Id)
+                    loopPeriodFocusedMissionId = null;
+                string locked = BuildPeriodCellDisplay(
+                    periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
+                GUI.enabled = false;
+                Color prevLocked = GUI.contentColor;
+                GUI.contentColor = LoopPeriodClampColor;
+                // missionHeaderInlineLabel (vertically centered) so "~6.4d (Mun window)" sits on the
+                // same baseline as the "Loop" label and the buttons; ExpandWidth(false) lets the
+                // trailing FlexibleSpace below own the rest of the fixed-width cell.
+                GUILayout.Label(locked, missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
+                GUI.contentColor = prevLocked;
+                GUI.enabled = true;
+            }
+            else
+            {
 
             // The EFFECTIVE launch cadence: the requested period (manual value, or the global
             // auto-loop interval for Auto) raised by the overlap cap to keep ceil(span/cadence)
@@ -1148,6 +1743,13 @@ namespace Parsek
                     $"Loop unit for '{mission.Name}' changed to {mission.LoopTimeUnit}");
             }
             GUI.enabled = true;
+            }
+
+            // Pad the rest of the fixed-width cell so the period cell always occupies exactly
+            // ColW_PeriodLocked and the following Watch / Rewind buttons stay column-aligned across
+            // every mission row regardless of which period-cell state rendered above.
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
         }
 
         // Commits the in-progress loop-period buffer to the mission (parse / clamp via
@@ -1248,6 +1850,13 @@ namespace Parsek
             GUILayout.EndHorizontal();
             parentUI.DrawSortableHeaderCore("Missions and vessels", MissionSortColumn.Name,
                 ref sortColumn, ref sortAscending, 0f, true, LogSortChanged, ColHeaderHeight);
+
+            // "TTL" (time to launch) column header (right after the name column, before "Start
+            // time"): each mission's launch (first) vessel row shows a live countdown to the next
+            // faithful launch window under this header (every other vessel row + the mission header
+            // bar leave it blank).
+            GUILayout.Label("TTL", colHdr, GUILayout.Width(ColW_TMinus), GUILayout.Height(ColHeaderHeight));
+
             parentUI.DrawSortableHeaderCore("Start time", MissionSortColumn.StartTime,
                 ref sortColumn, ref sortAscending, ColW_StartTime, false, LogSortChanged, ColHeaderHeight);
             GUILayout.Label("Start event", colHdr, GUILayout.Width(ColW_StartEvent), GUILayout.Height(ColHeaderHeight));

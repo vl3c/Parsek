@@ -910,7 +910,7 @@ namespace Parsek.Tests
             // missionCycle = floor(250/60) = 4; phase = 250 - 240 = 10; loopUT = 1000 + 10 = 1010.
             GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
                 phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
-                overlapCadenceSeconds: 60, currentUT: 1250, maxInstances: 12,
+                overlapCadenceSeconds: 60, currentUT: 1250,
                 out double loopUT, out long cycle);
 
             Assert.Equal(4L, cycle);
@@ -929,7 +929,7 @@ namespace Parsek.Tests
             // cycle = floor(990/200) = 4; phase = 990 - 800 = 190 (< span 300) -> loopUT 1190.
             GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
                 phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
-                overlapCadenceSeconds: 200, currentUT: 1990, maxInstances: 12,
+                overlapCadenceSeconds: 200, currentUT: 1990,
                 out double loopUT, out long cycle);
 
             Assert.Equal(4L, cycle);
@@ -941,7 +941,7 @@ namespace Parsek.Tests
         {
             GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
                 phaseAnchorUT: 1000, spanStartUT: 1000, span: 300,
-                overlapCadenceSeconds: 60, currentUT: 500, maxInstances: 12,
+                overlapCadenceSeconds: 60, currentUT: 500,
                 out double loopUT, out long cycle);
 
             Assert.Equal(0L, cycle);

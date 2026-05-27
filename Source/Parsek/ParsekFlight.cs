@@ -18397,20 +18397,26 @@ namespace Parsek
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
         // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
         // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
-        // (LoopIntervalSeconds + LoopTimeUnit), and selection (sorted ExcludedThroughLineHeadIds),
-        // plus the committed-list identity (count + a rolling hash of RecordingIds, since member
-        // indices are committed-list indices). No looping mission -> a constant "none:" prefix over
-        // the same committed signature, so toggling looping off still rebuilds to Empty exactly once.
+        // (LoopIntervalSeconds + LoopTimeUnit), phase anchor (LoopAnchorUT), and selection (both the
+        // sorted ExcludedThroughLineHeadIds and the interval-level ExcludedIntervalKeys that actually
+        // drive the members + span), plus the looping tree's topology (branch + recording counts) and
+        // the committed-list identity (count + a rolling hash of RecordingIds, since member indices
+        // are committed-list indices). No looping mission -> a constant "none:" prefix over the same
+        // committed signature, so toggling looping off still rebuilds to Empty exactly once.
         private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
         {
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): pass the live-body seam so a supported looping
+            // mission snaps its phase anchor to the next faithful launch window. An unsupported
+            // config (cross-parent / rendezvous / no constraint) falls back to today's behavior.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
@@ -26735,6 +26741,42 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
                     rec.VesselName, targetUT - currentUT), 3f);
+        }
+
+        /// <summary>
+        /// In-place fast-forward (NO scene change) to <see cref="RecordingStore.RewindToLaunchLeadTimeSeconds"/>
+        /// before an arbitrary FUTURE event UT - the same mechanism as <see cref="FastForwardToRecording"/>
+        /// but for a target that is not a recording (e.g. a looped Mission's next faithful relaunch
+        /// window). Applies the launch lead, notifies the recorder of the jump, then advances the clock
+        /// via <see cref="TimeJumpManager.ExecuteForwardJump"/>. No-op on an invalid (past / degenerate)
+        /// jump. <paramref name="label"/> is used only for the log + screen message.
+        /// </summary>
+        internal void FastForwardToEventUT(double eventUT, string label)
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before the event, matching the Forward button's lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "FastForwardToEventUT: invalid jump current={0:F1} target={1:F1} ({2}) - aborted",
+                        currentUT, targetUT, label));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FastForwardToEventUT: jumping to UT={0:F1} for {1} (delta={2:F1}s, eventUT={3:F1})",
+                    targetUT, label, targetUT - currentUT, eventUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
+            TimeJumpManager.ExecuteForwardJump(targetUT);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Fast-forwarded to {0} ({1:F0}s)", label, targetUT - currentUT), 3f);
         }
 
         /// <summary>
