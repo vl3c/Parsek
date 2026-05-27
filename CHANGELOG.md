@@ -35,12 +35,15 @@ All notable changes to Parsek are documented here.
 - The Timeline window's current-time ("now") divider now draws a separator line across the rest of the row that grows with the window width, making the present-time boundary easy to spot.
 - Recordings window groups and chains now draw tree-branch connectors on each row under an expanded caret, so it is clearer which entries belong to which group. This matches the style already used in the Kerbals window lists.
 - The main window's "Recordings" button no longer shows a count in parentheses; the per-state counts live inside the window.
-- Removed the Parsek panel and toolbar button from the Tracking Station. Ghosts still appear there with orbit lines and atmospheric markers; the "Show ghosts in Tracking Station" toggle stays in Settings.
+- Removed the Parsek panel and toolbar button from the Tracking Station. Ghosts still appear there with orbit lines and atmospheric markers.
+- Removed the "Show ghosts in Tracking Station" setting. Parsek ghosts now always appear in the Tracking Station vessel list and map view.
+- Ghost map markers that have no map vessel (the ones with a yellow "Ghost:" label) now pin their label on right-click instead of left-click, matching how the ProtoVessel ghost icons keep their label. Left-click still opens the marker's menu (the ghost popup in the Tracking Station) and is otherwise left free for the stock map and Tracking Station handlers. The marker icon is now tinted the same muted grey KSP uses for a vessel's map icon, so a ghost looks the same whether it is in atmosphere (this marker) or in orbit (a stock map icon).
 
 ### Bug Fixes
 
 - When a mission has some segments trimmed out (per-segment include checkboxes), the loop period cell now shows the trimmed mission's true effective cadence, and the Watch button now targets only the segments still in the loop. Previously both ignored the segment trim and used the whole mission.
 - In the flight map view and the Tracking Station, a looped mission's orbit lines and map icons now track the replay instead of showing a stale, wrong, or missing orbit. The flight map view ignored the mission loop clock entirely (sampling the orbit at the live time, far past the recording), and orbital icons in both views were drawn at the wrong point along the orbit.
+- In the Tracking Station, a looped mission to a moon now renders the right thing through the whole replay: the parking orbit while in orbit, a plain position marker during the transfer burn and coast, then the destination orbit. Previously the orbit either froze on the parking orbit or jumped straight to the final (destination) orbit the moment the replay left the parking orbit, which showed the wrong orbit and pulled the camera to the moon. Now matches the flight map view.
 - The loop-period box in the Missions tab again accepts your typed value when you press Enter or click away. It now commits on Enter / click-away like the Recordings tab's period field, instead of relying on per-frame keyboard-focus detection (which the header layout broke).
 - Watching a looped mission with some segments trimmed out no longer hands the camera to (or keeps it on) a vessel that is currently hidden by the trim; the stage handoff now uses each segment's trimmed window, matching what is actually shown.
 - A mission's per-segment include selections are now cleared if the underlying flight's structure changes (for example after a re-fly or a dock/undock edit), so a stale selection can no longer silently re-include or mis-target a different segment.
@@ -59,6 +62,7 @@ All notable changes to Parsek are documented here.
 - Ghost engine plumes now switch back on when a ghost flies back into effect range. Previously a ghost that left the range during a steady burn and returned (a looping aircraft, for example) kept a dead plume until its next throttle change.
 - Switching to a vessel still sitting on the launch pad (Tracking Station Fly, KSC marker Fly, or map Switch To) no longer starts a recording immediately. It now follows the normal launch rules and begins recording when you launch or stage, like any other vehicle on the pad.
 - Leaving the flight scene with such an idle on-pad recording no longer leaves a stray Merge/Discard dialog that popped up on your next game load instead of on exit.
+- The ghost marker menu in the Tracking Station no longer vanishes the instant you click it. It used to stay open only while you held the mouse button down, because releasing the click that opened it was treated as a click somewhere else; it now stays open until you click away or pick an action.
 
 ### Known limitations
 

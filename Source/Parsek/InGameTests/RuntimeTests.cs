@@ -1249,81 +1249,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
-            Description = "#388 — flipping showGhostsInTrackingStation removes and recreates ghost ProtoVessels")]
-        public void ShowGhostsInTrackingStation_FlipRemovesAndRecreates()
-        {
-            if (ParsekSettings.Current == null)
-            {
-                ParsekLog.Warn("TestRunner",
-                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: ParsekSettings.Current is null — skipping");
-                return;
-            }
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0)
-            {
-                ParsekLog.Info("TestRunner",
-                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: no committed recordings — skipping (test needs at least one orbital ghost to be meaningful)");
-                return;
-            }
-
-            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
-
-            try
-            {
-                // Ensure we start in the "visible" state for the off-flip leg and
-                // rebuild ghosts so we have a non-zero baseline. Without this the
-                // test would pass vacuously against a save with no orbital ghosts.
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int baselineCount = GhostMapPresence.ghostMapVesselPids.Count;
-                if (baselineCount == 0)
-                {
-                    ParsekLog.Info("TestRunner",
-                        $"ShowGhostsInTrackingStation_FlipRemovesAndRecreates: " +
-                        $"baselineCount=0 from {committed.Count} recordings (none qualify for TS ghost) — skipping");
-                    return;
-                }
-
-                // Flip off — short-circuits in CreateGhost/UpdateLifecycle stop
-                // new creation; manually call RemoveAllGhostVessels to simulate
-                // the ParsekTrackingStation.Update force-tick behavior without
-                // depending on the MonoBehaviour timing window.
-                ParsekSettings.Current.showGhostsInTrackingStation = false;
-                GhostMapPresence.RemoveAllGhostVessels("ingame-test-flip-off");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int offCount = GhostMapPresence.ghostMapVesselPids.Count;
-                InGameAssert.IsTrue(offCount == 0,
-                    $"Expected 0 ghost vessels with flag=off, got {offCount}");
-
-                // Flip back on — UpdateLifecycle Phase 2 must rebuild the
-                // same set of eligible ghosts.
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int onCount = GhostMapPresence.ghostMapVesselPids.Count;
-                InGameAssert.IsTrue(onCount == baselineCount,
-                    $"Expected {baselineCount} ghost vessels after flipping flag back on, got {onCount}");
-
-                ParsekLog.Info("TestRunner",
-                    $"ShowGhostsInTrackingStation flip: baseline={baselineCount} offCount={offCount} onCount={onCount}");
-            }
-            finally
-            {
-                // Restore user's original setting regardless of test outcome.
-                // If the original was false, the "flip on" leg of the test
-                // recreated ghost ProtoVessels that we have to drain manually —
-                // UpdateTrackingStationGhostLifecycle short-circuits when the
-                // flag is false and won't remove them on its own, so without
-                // this RemoveAll the TS would be left showing ghosts even
-                // though the user had them disabled.
-                ParsekSettings.Current.showGhostsInTrackingStation = original;
-                if (!original)
-                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-            }
-        }
-
-        [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
             Description = "Marker ProtoVessels load with hardened aero/thermal/structural tolerances so they cannot explode mid-Re-Fly")]
         public void GhostMarkerProtoVesselsHaveHardenedPartTolerances()
         {
@@ -1342,60 +1267,48 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
-            try
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
+            if (markerCount == 0)
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
-                if (markerCount == 0)
-                {
-                    ParsekLog.Info("TestRunner",
-                        "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
-                    return;
-                }
-
-                int checkedVessels = 0;
-                int checkedParts = 0;
-                foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
-                {
-                    if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
-                    checkedVessels++;
-                    for (int i = 0; i < v.parts.Count; i++)
-                    {
-                        Part p = v.parts[i];
-                        if (p == null) continue;
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
-                        checkedParts++;
-                    }
-                }
-
-                InGameAssert.IsTrue(checkedVessels > 0,
-                    $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
-                InGameAssert.IsTrue(checkedParts > 0,
-                    $"Expected to inspect at least one marker part, vessels={checkedVessels}");
-
                 ParsekLog.Info("TestRunner",
-                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
+                return;
             }
-            finally
+
+            int checkedVessels = 0;
+            int checkedParts = 0;
+            foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = original;
-                if (!original)
-                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
+                checkedVessels++;
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
+                    checkedParts++;
+                }
             }
+
+            InGameAssert.IsTrue(checkedVessels > 0,
+                $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
+            InGameAssert.IsTrue(checkedParts > 0,
+                $"Expected to inspect at least one marker part, vessels={checkedVessels}");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
         }
 
         #endregion
@@ -4673,48 +4586,31 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
-            Description = "#554: synthetic orbital TS ghost is removed when hidden and recreated when shown")]
-        public void TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates()
+            Description = "#554: synthetic orbital TS ghost is created on lifecycle tick and registered as a ghost map vessel")]
+        public void TrackingStationGhost_SyntheticOrbit_CreatedOnLifecycleTick()
         {
             using (var scope = new SyntheticTrackingStationRecordingScope("toggle"))
             using (var capture = new TrackingStationLogCapture())
             {
                 var trackingHost = Object.FindObjectOfType<ParsekTrackingStation>();
                 InGameAssert.IsNotNull(trackingHost,
-                    "ParsekTrackingStation host should exist while toggling TS ghosts");
+                    "ParsekTrackingStation host should exist while creating TS ghosts");
 
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle();
 
                 uint firstPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
                 InGameAssert.IsTrue(firstPid != 0,
-                    "Synthetic TS recording should create a ghost vessel when the setting is enabled");
+                    "Synthetic TS recording should create a ghost vessel on the lifecycle tick");
                 InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(firstPid),
                     "Created synthetic TS vessel should be registered as a ghost map vessel");
 
-                ParsekSettings.Current.showGhostsInTrackingStation = false;
-                ForceTrackingStationHostUpdate(trackingHost);
-
-                InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(scope.RecordingIndex),
-                    "Synthetic TS ghost should be removed when showGhostsInTrackingStation is disabled");
-
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                ForceTrackingStationHostUpdate(trackingHost);
-
-                uint recreatedPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
-                InGameAssert.IsTrue(recreatedPid != 0,
-                    "Synthetic TS recording should recreate a ghost vessel when the setting is re-enabled");
-                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(recreatedPid),
-                    "Recreated synthetic TS vessel should be registered as a ghost map vessel");
-
                 AssertNoCapturedTrackingStationErrors(capture,
-                    "show/hide/recreate synthetic TS ghost lifecycle");
+                    "create synthetic TS ghost lifecycle");
 
                 ParsekLog.Info("TestRunner",
                     string.Format(CultureInfo.InvariantCulture,
-                        "TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates: firstPid={0} recreatedPid={1}",
-                        firstPid,
-                        recreatedPid));
+                        "TrackingStationGhost_SyntheticOrbit_CreatedOnLifecycleTick: firstPid={0}",
+                        firstPid));
             }
         }
 
@@ -4725,7 +4621,6 @@ namespace Parsek.InGameTests
             using (var scope = new SyntheticTrackingStationRecordingScope("object-count"))
             using (var capture = new TrackingStationLogCapture())
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle();
 
                 // Let KSP process the ProtoVessel load and any stock Tracking Station
@@ -4984,21 +4879,6 @@ namespace Parsek.InGameTests
             return rec;
         }
 
-        private static void ForceTrackingStationHostUpdate(ParsekTrackingStation host)
-        {
-            InGameAssert.IsNotNull(host, "Tracking Station host should exist before forcing an update");
-
-            System.Reflection.MethodInfo updateMethod = typeof(ParsekTrackingStation).GetMethod(
-                "Update",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-                null,
-                System.Type.EmptyTypes,
-                null);
-            InGameAssert.IsNotNull(updateMethod,
-                "ParsekTrackingStation.Update reflection helper should be available");
-            updateMethod.Invoke(host, null);
-        }
-
         private static Vessel FindVesselByPersistentId(uint persistentId)
         {
             var vessels = FlightGlobals.Vessels;
@@ -5166,7 +5046,6 @@ namespace Parsek.InGameTests
         private sealed class SyntheticTrackingStationRecordingScope : System.IDisposable
         {
             private readonly System.Func<double> previousCurrentUTNow;
-            private readonly bool previousShowGhosts;
             private readonly List<Recording> previousCommittedRecordings;
             private readonly List<RecordingTree> previousCommittedTrees;
             private bool disposed;
@@ -5185,7 +5064,6 @@ namespace Parsek.InGameTests
                     InGameAssert.Skip("CurrentGame.flightState is null");
 
                 previousCurrentUTNow = GhostMapPresence.CurrentUTNow;
-                previousShowGhosts = ParsekSettings.Current.showGhostsInTrackingStation;
                 previousCommittedRecordings = RecordingStore.CommittedRecordings != null
                     ? new List<Recording>(RecordingStore.CommittedRecordings)
                     : new List<Recording>();
@@ -5201,7 +5079,6 @@ namespace Parsek.InGameTests
                 RecordingIndex = RecordingStore.CommittedRecordings.Count - 1;
 
                 GhostMapPresence.CurrentUTNow = () => CurrentUT;
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.RemoveAllGhostVessels("ts-runtime-canary-start");
             }
 
@@ -5219,11 +5096,8 @@ namespace Parsek.InGameTests
                 {
                     RestoreCommittedState();
                     GhostMapPresence.CurrentUTNow = previousCurrentUTNow;
-                    if (ParsekSettings.Current != null)
-                        ParsekSettings.Current.showGhostsInTrackingStation = previousShowGhosts;
                     AlignTrackingStationHostCacheAfterRestore(
-                        previousCommittedRecordings.Count,
-                        previousShowGhosts);
+                        previousCommittedRecordings.Count);
                 }
             }
 
@@ -5239,15 +5113,13 @@ namespace Parsek.InGameTests
             }
 
             private static void AlignTrackingStationHostCacheAfterRestore(
-                int committedCount,
-                bool showGhosts)
+                int committedCount)
             {
                 var host = Object.FindObjectOfType<ParsekTrackingStation>();
                 if (host == null)
                     return;
 
                 SetTrackingStationHostField(host, "lastKnownCommittedCount", committedCount);
-                SetTrackingStationHostField(host, "lastKnownShowGhosts", showGhosts);
                 SetTrackingStationHostField(host, "nextLifecycleCheckTime", Time.time + 2.0f);
             }
 

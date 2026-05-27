@@ -57,15 +57,6 @@ namespace Parsek
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;
 
-        /// <summary>
-        /// #388 — when false, Parsek ghost ProtoVessels and atmospheric ghost markers
-        /// are hidden from the tracking station (both the vessel list and the map view).
-        /// Toggles are picked up live via force-tick in <c>ParsekTrackingStation.Update</c>.
-        /// </summary>
-        [GameParameters.CustomParameterUI("Show ghosts in Tracking Station",
-            toolTip = "When off, Parsek ghosts are hidden from the tracking station vessel list and map view")]
-        public bool showGhostsInTrackingStation = true;
-
         [GameParameters.CustomParameterUI("Show committed-future overlays in stock UI",
             toolTip = "When on, stock R&D, Astronaut Complex, and Mission Control screens show actions already committed on the timeline")]
         public bool showCommittedFutureOverlays = true;
