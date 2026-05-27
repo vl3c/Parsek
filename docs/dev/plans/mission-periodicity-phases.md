@@ -150,22 +150,31 @@ core).
 
 **Goal:** make the schedule visible and the accuracy legible.
 
+**Built directly on the Phase-1 (Tier-1) solution, NOT Phase 2.** The UI only
+DISPLAYS what `MissionPeriodicity.Solve` already returns (P, NextWindowUT,
+ShouldPhaseLock, WithinTolerance, Support); the amber readout is driven by the Tier-1
+`WithinTolerance` (the knowingly-dropped residual), so it ships ahead of the Phase-2
+joint best-fit. When Phase 2 lands, the residual it computes flows into the same
+WithinTolerance flag with no UI change.
+
 **Scope**
-- New "T- to launch window" column in the Missions tab: live countdown to the next
-  faithful launch; reads "continuous" when `P = MinCycleDuration`.
-- Period cell: show the snapped cadence + a label ("every Mun window ~1.6 d").
-- Quality/residual readout (column tint or tooltip): green within tolerance,
-  amber/flagged when the best achievable window still misses tolerance (so the user
-  re-trims the config).
+- New "T- to launch" column in the Missions tab: live countdown to the next faithful
+  launch (`NextWindowUT - now`, referenced to the LIVE clock). States: blank (not
+  looping) / "continuous" (`P == MinCycleDuration`) / "not aligned" (unsupported:
+  cross-parent / rendezvous) / "T- <countdown>" (supported).
+- Period cell: show the faithful period P + a basis label ("~6h (Kerbin rot)" /
+  "~1.6d (Mun window)") as a read-only cell when phase-locked + constrained; the
+  existing editable cadence cell otherwise.
+- Quality/residual readout (column tint): green within tolerance, amber when the
+  best achievable window still misses tolerance (so the user re-trims the config).
 - Wait-for-window behavior: the loop parks until the snapped anchor (the span clock
   already early-returns before `phaseAnchorUT`). Decide decorative-orbit-during-wait
   vs nothing (start with the simpler: show nothing until launch; revisit).
 
-**Files:** `UI/MissionsWindowUI.cs` (new column + readout); reuse the residual from
-Phase 2.
+**Files:** `UI/MissionsWindowUI.cs` (new column + readout + pure display helpers).
 
-**Tests:** pure formatting/countdown helpers (`internal static`); UI behavior is
-playtest-verified.
+**Tests:** pure formatting/countdown + display helpers (`internal static`); UI
+behavior is playtest-verified.
 
 **Exit (playtest):** user sees the next window + countdown; over-constrained shows
 amber; single-body reads continuous.
