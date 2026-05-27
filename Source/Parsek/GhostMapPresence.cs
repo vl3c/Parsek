@@ -85,6 +85,23 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// True when the synthetic endpoint-tail (terminal-orbit) fallback may be applied in the
+        /// tracking-station per-tick update for this ghost. The endpoint tail is a NON-LOOP concept
+        /// (it shows where a finished flight ended up, seeded from the recorded historical body
+        /// rotation/position); for a loop member it does not survive the loop epoch shift for a
+        /// cross-body terminal (a Mun orbit seeded from the Mun's RECORDED position lands tens of
+        /// millions of metres off the live Mun). A loop member's effUT is always inside the
+        /// recording, so its covering OrbitSegment is the correct current orbit and must win; when
+        /// none covers effUT the loop removes the proto-vessel instead, matching the flight scene's
+        /// segment-update path. Loop membership is read from the per-tick epoch shift
+        /// (<c>liveUT - effUT</c>): zero for non-loop members, non-zero for loop replay.
+        /// </summary>
+        internal static bool EndpointTailAllowedInTrackingStationUpdate(double loopEpochShiftSeconds)
+        {
+            return loopEpochShiftSeconds == 0.0;
+        }
+
         internal struct TrackingStationSpawnHandoffState
         {
             internal readonly uint GhostPid;
@@ -5659,20 +5676,29 @@ namespace Parsek
                 OrbitSegment? seg = coveringSegment;
                 TrackingStationGhostSource orbitUpdateSource = TrackingStationGhostSource.Segment;
 
-                // A mid-recording gap (orbit segments still ahead of effUT) must NOT fall back to
-                // the endpoint tail. IsTerminalMapPresenceRegion is true for the whole post-launch
-                // replay of an orbit-terminating recording, so without this guard the endpoint-tail
-                // branch reseeds the looped proto-vessel onto the FINAL (e.g. Mun terminal) orbit
-                // the moment it leaves the parking orbit for the transfer, which shows the wrong
-                // orbit, jumps the camera to the destination body, and suppresses the non-proto
-                // atmospheric position marker (a live ghost makes ClassifyAtmosphericMarkerSkip
-                // return NativeIconActive). Instead remove the proto-vessel during the gap (matching
-                // the flight scene's "gap-between-orbit-segments"): the atmospheric marker then draws
-                // the transfer/coast position, and the create pass re-materializes the orbit at the
-                // next real segment. The endpoint tail stays reserved for the terminal region.
+                // The synthetic endpoint-tail (terminal-orbit) seed is a NON-LOOP concept: it shows
+                // where a finished flight ended up, seeded from the recorded historical body
+                // rotation/position at the recording's end. For a LOOP member that seed does not
+                // survive the loop epoch shift: a cross-body terminal (e.g. a Mun orbit seeded from
+                // the Mun's RECORDED position) lands the proto-vessel tens of millions of metres off
+                // (~181 Mm in the Mun case) instead of beside the live Mun. A loop member's effUT is
+                // always inside the recording, so a covering OrbitSegment is the correct current
+                // orbit and must always win; when none covers effUT the loop should remove the
+                // proto-vessel (the atmospheric marker draws the transfer/coast position and the
+                // create pass re-materializes the orbit at the next real segment), exactly like the
+                // flight scene's segment-update path, which renders real covering segments and never
+                // applies the endpoint-tail override. So both endpoint-tail branches are suppressed
+                // for loop members (non-zero epoch shift) and unchanged for non-loop members.
+                //
+                // hasFutureOrbitSegment additionally gates the no-covering-segment fallback for
+                // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable via
+                // rewind/warp) must remove the ghost rather than jump to the terminal orbit; the
+                // endpoint tail stays reserved for the genuine terminal region (no future segment).
                 bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(rec.OrbitSegments, effUT);
+                bool endpointTailAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
 
                 if (seg.HasValue
+                    && endpointTailAllowed
                     && TryResolveEndpointTailForMapPresence(
                         rec,
                         effUT,
@@ -5686,6 +5712,7 @@ namespace Parsek
                     orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
                 }
                 else if (!seg.HasValue
+                    && endpointTailAllowed
                     && !hasFutureOrbitSegment
                     && TryResolveEndpointTailForMapPresence(
                         rec,

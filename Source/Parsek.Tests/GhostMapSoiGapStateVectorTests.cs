@@ -71,6 +71,23 @@ namespace Parsek.Tests
             Assert.False(GhostMapPresence.HasOrbitSegmentStartingAfter(new List<OrbitSegment>(), 6000.0));
         }
 
+        // The synthetic endpoint-tail (terminal-orbit) seed uses recorded historical body
+        // rotation/position; it does not survive the loop epoch shift for a cross-body terminal
+        // (a Mun orbit seeded from the Mun's recorded position lands ~181 Mm off the live Mun). It
+        // is therefore suppressed for loop members (non-zero epoch shift) and kept for non-loop
+        // members (zero shift), which renders real covering segments for loop replay (like flight).
+        [Theory]
+        [InlineData(0.0, true)]          // non-loop member: endpoint tail allowed (unchanged)
+        [InlineData(1250859.4, false)]   // loop member (Mun case shift): suppressed
+        [InlineData(-3600.0, false)]     // any non-zero shift counts as a loop member
+        public void EndpointTailAllowedInTrackingStationUpdate_SuppressedForLoopMembers(
+            double loopEpochShiftSeconds, bool expected)
+        {
+            Assert.Equal(
+                expected,
+                GhostMapPresence.EndpointTailAllowedInTrackingStationUpdate(loopEpochShiftSeconds));
+        }
+
         [Fact]
         public void ResolveMapPresenceGhostSource_SoiGapCheckpointFallbackAccepted_ReturnsMunStateVectorSource()
         {
