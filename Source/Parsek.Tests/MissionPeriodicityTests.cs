@@ -718,12 +718,15 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Solve_MunCase_LocksOrbitalDropsRotationResidual()
+        public void Solve_MunCase_JointBestFitLocksMunAndMinimizesRotationDrift()
         {
-            // Guards: the flagship Mun case (Rotation(Kerbin) + Orbital(Mun), different periods) ->
-            // P = Mun orbit period (the dominant intercept), and the Kerbin-rotation residual is
-            // KNOWINGLY dropped + non-zero (Tier-1). The intercept is locked, the launch-site offset
-            // is the accepted residual (closed in Phase 2).
+            // Guards the flagship Mun case (Rotation(Kerbin) + Orbital(Mun), incommensurate periods)
+            // under the Phase-2 JOINT best-fit: P is a whole multiple of the Mun period (the intercept
+            // stays locked at every relaunch), and the multiple is chosen to MINIMIZE the Kerbin-
+            // rotation drift over one cadence step. For these stock-like periods the best multiple
+            // within the search bound is m=9 (~14.5 days): the launch-pad residual drops from
+            // ~9688s/161deg at m=1 to ~993s/16deg. Still amber (a fixed cadence can't hit the
+            // quarter-degree rotation tolerance; the zero-drift follow-up closes that).
             var constraints = new List<PhaseConstraint>
             {
                 Rotation("Kerbin", KerbinRotation, 0.0),
@@ -732,16 +735,69 @@ namespace Parsek.Tests
             var sol = MissionPeriodicity.Solve(
                 constraints, Support.Supported, 1000.0, 1000.0, StockFake());
 
-            Assert.Equal(MunOrbit, sol.P);                 // locked the intercept, not the rotation
-            Assert.Equal("dominant-intercept", sol.Method);
             Assert.True(sol.ShouldPhaseLock);
-            // Residual = circular phase error of (k*P) against the Kerbin rotation period. With
-            // nowUT == UT0, k = 0, so k*P == 0 -> residual 0; this case lands on UT0 itself.
-            // Force a future window to exercise a non-zero residual instead.
-            var future = MissionPeriodicity.Solve(
-                constraints, Support.Supported, 1000.0, 1000.0 + MunOrbit + 5000.0, StockFake());
-            Assert.Equal(MunOrbit, future.P);
-            Assert.True(future.ResidualSeconds > 0.0);     // Kerbin rotation residual dropped
+            Assert.Equal("joint-best-fit", sol.Method);
+            // P is the joint window = 9 * Mun period (the intercept is locked at every relaunch).
+            Assert.Equal(9 * MunOrbit, sol.P, 1);
+            // The residual is the per-cycle Kerbin-rotation drift at m=9 (~993 s), strictly better
+            // than the m=1 wholesale drop (the circular phase error of one Mun period vs the rotation).
+            double m1Residual = MissionPeriodicity.CircularPhaseError(MunOrbit, KerbinRotation);
+            Assert.True(sol.ResidualSeconds > 0.0);
+            Assert.True(sol.ResidualSeconds < m1Residual);
+            Assert.Equal(992.77, sol.ResidualSeconds, 1);
+            Assert.False(sol.WithinTolerance); // ~993 s >> the quarter-degree rotation tolerance
+        }
+
+        [Fact]
+        public void FindBestJointMultiple_ExactResonance_PicksSmallestResonantMultiple()
+        {
+            // Guards the joint search core: dominant period 100, one dropped period 30. m*100 mod 30
+            // is 0 at m=3 (300 = 10*30), so the smallest exactly-resonant multiple is 3 (residual 0).
+            // Larger resonant multiples (6, 9, ...) must NOT win the tie - the shortest period wins.
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("X", 100.0, 0.0),   // dominant (longer period)
+                Rotation("Y", 30.0, 0.0)    // dropped
+            };
+            int m = MissionPeriodicity.FindBestJointMultiple(
+                constraints, dominantIdx: 0, dominantPeriod: 100.0, out double residual);
+            Assert.Equal(3, m);
+            Assert.Equal(0.0, residual, 6);
+        }
+
+        [Fact]
+        public void FindBestJointMultiple_NoBetterMultiple_StaysAtOne()
+        {
+            // Guards: when m=1 already gives the smallest dropped phase error within the bound, the
+            // search keeps m=1 (no needless period lengthening). Dominant 1000 just over dropped 999:
+            // m*1000 mod 999 == m (for m <= 16), so the error grows monotonically (m=1 -> 1, m=2 ->
+            // 2, ...), and m=1 wins.
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("X", 1000.0, 0.0),
+                Rotation("Y", 999.0, 0.0)
+            };
+            int m = MissionPeriodicity.FindBestJointMultiple(
+                constraints, dominantIdx: 0, dominantPeriod: 1000.0, out double residual);
+            Assert.Equal(1, m);
+            Assert.Equal(1.0, residual, 6); // circular phase error of 1000 vs 999
+        }
+
+        [Fact]
+        public void JointStepResidual_WorstDroppedError_OverOneCadenceStep()
+        {
+            // Guards: the per-step residual is the MAX circular phase error across all dropped
+            // constraints (not the dominant) at step = multiple * dominantPeriod.
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("D", 100.0, 0.0),   // dominant (idx 0) - excluded
+                Rotation("A", 30.0, 0.0),   // 200 mod 30 = 20 -> circ 10
+                Rotation("B", 70.0, 0.0)    // 200 mod 70 = 60 -> circ 10
+            };
+            // step = 2*100 = 200. A: circ(200,30)=10; B: circ(200,70)=10. Worst = 10.
+            double r = MissionPeriodicity.JointStepResidual(
+                constraints, dominantIdx: 0, dominantPeriod: 100.0, multiple: 2);
+            Assert.Equal(10.0, r, 6);
         }
 
         [Fact]
@@ -858,9 +914,15 @@ namespace Parsek.Tests
 
             Assert.True(sol.ShouldPhaseLock);
             // Both are Rotation constraints, so the longer period dominates: 40400 (Minmus) >
-            // KerbinRotation (21549). The lock picks the longer period; the Kerbin residual drops.
-            Assert.Equal(40400.0, sol.P);
+            // KerbinRotation (21549). Phase-2 joint best-fit locks a whole MULTIPLE of 40400 (so the
+            // dominant stays locked) chosen to minimize the Kerbin-rotation drift; the residual is
+            // non-zero but strictly better than the m=1 wholesale drop, and it never throws.
+            double ratio = sol.P / 40400.0;
+            Assert.Equal(Math.Round(ratio), ratio, 3); // P is a whole multiple of the dominant period
+            Assert.True(ratio >= 1.0);
             Assert.True(sol.ResidualSeconds > 0.0); // Kerbin rotation residual is non-zero
+            double m1Residual = MissionPeriodicity.CircularPhaseError(40400.0, KerbinRotation);
+            Assert.True(sol.ResidualSeconds <= m1Residual); // best-fit never worse than m=1
         }
 
         [Fact]
@@ -1017,19 +1079,21 @@ namespace Parsek.Tests
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            double expectedWindow = ut0 + 2 * MunOrbit;
-            Assert.Equal(expectedWindow, unit.PhaseAnchorUT, 3);
-            // Cadence is a multiple of Mun orbit period (and >= the span floor). The span is
-            // [1000,2000] = 1000s; Auto span-clock cadence floor is the span, quantized up to the
-            // nearest multiple of MunOrbit -> 1 * MunOrbit (since MunOrbit > 1000).
-            Assert.Equal(MunOrbit, unit.CadenceSeconds, 1);
-            // The overlap cadence (Auto = global 30s) is quantized up to 1*MunOrbit too.
-            Assert.Equal(MunOrbit, unit.OverlapCadenceSeconds, 1);
-            // The Mun config has TWO constraints (Rotation(Kerbin) + Orbital(Mun) at different
-            // periods), so Tier-1 locks the dominant intercept and drops the Kerbin rotation.
+            // Phase-2 joint best-fit: P is a whole multiple of the Mun period (the joint window;
+            // m=9 ~14.5 days for these stock-like periods), so the phase anchor + both cadences are
+            // multiples of MunOrbit, and the anchor is the first such window at/after the enable UT.
+            double pJoint = 9 * MunOrbit;
+            Assert.Equal(ut0 + pJoint, unit.PhaseAnchorUT, 3); // first window >= ut0 + 1.5*MunOrbit
+            Assert.True(unit.PhaseAnchorUT >= anchorEnable);
+            double cadenceRatio = unit.CadenceSeconds / MunOrbit;
+            Assert.Equal(Math.Round(cadenceRatio), cadenceRatio, 3); // cadence is a multiple of MunOrbit
+            Assert.Equal(pJoint, unit.CadenceSeconds, 1);
+            Assert.Equal(pJoint, unit.OverlapCadenceSeconds, 1);
+            // The Mun config has TWO incommensurate constraints (Rotation(Kerbin) + Orbital(Mun)), so
+            // the solver joint-best-fits (a multiple of the Mun period that best re-aligns rotation).
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
-                l.Contains("method=dominant-intercept"));
+                l.Contains("method=joint-best-fit"));
         }
 
         [Fact]

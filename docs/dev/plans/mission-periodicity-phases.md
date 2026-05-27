@@ -113,7 +113,18 @@ this phase** (it is the first behavior-changing wiring).
 
 ---
 
-## Phase 2 - Joint best-fit + tolerance + over-constrained handling
+## Phase 2 - Joint best-fit + tolerance + over-constrained handling (DONE - fixed-cadence variant)
+
+**Status:** implemented as a FIXED-cadence best-fit (the chosen scope after the Mun playtest):
+the solver searches whole multiples `m` in `[1, MaxJointMultiples=16]` of the dominant period
+(so the dominant body stays locked) and picks the `m` minimizing the worst dropped-constraint
+circular phase error over one step `m*P`, preferring the smallest `m` on a tie. `Method` becomes
+`joint-best-fit` (`m>1`); the residual is the per-cycle drift, surfaced via `WithinTolerance` (the
+existing amber readout). Kerbal X (rotation 21549.425s + Mun 138984.38s) -> `m=9` (~14.5 days),
+pad residual `9688s -> ~993s`. Helpers `FindBestJointMultiple` / `JointStepResidual` are pure +
+unit-tested. The remaining accumulating-drift limitation (a fixed cadence cannot hold incommensurate
+periods aligned forever) is the deferred **zero-drift per-window reschedule** task in
+`todo-and-known-bugs.md` (needs a non-uniform-cadence span clock, a larger engine change).
 
 **Goal:** correct `P` for any number of constraints, with an honest residual.
 

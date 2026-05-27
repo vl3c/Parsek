@@ -442,6 +442,22 @@ namespace Parsek
         // "Still open" note; refined by playtest. 0.25 degrees / 360 = ~0.0007 of a full turn.
         private const double RotationToleranceFraction = 0.25 / 360.0;
 
+        // Phase 2 joint best-fit: the relaunch period is a whole multiple m of the DOMINANT
+        // constraint's period (so the dominant body, e.g. the Mun intercept, stays locked at every
+        // relaunch), searched up to this many multiples for the m that best RE-ALIGNS the other
+        // ("dropped") constraints. m=1 is the old Tier-1 behavior (drop the residual wholesale); a
+        // larger m trades a longer relaunch period for a tighter joint alignment. 16 keeps the
+        // relaunch period watchable (a Mun mission lands around m=9, ~14.5 days; the launch-pad
+        // residual drops from ~9688s/161deg at m=1 to ~993s/16deg). A fixed cadence still DRIFTS on
+        // incommensurate periods (the residual is the per-cycle drift); the per-window reschedule
+        // (zero-drift) follow-up is the path to sub-degree alignment - see todo-and-known-bugs.md.
+        private const int MaxJointMultiples = 16;
+
+        // Two multiples whose worst dropped-constraint phase error differ by less than this (seconds)
+        // are a tie; the smaller m (shorter relaunch period) wins, so we never lengthen the period
+        // for a negligible alignment gain.
+        private const double JointResidualTieEpsilonSeconds = 1.0;
+
         /// <summary>
         /// Tier-1 solver (design doc Proposed design / Tier 1; plan Phase 1). Locks the SINGLE
         /// dominant constraint and returns P + the next faithful launch UT + the (knowingly
@@ -525,57 +541,58 @@ namespace Parsek
                 return guarded;
             }
 
-            double nextWindow = NextWindow(ut0, p, nowUT);
-
-            // Residual: the max phase error of the constraints NOT locked, at the chosen launch UT.
-            // Locking the dominant constraint shifts every segment's absolute UT by k*P from its
-            // recorded UT (where k*P = nextWindow - ut0). A dropped constraint i lands faithfully
-            // only if that shift is a whole multiple of period_i; its phase error is the circular
-            // distance of (k*P mod period_i) from 0. The dominant constraint itself collapses to 0
-            // (k*P is a multiple of P == period_dominant). A constraint sharing the dominant period
-            // (tidal-lock collapse) also collapses to 0.
-            double kP = nextWindow - ut0;
-            double residual = 0.0;
-            string dominantMissed = null;
-            for (int i = 0; i < count; i++)
-            {
-                if (i == dominantIdx)
-                    continue;
-                double err = CircularPhaseError(kP, constraints[i].PeriodSeconds);
-                if (err > residual)
-                {
-                    residual = err;
-                    dominantMissed = constraints[i].ToString();
-                }
-            }
-
-            // Classify the method by the STRUCTURAL relationship (not the incidental k=0 residual):
-            // - 1 constraint: single-rotation / single-orbital (nothing dropped).
-            // - >1 but every dropped constraint shares the dominant PERIOD: tidal-collapse (the
-            //   constraints genuinely line up at every window - e.g. Mun rotation + Mun intercept).
-            // - otherwise: dominant-intercept (a real, generally-incommensurate residual is dropped;
-            //   it may be 0 at a particular window but is not structurally guaranteed).
+            // === Joint best-fit over whole multiples of the dominant period (Phase 2) ===
+            // The dominant constraint is locked EXACTLY: the relaunch period P is a whole multiple m
+            // of its period, so the dominant body (e.g. the Mun intercept) is in its recorded
+            // position at EVERY relaunch for any m. We then search small m to best RE-ALIGN the other
+            // ("dropped") constraints over one cadence step - the joint near-resonance. m=1 is the old
+            // Tier-1 behavior (the dropped residual taken wholesale); a larger m trades a longer
+            // relaunch period for a tighter joint alignment (a Mun mission's launch-pad residual drops
+            // from ~9688s/161deg at m=1 to ~993s/16deg around m=9). Single-constraint and tidal-lock
+            // configs skip the search (m=1, residual 0 - they line up at every window). The fixed
+            // cadence cannot hold incommensurate periods aligned forever (the residual IS the
+            // per-cycle drift); the zero-drift per-window reschedule follow-up closes that - see todo.
+            int multiple;
+            double residual;
             string method;
             bool withinTolerance;
             if (count == 1)
             {
+                multiple = 1;
+                residual = 0.0;
                 method = dominant.Kind == ConstraintKind.Orbital ? "single-orbital" : "single-rotation";
                 withinTolerance = true; // nothing dropped
             }
             else if (AllDroppedSharePeriod(constraints, dominantIdx, p))
             {
+                // Tidal-lock collapse: every dropped constraint shares the dominant period, so they
+                // line up at every window (e.g. Mun rotation + Mun intercept). Lock at m=1, residual 0.
+                multiple = 1;
+                residual = 0.0;
                 method = "tidal-collapse";
                 withinTolerance = true;
             }
             else
             {
-                method = "dominant-intercept";
-                withinTolerance = residual <= ToleranceSecondsForDroppedConstraint(constraints, dominantIdx, bodyInfo);
+                // Incommensurate multi-constraint: joint best-fit. Search whole multiples m of the
+                // dominant period for the one that minimizes the worst dropped-constraint phase error
+                // over one cadence step (m*P); the dominant stays locked at any m.
+                multiple = FindBestJointMultiple(constraints, dominantIdx, p, out residual);
+                double tol = ToleranceSecondsForDroppedConstraint(constraints, dominantIdx, bodyInfo);
+                withinTolerance = residual <= tol;
+                // m>1 = a genuine joint near-resonance was found; m=1 = the dominant period itself was
+                // already the best alignment within the search bound (old Tier-1 wholesale drop).
+                method = multiple > 1 ? "joint-best-fit" : "dominant-intercept";
             }
+
+            double effectiveP = multiple * p;
+            double nextWindow = NextWindow(ut0, effectiveP, nowUT);
+            string dominantMissed =
+                DescribeWorstDroppedConstraint(constraints, dominantIdx, effectiveP);
 
             var sol = new PeriodicitySolution
             {
-                P = p,
+                P = effectiveP,
                 NextWindowUT = nextWindow,
                 ResidualSeconds = residual,
                 WithinTolerance = withinTolerance,
@@ -585,6 +602,78 @@ namespace Parsek
             };
             LogSolve(dominant.BodyName, sol, ut0, nowUT, dominantMissed);
             return sol;
+        }
+
+        /// <summary>
+        /// Joint near-resonance search (Phase 2): the whole multiple m in [1, <see
+        /// cref="MaxJointMultiples"/>] of <paramref name="dominantPeriod"/> that MINIMIZES the worst
+        /// circular phase error of the DROPPED constraints over one cadence step (m * dominantPeriod).
+        /// The dominant constraint is locked exactly at any m (m*P is a whole multiple of its period);
+        /// a larger m can re-align the dropped constraints better at the cost of a longer relaunch
+        /// period. Prefers the SMALLEST m on a (near-)tie (within <see
+        /// cref="JointResidualTieEpsilonSeconds"/>) so the relaunch period stays as short as the
+        /// alignment allows. Pure. <paramref name="bestResidual"/> = the worst dropped phase error at
+        /// the chosen m (the per-cycle drift the fixed cadence carries).
+        /// </summary>
+        internal static int FindBestJointMultiple(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, double dominantPeriod,
+            out double bestResidual)
+        {
+            int bestM = 1;
+            bestResidual = JointStepResidual(constraints, dominantIdx, dominantPeriod, 1);
+            for (int m = 2; m <= MaxJointMultiples; m++)
+            {
+                double r = JointStepResidual(constraints, dominantIdx, dominantPeriod, m);
+                if (r < bestResidual - JointResidualTieEpsilonSeconds)
+                {
+                    bestResidual = r;
+                    bestM = m;
+                }
+            }
+            return bestM;
+        }
+
+        /// <summary>
+        /// The worst (max) circular phase error of the DROPPED constraints (every constraint except
+        /// <paramref name="dominantIdx"/>) over one cadence step <paramref name="multiple"/> *
+        /// <paramref name="dominantPeriod"/>. 0 when nothing is dropped. Pure.
+        /// </summary>
+        internal static double JointStepResidual(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, double dominantPeriod,
+            int multiple)
+        {
+            double step = multiple * dominantPeriod;
+            double worst = 0.0;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                double err = CircularPhaseError(step, constraints[i].PeriodSeconds);
+                if (err > worst)
+                    worst = err;
+            }
+            return worst;
+        }
+
+        // For the diagnostic log only: the dropped constraint carrying the worst phase error at the
+        // chosen cadence step (null when nothing is dropped).
+        private static string DescribeWorstDroppedConstraint(
+            IReadOnlyList<PhaseConstraint> constraints, int dominantIdx, double step)
+        {
+            double worst = -1.0;
+            string desc = null;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                if (i == dominantIdx)
+                    continue;
+                double err = CircularPhaseError(step, constraints[i].PeriodSeconds);
+                if (err > worst)
+                {
+                    worst = err;
+                    desc = constraints[i].ToString();
+                }
+            }
+            return desc;
         }
 
         /// <summary>
