@@ -1136,18 +1136,25 @@ namespace Parsek.Tests
             var tree = TreeOf("t", ascent, transfer);
             var committed = new List<Recording>(tree.Recordings.Values);
             const double spanEnd = 2000.0; // last member end (the first play's end)
+            const double ut0 = 1000.0;     // recorded launch (= spanStart)
 
-            // Anchor BEFORE the first play ends (mid-recording).
-            var mission = LoopMissionFor("t", anchorUT: 1200.0);
+            // Anchor BEFORE the recorded LAUNCH (a future-dated recording, e.g. after a career
+            // reset): the loop was enabled at UT 500 but the mission is not flown until UT 1000.
+            // WITHOUT the clamp the locked path would snap to the window at UT0=1000 (k=0, < spanEnd
+            // = a relaunch during/before the first play) and the unlocked path to 500 (the raw
+            // anchor); the floor must push both to >= spanEnd.
+            var mission = LoopMissionFor("t", anchorUT: 500.0);
 
             // Phase-locked (Mun) path: the anchor stays a faithful window AND is clamped >= spanEnd.
+            // Without the floor this would be UT0 (1000) < spanEnd; the clamp makes it UT0 + P.
             var locked = MissionLoopUnitBuilder.Build(
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
             Assert.True(locked.TryGetUnitForMember(0, out var lockedUnit));
             Assert.True(lockedUnit.PhaseAnchorUT >= spanEnd,
                 $"locked anchor {lockedUnit.PhaseAnchorUT} must be >= first-play end {spanEnd}");
-            double k = (lockedUnit.PhaseAnchorUT - 1000.0) / (9 * MunOrbit);
+            double k = (lockedUnit.PhaseAnchorUT - ut0) / (9 * MunOrbit);
             Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*P window
+            Assert.True(k >= 1.0, "the clamp pushed past the k=0 (UT0) window that precedes spanEnd");
 
             // No-body-info (no phase-lock) path: clamps the raw anchor straight to spanEnd.
             var today = MissionLoopUnitBuilder.Build(
