@@ -931,7 +931,7 @@ namespace Parsek
             GUI.enabled = actionable;
             if (GUILayout.Button("Warp to...", GUILayout.Width(ColW_HeaderButton)))
             {
-                double targetUT = periodicity.NextRelaunchUT;
+                double targetUT = RoundWarpTargetUpToMinute(periodicity.NextRelaunchUT);
                 WarpToTimeMath.ComputeComponentsFromUT(targetUT, out int y, out int d, out int h, out int m);
                 ParsekLog.Info("Mission", string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Warp to next window for mission '{0}': targetUT={1} -> Y{2} D{3} {4}:{5:00} inFlight={6}",
@@ -957,6 +957,21 @@ namespace Parsek
                 && !double.IsNaN(nextRelaunchUT)
                 && !double.IsInfinity(nextRelaunchUT)
                 && nextRelaunchUT > nowUT + 1.0;
+        }
+
+        /// <summary>
+        /// Rounds a relaunch UT UP to the next whole minute, the warp target the "Warp to..." button
+        /// feeds the (minute-precision) Timeline warp flow. The warp UI's UT->components conversion
+        /// truncates DOWN, so rounding up here keeps the resolved warp target at or AFTER the
+        /// relaunch (always a strictly-forward warp landing just inside the launch window), instead
+        /// of flooring to a minute boundary that could sit at/behind now. Pure; a non-finite input
+        /// returns it unchanged (the caller only warps on a finite, future relaunch).
+        /// </summary>
+        internal static double RoundWarpTargetUpToMinute(double relaunchUT)
+        {
+            if (double.IsNaN(relaunchUT) || double.IsInfinity(relaunchUT))
+                return relaunchUT;
+            return System.Math.Ceiling(relaunchUT / 60.0) * 60.0;
         }
 
         private void LogSortChanged()
