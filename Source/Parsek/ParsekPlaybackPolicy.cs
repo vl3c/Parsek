@@ -1483,7 +1483,14 @@ namespace Parsek
                     continue;
                 }
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
+                // Same-body carry: while the playback head is inside a body frame, briefly
+                // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
+                // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
+                // producing the visible flicker the user reported near Mun SOI. We only want
+                // to drop the ghost when the body actually changes (SOI / frame change) or
+                // when the recording is truly past its last segment. Body-frame carry keeps
+                // the previous segment's orbit active until UT enters the next segment.
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.

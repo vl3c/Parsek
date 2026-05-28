@@ -536,6 +536,204 @@ namespace Parsek.Tests
             Assert.Null(result);
         }
 
+        // ----- FindOrbitSegmentOrSameBodyCarry: same-body intra-block gap-carry -----
+
+        [Fact]
+        public void FindOrbitSegmentOrSameBodyCarry_UTInsideSegment_ReturnsActiveSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Mun")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(segments, 150);
+
+            Assert.NotNull(result);
+            Assert.Equal(100, result.Value.startUT);
+            Assert.Equal("Kerbin", result.Value.bodyName);
+        }
+
+        [Fact]
+        public void FindOrbitSegmentOrSameBodyCarry_UTInSameBodyDifferentOrbitGap_CarriesPreviousSegment()
+        {
+            // Two non-orbit-equivalent same-body segments: a capture-burn-style transition.
+            // Equivalence-based carry refuses; same-body carry must succeed so the ghost
+            // stays alive across the brief intra-block gap.
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Mun"),
+                new OrbitSegment
+                {
+                    startUT = 240,
+                    endUT = 400,
+                    inclination = 28.5,
+                    eccentricity = 0.001,
+                    semiMajorAxis = 710000, // distinct orbit
+                    longitudeOfAscendingNode = 90,
+                    argumentOfPeriapsis = 45,
+                    meanAnomalyAtEpoch = 2.5,
+                    epoch = 240,
+                    bodyName = "Mun"
+                }
+            };
+
+            var carry = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(segments, 220);
+            var equivalentOnly = TrajectoryMath.FindOrbitSegmentForMapDisplay(segments, 220);
+
+            Assert.NotNull(carry);
+            Assert.Equal(100, carry.Value.startUT);
+            Assert.Equal("Mun", carry.Value.bodyName);
+            // Equivalence-based carry must refuse so this regression assertion stays meaningful.
+            Assert.Null(equivalentOnly);
+        }
+
+        [Fact]
+        public void FindOrbitSegmentOrSameBodyCarry_UTInDifferentBodyGap_ReturnsNull()
+        {
+            // SOI / body change: carry MUST refuse so the ghost actually drops at the
+            // body boundary (the only "jump" allowed by the user spec).
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Mun")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(segments, 220);
+
+            Assert.Null(result);
+        }
+
+        [Fact]
+        public void FindOrbitSegmentOrSameBodyCarry_UTPastLastSegment_ReturnsNull()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Mun")
+            };
+
+            var result = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(segments, 250);
+
+            Assert.Null(result);
+        }
+
+        // ----- TryGetBodyFrameBoundsForMapDisplay: body-frame run bounds -----
+
+        [Fact]
+        public void TryGetBodyFrameBoundsForMapDisplay_UTInsideSegment_ExpandsToConsecutiveSameBodyRun()
+        {
+            // A run of three Mun segments with non-equivalent orbits + a small gap; the
+            // body-frame bounds must cover the whole Mun run regardless of orbit changes.
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(50, 100, "Kerbin"),
+                MakeSegment(110, 200, "Mun"),
+                new OrbitSegment
+                {
+                    startUT = 240,
+                    endUT = 400,
+                    semiMajorAxis = 710000,
+                    eccentricity = 0.001,
+                    inclination = 28.5,
+                    bodyName = "Mun"
+                },
+                MakeSegment(420, 600, "Mun"),
+                MakeSegment(650, 800, "Kerbin")
+            };
+
+            bool ok = TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                segments, ut: 300,
+                out double startUT, out double endUT,
+                out string bodyName,
+                out int firstIndex, out int lastIndex);
+
+            Assert.True(ok);
+            Assert.Equal(110, startUT);
+            Assert.Equal(600, endUT);
+            Assert.Equal("Mun", bodyName);
+            Assert.Equal(1, firstIndex);
+            Assert.Equal(3, lastIndex);
+        }
+
+        [Fact]
+        public void TryGetBodyFrameBoundsForMapDisplay_UTInSameBodyGap_StillCoversBodyFrameRun()
+        {
+            // UT sits in the intra-Mun gap (200-240). The body-frame bounds must still
+            // resolve to the full Mun run so the orbit line stays on.
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(110, 200, "Mun"),
+                new OrbitSegment
+                {
+                    startUT = 240,
+                    endUT = 400,
+                    semiMajorAxis = 710000,
+                    eccentricity = 0.001,
+                    inclination = 28.5,
+                    bodyName = "Mun"
+                }
+            };
+
+            bool ok = TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                segments, ut: 220,
+                out double startUT, out double endUT,
+                out string bodyName,
+                out int firstIndex, out int lastIndex);
+
+            Assert.True(ok);
+            Assert.Equal(110, startUT);
+            Assert.Equal(400, endUT);
+            Assert.Equal("Mun", bodyName);
+        }
+
+        [Fact]
+        public void TryGetBodyFrameBoundsForMapDisplay_UTInBodyChangeGap_ReturnsFalse()
+        {
+            // Body change gap (Kerbin -> Mun): the body-frame resolver must refuse so the
+            // line patch blinks the line off, mirroring the SOI crossing user-visible jump.
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Kerbin"),
+                MakeSegment(240, 400, "Mun")
+            };
+
+            bool ok = TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                segments, ut: 220,
+                out _, out _, out _, out _, out _);
+
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void TryGetBodyFrameBoundsForMapDisplay_UTPastLastSegment_ReturnsFalse()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Mun")
+            };
+
+            bool ok = TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                segments, ut: 300,
+                out _, out _, out _, out _, out _);
+
+            Assert.False(ok);
+        }
+
+        [Fact]
+        public void TryGetBodyFrameBoundsForMapDisplay_UTBeforeFirstSegment_ReturnsFalse()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                MakeSegment(100, 200, "Mun")
+            };
+
+            bool ok = TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                segments, ut: 50,
+                out _, out _, out _, out _, out _);
+
+            Assert.False(ok);
+        }
+
         #endregion
 
         #region OrbitSegment Serialization
