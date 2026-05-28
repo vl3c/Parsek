@@ -1090,6 +1090,11 @@ namespace Parsek
             // hit the same short anchor-step gap). NaN when not scheduled.
             public double ScheduledTypicalIntervalSeconds;
 
+            // True when the engine's next relaunch is further out than the cross-parent display cap
+            // (CrossParentMaxRelaunchYears launch-body-years; see DisplayCapSeconds). Such a config is
+            // scheduled and Warp-able but so rare it reads amber + a years countdown (scope item 5).
+            public bool BeyondDisplayCap;
+
             // Supported + constrained: the loop is phase-locked to a real period P (not the free
             // MinCycleDuration). This is the state where the period cell shows P + basis label and
             // the T- cell shows a live countdown.
@@ -1148,7 +1153,11 @@ namespace Parsek
             if (solution.ShouldPhaseLock && extraction.Constraints != null
                 && extraction.Constraints.Count > 0)
             {
-                int di = MissionPeriodicity.SelectDominantConstraintIndex(extraction.Constraints);
+                // Pass the launch body so the basis label prefers the cross-parent TARGET body over
+                // the launch body's own heliocentric leg (e.g. "(Duna window)" not "(Kerbin window)"
+                // for a Kerbin->Duna mission). Label-only; the solver's dominant period is unchanged.
+                int di = MissionPeriodicity.SelectDominantConstraintIndex(
+                    extraction.Constraints, extraction.LaunchBodyName);
                 PhaseConstraint dom = extraction.Constraints[di];
                 result.DominantKind = dom.Kind;
                 result.DominantBodyName = dom.BodyName;
@@ -1174,6 +1183,14 @@ namespace Parsek
             result.ScheduledTypicalIntervalSeconds = result.IsScheduled
                 ? unit.RelaunchSchedule.AverageIntervalSeconds
                 : double.NaN;
+
+            // Cross-parent display cap (scope item 5): a faithful interplanetary window can resolve
+            // decades+ out. The schedule still builds and Warp still works, but a multi-decade live
+            // countdown reads amber as "very rare". The cap is CrossParentMaxRelaunchYears of the
+            // LAUNCH body's own year (planet-pack safe via the seam), with a stock-Kerbin fallback.
+            double launchYear = FlightGlobalsBodyInfo.Instance.OrbitPeriod(extraction.LaunchBodyName);
+            result.BeyondDisplayCap = result.IsPhaseLockedConstrained && result.UnitBuilt
+                && IsScheduleBeyondDisplayCap(result.NextRelaunchUT, nowUT, DisplayCapSeconds(launchYear));
 
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
                 $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
@@ -1235,9 +1252,12 @@ namespace Parsek
                 periodicity.NowUT);
 
             // Tint a live countdown amber when the best-effort window misses its physics tolerance
-            // (over-constrained config - the user may want to re-trim), matching the design's
-            // green/amber readout intent. Continuous / not-aligned / blank states read plain.
-            bool amber = periodicity.IsPhaseLockedConstrained && !periodicity.Solution.WithinTolerance;
+            // (over-constrained config - the user may want to re-trim), OR when the next relaunch is
+            // beyond the cross-parent display cap (a very rare interplanetary window - still Warp-able,
+            // just flagged). Matches the design's green/amber readout intent. Continuous / not-aligned
+            // / blank states read plain.
+            bool amber = (periodicity.IsPhaseLockedConstrained && !periodicity.Solution.WithinTolerance)
+                || periodicity.BeyondDisplayCap;
             Color prev = GUI.contentColor;
             if (amber)
                 GUI.contentColor = LoopPeriodClampColor;
@@ -1436,6 +1456,45 @@ namespace Parsek
             return string.IsNullOrEmpty(basis)
                 ? period + " (varies)"
                 : period + " " + basis.Substring(0, basis.Length - 1) + ", varies)";
+        }
+
+        // The cross-parent relaunch-period display cap (scope item 5): a faithful interplanetary window
+        // can be many in-game years out. Beyond this, the live countdown reads amber as "very rare"
+        // (the schedule still builds and the "Warp to..." button stays enabled - the window IS
+        // reachable, just distant). 50 launch-body-years; documented tunable.
+        internal const double CrossParentMaxRelaunchYears = 50.0;
+
+        // Stock Kerbin year, used only as the cap fallback when the launch body has no usable orbit
+        // period (it IS the root, or degenerate data), so the cap is never NaN.
+        private const double StockKerbinYearSeconds = 9203545.0;
+
+        /// <summary>
+        /// The display-cap horizon in seconds: <see cref="CrossParentMaxRelaunchYears"/> times the
+        /// LAUNCH body's own orbital year (planet-pack safe), falling back to a stock-Kerbin year when
+        /// that period is unusable (NaN / non-positive - e.g. a Sun-launched edge case). Pure.
+        /// </summary>
+        internal static double DisplayCapSeconds(double launchBodyYearSeconds)
+        {
+            double year = (double.IsNaN(launchBodyYearSeconds) || double.IsInfinity(launchBodyYearSeconds)
+                || launchBodyYearSeconds <= 0.0)
+                ? StockKerbinYearSeconds
+                : launchBodyYearSeconds;
+            return CrossParentMaxRelaunchYears * year;
+        }
+
+        /// <summary>
+        /// True when the engine's next relaunch (<paramref name="nextRelaunchUT"/>) is further than
+        /// <paramref name="capSeconds"/> beyond now - the "very rare window" amber signal. False for
+        /// NaN inputs or a non-positive cap (no cap). Pure; never disables the schedule or Warp (this
+        /// is display-only). See <see cref="DisplayCapSeconds"/>.
+        /// </summary>
+        internal static bool IsScheduleBeyondDisplayCap(
+            double nextRelaunchUT, double nowUT, double capSeconds)
+        {
+            if (double.IsNaN(nextRelaunchUT) || double.IsInfinity(nextRelaunchUT)
+                || double.IsNaN(nowUT) || double.IsNaN(capSeconds) || capSeconds <= 0.0)
+                return false;
+            return (nextRelaunchUT - nowUT) > capSeconds;
         }
 
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED

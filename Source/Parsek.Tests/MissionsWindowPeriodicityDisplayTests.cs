@@ -423,5 +423,37 @@ namespace Parsek.Tests
                 BuildScheduledPeriodCellDisplay(2.0 * 86400.0, ConstraintKind.Orbital, null));
         }
 
+        // ===================== Cross-parent display cap (scope item 5) =====================
+
+        [Fact]
+        public void DisplayCapSeconds_UsesLaunchBodyYear_FallsBackToStockKerbin()
+        {
+            // 50 launch-body-years; planet-pack safe (scales with the launch body's own orbit).
+            double kerbinYear = 9203545.0;
+            Assert.Equal(CrossParentMaxRelaunchYears * kerbinYear, DisplayCapSeconds(kerbinYear), 3);
+            // A longer-year launch body (e.g. an outer homeworld) scales up.
+            Assert.Equal(CrossParentMaxRelaunchYears * 2.0e7, DisplayCapSeconds(2.0e7), 3);
+            // Degenerate launch-body year (root / NaN / non-positive) -> stock-Kerbin fallback.
+            double stockCap = CrossParentMaxRelaunchYears * 9203545.0;
+            Assert.Equal(stockCap, DisplayCapSeconds(double.NaN), 3);
+            Assert.Equal(stockCap, DisplayCapSeconds(0.0), 3);
+            Assert.Equal(stockCap, DisplayCapSeconds(-5.0), 3);
+        }
+
+        [Fact]
+        public void IsScheduleBeyondDisplayCap_FlagsOnlyWhenNextRelaunchExceedsCap()
+        {
+            double cap = CrossParentMaxRelaunchYears * 9203545.0; // ~50 Kerbin years
+            double now = 1000.0;
+            // A relaunch one cap-and-a-bit out -> beyond cap (amber).
+            Assert.True(IsScheduleBeyondDisplayCap(now + cap + 1.0, now, cap));
+            // A relaunch within the cap -> not flagged.
+            Assert.False(IsScheduleBeyondDisplayCap(now + cap - 1.0, now, cap));
+            // NaN / infinite next launch -> not flagged (the cell already reads "not aligned").
+            Assert.False(IsScheduleBeyondDisplayCap(double.NaN, now, cap));
+            Assert.False(IsScheduleBeyondDisplayCap(double.PositiveInfinity, now, cap));
+            // Non-positive cap -> no cap.
+            Assert.False(IsScheduleBeyondDisplayCap(now + 1e15, now, 0.0));
+        }
     }
 }
