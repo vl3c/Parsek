@@ -1141,7 +1141,18 @@ namespace Parsek
         ConfigNode IPlaybackTrajectory.VesselSnapshot => VesselSnapshot;
         string IPlaybackTrajectory.VesselName => VesselName;
         string IPlaybackTrajectory.RecordingId => RecordingId;
-        bool IPlaybackTrajectory.LoopPlayback => LoopPlayback;
+        // Model-layer guard: parent-anchored debris rides its parent's loop
+        // clock (GhostPlaybackEngine.TryUpdateLoopSyncedDebris) and never
+        // dispatches its own loop. ParsekScenario.OnLoad's
+        // RecordingStore.SanitizeDebrisLoopPlayback already clears any stale
+        // LoopPlayback=true on debris at load, so in practice this expression
+        // collapses to LoopPlayback. The masking stays for defense in depth:
+        // any future path that ever sets LoopPlayback=true on a debris
+        // recording without going through the table UI's BulkSetLoopPlayback
+        // (which skips debris) still surfaces as a false at the engine
+        // boundary, so GhostPlaybackEngine.ShouldLoopPlayback(traj) can
+        // remain debris-naive.
+        bool IPlaybackTrajectory.LoopPlayback => !IsDebris && LoopPlayback;
         double IPlaybackTrajectory.LoopIntervalSeconds => LoopIntervalSeconds;
         LoopTimeUnit IPlaybackTrajectory.LoopTimeUnit => LoopTimeUnit;
         uint IPlaybackTrajectory.LoopAnchorVesselId => LoopAnchorVesselId;

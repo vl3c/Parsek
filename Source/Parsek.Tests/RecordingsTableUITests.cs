@@ -1951,6 +1951,32 @@ namespace Parsek.Tests
             Assert.False(s.SuppressToggle);
         }
 
+        // ── IPlaybackTrajectory model-layer debris mask ──
+
+        [Fact]
+        public void IPlaybackTrajectory_LoopPlayback_MasksDebris()
+        {
+            // Defense in depth: even if a future code path sets LoopPlayback=true
+            // on a debris recording without going through BulkSetLoopPlayback
+            // (which skips debris), the engine reads LoopPlayback through the
+            // IPlaybackTrajectory boundary, which masks the flag to false on
+            // IsDebris. GhostPlaybackEngine.ShouldLoopPlayback(traj) therefore
+            // never observes a stale debris loop flag.
+            var nonDebris = new Recording { VesselName = "Main", LoopPlayback = true, IsDebris = false };
+            var debris = new Recording { VesselName = "Booster", LoopPlayback = true, IsDebris = true };
+
+            IPlaybackTrajectory nonDebrisTraj = nonDebris;
+            IPlaybackTrajectory debrisTraj = debris;
+
+            Assert.True(nonDebrisTraj.LoopPlayback);
+            Assert.False(debrisTraj.LoopPlayback);
+
+            // The Recording.LoopPlayback field itself is untouched (so the UI
+            // table layer still observes the raw value and can surface its own
+            // hide predicate without ambiguity).
+            Assert.True(debris.LoopPlayback);
+        }
+
         // ── BulkSetLoopPlayback: shared bulk-write for header / group / chain / block ──
 
         [Fact]
