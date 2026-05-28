@@ -238,10 +238,17 @@ namespace Parsek.Patches
                 && __instance.vessel.orbit != null
                 && __instance.vessel.orbit.altitude < body.atmosphereDepth;
 
-            // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch.
-            // When UT is past the recording bounds, hide the line entirely.
+            // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch and the
+            // icon position by GhostOrbitIconClampPatch, both of which use SEGMENT bounds.
+            // For the line.active toggle we instead use BODY-FRAME bounds (the run of
+            // consecutive same-body OrbitSegments around the playback head). That keeps the
+            // line continuously visible across inter-segment burns / sparse-physics gaps
+            // inside one body frame, so the ghost icon stays on the map throughout the
+            // body frame and only blinks at the actual SOI / body change. Per spec: the
+            // ghost should jump from the end of a transfer trajectory to its correct
+            // recorded position in the next body frame — no flicker inside a body frame.
             double currentUT = Planetarium.GetUniversalTime();
-            if (GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+            if (GhostMapPresence.TryGetBodyFrameOrbitBoundsForGhostVessel(
                 pid, currentUT, out double startUT, out double endUT))
             {
                 if (currentUT > endUT || currentUT < startUT || belowAtmosphere)
@@ -252,7 +259,7 @@ namespace Parsek.Patches
                         GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     string reason = belowAtmosphere
                         ? "below-atmosphere"
-                        : (currentUT > endUT ? "past-segment-end" : "before-segment-start");
+                        : (currentUT > endUT ? "past-body-frame-end" : "before-body-frame-start");
                     LogOrbitLineDecision(
                         pid,
                         reason,
@@ -267,13 +274,17 @@ namespace Parsek.Patches
                     return;
                 }
 
-                // On arc, above atmosphere — show line and vessel icon only (no Ap/Pe/AN/DN)
+                // Inside a body frame, above atmosphere: show line + vessel icon only
+                // (no Ap/Pe/AN/DN). The arc shape itself follows the per-segment orbit
+                // via GhostOrbitArcPatch, so the visible line continuously redraws when
+                // the orbit driver retargets at each segment transition — but line.active
+                // stays True, so the user never sees the line blink off mid-body-frame.
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 LogOrbitLineDecision(
                     pid,
-                    "visible-segment",
+                    "visible-body-frame",
                     line.active,
                     __instance.drawIcons,
                     GhostMapPresence.IsIconSuppressed(pid),

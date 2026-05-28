@@ -778,6 +778,19 @@ namespace Parsek
             = new Dictionary<uint, (double, double)>();
 
         /// <summary>
+        /// Body-frame orbit time bounds per ghost vessel PID. These cover the entire run of
+        /// consecutive same-body OrbitSegments around the playback head (already shifted into
+        /// the live frame for loop-shifted ghosts). Used by <see cref="Parsek.Patches.GhostOrbitLinePatch"/>
+        /// to keep <c>line.active</c> True across inter-segment burns / sparse-physics gaps inside
+        /// one body frame, blinking off only at an SOI / body change. Computed at the same time
+        /// as <see cref="ghostOrbitBounds"/> in <see cref="UpdateGhostOrbitForRecording"/>, so the
+        /// shift is consistent and the loop-shifted edge cases handled identically to per-segment
+        /// arc clipping.
+        /// </summary>
+        internal static readonly Dictionary<uint, (double startUT, double endUT)> ghostBodyFrameOrbitBounds
+            = new Dictionary<uint, (double, double)>();
+
+        /// <summary>
         /// Ghost PIDs whose orbit + <see cref="ghostOrbitBounds"/> are currently shifted into the
         /// live frame by a Mission-loop epoch shift (loopEpochShiftSeconds != 0). For these,
         /// <see cref="TryGetVisibleOrbitBoundsForGhostVessel"/> MUST return the stored (already
@@ -2137,6 +2150,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
@@ -3177,6 +3191,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -3396,6 +3411,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
+            ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
@@ -5318,7 +5334,8 @@ namespace Parsek
             TrackingStationGhostSource source,
             OrbitSegment segment,
             TrajectoryPoint stateVectorPoint,
-            double currentUT)
+            double currentUT,
+            double loopEpochShiftSeconds = 0.0)
         {
             return CreateGhostVesselFromSource(
                 recordingIndex,
@@ -5327,7 +5344,8 @@ namespace Parsek
                 segment,
                 stateVectorPoint,
                 currentUT,
-                out _);
+                out _,
+                loopEpochShiftSeconds);
         }
 
         /// <summary>
@@ -5346,7 +5364,8 @@ namespace Parsek
             OrbitSegment segment,
             TrajectoryPoint stateVectorPoint,
             double currentUT,
-            out bool retryLater)
+            out bool retryLater,
+            double loopEpochShiftSeconds = 0.0)
         {
             retryLater = false;
             // Dispatcher-line: which sub-create is about to fire? Single line
@@ -5390,7 +5409,10 @@ namespace Parsek
                 case TrackingStationGhostSource.Segment:
                     Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
                     if (segmentGhost != null)
-                        UpdateGhostOrbitForRecording(recordingIndex, segment);
+                        UpdateGhostOrbitForRecording(
+                            recordingIndex,
+                            segment,
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
                     return segmentGhost;
 
                 case TrackingStationGhostSource.EndpointTail:
@@ -5403,7 +5425,8 @@ namespace Parsek
                         UpdateGhostOrbitForRecording(
                             recordingIndex,
                             segment,
-                            TrackingStationGhostSource.EndpointTail);
+                            TrackingStationGhostSource.EndpointTail,
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
                     return endpointTailGhost;
 
                 case TrackingStationGhostSource.StateVector:
@@ -5544,13 +5567,20 @@ namespace Parsek
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
+                // Loop-shift the orbit + body-frame cache at create-time so the orbit-line
+                // and arc-clip patches see correctly-shifted bounds on the very first frame.
+                // Without this the create writes shift=0 bounds and the next lifecycle pass
+                // (up to LifecycleCheckIntervalSec=2s later) refreshes them, producing a
+                // 2-second orbit-line blackout at TS entry for any loop-shifted member.
+                double tsLoopEpochShift = currentUT - effUT;
                 Vessel v = CreateGhostVesselFromSource(
                     i,
                     rec,
                     source,
                     segment,
                     stateVectorPoint,
-                    effUT);
+                    effUT,
+                    loopEpochShiftSeconds: tsLoopEpochShift);
 
                 if (v != null)
                 {
@@ -5714,8 +5744,13 @@ namespace Parsek
                 // transfer/coast OrbitalCheckpoint section, freezing the orbit on its last segment
                 // instead of advancing through the mission's later segments. The checkpoint path
                 // stays available only for a genuine segment gap (no covering segment at effUT).
+                // Same-body carry: a brief drop between two non-orbit-equivalent segments
+                // in the same body frame (e.g., capture burn between two Mun orbits) used to
+                // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
+                // Carry the previous segment across same-body intra-block gaps so the ghost
+                // stays alive and only blinks when the body actually changes (SOI crossing).
                 OrbitSegment? coveringSegment = (rec != null && rec.OrbitSegments != null)
-                    ? TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT)
+                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
 
@@ -6138,6 +6173,71 @@ namespace Parsek
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
                 loopEpochShiftSeconds);
             lifecycleUpdatedThisTick++;
+
+            // Cache body-frame bounds (consecutive same-body OrbitSegments around this
+            // segment, shifted into the live frame) so GhostOrbitLinePatch can keep
+            // line.active True across inter-segment burns in one body frame. Resolved
+            // from the recording's raw OrbitSegments at the segment's raw start UT, then
+            // shifted by the same loop epoch offset applied to ghostOrbitBounds above,
+            // keeping the loop-shifted edge cases identical to per-segment arc clipping.
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed != null
+                && recordingIndex >= 0
+                && recordingIndex < committed.Count
+                && committed[recordingIndex] != null
+                && committed[recordingIndex].HasOrbitSegments
+                && TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
+                    committed[recordingIndex].OrbitSegments,
+                    // Probe just inside the active segment so the resolver always finds
+                    // it (endUT is exclusive for non-last segments).
+                    segment.startUT,
+                    out double bfStart,
+                    out double bfEnd,
+                    out string bfBody,
+                    out int bfFirstIdx,
+                    out int bfLastIdx))
+            {
+                ghostBodyFrameOrbitBounds[vessel.persistentId] =
+                    (bfStart + loopEpochShiftSeconds, bfEnd + loopEpochShiftSeconds);
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "body-frame-cache|{0}", vessel.persistentId),
+                    string.Format(ic, "{0}|{1:F3}-{2:F3}|shift={3:F3}",
+                        bfBody ?? "(null)", bfStart, bfEnd, loopEpochShiftSeconds),
+                    string.Format(ic,
+                        "Cached body-frame bounds pid={0} recIndex={1} body={2} " +
+                        "rawBodyFrameUT={3:F2}-{4:F2} segIndices={5}-{6} loopShift={7:F2}",
+                        vessel.persistentId,
+                        recordingIndex,
+                        bfBody ?? "(null)",
+                        bfStart,
+                        bfEnd,
+                        bfFirstIdx,
+                        bfLastIdx,
+                        loopEpochShiftSeconds));
+            }
+            else
+            {
+                // Fallback: the resolver couldn't seed (e.g., orbit-segments missing in
+                // a degenerate test scenario, or an EndpointTail synthetic segment whose
+                // startUT is not in the committed OrbitSegments). Use the single-segment
+                // bounds so the patch still has something to gate on rather than tearing
+                // the line down. Same key as the success branch so the cache write
+                // transitions visibly between body-frame and single-segment fallback.
+                ghostBodyFrameOrbitBounds[vessel.persistentId] =
+                    (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "body-frame-cache|{0}", vessel.persistentId),
+                    string.Format(ic, "fallback|{0:F3}-{1:F3}|shift={2:F3}",
+                        segment.startUT, segment.endUT, loopEpochShiftSeconds),
+                    string.Format(ic,
+                        "Cached body-frame bounds pid={0} recIndex={1} source=single-segment-fallback " +
+                        "rawSegmentUT={2:F2}-{3:F2} loopShift={4:F2}",
+                        vessel.persistentId,
+                        recordingIndex,
+                        segment.startUT,
+                        segment.endUT,
+                        loopEpochShiftSeconds));
+            }
 
             Vector3d worldPos = vessel.GetWorldPos3D();
             string recId = TryGetLastKnownFrame(recordingIndex, out var prev) ? prev.RecordingId : null;
@@ -7628,7 +7728,10 @@ namespace Parsek
             if (!hasOrbitBounds)
                 return null;
 
-            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+            // Same-body carry: don't expire the ghost in a brief intra-body-frame gap
+            // between two non-orbit-equivalent segments (e.g., capture burn). Only an
+            // actual body change or end-of-recording should remove the ghost.
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, currentUT);
             return seg.HasValue ? null : "tracking-station-expired";
         }
 
@@ -7935,6 +8038,50 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Resolve the body-frame time window for a ghost vessel at the current UT — the
+        /// bounds covering all consecutive same-body OrbitSegments around the playback head.
+        /// This is the wider window used by <see cref="Parsek.Patches.GhostOrbitLinePatch"/>
+        /// to decide whether the rendered orbit line should stay on. Inside a body frame
+        /// the line stays continuously visible across inter-segment burns / dropouts; only
+        /// the SOI / body change at a frame boundary blanks it. Arc clipping and icon
+        /// clamping still use <see cref="TryGetVisibleOrbitBoundsForGhostVessel"/> (segment
+        /// bounds), so the line shape and icon position update per-segment as before.
+        /// Reads the per-PID cache <see cref="ghostBodyFrameOrbitBounds"/>, which is populated
+        /// by <see cref="UpdateGhostOrbitForRecording"/> at the same time the segment is applied
+        /// (so the loop-epoch shift is baked in identically to <see cref="ghostOrbitBounds"/>).
+        /// </summary>
+        internal static bool TryGetBodyFrameOrbitBoundsForGhostVessel(
+            uint vesselPid, double currentUT, out double startUT, out double endUT)
+        {
+            startUT = 0;
+            endUT = 0;
+
+            if (ghostBodyFrameOrbitBounds.TryGetValue(vesselPid, out var bf))
+            {
+                startUT = bf.startUT;
+                endUT = bf.endUT;
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "body-frame-bounds|{0}", vesselPid),
+                    string.Format(ic, "body-frame|cached|{0:F3}-{1:F3}", startUT, endUT),
+                    string.Format(ic,
+                        "Body-frame orbit bounds pid={0} source=cached ut={1:F2} bodyFrameUT={2:F2}-{3:F2}",
+                        vesselPid, currentUT, startUT, endUT));
+                return true;
+            }
+
+            // Fallback to the stored per-segment bounds: a ghost that was created with
+            // a segment but never had body-frame bounds cached (e.g., a chain-pid ghost
+            // taking a different code path) still gets gated by its existing arc-clip
+            // bounds rather than rendering perpetually.
+            return TryGetStoredOrbitBoundsForGhostVessel(
+                vesselPid,
+                currentUT,
+                "fallback-body-frame",
+                out startUT,
+                out endUT);
+        }
+
         private static bool TryGetStoredOrbitBoundsForGhostVessel(
             uint vesselPid,
             double currentUT,
@@ -7955,6 +8102,12 @@ namespace Parsek
                 source = "stored-bounds-endpoint-tail";
             else if (string.Equals(reason, "loop-shifted", StringComparison.Ordinal))
                 source = "stored-bounds-loop-shifted";
+            else if (string.Equals(reason, "loop-shifted-body-frame", StringComparison.Ordinal))
+                source = "stored-bounds-loop-shifted-body-frame";
+            else if (string.Equals(reason, "endpoint-tail-body-frame", StringComparison.Ordinal))
+                source = "stored-bounds-endpoint-tail-body-frame";
+            else if (string.Equals(reason, "fallback-body-frame", StringComparison.Ordinal))
+                source = "stored-bounds-fallback-body-frame";
             else
                 source = "stored-bounds-fallback";
             ParsekLog.VerboseOnChange(Tag,
@@ -7977,6 +8130,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -8039,6 +8193,7 @@ namespace Parsek
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
             ghostOrbitBounds.Clear();
+            ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
