@@ -35,13 +35,13 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void UseGhostTrajectoryPolyline_DefaultsFalse()
+        public void UseGhostTrajectoryPolyline_DefaultsTrue()
         {
-            // The polyline ships behind a default-off flag in commit 1 / 2;
-            // commit 3 flips it to true. A fresh ParsekSettings instance
-            // must read false until the rollout commit lands.
+            // Commit 3 flipped the rollout default to true; a fresh
+            // ParsekSettings instance must read true so first-install users
+            // see the polyline in the map view without flipping a setting.
             var settings = new ParsekSettings();
-            Assert.False(settings.useGhostTrajectoryPolyline);
+            Assert.True(settings.useGhostTrajectoryPolyline);
         }
 
         [Fact]
@@ -50,14 +50,14 @@ namespace Parsek.Tests.Rendering
             // Without a ParsekSettingsPersistence entry the user's
             // explicit toggle would be lost on every save / load round
             // trip, because KSP's GameParameters resets it.
-            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(true);
-            Assert.True(ParsekSettingsPersistence.GetStoredUseGhostTrajectoryPolyline().Value);
+            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(false);
+            Assert.False(ParsekSettingsPersistence.GetStoredUseGhostTrajectoryPolyline().Value);
 
             ParsekSettingsPersistence.ResetForTesting();
             Assert.Null(ParsekSettingsPersistence.GetStoredUseGhostTrajectoryPolyline());
 
-            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(true);
-            Assert.True(ParsekSettingsPersistence.GetStoredUseGhostTrajectoryPolyline().Value);
+            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(false);
+            Assert.False(ParsekSettingsPersistence.GetStoredUseGhostTrajectoryPolyline().Value);
         }
 
         [Fact]
@@ -84,13 +84,13 @@ namespace Parsek.Tests.Rendering
         {
             // ApplyTo overwrites the live setting with the stored value
             // and flips IsReconciled.
-            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(true);
+            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(false);
             var settings = new ParsekSettings();
-            Assert.False(settings.useGhostTrajectoryPolyline);
+            Assert.True(settings.useGhostTrajectoryPolyline);
 
             ParsekSettingsPersistence.ApplyTo(settings);
 
-            Assert.True(settings.useGhostTrajectoryPolyline);
+            Assert.False(settings.useGhostTrajectoryPolyline);
             Assert.True(ParsekSettingsPersistence.IsReconciled);
         }
     }

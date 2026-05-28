@@ -807,10 +807,16 @@ namespace Parsek.Display
             /// <summary>
             /// Constructs a fresh shared <c>LineType.Continuous</c>
             /// VectorLine sized to hold every leg's points packed
-            /// consecutively. Default colour matches the orbit-arc style:
-            /// <c>MapView.OrbitLinesMaterial</c> + a slight alpha overlay
-            /// via <see cref="VectorLine.SetColor(Color32)"/>. Width
-            /// matches the stock orbit-arc width (5f).
+            /// consecutively. Uses <c>MapView.DottedLinesMaterial</c> for
+            /// the dashed style (verified as a public static stock
+            /// property; closes OQ#1 / §2.3), falling back to
+            /// <c>MapView.OrbitLinesMaterial</c> when the dotted material
+            /// is unavailable. Width matches the stock orbit-arc width
+            /// (5f). A per-line colour overlay via
+            /// <see cref="VectorLine.SetColor(Color32)"/> tints the
+            /// polyline so it reads as distinct from the Keplerian arcs
+            /// without mutating the shared material's colour (which
+            /// would dim every stock orbit line).
             /// </summary>
             private static VectorLine BuildSharedVectorLine(
                 string recordingId, int totalPoints)
@@ -824,20 +830,16 @@ namespace Parsek.Display
                     points,
                     5f,
                     LineType.Continuous);
+                Material dashedMat = MapView.DottedLinesMaterial;
                 Material orbitMat = MapView.OrbitLinesMaterial;
-                if (orbitMat != null)
+                Material chosen = dashedMat != null ? dashedMat : orbitMat;
+                if (chosen != null)
                 {
-                    line.texture = orbitMat.mainTexture;
-                    line.material = orbitMat;
+                    line.texture = chosen.mainTexture;
+                    line.material = chosen;
                 }
                 line.continuousTexture = true;
                 line.UpdateImmediate = true;
-                // Per-line colour overlay so the polyline reads as
-                // distinct from the Keplerian orbit arcs without
-                // mutating the shared OrbitLinesMaterial colour
-                // (which would dim every stock orbit line). Solid in
-                // commit 2; commit 3 may swap to
-                // MapView.DottedLinesMaterial for the dashed style.
                 line.SetColor(new Color32(180, 220, 255, 160));
                 return line;
             }

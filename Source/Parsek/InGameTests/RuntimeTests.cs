@@ -8432,6 +8432,47 @@ namespace Parsek.InGameTests
             rec.MarkFilesDirty();
             return rec;
         }
+
+        /// <summary>
+        /// Direct-invoke coverage for the §5.3 plan path: assert
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording"/>
+        /// produces one leg with three body-local points from a single
+        /// Absolute TrackSection built through <c>RecordingBuilder</c>'s
+        /// <c>AddTrackSection</c> path (not raw struct init). The DDOL
+        /// Driver / Vectrosity submission stays out of scope of this in-
+        /// game test (per §5.3 the helper-in-isolation pattern); a live
+        /// playtest exercises the full draw.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Polyline builder produces one absolute-ascent leg with three body-local points")]
+        public void GhostTrajectoryPolyline_AbsoluteAscent_BuildsLegThroughPoints()
+        {
+            var rec = new Recording { RecordingId = "ingame-polyline-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+            InGameAssert.AreEqual(3, legs[0].bodyLocalPoints.Length, "expected 3 body-local points");
+            InGameAssert.AreEqual("Kerbin", legs[0].bodyName, "expected leg body Kerbin");
+        }
     }
 
     /// <summary>

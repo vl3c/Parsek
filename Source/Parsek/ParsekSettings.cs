@@ -168,14 +168,13 @@ namespace Parsek
         /// <summary>
         /// Map-view non-orbital ghost trajectory polyline (design plan
         /// docs/dev/plans/map-trajectory-polyline.md). When true, the
-        /// Tracking Station and flight map view draw a polyline through
-        /// every recorded non-orbital phase of every active ghost,
-        /// bridging the gap between successive orbit-line arcs. Default
-        /// false in commit 2 (review-only); flipped to true in commit 3
-        /// alongside the dashed line style swap.
+        /// Tracking Station and flight map view draw a dashed polyline
+        /// through every recorded non-orbital phase of every active
+        /// ghost, bridging the gap between successive orbit-line arcs.
+        /// Default true (commit 3 rollout flip).
         /// </summary>
         [GameParameters.CustomParameterUI("Use ghost trajectory polyline",
-            toolTip = "When on, the map view draws a polyline through every recorded non-orbital phase of every active ghost, bridging the gap between successive orbit-line arcs.")]
+            toolTip = "When on, the map view draws a dashed polyline through every recorded non-orbital phase of every active ghost, bridging the gap between successive orbit-line arcs.")]
         public bool useGhostTrajectoryPolyline
         {
             get { return _useGhostTrajectoryPolyline; }
@@ -191,7 +190,7 @@ namespace Parsek
                     ParsekSettingsPersistence.RecordUseGhostTrajectoryPolyline(value);
             }
         }
-        private bool _useGhostTrajectoryPolyline = false;
+        private bool _useGhostTrajectoryPolyline = true;
 
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
