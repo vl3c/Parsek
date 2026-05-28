@@ -1081,12 +1081,14 @@ namespace Parsek
 
             // True when the resolved unit carries a zero-drift relaunch schedule (a drifting
             // multi-constraint config). The cadence is then NON-UNIFORM, so the period cell shows a
-            // "varies" label off ScheduledMinIntervalSeconds instead of the fixed Solution.P.
+            // "varies" label off ScheduledTypicalIntervalSeconds instead of the fixed Solution.P.
             public bool IsScheduled;
 
-            // The scheduled unit's minimum relaunch interval (the representative cadence for the
-            // "varies" period-cell label). NaN when not scheduled.
-            public double ScheduledMinIntervalSeconds;
+            // The scheduled unit's TYPICAL (mean) relaunch interval - the representative cadence for
+            // the "varies" period-cell label. Read off the schedule's AverageIntervalSeconds (NOT its
+            // MinIntervalSeconds, which often coincides across modes because consecutive faithful k's
+            // hit the same short anchor-step gap). NaN when not scheduled.
+            public double ScheduledTypicalIntervalSeconds;
 
             // Supported + constrained: the loop is phase-locked to a real period P (not the free
             // MinCycleDuration). This is the state where the period cell shows P + basis label and
@@ -1164,10 +1166,13 @@ namespace Parsek
                 ? ComputeNextRelaunchUT(unit, nowUT)
                 : double.NaN;
             // Zero-drift: a scheduled (drifting) unit's cadence is non-uniform -> the period cell
-            // shows a "varies" label off the schedule's minimum interval, not the fixed Solution.P.
+            // shows a "varies" label off the schedule's AVERAGE (typical) interval, not the fixed
+            // Solution.P. We do NOT use MinIntervalSeconds here: it often coincides across modes
+            // (consecutive faithful k's hit the same short anchor-step gap), so the cell would not
+            // visibly differ when the user flips the A/B mode even when the actual cadence does.
             result.IsScheduled = result.UnitBuilt && unit.RelaunchSchedule != null;
-            result.ScheduledMinIntervalSeconds = result.IsScheduled
-                ? unit.RelaunchSchedule.MinIntervalSeconds
+            result.ScheduledTypicalIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.AverageIntervalSeconds
                 : double.NaN;
 
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
@@ -1674,7 +1679,7 @@ namespace Parsek
                 // value, not what the schedule actually runs).
                 string locked = periodicity.IsScheduled
                     ? BuildScheduledPeriodCellDisplay(
-                        periodicity.ScheduledMinIntervalSeconds, periodicity.DominantKind,
+                        periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
                         periodicity.DominantBodyName)
                     : BuildPeriodCellDisplay(
                         periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);

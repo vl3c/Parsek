@@ -1507,10 +1507,20 @@ namespace Parsek
         /// be resolved (degenerate inputs).</summary>
         internal double FirstLaunchUT { get; }
 
-        /// <summary>The minimum relaunch interval over the eager prefix (the builder rejects the
-        /// schedule when this is &lt; the mission span, keeping the fixed-cadence overlap path). With
-        /// the player throttle applied this reflects the ACTUAL spacing the schedule runs at.</summary>
+        /// <summary>The minimum relaunch interval over the eager prefix. Defensive: the span-floored
+        /// throttle guarantees every interval is &gt;= span, so this is &gt;= span by construction (the
+        /// overlap-reject gate, kept as a belt-and-suspenders check, always passes for a built
+        /// schedule). NOT a good user-facing display value because consecutive faithful k's often hit
+        /// the SAME small gap (~13 anchor periods) across very different cadence regimes - use
+        /// <see cref="AverageIntervalSeconds"/> for the period cell instead.</summary>
         internal double MinIntervalSeconds { get; }
+
+        /// <summary>The MEAN relaunch interval over the eager prefix - the representative cadence the
+        /// UI shows in the period cell. Unlike <see cref="MinIntervalSeconds"/> this reflects the
+        /// TYPICAL gap (the schedule's actual pace), so the cell visibly differs between modes (e.g.
+        /// the transited-body rotation A/B): Drop reads as days, Loose as weeks/months, Tight as
+        /// years.</summary>
+        internal double AverageIntervalSeconds { get; }
 
         /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
         /// (the maximum attainable cadence).</summary>
@@ -1549,7 +1559,10 @@ namespace Parsek
             lastK = k0;
             FirstLaunchUT = launches[0];
 
-            // Eager prefix to determine the min interval (the overlap gate + the display cadence).
+            // Eager prefix to determine BOTH the min interval (defensive gate, see MinIntervalSeconds)
+            // and the MEAN interval (the user-facing display cadence). Min often coincides across
+            // modes when consecutive faithful k's hit the same small gap, so it is NOT representative;
+            // mean over the prefix is.
             double minInterval = double.PositiveInfinity;
             for (int i = 0; i < MinIntervalProbeLaunches; i++)
             {
@@ -1560,6 +1573,11 @@ namespace Parsek
                     minInterval = interval;
             }
             MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? anchorPeriod : minInterval;
+            // Mean = (L_last - L_0) / (N - 1) over the cached prefix. Falls back to the anchor period
+            // when only one launch (no gap to average).
+            AverageIntervalSeconds = launches.Count >= 2
+                ? (launches[launches.Count - 1] - launches[0]) / (launches.Count - 1)
+                : anchorPeriod;
         }
 
         // Appends one more launch after the cached tail, honoring the player throttle: the next
