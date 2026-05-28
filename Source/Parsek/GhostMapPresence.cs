@@ -6031,10 +6031,25 @@ namespace Parsek
             else
             {
                 // Fallback: the resolver couldn't seed (e.g., orbit-segments missing in
-                // a degenerate test scenario). Use the single-segment bounds so the patch
-                // still has something to gate on rather than tearing the line down.
+                // a degenerate test scenario, or an EndpointTail synthetic segment whose
+                // startUT is not in the committed OrbitSegments). Use the single-segment
+                // bounds so the patch still has something to gate on rather than tearing
+                // the line down. Same key as the success branch so the cache write
+                // transitions visibly between body-frame and single-segment fallback.
                 ghostBodyFrameOrbitBounds[vessel.persistentId] =
                     (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
+                ParsekLog.VerboseOnChange(Tag,
+                    string.Format(ic, "body-frame-cache|{0}", vessel.persistentId),
+                    string.Format(ic, "fallback|{0:F3}-{1:F3}|shift={2:F3}",
+                        segment.startUT, segment.endUT, loopEpochShiftSeconds),
+                    string.Format(ic,
+                        "Cached body-frame bounds pid={0} recIndex={1} source=single-segment-fallback " +
+                        "rawSegmentUT={2:F2}-{3:F2} loopShift={4:F2}",
+                        vessel.persistentId,
+                        recordingIndex,
+                        segment.startUT,
+                        segment.endUT,
+                        loopEpochShiftSeconds));
             }
 
             Vector3d worldPos = vessel.GetWorldPos3D();
