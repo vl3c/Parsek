@@ -551,6 +551,51 @@ namespace Parsek
         // dominant period does not drift and gets no schedule.
         private const double PeriodEqualityRelTolerance = 1e-6;
 
+        // === Cross-parent look-ahead horizon (docs/dev/plans/cross-parent-bodies.md section 4.2) ===
+        // The k-walk look-ahead must cover several whole cycles of the LONGEST-period constraint, or
+        // the brute-force scan hits its bound before the next near-resonance opens. A same-body /
+        // same-parent config's longest period is short (Mun ~139 ks), so the floor below dominates and
+        // behavior is byte-identical to today; a deep cross-parent chain (Kerbin -> Tylo pulls in
+        // Jool's ~36-Kerbin-year heliocentric) has an enormous longest period, so the horizon grows.
+        internal const double LookaheadCoverageFactor = 8.0;
+
+        // Floor: the legacy fixed look-ahead, so single-/same-parent configs keep today's horizon.
+        internal const int MinLookaheadMultiples = ScheduleLookaheadMultiples;
+
+        // Ceiling: bounds the per-extend scan cost (each step is one CircularPhaseError per other
+        // constraint - microseconds). Covers the deepest stock chain (Kerbin -> Tylo, ~124k multiples)
+        // with headroom; a planet pack beyond this clamps to more amber (bounded-best) launches rather
+        // than ever stalling a frame.
+        internal const int MaxLookaheadMultiples = 262144;
+
+        /// <summary>
+        /// The k-walk horizon (number of ANCHOR-period multiples to scan) for a config's zero-drift
+        /// schedule: <see cref="LookaheadCoverageFactor"/> whole cycles of the LONGEST constraint
+        /// period, expressed in anchor-period steps, clamped to [<see cref="MinLookaheadMultiples"/>,
+        /// <see cref="MaxLookaheadMultiples"/>]. MUST be called with the SELECTED anchor period (from
+        /// <see cref="SelectAnchorConstraintIndex"/>) because the horizon counts anchor steps. Pure.
+        /// </summary>
+        internal static int RecommendedLookaheadMultiples(
+            IReadOnlyList<PhaseConstraint> constraints, double anchorPeriod)
+        {
+            if (constraints == null || constraints.Count == 0
+                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
+                return MinLookaheadMultiples;
+            double longest = 0.0;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                double p = constraints[i].PeriodSeconds;
+                if (!double.IsNaN(p) && !double.IsInfinity(p) && p > longest)
+                    longest = p;
+            }
+            double recommended = LookaheadCoverageFactor * longest / anchorPeriod;
+            if (double.IsNaN(recommended) || recommended < MinLookaheadMultiples)
+                return MinLookaheadMultiples;
+            if (recommended > MaxLookaheadMultiples)
+                return MaxLookaheadMultiples;
+            return (int)Math.Ceiling(recommended);
+        }
+
         /// <summary>
         /// Tier-1 solver (design doc Proposed design / Tier 1; plan Phase 1). Locks the SINGLE
         /// dominant constraint and returns P + the next faithful launch UT + the (knowingly
@@ -1173,9 +1218,14 @@ namespace Parsek
             if (periods.Count == 0 || !anyDistinct)
                 return false;
 
+            // Look-ahead horizon: cover several whole cycles of the longest constraint period in
+            // ANCHOR-period steps (computed off the SELECTED anchor period, so a cross-parent chain's
+            // long heliocentric leg widens the scan). Floored at the legacy ScheduleLookaheadMultiples,
+            // so same-parent configs are byte-identical.
+            int lookahead = RecommendedLookaheadMultiples(effective, anchorPeriod);
             var candidate = new MissionRelaunchSchedule(
                 ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
-                ScheduleLookaheadMultiples, minSpacingSeconds);
+                lookahead, minSpacingSeconds);
             if (double.IsNaN(candidate.FirstLaunchUT))
                 return false; // could not resolve a first launch (degenerate)
 

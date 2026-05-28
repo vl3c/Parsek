@@ -242,10 +242,17 @@ namespace Parsek
             MissionRelaunchSchedule relaunchSchedule = null;
             bool scheduleRejectedForOverlap = false;
             PeriodicitySolution solution = default;
+            // Cross-parent diagnostic: the pipe-delimited body list when the config crosses an SOI to
+            // a non-direct-child target (any RelativeToParent Orbital), captured here where the
+            // extraction is in scope; logged once below (Phase 4, plan section 7). Null = same-parent.
+            string crossParentBodies = null;
+            string crossParentLaunchBody = null;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
                     view, compRoots, committed, mission.ExcludedIntervalKeys, bodyInfo);
+                crossParentBodies = BuildCrossParentBodyList(extraction);
+                crossParentLaunchBody = extraction.LaunchBodyName;
                 // Reference time for "the next window at or after the loop was enabled": the
                 // loop-enable UT (LoopAnchorUT), so the snap is stable across frames (it does not
                 // drift with the live clock). NaN anchor -> reference the span start (cycle-0 lands
@@ -349,6 +356,19 @@ namespace Parsek
                         $"cadence {cadence.ToString("R", ic)}->{effectiveCadence.ToString("R", ic)} " +
                         $"residual={solution.ResidualSeconds.ToString("R", ic)} " +
                         $"withinTol={(solution.WithinTolerance ? "yes" : "no")}" + scheduleNote);
+
+                    // Cross-parent solve (Phase 4, plan section 7): a one-shot machine-readable Info
+                    // line naming the bodies whose heliocentric / deep phases were locked, so a log
+                    // reader can confirm an interplanetary mission resolved to a schedule.
+                    if (!string.IsNullOrEmpty(crossParentBodies))
+                    {
+                        double firstWindowUT = relaunchSchedule != null
+                            ? relaunchSchedule.FirstLaunchUT : phaseAnchorUT;
+                        ParsekLog.Info("MissionPeriodicity",
+                            $"CrossParent SOLVED tree={tree.Id} launch={crossParentLaunchBody ?? "?"} " +
+                            $"bodies={crossParentBodies} cadenceSeconds={effectiveCadence.ToString("R", ic)} " +
+                            $"firstWindowUT={firstWindowUT.ToString("R", ic)}");
+                    }
                 }
                 else if (bodyInfo != null)
                 {
@@ -606,6 +626,32 @@ namespace Parsek
                   .Append(bodyInfo.OrbitalVelocity(b).ToString("R", ic)).Append(';');
             }
             sb.Append('@');
+        }
+
+        /// <summary>
+        /// The pipe-delimited list of bodies whose CROSS-PARENT (RelativeToParent) Orbital phases the
+        /// config locks, in constraint order, or null when the config has no cross-parent constraint
+        /// (same-body / same-parent only). Used only for the one-shot CrossParent diagnostic line.
+        /// Pure.
+        /// </summary>
+        private static string BuildCrossParentBodyList(ConstraintExtraction extraction)
+        {
+            if (extraction.Constraints == null)
+                return null;
+            System.Text.StringBuilder sb = null;
+            for (int i = 0; i < extraction.Constraints.Count; i++)
+            {
+                PhaseConstraint c = extraction.Constraints[i];
+                if (c.Kind != ConstraintKind.Orbital || !c.RelativeToParent
+                    || string.IsNullOrEmpty(c.BodyName))
+                    continue;
+                if (sb == null)
+                    sb = new System.Text.StringBuilder(48);
+                else
+                    sb.Append('|');
+                sb.Append(c.BodyName);
+            }
+            return sb?.ToString();
         }
 
         private static RecordingTree FindTree(IReadOnlyList<RecordingTree> trees, string treeId)

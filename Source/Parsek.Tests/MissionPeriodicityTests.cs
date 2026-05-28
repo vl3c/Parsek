@@ -76,7 +76,7 @@ namespace Parsek.Tests
             f.Rotation["Kerbin"] = KerbinRotation;
             f.Rotation["Mun"] = MunRotation;          // tidally locked == orbit period
             f.Rotation["Minmus"] = 40400.0;
-            f.Rotation["Duna"] = 65517.86;
+            f.Rotation["Duna"] = 65766.0;   // Duna is NOT tidally locked (distinct from its orbit)
             f.Rotation["Ike"] = IkeOrbit;             // tidally locked
             f.Rotation["Eeloo"] = 19460.0;
             f.Rotation["Jool"] = 36000.0;
@@ -699,6 +699,46 @@ namespace Parsek.Tests
             };
             int anchor = MissionPeriodicity.SelectAnchorConstraintIndex(constraints, StockFake());
             Assert.Equal(1, anchor); // the pad, NOT the long-period Duna orbital
+        }
+
+        [Fact]
+        public void RecommendedLookaheadMultiples_ScalesWithLongestPeriodFlooredAndCapped()
+        {
+            // Guards (plan section 4.2): the k-walk horizon = 8 whole cycles of the LONGEST constraint
+            // period in ANCHOR-period steps, clamped to [Min, Max].
+            double anchor = KerbinRotation;
+
+            // Same-parent Mun (longest = Mun ~139 ks): 8*Mun/pad ~= 52, floored to MinLookaheadMultiples.
+            var munSet = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Orbital("Mun", MunOrbit, 0.0),
+            };
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(munSet, anchor));
+
+            // Kerbin -> Duna (longest = Duna heliocentric): grows past the floor.
+            var dunaSet = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Orbital("Duna", DunaOrbit, 0.0, crossParent: true),
+                Orbital("Kerbin", KerbinOrbit, 0.0, crossParent: true),
+            };
+            int expectedDuna = (int)Math.Ceiling(
+                MissionPeriodicity.LookaheadCoverageFactor * DunaOrbit / anchor);
+            Assert.Equal(expectedDuna, MissionPeriodicity.RecommendedLookaheadMultiples(dunaSet, anchor));
+            Assert.True(expectedDuna > MissionPeriodicity.MinLookaheadMultiples);
+
+            // Absurd period clamps to MaxLookaheadMultiples.
+            var absurd = new List<PhaseConstraint> { Orbital("X", 1e15, 0.0, crossParent: true) };
+            Assert.Equal(MissionPeriodicity.MaxLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(absurd, anchor));
+
+            // Degenerate inputs fall back to the floor.
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(null, anchor));
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(munSet, 0.0));
         }
 
         [Fact]
@@ -1598,6 +1638,10 @@ namespace Parsek.Tests
             Assert.True(k >= 1.0);
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED"));
+            // The one-shot cross-parent diagnostic names the heliocentric bodies (Duna + Kerbin).
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("CrossParent SOLVED") &&
+                l.Contains("launch=Kerbin") && l.Contains("Duna") && l.Contains("bodies="));
         }
 
         [Fact]
