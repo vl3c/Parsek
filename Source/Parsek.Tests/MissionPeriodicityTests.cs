@@ -1347,5 +1347,89 @@ namespace Parsek.Tests
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
             Assert.NotEqual(noBody, withBody);
         }
+
+        // ===== Body-hierarchy walk (salvaged from PR #968; re-aim segment classification) =====
+
+        [Theory]
+        [InlineData("Sun", "Sun")]
+        [InlineData("Kerbin", "Kerbin,Sun")]
+        [InlineData("Mun", "Mun,Kerbin,Sun")]
+        [InlineData("Minmus", "Minmus,Kerbin,Sun")]
+        [InlineData("Duna", "Duna,Sun")]
+        public void AncestorChain_StockBodies_ChildToRootInclusive(string body, string expectedCsv)
+        {
+            var chain = MissionPeriodicity.AncestorChain(body, StockFake());
+            Assert.Equal(expectedCsv, string.Join(",", chain));
+        }
+
+        [Fact]
+        public void AncestorChain_NullOrUnknown_HandledCleanly()
+        {
+            Assert.Empty(MissionPeriodicity.AncestorChain(null, StockFake()));
+            Assert.Empty(MissionPeriodicity.AncestorChain("", StockFake()));
+            // Unknown body: ReferenceBodyName returns null, so the chain is just the body itself.
+            Assert.Equal(new[] { "Nope" }, MissionPeriodicity.AncestorChain("Nope", StockFake()));
+        }
+
+        [Fact]
+        public void AncestorChain_CyclicGraph_TerminatesNoHang()
+        {
+            var f = new FakeBodyInfo();
+            f.Parent["A"] = "B";
+            f.Parent["B"] = "A"; // cycle
+            Assert.Equal(new[] { "A", "B" }, MissionPeriodicity.AncestorChain("A", f));
+        }
+
+        [Theory]
+        // launch, target, expectedAncestor, launchToAnc(csv), targetToAnc(csv)
+        [InlineData("Kerbin", "Mun", "Kerbin", "", "Mun")]
+        [InlineData("Kerbin", "Minmus", "Kerbin", "", "Minmus")]
+        [InlineData("Kerbin", "Duna", "Sun", "Kerbin", "Duna")]
+        public void TryFindCommonAncestor_StockPairs(
+            string launch, string target, string expAnc, string expLaunchCsv, string expTargetCsv)
+        {
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                launch, target, StockFake(), out string anc, out var l2a, out var t2a);
+            Assert.True(ok);
+            Assert.Equal(expAnc, anc);
+            Assert.Equal(expLaunchCsv, string.Join(",", l2a));
+            Assert.Equal(expTargetCsv, string.Join(",", t2a));
+        }
+
+        [Fact]
+        public void TryFindCommonAncestor_SameBody_AncestorIsItselfBothChainsEmpty()
+        {
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                "Kerbin", "Kerbin", StockFake(), out string anc, out var l2a, out var t2a);
+            Assert.True(ok);
+            Assert.Equal("Kerbin", anc);
+            Assert.Empty(l2a);
+            Assert.Empty(t2a);
+        }
+
+        [Fact]
+        public void TryFindCommonAncestor_SameParentVsCrossParent_DistinguishesReaimMode()
+        {
+            // The re-aim mode switch: launchToAnc EMPTY == same-parent (faithful replay);
+            // launchToAnc NON-EMPTY == cross-parent (re-aim).
+            MissionPeriodicity.TryFindCommonAncestor("Kerbin", "Mun", StockFake(), out _, out var munLaunch, out _);
+            Assert.Empty(munLaunch);                 // Mun is same-parent -> faithful
+            MissionPeriodicity.TryFindCommonAncestor("Kerbin", "Duna", StockFake(), out _, out var dunaLaunch, out _);
+            Assert.NotEmpty(dunaLaunch);             // Duna is cross-parent -> re-aim
+        }
+
+        [Fact]
+        public void TryFindCommonAncestor_Disconnected_ReturnsFalse()
+        {
+            var f = new FakeBodyInfo();
+            f.Parent["Kerbin"] = "Sun"; f.Parent["Sun"] = null;
+            f.Parent["X"] = "OtherStar"; f.Parent["OtherStar"] = null;
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                "Kerbin", "X", f, out string anc, out var l2a, out var t2a);
+            Assert.False(ok);
+            Assert.Null(anc);
+            Assert.Empty(l2a);
+            Assert.Empty(t2a);
+        }
     }
 }
