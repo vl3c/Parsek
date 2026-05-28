@@ -8815,7 +8815,8 @@ namespace Parsek
             // TrimRecordingToUT's log line is fine — it reflects the pre-trim state.
             // A sub-threshold backwards step is a #419-class stale-UT seam artifact:
             // reject it so the flat Points list and dual-written TrackSection frames
-            // stay monotonic (the BG path rejects the same shape).
+            // stay monotonic (the BG path rejects all backwards appends outright; this
+            // is the foreground analog, keeping the large-regression revert trim).
             var timeOrder = ClassifyForegroundCommitTimeOrder(Recording.Count, point.ut, lastRecordedUT);
             if (timeOrder == ForegroundCommitTimeOrder.TrimThenAppend)
             {
@@ -9483,7 +9484,11 @@ namespace Parsek
 
             ActivateHighFidelitySampling(eventUT, $"structural-event-{eventType ?? "unknown"}");
 
-            int snapshotsAppended = 0;
+            // Counts vessels that matched RecordingVesselId (i.e. a snapshot was
+            // attempted), NOT how many points actually landed — CommitRecordedPoint
+            // may reject a non-monotonic point. The == 0 guard below only needs the
+            // "did any vessel match" signal, so the match count is the right basis.
+            int matchedVessels = 0;
             int vesselsConsidered = 0;
             foreach (Vessel v in involved)
             {
@@ -9503,7 +9508,7 @@ namespace Parsek
                 bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
                 CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
-                snapshotsAppended++;
+                matchedVessels++;
 
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
@@ -9519,7 +9524,7 @@ namespace Parsek
                         relativeApplied ? "true" : "false"));
             }
 
-            if (vesselsConsidered > 0 && snapshotsAppended == 0)
+            if (vesselsConsidered > 0 && matchedVessels == 0)
             {
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
