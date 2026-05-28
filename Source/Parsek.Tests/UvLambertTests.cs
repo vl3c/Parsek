@@ -62,6 +62,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Solve_OffPhaseAndLongTransfers_NeverReturnSilentGarbage()
+        {
+            // Guards review C-1: the solver must FAIL CLOSED on non-convergence, never return true with
+            // a conic that does not actually reach the target. Sweep many transfer geometries -
+            // including >180-degree (long-way, A<0) and long time-of-flight, the cases where Newton +
+            // the y<0 z-bump diverge - and assert the CONTRACT: every success round-trips onto r2.
+            // (Before the fix these returned a plausible bound ellipse that missed r2 by hundreds of
+            // percent.) Earth->Mars-scale heliocentric geometry.
+            const double muSun = 1.327e20;
+            var r1 = new Vector3d(1.496e11, 0.0, 0.0);
+            int checkedSuccesses = 0;
+            double[] anglesDeg = { 30, 75, 120, 170, 190, 230, 260, 290, 330 };
+            double[] tofDays = { 90, 150, 220, 300, 400, 600 };
+            foreach (double aDeg in anglesDeg)
+            {
+                double a = aDeg * System.Math.PI / 180.0;
+                var r2 = new Vector3d(2.279e11 * System.Math.Cos(a), 2.279e11 * System.Math.Sin(a), 0.0);
+                foreach (double d in tofDays)
+                {
+                    double tof = d * 86400.0;
+                    if (!UvLambert.Solve(muSun, r1, r2, tof, prograde: true, out Vector3d v1, out _))
+                        continue; // fail-closed cases are fine (the scheduler skips them)
+                    // If it claims success, the solved departure velocity MUST reach r2.
+                    Vector3d end = PropagateTwoBody(r1, v1, muSun, tof);
+                    double miss = (end - r2).magnitude;
+                    Assert.True(miss < 0.01 * r2.magnitude,
+                        $"angle={aDeg}deg tof={d}d: success must reach r2, miss={miss:E2} of {r2.magnitude:E2}");
+                    checkedSuccesses++;
+                }
+            }
+            // Sanity: at least the near-Hohmann geometries solved (so the test actually exercised the
+            // success path, not just trivially passing because everything returned false).
+            Assert.True(checkedSuccesses > 0, "expected at least one valid transfer in the sweep");
+        }
+
+        [Fact]
         public void Solve_CollinearEndpoints_ReturnsFalse()
         {
             // ~180-degree transfer (r2 antiparallel to r1): plane undefined -> bail (caller skips).

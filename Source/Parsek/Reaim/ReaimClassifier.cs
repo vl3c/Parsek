@@ -95,6 +95,9 @@ namespace Parsek.Reaim
                     break;
                 }
             }
+            // Belt-and-suspenders: segs[0] is the launch body and helioIdx is a STRICT ancestor (never
+            // index 0), so a launch-body segment always precedes it and this never fires - kept as a
+            // cheap defensive guard.
             if (parkingIdx < 0)
                 return ReaimMissionPlan.Unsupported(launchBody,
                     "no launch-body parking orbit before the heliocentric leg");

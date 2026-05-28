@@ -9,10 +9,15 @@ namespace Parsek.Reaim
     // window (docs/dev/plans/reaim-interplanetary-transfers.md, Phase 1).
     //
     // PURE: Vector3d (double) math only, no Unity scene state, no shared mutable state - fully
-    // unit-testable against textbook solutions (Curtis Example 5.2). OUR code (not a port). The caller
-    // VALIDATES the resulting conic's energy/eccentricity and steps to the next window on a degenerate
-    // result (plan review M3), which covers the near-180-degree / very-short-tof geometries where the
-    // universal-variable method degrades. Single-revolution only (re-aim does not need multi-rev).
+    // unit-testable against textbook solutions (Curtis Example 5.2). OUR code (not a port).
+    // Single-revolution only (re-aim does not need multi-rev).
+    //
+    // FAIL-CLOSED on non-convergence: the y<0 z-bump is the Curtis recipe for a PROGRADE transfer
+    // < 180 deg (A>0); for a transfer > 180 deg (A<0) Newton can diverge, so the solver verifies the
+    // time residual at the final z and returns false if it is not ~0 (never returns a plausible-looking
+    // but wrong conic). The caller (ReaimTransferSynthesizer) additionally validates the conic's
+    // eccentricity and steps to the next window on any failure - so an off-phase departure simply
+    // yields no transfer rather than a garbage one (plan review C-1 / M3).
     internal static class UvLambert
     {
         internal const int MaxNewtonIterations = 60;
@@ -141,6 +146,8 @@ namespace Parsek.Reaim
                     return false;
 
                 double zNext = z - F / dFdz;
+                if (double.IsNaN(zNext) || double.IsInfinity(zNext))
+                    return false;
                 if (Math.Abs(zNext - z) <= 1e-8 * Math.Max(1.0, Math.Abs(z)))
                 {
                     z = zNext;
@@ -152,8 +159,23 @@ namespace Parsek.Reaim
             // Final state from the converged z (Lagrange coefficients).
             double Cf = StumpffC(z);
             double Sf = StumpffS(z);
+            if (Cf <= 1e-12)
+                return false; // z ran into the C(z)->0 singularity (~ (2pi)^2): diverged
             double yf = r1m + r2m + A * (z * Sf - 1.0) / Math.Sqrt(Cf);
             if (yf <= 0.0 || double.IsNaN(yf))
+                return false;
+
+            // FAIL CLOSED on non-convergence (review C-1). The y<0 bump above only ever RAISES z,
+            // which is the Curtis recipe for a prograde transfer < 180 deg (A>0); for a transfer
+            // > 180 deg (A<0) Newton can diverge (z runs away) yet still land on a plausible-looking
+            // bound ellipse that IsSaneTransferConic would accept and that misses the target by
+            // hundreds of percent. The iteration count alone does not prove convergence, so verify the
+            // time residual: F(z) = (y/C)^1.5 * S + A*sqrt(y) - sqrt(mu)*tof must be ~0 relative to the
+            // sqrt(mu)*tof scale. Converged solutions sit at ~1e-13 relative; diverged ones at >> 1.
+            double xf = Math.Sqrt(yf / Cf);
+            double residual = xf * xf * xf * Sf + A * Math.Sqrt(yf) - sqrtMu * tof;
+            double residualScale = Math.Abs(sqrtMu * tof);
+            if (double.IsNaN(residual) || Math.Abs(residual) > 1e-6 * Math.Max(1.0, residualScale))
                 return false;
 
             double f = 1.0 - yf / r1m;

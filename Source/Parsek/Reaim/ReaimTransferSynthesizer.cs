@@ -79,6 +79,11 @@ namespace Parsek.Reaim
             double arrivalUT = departureUT + tofSeconds;
 
             // Heliocentric endpoints, un-swizzled to a consistent world frame for the Lambert solve.
+            // Both bodies' orbits are relative to the shared parent (the Sun), so r1/r2 are in the same
+            // frame. NOTE (deliberate, do NOT "simplify"): the Lambert solve is frame-agnostic, so the
+            // .xzy here and the .xzy below are a round-trip through the orbit API's native swizzled
+            // frame - applied identically to r1 and v1, the conic is invariant. Dropping one .xzy would
+            // silently corrupt the orbit. (Verified correct in-game by the C2 canary.)
             Vector3d r1 = launchBody.orbit.getRelativePositionAtUT(departureUT).xzy;
             Vector3d r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy;
 

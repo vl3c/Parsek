@@ -78,10 +78,12 @@ namespace Parsek.InGameTests
                 }
             }
 
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
             ParsekLog.Info("ReaimCanary",
                 $"Kerbin->Duna scan: steps={steps} saneTransfers={saneTransfers} encounters={encounters} " +
-                $"tof={tof:F0}s synodic={synodic:F0}s firstEncounterDepUT={firstEncounterDepUT:F1} " +
-                $"firstSoiEntryUT={firstSoiEntryUT:F1} lastFail={lastFail ?? "<none>"}");
+                $"tof={tof.ToString("F0", ic)}s synodic={synodic.ToString("F0", ic)}s " +
+                $"firstEncounterDepUT={firstEncounterDepUT.ToString("F1", ic)} " +
+                $"firstSoiEntryUT={firstSoiEntryUT.ToString("F1", ic)} lastFail={lastFail ?? "<none>"}");
 
             // The C2 gate: at least one departure window in a synodic period must yield a real Duna
             // encounter on the synthetic orbit under default settings. (Most windows are off-phase and

@@ -218,6 +218,11 @@ This is where re-aim earns its complexity; the doc commits to v1 choices and fla
   and the same seam class the existing faithful landing-handoff already tolerates - instead of a
   plane-change kink in low orbit. (Deferred polish: rotate the parking-orbit LAN to contain v_inf and
   re-time the ascent, erasing the seam entirely.)
+  - **Phase 3 implementation note (review #4):** the classifier surfaces only the parking orbit's
+    KEPLER elements (an `OrbitSegment`), not a state vector. Recover the SOI-exit state by sampling
+    that `ParkingOrbit` segment at its `endUT` (Kepler->state is deterministic via `Orbit`); verify
+    against a real recording that the parking-segment `endUT` actually coincides with the launch-body
+    SOI-exit moment (it is the last launch-body segment before the heliocentric leg, so it should).
 - **S2 -> S3 (transfer SOI entry -> recorded arrival).** `CalculatePatch` gives the exact target-SOI
   entry UT + the target-relative hyperbola (`nextPatch`). The recorded arrival arc S3 is re-anchored
   so its start coincides with that UT, target-relative. The recorded capture orbit's plane/periapsis
