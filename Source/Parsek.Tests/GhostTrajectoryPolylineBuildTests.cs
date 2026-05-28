@@ -49,10 +49,17 @@ namespace Parsek.Tests
             var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Single(legs);
-            Assert.Equal(3, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(3, legs[0].PointCount);
             Assert.Equal("Kerbin", legs[0].bodyName);
             Assert.Equal(100.0, legs[0].startUT);
             Assert.Equal(300.0, legs[0].endUT);
+            // The builder caches the recorded body-fixed (lat, lon, alt)
+            // triples verbatim -- no geometry conversion happens in the pure
+            // builder; the Driver converts via GetWorldSurfacePosition per
+            // frame. Verify the triples match the source points index-wise.
+            Assert.Equal(new[] { -0.1, -0.05, 0.0 }, legs[0].lats);
+            Assert.Equal(new[] { -74.5, -74.5, -74.5 }, legs[0].lons);
+            Assert.Equal(new[] { 70.0, 20000.0, 100000.0 }, legs[0].alts);
         }
 
         [Fact]
@@ -80,7 +87,7 @@ namespace Parsek.Tests
             var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Single(legs);
-            Assert.Equal(3, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(3, legs[0].PointCount);
             Assert.Equal("Kerbin", legs[0].bodyName);
         }
 
@@ -140,7 +147,7 @@ namespace Parsek.Tests
             // Section endUT lands exactly at the orbital interval start -- the
             // filter excludes UT >= orbitalStart, so the trailing point at
             // ut=200 is suppressed. The leg should have the first two frames.
-            Assert.Equal(2, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(2, legs[0].PointCount);
         }
 
         [Fact]
@@ -181,7 +188,7 @@ namespace Parsek.Tests
             var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Single(legs);
-            Assert.Equal(3, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(3, legs[0].PointCount);
         }
 
         [Fact]
@@ -220,10 +227,17 @@ namespace Parsek.Tests
             var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Single(legs);
-            Assert.Equal(3, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(3, legs[0].PointCount);
             // Body resolved from the body-fixed list, not the anchor-local
             // bogus list.
             Assert.Equal("Kerbin", legs[0].bodyName);
+            // The cached lat/lon/alt triples MUST come from bodyFixedFrames
+            // (real spherical lat/lon/alt), NOT from frames (anchor-local
+            // metre offsets). Reading the metre offsets as lat/lon/alt is the
+            // CLAUDE.md RELATIVE-frame footgun that puts the leg inside the
+            // planet. Assert the cached lats are the body-fixed degrees.
+            Assert.Equal(new[] { 0.2, 0.25, 0.3 }, legs[0].lats);
+            Assert.Equal(new[] { 80000.0, 82000.0, 84000.0 }, legs[0].alts);
         }
 
         [Fact]
@@ -419,7 +433,7 @@ namespace Parsek.Tests
 
             Assert.Single(legs);
             Assert.Equal(GhostTrajectoryPolylineRenderer.MaxPolylinePointsPerLeg,
-                legs[0].bodyLocalPoints.Length);
+                legs[0].PointCount);
             // Endpoints preserved at the cap.
             Assert.Equal(frames[0].ut, legs[0].startUT);
             Assert.Equal(frames[999].ut, legs[0].endUT);
@@ -474,8 +488,94 @@ namespace Parsek.Tests
             var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Single(legs);
-            Assert.Equal(3, legs[0].bodyLocalPoints.Length);
+            Assert.Equal(3, legs[0].PointCount);
             Assert.Equal("Kerbin", legs[0].bodyName);
+        }
+
+        // --- Static visibility filter (MAJOR fix: polyline is a static
+        //     full-path bridge; it must NOT inherit the per-head-UT gates
+        //     OrbitSegmentActive / NativeIconActive) ---
+
+        [Fact]
+        public void StaticSkip_NormalRecording_NotSkipped()
+        {
+            var rec = new Recording { RecordingId = "rec-static-ok" };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(200.0, 0.0, 0.0, 100.0));
+
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(rec, null);
+
+            Assert.Equal(GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.None, reason);
+        }
+
+        [Fact]
+        public void StaticSkip_WithOrbitSegments_StillNotSkipped()
+        {
+            // The polyline must remain visible even when the recording has
+            // OrbitSegments (i.e. the playback head could be in an orbital
+            // phase). The OLD code routed through ClassifyAtmosphericMarkerSkip
+            // which returned OrbitSegmentActive and blinked the whole polyline
+            // out. The static filter ignores orbital cover entirely.
+            var rec = new Recording { RecordingId = "rec-has-orbit" };
+            rec.Points.Add(MakePoint(0.0, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(1000.0, 0.0, 0.0, 100000.0));
+            rec.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 0.0, endUT = 1000.0,
+                bodyName = "Kerbin", semiMajorAxis = 700000.0
+            });
+
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(rec, null);
+
+            Assert.Equal(GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.None, reason);
+        }
+
+        [Fact]
+        public void StaticSkip_DebrisRecording_Skipped()
+        {
+            var rec = new Recording { RecordingId = "rec-debris", IsDebris = true };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(200.0, 0.0, 0.0, 100.0));
+
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(rec, null);
+
+            Assert.Equal(GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.Debris, reason);
+        }
+
+        [Fact]
+        public void StaticSkip_NoTrajectoryPoints_Skipped()
+        {
+            var rec = new Recording { RecordingId = "rec-empty" };
+
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(rec, null);
+
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.NoTrajectoryPoints,
+                reason);
+        }
+
+        [Fact]
+        public void StaticSkip_Suppressed_Skipped()
+        {
+            var rec = new Recording { RecordingId = "rec-suppressed" };
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 70.0));
+            rec.Points.Add(MakePoint(200.0, 0.0, 0.0, 100.0));
+            var suppressed = new HashSet<string> { "rec-suppressed" };
+
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(rec, suppressed);
+
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.SuppressedByChainFilter,
+                reason);
+        }
+
+        [Fact]
+        public void StaticSkip_NullRecording_Skipped()
+        {
+            var reason = GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip(null, null);
+            Assert.Equal(
+                GhostTrajectoryPolylineRenderer.PolylineStaticSkipReason.NullRecording,
+                reason);
         }
 
         // --- Helpers ---

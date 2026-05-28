@@ -17,10 +17,20 @@ namespace Parsek.Display
     ///
     /// Bridges the gap between successive ghost orbit-line arcs by drawing a
     /// polyline through the recorded trajectory points for atmospheric /
-    /// propulsive / surface phases that have no Keplerian arc. The cache
-    /// stores body-LOCAL Vector3d arrays per leg so the per-frame hot path
-    /// is just (body.position + cached_offset) + ScaledSpace transform with
-    /// zero allocation.
+    /// propulsive / surface phases that have no Keplerian arc.
+    ///
+    /// The pure builder caches the recorded body-fixed (lat, lon, alt)
+    /// triples per leg point and does NO geometry conversion (so it stays
+    /// deterministic + xUnit-testable without a live CelestialBody). The
+    /// Driver's per-frame hot path converts each triple to a world position
+    /// via the live <c>CelestialBody.GetWorldSurfacePosition(lat, lon, alt)</c>
+    /// call -- exactly the conversion <c>ParsekTrackingStation</c>'s
+    /// atmospheric-marker resolver uses at line 1199 -- then runs it through
+    /// <c>ScaledSpace.LocalToScaledSpace</c>. Reusing
+    /// <see cref="LegPolyline.scratchScaledSpace"/> + the shared
+    /// <c>VectorLine.points3</c> keeps the hot path zero-alloc. The 200-point
+    /// per-leg cap (§1.3) keeps the per-frame GetWorldSurfacePosition cost
+    /// well within budget.
     ///
     /// Commit 1 ships data structures + pure builder + cache lifecycle
     /// helpers. The Vectrosity Driver MonoBehaviour and the per-frame walk
@@ -64,15 +74,28 @@ namespace Parsek.Display
         internal struct LegPolyline
         {
             /// <summary>
-            /// M body-LOCAL points (recorded-time spherical -> Cartesian).
-            /// Per-frame hot path adds CelestialBody.position to each entry
-            /// to reach world-space.
+            /// M recorded body-fixed latitudes (degrees). Paired index-wise
+            /// with <see cref="lons"/> / <see cref="alts"/>. The Driver
+            /// converts each (lat, lon, alt) triple to a world position per
+            /// frame via the live <c>CelestialBody.GetWorldSurfacePosition</c>
+            /// (same call ParsekTrackingStation.cs:1199 uses for the
+            /// atmospheric marker), so the polyline lands exactly where a
+            /// marker would. No body-local conversion is cached -- caching a
+            /// body-fixed <c>GetRelSurfacePosition</c> and adding
+            /// <c>body.position</c> would ignore the body's live rotation and
+            /// drift from the marker / orbit arcs.
             /// </summary>
-            public Vector3d[] bodyLocalPoints;
+            public double[] lats;
+
+            /// <summary>M recorded body-fixed longitudes (degrees).</summary>
+            public double[] lons;
+
+            /// <summary>M recorded body-fixed altitudes (metres above body radius).</summary>
+            public double[] alts;
 
             /// <summary>
             /// M-element scratch buffer for per-frame ScaledSpace output
-            /// (zero-alloc hot path; commit 2 copies into the shared
+            /// (zero-alloc hot path; the Driver copies into the shared
             /// VectorLine.points3 at this leg's stable offset).
             /// </summary>
             public Vector3[] scratchScaledSpace;
@@ -94,6 +117,9 @@ namespace Parsek.Display
             /// known without consulting the Vectrosity object.
             /// </summary>
             public int pointsStartIdx;
+
+            /// <summary>Number of points in this leg (M).</summary>
+            public int PointCount => lats != null ? lats.Length : 0;
         }
 
         /// <summary>
@@ -174,7 +200,7 @@ namespace Parsek.Display
             {
                 var leg = legs[i];
                 leg.pointsStartIdx = totalPoints;
-                totalPoints += leg.bodyLocalPoints.Length;
+                totalPoints += leg.PointCount;
                 legArray[i] = leg;
             }
 
@@ -383,66 +409,38 @@ namespace Parsek.Display
         /// TrajectoryPoints. Downsamples to <see cref="MaxPolylinePointsPerLeg"/>
         /// keeping the first + last sample and uniform-striding the
         /// remaining (cap - 2) interior samples (§1.3 endpoint preservation).
+        ///
+        /// Stores ONLY the recorded body-fixed (lat, lon, alt) triples; no
+        /// geometry conversion happens here so the builder stays pure +
+        /// xUnit-testable. The Driver converts each triple to a live world
+        /// position per frame via <c>CelestialBody.GetWorldSurfacePosition</c>.
         /// </summary>
         internal static LegPolyline BuildLegFromBodyFixedPoints(
             List<TrajectoryPoint> points, string bodyName)
         {
             var sampled = DownsamplePreservingEndpoints(points, MaxPolylinePointsPerLeg);
             int m = sampled.Count;
-            var bodyLocal = new Vector3d[m];
+            var lats = new double[m];
+            var lons = new double[m];
+            var alts = new double[m];
             for (int i = 0; i < m; i++)
             {
                 var p = sampled[i];
-                bodyLocal[i] = SphericalToBodyLocal(p.latitude, p.longitude, p.altitude);
+                lats[i] = p.latitude;
+                lons[i] = p.longitude;
+                alts[i] = p.altitude;
             }
             return new LegPolyline
             {
-                bodyLocalPoints = bodyLocal,
+                lats = lats,
+                lons = lons,
+                alts = alts,
                 scratchScaledSpace = new Vector3[m],
                 bodyName = bodyName,
                 startUT = sampled[0].ut,
                 endUT = sampled[m - 1].ut,
                 pointsStartIdx = 0
             };
-        }
-
-        /// <summary>
-        /// Test-friendly pure-arithmetic stand-in for
-        /// <c>CelestialBody.GetRelSurfacePosition(lat, lon, alt)</c>. KSP's
-        /// runtime call is wired in at the Driver level (commit 2); the
-        /// commit 1 builder routes through this helper so the unit tests
-        /// (which cannot stand up a real CelestialBody) can assert on the
-        /// cached arrays.
-        ///
-        /// Returns a body-local Cartesian (BodyFrame x/y/z in metres) using
-        /// the same spherical contract KSP's resolver uses (lat in [-90,90]
-        /// degrees, lon in degrees, alt in metres above body radius). Body
-        /// radius is unknown at this layer so the helper returns the alt-
-        /// only Cartesian unit-vector scaling and the Driver supplies the
-        /// real conversion at frame time via body.GetRelSurfacePosition.
-        ///
-        /// In production code the Driver builds bodyLocalPoints via
-        /// CelestialBody.GetRelSurfacePosition (commit 2). The xUnit suite
-        /// asserts on the deterministic outputs of this pure helper.
-        /// </summary>
-        internal static Vector3d SphericalToBodyLocal(double latDeg, double lonDeg, double alt)
-        {
-            const double Deg2Rad = System.Math.PI / 180.0;
-            double phi = latDeg * Deg2Rad;
-            double lam = lonDeg * Deg2Rad;
-            double cosPhi = System.Math.Cos(phi);
-            double sinPhi = System.Math.Sin(phi);
-            double cosLam = System.Math.Cos(lam);
-            double sinLam = System.Math.Sin(lam);
-            // r is the recorded body-relative magnitude. KSP's real
-            // GetRelSurfacePosition uses (body.Radius + alt); since this is a
-            // unit-test fixture, we collapse the body radius to a constant
-            // PlanetRadiusMetres = 600,000 (Kerbin's radius) so test
-            // assertions can be deterministic without a live CelestialBody.
-            // The Driver (commit 2) ignores this helper at runtime.
-            const double PlanetRadiusMetres = 600000.0;
-            double r = PlanetRadiusMetres + alt;
-            return new Vector3d(r * cosPhi * cosLam, r * sinPhi, r * cosPhi * sinLam);
         }
 
         /// <summary>
@@ -581,6 +579,46 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Reason a recording is excluded from the STATIC polyline pass.
+        /// </summary>
+        internal enum PolylineStaticSkipReason
+        {
+            None,
+            NullRecording,
+            Debris,
+            NoTrajectoryPoints,
+            SuppressedByChainFilter,
+        }
+
+        /// <summary>
+        /// Pure STATIC visibility filter for the full-path polyline (§0.1).
+        ///
+        /// The polyline is a static bridge drawn for the WHOLE recording
+        /// regardless of where the playback head currently is, so it must
+        /// NOT inherit <c>ParsekTrackingStation.ClassifyAtmosphericMarkerSkip</c>'s
+        /// per-head-UT gates (<c>OrbitSegmentActive</c> / <c>NativeIconActive</c>):
+        /// those blink the whole polyline out whenever the head enters an
+        /// orbital phase or while an un-suppressed ghost ProtoVessel exists,
+        /// which defeats the bridge. We replicate only the recording-level
+        /// static subset of that helper:
+        /// debris exclusion, no-committed-trajectory, and suppression. The
+        /// missing-body filter and the loop-unit <c>renderHidden</c> filter
+        /// are applied separately by the Driver (renderHidden via
+        /// <c>ResolveTrackingStationSampleUT</c>; missing body per leg).
+        /// </summary>
+        internal static PolylineStaticSkipReason ClassifyPolylineStaticSkip(
+            Recording rec, HashSet<string> suppressedIds)
+        {
+            if (rec == null) return PolylineStaticSkipReason.NullRecording;
+            if (rec.IsDebris) return PolylineStaticSkipReason.Debris;
+            if (rec.Points == null || rec.Points.Count == 0)
+                return PolylineStaticSkipReason.NoTrajectoryPoints;
+            if (suppressedIds != null && suppressedIds.Contains(rec.RecordingId))
+                return PolylineStaticSkipReason.SuppressedByChainFilter;
+            return PolylineStaticSkipReason.None;
+        }
+
+        /// <summary>
         /// Scene-wide MonoBehaviour that performs the per-frame walk over
         /// <c>RecordingStore.CommittedRecordings</c>, refreshes the cache
         /// (hash-gated), and submits each recording's shared VectorLine
@@ -601,6 +639,20 @@ namespace Parsek.Display
 
             internal static Driver Instance => instance;
 
+            // Per-scene controller cache (MINOR-1): FindObjectOfType is an
+            // expensive scene scan, so cache the resolved controller and
+            // re-resolve only when it is null or when the scene changed.
+            private GameScenes cachedControllerScene = (GameScenes)(-1);
+            private ParsekTrackingStation cachedTsController;
+            private ParsekFlight cachedFlightController;
+
+            // Per-frame name->CelestialBody cache (MINOR-2): FlightGlobals.Bodies
+            // is a linear scan; build a name->body map once and rebuild only
+            // when the scene changes (bodies are stable within a scene).
+            private readonly Dictionary<string, CelestialBody> bodyByName =
+                new Dictionary<string, CelestialBody>(StringComparer.Ordinal);
+            private GameScenes bodyMapScene = (GameScenes)(-1);
+
             void Awake()
             {
                 if (instance != null)
@@ -611,6 +663,7 @@ namespace Parsek.Display
                 instance = this;
                 DontDestroyOnLoad(gameObject);
                 GameEvents.onGameStateLoad.Add(OnGameStateLoad);
+                GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
                 ParsekLog.Verbose(DriverTag,
                     "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
             }
@@ -621,9 +674,26 @@ namespace Parsek.Display
                 {
                     instance = null;
                     GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
+                    GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
+            }
+
+            /// <summary>
+            /// Drops the cached per-scene controller + body-name map on every
+            /// scene load so the next LateUpdate re-resolves them once for the
+            /// new scene (MINOR-1 / MINOR-2). The DDOL Driver outlives scene
+            /// transitions, so a stale controller from the previous scene must
+            /// not be reused.
+            /// </summary>
+            private void OnLevelWasLoaded(GameScenes scene)
+            {
+                cachedControllerScene = (GameScenes)(-1);
+                cachedTsController = null;
+                cachedFlightController = null;
+                bodyMapScene = (GameScenes)(-1);
+                bodyByName.Clear();
             }
 
             /// <summary>
@@ -661,18 +731,20 @@ namespace Parsek.Display
                 double currentUT = Planetarium.GetUniversalTime();
 
                 // Resolve cachedLoopUnits per-scene. The underlying field
-                // is a private per-scene instance member on three
+                // is a private per-scene instance member on two
                 // different MonoBehaviours; the DDOL singleton Driver has
                 // no direct handle, so it looks up the matching scene
                 // controller and reads through the internal
-                // CurrentCachedLoopUnits accessor. Transitional frames
-                // before the controller's Awake DEFER the draw rather
-                // than substituting LoopUnitSet.Empty (Empty would defeat
-                // the renderHidden filter).
+                // CurrentCachedLoopUnits accessor. The controller is cached
+                // and only re-resolved when null or on a scene change
+                // (MINOR-1). Transitional frames before the controller's
+                // Awake DEFER the draw rather than substituting
+                // LoopUnitSet.Empty (Empty would defeat the renderHidden
+                // filter).
                 GhostPlaybackLogic.LoopUnitSet loopUnits;
                 if (scene == GameScenes.TRACKSTATION)
                 {
-                    var tsCtl = FindObjectOfType<ParsekTrackingStation>();
+                    var tsCtl = ResolveTrackingStationController(scene);
                     if (tsCtl == null)
                     {
                         ParsekLog.VerboseRateLimited(DriverTag,
@@ -685,7 +757,7 @@ namespace Parsek.Display
                 }
                 else // FLIGHT
                 {
-                    var flCtl = FindObjectOfType<ParsekFlight>();
+                    var flCtl = ResolveFlightController(scene);
                     if (flCtl == null)
                     {
                         ParsekLog.VerboseRateLimited(DriverTag,
@@ -706,7 +778,7 @@ namespace Parsek.Display
                 int frameDrawn = 0;
                 int frameSkippedSuppressed = 0;
                 int frameSkippedHidden = 0;
-                int frameSkippedClassifier = 0;
+                int frameSkippedStatic = 0;
                 int frameSkippedNoLegs = 0;
                 int frameSkippedNoBody = 0;
                 for (int recordingIndex = 0; recordingIndex < committed.Count; recordingIndex++)
@@ -719,7 +791,26 @@ namespace Parsek.Display
                         continue;
                     }
 
-                    double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    // STATIC visibility filter only (MAJOR fix). The polyline
+                    // is a full-path bridge drawn for the whole recording
+                    // regardless of where the playback head currently is, so
+                    // it must NOT inherit the per-head-UT gates
+                    // (OrbitSegmentActive / NativeIconActive) that
+                    // ClassifyAtmosphericMarkerSkip applies -- those would
+                    // blink the entire polyline out whenever the head enters
+                    // an orbital phase or while an un-suppressed ghost
+                    // ProtoVessel exists. Keep only the recording-level static
+                    // subset: debris / no-trajectory / suppression.
+                    var staticSkip = ClassifyPolylineStaticSkip(rec, suppressed);
+                    if (staticSkip != PolylineStaticSkipReason.None)
+                    {
+                        frameSkippedStatic++;
+                        continue;
+                    }
+
+                    // renderHidden gate (loop-unit visibility): hide the
+                    // polyline for a loop unit the marker pass is hiding too.
+                    GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         recordingIndex,
                         rec.StartUT,
                         rec.EndUT,
@@ -729,14 +820,6 @@ namespace Parsek.Display
                     if (renderHidden)
                     {
                         frameSkippedHidden++;
-                        continue;
-                    }
-
-                    if (ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(
-                            rec, recordingIndex, effUT, suppressed)
-                        != ParsekTrackingStation.AtmosphericMarkerSkipReason.None)
-                    {
-                        frameSkippedClassifier++;
                         continue;
                     }
 
@@ -766,7 +849,7 @@ namespace Parsek.Display
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
-                        CelestialBody body = ResolveBodyByName(leg.bodyName);
+                        CelestialBody body = ResolveBodyByName(scene, leg.bodyName);
                         if (body == null)
                         {
                             ParsekLog.VerboseRateLimited(DriverTag,
@@ -776,11 +859,20 @@ namespace Parsek.Display
                             frameSkippedNoBody++;
                             continue;
                         }
-                        Vector3d bodyPos = body.position;
-                        int m = leg.bodyLocalPoints.Length;
+                        int m = leg.PointCount;
+                        // CRITICAL geometry: convert each recorded body-fixed
+                        // (lat, lon, alt) to a LIVE world position via the same
+                        // CelestialBody.GetWorldSurfacePosition call the
+                        // atmospheric-marker resolver uses
+                        // (ParsekTrackingStation.cs:1199), so the polyline
+                        // lands exactly where a marker would. This is zero-alloc:
+                        // GetWorldSurfacePosition / LocalToScaledSpace return
+                        // value types and the result is written into the
+                        // pre-allocated scratch buffer.
                         for (int i = 0; i < m; i++)
                         {
-                            var world = bodyPos + leg.bodyLocalPoints[i];
+                            Vector3d world = body.GetWorldSurfacePosition(
+                                leg.lats[i], leg.lons[i], leg.alts[i]);
                             leg.scratchScaledSpace[i] =
                                 (Vector3)ScaledSpace.LocalToScaledSpace(world);
                         }
@@ -797,11 +889,41 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} classifier={4} noLegs={5} noBody={6} cached={7}",
+                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} cached={7}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
-                        frameSkippedClassifier, frameSkippedNoLegs, frameSkippedNoBody,
+                        frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
                         polylineCache.Count),
                     5.0);
+            }
+
+            /// <summary>
+            /// Returns the cached <see cref="ParsekTrackingStation"/> for the
+            /// current scene, re-resolving via <c>FindObjectOfType</c> only
+            /// when null or after a scene change (MINOR-1).
+            /// </summary>
+            private ParsekTrackingStation ResolveTrackingStationController(GameScenes scene)
+            {
+                if (cachedControllerScene != scene || cachedTsController == null)
+                {
+                    cachedTsController = FindObjectOfType<ParsekTrackingStation>();
+                    cachedControllerScene = scene;
+                }
+                return cachedTsController;
+            }
+
+            /// <summary>
+            /// Returns the cached <see cref="ParsekFlight"/> for the current
+            /// scene, re-resolving via <c>FindObjectOfType</c> only when null
+            /// or after a scene change (MINOR-1).
+            /// </summary>
+            private ParsekFlight ResolveFlightController(GameScenes scene)
+            {
+                if (cachedControllerScene != scene || cachedFlightController == null)
+                {
+                    cachedFlightController = FindObjectOfType<ParsekFlight>();
+                    cachedControllerScene = scene;
+                }
+                return cachedFlightController;
             }
 
             /// <summary>
@@ -863,17 +985,32 @@ namespace Parsek.Display
                 }
             }
 
-            private static CelestialBody ResolveBodyByName(string name)
+            /// <summary>
+            /// Resolves a CelestialBody by name via a per-scene cached
+            /// name->body map (MINOR-2), avoiding the linear
+            /// <c>FlightGlobals.Bodies</c> scan per leg per frame. The map is
+            /// rebuilt once per scene (bodies are stable within a scene; the
+            /// scene-change handler also clears it).
+            /// </summary>
+            private CelestialBody ResolveBodyByName(GameScenes scene, string name)
             {
                 if (string.IsNullOrEmpty(name)) return null;
-                var bodies = FlightGlobals.Bodies;
-                if (bodies == null) return null;
-                for (int i = 0; i < bodies.Count; i++)
+                if (bodyMapScene != scene || bodyByName.Count == 0)
                 {
-                    if (string.Equals(bodies[i].name, name, StringComparison.Ordinal))
-                        return bodies[i];
+                    bodyByName.Clear();
+                    var bodies = FlightGlobals.Bodies;
+                    if (bodies != null)
+                    {
+                        for (int i = 0; i < bodies.Count; i++)
+                        {
+                            var b = bodies[i];
+                            if (b != null && !string.IsNullOrEmpty(b.name))
+                                bodyByName[b.name] = b;
+                        }
+                    }
+                    bodyMapScene = scene;
                 }
-                return null;
+                return bodyByName.TryGetValue(name, out var body) ? body : null;
             }
         }
     }
