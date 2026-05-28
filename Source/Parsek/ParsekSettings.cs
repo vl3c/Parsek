@@ -171,7 +171,9 @@ namespace Parsek
         /// Tracking Station and flight map view draw a dashed polyline
         /// through every recorded non-orbital phase of every active
         /// ghost, bridging the gap between successive orbit-line arcs.
-        /// Default true (commit 3 rollout flip).
+        /// Default false: stays OFF until the geometry is verified in game
+        /// (the rollout flip waits on the in-game GetWorldSurfacePosition
+        /// validation).
         /// </summary>
         [GameParameters.CustomParameterUI("Use ghost trajectory polyline",
             toolTip = "When on, the map view draws a dashed polyline through every recorded non-orbital phase of every active ghost, bridging the gap between successive orbit-line arcs.")]
@@ -190,7 +192,7 @@ namespace Parsek
                     ParsekSettingsPersistence.RecordUseGhostTrajectoryPolyline(value);
             }
         }
-        private bool _useGhostTrajectoryPolyline = true;
+        private bool _useGhostTrajectoryPolyline = false;
 
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc

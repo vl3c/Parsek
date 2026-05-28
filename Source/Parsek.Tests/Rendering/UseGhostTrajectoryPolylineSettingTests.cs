@@ -35,13 +35,13 @@ namespace Parsek.Tests.Rendering
         }
 
         [Fact]
-        public void UseGhostTrajectoryPolyline_DefaultsTrue()
+        public void UseGhostTrajectoryPolyline_DefaultsFalse()
         {
-            // Commit 3 flipped the rollout default to true; a fresh
-            // ParsekSettings instance must read true so first-install users
-            // see the polyline in the map view without flipping a setting.
+            // The rollout default stays false until the polyline geometry is
+            // verified in-game; a fresh ParsekSettings instance must read
+            // false so first-install users keep the existing map behavior.
             var settings = new ParsekSettings();
-            Assert.True(settings.useGhostTrajectoryPolyline);
+            Assert.False(settings.useGhostTrajectoryPolyline);
         }
 
         [Fact]
@@ -83,14 +83,15 @@ namespace Parsek.Tests.Rendering
         public void UseGhostTrajectoryPolyline_RecordThenApplyTo_OverridesLiveSettings()
         {
             // ApplyTo overwrites the live setting with the stored value
-            // and flips IsReconciled.
-            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(false);
+            // and flips IsReconciled. Store true so it differs from the
+            // false default and we can observe the override.
+            ParsekSettingsPersistence.SetStoredUseGhostTrajectoryPolylineForTesting(true);
             var settings = new ParsekSettings();
-            Assert.True(settings.useGhostTrajectoryPolyline);
+            Assert.False(settings.useGhostTrajectoryPolyline);
 
             ParsekSettingsPersistence.ApplyTo(settings);
 
-            Assert.False(settings.useGhostTrajectoryPolyline);
+            Assert.True(settings.useGhostTrajectoryPolyline);
             Assert.True(ParsekSettingsPersistence.IsReconciled);
         }
     }
