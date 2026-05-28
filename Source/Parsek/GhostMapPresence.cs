@@ -3974,7 +3974,7 @@ namespace Parsek
                 out RecordingEndpointPhase endpointPhase,
                 out string endpointBodyName);
 
-            // §1.1 relaxed inner gate (split into source-half and persisted-phase-half).
+            // section 1.1 relaxed inner gate (split into source-half and persisted-phase-half).
             // Default (acceptTerminalOrbitSource=false) collapses to the original
             // "endpoint-segment source AND OrbitSegment persisted phase with matching body"
             // contract; passing true additionally accepts the same-body
@@ -4361,8 +4361,8 @@ namespace Parsek
                     // actual 181 Mm cross-body bug class; stays UNCONDITIONALLY suppressed
                     // for loop members. The loop-aware acceptance hint is therefore NOT
                     // threaded here -- the relaxation only applies to the no-covering-segment
-                    // fallback (the SECOND branch at line 5870 and the create-path's
-                    // terminal-orbit fallback below). See plan §1.5.
+                    // fallback (the SECOND branch at line ~5908 and the create-path's
+                    // terminal-orbit fallback below). See plan section 1.5.
                     if (TryResolveEndpointTailForMapPresence(
                             traj,
                             currentUT,
@@ -4590,7 +4590,7 @@ namespace Parsek
             // OrbitSegments and its persisted endpoint phase resolved to TrajectoryPoint
             // (the no-segment terminal-Orbiting case). Default false preserves
             // byte-identical behaviour for every existing call site that does not opt
-            // in. See plan §1.4 and §1.5.
+            // in. See plan section 1.4 and section 1.5.
             if (TryResolveEndpointTailForMapPresence(
                     traj,
                     currentUT,
@@ -5862,7 +5862,7 @@ namespace Parsek
                 // proto-vessel tens of millions of metres off (~181 Mm in the Mun case) instead
                 // of beside the live Mun.
                 //
-                // Branch rules under plan §1.5 (refresh path):
+                // Branch rules under plan section 1.5 (refresh path):
                 //
                 // - FIRST endpoint-tail branch (covering-segment OVERRIDE, below): stays
                 //   UNCONDITIONALLY suppressed for loop members (the 181 Mm bug class). When a
@@ -5876,7 +5876,7 @@ namespace Parsek
                 //   point body matches its TerminalOrbitBody (e.g. idx 18, Kerbin-return after
                 //   Mun takeoff, no recorded OrbitSegments) is shift-safe because the seeded
                 //   inertial Keplerian elements propagate body-rotation-frame-independently
-                //   under Orbit.SetOrbit(epoch + shift) (see plan §1.5: Planetarium OrbitalFrame
+                //   under Orbit.SetOrbit(epoch + shift) (see plan section 1.5: Planetarium OrbitalFrame
                 //   is built from LAN/inc/argPe; historical body rotation enters at SEED
                 //   CONSTRUCTION only). Cross-body terminals (mismatched last-point body and
                 //   TerminalOrbitBody) stay suppressed via the predicate.
@@ -7412,7 +7412,7 @@ namespace Parsek
             string context)
         {
             // TS-startup wrapper is not loop-aware (no loop epoch shift in scope here).
-            // Pass acceptTerminalOrbitForLoopSynthesis: false explicitly per plan §1.4: a
+            // Pass acceptTerminalOrbitForLoopSynthesis: false explicitly per plan section 1.4: a
             // no-segment terminal-orbit synthesis at raw recorded UTs would seed at the wrong
             // position (the PR #967 class). The proto-vessel for a no-segment loop member
             // comes up on the first loop-aware refresh tick after TS entry (within

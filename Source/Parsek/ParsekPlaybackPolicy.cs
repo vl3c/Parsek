@@ -1047,7 +1047,7 @@ namespace Parsek
             // the relaxed terminal-orbit source would seed at the raw recorded UT (wrong
             // position). The proto-vessel is created later on a loop-aware tick once the
             // pending queue and per-frame ResolveMapPresenceSampleUT compute effUT and the
-            // accompanying loop epoch shift. Same reasoning as the TS-startup wrapper. Plan §1.4.
+            // accompanying loop epoch shift. Same reasoning as the TS-startup wrapper. Plan section 1.4.
             TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                 evt.Trajectory,
                 false,
@@ -1345,7 +1345,7 @@ namespace Parsek
                         continue;
 
                     // Loop-aware caller: a non-zero shift on a same-body terminal recording
-                    // unlocks the no-segment terminal-orbit synthesis (plan §1.4). Default
+                    // unlocks the no-segment terminal-orbit synthesis (plan section 1.4). Default
                     // false for non-loop members keeps create-path behaviour byte-identical.
                     bool acceptTerminalOrbitForLoopSynthesis =
                         pendingLoopShift != 0.0
@@ -1680,7 +1680,7 @@ namespace Parsek
 
                     if (soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
                     {
-                        // Loop-aware caller (state-vector orbit update pass): plan §1.4.
+                        // Loop-aware caller (state-vector orbit update pass): plan section 1.4.
                         bool acceptTerminalOrbitForLoopSynthesis =
                             loopEpochShiftSeconds != 0.0
                             && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
@@ -1722,8 +1722,15 @@ namespace Parsek
                         }
 
                         if (source == TrackingStationGhostSource.Segment
-                            || source == TrackingStationGhostSource.TerminalOrbit)
+                            || source == TrackingStationGhostSource.TerminalOrbit
+                            || source == TrackingStationGhostSource.EndpointTail)
                         {
+                            // EndpointTail populates a valid `segment` out-param exactly
+                            // like TerminalOrbit (the loop-synthesis no-segment fallback),
+                            // so consume it here too; otherwise a terminal-region loop
+                            // member resolving to EndpointTail would fall through to the
+                            // flat BracketPointAtUT path below. Matches the pending-create
+                            // (line ~1387) and orbit-update (line ~1922) callers.
                             GhostMapPresence.UpdateGhostOrbitForRecording(
                                 idx, segment,
                                 loopEpochShiftSeconds: loopEpochShiftSeconds);
@@ -1898,7 +1905,7 @@ namespace Parsek
             changed = false;
 
             // Loop-aware caller: a non-zero shift on a same-body terminal recording
-            // unlocks the no-segment terminal-orbit synthesis (plan §1.6). The flag is
+            // unlocks the no-segment terminal-orbit synthesis (plan section 1.6). The flag is
             // computed from the new loopEpochShiftSeconds parameter so the line 1495 call
             // site can pass the shift in unconditionally; non-loop calls (shift == 0)
             // produce false and the helper stays byte-identical for non-loop members.

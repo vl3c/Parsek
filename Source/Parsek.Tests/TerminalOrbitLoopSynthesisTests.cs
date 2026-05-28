@@ -41,7 +41,7 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
-        // ----- §3.1 predicate tests -----
+        // ----- section 3.1 predicate tests -----
 
         [Fact]
         public void IsTerminalOrbitSynthesisSafeForLoopMember_SameBody_ReturnsTrue()
@@ -163,7 +163,7 @@ namespace Parsek.Tests
                 && l.Contains("reason=zero-terminal-sma"));
         }
 
-        // ----- §3.2 relaxed synthesizer gate tests -----
+        // ----- section 3.2 relaxed synthesizer gate tests -----
 
         [Fact]
         public void TryResolveEndpointTailForMapPresence_TerminalOrbitSource_AcceptedWhenLoopFlag()
@@ -285,7 +285,7 @@ namespace Parsek.Tests
             Assert.True(acceptedTrue);
         }
 
-        // ----- §3.3 ResolveMapPresenceGhostSource tests -----
+        // ----- section 3.3 ResolveMapPresenceGhostSource tests -----
 
         [Fact]
         public void ResolveMapPresenceGhostSource_NoSegmentLoopMemberWithTerminalOrbit_AcceptsEndpointTail()
@@ -411,7 +411,7 @@ namespace Parsek.Tests
             Assert.NotEqual(GhostMapPresence.TrackingStationGhostSource.EndpointTail, source);
         }
 
-        // §3.3 plumbing test: TryResolveTerminalFallbackMapOrbitUpdate's new
+        // section 3.3 plumbing test: TryResolveTerminalFallbackMapOrbitUpdate's new
         // loopEpochShiftSeconds parameter must convert to
         // acceptTerminalOrbitForLoopSynthesis correctly and reach the resolver.
         [Fact]
@@ -482,7 +482,7 @@ namespace Parsek.Tests
             Assert.Equal(700_000.0, fallbackSegment.semiMajorAxis);
         }
 
-        // ----- §3.4 activation-region precondition test -----
+        // ----- section 3.4 activation-region precondition test -----
 
         [Fact]
         public void IsTerminalMapPresenceRegion_NoSegmentLoopMemberAtEffUTNearEnd_ReturnsTrue()
