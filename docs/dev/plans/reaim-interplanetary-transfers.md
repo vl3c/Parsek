@@ -1,12 +1,51 @@
 # Re-aim interplanetary transfers (looped missions that actually repeat)
 
-Status: DESIGN (research done, not yet implemented).
+Status: DESIGN (review folded). Phase 1a (window math) + LCA salvage landed on the branch; Lambert +
+Phase 2+ in progress.
 Branch: `reaim-transfers` (off `origin/main`).
 Supersedes the unmergeable faithful-cross-parent PR #968 (kept open as reference only; its
 body-hierarchy walk is salvaged here, the rest is replaced).
 
 Revision history:
 - 2026-05-28 initial design, after a deep dive into stock KSP orbital math + the cloned mods.
+- 2026-05-28 folded a clean-context design review (3 CRITICAL + 3 MAJOR + 4 MINOR), verified against
+  decompiled stock source. Load-bearing corrections:
+  - **S1 (ejection) is NOT a recorded segment.** OrbitSegments are captured only on-rails; the
+    ejection burn is flown off-rails and recorded as Absolute Points. S1 is PURE SYNTHESIS from the
+    recorded parking-orbit (end of S0) + the required departure velocity. (C1)
+  - **The recorded heliocentric leg (S2) and target-arrival leg (S3) exist as OrbitSegments only if
+    the player time-warped (on-rails) through them**; a background coast yields no segment. The
+    classifier REQUIRES a Sun-bodied S2 + target-bodied S3 and BAILS to faithful/not-applied when S2
+    is absent (never half-applies). (A, m4)
+  - **`PatchedConics.CalculatePatch` target-encounter promotion is GATED** (approach-marker setting /
+    background-thread / patch limit). Phase 2 must pin the `SolverParameters` and the in-game canary
+    must assert the Duna encounter populates under DEFAULT settings, else it is a blocker. (C2)
+  - **The `ReaimedTrajectory` adapter must be EAGER-cached per window** (synthesis at window-advance,
+    getter is a pure field return) - `OrbitSegments` is read on the per-frame hot path, so a lazy
+    getter would re-introduce the prior per-frame-solve bug. (C3)
+  - **PartEvent / FX remap is a CORRECTNESS item, not cosmetic.** `PartEvent.ut` /
+    `orbitSegmentStartUT` bind events to specific recorded segments; with S1/S2 re-synthesized those
+    bindings break (event resolves against the wrong/out-of-range segment). The adapter must remap or
+    suppress ejection-window PartEvents onto the synthesized spans. (M1)
+  - **The synodic schedule PRODUCER is new work** - `TryBuildRelaunchSchedule` is anchor-period /
+    tolerance based (the faithful model) and is NOT reused; only the UT-list CONSUMER (span clock) is
+    shared. (M2)
+  - **tof is solved per window, not transplanted.** Feeding the recorded tof to a different window's
+    geometry can yield a wildly eccentric/retrograde conic; default to the Hohmann tof for the
+    window's actual r1/r2, validate the solved transfer's energy/eccentricity, reject + step to the
+    next window if degenerate. (M3)
+  - **v1 stitching = anchor to the recorded SOI-EXIT STATE** (keep S0 + parking verbatim; at the
+    recorded SOI-exit moment swap only the post-exit velocity to the Lambert v1), so the seam is a
+    velocity discontinuity at the SOI edge (far from camera, expected at SOI crossings) instead of a
+    plane-change kink in low orbit. (review recommendation)
+  - Lambert port: Gooding.cs is ~577 lines + `V3`/`Statics` deps + the in-file XLAMB/TLAMB root-finder
+    (MechJeb is upstream GitHub, NOT cloned here); license confirmed permissive. Given the size +
+    dependency web, v1 hand-rolls a self-contained universal-variable (Bate-Mueller-White) Lambert we
+    own, with the M3 energy/eccentricity validate-and-skip covering the robustness edges; Gooding stays
+    a documented fallback if UV proves fragile in playtest. (m1)
+  - LCA walk already salvaged into this branch (commit on `reaim-transfers`); KSPTrajectories
+    CalculatePatch citation corrected to the decompiled stock source (the mod call passes
+    targetBody=null). (m2, m3)
 
 References (read before implementing):
 - `docs/dev/plans/mission-periodicity-phases.md`, `docs/dev/plans/zero-drift-reschedule.md`,
@@ -64,20 +103,28 @@ that gives interplanetary looped missions (and logistics routes built on them) a
 
 ## 2. The segment model (what makes re-aim tractable)
 
-Re-aim is NOT "throw away the recording." A recorded interplanetary mission is a chain of segments
-split by SOI (read off the `OrbitSegment.bodyName` transitions the recording already stores):
+Re-aim is NOT "throw away the recording." A recorded interplanetary mission is a chain of phases
+split by SOI. **Crucial recorder caveat (review C1/A/m4, verified against decompiled source):**
+`OrbitSegment`s are captured only while the vessel is ON-RAILS (time-warp). So the recorded
+KEPLERIAN inputs re-aim can read are the on-rails heliocentric coast (S2, Sun-bodied) and the
+on-rails arrival (S3, target-bodied) - and ONLY if the player time-warped through them (a background
+coast yields no segment at all). The powered ascent (S0) and ejection burn (S1) are flown OFF-rails
+and recorded as Absolute `TrajectoryPoint`s, not OrbitSegments - so S1 is **not extractable**; it is
+synthesized from scratch.
 
-| Seg | Frame | What it is | Re-aim treatment |
+| Phase | Frame | Recorded as | Re-aim treatment |
 |-----|-------|------------|------------------|
-| **S0** | launch-body surface + inertial | ascent KSC -> parking orbit | **REPLAY as-is** (faithful at any time; keep the pad-rotation alignment so the ascent connects to the recorded parking orbit) |
-| **S1** | launch-body inertial | ejection burn (parking orbit -> SOI exit hyperbola) | **RE-SYNTHESIZE** the ejection hyperbola to match the new transfer's required departure velocity |
-| **S2** | common-ancestor (Sun) inertial | heliocentric transfer coast | **RE-SYNTHESIZE** (Lambert solve to the target's current position) - the core of re-aim |
-| **S3** | target inertial | SOI capture / arrival orbit | **REPLAY as-is** (target-relative, faithful at any time, placed at the new arrival UT) |
-| **S4** | target surface | landing / surface ops | **DEFERRED** (v1 stops at orbital arrival; re-stitching a descent to a re-aimed arrival is Phase-later) |
+| **S0** | launch-body surface + inertial | Absolute points (off-rails) + parking-orbit OrbitSegment if warped | **REPLAY as-is**; the recorded parking orbit (+ its SOI-exit STATE) is the only input S1 needs |
+| **S1** | launch-body inertial | NOT a recorded segment (off-rails burn) | **PURE SYNTHESIS** - no recorded counterpart; build the ejection so the post-SOI-exit state matches the Lambert v1 (see section 4) |
+| **S2** | common-ancestor (Sun) inertial | Sun-bodied OrbitSegment (on-rails only) - **REQUIRED**; classifier bails to faithful if absent | **RE-SYNTHESIZE** (Lambert solve to the target's current position) - the core of re-aim |
+| **S3** | target inertial | target-bodied OrbitSegment (on-rails only) | **REPLAY as-is** (target-relative, placed at the synthesized SOI-entry UT) |
+| **S4** | target surface | Absolute/surface points | **DEFERRED** (v1 stops at orbital arrival; re-stitching a descent to a re-aimed arrival is Phase-later) |
 
-So v1 keeps your real launch (S0) and your real arrival orbit (S3), and recomputes only the
-connecting ejection + heliocentric transfer (S1 + S2) for the chosen window. The destination changes
-where it is each window; we rebuild the bridge to it.
+So v1 keeps your real launch (S0) and your real arrival orbit (S3), and recomputes the connecting
+transfer (S2, Lambert) + the ejection (S1, pure synthesis) for the chosen window. The destination
+changes where it is each window; we rebuild the bridge to it. **The classifier requires a Sun-bodied
+S2 OrbitSegment to engage re-aim at all; if the recording has none (never warped / background coast),
+re-aim is NOT applied and the mission stays on the existing faithful path - never half-applied.**
 
 Segment classification reuses #968's LCA walk: the launch body is the earliest recorded body; the
 heliocentric leg is the segment(s) whose body is the lowest common ancestor of launch + target; the
@@ -90,14 +137,18 @@ target is the body entered after it. (Salvaged: `AncestorChain` / `TryFindCommon
 Per looped re-aim mission, per window:
 
 ```
-1. WINDOW          next departure UT t_dep (synodic / phase-angle), arrival UT t_arr
+1. WINDOW          next departure UT t_dep (synodic / phase-angle); tof = Hohmann time for THIS
+                   window's r1/r2 (NOT the recorded tof, review M3); t_arr = t_dep + tof
 2. ENDPOINTS       r1 = launchBody.orbit pos at t_dep ; r2 = target.orbit pos at t_arr   (heliocentric)
-3. LAMBERT         v1 = Gooding.Solve(mu_sun, r1, v_launchBody, r2, tof=t_arr-t_dep, nrev=0)
+3. LAMBERT         v1 = UvLambert.Solve(mu_sun, r1, r2, tof, prograde) ; VALIDATE energy/ecc, else
+                   refine t_arr / step to next window (review M3)
 4. TRANSFER CONIC  Orbit S2 = UpdateFromStateVectors(swizzle(r1), swizzle(v1), Sun, t_dep)
-5. SOI PATCH       CalculatePatch(S2, nextPatch, t_dep, {FollowManeuvers=false}, target)
-                   -> S2.EndUT = target-SOI-entry UT ; nextPatch = target-relative hyperbola
-6. EJECTION CONIC  v_inf = v1 - v_launchBody ; build the launch-body-relative ejection hyperbola
-                   S1 from the recorded parking orbit periapsis to v_inf
+5. SOI PATCH       CalculatePatch(S2, nextPatch, t_dep, SolverParameters{...}, target)
+                   -> if ENCOUNTER: S2.EndUT = target-SOI-entry UT ; nextPatch = target hyperbola
+                   -> else: step to next window (review C2: encounter promotion is gated; pin params)
+6. EJECTION CONIC  v_inf = v1 - v_launchBody ; synthesize S1 so its launch-body SOI-exit STATE matches
+                   v1 (anchor to the recorded SOI-exit position; do NOT plane-change in low orbit -
+                   review stitching rec, section 4)
 7. ASSEMBLE        synthesized segment list: [S0 recorded] [S1 ejection] [S2 transfer]
                    [S3 recorded arrival, re-anchored to S2.EndUT, target-relative]
 8. PRESENT         wrap the Recording in a ReaimedTrajectory (IPlaybackTrajectory) whose
@@ -109,31 +160,47 @@ Per looped re-aim mission, per window:
 | Piece | Source | License | Notes |
 |-------|--------|---------|-------|
 | Planet position/velocity at UT (steps 2) | stock `CelestialBody.orbit.getRelativePositionAtUT` / `getOrbitalVelocityAtUT` | - | `.xzy` swizzle; `getTruePositionAtUT` for absolute |
-| Lambert solve (step 3) | **port MechJebLib `Gooding.cs`** | Unlicense/CC0/MIT-0/MIT (permissive, NO GPL) | swap `V3`->`Vector3d`, bring the Householder root-finder; ~200 lines, pure, unit-testable |
-| Build conic from state vector (step 4) | stock `Orbit.UpdateFromStateVectors(pos, vel, body, UT)` | - | swizzled inputs; pattern proven by KSPTrajectories `Trajectory.cs:478` |
-| Heliocentric -> target SOI patch (step 5) | stock `PatchedConics.CalculatePatch` | - | KSPTrajectories drives it on a SYNTHETIC Orbit (no vessel), `Trajectory.cs:480` |
+| Lambert solve (step 3) | **hand-rolled universal-variable (Bate-Mueller-White) Lambert, OURS** | n/a (own code) | single-rev prograde; ~150 lines, pure, unit-testable vs textbook solutions; the M3 energy/eccentricity validate-and-skip covers the near-180/short-tof edges. (MechJebLib `Gooding.cs` is the permissive fallback - confirmed `Unlicense/CC0/MIT-0/MIT`, but it is ~577 lines + `V3`/`Statics` deps + the in-file XLAMB/TLAMB root-finder, and MechJeb is upstream GitHub, NOT cloned here - so UV is the smaller owned choice for v1.) |
+| Build conic from state vector (step 4) | stock `Orbit.UpdateFromStateVectors(pos, vel, body, UT)` | - | swizzled inputs; pattern already in Parsek's `OrbitReseed.cs` |
+| Heliocentric -> target SOI patch (step 5) | stock `PatchedConics.CalculatePatch(p, nextPatch, startEpoch, SolverParameters, targetBody)` | - | works on a STANDALONE synthetic Orbit (no vessel) - verified against decompiled stock source, NOT via KSPTrajectories (whose `CalculatePatch` call passes targetBody=null and walks the active vessel's nextPatch chain). Encounter promotion is GATED (review C2): pin `SolverParameters` + assert the encounter under default settings in the canary |
 | Window / phase angle (step 1) | **port KAC** `CurrentPhaseAngle` (`Utilities.cs:344`) + Hohmann phase `180*(1-((a_o+a_t)/(2 a_t))^1.5)` (`TimeObjects.cs:1134`) + synodic-rate alignment time (`TimeObjects.cs:1164`) | MIT (copy w/ attribution) | closed-form, one Lambert call per window for the ghost |
 | Render the synthesized conic (step 8) | EXISTING Parsek orbit-segment render path | - | `PositionGhostFromOrbit` (flight) + `GhostMapPresence.TryResolveOrbitSegmentWorldPosition` (TS/map) already build a KSP `Orbit` from segment elements and sample it; synthesized segments render for free |
 
-The only NEW math we own: the window finder (small, KAC-derived) and the Lambert port. Everything
-else is stock or an existing Parsek path. The render path is already exercised by computed segments
-(`PatchedConicSnapshot` / `BallisticExtrapolator` emit `isPredicted` segments through the same path).
+The only NEW math we own: the window finder (small, KAC-derived, DONE - `Reaim/TransferWindowMath.cs`)
+and the universal-variable Lambert solver. Everything else is stock or an existing Parsek path. The
+render path is already exercised by computed segments (`PatchedConicSnapshot` / `BallisticExtrapolator`
+emit `isPredicted` segments through the same path).
 
-### 3.2 The injection seam: `ReaimedTrajectory`
+### 3.2 The injection seam: `ReaimedTrajectory` (EAGER-cached per window)
 
-The engine reads trajectory data ONLY through `IPlaybackTrajectory` (27 properties; the engine never
-sees `Recording` directly). So re-aim needs **no engine change**: a thin adapter
+The engine reads trajectory data ONLY through `IPlaybackTrajectory` (the engine never sees
+`Recording` directly). So re-aim needs **no engine change**: a thin adapter
 
 ```
 sealed class ReaimedTrajectory : IPlaybackTrajectory
-    // delegates every property to the wrapped Recording EXCEPT OrbitSegments,
-    // which returns the per-window assembled list (S0 recorded + S1/S2 synthesized + S3 re-anchored)
+    // built per WINDOW: the ctor/factory runs the synthesis ONCE and stores the assembled
+    // OrbitSegments list + the remapped PartEvents list; getters are PURE field returns.
+    // delegates every other property to the wrapped Recording.
 ```
 
-is handed to the engine in place of the `Recording` for a re-aim loop instance. This keeps the
-shared `Recording` immutable (no per-loop mutation), is unit-testable in isolation, and is the
-seam the codebase already implies. (Rejected alternatives: mutating the Recording's segment list
-per loop - unsafe under concurrent loops; cloning the Recording per cycle - GC-heavy.)
+**Eager, not lazy (review C3).** `IPlaybackTrajectory.OrbitSegments` is read on the per-frame hot
+path (the positioning loops iterate it every frame for every active ghost). The synthesis (Lambert +
+`CalculatePatch`) therefore runs EAGERLY at window-advance, inside the adapter's construction, keyed
+by the window UT; the `OrbitSegments` getter returns the stored list with zero computation. A lazy
+getter would re-introduce the exact per-frame-solve bug the prior periodicity plan shipped. Add a
+log/test assertion that no solve happens inside the getter.
+
+**The adapter also overrides `PartEvents` (review M1), not just `OrbitSegments`.** `PartEvent.ut` /
+`orbitSegmentStartUT` bind each event to a specific recorded segment; with S1/S2 re-synthesized those
+bindings dangle (the event would resolve against the wrong segment or an out-of-range UT - a
+correctness break, not cosmetic). v1: the adapter SUPPRESSES (or clamps to the synthesized span)
+PartEvents that fell in the recorded ejection/transfer window, and keeps the ascent (S0) and arrival
+(S3) events with their recorded bindings intact. Re-timing ejection FX onto the synthesized S1 is a
+deferred polish.
+
+Per-window immutability keeps the shared `Recording` untouched and is unit-testable in isolation.
+(Rejected: mutating the Recording's segment list per loop - unsafe under concurrent loops; cloning the
+Recording per cycle - GC-heavy.)
 
 ---
 
@@ -141,24 +208,33 @@ per loop - unsafe under concurrent loops; cloning the Recording per cycle - GC-h
 
 This is where re-aim earns its complexity; the doc commits to v1 choices and flags the seams.
 
-- **S0 -> S1 (parking orbit -> ejection).** The recorded parking orbit has a fixed inertial plane
-  (inclination/LAN). The window's required ejection asymptote (`v_inf = v1 - v_launchBody`) generally
-  does NOT lie in that plane, so a real mission would dogleg / plane-change. **v1 choice:** synthesize
-  the ejection hyperbola in the plane that contains the parking-orbit periapsis radius and `v_inf`
-  (a clean ejection at the recorded periapsis altitude), accepting that it may not match the recorded
-  parking-orbit plane. Visual seam: the ghost may appear to change plane at ejection. Acceptable for a
-  ghost; logged. (Deferred refinement: rotate the parking orbit's LAN to contain `v_inf`, which also
-  re-times the ascent - a Phase-later polish.)
+- **S0/S1 -> S2: anchor to the recorded SOI-EXIT STATE (review recommendation).** Do NOT re-derive the
+  ejection from the parking-orbit plane (that produces a visible plane-change KINK in low orbit, right
+  where the player is watching). Instead: keep S0 + the recorded parking orbit VERBATIM, and at the
+  recorded launch-body SOI-exit moment, replace only the post-exit VELOCITY (direction + magnitude) so
+  the heliocentric state vector matches the Lambert `v1`. S1 (the ejection) is synthesized so its
+  SOI-exit state matches that v1 (the recorded ejection arc minimally rotated toward v1). The seam is
+  then a velocity discontinuity AT THE SOI EDGE - far from the camera, expected at any SOI crossing,
+  and the same seam class the existing faithful landing-handoff already tolerates - instead of a
+  plane-change kink in low orbit. (Deferred polish: rotate the parking-orbit LAN to contain v_inf and
+  re-time the ascent, erasing the seam entirely.)
 - **S2 -> S3 (transfer SOI entry -> recorded arrival).** `CalculatePatch` gives the exact target-SOI
   entry UT + the target-relative hyperbola (`nextPatch`). The recorded arrival arc S3 is re-anchored
   so its start coincides with that UT, target-relative. The recorded capture orbit's plane/periapsis
-  won't exactly equal the synthesized hyperbola's, so there is a small discontinuity at the SOI seam.
-  **v1 choice:** snap S3 to the SOI-entry UT and accept the seam (same class of seam the existing
-  faithful-replay landing-handoff already tolerates via the A/B rotation flag). Deferred: blend the
-  arrival hyperbola into the recorded capture.
-- **No-encounter windows.** If `CalculatePatch` returns no ENCOUNTER (the chosen `tof` missed), the
-  window finder refines `t_arr` (or steps to the next window). A window that cannot be made to
-  encounter within a bounded search is skipped (logged), never rendered as a miss.
+  won't exactly equal the synthesized hyperbola's -> a small discontinuity at the FAR-planet SOI seam.
+  **v1 choice:** snap S3 to the SOI-entry UT and accept the seam (momentary, far from the camera).
+  Deferred: blend the arrival hyperbola into the recorded capture.
+- **tof is solved, not transplanted (review M3).** Use the Hohmann tof for the WINDOW's actual r1/r2
+  geometry as the default Lambert time-of-flight (recorded tof only as a bounded nudge); after the
+  Lambert solve, VALIDATE the resulting conic's energy/eccentricity (reject absurd / retrograde /
+  hyperbolic-when-it-should-be-elliptic results). A rejected or no-encounter window steps to the next
+  window (logged), never renders a miss.
+- **No-encounter windows (review C2).** `CalculatePatch` only PROMOTES the target encounter under
+  certain conditions (approach-marker setting / background-thread / patch limit), so the
+  `SolverParameters` must be set deliberately and the Phase-2 canary MUST assert the encounter
+  populates (`closestEncounterBody == target`, `nextPatch.referenceBody == target`) under DEFAULT
+  game settings - if it does not, that is a blocker to resolve before wiring. A window whose transfer
+  yields no encounter within a bounded `t_arr` refinement is skipped (logged).
 
 These seams are the honest cost of re-aiming a RECORDED mission rather than re-flying it live. The doc
 states them so a reviewer/playtester judges them deliberately, not as bugs.
@@ -169,13 +245,20 @@ states them so a reviewer/playtester judges them deliberately, not as bugs.
 
 - **Cadence = synodic window.** The relaunch schedule is the sequence of departure windows from the
   phase-angle finder (~every synodic period; Kerbin->Duna ~2.1 Kerbin years), throttled UP to the
-  player's requested loop period exactly like the existing zero-drift schedule throttles. This reuses
-  the `MissionRelaunchSchedule` shape (a lazily-extended list of relaunch UTs) - only the SOURCE of
-  the UTs changes (synodic windows instead of the absolute-coincidence scan).
+  player's requested loop period.
+- **The schedule PRODUCER is new work (review M2).** The existing `TryBuildRelaunchSchedule` /
+  `PeriodicitySolution` is built entirely around an anchor period + per-constraint tolerances +
+  `WithinTolerance` - the FAITHFUL phase-lock model. Re-aim has no anchor period and no tolerance
+  concept; its UTs come from the synodic/phase-angle solve. So re-aim needs a SEPARATE producer that
+  emits departure UTs. Only the downstream CONSUMER is shared: a lazily-extended list of relaunch UTs
+  feeding the existing `LoopUnit` span clock. Do not imply `TryBuildRelaunchSchedule` is reused; it
+  is not.
 - **Hook point.** `MissionLoopUnitBuilder.TryBuildMissionUnit` already branches on the extracted
-  constraints. Add: if the config is cross-parent (LCA != launch body), build a re-aim schedule +
-  attach a `ReaimedTrajectory` factory to the `LoopUnit`, instead of the faithful zero-drift schedule.
-  Same-parent path is untouched.
+  constraints. Add: if the config is cross-parent (LCA != launch body) AND a Sun-bodied S2 segment
+  exists (section 2), build the re-aim synodic schedule + attach a `ReaimedTrajectory` factory to the
+  `LoopUnit`, instead of the faithful zero-drift schedule. A cross-parent config with NO usable S2
+  (never warped / background coast) falls back to the existing faithful path (which will read amber /
+  rare - acceptable, never garbage). Same-parent path is untouched.
 - **Per-window trajectory.** The `LoopUnit` carries a re-aim descriptor (launch body, target,
   recorded parking/arrival segments). Per loop instance, the engine asks for the trajectory at the
   active window; the adapter computes (and caches) the synthesized segments for that window. Recompute
@@ -211,11 +294,19 @@ would read any relaunch schedule; no special coupling.
 ## 8. Faithfulness contract (state it plainly)
 
 For a re-aim mission, the ghost's **ejection + heliocentric transfer are RECOMPUTED**, so they differ
-from your recorded flight (different ejection direction/time, possibly a different transfer shape, and
-the recorded engine-burn FX during ejection will not line up with the new path). Your **ascent and
-arrival arcs are still your recorded flight**. This is the deliberate trade: a useful repeating
-cadence in exchange for a re-planned (not byte-faithful) transfer leg. Same-parent missions remain
-byte-faithful (unchanged).
+from your recorded flight (different ejection direction/time, possibly a different transfer shape).
+Your **ascent and arrival arcs are still your recorded flight**. This is the deliberate trade: a
+useful repeating cadence in exchange for a re-planned (not byte-faithful) transfer leg. Same-parent
+missions remain byte-faithful (unchanged).
+
+**PartEvent / FX remap is a CORRECTNESS requirement, not just cosmetics (review M1).** `PartEvent.ut`
+and `orbitSegmentStartUT` bind each recorded event to a specific recorded segment + UT. With S1/S2
+re-synthesized, an ejection-window event's recorded binding dangles - it would resolve against the
+wrong synthesized segment or an out-of-range UT (a broken position lookup, not merely a plume pointing
+the wrong way). So the `ReaimedTrajectory` adapter MUST handle the ejection/transfer-window PartEvents:
+v1 SUPPRESSES them (or clamps them to the synthesized S1/S2 span) while keeping the S0 ascent and S3
+arrival events with their recorded bindings intact. This must be covered by an adapter test (no event
+binds to a UT outside the assembled segment list). Re-timing ejection FX onto S1 is a deferred polish.
 
 ---
 
