@@ -1,7 +1,7 @@
 # Cross-parent / interplanetary body support (Phase 4)
 
-Status: DRAFT (planning, not implementation). Built on top of the merged
-zero-drift reschedule (`docs/dev/plans/zero-drift-reschedule.md`).
+Status: IMPLEMENTED (shipped as one PR, internal phases A/B/C). Built on top of the
+merged zero-drift reschedule (`docs/dev/plans/zero-drift-reschedule.md`).
 
 Branch: `periodicity-all-bodies` (off `main`; zero-drift merged in PR #964).
 

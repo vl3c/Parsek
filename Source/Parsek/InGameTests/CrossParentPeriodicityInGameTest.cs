@@ -80,7 +80,10 @@ namespace Parsek.InGameTests
             string dunaParent = bodies.ReferenceBodyName("Duna");
             if (string.IsNullOrEmpty(kerbinParent) || string.IsNullOrEmpty(dunaParent))
             {
-                InGameAssert.Fail("live body graph missing Kerbin/Duna reference bodies (non-stock?)");
+                // Skip cleanly (pass) on a non-stock body graph that renamed Kerbin/Duna - this canary
+                // only asserts against the stock-named sibling pair; failing here would be a false red.
+                ParsekLog.Info("MissionPeriodicity",
+                    "CrossParent canary skipped: live body graph lacks stock-named Kerbin/Duna (non-stock pack)");
                 return;
             }
 
