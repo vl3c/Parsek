@@ -1951,32 +1951,130 @@ namespace Parsek.Tests
             Assert.False(s.SuppressToggle);
         }
 
-        // ── Group bulk-write does not touch user-customized loop windows ──
+        // ── BulkSetLoopPlayback: shared bulk-write for header / group / chain / block ──
 
         [Fact]
-        public void GroupAggregateBulkWrite_DoesNotCallApplyAutoLoopRange()
+        public void BulkSetLoopPlayback_GroupMode_DoesNotTouchCustomRange()
         {
-            // Regression for the original (pre-refactor) group code: toggling
-            // a group's aggregate Loop only flipped LoopPlayback. The refactor
-            // briefly added ApplyAutoLoopRange to the bulk-write loop, which
-            // would clobber a user-customized LoopStartUT/LoopEndUT. This test
-            // pins the behavior by exercising ApplyAutoLoopRange directly with
-            // a manually-set range: the cleared/recomputed range proves
-            // ApplyAutoLoopRange is destructive, so the group bulk-write must
-            // not call it.
-            var rec = new Recording
-            {
-                VesselName = "CustomLoopShip",
-                LoopPlayback = true,
-                LoopStartUT = 123.0,
-                LoopEndUT = 456.0,
-            };
+            // Header + group writes pass applyAutoRange:false so a user-customized
+            // LoopStartUT/LoopEndUT survives an off/on toggle. Pins the regression
+            // the Opus review caught: ApplyAutoLoopRange in the group bulk write
+            // would clobber custom ranges.
+            var a = new Recording { VesselName = "A", LoopPlayback = false, LoopStartUT = 123.0, LoopEndUT = 456.0 };
+            var b = new Recording { VesselName = "B", LoopPlayback = false, LoopStartUT = 789.0, LoopEndUT = 1011.0 };
+            var committed = new List<Recording> { a, b };
 
-            // Sanity: ApplyAutoLoopRange(false) clears the user-customized
-            // range to NaN. The group bulk-write must NOT trigger this.
-            RecordingsTableUI.ApplyAutoLoopRange(rec, false);
-            Assert.True(double.IsNaN(rec.LoopStartUT));
-            Assert.True(double.IsNaN(rec.LoopEndUT));
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(2, written);
+            Assert.True(a.LoopPlayback);
+            Assert.True(b.LoopPlayback);
+            Assert.Equal(123.0, a.LoopStartUT);
+            Assert.Equal(456.0, a.LoopEndUT);
+            Assert.Equal(789.0, b.LoopStartUT);
+            Assert.Equal(1011.0, b.LoopEndUT);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_GroupMode_OffThenOn_PreservesCustomRange()
+        {
+            // Full round-trip pin: a custom range survives BOTH legs of an
+            // off-then-on toggle. The hand-rolled pre-refactor loop also
+            // satisfied this, so the test guards against future regressions
+            // either way (a switch to applyAutoRange:true would fail here).
+            var rec = new Recording { VesselName = "Custom", LoopPlayback = true, LoopStartUT = 200.0, LoopEndUT = 300.0 };
+            var committed = new List<Recording> { rec };
+
+            RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0 }, value: false, applyAutoRange: false);
+            Assert.False(rec.LoopPlayback);
+            Assert.Equal(200.0, rec.LoopStartUT);
+            Assert.Equal(300.0, rec.LoopEndUT);
+
+            RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0 }, value: true, applyAutoRange: false);
+            Assert.True(rec.LoopPlayback);
+            Assert.Equal(200.0, rec.LoopStartUT);
+            Assert.Equal(300.0, rec.LoopEndUT);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_ChainMode_AppliesAutoRange_ClearsOnDisable()
+        {
+            // Chain / grouped-block writes pass applyAutoRange:true to match
+            // the per-row toggle: flipping a chain's aggregate Loop off clears
+            // the loop window on every member (ApplyAutoLoopRange(_, false)
+            // sets LoopStartUT/LoopEndUT back to NaN). Without applyAutoRange
+            // the custom range would survive instead.
+            var a = new Recording { VesselName = "A", LoopPlayback = true, LoopStartUT = 100.0, LoopEndUT = 200.0 };
+            var b = new Recording { VesselName = "B", LoopPlayback = true, LoopStartUT = 300.0, LoopEndUT = 400.0 };
+            var committed = new List<Recording> { a, b };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: false, applyAutoRange: true);
+
+            Assert.Equal(2, written);
+            Assert.False(a.LoopPlayback);
+            Assert.False(b.LoopPlayback);
+            Assert.True(double.IsNaN(a.LoopStartUT));
+            Assert.True(double.IsNaN(a.LoopEndUT));
+            Assert.True(double.IsNaN(b.LoopStartUT));
+            Assert.True(double.IsNaN(b.LoopEndUT));
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_SkipsDebris()
+        {
+            // Debris is excluded so the per-row hide stays consistent with the
+            // aggregate write. Pre-existing LoopPlayback on debris is preserved
+            // (the write value differs from each debris's prior state, so this
+            // catches a skip-bug that ignores debris exclusion).
+            var main = new Recording { VesselName = "Main", LoopPlayback = false };
+            var debTrue = new Recording { VesselName = "DebTrue", LoopPlayback = true, IsDebris = true };
+            var debFalse = new Recording { VesselName = "DebFalse", LoopPlayback = false, IsDebris = true };
+            var committed = new List<Recording> { main, debTrue, debFalse };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1, 2 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(1, written);
+            Assert.True(main.LoopPlayback);
+            Assert.True(debTrue.LoopPlayback);
+            Assert.False(debFalse.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_SkipsNullAndOutOfRange()
+        {
+            var a = new Recording { VesselName = "A", LoopPlayback = false };
+            var committed = new List<Recording> { a, null };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { -1, 0, 1, 99 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(1, written);
+            Assert.True(a.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_NullIndices_HeaderPath_WritesAllNonDebris()
+        {
+            // The header path passes indices:null so the helper walks committed
+            // directly. Mirrors the no-Range-allocation header overload of
+            // ComputeLoopAggregate.
+            var a = new Recording { VesselName = "A", LoopPlayback = false };
+            var b = new Recording { VesselName = "B", LoopPlayback = false };
+            var deb = new Recording { VesselName = "Deb", LoopPlayback = false, IsDebris = true };
+            var committed = new List<Recording> { a, b, deb };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, indices: null, value: true, applyAutoRange: false);
+
+            Assert.Equal(2, written);
+            Assert.True(a.LoopPlayback);
+            Assert.True(b.LoopPlayback);
+            Assert.False(deb.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_NullCommitted_ReturnsZero()
+        {
+            Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, new[] { 0 }, true, false));
+            Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, indices: null, true, false));
         }
 
         // ── Tab switch (Recordings | Missions) ──

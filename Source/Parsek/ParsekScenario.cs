@@ -2614,6 +2614,8 @@ namespace Parsek
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
                 loadedRecordingCount = recordings.Count;
+                loadPhase = "sanitize-debris-loop";
+                RecordingStore.SanitizeDebrisLoopPlayback();
                 loadPhase = "missions";
                 MissionStore.Load(node);
                 MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
