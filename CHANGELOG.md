@@ -65,6 +65,7 @@ All notable changes to Parsek are documented here.
 - Switching to a vessel still sitting on the launch pad (Tracking Station Fly, KSC marker Fly, or map Switch To) no longer starts a recording immediately. It now follows the normal launch rules and begins recording when you launch or stage, like any other vehicle on the pad.
 - Leaving the flight scene with such an idle on-pad recording no longer leaves a stray Merge/Discard dialog that popped up on your next game load instead of on exit.
 - The ghost marker menu in the Tracking Station no longer vanishes the instant you click it. It used to stay open only while you held the mouse button down, because releasing the click that opened it was treated as a click somewhere else; it now stays open until you click away or pick an action.
+- A looped mission's same-body terminal orbit (for example a Kerbin-return leg after a Mun takeoff) now draws as an orbit line in the Tracking Station even when the recording captured no covering orbit segments for that leg. Previously such a leg fell back to a point marker because the loop-member endpoint-tail suppression covered both branches; the synthesizer now allows the no-covering-segment terminal fallback for same-body loop terminals while keeping the covering-segment override (the 181 Mm cross-body case) suppressed.
 
 ### Known limitations
 

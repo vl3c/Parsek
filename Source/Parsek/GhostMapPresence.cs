@@ -3805,14 +3805,118 @@ namespace Parsek
                 && currentUT >= PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(traj);
         }
 
-        private static bool TryResolveEndpointTailForMapPresence(
+        /// <summary>
+        /// Pure: should the terminal-orbit synthesis be allowed for this recording
+        /// under a non-zero loop epoch shift?
+        ///
+        /// Compares the recording's last sampled point's body against the
+        /// terminal-orbital reference body (<see cref="IPlaybackTrajectory.TerminalOrbitBody"/>
+        /// DIRECTLY, not via <c>TryGetPreferredEndpointBodyName</c> which for a
+        /// no-OrbitSegment recording would return the last-point body and make this
+        /// predicate tautological).
+        ///
+        /// Same-body terminals (recording ended in body B's orbit having last
+        /// sampled in body B's SOI) are safe: the synthesized orbit is around the
+        /// same body the recording is anchored to at its end, so the loop epoch
+        /// shift propagates inertially (inertial Keplerian elements survive the
+        /// shift; only the epoch advances). Cross-body terminals (last sampled in
+        /// body A but TerminalOrbitBody = B) are the 181 Mm bug class and stay
+        /// suppressed.
+        ///
+        /// Defensive guard: a recording could have non-empty
+        /// <see cref="IPlaybackTrajectory.TerminalOrbitBody"/> but
+        /// <see cref="IPlaybackTrajectory.TerminalOrbitSemiMajorAxis"/> = 0
+        /// (uninitialised). The downstream <c>endpoint-terminal-orbit</c> source
+        /// path requires <c>HasRecordedTerminalOrbit</c>; suppress the
+        /// loop-accept here so the predicate's truth value matches downstream
+        /// behaviour.
+        /// </summary>
+        internal static bool IsTerminalOrbitSynthesisSafeForLoopMember(IPlaybackTrajectory traj)
+        {
+            if (traj == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "IsTerminalOrbitSynthesisSafeForLoopMember: result=false reason=null-trajectory");
+                return false;
+            }
+            string recId = traj.RecordingId ?? "(null)";
+            if (traj.Points == null || traj.Points.Count == 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=empty-points",
+                        recId));
+                return false;
+            }
+            string terminalBody = traj.TerminalOrbitBody;
+            if (string.IsNullOrEmpty(terminalBody))
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=no-terminal-orbit-body",
+                        recId));
+                return false;
+            }
+            if (traj.TerminalOrbitSemiMajorAxis <= 0.0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=zero-terminal-sma terminalBody={1}",
+                        recId,
+                        terminalBody));
+                return false;
+            }
+            string lastPointBody = traj.Points[traj.Points.Count - 1].bodyName;
+            if (string.IsNullOrEmpty(lastPointBody))
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=no-last-point-body terminalBody={1}",
+                        recId,
+                        terminalBody));
+                return false;
+            }
+            bool sameBody = string.Equals(lastPointBody, terminalBody, StringComparison.Ordinal);
+            ParsekLog.Verbose(Tag,
+                string.Format(ic,
+                    "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result={1} reason={2} terminalBody={3} lastPointBody={4}",
+                    recId,
+                    sameBody,
+                    sameBody ? "same-body" : "cross-body-terminal",
+                    terminalBody,
+                    lastPointBody));
+            return sameBody;
+        }
+
+        /// <summary>
+        /// Defense-in-depth check used inside <see cref="TryResolveEndpointTailForMapPresence"/>
+        /// when the persisted-phase relaxation accepts a <c>TrajectoryPoint</c> phase.
+        /// Compares the persisted endpoint body against the recording's terminal-orbit
+        /// reference body. The outer call site predicate
+        /// (<see cref="IsTerminalOrbitSynthesisSafeForLoopMember"/>) compares last-point body
+        /// against terminal-orbit body; this inner check compares the persisted endpoint body
+        /// against terminal-orbit body. Both must agree before the relaxed source is accepted
+        /// so a future <c>RefreshEndpointDecision</c> that diverges the persisted body from the
+        /// last-point body cannot cause cross-body synthesis.
+        /// </summary>
+        internal static bool IsTrackingTerminalOrbitBody(IPlaybackTrajectory traj, string endpointBodyName)
+        {
+            if (traj == null) return false;
+            string terminalBody = traj.TerminalOrbitBody;
+            if (string.IsNullOrEmpty(terminalBody) || string.IsNullOrEmpty(endpointBodyName))
+                return false;
+            return string.Equals(endpointBodyName, terminalBody, StringComparison.Ordinal);
+        }
+
+        internal static bool TryResolveEndpointTailForMapPresence(
             IPlaybackTrajectory traj,
             double currentUT,
             OrbitSegment? selectedSegment,
             bool terminalMapPresenceRegion,
             out OrbitSegment endpointTailSegment,
             out TailDerivedOrbitSeed tailSeed,
-            out string detail)
+            out string detail,
+            bool acceptTerminalOrbitSource = false)
         {
             endpointTailSegment = default(OrbitSegment);
             tailSeed = default(TailDerivedOrbitSeed);
@@ -3865,29 +3969,69 @@ namespace Parsek
                 out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics endpointDiagnostics);
             endpointSeedSource = endpointDiagnostics.Source;
 
-            bool endpointSegmentFamily =
-                RecordingEndpointResolver.TryGetPersistedEndpointDecision(
-                    traj,
-                    out RecordingEndpointPhase endpointPhase,
-                    out string endpointBodyName)
-                && endpointPhase == RecordingEndpointPhase.OrbitSegment
-                && string.Equals(endpointBodyName, preferredEndpointBody, StringComparison.Ordinal);
-            if (!string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
-                || !endpointSegmentFamily)
+            RecordingEndpointResolver.TryGetPersistedEndpointDecision(
+                traj,
+                out RecordingEndpointPhase endpointPhase,
+                out string endpointBodyName);
+
+            // §1.1 relaxed inner gate (split into source-half and persisted-phase-half).
+            // Default (acceptTerminalOrbitSource=false) collapses to the original
+            // "endpoint-segment source AND OrbitSegment persisted phase with matching body"
+            // contract; passing true additionally accepts the same-body
+            // "endpoint-terminal-orbit" source plus a TrajectoryPoint persisted phase whose
+            // body matches the recording's terminal-orbit body. Defence in depth: the
+            // persisted-phase relaxation requires IsTrackingTerminalOrbitBody so a future
+            // RefreshEndpointDecision that diverges the persisted body from the last-point
+            // body cannot accidentally cross-body-synthesise.
+            bool sourceAccepted =
+                string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
+                || (acceptTerminalOrbitSource
+                    && string.Equals(endpointSeedSource, "endpoint-terminal-orbit", StringComparison.Ordinal));
+
+            bool persistedPhaseAccepted =
+                (endpointPhase == RecordingEndpointPhase.OrbitSegment
+                    && string.Equals(endpointBodyName, preferredEndpointBody, StringComparison.Ordinal))
+                || (acceptTerminalOrbitSource
+                    && endpointPhase == RecordingEndpointPhase.TrajectoryPoint
+                    && IsTrackingTerminalOrbitBody(traj, endpointBodyName));
+
+            if (!sourceAccepted || !persistedPhaseAccepted)
             {
                 TailDerivedOrbitSeed declinedSeed = tailSeed;
                 declinedSeed.DeclineReason =
-                    !string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
+                    !sourceAccepted
                         ? "endpoint-seed-not-segment"
                         : "endpoint-family-not-segment";
                 detail = CombineSourceDetails(
                     FormatEndpointTailSeedDetail(declinedSeed, accepted: false),
                     string.Format(ic,
-                        "endpointSeedSource={0} endpointPhase={1} endpointBody={2}",
+                        "endpointSeedSource={0} endpointPhase={1} endpointBody={2} acceptTerminalOrbitSource={3}",
                         endpointSeedSource ?? "(null)",
                         endpointPhase,
-                        endpointBodyName ?? "(null)"));
+                        endpointBodyName ?? "(null)",
+                        acceptTerminalOrbitSource));
                 return false;
+            }
+
+            if (acceptTerminalOrbitSource
+                && (!string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
+                    || endpointPhase == RecordingEndpointPhase.TrajectoryPoint))
+            {
+                // Log the relaxation acceptance once per call so a KSP.log capture can
+                // confirm the loop-aware path actually fired (vs. the legacy
+                // endpoint-segment route). One-shot per call (not per frame): callers
+                // gate this via a non-zero loop epoch shift, which only flips at unit
+                // boundaries.
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "endpoint-tail-synthesis-loop-accept rec={0} terminalBody={1} endpointSeedSource={2} endpointPhase={3} endpointBody={4} tailUT={5:F2} tailSma={6:F1}",
+                        traj.RecordingId ?? "(null)",
+                        traj.TerminalOrbitBody ?? "(null)",
+                        endpointSeedSource ?? "(null)",
+                        endpointPhase,
+                        endpointBodyName ?? "(null)",
+                        tailSeed.TailUT,
+                        tailSeed.Segment.semiMajorAxis));
             }
 
             if (selectedSegment.HasValue
@@ -4056,7 +4200,8 @@ namespace Parsek
             out string skipReason,
             int recordingIndex = -1,
             bool allowSoiGapStateVectorFallback = false,
-            string expectedSoiGapBody = null)
+            string expectedSoiGapBody = null,
+            bool acceptTerminalOrbitForLoopSynthesis = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -4212,6 +4357,12 @@ namespace Parsek
 
                     OrbitSegment visibleSegment = segment;
                     string endpointTailDetail = null;
+                    // FIRST endpoint-tail branch (covering-segment override). This is the
+                    // actual 181 Mm cross-body bug class; stays UNCONDITIONALLY suppressed
+                    // for loop members. The loop-aware acceptance hint is therefore NOT
+                    // threaded here -- the relaxation only applies to the no-covering-segment
+                    // fallback (the SECOND branch at line 5870 and the create-path's
+                    // terminal-orbit fallback below). See plan §1.5.
                     if (TryResolveEndpointTailForMapPresence(
                             traj,
                             currentUT,
@@ -4432,6 +4583,14 @@ namespace Parsek
                     CombineSourceDetails(detail, checkpointFallbackDetail));
             }
 
+            // Create-path no-covering-segment terminal-orbit fallback. The
+            // acceptTerminalOrbitForLoopSynthesis hint propagates here so a loop-aware
+            // caller (non-zero loop epoch shift on a same-body terminal recording) can
+            // synthesise a terminal orbit even when the recording has no recorded
+            // OrbitSegments and its persisted endpoint phase resolved to TrajectoryPoint
+            // (the no-segment terminal-Orbiting case). Default false preserves
+            // byte-identical behaviour for every existing call site that does not opt
+            // in. See plan §1.4 and §1.5.
             if (TryResolveEndpointTailForMapPresence(
                     traj,
                     currentUT,
@@ -4439,7 +4598,8 @@ namespace Parsek
                     terminalMapPresenceRegion: terminalMapPresenceRegion,
                     out OrbitSegment terminalEndpointTailSegment,
                     out _,
-                    out string terminalEndpointTailDetail))
+                    out string terminalEndpointTailDetail,
+                    acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
             {
                 segment = terminalEndpointTailSegment;
                 resolvedSegment = segment;
@@ -5592,6 +5752,15 @@ namespace Parsek
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
                     effUT);
+                // Rescue path: a "tracking-station-expired" removal is suppressed if the
+                // synthesizer can still produce a terminal-orbit seed. For a non-loop member
+                // this is the unchanged contract (loop-aware flag false). For a same-body
+                // loop member with no recorded OrbitSegments we allow the terminal-orbit
+                // source path here too -- otherwise idx 18 (the no-segment Kerbin-return loop
+                // member) loses its proto-vessel on the first refresh tick after creation.
+                bool acceptTerminalOrbitForLoopSynthesis =
+                    tsLoopEpochShift != 0.0
+                    && IsTerminalOrbitSynthesisSafeForLoopMember(rec);
                 if (string.Equals(removeReason, "tracking-station-expired", StringComparison.Ordinal)
                     && TryResolveEndpointTailForMapPresence(
                         rec,
@@ -5600,7 +5769,8 @@ namespace Parsek
                         terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out _,
                         out _,
-                        out _))
+                        out _,
+                        acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
                 {
                     removeReason = null;
                 }
@@ -5687,26 +5857,41 @@ namespace Parsek
                 // The synthetic endpoint-tail (terminal-orbit) seed is a NON-LOOP concept: it shows
                 // where a finished flight ended up, seeded from the recorded historical body
                 // rotation/position at the recording's end. For a LOOP member that seed does not
-                // survive the loop epoch shift: a cross-body terminal (e.g. a Mun orbit seeded from
-                // the Mun's RECORDED position) lands the proto-vessel tens of millions of metres off
-                // (~181 Mm in the Mun case) instead of beside the live Mun. A loop member's effUT is
-                // always inside the recording, so a covering OrbitSegment is the correct current
-                // orbit and must always win; when none covers effUT the loop should remove the
-                // proto-vessel (the atmospheric marker draws the transfer/coast position and the
-                // create pass re-materializes the orbit at the next real segment), exactly like the
-                // flight scene's segment-update path, which renders real covering segments and never
-                // applies the endpoint-tail override. So both endpoint-tail branches are suppressed
-                // for loop members (non-zero epoch shift) and unchanged for non-loop members.
+                // survive the loop epoch shift in the cross-body case: a cross-body terminal
+                // (e.g. a Mun orbit seeded from the Mun's RECORDED position) lands the
+                // proto-vessel tens of millions of metres off (~181 Mm in the Mun case) instead
+                // of beside the live Mun.
+                //
+                // Branch rules under plan §1.5 (refresh path):
+                //
+                // - FIRST endpoint-tail branch (covering-segment OVERRIDE, below): stays
+                //   UNCONDITIONALLY suppressed for loop members (the 181 Mm bug class). When a
+                //   covering OrbitSegment exists at effUT, that segment IS the correct loop
+                //   replay orbit and the historical-rotation override would corrupt it.
+                //   Non-loop members keep the unchanged behaviour.
+                //
+                // - SECOND endpoint-tail branch (no-covering-segment FALLBACK, below): now
+                //   CONDITIONALLY enabled for same-body loop members via
+                //   IsTerminalOrbitSynthesisSafeForLoopMember. A recording whose last sampled
+                //   point body matches its TerminalOrbitBody (e.g. idx 18, Kerbin-return after
+                //   Mun takeoff, no recorded OrbitSegments) is shift-safe because the seeded
+                //   inertial Keplerian elements propagate body-rotation-frame-independently
+                //   under Orbit.SetOrbit(epoch + shift) (see plan §1.5: Planetarium OrbitalFrame
+                //   is built from LAN/inc/argPe; historical body rotation enters at SEED
+                //   CONSTRUCTION only). Cross-body terminals (mismatched last-point body and
+                //   TerminalOrbitBody) stay suppressed via the predicate.
                 //
                 // hasFutureOrbitSegment additionally gates the no-covering-segment fallback for
-                // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable via
-                // rewind/warp) must remove the ghost rather than jump to the terminal orbit; the
-                // endpoint tail stays reserved for the genuine terminal region (no future segment).
+                // NON-loop members: a mid-recording gap (orbit segments still ahead, reachable
+                // via rewind/warp) must remove the ghost rather than jump to the terminal orbit;
+                // the endpoint tail stays reserved for the genuine terminal region (no future
+                // segment).
                 bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(rec.OrbitSegments, effUT);
-                bool endpointTailAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
+                bool endpointTailOverrideAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
+                // acceptTerminalOrbitForLoopSynthesis is computed above (rescue-path block).
 
                 if (seg.HasValue
-                    && endpointTailAllowed
+                    && endpointTailOverrideAllowed
                     && TryResolveEndpointTailForMapPresence(
                         rec,
                         effUT,
@@ -5714,13 +5899,14 @@ namespace Parsek
                         IsTerminalMapPresenceRegion(rec, effUT),
                         out OrbitSegment endpointTailSegment,
                         out _,
-                        out _))
+                        out _,
+                        acceptTerminalOrbitSource: false))
                 {
                     seg = endpointTailSegment;
                     orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
                 }
                 else if (!seg.HasValue
-                    && endpointTailAllowed
+                    && (endpointTailOverrideAllowed || acceptTerminalOrbitForLoopSynthesis)
                     && !hasFutureOrbitSegment
                     && TryResolveEndpointTailForMapPresence(
                         rec,
@@ -5729,7 +5915,8 @@ namespace Parsek
                         terminalMapPresenceRegion: IsTerminalMapPresenceRegion(rec, effUT),
                         out endpointTailSegment,
                         out _,
-                        out _))
+                        out _,
+                        acceptTerminalOrbitSource: acceptTerminalOrbitForLoopSynthesis))
                 {
                     seg = endpointTailSegment;
                     orbitUpdateSource = TrackingStationGhostSource.EndpointTail;
@@ -7224,6 +7411,12 @@ namespace Parsek
             int recordingIndex,
             string context)
         {
+            // TS-startup wrapper is not loop-aware (no loop epoch shift in scope here).
+            // Pass acceptTerminalOrbitForLoopSynthesis: false explicitly per plan §1.4: a
+            // no-segment terminal-orbit synthesis at raw recorded UTs would seed at the wrong
+            // position (the PR #967 class). The proto-vessel for a no-segment loop member
+            // comes up on the first loop-aware refresh tick after TS entry (within
+            // LifecycleCheckIntervalSec = 2.0s), not at startup.
             TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
                 rec,
                 isSuppressed,
@@ -7235,7 +7428,8 @@ namespace Parsek
                 out segment,
                 out stateVectorPoint,
                 out skipReason,
-                recordingIndex: recordingIndex);
+                recordingIndex: recordingIndex,
+                acceptTerminalOrbitForLoopSynthesis: false);
 
             LogTrackingStationGhostSourceDecision(
                 context,
