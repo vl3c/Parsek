@@ -404,6 +404,17 @@ namespace Parsek
                 ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
             }
+
+            bool useGhostTrajectoryPolyline = GUILayout.Toggle(s.useGhostTrajectoryPolyline,
+                new GUIContent(" Trajectory polyline in map view",
+                    "Draw a dashed polyline through every recorded non-orbital phase of every active ghost in map view (Tracking Station and flight), bridging the gaps between orbit-line arcs."));
+            if (useGhostTrajectoryPolyline != s.useGhostTrajectoryPolyline)
+            {
+                // The property setter persists the value and logs the GhostMap
+                // flip; just mirror the window's UI-log convention here.
+                s.useGhostTrajectoryPolyline = useGhostTrajectoryPolyline;
+                ParsekLog.Info("UI", $"Setting changed: useGhostTrajectoryPolyline={useGhostTrajectoryPolyline}");
+            }
         }
 
         private void DrawStockUiSettings(ParsekSettings s)
