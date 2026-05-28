@@ -42,6 +42,14 @@ namespace Parsek.Tests
         private const double MunRotation = 138984.38;     // tidally locked == orbit period
         private const double MinmusOrbit = 1077311.0;     // around Kerbin
         private const double DunaOrbit = 17315400.0;      // around the Sun
+        private const double IkeOrbit = 65517.86;         // around Duna
+        private const double EelooOrbit = 33715200.0;     // around the Sun
+        private const double JoolOrbit = 104661432.0;     // around the Sun
+        private const double TyloOrbit = 211926.36;       // around Jool
+        private const double MohoOrbit = 2215754.0;       // around the Sun
+        private const double EveOrbit = 5657995.0;        // around the Sun
+        private const double GillyOrbit = 388587.0;       // around Eve
+        private const double DresOrbit = 47893063.0;      // around the Sun
 
         private sealed class FakeBodyInfo : IBodyInfo
         {
@@ -58,35 +66,94 @@ namespace Parsek.Tests
             public double OrbitalVelocity(string b) => Velocity.TryGetValue(b ?? "", out double v) ? v : double.NaN;
         }
 
-        // A stock-like Sun/Kerbin/Mun/Minmus/Duna fake.
+        // A stock-like fake covering the full Kerbol system (all four topological shapes:
+        // sibling-of-Kerbin, Eve-moon, Duna-moon, Jool-moon). Tidally-locked moons set
+        // RotationPeriod == OrbitPeriod (Mun, Tylo, Bop, Pol, Vall, Gilly in stock).
         private static FakeBodyInfo StockFake()
         {
             var f = new FakeBodyInfo();
             // Rotation periods.
             f.Rotation["Kerbin"] = KerbinRotation;
-            f.Rotation["Mun"] = MunRotation;
+            f.Rotation["Mun"] = MunRotation;          // tidally locked == orbit period
             f.Rotation["Minmus"] = 40400.0;
             f.Rotation["Duna"] = 65517.86;
+            f.Rotation["Ike"] = IkeOrbit;             // tidally locked
+            f.Rotation["Eeloo"] = 19460.0;
+            f.Rotation["Jool"] = 36000.0;
+            f.Rotation["Tylo"] = TyloOrbit;           // tidally locked
+            f.Rotation["Moho"] = 1210000.0;
+            f.Rotation["Eve"] = 80500.0;
+            f.Rotation["Gilly"] = GillyOrbit;         // tidally locked
+            f.Rotation["Dres"] = 34800.0;
+            f.Rotation["Vall"] = 105962.09;           // tidally locked (== Vall orbit)
+            f.Rotation["Bop"] = 544507.43;            // tidally locked (== Bop orbit)
+            f.Rotation["Pol"] = 901902.62;            // tidally locked (== Pol orbit)
             f.Rotation["Sun"] = 432000.0;
             // Orbit periods (about the reference body).
             f.Orbit["Kerbin"] = KerbinOrbit;
             f.Orbit["Mun"] = MunOrbit;
             f.Orbit["Minmus"] = MinmusOrbit;
             f.Orbit["Duna"] = DunaOrbit;
+            f.Orbit["Ike"] = IkeOrbit;
+            f.Orbit["Eeloo"] = EelooOrbit;
+            f.Orbit["Jool"] = JoolOrbit;
+            f.Orbit["Tylo"] = TyloOrbit;
+            f.Orbit["Moho"] = MohoOrbit;
+            f.Orbit["Eve"] = EveOrbit;
+            f.Orbit["Gilly"] = GillyOrbit;
+            f.Orbit["Dres"] = DresOrbit;
+            f.Orbit["Vall"] = 105962.09;
+            f.Orbit["Bop"] = 544507.43;
+            f.Orbit["Pol"] = 901902.62;
             f.Orbit["Sun"] = double.NaN;
             // Parents (reference bodies).
             f.Parent["Kerbin"] = "Sun";
             f.Parent["Mun"] = "Kerbin";
             f.Parent["Minmus"] = "Kerbin";
             f.Parent["Duna"] = "Sun";
+            f.Parent["Ike"] = "Duna";
+            f.Parent["Eeloo"] = "Sun";
+            f.Parent["Jool"] = "Sun";
+            f.Parent["Tylo"] = "Jool";
+            f.Parent["Moho"] = "Sun";
+            f.Parent["Eve"] = "Sun";
+            f.Parent["Gilly"] = "Eve";
+            f.Parent["Dres"] = "Sun";
+            f.Parent["Vall"] = "Jool";
+            f.Parent["Bop"] = "Jool";
+            f.Parent["Pol"] = "Jool";
             f.Parent["Sun"] = null;
-            // SOI radii + velocities (only used by the Phase 2 tolerance; present for completeness).
+            // SOI radii + velocities (used by the orbital tolerance SoiRadius/OrbitalVelocity).
+            f.Soi["Kerbin"] = 84159286.0;
             f.Soi["Mun"] = 2429559.0;
             f.Soi["Minmus"] = 2247428.0;
             f.Soi["Duna"] = 47921949.0;
+            f.Soi["Ike"] = 1049599.0;
+            f.Soi["Eeloo"] = 119082942.0;
+            f.Soi["Jool"] = 2455985200.0;
+            f.Soi["Tylo"] = 10856518.0;
+            f.Soi["Moho"] = 9646663.0;
+            f.Soi["Eve"] = 85109365.0;
+            f.Soi["Gilly"] = 126123.0;
+            f.Soi["Dres"] = 32832840.0;
+            f.Soi["Vall"] = 2406401.0;
+            f.Soi["Bop"] = 1221061.0;
+            f.Soi["Pol"] = 1042139.0;
+            f.Velocity["Kerbin"] = 9284.5;
             f.Velocity["Mun"] = 543.0;
             f.Velocity["Minmus"] = 274.0;
             f.Velocity["Duna"] = 5670.0;
+            f.Velocity["Ike"] = 305.0;
+            f.Velocity["Eeloo"] = 4600.0;
+            f.Velocity["Jool"] = 4040.0;
+            f.Velocity["Tylo"] = 2030.0;
+            f.Velocity["Moho"] = 12393.0;
+            f.Velocity["Eve"] = 10811.0;
+            f.Velocity["Gilly"] = 70.0;
+            f.Velocity["Dres"] = 4630.0;
+            f.Velocity["Vall"] = 2650.0;
+            f.Velocity["Bop"] = 765.0;
+            f.Velocity["Pol"] = 645.0;
             return f;
         }
 
@@ -348,11 +415,11 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Extract_CrossParentDuna_UnsupportedCrossParent()
+        public void Extract_CrossParentDuna_SupportedWithHeliocentricPair()
         {
-            // Guards: a heliocentric (sibling) target never emits a same-parent orbit.period
-            // constraint - it is detected as cross-parent and reported "not yet supported"
-            // (Phase 4). The constraint is still recorded (RelativeToParent==true) for diagnostics.
+            // Guards (Phase 4): a heliocentric (sibling) target is now SUPPORTED. It emits the
+            // target's heliocentric Orbital AND the launch body's own heliocentric Orbital (the new
+            // layer), both RelativeToParent=true, plus the pad Rotation. No UnsupportedCrossParent.
             var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
             var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
             WithSoiEntry(transfer, 5000, 6000, "Duna"); // Sun-orbiting sibling of Kerbin
@@ -362,11 +429,276 @@ namespace Parsek.Tests
 
             var ex = Extract(tree, StockFake());
 
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Null(ex.UnsupportedReason);
+            // Rotation(Kerbin) pad + Orbital(Duna) + Orbital(Kerbin heliocentric).
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Kerbin");
+            PhaseConstraint duna = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Duna");
+            PhaseConstraint kerbHelio = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Kerbin");
+            Assert.Equal(DunaOrbit, duna.PeriodSeconds);
+            Assert.True(duna.RelativeToParent);
+            Assert.Equal(KerbinOrbit, kerbHelio.PeriodSeconds);
+            Assert.True(kerbHelio.RelativeToParent); // the launch body's heliocentric leg
+            Assert.Equal(3, ex.Constraints.Count);
+        }
+
+        [Fact]
+        public void Extract_CrossParentDeepIke_EmitsTargetIntermediateAndLaunchHeliocentric()
+        {
+            // Guards (Phase 4 deep chain): Kerbin -> Ike (Ike -> Duna -> Sun) emits Ike's
+            // Duna-centric Orbital, Duna's heliocentric Orbital (the intermediate), and Kerbin's
+            // heliocentric Orbital - Duna emitted ONCE despite being walked from Ike's chain.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Duna");
+            WithSoiEntry(transfer, 6000, 6500, "Ike");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Kerbin");
+            Assert.Single(ex.Constraints, c => c.BodyName == "Ike");
+            Assert.Single(ex.Constraints, c => c.BodyName == "Duna");   // intermediate, once
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Kerbin");
+            PhaseConstraint ike = ex.Constraints.Single(c => c.BodyName == "Ike");
+            Assert.Equal(IkeOrbit, ike.PeriodSeconds); // Ike around Duna (parent-centric)
+            Assert.True(ike.RelativeToParent);          // not a direct child of the launch body
+        }
+
+        [Fact]
+        public void Extract_GravityAssist_KerbinMunDuna_DedupsLaunchHeliocentric()
+        {
+            // Guards (Phase 4 §3.4): a Kerbin -> Mun -> Duna assist emits Rotation(Kerbin),
+            // same-parent Orbital(Mun), heliocentric Orbital(Duna), and heliocentric Orbital(Kerbin)
+            // ONCE (Kerbin is on both the Mun launch-side [empty] and the Duna launch-side chains).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 2000, "Kerbin");
+            WithSoiEntry(transfer, 2000, 2500, "Mun");    // assist
+            WithSoiEntry(transfer, 2500, 5000, "Kerbin"); // back out
+            WithSoiEntry(transfer, 5000, 6000, "Duna");   // sibling target
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Kerbin"); // once
+            PhaseConstraint mun = ex.Constraints.Single(c => c.BodyName == "Mun");
+            Assert.False(mun.RelativeToParent); // Mun is a direct child of Kerbin (same-parent)
+            Assert.Single(ex.Constraints, c => c.BodyName == "Duna");
+            Assert.Equal(4, ex.Constraints.Count); // Rotation(Kerbin) + Orbital(Mun/Duna/Kerbin)
+        }
+
+        [Fact]
+        public void Extract_SameParentMun_ByteIdenticalNoLaunchHeliocentric()
+        {
+            // Guards: a direct-child (Mun) mission is UNCHANGED by Phase 4 - the launch side of the
+            // LCA walk is empty, so NO Orbital(Kerbin heliocentric) is emitted; only Orbital(Mun).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
+            WithSoiEntry(transfer, 1600, 3000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Kerbin");
+            PhaseConstraint mun = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
+            Assert.Equal("Mun", mun.BodyName);
+            Assert.Equal(MunOrbit, mun.PeriodSeconds);
+            Assert.False(mun.RelativeToParent);
+        }
+
+        [Fact]
+        public void Extract_EveToGilly_LaunchBodyNotKerbin_SameParent()
+        {
+            // Guards: a non-Kerbin launch body works (Eve -> Gilly is same-parent: Gilly orbits Eve).
+            // Only Orbital(Gilly) around Eve; no launch-heliocentric leg.
+            var ascent = SurfaceLeg("s", 1000, 1100, "Eve");
+            var transfer = OrbitLeg("o", 1100, 1600, "Eve");
+            WithSoiEntry(transfer, 1600, 3000, "Gilly");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Equal("Eve", ex.LaunchBodyName);
+            PhaseConstraint gilly = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
+            Assert.Equal("Gilly", gilly.BodyName);
+            Assert.False(gilly.RelativeToParent); // direct child of Eve
+            Assert.DoesNotContain(ex.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Eve");
+        }
+
+        [Fact]
+        public void Extract_RoundTripKerbinDunaKerbin_SingleRotationSingleLaunchHeliocentric()
+        {
+            // Guards (review M2): a Kerbin -> Duna -> Kerbin round trip (lands back on Kerbin) does
+            // NOT explode into duplicate Rotation(Kerbin) or Orbital(Kerbin) - the surface rule
+            // collapses to ONE Rotation(Kerbin) and the launch-side walk dedups to ONE Orbital(Kerbin).
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Duna");
+            WithSoiEntry(transfer, 6000, 9000, "Kerbin"); // return cruise back to Kerbin
+            var landing = SurfaceLeg("l", 9000, 9500, "Kerbin"); // re-entry / landing
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            landing.ChainId = "C"; landing.ChainIndex = 2;
+            var tree = TreeOf("t", ascent, transfer, landing);
+
+            var ex = Extract(tree, StockFake());
+
+            Assert.Equal(Support.Supported, ex.Support);
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Kerbin");
+            Assert.Single(ex.Constraints, c => c.Kind == ConstraintKind.Orbital && c.BodyName == "Kerbin");
+            Assert.Single(ex.Constraints, c => c.BodyName == "Duna");
+        }
+
+        [Fact]
+        public void Extract_DisconnectedBodyGraph_FallsBackToUnsupportedCrossParent()
+        {
+            // Guards: a planet-pack pathology where the target shares no ancestor with the launch
+            // body (two unrelated roots) falls back to UnsupportedCrossParent rather than throwing.
+            var fake = StockFake();
+            fake.Parent["Rogue"] = "RogueStar"; // separate root, unrelated to Sun
+            fake.Parent["RogueStar"] = null;
+            fake.Orbit["Rogue"] = 5_000_000.0;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Rogue");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+
+            var ex = Extract(tree, fake);
+
             Assert.Equal(Support.UnsupportedCrossParent, ex.Support);
-            PhaseConstraint orb = ex.Constraints.Single(c => c.Kind == ConstraintKind.Orbital);
-            Assert.Equal("Duna", orb.BodyName);
-            Assert.True(orb.RelativeToParent); // cross-parent flagged
-            Assert.Contains("Duna", ex.UnsupportedReason);
+            Assert.Contains("Rogue", ex.UnsupportedReason);
+        }
+
+        // ===================== Body-hierarchy walker (AncestorChain / TryFindCommonAncestor) =====
+
+        [Theory]
+        [InlineData("Sun", "Sun")]
+        [InlineData("Kerbin", "Kerbin,Sun")]
+        [InlineData("Mun", "Mun,Kerbin,Sun")]
+        [InlineData("Duna", "Duna,Sun")]
+        [InlineData("Ike", "Ike,Duna,Sun")]
+        [InlineData("Tylo", "Tylo,Jool,Sun")]
+        [InlineData("Gilly", "Gilly,Eve,Sun")]
+        public void AncestorChain_StockBodies_ChildToRootInclusive(string body, string expectedCsv)
+        {
+            var chain = MissionPeriodicity.AncestorChain(body, StockFake());
+            Assert.Equal(expectedCsv, string.Join(",", chain));
+        }
+
+        [Fact]
+        public void AncestorChain_NullOrUnknown_Empty()
+        {
+            Assert.Empty(MissionPeriodicity.AncestorChain(null, StockFake()));
+            Assert.Empty(MissionPeriodicity.AncestorChain("", StockFake()));
+            // Unknown body: ReferenceBodyName returns null, so the chain is just the body itself.
+            Assert.Equal(new[] { "Nope" }, MissionPeriodicity.AncestorChain("Nope", StockFake()));
+        }
+
+        [Fact]
+        public void AncestorChain_CyclicGraph_TerminatesNoHang()
+        {
+            var f = new FakeBodyInfo();
+            f.Parent["A"] = "B";
+            f.Parent["B"] = "A"; // cycle
+            var chain = MissionPeriodicity.AncestorChain("A", f);
+            // Stops at the first repeat: ["A","B"] then B->A is already seen.
+            Assert.Equal(new[] { "A", "B" }, chain);
+        }
+
+        [Theory]
+        // launch, target, expectedAncestor, expectedLaunchToAnc(csv, may be empty), expectedTargetToAnc(csv)
+        [InlineData("Kerbin", "Mun", "Kerbin", "", "Mun")]
+        [InlineData("Kerbin", "Duna", "Sun", "Kerbin", "Duna")]
+        [InlineData("Kerbin", "Ike", "Sun", "Kerbin", "Ike,Duna")]
+        [InlineData("Kerbin", "Tylo", "Sun", "Kerbin", "Tylo,Jool")]
+        [InlineData("Kerbin", "Gilly", "Sun", "Kerbin", "Gilly,Eve")]
+        [InlineData("Eve", "Gilly", "Eve", "", "Gilly")]
+        public void TryFindCommonAncestor_StockPairs(
+            string launch, string target, string expAnc, string expLaunchCsv, string expTargetCsv)
+        {
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                launch, target, StockFake(), out string anc, out var l2a, out var t2a);
+            Assert.True(ok);
+            Assert.Equal(expAnc, anc);
+            Assert.Equal(expLaunchCsv, string.Join(",", l2a));
+            Assert.Equal(expTargetCsv, string.Join(",", t2a));
+        }
+
+        [Fact]
+        public void TryFindCommonAncestor_SameBody_AncestorIsItselfBothChainsEmpty()
+        {
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                "Kerbin", "Kerbin", StockFake(), out string anc, out var l2a, out var t2a);
+            Assert.True(ok);
+            Assert.Equal("Kerbin", anc);
+            Assert.Empty(l2a);
+            Assert.Empty(t2a);
+        }
+
+        [Fact]
+        public void TryFindCommonAncestor_Disconnected_ReturnsFalse()
+        {
+            var f = new FakeBodyInfo();
+            f.Parent["Kerbin"] = "Sun"; f.Parent["Sun"] = null;
+            f.Parent["X"] = "OtherStar"; f.Parent["OtherStar"] = null;
+            bool ok = MissionPeriodicity.TryFindCommonAncestor(
+                "Kerbin", "X", f, out string anc, out var l2a, out var t2a);
+            Assert.False(ok);
+            Assert.Null(anc);
+            Assert.Empty(l2a);
+            Assert.Empty(t2a);
+        }
+
+        [Fact]
+        public void SelectDominantConstraintIndex_CrossParent_PrefersTargetBodyForLabel()
+        {
+            // Guards (review E): with a launch body supplied, the basis-label dominant prefers the
+            // cross-parent TARGET over the launch body's heliocentric leg even when the launch body's
+            // period is longer (the Moho case: Moho's helio period < Kerbin's). Label-only.
+            var constraints = new List<PhaseConstraint>
+            {
+                Rotation("Kerbin", KerbinRotation, 0.0),
+                Orbital("Kerbin", KerbinOrbit, 100.0, crossParent: true),   // launch heliocentric (longer)
+                Orbital("Moho", MohoOrbit, 200.0, crossParent: true),       // target (shorter period)
+            };
+            // No launch body -> pure longest-period: Kerbin (the longer helio period) wins.
+            int diNoLaunch = MissionPeriodicity.SelectDominantConstraintIndex(constraints);
+            Assert.Equal("Kerbin", constraints[diNoLaunch].BodyName);
+            // With launch body -> target preference flips it to Moho.
+            int diLaunch = MissionPeriodicity.SelectDominantConstraintIndex(constraints, "Kerbin");
+            Assert.Equal("Moho", constraints[diLaunch].BodyName);
+        }
+
+        [Fact]
+        public void SelectAnchorConstraintIndex_CrossParent_PinsPadNotLongPeriodOrbital()
+        {
+            // Guards (the cross-parent anchor fix): the anchor is the SMALLEST ABSOLUTE tolerance, not
+            // the smallest duty cycle. Duna's heliocentric Orbital has a TINIER duty (SOI window /
+            // Duna year) than the pad, but a far LARGER absolute tolerance (~8452 s vs the pad's ~15
+            // s). Pinning Duna (a 17.3 Ms period) would make windows millennia-sparse; the pad
+            // (21549 s) must stay the anchor so the schedule samples densely. The duty criterion would
+            // wrongly pick Duna here - this asserts the absolute-tolerance criterion picks the pad.
+            var constraints = new List<PhaseConstraint>
+            {
+                Orbital("Duna", DunaOrbit, 0.0, crossParent: true), // index 0: tiny duty, large abs tol
+                Rotation("Kerbin", KerbinRotation, 0.0),            // index 1: tight abs tol (the pad)
+            };
+            int anchor = MissionPeriodicity.SelectAnchorConstraintIndex(constraints, StockFake());
+            Assert.Equal(1, anchor); // the pad, NOT the long-period Duna orbital
         }
 
         [Fact]
@@ -1239,11 +1571,12 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_UnsupportedCrossParent_LeavesAnchorAtRawLoopAnchorUT_NoRegression()
+        public void Build_CrossParentDuna_PhaseLocksAndAttachesZeroDriftSchedule()
         {
-            // Guards: an unsupported (cross-parent Duna) config does NOT phase-lock - the anchor
-            // stays at the raw LoopAnchorUT and the cadence is the today's-behavior value, so
-            // nothing regresses for cases we don't yet handle.
+            // Guards (Phase 4): a cross-parent Duna config now PHASE-LOCKS (it is Supported) and,
+            // being multi-constraint incommensurate (Rotation(Kerbin) + Orbital(Duna) + Orbital(Kerbin
+            // heliocentric)), attaches the zero-drift schedule anchored on the pad. This is the
+            // before/after flip: it used to leave the anchor at the raw LoopAnchorUT.
             var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
             var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
             WithSoiEntry(transfer, 5000, 6000, "Duna");
@@ -1252,25 +1585,54 @@ namespace Parsek.Tests
             var tree = TreeOf("t", ascent, transfer);
             var committed = new List<Recording>(tree.Recordings.Values);
 
+            const double ut0 = 1000.0;
+            var mission = LoopMissionFor("t", anchorUT: 123456.0);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.NotNull(unit.RelaunchSchedule);
+            // The pad (Kerbin rotation) is locked EXACTLY: the launch is UT0 + k*KerbinRotation.
+            double k = (unit.PhaseAnchorUT - ut0) / KerbinRotation;
+            Assert.Equal(Math.Round(k), k, 3);
+            Assert.True(k >= 1.0);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED"));
+        }
+
+        [Fact]
+        public void Build_DisconnectedBodyGraph_LeavesAnchorAtRawLoopAnchorUT_NoRegression()
+        {
+            // Guards: the no-lock fallback still fires for a genuinely unsupported config - a
+            // disconnected body graph (planet-pack pathology) -> UnsupportedCrossParent, anchor stays
+            // at the raw LoopAnchorUT, byte-identical to the no-body-info path.
+            var fake = StockFake();
+            fake.Parent["Rogue"] = "RogueStar";
+            fake.Parent["RogueStar"] = null;
+            fake.Orbit["Rogue"] = 5_000_000.0;
+            var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, 5000, "Kerbin");
+            WithSoiEntry(transfer, 5000, 6000, "Rogue");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+
             double anchorEnable = 123456.0;
             var mission = LoopMissionFor("t", anchorEnable);
 
-            // With body-info (phase-lock wired) but unsupported config.
             var lockedSet = MissionLoopUnitBuilder.Build(
-                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+                new[] { mission }, new[] { tree }, committed, 30.0, fake);
             Assert.True(lockedSet.TryGetUnitForMember(0, out var lockedUnit));
 
-            // Without body-info (today's behavior).
             var todaySet = MissionLoopUnitBuilder.Build(
                 new[] { mission }, new[] { tree }, committed, 30.0, null);
             Assert.True(todaySet.TryGetUnitForMember(0, out var todayUnit));
 
-            // The unsupported config is byte-identical to today's behavior: same anchor + cadences.
             Assert.Equal(anchorEnable, lockedUnit.PhaseAnchorUT);
             Assert.Equal(todayUnit.PhaseAnchorUT, lockedUnit.PhaseAnchorUT);
             Assert.Equal(todayUnit.CadenceSeconds, lockedUnit.CadenceSeconds);
             Assert.Equal(todayUnit.OverlapCadenceSeconds, lockedUnit.OverlapCadenceSeconds);
-            // The skipped Info line fired with the unsupported reason.
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock SKIPPED") &&
                 l.Contains("UnsupportedCrossParent"));

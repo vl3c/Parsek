@@ -81,8 +81,10 @@ namespace Parsek
         /// <summary>Solvable now (single-body or same-parent intercept).</summary>
         Supported,
 
-        /// <summary>A sibling/interplanetary target (cross-parent). Recurrence is the synodic
-        /// period; not solvable until Phase 4.</summary>
+        /// <summary>A cross-parent target whose body graph is DISCONNECTED from the launch body
+        /// (no common ancestor - planet-pack pathology). Sibling / interplanetary / deep targets are
+        /// now Supported (Phase 4, the LCA emission); this value is returned only for the
+        /// disconnected-graph fallback (and retained for save/log back-compat).</summary>
         UnsupportedCrossParent,
 
         /// <summary>The included span aligns to another vessel (rendezvous / dock), not a
@@ -270,10 +272,13 @@ namespace Parsek
         ///    inertial orbit with no surface segment of B, and a bare surface arc with no inertial
         ///    orbit of B, are both free).
         /// 4. an SOI entry into body C (any bodyName across the included OrbitSegments /
-        ///    OrbitalCheckpoint checkpoints other than the launch body) -> Orbital(C): direct
-        ///    child (C.referenceBody == launchBody) keeps period = C.OrbitPeriod and is Supported;
-        ///    sibling (C.referenceBody == launchBody.referenceBody) or deeper is
-        ///    UnsupportedCrossParent (Phase 4).
+        ///    OrbitalCheckpoint checkpoints other than the launch body) -> a parent-centric Orbital
+        ///    per body on both downward chains to the lowest common ancestor of C and the launch
+        ///    body (Phase 4): a direct child (Mun) emits only Orbital(C) (byte-identical to before);
+        ///    a sibling/cross-parent target (Duna) ALSO emits the launch body's heliocentric Orbital;
+        ///    a deep target (Ike via Duna) adds each intermediate body's parent-centric Orbital. The
+        ///    only remaining UnsupportedCrossParent is a DISCONNECTED body graph (planet-pack
+        ///    pathology); rendezvous stays UnsupportedRendezvous.
         /// </summary>
         internal static ConstraintExtraction ExtractConstraints(
             MissionThroughLineView view,
@@ -408,14 +413,33 @@ namespace Parsek
                 });
             }
 
-            // 4. Orbital constraints: every included orbit body OTHER than the launch body is an
-            //    SOI entry. Emit in recorded-UT (orbit-start) order.
+            // 4. Orbital constraints (Phase 4: all Kerbol-system bodies). Every included orbit body
+            //    OTHER than the launch body is an SOI entry. For each such target C, walk the
+            //    body-reference graph up to the lowest common ancestor (LCA) of C and the launch body
+            //    and emit a PARENT-CENTRIC Orbital for every body on BOTH downward chains (the target
+            //    side INCLUDING C, the launch side INCLUDING the launch body, the LCA itself
+            //    EXCLUDED):
+            //      - direct child (C orbits the launch body, Mun/Minmus): launch side is empty, only
+            //        Orbital(C) comes out, RelativeToParent=false - BYTE-IDENTICAL to the pre-Phase-4
+            //        same-parent path.
+            //      - cross-parent (Duna/Eve/Jool/...): the launch body's OWN heliocentric Orbital
+            //        joins the set (RelativeToParent=true), so the launch body's phase around the
+            //        shared parent is locked too.
+            //      - deep (Ike via Duna, Laythe via Jool): each intermediate body en route adds its
+            //        own parent-centric Orbital (Duna-around-Sun + Ike-around-Duna).
+            //    The existing multi-constraint joint / zero-drift solver finds the joint near-
+            //    resonance; there is no per-body "unsupported cross-parent" branch any more (the only
+            //    cross-parent no-lock left is a disconnected body graph - planet-pack pathology). Emit
+            //    in deterministic sorted order (start-UT then ordinal), dedup by body name (a body has
+            //    exactly one parent, so name-dedup is sound: a Kerbin->Ike mission emits Duna once;
+            //    a Kerbin->Mun->Duna gravity assist emits Kerbin's heliocentric once).
             var orbitBodiesSorted = new List<KeyValuePair<string, double>>(earliestOrbitStartByBody);
             orbitBodiesSorted.Sort((a, b) =>
             {
                 int cmp = a.Value.CompareTo(b.Value);
                 return cmp != 0 ? cmp : string.CompareOrdinal(a.Key, b.Key);
             });
+            var emittedOrbitalBodies = new HashSet<string>(StringComparer.Ordinal);
             foreach (var ob in orbitBodiesSorted)
             {
                 string body = ob.Key;
@@ -424,32 +448,27 @@ namespace Parsek
                 if (launchBody != null && body == launchBody)
                     continue; // the launch body's own orbit segments are not an SOI entry
 
-                double orbitPeriod = bodyInfo.OrbitPeriod(body);
-                bool crossParent = !IsSameParentTarget(body, launchBody, bodyInfo);
-
-                if (double.IsNaN(orbitPeriod) || double.IsInfinity(orbitPeriod) || orbitPeriod <= 0.0)
+                if (!TryFindCommonAncestor(launchBody, body, bodyInfo,
+                        out _, out List<string> launchToAnc, out List<string> targetToAnc))
                 {
-                    // Degenerate orbit data: skip the constraint rather than emit a divide-by-zero
-                    // period (the body is still recorded as transited, but we cannot schedule it).
+                    // Disconnected chains (planet-pack pathology: two unrelated roots). We cannot
+                    // schedule this body's phase; report it and keep going on the others.
+                    if (result.Support == Support.Supported)
+                    {
+                        result.Support = Support.UnsupportedCrossParent;
+                        result.UnsupportedReason =
+                            $"orbital target '{body}' shares no common ancestor with launch body " +
+                            $"'{launchBody ?? "?"}' (disconnected body graph)";
+                    }
                     continue;
                 }
 
-                result.Constraints.Add(new PhaseConstraint
-                {
-                    Kind = ConstraintKind.Orbital,
-                    BodyName = body,
-                    PeriodSeconds = orbitPeriod,
-                    PhaseOffsetSeconds = ob.Value - ut0,
-                    RelativeToParent = crossParent
-                });
-
-                if (crossParent && result.Support == Support.Supported)
-                {
-                    result.Support = Support.UnsupportedCrossParent;
-                    result.UnsupportedReason =
-                        $"orbital target '{body}' is not a direct child of launch body " +
-                        $"'{launchBody ?? "?"}' (synodic, Phase 4)";
-                }
+                // Target side first ([C, ..., direct child of the LCA]), then launch side
+                // ([launchBody, ..., direct child of the LCA]; empty for a same-parent target).
+                EmitOrbitalChain(result, targetToAnc, launchBody, ut0, earliestOrbitStartByBody,
+                    emittedOrbitalBodies, bodyInfo);
+                EmitOrbitalChain(result, launchToAnc, launchBody, ut0, earliestOrbitStartByBody,
+                    emittedOrbitalBodies, bodyInfo);
             }
 
             // Rendezvous outranks cross-parent for the report (it is never solvable, even in
@@ -764,12 +783,18 @@ namespace Parsek
         /// within a kind, the LONGEST period dominates (the hardest window to hit). Ties broken by
         /// the smaller phase offset, then index, for determinism.
         /// </summary>
-        internal static int SelectDominantConstraintIndex(IReadOnlyList<PhaseConstraint> constraints)
+        /// <param name="launchBodyName">When non-null (the UI basis-label path), breaks a tie between
+        /// two cross-parent (RelativeToParent) Orbitals in favor of the one whose body is NOT the
+        /// launch body, so the period-cell label reads "(Moho window)" / "(Duna window)" rather than
+        /// "(Kerbin window)" for a Kerbin-launched interplanetary mission. Null (the Solve path) keeps
+        /// the pure longest-period ordering, so the solver's diagnostic P is unchanged.</param>
+        internal static int SelectDominantConstraintIndex(
+            IReadOnlyList<PhaseConstraint> constraints, string launchBodyName = null)
         {
             int best = 0;
             for (int i = 1; i < constraints.Count; i++)
             {
-                if (IsMoreDominant(constraints[i], constraints[best]))
+                if (IsMoreDominant(constraints[i], constraints[best], launchBodyName))
                     best = i;
             }
             return best;
@@ -793,13 +818,28 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsMoreDominant(PhaseConstraint candidate, PhaseConstraint current)
+        private static bool IsMoreDominant(
+            PhaseConstraint candidate, PhaseConstraint current, string launchBodyName = null)
         {
             // Orbital beats Rotation.
             bool candOrbital = candidate.Kind == ConstraintKind.Orbital;
             bool curOrbital = current.Kind == ConstraintKind.Orbital;
             if (candOrbital != curOrbital)
                 return candOrbital;
+            // Cross-parent label preference (UI only; launchBodyName != null): among two heliocentric
+            // (RelativeToParent) Orbitals, prefer the TARGET (BodyName != launchBody) over the launch
+            // body's own heliocentric leg, so the basis label names the destination ("Moho window")
+            // not the launch body ("Kerbin window") even when the launch body's period is longer. This
+            // overrides the period comparison for that one tie; it is LABEL-ONLY (the Solve path passes
+            // null, so the solver's dominant period is unchanged).
+            if (!string.IsNullOrEmpty(launchBodyName) && candOrbital && curOrbital
+                && candidate.RelativeToParent && current.RelativeToParent)
+            {
+                bool candIsTarget = candidate.BodyName != launchBodyName;
+                bool curIsTarget = current.BodyName != launchBodyName;
+                if (candIsTarget != curIsTarget)
+                    return candIsTarget;
+            }
             // Same kind: longer period dominates.
             if (candidate.PeriodSeconds > current.PeriodSeconds)
                 return true;
@@ -949,15 +989,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Selects the ANCHOR constraint for the zero-drift schedule: the one with the SMALLEST duty
-        /// cycle (tolerance / period) - the tightest band, hardest to satisfy. Pinning the tightest
-        /// constraint EXACTLY and letting the looser ones fall within their tolerance MAXIMIZES the
-        /// faithful-window frequency: the window rate is roughly anchorPeriod / product(other duty
-        /// cycles), so you never want to divide the period by the smallest duty - pin it instead. For
-        /// a Mun mission this picks the launch-pad rotation (tight, a fraction of a degree), NOT the
-        /// Mun intercept (a generous SOI-width tolerance), so faithful windows recur every few days
-        /// instead of every few years - and the launch lands pixel-perfect over the pad. Ties broken
-        /// by shorter period, then index. Pure. Degenerate-period constraints are skipped.
+        /// Selects the ANCHOR constraint for the zero-drift schedule: the one with the SMALLEST
+        /// ABSOLUTE tolerance (in seconds) - the narrowest within-tolerance band. Pinning that one
+        /// EXACTLY and letting the looser ones fall within their tolerance MAXIMIZES the faithful-
+        /// window frequency. Derivation: with the anchor A pinned, candidate launches occur every
+        /// P_A and a candidate is a window when every other constraint j falls within tol_j, which
+        /// happens for ~2*tol_j/P_j of candidates, so the mean interval between windows is
+        /// T ~ P_A / prod_{j!=A}(2*tol_j/P_j). Expanding shows the period factors cancel:
+        /// T is proportional to tol_A (the rest is a constant over the choice of A). So the window
+        /// interval is minimized by pinning the SMALLEST ABSOLUTE tolerance, NOT the smallest duty
+        /// cycle (tol/period). The two coincide when the tightest band is also the shortest period
+        /// (the single-target Mun/Minmus case: the launch pad), so this is byte-identical there; they
+        /// DIVERGE for cross-parent missions, where a long-period heliocentric Orbital (e.g. Duna's
+        /// SOI window over a Duna year) has a tiny DUTY but a large absolute tolerance. The duty
+        /// criterion would wrongly pin that long-period orbital and make windows millennia-sparse;
+        /// the absolute-tolerance criterion correctly keeps the short-period launch-pad rotation as
+        /// the anchor (densest sampling), so a cross-parent schedule resolves a usable bounded-best
+        /// launch within the look-ahead instead of an astronomically distant one. It also resolves
+        /// the Tylo-Tight tie cleanly (the pad's ~15 s beats Tylo's tidal-rotation ~147 s outright,
+        /// no period tie-break needed). Ties (equal absolute tolerance) broken by shorter period,
+        /// then index. Pure. Degenerate-period constraints are skipped.
         /// </summary>
         internal static int SelectAnchorConstraintIndex(
             IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo,
@@ -965,20 +1016,20 @@ namespace Parsek
             TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
         {
             int best = 0;
-            double bestDuty = double.PositiveInfinity;
+            double bestTol = double.PositiveInfinity;
             double bestPeriod = double.PositiveInfinity;
             for (int i = 0; i < constraints.Count; i++)
             {
                 double p = constraints[i].PeriodSeconds;
                 if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
                     continue;
-                double duty = ScheduleToleranceSecondsFor(constraints[i], bodyInfo, launchBodyName, mode) / p;
-                bool better = duty < bestDuty - 1e-12
-                    || (duty <= bestDuty + 1e-12 && p < bestPeriod);
+                double tol = ScheduleToleranceSecondsFor(constraints[i], bodyInfo, launchBodyName, mode);
+                bool better = tol < bestTol - 1e-12
+                    || (tol <= bestTol + 1e-12 && p < bestPeriod);
                 if (better)
                 {
                     best = i;
-                    bestDuty = duty;
+                    bestTol = tol;
                     bestPeriod = p;
                 }
             }
@@ -1369,7 +1420,8 @@ namespace Parsek
         /// <summary>
         /// A target body C is "same-parent" when it orbits the launch body directly
         /// (C.referenceBody == launchBody). Used by rule 4 to pick the recurrence period
-        /// (C.orbit.period for same-parent; the synodic period for cross-parent, Phase 4).
+        /// (C.orbit.period for same-parent; the parent-centric period otherwise) and to set the
+        /// <see cref="PhaseConstraint.RelativeToParent"/> discriminator on the emitted Orbital.
         /// </summary>
         internal static bool IsSameParentTarget(string targetBody, string launchBody, IBodyInfo bodyInfo)
         {
@@ -1377,6 +1429,118 @@ namespace Parsek
                 return false;
             string parent = bodyInfo.ReferenceBodyName(targetBody);
             return !string.IsNullOrEmpty(parent) && parent == launchBody;
+        }
+
+        // Hard cap on the body-reference walk so a malformed planet-pack graph (a cycle) can never
+        // hang the extractor. Far deeper than any real Kerbol/RSS hierarchy (root -> planet -> moon
+        // is 3; a sub-moon is 4).
+        private const int MaxBodyHierarchyDepth = 32;
+
+        /// <summary>
+        /// Walks the body-reference chain from <paramref name="bodyName"/> up to the root (the Sun
+        /// has no parent, so <see cref="IBodyInfo.ReferenceBodyName"/> returns null there). Returns
+        /// the chain ordered child-to-root INCLUDING the input body AND the root, e.g. for Ike:
+        /// ["Ike", "Duna", "Sun"]; for the Sun itself: ["Sun"]. Empty when the body is null/unknown.
+        /// Cycle-safe (a malformed graph stops at the first repeat or <see cref="MaxBodyHierarchyDepth"/>).
+        /// Pure; reads only <see cref="IBodyInfo.ReferenceBodyName"/>.
+        /// </summary>
+        internal static List<string> AncestorChain(string bodyName, IBodyInfo bodyInfo)
+        {
+            var chain = new List<string>();
+            if (string.IsNullOrEmpty(bodyName) || bodyInfo == null)
+                return chain;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            string cur = bodyName;
+            while (!string.IsNullOrEmpty(cur) && seen.Add(cur) && chain.Count < MaxBodyHierarchyDepth)
+            {
+                chain.Add(cur);
+                cur = bodyInfo.ReferenceBodyName(cur);
+            }
+            return chain;
+        }
+
+        /// <summary>
+        /// Finds the lowest common ancestor (LCA) of two bodies in the reference-body graph. On
+        /// success returns true and the LCA plus each side's downward chain to (but EXCLUDING) it,
+        /// each INCLUDING its own endpoint body:
+        ///   - commonAncestor: "Sun" for Kerbin/Duna, "Kerbin" for Kerbin/Mun, "Eve" for Eve/Gilly.
+        ///   - launchToAncestor: [launchBody, ..., direct child of the LCA]; EMPTY when the launch
+        ///     body IS the LCA (the same-parent case, e.g. [] for Kerbin/Mun).
+        ///   - targetToAncestor: [targetBody, ..., direct child of the LCA], e.g. [Mun] for Kerbin/Mun,
+        ///     [Duna] for Kerbin/Duna, [Ike, Duna] for Kerbin/Ike.
+        /// Returns false (and empty out lists) when the two chains are disconnected (a planet-pack
+        /// with unrelated roots); callers treat that as no-lock + a logged warning. Pure.
+        /// </summary>
+        internal static bool TryFindCommonAncestor(
+            string launchBody, string targetBody, IBodyInfo bodyInfo,
+            out string commonAncestor, out List<string> launchToAncestor, out List<string> targetToAncestor)
+        {
+            commonAncestor = null;
+            launchToAncestor = new List<string>();
+            targetToAncestor = new List<string>();
+            if (string.IsNullOrEmpty(launchBody) || string.IsNullOrEmpty(targetBody) || bodyInfo == null)
+                return false;
+
+            List<string> launchChain = AncestorChain(launchBody, bodyInfo);
+            List<string> targetChain = AncestorChain(targetBody, bodyInfo);
+            if (launchChain.Count == 0 || targetChain.Count == 0)
+                return false;
+
+            var targetSet = new HashSet<string>(targetChain, StringComparer.Ordinal);
+            string anc = null;
+            for (int i = 0; i < launchChain.Count; i++)
+            {
+                if (targetSet.Contains(launchChain[i]))
+                {
+                    anc = launchChain[i];
+                    break;
+                }
+            }
+            if (anc == null)
+                return false; // disconnected body graph (unrelated roots)
+
+            commonAncestor = anc;
+            for (int i = 0; i < launchChain.Count && launchChain[i] != anc; i++)
+                launchToAncestor.Add(launchChain[i]);
+            for (int i = 0; i < targetChain.Count && targetChain[i] != anc; i++)
+                targetToAncestor.Add(targetChain[i]);
+            return true;
+        }
+
+        /// <summary>
+        /// Emits one parent-centric Orbital constraint per body in <paramref name="chain"/>, in the
+        /// chain's given (child-to-ancestor) order, skipping already-emitted bodies (a body has
+        /// exactly one parent, so name-dedup is sound) and degenerate/root orbit periods. The
+        /// <see cref="PhaseConstraint.RelativeToParent"/> flag is true unless the body orbits the
+        /// launch body directly (a same-parent direct child like the Mun). The phase offset reuses
+        /// the body's earliest recorded orbit-start (else ut0); it cancels in the joint residual
+        /// (zero-drift plan section 2.1), so it only feeds the log/label. Pure.
+        /// </summary>
+        private static void EmitOrbitalChain(
+            ConstraintExtraction result, List<string> chain, string launchBody, double ut0,
+            Dictionary<string, double> earliestOrbitStartByBody, HashSet<string> emitted,
+            IBodyInfo bodyInfo)
+        {
+            if (chain == null)
+                return;
+            for (int i = 0; i < chain.Count; i++)
+            {
+                string b = chain[i];
+                if (string.IsNullOrEmpty(b) || !emitted.Add(b))
+                    continue;
+                double period = bodyInfo.OrbitPeriod(b);
+                if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
+                    continue; // degenerate / root body: cannot schedule its phase
+                double bStart = earliestOrbitStartByBody.TryGetValue(b, out double e) ? e : ut0;
+                result.Constraints.Add(new PhaseConstraint
+                {
+                    Kind = ConstraintKind.Orbital,
+                    BodyName = b,
+                    PeriodSeconds = period,
+                    PhaseOffsetSeconds = bStart - ut0,
+                    RelativeToParent = !IsSameParentTarget(b, launchBody, bodyInfo)
+                });
+            }
         }
 
         /// <summary>

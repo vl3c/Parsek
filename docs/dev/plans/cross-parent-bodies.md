@@ -16,6 +16,36 @@ Revision history:
   extension to the test plan, noted the `SelectDominantConstraintIndex` quirk for
   Moho-class targets, the Tylo anchor-switch case, log-format consistency, the
   round-trip recording regression case, and the in-game-canary scope.
+- 2026-05-28 SECOND clean-context Opus review folded (ship-as-one-PR decisions):
+  - DROPPED the `enableCrossParentScheduling` feature flag entirely. It routed through
+    `bodyInfo.EnableCrossParentScheduling`, a property that does not exist on `IBodyInfo`
+    and is the wrong seam (geometry data, not settings). Shipping ON in a single PR makes
+    the false-then-true staged gate unnecessary ceremony. Cross-parent is now always
+    `Support.Supported`. `BuildSignature`'s transited-body digest already hashes the
+    constraint inputs, so there is no caching hazard. (was §6 / C2 / B)
+  - Launch-heliocentric Orbital uses the BODY-ONLY tolerance (`ToleranceSecondsFor` as-is)
+    for v1. The `min(launchSOI/V, targetSOI/V)` refinement needs target identity threaded
+    into a body-name-keyed tolerance function and is, by §11 Q6's own admission, a heuristic;
+    deferred to a Phase-4c follow-up. (was §4.4 / C3)
+  - ADDED the upper period cap (scope item 5, which the first draft wrongly dropped):
+    a documented 50-(launch-body-year) cap, applied in the UI DISPLAY layer only, that
+    tints the cell amber + shows "next launch in ~N y" while KEEPING the "Warp to..."
+    button reachable (the schedule still resolves a finite UT). Never in the solver. (§5.5)
+  - Emission keeps the existing DETERMINISTIC sorted iteration (start-UT then ordinal),
+    not the raw-dict `foreach` the pseudocode showed; chain-walked intermediates are
+    sorted too. (M1)
+  - `RecommendedLookaheadMultiples` is computed AFTER `SelectAnchorConstraintIndex` off the
+    ACTUAL selected anchor period. (M4)
+  - The `BuildSignature` intermediate-body fold (old §6 point 3) is defensive-only and is
+    NOT implemented: the existing digest already folds every body the recording physically
+    transits (you cannot reach Ike without entering Duna's SOI), which is every body the
+    chain walk emits a constraint for. (M3)
+  - Log subsystem tag is `MissionPeriodicity` (the existing tag), not `[Periodicity]`. (N4)
+  - `StockFake` extended to cover Eve, Gilly, Dres, Vall, Bop, Pol too (all four stock
+    topological shapes, every reachable body). (J)
+  - `SelectDominantConstraintIndex` gains an optional `launchBodyName` to prefer the
+    cross-parent TARGET body over the launch body for the basis label (label-only; does
+    not touch the duty-cycle `SelectAnchorConstraintIndex`, so the schedule is unchanged).
 
 Sibling references:
 - `Source/Parsek/MissionPeriodicity.cs` (constraint extractor + solver + zero-drift schedule)
@@ -439,8 +469,19 @@ mission, just with more (and longer) entries.
 
 ### 4.4 Tolerance for the LAUNCH body's heliocentric Orbital
 
-The new constraint `Orbital(launchBody, around commonAncestor)` reuses
-`ScheduleToleranceSecondsFor`, which returns `SoiRadius(body) / OrbitalVelocity(body)`
+**v1 decision (second review):** the new `Orbital(launchBody, around commonAncestor)`
+constraint uses the BODY-ONLY tolerance, i.e. the existing `ToleranceSecondsFor`
+(`SoiRadius(launchBody) / OrbitalVelocity(launchBody)`), with NO special-casing. The
+`min(launchSOI/V, targetSOI/V)` refinement below is deferred to Phase 4c because the
+per-constraint tolerance functions are keyed purely on body name + kind and have no way to
+know "this Orbital is the launch heliocentric leg paired with target X" without a new
+`PhaseConstraint` field; and the min-of-two value is, per §11 Q6, a heuristic, not derived
+physics. The body-only launch tolerance (~9050 s for stock Kerbin) is a defensible
+conservative-ish starting point. The rest of this section is retained as the Phase-4c
+design for that refinement.
+
+The min-of-two refinement (Phase 4c): `Orbital(launchBody, around commonAncestor)` would
+use `min(SoiRadius(launchBody)/OrbitalVelocity(launchBody), SoiRadius(targetBody)/OrbitalVelocity(targetBody))`
 (see correction in §3.3: no factor of 2; the earlier draft was wrong).
 
 **Which body's SOI?** The recorded interplanetary arc is heliocentric in the SUN's
@@ -520,6 +561,30 @@ The existing `TransitedBodyRotationMode` (Drop/Loose/Tight) automatically
 covers a Duna landing, an Ike landing, etc. -- it gates `Rotation(B)` for any
 non-launch body. Default `Loose` is the right starting point.
 
+### 5.5 Upper period cap (scope item 5)
+
+A cross-parent schedule can legitimately resolve a first window years out (Kerbin -> Jool
+moons run into multi-Kerbin-year synodics). That is physically correct and the schedule
+still builds, but a live "T- 7y 12d" countdown is more confusing than useful, and a
+pathological planet-pack period could push it absurdly far. So we apply a DISPLAY-LAYER cap:
+
+- Threshold: `MaxDisplayableScheduleSeconds = CrossParentMaxRelaunchYears * launchBodyYear`,
+  where `CrossParentMaxRelaunchYears = 50` and `launchBodyYear = OrbitPeriod(launchBody)`
+  read live through the seam (planet-pack safe; a homeworld whose parent is the Sun has a
+  real year). When the launch body has no orbit (it IS the root, degenerate), fall back to
+  an absolute `50 * 9_203_545 s` stock-Kerbin-year constant so the cap is never NaN.
+- When the engine's next relaunch (`NextRelaunchUT - now`) exceeds the cap, the "Time to
+  launch" cell shows an amber "next launch ~N y" label (still the real number, just flagged
+  as very rare) instead of a precise countdown. The amber reuses `LoopPeriodClampColor`.
+- The "Warp to..." button STAYS ENABLED: the schedule resolved a finite future UT, so warp
+  is the intended escape hatch for the long wait (task scope item 2 + 4). The cap is a
+  readability signal, NOT a "not aligned" fallback. A config that genuinely cannot resolve a
+  finite window (safety cap hit -> `NextLaunchAfter` returns NaN) still reads the existing
+  "not aligned" with Warp disabled, unchanged.
+- Pure helpers (unit-tested): `IsScheduleBeyondDisplayCap(nextRelaunchUT, nowUT, capSeconds)`
+  and the cap derivation. Both live in `MissionsWindowUI` next to the other pure display
+  helpers. `CrossParentMaxRelaunchYears = 50` is a documented tunable.
+
 ---
 
 ## 6. Backward-compatibility / gating (no regression)
@@ -534,43 +599,29 @@ non-launch body. Default `Loose` is the right starting point.
   multi-constraint zero-drift schedule. There is no migration concern
   because today's "not aligned" path didn't lay down any cached schedule.
 
-**Feature flag gate location.** The new behavior is gated by a single
-`enableCrossParentScheduling` flag in `ParsekSettings.cs` (boolean,
-default **false** in Phase 4a, **true** in Phase 4b). The gate lives at exactly
-ONE point inside `ExtractConstraints` (`MissionPeriodicity.cs`): the new emission
-rule from §3.1 step 3 + step 4 wraps in
-`if (bodyInfo.EnableCrossParentScheduling) { /* new emission */ }
- else { result.Support = Support.UnsupportedCrossParent; /* today's behavior */ }`.
-Putting it in `ExtractConstraints` (not in `MissionLoopUnitBuilder`) means a flag
-flip changes the EMITTED CONSTRAINT SET, which `BuildSignature` already hashes
-(via the existing constraint digest), so the cached `LoopUnit` rebuilds correctly
-when the flag flips at runtime.
+**No feature flag (second review decision).** The earlier draft gated the new emission on
+`enableCrossParentScheduling` routed through `bodyInfo.EnableCrossParentScheduling`. That
+property does not exist on `IBodyInfo`, and the seam is a celestial-geometry reader, not a
+settings carrier. Since the feature ships ON in a single PR, the staged false-then-true gate
+is unnecessary. **The flag is dropped.** `ExtractConstraints` always runs the new emission;
+cross-parent is always `Support.Supported`. No `ParsekSettings` flag, no UI toggle, no
+signature fold for it.
 
-**`BuildSignature` folding the flag.** `MissionLoopUnitBuilder.BuildSignature`
+**`BuildSignature` is already sufficient.** `MissionLoopUnitBuilder.BuildSignature`
 (via `AppendTransitedBodyDigest`) today folds the transited-body set, each body's
-`OrbitPeriod`, `ReferenceBodyName`, `SoiRadius`, `OrbitalVelocity`. Two extensions
-needed for cross-parent:
+`OrbitPeriod`, `ReferenceBodyName`, `SoiRadius`, `OrbitalVelocity`. For cross-parent:
 
-1. **Fold the flag itself.** Add `sb.Append("|crossParent=").Append(flag ? '1' : '0')`
-   to the signature builder so a runtime flag toggle invalidates every cached LoopUnit
-   immediately. Without this, the previously-emitted constraint set stays cached for
-   the lifetime of the existing LoopUnit and the flag flip is silent.
-2. **Fold the launch body's heliocentric data.** Today's digest scans the TRANSITED
-   bodies only (via `OrbitSegments` body names + `StartBodyName`). The launch body is
-   already in the digest via `StartBodyName`, so its `OrbitPeriod` and
-   `ReferenceBodyName` ARE folded. Verified: no separate addition needed beyond the
-   flag fold above. (If a future planet-pack swap changes Kerbin's heliocentric period
-   without renaming "Kerbin", the digest captures it through `OrbitPeriod("Kerbin")`.)
-3. **Planet-pack-adds-new-intermediate-body case.** If a planet pack inserts a new body
-   in the chain (e.g., a Lagrangian barycenter between Earth and Sun), the digest only
-   captures bodies that appear in `OrbitSegments` for THIS recording. A new
-   intermediate that the recording never transits is not in the digest. For the
-   cross-parent extractor's chain walk, the digest must additionally fold each
-   chain-walked body (the `launchToAnc` + `targetToAnc` lists). Without this fold, the
-   schedule could become stale across a planet-pack swap that introduced a new
-   intermediate body. Add it via a second pass that walks
-   `TryFindCommonAncestor(launchBody, body, ...)` for each transited body and appends
-   intermediate bodies' `OrbitPeriod` + `ReferenceBodyName` to the digest.
+1. **Launch body's heliocentric data is already folded.** The digest scans `OrbitSegments`
+   body names + `StartBodyName` + `SegmentBodyName`. The launch body is in the digest via
+   `StartBodyName`, so its `OrbitPeriod` / `ReferenceBodyName` / `SoiRadius` /
+   `OrbitalVelocity` ARE folded. No addition needed.
+2. **Intermediate chain bodies are already folded for realistic recordings.** Under the
+   replay-as-is contract you cannot reach Ike without physically entering Duna's SOI, so
+   Duna already appears in the recording's `OrbitSegments` and thus in the digest. Every
+   body the chain walk emits a constraint for is a body the recording transits, which the
+   digest already captures. The "fold each chain-walked body" second pass the earlier draft
+   proposed is therefore NOT implemented (it would only matter for a body on the chain that
+   the recording never transits, which the replay-as-is contract makes impossible).
 
 - Planet-pack robustness: tested by passing a fake `IBodyInfo` with
   synthetic chains (RSS-shaped, OPM-shaped). All numerics flow through the
@@ -580,20 +631,21 @@ needed for cross-parent:
 
 ## 7. Diagnostic logging
 
-Same `[Periodicity]` subsystem tag. The existing summary line includes
-`launchBody`, `support`, `constraints=N`; cross-parent missions now appear
-with `support=Supported` and a higher constraint count. Add to the per-
-constraint dump (`LogSummary` builds it) the new `RelativeToParent=true`
-discriminator so a log reader can tell at a glance whether the Orbital is
-direct-child (Mun-around-Kerbin) or cross-parent (Duna-around-Sun).
+Subsystem tag `MissionPeriodicity` (the existing tag the module uses everywhere, e.g.
+`MissionPeriodicity.cs:345` / `:1194`; NOT `[Periodicity]`). The existing summary line
+includes `launchBody`, `support`, `constraints=N`; cross-parent missions now appear with
+`support=Supported` and a higher constraint count. The per-constraint dump (`PhaseConstraint.ToString`,
+used by `LogSummary`) already prints `same-parent` / `cross-parent` for Orbital constraints
+(`MissionPeriodicity.cs:66-69`), which covers the direct-child vs cross-parent discriminator;
+no change needed there.
 
-Add a one-shot `Info` line when a cross-parent solve produces a window. Keep the
-existing `[Periodicity]` ` key=value key=value` style (no parens, no mixed display
-formatting in the machine-readable line):
+Add a one-shot `Info` line when a cross-parent solve produces a window. Keep the existing
+`key=value key=value` style (no parens, no mixed display formatting in the machine-readable
+line):
 
 ```
-[Periodicity] CrossParent SOLVED tree=<tree-id> launch=Kerbin bodies=Duna|Kerbin|Mun
-  cadenceSeconds=ABC firstWindowUT=DEF firstWindowYearsFromNow=X.YZ
+[Parsek][INFO][MissionPeriodicity] CrossParent SOLVED tree=<tree-id> launch=Kerbin bodies=Duna|Kerbin
+  cadenceSeconds=ABC firstWindowUT=DEF
 ```
 
 The `bodies=` field is a pipe-delimited list (parseable; matches existing
@@ -626,9 +678,27 @@ deeper-chain bodies. Extend `StockFake` (or add a sibling `StockFakeCrossParent`
   `Parent["Jool"] = "Sun"`.
 - `Period["Tylo"] = 2.11e5` (Tylo around Jool), `Soi["Tylo"] = 1.07e7`,
   `Velocity["Tylo"] = 2030`, `Parent["Tylo"] = "Jool"`.
-- `Period["Moho"] = 2.22e6`, `Soi["Moho"] = 9.65e6`, `Velocity["Moho"] = 12,393`,
+- `Period["Moho"] = 2.22e6`, `Soi["Moho"] = 9.65e6`, `Velocity["Moho"] = 12393`,
   `Parent["Moho"] = "Sun"`.
+- `Period["Eve"] = 5.66e6`, `Soi["Eve"] = 8.51e7`, `Velocity["Eve"] = 10811`,
+  `Parent["Eve"] = "Sun"`.
+- `Period["Gilly"] = 3.88e5` (around Eve), `Soi["Gilly"] = 1.26e5`,
+  `Velocity["Gilly"] = 70`, `Parent["Gilly"] = "Eve"`.
+- `Period["Dres"] = 4.73e7`, `Soi["Dres"] = 3.27e7`, `Velocity["Dres"] = 4630`,
+  `Parent["Dres"] = "Sun"`.
+- `Period["Vall"] = 1.05e5` (around Jool), `Soi["Vall"] = 2.41e6`,
+  `Velocity["Vall"] = 2650`, `Parent["Vall"] = "Jool"`.
+- `Period["Bop"] = 5.45e5` (around Jool), `Soi["Bop"] = 1.22e6`,
+  `Velocity["Bop"] = 765`, `Parent["Bop"] = "Jool"`.
+- `Period["Pol"] = 9.02e5` (around Jool), `Soi["Pol"] = 1.04e6`,
+  `Velocity["Pol"] = 645`, `Parent["Pol"] = "Jool"`.
+- Tidally-locked moons (`RotationPeriod == OrbitPeriod`): Mun, Tylo, Bop, Pol, Vall, Gilly
+  in stock. Set `Rotation[b] = Period[b]` for those so the tidal-collapse path is exercised.
 - `Period["Sun"] = 0` (root), `Parent["Sun"] = null`.
+
+This covers all four stock topological shapes: sibling-of-Kerbin (Moho, Eve, Duna, Dres,
+Jool, Eeloo), Eve-moon (Gilly), Duna-moon (Ike), Jool-moon (Laythe, Vall, Tylo, Bop, Pol),
+plus the same-parent baselines (Mun, Minmus from Kerbin; Gilly from Eve).
 
 Without this fixture extension, `bodyInfo.SoiRadius("Kerbin")` /
 `OrbitalVelocity("Kerbin")` return NaN and `ToleranceSecondsFor` silently falls back to
@@ -737,37 +807,38 @@ validates wiring end-to-end against the live KSP body graph, including the
 
 ## 9. Phase breakdown (with review checkpoints)
 
-The merged zero-drift PR did this in A/B/C/D phases with per-phase clean-
-context Opus reviews. Same shape here.
+Shipped as ONE PR (cross-parent on by default), built in three internal phases each with
+its own clean-context review, mirroring the zero-drift workflow.
 
-**Phase 4a -- Pure math + extractor (one PR, behind a feature flag).**
+**Phase A -- Pure math + extractor (with intermediate review).**
 - `AncestorChain` + `TryFindCommonAncestor` in `MissionPeriodicity.cs`.
-- Extractor: the new emission rule from section 3.1.
-- `Support.UnsupportedCrossParent` deprecated to a warning-only label
-  (kept as an enum value for log compatibility; never returned by the
-  extractor under the new path; old saves do not store it).
-- Tests from sections 8.1 and 8.2.
-- Feature flag `enableCrossParentScheduling` (settings file, default
-  **false** for the first PR -- review-only).
+- Extractor: the new emission rule from section 3.1 (deterministic sorted emission, M1).
+- `Support.UnsupportedCrossParent` retired from the extractor's return paths (kept as an
+  enum value for log/back-compat; never returned for a resolvable cross-parent body).
+- `StockFake` fixture extension (§8.0) + tests from sections 8.1 and 8.2.
+- Clean-context Opus math review before Phase B.
 
-**Phase 4b -- Solver wiring + UI (second PR).**
-- `RecommendedLookaheadMultiples` helper + wire-up.
-- Diagnostic logging additions.
-- UI period-basis label routing (no new controls).
-- Flip the feature flag default to **true**.
-- Tests from sections 8.3 and 8.4.
+**Phase B -- Solver wiring + signature + in-game test.**
+- `RecommendedLookaheadMultiples` helper, computed AFTER `SelectAnchorConstraintIndex`
+  off the selected anchor period (M4), wired into `TryBuildRelaunchSchedule`.
+- Confirm `Solve` / `TryBuildRelaunchSchedule` / `BuildSignature` pick up the new
+  constraints with no further change (the transited-body digest already covers them).
+- Diagnostic logging additions (the `CrossParent SOLVED` Info line).
+- Tests from section 8.3 + the in-game canary (8.4).
+- Intermediate review.
 
-**Phase 4c -- Hardening + edge cases (third PR, scope as discovered).**
-- Whatever Phase 4b playtest surfaces: `LookaheadCoverageFactor` tuning if the cap
-  bites for deep chains (note: `MaxJointMultiples` is the FIXED-CADENCE fallback
-  constant and does not bite on cross-parent missions; the zero-drift path uses
-  `ScheduleLookaheadMultiples` / `RecommendedLookaheadMultiples` instead),
-  tolerance loosening if the §4.4 min-of-two-SOIs derivation is wrong in practice,
-  Tylo-anchor-switch tie-break adjustment if §4.1's edge case bites a real player
-  configuration, etc. Open as follow-up issues from the Phase 4b playtest log.
+**Phase C -- UI + cap + docs.**
+- UI period-basis label routing (the `SelectDominantConstraintIndex` target-body preference).
+- The §5.5 upper period cap (amber "next launch ~N y", Warp stays enabled).
+- Plan/CHANGELOG/todo updates.
+- Final clean-context Opus review of the whole PR.
 
-Each phase ends with a clean-context Opus review (math reviewer on Phase
-4a; integration reviewer on Phase 4b). Same workflow as zero-drift.
+**Deferred to a Phase-4c FOLLOW-UP (out of this PR):** the §4.4 `min(launchSOI/V, targetSOI/V)`
+launch-heliocentric tolerance refinement; the §4.1 Tylo Tight-mode anchor-on-launch-body
+preference flag; `LookaheadCoverageFactor` tuning if a planet-pack deep chain hits the cap.
+Open as follow-up issues from the playtest log. (Note: `MaxJointMultiples` is the FIXED-CADENCE
+fallback constant and does not bite cross-parent missions; the zero-drift path uses
+`ScheduleLookaheadMultiples` / `RecommendedLookaheadMultiples` instead.)
 
 ---
 
