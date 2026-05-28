@@ -27,14 +27,18 @@ namespace Parsek.Display
     /// call -- exactly the conversion <c>ParsekTrackingStation</c>'s
     /// atmospheric-marker resolver uses at line 1199 -- then runs it through
     /// <c>ScaledSpace.LocalToScaledSpace</c>. Reusing
-    /// <see cref="LegPolyline.scratchScaledSpace"/> + the shared
+    /// <see cref="LegPolyline.scratchScaledSpace"/> + each leg's own
     /// <c>VectorLine.points3</c> keeps the hot path zero-alloc. The 200-point
     /// per-leg cap (§1.3) keeps the per-frame GetWorldSurfacePosition cost
     /// well within budget.
     ///
-    /// Commit 1 ships data structures + pure builder + cache lifecycle
-    /// helpers. The Vectrosity Driver MonoBehaviour and the per-frame walk
-    /// over CommittedRecordings land in commit 2.
+    /// Data structures + pure builder + cache lifecycle helpers, the
+    /// Vectrosity Driver MonoBehaviour, and the per-frame walk over
+    /// CommittedRecordings are all in this file. Each leg owns its own
+    /// VectorLine (drawn full-range); a single shared line per recording
+    /// does NOT work because <c>VectorLine.Draw3D()</c> zeroes every vertex
+    /// outside the current <c>drawStart</c>/<c>drawEnd</c> window on each
+    /// call, so only the last leg drawn would survive.
     /// </summary>
     internal static class GhostTrajectoryPolylineRenderer
     {
@@ -95,8 +99,8 @@ namespace Parsek.Display
 
             /// <summary>
             /// M-element scratch buffer for per-frame ScaledSpace output
-            /// (zero-alloc hot path; the Driver copies into the shared
-            /// VectorLine.points3 at this leg's stable offset).
+            /// (zero-alloc hot path; the Driver copies into this leg's own
+            /// VectorLine.points3 each frame).
             /// </summary>
             public Vector3[] scratchScaledSpace;
 
@@ -111,12 +115,17 @@ namespace Parsek.Display
             public double endUT;
 
             /// <summary>
-            /// Stable per-leg offset into the recording's shared
-            /// LegPolylineSet.vectorLine.points3 array (commit 2). Commit 1
-            /// fills this with the cumulative sum so the per-leg slice is
-            /// known without consulting the Vectrosity object.
+            /// This leg's own <c>LineType.Continuous</c> Vectrosity
+            /// VectorLine. One VectorLine PER leg (NOT one shared line per
+            /// recording): a shared line drawn once per leg via
+            /// <c>drawStart</c>/<c>drawEnd</c> range slicing does NOT work,
+            /// because <c>VectorLine.Draw3D()</c> zeroes every vertex OUTSIDE
+            /// the current [drawStart, drawEnd] window on each call, so only
+            /// the last leg drawn would survive. Each leg's line holds exactly
+            /// this leg's points and is drawn full-range. Null until the first
+            /// Driver tick inflates it.
             /// </summary>
-            public int pointsStartIdx;
+            public VectorLine vectorLine;
 
             /// <summary>Number of points in this leg (M).</summary>
             public int PointCount => lats != null ? lats.Length : 0;
@@ -124,8 +133,8 @@ namespace Parsek.Display
 
         /// <summary>
         /// One recording's complete polyline data: an array of body-coherent
-        /// legs, the cache invariant hash, and the shared Vectrosity
-        /// VectorLine. Stored by RecordingId in <see cref="polylineCache"/>.
+        /// legs (each owning its own Vectrosity VectorLine) plus the cache
+        /// invariant hash. Stored by RecordingId in <see cref="polylineCache"/>.
         /// </summary>
         internal struct LegPolylineSet
         {
@@ -139,38 +148,20 @@ namespace Parsek.Display
             /// preserves the counts still flips the XOR-of-UTs (§1.4).
             /// </summary>
             public long contentHash;
-
-            /// <summary>
-            /// Total points packed across all legs into the shared
-            /// VectorLine's points3 array.
-            /// </summary>
-            public int totalPointCount;
-
-            /// <summary>
-            /// Shared <c>LineType.Continuous</c> Vectrosity VectorLine
-            /// holding every leg's points packed at stable per-leg
-            /// offsets. Each leg is drawn as a ranged slice via
-            /// <c>drawStart</c> / <c>drawEnd</c> per frame, matching the
-            /// pattern <c>GhostOrbitArcPatch.UpdateSpline</c> uses at
-            /// <c>GhostOrbitLinePatch.cs:427</c>. Null until the first
-            /// Driver tick builds it.
-            /// </summary>
-            public VectorLine vectorLine;
         }
 
         /// <summary>
         /// Refreshes the cache for one recording. Recomputes the cheap
-        /// content hash; rebuilds the legs and resets the leg offsets only
-        /// when the hash changed. When the hash flips, the previous shared
-        /// VectorLine (if any) is destroyed via <see cref="VectorLine.Destroy(ref VectorLine)"/>
+        /// content hash; rebuilds the legs only when the hash changed. When
+        /// the hash flips, every leg's previous VectorLine (if any) is
+        /// destroyed via <see cref="VectorLine.Destroy(ref VectorLine)"/>
         /// before the rebuild so no Vectrosity GameObjects leak.
         ///
-        /// The fresh VectorLine itself is constructed lazily on the next
-        /// Driver LateUpdate: building it here would create a Vectrosity
-        /// GameObject from xUnit (no Unity GameObject backing), which the
-        /// unit-test surface forbids. The cache entry's <c>vectorLine</c>
-        /// field is null after a refresh; the Driver inflates it on first
-        /// use.
+        /// The per-leg VectorLines themselves are constructed lazily on the
+        /// next Driver LateUpdate: building them here would create Vectrosity
+        /// GameObjects from xUnit (no Unity GameObject backing), which the
+        /// unit-test surface forbids. Each leg's <c>vectorLine</c> field is
+        /// null after a refresh; the Driver inflates it on first use.
         /// </summary>
         internal static void RefreshForRecording(Recording rec)
         {
@@ -185,54 +176,37 @@ namespace Parsek.Display
                 return; // cache hit
             }
 
-            // Stale Vectrosity object on a rebuild: destroy before
-            // overwriting so the GameObject does not leak.
-            if (polylineCache.TryGetValue(id, out var stale) && stale.vectorLine != null)
-            {
-                var staleLine = stale.vectorLine;
-                VectorLine.Destroy(ref staleLine);
-            }
+            // Stale Vectrosity objects on a rebuild: destroy every leg's line
+            // before overwriting so the GameObjects do not leak.
+            if (polylineCache.TryGetValue(id, out var stale))
+                DestroyLegLines(stale.legs);
 
             var legs = BuildLegsForRecording(rec);
-            int totalPoints = 0;
-            var legArray = new LegPolyline[legs.Count];
-            for (int i = 0; i < legs.Count; i++)
-            {
-                var leg = legs[i];
-                leg.pointsStartIdx = totalPoints;
-                totalPoints += leg.PointCount;
-                legArray[i] = leg;
-            }
+            var legArray = legs.ToArray();
 
             polylineCache[id] = new LegPolylineSet
             {
                 legs = legArray,
-                contentHash = hash,
-                totalPointCount = totalPoints,
-                vectorLine = null
+                contentHash = hash
             };
 
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline cache refresh: rec={0} legs={1} totalPoints={2} hash={3:X}",
-                    id, legArray.Length, totalPoints, hash));
+                    "Polyline cache refresh: rec={0} legs={1} hash={2:X}",
+                    id, legArray.Length, hash));
         }
 
         /// <summary>
         /// Releases the cache entry for a single recording (chain handoff,
-        /// supersede, delete). Destroys the entry's shared Vectrosity
-        /// VectorLine via <see cref="VectorLine.Destroy(ref VectorLine)"/>
-        /// before dropping the dict entry so the Vectrosity GameObject
-        /// does not leak.
+        /// supersede, delete). Destroys every leg's Vectrosity VectorLine via
+        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> before dropping
+        /// the dict entry so the Vectrosity GameObjects do not leak.
         /// </summary>
         internal static void ReleaseForRecording(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return;
-            if (polylineCache.TryGetValue(recordingId, out var set) && set.vectorLine != null)
-            {
-                var line = set.vectorLine;
-                VectorLine.Destroy(ref line);
-            }
+            if (polylineCache.TryGetValue(recordingId, out var set))
+                DestroyLegLines(set.legs);
             if (polylineCache.Remove(recordingId))
             {
                 ParsekLog.Verbose(Tag,
@@ -242,7 +216,7 @@ namespace Parsek.Display
 
         /// <summary>
         /// Drops the entire cache. Iterates the cached entries to call
-        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> on each shared
+        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> on every leg's
         /// VectorLine BEFORE dropping the dict, otherwise the Vectrosity
         /// GameObjects leak. Called from
         /// <c>GhostMapPresence.RemoveAllGhostVessels</c>, the
@@ -255,16 +229,26 @@ namespace Parsek.Display
             if (polylineCache.Count == 0) return;
             int dropped = polylineCache.Count;
             foreach (var kvp in polylineCache)
-            {
-                if (kvp.Value.vectorLine != null)
-                {
-                    var line = kvp.Value.vectorLine;
-                    VectorLine.Destroy(ref line);
-                }
-            }
+                DestroyLegLines(kvp.Value.legs);
             polylineCache.Clear();
             ParsekLog.Verbose(Tag,
                 "Polyline cache clear: dropped=" + dropped);
+        }
+
+        /// <summary>
+        /// Destroys every leg's Vectrosity VectorLine in the given array via
+        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> so no Vectrosity
+        /// GameObjects leak. Null-safe on the array and on per-leg null lines.
+        /// </summary>
+        private static void DestroyLegLines(LegPolyline[] legs)
+        {
+            if (legs == null) return;
+            for (int i = 0; i < legs.Length; i++)
+            {
+                var line = legs[i].vectorLine;
+                if (line != null)
+                    VectorLine.Destroy(ref line);
+            }
         }
 
         /// <summary>
@@ -438,8 +422,7 @@ namespace Parsek.Display
                 scratchScaledSpace = new Vector3[m],
                 bodyName = bodyName,
                 startUT = sampled[0].ut,
-                endUT = sampled[m - 1].ut,
-                pointsStartIdx = 0
+                endUT = sampled[m - 1].ut
             };
         }
 
@@ -621,8 +604,7 @@ namespace Parsek.Display
         /// <summary>
         /// Scene-wide MonoBehaviour that performs the per-frame walk over
         /// <c>RecordingStore.CommittedRecordings</c>, refreshes the cache
-        /// (hash-gated), and submits each recording's shared VectorLine
-        /// once per leg (range-sliced via <c>drawStart</c>/<c>drawEnd</c>).
+        /// (hash-gated), and draws each leg's own VectorLine full-range.
         ///
         /// Single instance for the AppDomain lifetime; lives across scene
         /// transitions via <see cref="MonoBehaviour"/>+
@@ -835,16 +817,6 @@ namespace Parsek.Display
                         continue;
                     }
 
-                    // Inflate VectorLine lazily.
-                    if (set.vectorLine == null)
-                    {
-                        set.vectorLine = BuildSharedVectorLine(rec.RecordingId, set.totalPointCount);
-                        polylineCache[rec.RecordingId] = set;
-                    }
-                    if (set.vectorLine == null) continue;
-
-                    set.vectorLine.rectTransform.gameObject.layer = targetLayer;
-
                     bool anyDrawn = false;
                     for (int li = 0; li < set.legs.Length; li++)
                     {
@@ -860,6 +832,25 @@ namespace Parsek.Display
                             continue;
                         }
                         int m = leg.PointCount;
+                        if (m < 2) continue;
+
+                        // Inflate this leg's own VectorLine lazily. One line PER
+                        // leg: a single shared line drawn once per leg via
+                        // drawStart/drawEnd range slicing does NOT work, because
+                        // VectorLine.Draw3D() zeroes every vertex outside the
+                        // current window on each call, leaving only the last
+                        // leg. set.legs is a reference to the cached array, so
+                        // writing back set.legs[li] persists the inflated line
+                        // across frames without re-storing the struct.
+                        if (leg.vectorLine == null)
+                        {
+                            leg.vectorLine = BuildLegVectorLine(rec.RecordingId, li, m);
+                            set.legs[li] = leg;
+                        }
+                        if (leg.vectorLine == null) continue;
+
+                        leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
+
                         // CRITICAL geometry: convert each recorded body-fixed
                         // (lat, lon, alt) to a LIVE world position via the same
                         // CelestialBody.GetWorldSurfacePosition call the
@@ -877,11 +868,10 @@ namespace Parsek.Display
                                 (Vector3)ScaledSpace.LocalToScaledSpace(world);
                         }
 
-                        CopyLegIntoVectorLine(set.vectorLine, leg.scratchScaledSpace,
-                            leg.pointsStartIdx);
-                        set.vectorLine.drawStart = leg.pointsStartIdx;
-                        set.vectorLine.drawEnd = leg.pointsStartIdx + m - 1;
-                        set.vectorLine.Draw3D();
+                        CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
+                        leg.vectorLine.drawStart = 0;
+                        leg.vectorLine.drawEnd = m - 1;
+                        leg.vectorLine.Draw3D();
                         anyDrawn = true;
                     }
                     if (anyDrawn) frameDrawn++;
@@ -927,28 +917,31 @@ namespace Parsek.Display
             }
 
             /// <summary>
-            /// Constructs a fresh shared <c>LineType.Continuous</c>
-            /// VectorLine sized to hold every leg's points packed
-            /// consecutively. Uses <c>MapView.DottedLinesMaterial</c> for
-            /// the dashed style (verified as a public static stock
-            /// property; closes OQ#1 / §2.3), falling back to
-            /// <c>MapView.OrbitLinesMaterial</c> when the dotted material
-            /// is unavailable. Width matches the stock orbit-arc width
-            /// (5f). A per-line colour overlay via
-            /// <see cref="VectorLine.SetColor(Color32)"/> tints the
-            /// polyline so it reads as distinct from the Keplerian arcs
-            /// without mutating the shared material's colour (which
-            /// would dim every stock orbit line).
+            /// Constructs a fresh per-leg <c>LineType.Continuous</c>
+            /// VectorLine sized to hold exactly this leg's points. One line
+            /// per leg (see <see cref="LegPolyline.vectorLine"/>): a single
+            /// shared line drawn once per leg via <c>drawStart</c>/<c>drawEnd</c>
+            /// range slicing does NOT work, because <c>Draw3D()</c> zeroes
+            /// every vertex outside the current window on each call. Uses
+            /// <c>MapView.DottedLinesMaterial</c> for the dashed style
+            /// (verified as a public static stock property; closes OQ#1 /
+            /// §2.3), falling back to <c>MapView.OrbitLinesMaterial</c> when
+            /// the dotted material is unavailable. Width matches the stock
+            /// orbit-arc width (5f). A per-line colour overlay via
+            /// <see cref="VectorLine.SetColor(Color32)"/> tints the polyline
+            /// so it reads as distinct from the Keplerian arcs without
+            /// mutating the shared material's colour (which would dim every
+            /// stock orbit line).
             /// </summary>
-            private static VectorLine BuildSharedVectorLine(
-                string recordingId, int totalPoints)
+            private static VectorLine BuildLegVectorLine(
+                string recordingId, int legIndex, int pointCount)
             {
-                if (totalPoints <= 0) return null;
-                var points = new List<Vector3>(totalPoints);
-                for (int i = 0; i < totalPoints; i++)
+                if (pointCount <= 0) return null;
+                var points = new List<Vector3>(pointCount);
+                for (int i = 0; i < pointCount; i++)
                     points.Add(Vector3.zero);
                 var line = new VectorLine(
-                    "ParsekGhostTrajectoryPolyline-" + recordingId,
+                    "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
                     points,
                     5f,
                     LineType.Continuous);
@@ -967,9 +960,9 @@ namespace Parsek.Display
             }
 
             /// <summary>
-            /// Copies a leg's scratch <c>Vector3[]</c> into the shared
-            /// VectorLine's <c>points3</c> list at the given stable
-            /// offset.
+            /// Copies a leg's scratch <c>Vector3[]</c> into the leg's own
+            /// VectorLine's <c>points3</c> list starting at the given offset
+            /// (0 for per-leg lines).
             /// </summary>
             private static void CopyLegIntoVectorLine(
                 VectorLine line, Vector3[] scratch, int startIdx)
