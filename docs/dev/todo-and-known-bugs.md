@@ -100,6 +100,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Recordings tab: hide Loop checkbox + period on debris rows and debris-only groups
+
+- Player request (2026-05-28): "hide the loop checkbox and period objects for debris recordings and debris group in the Recordings window; make sure that if a parent recording has loop enabled, then the debris is part of that as a child animation which plays at the right time; this is already done in Missions window, where debris is not even shown, but we should unify this behavior and add it to recordings window also."
+- **Parent-anchored debris already plays in sync with its parent's loop clock** (`GhostPlaybackEngine.TryUpdateLoopSyncedDebris`, `GhostPlaybackEngine.cs:1681`): when the parent has `LoopPlayback=true` (or is a Mission loop-unit member), the debris recording is dispatched onto the parent's loop UT + parent-unit overlap cadence, including the start-/end-trim window. So a separate per-debris loop toggle does nothing the engine reads; surfacing it just suggested control that did not exist.
+- **UI fix (`RecordingsTableUI`):** new pure helpers + three call sites updated:
+  - `ShouldSuppressRowLoopUi(rec, insideUnfinishedFlightsGroup)` — returns true when the per-row Loop/Period cells should render as empty width-stable placeholders. Two cases: the existing Unfinished Flights virtual group (preserved verbatim), and `rec.IsDebris` (new). `DrawRecordingRow` reads this once and uses the same boolean for both the Loop and the Period cell.
+  - `ComputeLoopAggregate(committed, indices)` — pure aggregate state for a group/chain/header row. Excludes debris members from both the count and the "all loop" decision and reports `SuppressToggle=true` when the only members are debris (so the auto-generated `"<mission> / Debris"` subgroup, and any custom group that happens to hold only debris, render an empty Loop cell instead of a no-op aggregate toggle). Used in `DrawGroupTree`, `DrawRecordingBlock` (chains + grouped blocks), and the column-header "select-all Loop" toggle.
+  - The bulk-write paths in all three call sites now skip debris too, so the header / group / chain aggregate writes are consistent with the per-row hide (no more "all loop" header writing `LoopPlayback=true` onto debris that has no visible toggle).
+- **Mirrors the Missions tab**, which already excludes debris entirely from its composition tree (no `IsDebris` reads in `MissionComposition`/`MissionLoopUnitBuilder`/`MissionStore`). The Recordings tab still surfaces debris as rows (it is the flat list), but hides only the controls that would have been inert.
+- **Tests:** 11 new `RecordingsTableUITests` covering the two helpers — `ShouldSuppressRowLoopUi_*` (normal row, debris row, Unfinished Flights group, debris-in-Unfinished-Flights, null defensive), and `ComputeLoopAggregate_*` (all non-debris loop, mixed, debris excluded, all debris suppresses toggle, empty, out-of-range indices skipped, null collections).
+- **Status:** CLOSED 2026-05-28.
+
+---
+
 ## Done - v0.10.0 Missions window: Archive column (long-list management)
 
 - Player request: a way to deal with long mission lists, copying the recordings window's Archive mechanism.

@@ -985,23 +985,30 @@ namespace Parsek
 
             // Select-all loop header + checkbox. colHdr supplies the dark boxed
             // background so the whole cell reads as a header (not just the label).
-            int loopCount = 0;
-            for (int i = 0; i < committed.Count; i++)
-                if (committed[i].LoopPlayback) loopCount++;
-
-            bool allLoop = loopCount == committed.Count;
+            // Debris recordings are excluded from both the aggregate count and
+            // the bulk write (see ComputeLoopAggregate) — they have no per-row
+            // loop toggle, so a header "all" toggle that included them would
+            // write a flag meaningless on debris while visibly disagreeing
+            // with the row's hidden control.
+            var headerLoopAgg = ComputeLoopAggregate(committed, Enumerable.Range(0, committed.Count));
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
-            bool newAllLoop = GUILayout.Toggle(allLoop, "");
+            bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrLoop");
-            if (newAllLoop != allLoop)
+            if (newAllLoop != headerLoopAgg.AllLoop)
             {
+                int written = 0;
                 for (int i = 0; i < committed.Count; i++)
-                    committed[i].LoopPlayback = newAllLoop;
-                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
+                {
+                    var r = committed[i];
+                    if (r == null || r.IsDebris) continue;
+                    r.LoopPlayback = newAllLoop;
+                    written++;
+                }
+                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop} ({written} recordings)");
             }
 
             GUILayout.Label(new GUIContent("Period",
@@ -1594,16 +1601,23 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
-            // Loop checkbox — suppressed when this row is being drawn inside the
-            // virtual Unfinished Flights group (unfinishedFlightRowDepth > 0).
-            // The group is a re-fly TODO list; surfacing a loop toggle there
-            // is misleading because the user's next action on these rows is
-            // Fly, not playback configuration. The same recording's row in
-            // its real (mission) group still exposes the toggle, so loop
-            // remains editable for unfinished-flight recordings — just not
-            // from inside the virtual group itself. We render an empty cell
-            // of the same column width to keep the table grid aligned.
-            if (unfinishedFlightRowDepth > 0)
+            // Loop checkbox + Period cell — both suppressed by the same
+            // predicate (ShouldSuppressRowLoopUi). Two cases trigger the hide:
+            //  1. The row is drawn inside the virtual Unfinished Flights group
+            //     (a re-fly TODO surface where playback configuration is
+            //     misleading — the user's next action is Fly, not loop).
+            //  2. The recording is debris. Parent-anchored debris rides its
+            //     parent's loop clock (GhostPlaybackEngine.TryUpdateLoopSyncedDebris),
+            //     so a per-row LoopPlayback flag is meaningless. The Missions
+            //     window already omits debris from its composition tree
+            //     entirely; the Recordings window unifies that by hiding
+            //     just the loop/period controls (the rest of the row stays).
+            // The same recording's row in its real (mission) group still
+            // exposes the toggle for unfinished flights — only the Unfinished
+            // Flights virtual surface is suppressed; debris is suppressed
+            // everywhere because its LoopPlayback never matters.
+            bool suppressRowLoop = ShouldSuppressRowLoopUi(rec, unfinishedFlightRowDepth > 0);
+            if (suppressRowLoop)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
             }
@@ -1628,14 +1642,9 @@ namespace Parsek
             // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
             // val+unit start 10 px into the cell, matching the shifted-right treatment
             // applied to single-button body cells (DrawBodyCenteredButton).
-            // Suppressed alongside the loop checkbox when this row is being
-            // drawn inside the virtual Unfinished Flights group: the period
-            // editor is editable for any recording with LoopPlayback=true,
-            // so leaving it active would re-open loop configuration on the
-            // re-fly TODO surface that the loop-checkbox hide was meant to
-            // remove. Render an empty cell of the same column width to keep
-            // the table grid aligned.
-            if (unfinishedFlightRowDepth > 0)
+            // Hidden by the same predicate as the loop checkbox above; render
+            // an empty cell of the same column width to keep the grid aligned.
+            if (suppressRowLoop)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             }
@@ -2150,21 +2159,37 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
             }
 
-            // Loop checkbox (aggregate)
-            int loopCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].LoopPlayback) loopCount++;
-            bool allLoop = memberCount > 0 && loopCount == memberCount;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool newLoop = GUILayout.Toggle(allLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (newLoop != allLoop)
+            // Loop checkbox (aggregate). Debris members are excluded from both
+            // the count and the bulk write — parent-anchored debris rides its
+            // parent's loop clock, so a debris recording's own LoopPlayback is
+            // meaningless. When every descendant is debris (the auto-generated
+            // "X / Debris" subgroup, or any custom group that happens to hold
+            // only debris), suppress the aggregate toggle entirely.
+            var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
+            if (grpLoopAgg.SuppressToggle)
             {
-                foreach (int idx in descendants)
-                    committed[idx].LoopPlayback = newLoop;
-                ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({descendants.Count} recordings)");
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool newLoop = GUILayout.Toggle(grpLoopAgg.AllLoop, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (newLoop != grpLoopAgg.AllLoop)
+                {
+                    int written = 0;
+                    foreach (int idx in descendants)
+                    {
+                        var dr = committed[idx];
+                        if (dr == null || dr.IsDebris) continue;
+                        dr.LoopPlayback = newLoop;
+                        ApplyAutoLoopRange(dr, newLoop);
+                        written++;
+                    }
+                    ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+                }
             }
 
             // Period placeholder
@@ -3672,23 +3697,35 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Group popup opened for {logKind.ToLowerInvariant()} '{blockName}'");
             }
 
-            int blockLoopCount = 0;
-            for (int m = 0; m < members.Count; m++)
-                if (committed[members[m]].LoopPlayback) blockLoopCount++;
-            bool blockAllLoop = members.Count > 0 && blockLoopCount == members.Count;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool blockNewLoop = GUILayout.Toggle(blockAllLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (blockNewLoop != blockAllLoop)
+            // Aggregate Loop toggle. Debris members are excluded from both the
+            // count and the bulk write (debris rides its parent's loop clock,
+            // so its own LoopPlayback is meaningless). If every member is
+            // debris, suppress the toggle entirely.
+            var blockLoopAgg = ComputeLoopAggregate(committed, members);
+            if (blockLoopAgg.SuppressToggle)
             {
-                for (int m = 0; m < members.Count; m++)
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool blockNewLoop = GUILayout.Toggle(blockLoopAgg.AllLoop, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (blockNewLoop != blockLoopAgg.AllLoop)
                 {
-                    committed[members[m]].LoopPlayback = blockNewLoop;
-                    ApplyAutoLoopRange(committed[members[m]], blockNewLoop);
+                    int blockWritten = 0;
+                    for (int m = 0; m < members.Count; m++)
+                    {
+                        var mr = committed[members[m]];
+                        if (mr == null || mr.IsDebris) continue;
+                        mr.LoopPlayback = blockNewLoop;
+                        ApplyAutoLoopRange(mr, blockNewLoop);
+                        blockWritten++;
+                    }
+                    ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({blockWritten} recordings)");
                 }
-                ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({members.Count} recordings)");
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
@@ -4938,6 +4975,67 @@ namespace Parsek
         }
 
         // --- Loop helpers exclusive to recordings table ---
+
+        /// <summary>
+        /// Returns true when the per-row loop checkbox + period cell should be
+        /// hidden for a recording. Two cases:
+        /// (1) The row is being drawn inside the virtual Unfinished Flights
+        ///     group (a re-fly TODO surface) — surfacing playback configuration
+        ///     there contradicts the group's purpose.
+        /// (2) The recording is debris. Parent-anchored debris rides its
+        ///     parent's loop clock (see
+        ///     GhostPlaybackEngine.TryUpdateLoopSyncedDebris), so a per-row
+        ///     LoopPlayback flag on a debris recording has no effect. The
+        ///     Missions window already omits debris from its composition tree
+        ///     entirely; the Recordings window unifies that by hiding just
+        ///     the loop/period controls while keeping the rest of the row
+        ///     (Enable, G, Watch, Archive) intact.
+        /// </summary>
+        internal static bool ShouldSuppressRowLoopUi(Recording rec, bool insideUnfinishedFlightsGroup)
+            => insideUnfinishedFlightsGroup || (rec != null && rec.IsDebris);
+
+        /// <summary>
+        /// Loop-aggregate UI state for a group/chain/header row. Debris members
+        /// are excluded from both the count and the bulk write because they
+        /// have no per-row loop toggle (see <see cref="ShouldSuppressRowLoopUi"/>);
+        /// counting them would put the aggregate out of sync with what the user
+        /// can actually edit. When <see cref="SuppressToggle"/> is true the
+        /// caller should render an empty cell instead of the toggle — there is
+        /// nothing to loop at that aggregate level (e.g. the auto-generated
+        /// "X / Debris" subgroup).
+        /// </summary>
+        internal struct LoopAggregateState
+        {
+            public int NonDebrisCount;
+            public int LoopCount;
+            public bool AllLoop;
+            public bool SuppressToggle;
+        }
+
+        internal static LoopAggregateState ComputeLoopAggregate(
+            IReadOnlyList<Recording> committed, IEnumerable<int> indices)
+        {
+            int total = 0;
+            int loops = 0;
+            if (committed != null && indices != null)
+            {
+                foreach (int idx in indices)
+                {
+                    if (idx < 0 || idx >= committed.Count) continue;
+                    var rec = committed[idx];
+                    if (rec == null || rec.IsDebris) continue;
+                    total++;
+                    if (rec.LoopPlayback) loops++;
+                }
+            }
+            return new LoopAggregateState
+            {
+                NonDebrisCount = total,
+                LoopCount = loops,
+                AllLoop = total > 0 && loops == total,
+                SuppressToggle = total == 0,
+            };
+        }
 
         internal static string UnitSuffix(LoopTimeUnit unit)
             => unit == LoopTimeUnit.Min ? "m"

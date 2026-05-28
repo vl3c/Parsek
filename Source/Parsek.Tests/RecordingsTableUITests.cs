@@ -1756,6 +1756,147 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Auto loop range") && l.Contains("TestShip"));
         }
 
+        // ── ShouldSuppressRowLoopUi (debris + Unfinished Flights hide) ──
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_NormalRow_NotSuppressed()
+        {
+            var rec = MakeRec(100, 200, "Mainship");
+            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(rec, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_DebrisRow_Suppressed()
+        {
+            // Parent-anchored debris rides its parent's loop clock
+            // (GhostPlaybackEngine.TryUpdateLoopSyncedDebris), so the per-row
+            // loop checkbox + period control must be hidden.
+            var debris = MakeRec(100, 200, "Booster");
+            debris.IsDebris = true;
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(debris, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_UnfinishedFlightsGroup_Suppressed()
+        {
+            // Re-fly TODO surface: loop/period are hidden regardless of debris.
+            var rec = MakeRec(100, 200, "Crashed");
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(rec, true));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_DebrisInsideUnfinishedFlightsGroup_Suppressed()
+        {
+            var debris = MakeRec(100, 200, "Booster");
+            debris.IsDebris = true;
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(debris, true));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_NullRecording_NotSuppressed_OutsideUnfinishedFlights()
+        {
+            // Null is a defensive case; the predicate only returns true via the
+            // group flag (the loop UI is drawn against a real recording, so a
+            // null here is the "outside group, no row" case — should not crash).
+            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(null, false));
+        }
+
+        // ── ComputeLoopAggregate (group / chain / header) ──
+
+        [Fact]
+        public void ComputeLoopAggregate_AllNonDebrisLoop_AllLoopTrue()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = true;
+            var committed = new List<Recording> { a, b };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(2, agg.LoopCount);
+            Assert.True(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_MixedNonDebrisLoop_AllLoopFalse()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = false;
+            var committed = new List<Recording> { a, b };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_DebrisExcludedFromCount()
+        {
+            // A "Mission / Debris" subgroup mixed with a non-debris parent row
+            // should not have the debris flip the aggregate state. Even though
+            // the debris carries LoopPlayback=true (stale flag from a prior
+            // session, harmless), it must not count toward the aggregate.
+            var main = MakeRec(0, 10, "Main"); main.LoopPlayback = false;
+            var deb1 = MakeRec(2, 4, "Deb1"); deb1.IsDebris = true; deb1.LoopPlayback = true;
+            var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true; deb2.LoopPlayback = true;
+            var committed = new List<Recording> { main, deb1, deb2 };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
+            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_AllDebris_SuppressesToggle()
+        {
+            // The auto-generated "X / Debris" subgroup: every member is debris,
+            // so the aggregate Loop toggle is hidden (SuppressToggle=true).
+            // Mirrors the Missions window, which omits debris entirely.
+            var deb1 = MakeRec(2, 4, "Deb1"); deb1.IsDebris = true;
+            var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true;
+            var committed = new List<Recording> { deb1, deb2 };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.True(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_EmptyMembers_SuppressesToggle()
+        {
+            var committed = new List<Recording>();
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, Array.Empty<int>());
+            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.True(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_OutOfRangeIndices_Skipped()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var committed = new List<Recording> { a };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { -1, 0, 99 });
+            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopCount);
+            Assert.True(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_NullCommittedOrIndices_Empty()
+        {
+            var agg1 = RecordingsTableUI.ComputeLoopAggregate(null, new[] { 0 });
+            Assert.True(agg1.SuppressToggle);
+            Assert.Equal(0, agg1.NonDebrisCount);
+
+            var committed = new List<Recording> { MakeRec(0, 10, "A") };
+            var agg2 = RecordingsTableUI.ComputeLoopAggregate(committed, null);
+            Assert.True(agg2.SuppressToggle);
+            Assert.Equal(0, agg2.NonDebrisCount);
+        }
+
         // ── Tab switch (Recordings | Missions) ──
 
         [Fact]
