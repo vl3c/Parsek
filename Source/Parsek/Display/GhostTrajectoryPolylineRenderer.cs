@@ -127,6 +127,18 @@ namespace Parsek.Display
             /// </summary>
             public VectorLine vectorLine;
 
+            /// <summary>
+            /// <c>Time.frameCount</c> of the last frame the Driver drew this
+            /// leg. The per-frame deactivation sweep compares this against the
+            /// current frame and sets <c>vectorLine.active = false</c> for any
+            /// leg NOT drawn this frame, so a stale Vectrosity mesh does not
+            /// linger on screen when the leg stops drawing (loop-hidden,
+            /// suppressed, body missing, or the recording removed from
+            /// <c>CommittedRecordings</c>): <c>Draw3D()</c> is one-shot and
+            /// never hides a line on its own.
+            /// </summary>
+            public int lastDrawnFrame;
+
             /// <summary>Number of points in this leg (M).</summary>
             public int PointCount => lats != null ? lats.Length : 0;
         }
@@ -218,11 +230,13 @@ namespace Parsek.Display
         /// Drops the entire cache. Iterates the cached entries to call
         /// <see cref="VectorLine.Destroy(ref VectorLine)"/> on every leg's
         /// VectorLine BEFORE dropping the dict, otherwise the Vectrosity
-        /// GameObjects leak. Called from
-        /// <c>GhostMapPresence.RemoveAllGhostVessels</c>, the
-        /// <c>useGhostTrajectoryPolyline</c> setting OFF path, and the
-        /// Driver's <c>onGameStateLoad</c> handler (cross-save invariant
-        /// flush per §1.4 / §6).
+        /// GameObjects leak. Called from the Driver's <c>onGameStateLoad</c>
+        /// handler for the cross-save invariant flush (§1.4 / §6). The
+        /// feature-OFF path does NOT call this: it deactivates the cached lines
+        /// via <see cref="DeactivateAllCachedLines"/> (keeping them cached so
+        /// turning the feature back ON redraws without rebuilding), and a stale
+        /// line for a recording removed from <c>CommittedRecordings</c> is hidden
+        /// by the per-frame deactivation sweep rather than dropped here.
         /// </summary>
         internal static void Clear()
         {
@@ -248,6 +262,42 @@ namespace Parsek.Display
                 var line = legs[i].vectorLine;
                 if (line != null)
                     VectorLine.Destroy(ref line);
+            }
+        }
+
+        /// <summary>
+        /// Decision for the per-frame deactivation sweep: a cached leg line
+        /// should be hidden this frame when it is currently active but was NOT
+        /// drawn this frame (loop-hidden, suppressed, body missing, fewer than
+        /// two points, or its recording removed from <c>CommittedRecordings</c>).
+        /// Pure so the contract is xUnit-testable without a Unity VectorLine.
+        /// </summary>
+        internal static bool ShouldDeactivateLeg(
+            bool currentlyActive, int lastDrawnFrame, int drawFrame)
+            => currentlyActive && lastDrawnFrame != drawFrame;
+
+        /// <summary>
+        /// Sets <c>vectorLine.active = false</c> on every cached leg line that
+        /// is currently active. Called from the Driver's feature-OFF early
+        /// return, where the per-frame draw + deactivation sweep do not run, so
+        /// a polyline drawn before the user flipped <c>useGhostTrajectoryPolyline</c>
+        /// OFF does not linger on screen (<c>Draw3D()</c> is one-shot and never
+        /// hides a line on its own). Only flips active lines, so it is a no-op
+        /// after the first OFF frame. Keeps the lines cached (not destroyed) so
+        /// turning the feature back ON redraws without rebuilding.
+        /// </summary>
+        private static void DeactivateAllCachedLines()
+        {
+            foreach (var kvp in polylineCache)
+            {
+                var legs = kvp.Value.legs;
+                if (legs == null) continue;
+                for (int i = 0; i < legs.Length; i++)
+                {
+                    var line = legs[i].vectorLine;
+                    if (line != null && line.active)
+                        line.active = false;
+                }
             }
         }
 
@@ -705,12 +755,23 @@ namespace Parsek.Display
                 if (!MapView.MapIsEnabled) return;
                 var settings = ParsekSettings.Current;
                 if (settings == null) return;
-                if (!settings.useGhostTrajectoryPolyline) return;
+                if (!settings.useGhostTrajectoryPolyline)
+                {
+                    // Feature OFF: the per-frame draw + sweep below do not run,
+                    // so deactivate every cached leg line once here. Draw3D() is
+                    // one-shot and never hides a line on its own, so without this
+                    // a polyline drawn before the user flipped the setting OFF
+                    // would linger on screen until a scene change / save load.
+                    // Cheap after the first OFF frame: only flips active lines.
+                    DeactivateAllCachedLines();
+                    return;
+                }
 
                 // Pull the per-frame filter inputs ONCE, outside the loop.
                 var suppressed = GhostMapPresence.CachedTrackingStationSuppressedIds;
                 int targetLayer = MapView.Draw3DLines ? 24 : 31;
                 double currentUT = Planetarium.GetUniversalTime();
+                int drawFrame = Time.frameCount;
 
                 // Resolve cachedLoopUnits per-scene. The underlying field
                 // is a private per-scene instance member on two
@@ -838,15 +899,9 @@ namespace Parsek.Display
                         // leg: a single shared line drawn once per leg via
                         // drawStart/drawEnd range slicing does NOT work, because
                         // VectorLine.Draw3D() zeroes every vertex outside the
-                        // current window on each call, leaving only the last
-                        // leg. set.legs is a reference to the cached array, so
-                        // writing back set.legs[li] persists the inflated line
-                        // across frames without re-storing the struct.
+                        // current window on each call, leaving only the last leg.
                         if (leg.vectorLine == null)
-                        {
                             leg.vectorLine = BuildLegVectorLine(rec.RecordingId, li, m);
-                            set.legs[li] = leg;
-                        }
                         if (leg.vectorLine == null) continue;
 
                         leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
@@ -871,18 +926,52 @@ namespace Parsek.Display
                         CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
                         leg.vectorLine.drawStart = 0;
                         leg.vectorLine.drawEnd = m - 1;
+                        // Reactivate if a prior frame's sweep hid this leg, then
+                        // draw and stamp the frame. The single write-back below
+                        // persists BOTH the lazily-inflated line AND the frame
+                        // stamp into the cached array (set.legs is the same array
+                        // reference the dict holds, so writing set.legs[li]
+                        // carries through without re-storing the struct).
+                        if (!leg.vectorLine.active) leg.vectorLine.active = true;
                         leg.vectorLine.Draw3D();
+                        leg.lastDrawnFrame = drawFrame;
+                        set.legs[li] = leg;
                         anyDrawn = true;
                     }
                     if (anyDrawn) frameDrawn++;
                 }
 
+                // Deactivation sweep: hide any cached leg line NOT drawn this
+                // frame. Covers recording-level skips (suppressed / static /
+                // renderHidden, which continue before the per-leg draw), per-leg
+                // skips (body missing / fewer than 2 points), and recordings
+                // removed from CommittedRecordings entirely (e.g. user delete).
+                // Draw3D() is one-shot, so a line stays visible until explicitly
+                // deactivated. Only flips lines that are currently active, so the
+                // steady state where everything draws is a cheap scan.
+                int frameDeactivated = 0;
+                foreach (var kvp in polylineCache)
+                {
+                    var legs = kvp.Value.legs;
+                    if (legs == null) continue;
+                    for (int i = 0; i < legs.Length; i++)
+                    {
+                        var line = legs[i].vectorLine;
+                        if (line != null &&
+                            ShouldDeactivateLeg(line.active, legs[i].lastDrawnFrame, drawFrame))
+                        {
+                            line.active = false;
+                            frameDeactivated++;
+                        }
+                    }
+                }
+
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} cached={7}",
+                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} deactivated={7} cached={8}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
                         frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
-                        polylineCache.Count),
+                        frameDeactivated, polylineCache.Count),
                     5.0);
             }
 

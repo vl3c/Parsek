@@ -578,6 +578,41 @@ namespace Parsek.Tests
                 reason);
         }
 
+        // --- Deactivation sweep predicate (stale-mesh hide) ---
+
+        [Fact]
+        public void ShouldDeactivateLeg_ActiveAndNotDrawnThisFrame_Deactivates()
+        {
+            // Drawn on frame 41, sweep running on frame 42: hide the stale mesh.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDeactivateLeg(
+                currentlyActive: true, lastDrawnFrame: 41, drawFrame: 42));
+        }
+
+        [Fact]
+        public void ShouldDeactivateLeg_ActiveAndDrawnThisFrame_StaysVisible()
+        {
+            // Drawn this very frame: keep it visible.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDeactivateLeg(
+                currentlyActive: true, lastDrawnFrame: 42, drawFrame: 42));
+        }
+
+        [Fact]
+        public void ShouldDeactivateLeg_AlreadyInactive_NoOp()
+        {
+            // Already hidden: nothing to do even though it was not drawn.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDeactivateLeg(
+                currentlyActive: false, lastDrawnFrame: 10, drawFrame: 42));
+        }
+
+        [Fact]
+        public void ShouldDeactivateLeg_NeverDrawn_ActiveLineHidden()
+        {
+            // lastDrawnFrame default 0 (never stamped) with an active line is the
+            // recording-removed / first-hidden case: hide it.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDeactivateLeg(
+                currentlyActive: true, lastDrawnFrame: 0, drawFrame: 42));
+        }
+
         // --- Helpers ---
 
         private static TrajectoryPoint MakePoint(
