@@ -5154,6 +5154,40 @@ namespace Parsek
             => ResetForTestingInternal(allowWipingLiveSaveData: false);
 
         /// <summary>
+        /// Clears stale <c>LoopPlayback=true</c> on every <c>IsDebris=true</c>
+        /// recording in <see cref="committedRecordings"/>. Parent-anchored
+        /// debris rides its parent's loop clock (see
+        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>) so its own
+        /// <c>LoopPlayback</c> flag has no effect at the engine boundary.
+        /// Pre-PR #966 saves may carry a stale <c>true</c> here from before
+        /// the per-row toggle was hidden; clearing at load time keeps the
+        /// Timeline-tab <c>L</c> button consistent with the Recordings-tab
+        /// hide. Returns the count cleared (zero on subsequent loads once
+        /// the sweep has run, so this is idempotent).
+        /// </summary>
+        internal static int SanitizeDebrisLoopPlayback()
+        {
+            int cleared = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (rec.IsDebris && rec.LoopPlayback)
+                {
+                    rec.LoopPlayback = false;
+                    cleared++;
+                }
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"SanitizeDebrisLoopPlayback: cleared LoopPlayback on {cleared} debris recording(s) " +
+                    "(stale flag from pre-PR #966 save; debris rides parent loop clock)");
+            }
+            return cleared;
+        }
+
+        /// <summary>
         /// Wipe-and-reset variant for the in-game test runner's batch FLIGHT
         /// baseline restore flow. The next operation after this call is a
         /// <c>QuickloadResumeHelpers.TriggerQuickload</c> from the baseline
