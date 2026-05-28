@@ -66,6 +66,7 @@ namespace Parsek
         // engine/scene drivers, so it cannot affect playback. Lazily computed by GetLoopUnitSet.
         private GhostPlaybackLogic.LoopUnitSet loopUnitSetCache;
         private int loopUnitSetCacheFrame = -1;
+        private string loopUnitSetCacheSignature;
 
         // Fixed-width columns to the right of the expanding "Missions and vessels" column,
         // mirroring the recordings window's fixed-width cells so the window reads as the
@@ -459,31 +460,45 @@ namespace Parsek
         private GhostPlaybackLogic.LoopUnitSet GetLoopUnitSet()
         {
             int frame = Time.frameCount;
-            if (frame != loopUnitSetCacheFrame || loopUnitSetCache == null)
+            if (frame == loopUnitSetCacheFrame && loopUnitSetCache != null)
+                return loopUnitSetCache; // already built this frame
+
+            var settings = ParsekSettings.Current;
+            double autoLoopIntervalSeconds = settings != null
+                ? settings.autoLoopIntervalSeconds
+                : LoopTiming.DefaultLoopIntervalSeconds;
+            // Same transited-body rotation A/B mode the scene drivers use, so the display mirror
+            // matches the engine's schedule (a flipped flag rebuilds via the signature).
+            TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
+
+            // SIGNATURE-GATE the rebuild (not just per-frame): MissionLoopUnitBuilder.Build is the
+            // SAME work the scene drivers do once per config change, and for a cross-parent mission it
+            // runs a large (up to ~1M-step) zero-drift window search. Rebuilding that every frame the
+            // Missions tab is open would hitch; instead rebuild only when BuildSignature changes (the
+            // body geometry, the selection, the A/B mode all fold into it), exactly like the engine.
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees,
+                RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
+                FlightGlobalsBodyInfo.Instance, tbrMode);
+            loopUnitSetCacheFrame = frame;
+            if (loopUnitSetCache != null && signature == loopUnitSetCacheSignature)
+                return loopUnitSetCache; // inputs unchanged since the last build
+
+            bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
+            MissionLoopUnitBuilder.SuppressLogging = true;
+            try
             {
-                var settings = ParsekSettings.Current;
-                double autoLoopIntervalSeconds = settings != null
-                    ? settings.autoLoopIntervalSeconds
-                    : LoopTiming.DefaultLoopIntervalSeconds;
-                // Same transited-body rotation A/B mode the scene drivers use, so the display mirror
-                // matches the engine's schedule (a flipped flag rebuilds via the signature).
-                TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
-                                                    ?? TransitedBodyRotationMode.Loose;
-                bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
-                MissionLoopUnitBuilder.SuppressLogging = true;
-                try
-                {
-                    loopUnitSetCache = MissionLoopUnitBuilder.Build(
-                        MissionStore.Missions, RecordingStore.CommittedTrees,
-                        RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
-                        FlightGlobalsBodyInfo.Instance, tbrMode);
-                }
-                finally
-                {
-                    MissionLoopUnitBuilder.SuppressLogging = prevSuppress;
-                }
-                loopUnitSetCacheFrame = frame;
+                loopUnitSetCache = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees,
+                    RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
+                    FlightGlobalsBodyInfo.Instance, tbrMode);
             }
+            finally
+            {
+                MissionLoopUnitBuilder.SuppressLogging = prevSuppress;
+            }
+            loopUnitSetCacheSignature = signature;
             return loopUnitSetCache ?? GhostPlaybackLogic.LoopUnitSet.Empty;
         }
 

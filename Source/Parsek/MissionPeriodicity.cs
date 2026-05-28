@@ -551,44 +551,64 @@ namespace Parsek
         // dominant period does not drift and gets no schedule.
         private const double PeriodEqualityRelTolerance = 1e-6;
 
-        // === Cross-parent look-ahead horizon (docs/dev/plans/cross-parent-bodies.md section 4.2) ===
-        // The k-walk look-ahead must cover several whole cycles of the LONGEST-period constraint, or
-        // the brute-force scan hits its bound before the next near-resonance opens. A same-body /
-        // same-parent config's longest period is short (Mun ~139 ks), so the floor below dominates and
-        // behavior is byte-identical to today; a deep cross-parent chain (Kerbin -> Tylo pulls in
-        // Jool's ~36-Kerbin-year heliocentric) has an enormous longest period, so the horizon grows.
-        internal const double LookaheadCoverageFactor = 8.0;
+        // === Look-ahead horizon for the JOINT near-coincidence (docs/dev/plans/cross-parent-bodies.md
+        // section 4.2) ===
+        // A faithful launch needs EVERY non-anchor constraint within its tolerance at the SAME
+        // anchor-multiple k (replay-as-is: every body back at its recorded ABSOLUTE position, not
+        // merely the same relative/synodic geometry). As k scans, constraint j (period P_j incommensurate
+        // with the anchor) lands within tol_j for a fraction ~2*tol_j/P_j of k's, so the EXPECTED number
+        // of anchor steps until ALL of them coincide is ~ product_j(P_j / (2*tol_j)). The horizon must
+        // span that or the k-walk falls to bounded-best (a launch that MISSES the target). This is NOT
+        // "a few cycles of the longest period" (the single-body recurrence) and NOT the synodic period
+        // (relative geometry) - it is the much rarer ABSOLUTE joint coincidence: centuries for Kerbin ->
+        // Duna (~487k pad steps), not the ~2 years an earlier draft wrongly assumed. A same-body /
+        // same-parent config (one short-period orbital) has a tiny product, so the floor below dominates
+        // and behavior is byte-identical to today.
+        //
+        // LookaheadCoverageFactor multiplies the expected steps to cover the geometric tail (the first
+        // coincidence can land at a few times the mean), so we reliably FIND the window rather than
+        // stopping just short of it.
+        internal const double LookaheadCoverageFactor = 3.0;
 
         // Floor: the legacy fixed look-ahead, so single-/same-parent configs keep today's horizon.
         internal const int MinLookaheadMultiples = ScheduleLookaheadMultiples;
 
         // Ceiling: bounds the per-extend scan cost (each step is one CircularPhaseError per other
-        // constraint - microseconds). Covers the deepest stock chain (Kerbin -> Tylo, ~124k multiples)
-        // with headroom; a planet pack beyond this clamps to more amber (bounded-best) launches rather
-        // than ever stalling a frame.
-        internal const int MaxLookaheadMultiples = 262144;
+        // constraint - microseconds). ~1.05M anchor steps is ~2450 Kerbin years on the stock pad, enough
+        // to FIND the first joint window for every stock 2-3 body interplanetary pair (Kerbin -> Duna
+        // ~487k, Kerbin -> Tylo ~865k, Kerbin -> Moho ~722k). A config whose window is beyond this falls
+        // to bounded-best (amber, never refused per the design), not a frame stall: the full scan is a
+        // few ms and only runs on a config rebuild (signature-gated in both the scene drivers and the UI).
+        internal const int MaxLookaheadMultiples = 1048576;
 
         /// <summary>
         /// The k-walk horizon (number of ANCHOR-period multiples to scan) for a config's zero-drift
-        /// schedule: <see cref="LookaheadCoverageFactor"/> whole cycles of the LONGEST constraint
-        /// period, expressed in anchor-period steps, clamped to [<see cref="MinLookaheadMultiples"/>,
-        /// <see cref="MaxLookaheadMultiples"/>]. MUST be called with the SELECTED anchor period (from
-        /// <see cref="SelectAnchorConstraintIndex"/>) because the horizon counts anchor steps. Pure.
+        /// schedule: <see cref="LookaheadCoverageFactor"/> times the EXPECTED anchor steps to a joint
+        /// within-tolerance window, <c>product_j(P_j / (2*tol_j))</c> over the NON-ANCHOR constraints
+        /// (each duty cycle's reciprocal), clamped to [<see cref="MinLookaheadMultiples"/>,
+        /// <see cref="MaxLookaheadMultiples"/>]. The horizon is in anchor STEPS and is independent of the
+        /// anchor period's magnitude (the duty argument cancels it). A factor &lt;= 1 (a constraint whose
+        /// tolerance already spans half its period, always satisfied) contributes no rarity and is
+        /// skipped. Pure. <paramref name="otherPeriods"/> / <paramref name="otherTolerances"/> are the
+        /// NON-anchor constraints' periods + physics tolerances (the exact lists the schedule scans).
         /// </summary>
         internal static int RecommendedLookaheadMultiples(
-            IReadOnlyList<PhaseConstraint> constraints, double anchorPeriod)
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances)
         {
-            if (constraints == null || constraints.Count == 0
-                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
+            if (otherPeriods == null || otherPeriods.Count == 0)
                 return MinLookaheadMultiples;
-            double longest = 0.0;
-            for (int i = 0; i < constraints.Count; i++)
+            double product = 1.0;
+            for (int i = 0; i < otherPeriods.Count; i++)
             {
-                double p = constraints[i].PeriodSeconds;
-                if (!double.IsNaN(p) && !double.IsInfinity(p) && p > longest)
-                    longest = p;
+                double p = otherPeriods[i];
+                double tol = (otherTolerances != null && i < otherTolerances.Count) ? otherTolerances[i] : 0.0;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0 || tol <= 0.0)
+                    continue; // degenerate -> contributes no rarity
+                double factor = p / (2.0 * tol);
+                if (factor > 1.0) // tol >= P/2 means always-satisfied (factor <= 1): no rarity
+                    product *= factor;
             }
-            double recommended = LookaheadCoverageFactor * longest / anchorPeriod;
+            double recommended = LookaheadCoverageFactor * product;
             if (double.IsNaN(recommended) || recommended < MinLookaheadMultiples)
                 return MinLookaheadMultiples;
             if (recommended > MaxLookaheadMultiples)
@@ -1218,11 +1238,11 @@ namespace Parsek
             if (periods.Count == 0 || !anyDistinct)
                 return false;
 
-            // Look-ahead horizon: cover several whole cycles of the longest constraint period in
-            // ANCHOR-period steps (computed off the SELECTED anchor period, so a cross-parent chain's
-            // long heliocentric leg widens the scan). Floored at the legacy ScheduleLookaheadMultiples,
-            // so same-parent configs are byte-identical.
-            int lookahead = RecommendedLookaheadMultiples(effective, anchorPeriod);
+            // Look-ahead horizon: span the EXPECTED anchor steps to a joint within-tolerance window
+            // (product of the non-anchor duty reciprocals), so a cross-parent config FINDS its true
+            // (centuries-out) window instead of stopping short and returning a bounded-best target-miss.
+            // Floored at the legacy ScheduleLookaheadMultiples, so same-parent configs are byte-identical.
+            int lookahead = RecommendedLookaheadMultiples(periods, tolerances);
             var candidate = new MissionRelaunchSchedule(
                 ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
                 lookahead, minSpacingSeconds);
@@ -1767,11 +1787,25 @@ namespace Parsek
                 kFloor = 1;
             if (!MissionPeriodicity.TryFindNextScheduleK(
                     anchorPeriod, this.otherPeriods, this.otherTolerances,
-                    kFloor, lookaheadMultiples, out long k0, out _, out _))
+                    kFloor, lookaheadMultiples, out long k0, out _, out bool within0))
                 return;
             launches.Add(ut0 + k0 * anchorPeriod);
             lastK = k0;
             FirstLaunchUT = launches[0];
+
+            // Perf guard: when the first launch is only BOUNDED-BEST (no true joint window inside the
+            // look-ahead - e.g. a config whose coincidence is beyond MaxLookaheadMultiples), every
+            // ExtendOnce would FULL-SCAN the horizon for another window that does not exist, 8x. Skip
+            // the eager prefix and report the anchor period as the (meaningless) interval; the schedule
+            // still attaches one bounded-best launch (amber, never refused), but we do not burn ~8 full
+            // horizon scans at construction. A within-tolerance first launch keeps the real prefix (its
+            // ExtendOnce calls return early at each next window, so the prefix is cheap).
+            if (!within0)
+            {
+                MinIntervalSeconds = anchorPeriod;
+                AverageIntervalSeconds = anchorPeriod;
+                return;
+            }
 
             // Eager prefix to determine BOTH the min interval (defensive gate, see MinIntervalSeconds)
             // and the MEAN interval (the user-facing display cadence). Min often coincides across

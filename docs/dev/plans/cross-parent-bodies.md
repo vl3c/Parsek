@@ -46,6 +46,29 @@ Revision history:
   - `SelectDominantConstraintIndex` gains an optional `launchBodyName` to prefer the
     cross-parent TARGET body over the launch body for the basis label (label-only; does
     not touch the duty-cycle `SelectAnchorConstraintIndex`, so the schedule is unchanged).
+- 2026-05-28 THIRD clean-context Opus review folded (the plan's load-bearing error):
+  - The first two drafts conflated the SYNODIC period (~2.1 yr, relative geometry, the
+    re-aim quantity) with the true REPLAY-AS-IS recurrence (both planets back at their
+    recorded ABSOLUTE positions), which for Kerbin -> Duna is ~1142 Kerbin years (~487k pad
+    steps). The shipped look-ahead (`8 * longestPeriod / anchor` ~= 6.4k steps, ceiling 262k)
+    stopped ~80x short of the true window, so cross-parent schedules silently returned a
+    BOUNDED-BEST launch within ~15 years where the target is wherever it happens to be (the
+    replayed transfer flies to empty space). See §4.2 / §4.3 (now corrected).
+  - FIXED `RecommendedLookaheadMultiples` to size the horizon to the JOINT-coincidence
+    expectation `coverage * product_j(P_j / (2*tol_j))` over the non-anchor constraints (in
+    anchor steps; signature changed to take the periods + tolerances), raised
+    `MaxLookaheadMultiples` 262144 -> 1048576 (~2450 Kerbin yr, spans every stock 2-3 body
+    first window), `LookaheadCoverageFactor` 8 -> 3 (geometric-tail margin). Same-parent
+    floors to 4096 (byte-identical). Now Kerbin -> Duna FINDS a true within-tolerance window
+    (the transfer reaches Duna), centuries out, amber-capped + Warp-reachable.
+  - Kept the locked "over-constrained configs are NEVER refused" decision: a config whose
+    window is still beyond the (generous) horizon falls to bounded-best amber, NOT "not
+    aligned" + Warp-disabled. The honesty comes from the horizon now finding the real window
+    for every realistic case, not from refusing.
+  - Signature-gated the Missions-tab `GetLoopUnitSet` rebuild (was per-frame) on
+    `BuildSignature`, and skip the schedule constructor's eager 8-launch probe when the first
+    launch is bounded-best-only, so the larger search is paid once per config change, not
+    every frame.
 
 Sibling references:
 - `Source/Parsek/MissionPeriodicity.cs` (constraint extractor + solver + zero-drift schedule)
@@ -379,93 +402,88 @@ playtest acceptance for Tylo-class targets needs the user to confirm the
 anchor-on-Tylo behavior is acceptable; otherwise add an "anchor-on-launch-body"
 preference flag to the tie-break.
 
-### 4.2 Zero-drift schedule
+### 4.2 Zero-drift schedule + the look-ahead horizon (CORRECTED after a third review)
 
-`TryBuildRelaunchSchedule` is unchanged. Today it walks k integer multiples
-of the anchor period and accepts the first k whose residuals fit every
-non-anchor constraint within its tolerance. With more (and longer-period)
-constraints, the accepted k just gets larger.
+`TryBuildRelaunchSchedule` walks k integer multiples of the anchor period (the launch pad)
+and accepts the first k whose residuals fit every non-anchor constraint within its
+tolerance, else the bounded-best k in the look-ahead window. The cross-parent path always
+takes this zero-drift route (>= 2 distinct-period constraints once a heliocentric layer is
+added). `MaxJointMultiples = 16` governs ONLY the fixed-cadence fallback and does not bite
+cross-parent missions.
 
-**Important distinction on which constant matters here.** The cross-parent path
-takes the zero-drift / `TryBuildRelaunchSchedule` route (>= 2 distinct-period
-constraints, by construction once we add a heliocentric layer). That path uses
-`ScheduleLookaheadMultiples = 4096` to cap the k-walk. The OTHER constant,
-`MaxJointMultiples = 16` (`MissionPeriodicity.cs:499`), governs ONLY the FIXED-CADENCE
-fallback path's `FindBestJointMultiple`, which `TryBuildRelaunchSchedule` supersedes for
-any drifting multi-constraint config. The MaxJointMultiples cap therefore does NOT bite
-on cross-parent missions (they always route through the zero-drift path). An earlier
-draft of this plan conflated the two; sections 8 + 9 below test and tune
-`ScheduleLookaheadMultiples`, not `MaxJointMultiples`.
+**The look-ahead horizon was the load-bearing mistake in the first two drafts (see §4.3).**
+A faithful launch needs EVERY non-anchor constraint within tolerance at the SAME k. As k
+scans, a constraint with period `P_j` (incommensurate with the anchor) lands within `tol_j`
+for a fraction `~2*tol_j/P_j` of k's, so the EXPECTED number of anchor steps until ALL of
+them coincide is:
 
-The relevant constants for cross-parent:
+```
+E[k] ~= product_j ( P_j / (2 * tol_j) )    over the NON-anchor constraints
+```
 
-- `ScheduleLookaheadMultiples = 4096`. Each unit is one anchor period
-  (sidereal day, ~6h Kerbin), so 4096 corresponds to ~7 Kerbin years of
-  lookahead. The Kerbin-Duna synodic is ~2.1 Kerbin years, so 4096 covers
-  several synodic windows -- enough for a typical Duna mission.
-- `MaxScheduleSteps = 8192`. The cache cap on resolved launches. Unaffected
-  by this change; only the COST of resolving each step grows.
-
-The lookahead needs to grow with the longest constraint's period for deeper chains
-(Kerbin -> Tylo / Bop / Pol; chain Tylo -> Jool -> Sun adds Jool's heliocentric
-~36 Kerbin years). Add a pure helper:
+This is the rare ABSOLUTE joint coincidence, NOT "a few cycles of the longest period" and
+NOT the synodic period. The corrected helper sizes the horizon to it:
 
 ```csharp
-internal const double LookaheadCoverageFactor = 8.0; // need to cover ~8 longest-period
-                                                       // cycles to be confident we find
-                                                       // a within-tolerance window
-internal const int MinLookaheadMultiples = 4096;       // floor: same as today
+internal const double LookaheadCoverageFactor = 3.0;     // geometric-tail margin
+internal const int MinLookaheadMultiples = ScheduleLookaheadMultiples; // 4096 floor
+internal const int MaxLookaheadMultiples = 1048576;       // ~2450 Kerbin yr ceiling
 
-/// <summary>
-/// Pick the k-walk horizon. The lookahead must cover several whole cycles of the
-/// longest constraint (otherwise the brute-force walk hits the cap before the next
-/// near-resonance opens). Floored at MinLookaheadMultiples so a same-body / single-
-/// constraint config keeps today's behavior.
-/// </summary>
 internal static int RecommendedLookaheadMultiples(
-    IReadOnlyList<PhaseConstraint> constraints, double anchorPeriod)
+    IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances)
 {
-    if (constraints == null || constraints.Count == 0 || anchorPeriod <= 0.0)
-        return MinLookaheadMultiples;
-    double longest = 0.0;
-    for (int i = 0; i < constraints.Count; i++)
-        if (constraints[i].PeriodSeconds > longest)
-            longest = constraints[i].PeriodSeconds;
-    double recommended = LookaheadCoverageFactor * longest / anchorPeriod;
-    int floored = (int)Math.Ceiling(recommended);
-    return floored < MinLookaheadMultiples ? MinLookaheadMultiples : floored;
+    if (otherPeriods == null || otherPeriods.Count == 0) return MinLookaheadMultiples;
+    double product = 1.0;
+    for (int i = 0; i < otherPeriods.Count; i++)
+    {
+        double p = otherPeriods[i];
+        double tol = (otherTolerances != null && i < otherTolerances.Count) ? otherTolerances[i] : 0.0;
+        if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0 || tol <= 0.0) continue;
+        double factor = p / (2.0 * tol);
+        if (factor > 1.0) product *= factor;     // tol >= P/2 -> always satisfied -> no rarity
+    }
+    double recommended = LookaheadCoverageFactor * product;
+    return clamp(recommended, MinLookaheadMultiples, MaxLookaheadMultiples);
 }
 ```
 
-Worked sanity checks for the formula (anchor = stock Kerbin sidereal day ~21,549 s):
+The horizon is in anchor STEPS and is independent of the anchor period magnitude (the duty
+cancels it). Worked numbers (stock, anchor = pad, tol = SoiRadius/OrbitalVelocity):
 
-- Kerbin -> Duna: longest = Duna heliocentric ~1.74e7 s. recommended = 8 * 1.74e7 /
-  21549 ~= 6,460. Floored at 4096 -> 6,460. Several synodic windows covered.
-- Kerbin -> Eeloo: longest = Eeloo heliocentric ~3.37e7 s. recommended = 8 * 3.37e7 /
-  21549 ~= 12,500. Past today's 4096; the new helper covers it.
-- Kerbin -> Tylo (chain Tylo -> Jool -> Sun): longest = Jool heliocentric ~3.34e8 s.
-  recommended = 8 * 3.34e8 / 21549 ~= 124,000. Big number. The k-walk in
-  `TryBuildRelaunchSchedule` is microsecond-cheap per step, so 124k iterations is still
-  well under a frame. Verified by the perf tests in section 8.3.
-- Kerbin -> Mun (existing direct-child case): longest = Mun ~1.39e5 s. recommended =
-  8 * 1.39e5 / 21549 ~= 52. Floored at 4096 -> 4096 (no regression).
+- Kerbin -> Duna: Duna `P/2tol ~= 1024`, Kerbin `~= 508`; product `~= 520k` anchor steps; the
+  first true window is at k ~= 487,737 ~= **1142 Kerbin years**. With `LookaheadCoverageFactor=3`
+  -> ~1.56M, clamped to the 1.05M ceiling, which still SPANS the 487k first window -> the
+  schedule FINDS a true within-tolerance launch (the transfer reaches Duna).
+- Kerbin -> Tylo: ~865k first window (~2026 Kerbin yr) -> within the 1.05M ceiling -> found.
+- Kerbin -> Moho: ~722k -> found. Kerbin -> Eeloo: ~330k -> found.
+- Kerbin -> Mun (same-parent): product `~= 16` -> floored to 4096 (byte-identical to today).
 
-The 8x coverage factor is a tunable constant; if a planet pack ships even longer-period
-bodies and the walk still misses, raise it. Documented in the source.
+`MaxScheduleSteps = 8192` (the launch-cache cap) is unaffected. The k-walk is a single
+`CircularPhaseError` per other-constraint per step; even a full 1.05M-step bounded-best scan
+is a few ms, run only on a config rebuild (signature-gated in BOTH the scene drivers AND the
+Missions UI - the UI's per-frame `GetLoopUnitSet` is now gated on `BuildSignature`, not just
+the frame, so the large search is not paid every frame). The eager 8-launch interval probe in
+the schedule constructor is SKIPPED when the first launch is bounded-best-only (no true window
+in range), so an unreachable config costs ONE scan, not eight.
 
-### 4.3 Synodic vs. multi-period near-resonance
+### 4.3 Why NOT the synodic period (the corrected category error)
 
-The naive "transfer window" formula `T_syn = |1/(1/T_K - 1/T_D)|` gives the
-PRINCIPAL synodic period (~2.1y for Kerbin-Duna). It is the t for which
-`Kerbin_phase(t) - Duna_phase(t)` returns to its starting value. With the
-launch-pad rotation ALSO locked, only some of those synodic windows fall on
-a pad-aligned k -- you may see cadences of 2x or 3x the synodic period in
-practice. The joint best-fit picks whichever pad-aligned k passes every
-tolerance; the cadence drops out naturally and is NOT a constant.
+An earlier draft claimed the cadence is "2x-3x the synodic period (~2.1 yr for Kerbin-Duna)".
+That was a CATEGORY ERROR. The synodic period is when Kerbin and Duna return to the same
+RELATIVE geometry (same phase angle) - which is what you use to fly a FRESH transfer (re-aim,
+out of scope). REPLAY-AS-IS needs both planets back at their recorded ABSOLUTE inertial
+positions (the recorded transfer ellipse is fixed in the Sun frame; the ghost leaves Kerbin's
+recorded departure point and arrives at Duna's recorded encounter point). That absolute double
+coincidence recurs on the order of `product(P/2tol)` ~ **centuries-to-millennia** (Kerbin-Duna
+~1142 yr), NOT ~2.1 yr. The first two drafts sized the look-ahead (and the 50-year display cap)
+against the synodic figure, so the shipped code would have stopped ~80x short of the true
+window and silently returned a bounded-best launch where Duna is wherever it happens to be (the
+transfer flies to empty space). The fix above sizes the horizon to the true coincidence so the
+schedule finds a faithful (rare, Warp-reachable) window; the 50-year display cap then correctly
+flags it as "very rare" (every real interplanetary window is well past 50 yr).
 
-We do not emit a `SynodicPeriod` quantity anywhere; the math is "emit the
-right constraints, run the joint solver". Same model as the existing Mun
-mission, just with more (and longer) entries.
+We still do not emit any `SynodicPeriod` quantity; the math is "emit the right constraints, run
+the joint zero-drift solver" - just with the horizon sized to the absolute coincidence.
 
 ### 4.4 Tolerance for the LAUNCH body's heliocentric Orbital
 

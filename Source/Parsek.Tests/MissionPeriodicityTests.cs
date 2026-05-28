@@ -702,43 +702,86 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecommendedLookaheadMultiples_ScalesWithLongestPeriodFlooredAndCapped()
+        public void RecommendedLookaheadMultiples_SizesToJointDutyProductClampedAndFloored()
         {
-            // Guards (plan section 4.2): the k-walk horizon = 8 whole cycles of the LONGEST constraint
-            // period in ANCHOR-period steps, clamped to [Min, Max].
-            double anchor = KerbinRotation;
+            // Guards (plan section 4.2): the k-walk horizon = LookaheadCoverageFactor * product over the
+            // non-anchor constraints of (P_j / (2*tol_j)) = the expected anchor steps to a JOINT
+            // within-tolerance window, clamped to [Min, Max]. This is the ABSOLUTE joint coincidence (the
+            // rare one), NOT a few cycles of the longest period.
+            double cov = MissionPeriodicity.LookaheadCoverageFactor; // 3.0
 
-            // Same-parent Mun (longest = Mun ~139 ks): 8*Mun/pad ~= 52, floored to MinLookaheadMultiples.
-            var munSet = new List<PhaseConstraint>
-            {
-                Rotation("Kerbin", KerbinRotation, 0.0),
-                Orbital("Mun", MunOrbit, 0.0),
-            };
+            // Two constraints: P/2tol = 50 (1000/20) and 30 (600/20) -> product 1500, *cov.
+            int expected = (int)Math.Ceiling(cov * 50.0 * 30.0);
+            Assert.Equal(expected,
+                MissionPeriodicity.RecommendedLookaheadMultiples(
+                    new[] { 1000.0, 600.0 }, new[] { 10.0, 10.0 }));
+            Assert.True(expected > MissionPeriodicity.MinLookaheadMultiples);
+
+            // Small product (P/2tol = 5) -> floored at MinLookaheadMultiples (same-parent unchanged).
             Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
-                MissionPeriodicity.RecommendedLookaheadMultiples(munSet, anchor));
+                MissionPeriodicity.RecommendedLookaheadMultiples(new[] { 1000.0 }, new[] { 100.0 }));
 
-            // Kerbin -> Duna (longest = Duna heliocentric): grows past the floor.
-            var dunaSet = new List<PhaseConstraint>
+            // Huge product -> clamped to MaxLookaheadMultiples.
+            Assert.Equal(MissionPeriodicity.MaxLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(new[] { 1e12 }, new[] { 1.0 }));
+
+            // Degenerate (NaN / non-positive period or tol) contributes no rarity -> floor.
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(new[] { double.NaN }, new[] { 10.0 }));
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(new[] { 1000.0 }, new[] { 0.0 }));
+
+            // Always-satisfied (tol >= P/2 -> factor <= 1) contributes no rarity -> floor.
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(new[] { 1000.0 }, new[] { 600.0 }));
+
+            // Empty / null -> floor.
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(new double[0], new double[0]));
+            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
+                MissionPeriodicity.RecommendedLookaheadMultiples(null, null));
+        }
+
+        [Fact]
+        public void TryBuildRelaunchSchedule_CrossParentDuna_FirstLaunchIsTrueWithinToleranceWindow()
+        {
+            // Guards THE core Phase 4 correctness property (the issue a deep review caught): a
+            // Kerbin -> Duna schedule's first launch must be a TRUE joint near-coincidence where the
+            // pad is exact AND both heliocentric bodies are within their SOI tolerance - so the
+            // replayed transfer actually REACHES Duna - NOT a bounded-best launch within a short
+            // look-ahead where Duna is wherever it happens to be (transfer to empty space). The true
+            // window is centuries out; the look-ahead horizon must span it.
+            var fake = StockFake();
+            const double ut0 = 1000.0;
+            var constraints = new List<PhaseConstraint>
             {
                 Rotation("Kerbin", KerbinRotation, 0.0),
-                Orbital("Duna", DunaOrbit, 0.0, crossParent: true),
+                Orbital("Duna", DunaOrbit, 4000.0, crossParent: true),
                 Orbital("Kerbin", KerbinOrbit, 0.0, crossParent: true),
             };
-            int expectedDuna = (int)Math.Ceiling(
-                MissionPeriodicity.LookaheadCoverageFactor * DunaOrbit / anchor);
-            Assert.Equal(expectedDuna, MissionPeriodicity.RecommendedLookaheadMultiples(dunaSet, anchor));
-            Assert.True(expectedDuna > MissionPeriodicity.MinLookaheadMultiples);
 
-            // Absurd period clamps to MaxLookaheadMultiples.
-            var absurd = new List<PhaseConstraint> { Orbital("X", 1e15, 0.0, crossParent: true) };
-            Assert.Equal(MissionPeriodicity.MaxLookaheadMultiples,
-                MissionPeriodicity.RecommendedLookaheadMultiples(absurd, anchor));
+            bool built = MissionPeriodicity.TryBuildRelaunchSchedule(
+                constraints, Support.Supported, ut0, ut0, fake,
+                out MissionRelaunchSchedule schedule, 0.0, "Kerbin");
 
-            // Degenerate inputs fall back to the floor.
-            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
-                MissionPeriodicity.RecommendedLookaheadMultiples(null, anchor));
-            Assert.Equal(MissionPeriodicity.MinLookaheadMultiples,
-                MissionPeriodicity.RecommendedLookaheadMultiples(munSet, 0.0));
+            Assert.True(built, "the cross-parent schedule must build");
+            Assert.NotNull(schedule);
+            Assert.False(double.IsNaN(schedule.FirstLaunchUT));
+
+            double delta = schedule.FirstLaunchUT - ut0;
+            double tolDuna = fake.SoiRadius("Duna") / fake.OrbitalVelocity("Duna");
+            double tolKerbin = fake.SoiRadius("Kerbin") / fake.OrbitalVelocity("Kerbin");
+            // Pad locked EXACTLY (integer multiples of the anchor = Kerbin rotation).
+            double k = delta / KerbinRotation;
+            Assert.Equal(Math.Round(k), k, 3);
+            // Both heliocentric bodies within their SOI tolerance -> the transfer reaches Duna.
+            Assert.True(MissionPeriodicity.CircularPhaseError(delta, DunaOrbit) <= tolDuna,
+                "Duna must be within its SOI tolerance at the scheduled launch (transfer reaches it)");
+            Assert.True(MissionPeriodicity.CircularPhaseError(delta, KerbinOrbit) <= tolKerbin,
+                "Kerbin must be within its SOI tolerance at the scheduled launch");
+            // The faithful window is rare: many Kerbin years out, not a near-future bounded-best miss.
+            Assert.True(delta > 50.0 * KerbinOrbit,
+                "the true Kerbin->Duna window is centuries out, well past a 15-year bounded-best horizon");
         }
 
         [Fact]
@@ -1636,6 +1679,14 @@ namespace Parsek.Tests
             double k = (unit.PhaseAnchorUT - ut0) / KerbinRotation;
             Assert.Equal(Math.Round(k), k, 3);
             Assert.True(k >= 1.0);
+            // The first launch is a TRUE joint window (both heliocentric bodies within SOI tolerance),
+            // so the replayed transfer actually reaches Duna - NOT a near-future bounded-best miss.
+            var fake = StockFake();
+            double delta = unit.PhaseAnchorUT - ut0;
+            Assert.True(MissionPeriodicity.CircularPhaseError(delta, DunaOrbit)
+                <= fake.SoiRadius("Duna") / fake.OrbitalVelocity("Duna"));
+            Assert.True(MissionPeriodicity.CircularPhaseError(delta, KerbinOrbit)
+                <= fake.SoiRadius("Kerbin") / fake.OrbitalVelocity("Kerbin"));
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED"));
             // The one-shot cross-parent diagnostic names the heliocentric bodies (Duna + Kerbin).
