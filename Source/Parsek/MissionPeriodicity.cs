@@ -96,6 +96,32 @@ namespace Parsek
     }
 
     /// <summary>
+    /// How the zero-drift schedule treats a TRANSITED (non-launch) body's surface-handoff rotation
+    /// constraint (e.g. a Mun landing). The launch-body rotation (the pad) ALWAYS keeps its tight
+    /// 0.25 deg tolerance; this only governs the landing on a body the mission travels to. A
+    /// player-settable A/B flag (<c>ParsekSettings.transitedBodyRotationMode</c>) because it trades
+    /// the relaunch cadence against the approach-&gt;landing handoff seam. See
+    /// docs/dev/plans/zero-drift-reschedule.md.
+    /// </summary>
+    internal enum TransitedBodyRotationMode
+    {
+        /// <summary>Drop the transited-body rotation constraint entirely: the body's orbital (SOI)
+        /// tolerance governs its phase, the body-fixed landing self-anchors. SHORTEST cadence
+        /// (~15 Kerbin days for the stock Mun), largest handoff seam (up to the SOI tolerance).</summary>
+        Drop,
+
+        /// <summary>Keep the transited-body rotation constraint but at a LOOSE tolerance
+        /// (<see cref="TransitedBodyLooseRotationDegrees"/>, a few degrees). MEDIUM cadence (~1-2
+        /// Kerbin months), small handoff seam (a few km).</summary>
+        Loose,
+
+        /// <summary>Keep the transited-body rotation constraint at the TIGHT 0.25 deg launch-pad
+        /// tolerance (the original behavior). LONGEST cadence (~1.65 Kerbin years for the stock Mun
+        /// land-and-return), pixel-perfect handoff. The no-regression default for unwired callers.</summary>
+        Tight
+    }
+
+    /// <summary>
     /// The result of extracting the phase constraints for one looping Mission's trimmed config.
     /// Pure value: launch body + UT0 + the ordered constraint list + the Support classification.
     /// </summary>
@@ -448,21 +474,63 @@ namespace Parsek
         // "Still open" note; refined by playtest. 0.25 degrees / 360 = ~0.0007 of a full turn.
         private const double RotationToleranceFraction = 0.25 / 360.0;
 
-        // Phase 2 joint best-fit: the relaunch period is a whole multiple m of the DOMINANT
-        // constraint's period (so the dominant body, e.g. the Mun intercept, stays locked at every
-        // relaunch), searched up to this many multiples for the m that best RE-ALIGNS the other
-        // ("dropped") constraints. m=1 is the old Tier-1 behavior (drop the residual wholesale); a
-        // larger m trades a longer relaunch period for a tighter joint alignment. 16 keeps the
-        // relaunch period watchable (a Mun mission lands around m=9, ~14.5 days; the launch-pad
-        // residual drops from ~9688s/161deg at m=1 to ~993s/16deg). A fixed cadence still DRIFTS on
-        // incommensurate periods (the residual is the per-cycle drift); the per-window reschedule
-        // (zero-drift) follow-up is the path to sub-degree alignment - see todo-and-known-bugs.md.
+        // The LOOSE rotation tolerance (in degrees) for a TRANSITED (non-launch) body's surface
+        // handoff under TransitedBodyRotationMode.Loose. A landing on a transited body (e.g. the Mun)
+        // is recorded body-fixed, so it self-anchors to the live surface; its rotation only affects
+        // the approach->landing handoff SEAM (a small deep-space discontinuity), which tolerates far
+        // more than the tight 0.25 deg launch-pad value. A few degrees keeps the seam small (a few km)
+        // while shortening the faithful-window cadence from ~1.65 Kerbin years (Tight) to ~1-2 Kerbin
+        // months. Dropping the constraint entirely (Mode.Drop) shortens it further to ~15 Kerbin days
+        // (seam up to the SOI tolerance). Tunable; A/B-tested in playtest.
+        private const double TransitedBodyLooseRotationDegrees = 5.0;
+
+        // Phase 2 joint best-fit (the FIXED-cadence FALLBACK, used now only when a drifting config's
+        // schedule is rejected for overlap or cannot build - the common drifting case takes the
+        // zero-drift per-window schedule instead, NOT this m): the relaunch period is a whole multiple
+        // m of the DOMINANT constraint's period (so the dominant body, e.g. the Mun intercept, stays
+        // locked at every relaunch), searched up to this many multiples for the m that best RE-ALIGNS
+        // the other ("dropped") constraints. m=1 is the old Tier-1 behavior (drop the residual
+        // wholesale); a larger m trades a longer relaunch period for a tighter joint alignment. 16
+        // keeps the relaunch period watchable (this best-fit picks m=9 / ~14.5 days for the stock Mun
+        // periods; the launch-pad residual drops from ~9688s/161deg at m=1 to ~993s/16deg). A fixed
+        // cadence still DRIFTS on incommensurate periods (the residual is the per-cycle drift); the
+        // zero-drift per-window reschedule (now implemented - see TryBuildRelaunchSchedule +
+        // docs/dev/plans/zero-drift-reschedule.md) is what closes that for the in-game Mun config.
         private const int MaxJointMultiples = 16;
 
         // Two multiples whose worst dropped-constraint phase error differ by less than this (seconds)
         // are a tie; the smaller m (shorter relaunch period) wins, so we never lengthen the period
         // for a negligible alignment gain.
         private const double JointResidualTieEpsilonSeconds = 1.0;
+
+        // === Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md) ===
+
+        // How many whole multiples of the ANCHOR period (the tightest constraint, e.g. the launch
+        // pad - see SelectAnchorConstraintIndex) to scan forward from a relaunch when searching for
+        // the next faithful window (the next k where every OTHER constraint is within its tolerance).
+        // k counts ANCHOR-PERIOD steps, NOT the longest period. It must span at least one
+        // within-tolerance recurrence for the supported configs: a simple launch + orbit-to-Mun (pad
+        // + Mun SOI tolerance, ~3%) has its first faithful window at k ~= 13 pad rotations; a config
+        // that also LANDS on a tidally-locked body adds a tight (0.25 deg) Rotation(body) constraint
+        // whose recurrence is hundreds of pad rotations (~700 for the stock Mun land-and-return), so
+        // 4096 covers both with headroom and leaves room for planet packs. A too-small bound does NOT
+        // cause runaway drift (the search always restarts from the previous launch and picks the next
+        // good k); it just yields more amber (over-tolerance) bounded-best launches. The search is
+        // O(this) cheap CircularPhaseError calls per relaunch (returning early at the first faithful
+        // k), amortized + cached. Documented tunable, like MaxJointMultiples.
+        internal const int ScheduleLookaheadMultiples = 4096;
+
+        // Hard safety cap on cached schedule launches, a CPU valve against a pathological tiny
+        // dominant period (malformed body data) that would otherwise generate astronomically many
+        // launches. Far above any realistic within-tolerance launch count over a long game. On hit,
+        // the resolver logs a rate-limited Warn and parks at the last cached launch (graceful, no
+        // crash, no unbounded CPU); realistic configs never approach it.
+        internal const int MaxScheduleSteps = 8192;
+
+        // Two periods within this relative tolerance are treated as equal (tidal-collapse): such
+        // constraints line up at every window, so a config whose dropped constraints all share the
+        // dominant period does not drift and gets no schedule.
+        private const double PeriodEqualityRelTolerance = 1e-6;
 
         /// <summary>
         /// Tier-1 solver (design doc Proposed design / Tier 1; plan Phase 1). Locks the SINGLE
@@ -548,16 +616,20 @@ namespace Parsek
             }
 
             // === Joint best-fit over whole multiples of the dominant period (Phase 2) ===
+            // NOTE: for a DRIFTING config the loop builder uses this Solve result only for the
+            // diagnostic P / residual / method; the actual in-game cadence comes from the zero-drift
+            // per-window schedule (TryBuildRelaunchSchedule), NOT this fixed m*P. This branch is the
+            // fixed-cadence FALLBACK (schedule rejected/unbuildable).
             // The dominant constraint is locked EXACTLY: the relaunch period P is a whole multiple m
             // of its period, so the dominant body (e.g. the Mun intercept) is in its recorded
             // position at EVERY relaunch for any m. We then search small m to best RE-ALIGN the other
             // ("dropped") constraints over one cadence step - the joint near-resonance. m=1 is the old
             // Tier-1 behavior (the dropped residual taken wholesale); a larger m trades a longer
-            // relaunch period for a tighter joint alignment (a Mun mission's launch-pad residual drops
-            // from ~9688s/161deg at m=1 to ~993s/16deg around m=9). Single-constraint and tidal-lock
+            // relaunch period for a tighter joint alignment (this best-fit picks m=9 / ~993s/16deg for
+            // the stock Mun periods, down from ~9688s/161deg at m=1). Single-constraint and tidal-lock
             // configs skip the search (m=1, residual 0 - they line up at every window). The fixed
             // cadence cannot hold incommensurate periods aligned forever (the residual IS the
-            // per-cycle drift); the zero-drift per-window reschedule follow-up closes that - see todo.
+            // per-cycle drift); the zero-drift per-window reschedule closes that for drifting configs.
             int multiple;
             double residual;
             string method;
@@ -769,6 +841,295 @@ namespace Parsek
             if (m < 0.0)
                 m += period;
             return Math.Min(m, period - m);
+        }
+
+        // === Zero-drift per-window reschedule solver (plan section 2) ===========================
+
+        /// <summary>
+        /// The smallest faithful launch UT &gt; <paramref name="afterUT"/>: the ANCHOR constraint is
+        /// pinned EXACTLY (candidate launches are <c>UT0 + k*anchorPeriod</c>) and every OTHER
+        /// constraint must fall within its own tolerance there. Returns the first such launch in the
+        /// look-ahead window, else the BOUNDED-BEST (min worst-other-residual) launch in the window -
+        /// never accumulating, since the residual at launch k is the ABSOLUTE worst other-body error
+        /// (the phase offsets cancel, plan section 2.1). NaN on a degenerate anchor period. The anchor
+        /// is chosen by <see cref="SelectAnchorConstraintIndex"/> (the tightest-tolerance constraint,
+        /// e.g. the launch pad) which maximizes the faithful-window frequency. Pure.
+        /// <paramref name="residualSeconds"/> = the worst other-constraint phase error at the chosen
+        /// launch; <paramref name="withinTolerance"/> = whether it was within tolerance (vs the
+        /// bounded-best fallback). See docs/dev/plans/zero-drift-reschedule.md.
+        /// </summary>
+        internal static double NextJointNearCoincidenceUT(
+            double afterUT, double ut0, double anchorPeriod,
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
+            int lookaheadMultiples,
+            out double residualSeconds, out bool withinTolerance)
+        {
+            residualSeconds = double.NaN;
+            withinTolerance = false;
+            if (double.IsNaN(ut0) || double.IsNaN(afterUT)
+                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod)
+                || anchorPeriod <= 0.0)
+                return double.NaN;
+
+            // k of afterUT (small epsilon so a launch landing exactly on afterUT is not re-returned).
+            long kPrev = (long)Math.Floor((afterUT - ut0) / anchorPeriod + 1e-6);
+            long kStart = kPrev + 1;
+            if (kStart < 1)
+                kStart = 1; // k=0 is UT0 itself (the original recorded play), never a relaunch.
+
+            if (TryFindNextScheduleK(
+                    anchorPeriod, otherPeriods, otherTolerances, kStart, lookaheadMultiples,
+                    out long k, out residualSeconds, out withinTolerance))
+                return ut0 + k * anchorPeriod;
+            return double.NaN;
+        }
+
+        /// <summary>
+        /// Scans whole anchor-multiples k in [<paramref name="kStart"/>,
+        /// kStart + <paramref name="lookaheadMultiples"/>) for the FIRST k where every OTHER
+        /// constraint is within its tolerance; if none, the k with the smallest worst-other residual
+        /// in that window (ties -> smallest k). Returns false only on a degenerate anchor period or a
+        /// non-positive look-ahead. The other-residual at k is
+        /// <c>max_j CircularPhaseError(k*anchorPeriod, otherPeriods[j])</c> - an absolute function of
+        /// k, so picking good k never accumulates. The anchor itself is exact at every k. Pure.
+        /// </summary>
+        internal static bool TryFindNextScheduleK(
+            double anchorPeriod,
+            IReadOnlyList<double> otherPeriods, IReadOnlyList<double> otherTolerances,
+            long kStart, int lookaheadMultiples,
+            out long foundK, out double residualSeconds, out bool withinTolerance)
+        {
+            foundK = 0;
+            residualSeconds = double.NaN;
+            withinTolerance = false;
+            if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
+                return false;
+            if (lookaheadMultiples <= 0)
+                return false;
+
+            int count = otherPeriods?.Count ?? 0;
+            long bestK = -1;
+            double bestResidual = double.PositiveInfinity;
+
+            for (int step = 0; step < lookaheadMultiples; step++)
+            {
+                long k = kStart + step;
+                double delta = k * anchorPeriod;
+                double worst = 0.0;
+                bool allWithin = true;
+                for (int j = 0; j < count; j++)
+                {
+                    double err = CircularPhaseError(delta, otherPeriods[j]);
+                    if (err > worst)
+                        worst = err;
+                    double tol = (otherTolerances != null && j < otherTolerances.Count)
+                        ? otherTolerances[j] : 0.0;
+                    if (err > tol)
+                        allWithin = false;
+                }
+                if (allWithin)
+                {
+                    foundK = k;
+                    residualSeconds = worst;
+                    withinTolerance = true;
+                    return true;
+                }
+                if (worst < bestResidual)
+                {
+                    bestResidual = worst;
+                    bestK = k;
+                }
+            }
+
+            // No within-tolerance k in the window: the bounded-best (min absolute residual) launch.
+            foundK = bestK < 0 ? kStart : bestK;
+            residualSeconds = double.IsPositiveInfinity(bestResidual) ? 0.0 : bestResidual;
+            withinTolerance = false;
+            return true;
+        }
+
+        /// <summary>
+        /// Selects the ANCHOR constraint for the zero-drift schedule: the one with the SMALLEST duty
+        /// cycle (tolerance / period) - the tightest band, hardest to satisfy. Pinning the tightest
+        /// constraint EXACTLY and letting the looser ones fall within their tolerance MAXIMIZES the
+        /// faithful-window frequency: the window rate is roughly anchorPeriod / product(other duty
+        /// cycles), so you never want to divide the period by the smallest duty - pin it instead. For
+        /// a Mun mission this picks the launch-pad rotation (tight, a fraction of a degree), NOT the
+        /// Mun intercept (a generous SOI-width tolerance), so faithful windows recur every few days
+        /// instead of every few years - and the launch lands pixel-perfect over the pad. Ties broken
+        /// by shorter period, then index. Pure. Degenerate-period constraints are skipped.
+        /// </summary>
+        internal static int SelectAnchorConstraintIndex(
+            IReadOnlyList<PhaseConstraint> constraints, IBodyInfo bodyInfo,
+            string launchBodyName = null,
+            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
+        {
+            int best = 0;
+            double bestDuty = double.PositiveInfinity;
+            double bestPeriod = double.PositiveInfinity;
+            for (int i = 0; i < constraints.Count; i++)
+            {
+                double p = constraints[i].PeriodSeconds;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                    continue;
+                double duty = ScheduleToleranceSecondsFor(constraints[i], bodyInfo, launchBodyName, mode) / p;
+                bool better = duty < bestDuty - 1e-12
+                    || (duty <= bestDuty + 1e-12 && p < bestPeriod);
+                if (better)
+                {
+                    best = i;
+                    bestDuty = duty;
+                    bestPeriod = p;
+                }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// The tolerance (seconds) the SCHEDULE uses for a constraint, applying the
+        /// <see cref="TransitedBodyRotationMode"/>: a TRANSITED (non-launch) body's Rotation constraint
+        /// (e.g. a Mun landing) gets the LOOSE tolerance (<see cref="TransitedBodyLooseRotationDegrees"/>)
+        /// under <see cref="TransitedBodyRotationMode.Loose"/>; everything else (the launch-body
+        /// rotation = the pad, all Orbital constraints, and every constraint under
+        /// <see cref="TransitedBodyRotationMode.Tight"/>) uses the normal physics tolerance
+        /// <see cref="ToleranceSecondsFor"/>. <see cref="TransitedBodyRotationMode.Drop"/> is handled by
+        /// the caller pre-filtering the transited-body rotation out, so it never reaches here. A
+        /// null/empty <paramref name="launchBodyName"/> treats nothing as transited (everything tight),
+        /// matching the unwired / fixed-cadence path. Pure.
+        /// </summary>
+        internal static double ScheduleToleranceSecondsFor(
+            PhaseConstraint c, IBodyInfo bodyInfo, string launchBodyName, TransitedBodyRotationMode mode)
+        {
+            if (mode == TransitedBodyRotationMode.Loose
+                && c.Kind == ConstraintKind.Rotation
+                && !string.IsNullOrEmpty(launchBodyName)
+                && c.BodyName != launchBodyName)
+            {
+                double p = c.PeriodSeconds;
+                if (!double.IsNaN(p) && !double.IsInfinity(p) && p > 0.0)
+                    return p * (TransitedBodyLooseRotationDegrees / 360.0);
+            }
+            return ToleranceSecondsFor(c, bodyInfo);
+        }
+
+        /// <summary>
+        /// True when <paramref name="c"/> is a TRANSITED-body surface rotation constraint (a Rotation
+        /// constraint on a body that is NOT the launch body, e.g. a Mun landing). Such constraints are
+        /// what <see cref="TransitedBodyRotationMode"/> governs (dropped under Drop, loosened under
+        /// Loose). A null/empty launch body treats nothing as transited.
+        /// </summary>
+        internal static bool IsTransitedBodyRotation(PhaseConstraint c, string launchBodyName)
+        {
+            return c.Kind == ConstraintKind.Rotation
+                && !string.IsNullOrEmpty(launchBodyName)
+                && c.BodyName != launchBodyName;
+        }
+
+        /// <summary>
+        /// Builds the zero-drift relaunch schedule for a phase-locked, drifting (multi-constraint
+        /// incommensurate) config, or returns false (no schedule -&gt; the caller keeps the existing
+        /// fixed cadence) for unsupported / single-constraint / tidal-collapse / unconstrained
+        /// configs. The ANCHOR constraint (the tightest-tolerance one, via
+        /// <see cref="SelectAnchorConstraintIndex"/> - the launch pad for a Mun mission) is locked
+        /// EXACTLY; the remaining (other) constraints with a DISTINCT period must fall within their
+        /// own physics tolerance at each launch. Anchoring on the tightest constraint MAXIMIZES the
+        /// faithful-window frequency (the densest attainable cadence); <paramref name="minSpacingSeconds"/>
+        /// then THROTTLES the schedule DOWN to the player's chosen relaunch period (0 = every faithful
+        /// window = the maximum cadence). Degenerate other-periods (NaN / non-positive) are FILTERED
+        /// (with a Warn) rather than read as spuriously satisfied. <paramref name="floorUT"/> = the
+        /// first-play floor (max of the loop reference and spanEndUT); the first scheduled launch is at
+        /// or after it. Pure apart from the degenerate-period Warn. See
+        /// docs/dev/plans/zero-drift-reschedule.md sections 2/4.
+        /// </summary>
+        internal static bool TryBuildRelaunchSchedule(
+            IReadOnlyList<PhaseConstraint> constraints,
+            Support support,
+            double ut0,
+            double floorUT,
+            IBodyInfo bodyInfo,
+            out MissionRelaunchSchedule schedule,
+            double minSpacingSeconds = 0.0,
+            string launchBodyName = null,
+            TransitedBodyRotationMode mode = TransitedBodyRotationMode.Tight)
+        {
+            schedule = null;
+            if (support != Support.Supported)
+                return false;
+            if (double.IsNaN(ut0) || double.IsNaN(floorUT))
+                return false;
+            int rawCount = constraints?.Count ?? 0;
+            if (rawCount < 2)
+                return false; // need at least two constraints to drift
+
+            // TransitedBodyRotationMode.Drop: exclude a TRANSITED (non-launch) body's rotation
+            // constraint (e.g. a Mun landing). That body's phase is already pinned within its SOI by
+            // its Orbital constraint, and the body-fixed landing self-anchors to the live surface, so
+            // the tight 0.25 deg rotation lock only over-constrains the cadence. Loose/Tight keep it
+            // (its tolerance comes from ScheduleToleranceSecondsFor below: loosened under Loose, the
+            // normal tight 0.25 deg under Tight). The launch-body rotation (the pad) is never dropped.
+            int droppedTransited = 0;
+            var effective = new List<PhaseConstraint>(rawCount);
+            for (int i = 0; i < rawCount; i++)
+            {
+                if (mode == TransitedBodyRotationMode.Drop
+                    && IsTransitedBodyRotation(constraints[i], launchBodyName))
+                {
+                    droppedTransited++;
+                    continue;
+                }
+                effective.Add(constraints[i]);
+            }
+            if (effective.Count < 2)
+                return false; // dropping left too few constraints to drift
+
+            // Anchor on the TIGHTEST-tolerance constraint (the pad), not the longest period (the Mun):
+            // pinning the tightest exactly and letting the looser ones float within tolerance is what
+            // maximizes the faithful-window frequency (plan section 2.2). The duty cycle (hence the
+            // anchor choice) respects the mode (a Loose transited-body rotation is wider-band).
+            int anchorIdx = SelectAnchorConstraintIndex(effective, bodyInfo, launchBodyName, mode);
+            double anchorPeriod = effective[anchorIdx].PeriodSeconds;
+            if (double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
+                return false;
+
+            var periods = new List<double>(effective.Count - 1);
+            var tolerances = new List<double>(effective.Count - 1);
+            int filtered = 0;
+            bool anyDistinct = false;
+            for (int i = 0; i < effective.Count; i++)
+            {
+                if (i == anchorIdx)
+                    continue;
+                double p = effective[i].PeriodSeconds;
+                if (double.IsNaN(p) || double.IsInfinity(p) || p <= 0.0)
+                {
+                    filtered++;
+                    continue;
+                }
+                periods.Add(p);
+                tolerances.Add(ScheduleToleranceSecondsFor(effective[i], bodyInfo, launchBodyName, mode));
+                if (Math.Abs(p - anchorPeriod) > PeriodEqualityRelTolerance * Math.Max(1.0, anchorPeriod))
+                    anyDistinct = true;
+            }
+
+            if (filtered > 0 && !SuppressLogging)
+                ParsekLog.Warn("MissionPeriodicity",
+                    $"TryBuildRelaunchSchedule: filtered {filtered.ToString(CultureInfo.InvariantCulture)} " +
+                    "non-anchor constraint(s) with a degenerate (NaN/non-positive) period; they are not " +
+                    "scheduled (bad body data?)");
+
+            // No valid distinct-period other constraint -> single-constraint / tidal-collapse:
+            // a uniform schedule == today's fixed cadence, so no schedule (keep fixed cadence).
+            if (periods.Count == 0 || !anyDistinct)
+                return false;
+
+            var candidate = new MissionRelaunchSchedule(
+                ut0, anchorPeriod, periods.ToArray(), tolerances.ToArray(), floorUT,
+                ScheduleLookaheadMultiples, minSpacingSeconds);
+            if (double.IsNaN(candidate.FirstLaunchUT))
+                return false; // could not resolve a first launch (degenerate)
+
+            schedule = candidate;
+            return true;
         }
 
         // True iff EVERY dropped constraint (all except dominantIdx) is within ITS OWN physics-derived
@@ -1099,6 +1460,215 @@ namespace Parsek
             if (!string.IsNullOrEmpty(emptyReason))
                 sb.Append(" note=").Append(emptyReason);
             ParsekLog.Verbose("MissionPeriodicity", sb.ToString());
+        }
+    }
+
+    /// <summary>
+    /// A zero-drift relaunch schedule for one phase-locked, drifting (multi-constraint
+    /// incommensurate) looping Mission. Immutable inputs + a lazily-extended cache of the
+    /// non-uniform relaunch UTs; pure over the snapshotted inputs (reads no live state), so the
+    /// engine's and the UI's separately-built copies produce identical schedules. Main-thread only
+    /// (KSP/Unity is single-threaded), so the mutable cache needs no locking; this object is held
+    /// as a nullable field on the immutable <see cref="GhostPlaybackLogic.LoopUnit"/> struct - struct
+    /// copies share the one cache object, which is the intended aliasing. The launches are
+    /// <c>UT0 + k*anchorPeriod</c> for an increasing, non-uniform sequence of anchor-multiples k
+    /// (each with every OTHER constraint within tolerance when reachable, else bounded-best),
+    /// generated by <see cref="MissionPeriodicity.TryFindNextScheduleK"/>. The anchor is the
+    /// tightest-tolerance constraint (the pad), so this is the DENSEST attainable cadence;
+    /// <see cref="MinSpacingSeconds"/> throttles it down to the player's chosen relaunch period
+    /// (0 = every faithful window = the maximum cadence). See
+    /// docs/dev/plans/zero-drift-reschedule.md section 3.
+    /// </summary>
+    internal sealed class MissionRelaunchSchedule
+    {
+        // Eagerly probe this many launches at construction to determine MinIntervalSeconds (the
+        // builder's overlap-REJECT estimate). A bounded prefix; the rest is generated lazily. This
+        // only feeds the builder's decision whether to ATTACH the schedule (reject if MinInterval <
+        // span); the non-overlap INVARIANT itself does not depend on it, because the builder sets
+        // OverlapCadenceSeconds = max(span, MinInterval) >= span UNCONDITIONALLY, so a scheduled
+        // unit's UnitMemberOverlaps is false regardless of any later interval. A larger prefix just
+        // makes the reject estimate tighter.
+        private const int MinIntervalProbeLaunches = 8;
+
+        private readonly double ut0;
+        private readonly double anchorPeriod;
+        private readonly double[] otherPeriods;
+        private readonly double[] otherTolerances;
+        private readonly double floorUT;
+        private readonly int lookaheadMultiples;
+        private readonly double minSpacing;   // player throttle: relaunches are >= this far apart
+
+        // Cached relaunch UTs in increasing order (launches[0] == FirstLaunchUT). Grown on demand.
+        private readonly List<double> launches = new List<double>();
+        private long lastK;        // anchor-multiple index of the last cached launch
+        private bool capWarned;     // rate-limit the safety-cap Warn
+
+        /// <summary>The first scheduled relaunch UT (= the unit's phase anchor). NaN if none could
+        /// be resolved (degenerate inputs).</summary>
+        internal double FirstLaunchUT { get; }
+
+        /// <summary>The minimum relaunch interval over the eager prefix. Defensive: the span-floored
+        /// throttle guarantees every interval is &gt;= span, so this is &gt;= span by construction (the
+        /// overlap-reject gate, kept as a belt-and-suspenders check, always passes for a built
+        /// schedule). NOT a good user-facing display value because consecutive faithful k's often hit
+        /// the SAME small gap (~13 anchor periods) across very different cadence regimes - use
+        /// <see cref="AverageIntervalSeconds"/> for the period cell instead.</summary>
+        internal double MinIntervalSeconds { get; }
+
+        /// <summary>The MEAN relaunch interval over the eager prefix - the representative cadence the
+        /// UI shows in the period cell. Unlike <see cref="MinIntervalSeconds"/> this reflects the
+        /// TYPICAL gap (the schedule's actual pace), so the cell visibly differs between modes (e.g.
+        /// the transited-body rotation A/B): Drop reads as days, Loose as weeks/months, Tight as
+        /// years.</summary>
+        internal double AverageIntervalSeconds { get; }
+
+        /// <summary>The player throttle (the requested relaunch period). 0 = every faithful window
+        /// (the maximum attainable cadence).</summary>
+        internal double MinSpacingSeconds => minSpacing;
+
+        internal MissionRelaunchSchedule(
+            double ut0, double anchorPeriod,
+            double[] otherPeriods, double[] otherTolerances,
+            double floorUT, int lookaheadMultiples, double minSpacingSeconds = 0.0)
+        {
+            this.ut0 = ut0;
+            this.anchorPeriod = anchorPeriod;
+            this.otherPeriods = otherPeriods ?? System.Array.Empty<double>();
+            this.otherTolerances = otherTolerances ?? System.Array.Empty<double>();
+            this.floorUT = floorUT;
+            this.lookaheadMultiples = lookaheadMultiples;
+            this.minSpacing = (double.IsNaN(minSpacingSeconds) || minSpacingSeconds < 0.0) ? 0.0 : minSpacingSeconds;
+            FirstLaunchUT = double.NaN;
+            MinIntervalSeconds = double.NaN;
+
+            if (double.IsNaN(ut0) || double.IsNaN(floorUT)
+                || double.IsNaN(anchorPeriod) || double.IsInfinity(anchorPeriod) || anchorPeriod <= 0.0)
+                return;
+
+            // L_0: first qualifying k with UT0 + k*anchorPeriod at or after the first-play floor
+            // (ceil-based kStart so a launch exactly at the floor is included), k >= 1. The throttle
+            // does NOT apply to L_0 (there is no previous relaunch); it spaces SUBSEQUENT launches.
+            long kFloor = (long)Math.Ceiling((floorUT - ut0) / anchorPeriod - 1e-6);
+            if (kFloor < 1)
+                kFloor = 1;
+            if (!MissionPeriodicity.TryFindNextScheduleK(
+                    anchorPeriod, this.otherPeriods, this.otherTolerances,
+                    kFloor, lookaheadMultiples, out long k0, out _, out _))
+                return;
+            launches.Add(ut0 + k0 * anchorPeriod);
+            lastK = k0;
+            FirstLaunchUT = launches[0];
+
+            // Eager prefix to determine BOTH the min interval (defensive gate, see MinIntervalSeconds)
+            // and the MEAN interval (the user-facing display cadence). Min often coincides across
+            // modes when consecutive faithful k's hit the same small gap, so it is NOT representative;
+            // mean over the prefix is.
+            double minInterval = double.PositiveInfinity;
+            for (int i = 0; i < MinIntervalProbeLaunches; i++)
+            {
+                if (!ExtendOnce())
+                    break;
+                double interval = launches[launches.Count - 1] - launches[launches.Count - 2];
+                if (interval < minInterval)
+                    minInterval = interval;
+            }
+            MinIntervalSeconds = double.IsPositiveInfinity(minInterval) ? anchorPeriod : minInterval;
+            // Mean = (L_last - L_0) / (N - 1) over the cached prefix. Falls back to the anchor period
+            // when only one launch (no gap to average).
+            AverageIntervalSeconds = launches.Count >= 2
+                ? (launches[launches.Count - 1] - launches[0]) / (launches.Count - 1)
+                : anchorPeriod;
+        }
+
+        // Appends one more launch after the cached tail, honoring the player throttle: the next
+        // launch is the first faithful window whose anchor-multiple is at least the throttle skip
+        // (minSpacing) past the last launch. False on the safety cap or a degenerate generation
+        // (which cannot happen post-construction for a valid anchor period).
+        private bool ExtendOnce()
+        {
+            if (double.IsNaN(FirstLaunchUT))
+                return false;
+            if (launches.Count >= MissionPeriodicity.MaxScheduleSteps)
+            {
+                if (!capWarned)
+                {
+                    capWarned = true;
+                    ParsekLog.Warn("MissionPeriodicity",
+                        $"MissionRelaunchSchedule: reached MaxScheduleSteps " +
+                        $"({MissionPeriodicity.MaxScheduleSteps.ToString(CultureInfo.InvariantCulture)}); " +
+                        "parking at the last cached launch (pathological short anchor period?)");
+                }
+                return false;
+            }
+            // Throttle: skip ahead so the next launch is >= lastLaunch + minSpacing, snapped to the
+            // anchor grid; then search forward for the next faithful window from there.
+            long throttleK = (long)Math.Ceiling(
+                (launches[launches.Count - 1] + minSpacing - ut0) / anchorPeriod - 1e-9);
+            long kStart = Math.Max(lastK + 1, throttleK);
+            if (!MissionPeriodicity.TryFindNextScheduleK(
+                    anchorPeriod, otherPeriods, otherTolerances,
+                    kStart, lookaheadMultiples, out long k, out _, out _))
+                return false;
+            launches.Add(ut0 + k * anchorPeriod);
+            lastK = k;
+            return true;
+        }
+
+        /// <summary>
+        /// The active (most recent) scheduled launch at or before <paramref name="currentUT"/>, and
+        /// its 0-based schedule index. False (parked) when <paramref name="currentUT"/> is before
+        /// the first launch. Lazily extends the cache to cover <paramref name="currentUT"/>.
+        /// </summary>
+        internal bool TryResolveActiveLaunch(double currentUT, out double launchUT, out long cycleIndex)
+        {
+            launchUT = double.NaN;
+            cycleIndex = 0;
+            if (double.IsNaN(FirstLaunchUT) || double.IsNaN(currentUT) || currentUT < FirstLaunchUT)
+                return false;
+            while (launches[launches.Count - 1] <= currentUT)
+                if (!ExtendOnce())
+                    break;
+            // Largest launch <= currentUT (binary search; the list is increasing).
+            int lo = 0, hi = launches.Count - 1, idx = 0;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (launches[mid] <= currentUT) { idx = mid; lo = mid + 1; }
+                else hi = mid - 1;
+            }
+            launchUT = launches[idx];
+            cycleIndex = idx;
+            return true;
+        }
+
+        /// <summary>
+        /// The next scheduled relaunch strictly after <paramref name="currentUT"/> (the first launch
+        /// when parked before it). Returns NaN if no future launch can be resolved because the
+        /// safety cap was reached (so the UI shows "not aligned" rather than a past target / a
+        /// negative countdown) - this only happens for a pathological short anchor period that the
+        /// builder's overlap gate already rejects, so realistic schedules always return a future UT.
+        /// Drives the UI "Time to launch" countdown and the "Warp to..." target.
+        /// </summary>
+        internal double NextLaunchAfter(double currentUT)
+        {
+            if (double.IsNaN(FirstLaunchUT))
+                return double.NaN;
+            if (double.IsNaN(currentUT) || currentUT < FirstLaunchUT)
+                return FirstLaunchUT;
+            while (launches[launches.Count - 1] <= currentUT)
+                if (!ExtendOnce())
+                    break;
+            // Smallest launch strictly > currentUT (binary search; the list is increasing). The UI
+            // calls this every frame, so this must not be an O(cacheSize) scan as the cache grows
+            // (review S2). NaN when none (the safety cap was reached) -> the UI shows "not aligned".
+            int lo = 0, hi = launches.Count - 1, idx = -1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) >> 1);
+                if (launches[mid] > currentUT) { idx = mid; hi = mid - 1; }
+                else lo = mid + 1;
+            }
+            return idx >= 0 ? launches[idx] : double.NaN;
         }
     }
 

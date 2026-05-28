@@ -1024,12 +1024,14 @@ namespace Parsek
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
             // Phase-lock (mission periodicity): the same live-body seam the flight engine + TS use.
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo);
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
                 ParsekLog.Verbose("Mission",
                     $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
@@ -1117,7 +1119,7 @@ namespace Parsek
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
-                out bool isInInterCycleTail);
+                out bool isInInterCycleTail, unit.RelaunchSchedule);
 
             // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
             // the unit-wide transition and logs it once (rate-limited per unit owner).

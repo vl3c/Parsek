@@ -365,5 +365,63 @@ namespace Parsek.Tests
             Assert.False(ShouldEnableWarpToWindow(true, true, double.PositiveInfinity, 10_000.0));
         }
 
+        // ===================== Zero-drift: scheduled ComputeNextRelaunchUT + period cell =====================
+
+        [Fact]
+        public void ComputeNextRelaunchUT_ScheduledUnit_TargetsTheNextScheduledLaunch()
+        {
+            // Fails if a scheduled (zero-drift) unit's next relaunch is computed from the uniform
+            // anchor + n*cadence instead of the non-uniform schedule. Synthetic 100/31 schedule:
+            // launches at UT 900, 1300, 1800. The next relaunch strictly after now must be the next
+            // SCHEDULED launch, not phaseAnchor + n*cadence.
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+            double cad = Math.Max(50.0, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 }, spanStartUT: 0.0, spanEndUT: 50.0,
+                cadenceSeconds: cad, phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+
+            Assert.Equal(900.0, ComputeNextRelaunchUT(unit, 0.0), 6);     // parked -> first launch
+            Assert.Equal(1300.0, ComputeNextRelaunchUT(unit, 900.0), 6);  // strictly after L_0
+            Assert.Equal(1800.0, ComputeNextRelaunchUT(unit, 1500.0), 6); // next after a between-time
+        }
+
+        [Fact]
+        public void TransitedBodyRotationMode_SettingsLabelAndCycle()
+        {
+            // Guards the Settings UI A/B control: the three labels and the Drop -> Loose -> Tight -> Drop
+            // cycle order.
+            Assert.Equal("Off (frequent)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Drop));
+            Assert.Equal("Loose (~monthly)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Loose));
+            Assert.Equal("Precise (rare)",
+                SettingsWindowUI.TransitedBodyRotationModeLabel(TransitedBodyRotationMode.Tight));
+
+            Assert.Equal(TransitedBodyRotationMode.Loose,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Drop));
+            Assert.Equal(TransitedBodyRotationMode.Tight,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Loose));
+            Assert.Equal(TransitedBodyRotationMode.Drop,
+                SettingsWindowUI.CycleTransitedBodyRotationMode(TransitedBodyRotationMode.Tight));
+        }
+
+        [Fact]
+        public void BuildScheduledPeriodCellDisplay_ShowsVariesWithBasis()
+        {
+            // Fails if the scheduled (non-uniform) period cell does not mark the cadence as varying.
+            // Earth time: 86400 s/day. An orbital (Mun) basis -> "(Mun window, varies)".
+            Assert.Equal("~2d (Mun window, varies)",
+                BuildScheduledPeriodCellDisplay(2.0 * 86400.0, ConstraintKind.Orbital, "Mun"));
+            // A rotation basis.
+            Assert.Equal("~6h (Kerbin rot, varies)",
+                BuildScheduledPeriodCellDisplay(6.0 * 3600.0, ConstraintKind.Rotation, "Kerbin"));
+            // No body -> just "~P (varies)".
+            Assert.Equal("~2d (varies)",
+                BuildScheduledPeriodCellDisplay(2.0 * 86400.0, ConstraintKind.Orbital, null));
+        }
+
     }
 }

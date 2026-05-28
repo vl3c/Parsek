@@ -1083,10 +1083,16 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Build_SupportedSameParentMun_SnapsToMunWindowAndQuantizesCadence()
+        public void Build_SupportedSameParentMun_AttachesZeroDriftSchedule()
         {
-            // Guards: a supported same-parent Mun config snaps to the next Mun window (P = Mun orbit
-            // period) and quantizes the cadence to a multiple of P (above the existing floor).
+            // Guards: a supported same-parent Mun config (Rotation(Kerbin) + Orbital(Mun), two
+            // incommensurate constraints) is a DRIFTING config, so the builder attaches the zero-drift
+            // per-window schedule. The schedule anchors on the TIGHTEST constraint - the launch-pad
+            // ROTATION (a fraction of a degree), NOT the Mun (a generous SOI tolerance) - so the launch
+            // lands PIXEL-PERFECT over the pad (UT0 + k*KerbinRotation) with the Mun within its SOI
+            // tolerance, and faithful windows recur every few days instead of the ~3.5 years the
+            // wrong "lock the Mun exactly" choice produced. The unit is non-overlapping (the INVARIANT),
+            // and the log says zeroDrift=yes.
             var ascent = SurfaceLeg("s", 1000, 1100, "Kerbin");
             var transfer = OrbitLeg("o", 1100, 1600, "Kerbin");
             WithSoiEntry(transfer, 1600, 2000, "Mun");
@@ -1103,21 +1109,87 @@ namespace Parsek.Tests
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
 
             Assert.True(set.TryGetUnitForMember(0, out var unit));
-            // Phase-2 joint best-fit: P is a whole multiple of the Mun period (the joint window;
-            // m=9 ~14.5 days for these stock-like periods), so the phase anchor + both cadences are
-            // multiples of MunOrbit, and the anchor is the first such window at/after the enable UT.
-            double pJoint = 9 * MunOrbit;
-            Assert.Equal(ut0 + pJoint, unit.PhaseAnchorUT, 3); // first window >= ut0 + 1.5*MunOrbit
-            Assert.True(unit.PhaseAnchorUT >= anchorEnable);
-            double cadenceRatio = unit.CadenceSeconds / MunOrbit;
-            Assert.Equal(Math.Round(cadenceRatio), cadenceRatio, 3); // cadence is a multiple of MunOrbit
-            Assert.Equal(pJoint, unit.CadenceSeconds, 1);
-            Assert.Equal(pJoint, unit.OverlapCadenceSeconds, 1);
-            // The Mun config has TWO incommensurate constraints (Rotation(Kerbin) + Orbital(Mun)), so
-            // the solver joint-best-fits (a multiple of the Mun period that best re-aligns rotation).
+            Assert.NotNull(unit.RelaunchSchedule);                       // zero-drift schedule attached
+            // INVARIANT: a scheduled unit is non-overlapping (the overlap engine path never sees it).
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));
+            Assert.Equal(unit.RelaunchSchedule.FirstLaunchUT, unit.PhaseAnchorUT, 3);
+            Assert.True(unit.PhaseAnchorUT >= anchorEnable);             // first-play / enable floor honored
+            // The PAD (Kerbin rotation, the tightest constraint) is locked EXACTLY: the launch is
+            // UT0 + k*KerbinRotation for integer k >= 1, so the pad residual is ZERO.
+            double k = (unit.PhaseAnchorUT - ut0) / KerbinRotation;
+            Assert.Equal(Math.Round(k), k, 3);
+            Assert.True(k >= 1.0);
+            double padResidual = MissionPeriodicity.CircularPhaseError(unit.PhaseAnchorUT - ut0, KerbinRotation);
+            Assert.True(padResidual < 1e-3, $"pad residual {padResidual} should be ~0 (pad locked exactly)");
+            // The Mun is WITHIN its SOI tolerance (SoiRadius/OrbitalVelocity), so the transfer reaches it.
+            double munTol = 2429559.0 / 543.0; // StockFake Mun SoiRadius / OrbitalVelocity
+            double munResidual = MissionPeriodicity.CircularPhaseError(unit.PhaseAnchorUT - ut0, MunOrbit);
+            Assert.True(munResidual <= munTol,
+                $"Mun residual {munResidual} should be within SOI tolerance {munTol}");
+            // The window is FREQUENT (found within a few dozen pad rotations of the enable time), not
+            // the ~3.5 years the old exact-Mun lock produced.
+            Assert.True(unit.PhaseAnchorUT - anchorEnable < 100.0 * KerbinRotation,
+                "the first faithful window should be reached within ~100 pad rotations (days), not years");
             Assert.Contains(logLines, l =>
                 l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
-                l.Contains("method=joint-best-fit"));
+                l.Contains("zeroDrift=yes"));
+        }
+
+        [Fact]
+        public void Build_SingleConstraint_NoZeroDriftSchedule_KeepsFixedCadence()
+        {
+            // Guards: a single-constraint (Kerbin-rotation only) config does NOT drift, so it gets the
+            // FIXED cadence (no schedule). RelaunchSchedule is null and the log says zeroDrift=no.
+            var surface = SurfaceLeg("s", 1000, 1100, "Kerbin");
+            var orbit = OrbitLeg("o", 1100, 5000, "Kerbin");
+            surface.ChainId = "C"; surface.ChainIndex = 0;
+            orbit.ChainId = "C"; orbit.ChainIndex = 1;
+            var tree = TreeOf("t", surface, orbit);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", 1000.0 + 2.5 * KerbinRotation);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.Null(unit.RelaunchSchedule);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
+                l.Contains("zeroDrift=no"));
+        }
+
+        [Fact]
+        public void Build_DriftingLongSpan_ThrottleFlooredAtSpan_NonOverlappingByConstruction()
+        {
+            // Guards the non-overlap INVARIANT under the span-floored throttle (review S1): a drifting
+            // Mun config whose mission SPAN is very long would, without the floor, produce faithful
+            // windows closer together than the span (overlap). The builder floors the throttle
+            // (minSpacing) at the span, so consecutive launches are >= span apart and the unit is
+            // non-overlapping BY CONSTRUCTION (not by an after-the-fact min-interval probe). Here the
+            // transfer member spans 2000 Mun periods; the schedule is still ATTACHED (not rejected),
+            // throttled to >= span, and UnitMemberOverlaps is false.
+            double ut0 = 1000.0;
+            double hugeEnd = 1100.0 + 2000.0 * MunOrbit;
+            double span = hugeEnd - ut0;
+            var ascent = SurfaceLeg("s", ut0, 1100, "Kerbin");
+            var transfer = OrbitLeg("o", 1100, hugeEnd, "Kerbin");
+            WithSoiEntry(transfer, 1600, 2000, "Mun");
+            ascent.ChainId = "C"; ascent.ChainIndex = 0;
+            transfer.ChainId = "C"; transfer.ChainIndex = 1;
+            var tree = TreeOf("t", ascent, transfer);
+            var committed = new List<Recording>(tree.Recordings.Values);
+            var mission = LoopMissionFor("t", hugeEnd + MunOrbit);
+
+            var set = MissionLoopUnitBuilder.Build(
+                new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
+
+            Assert.True(set.TryGetUnitForMember(0, out var unit));
+            Assert.NotNull(unit.RelaunchSchedule);                       // attached, throttled to >= span
+            Assert.False(GhostPlaybackLogic.UnitMemberOverlaps(unit));   // non-overlapping by construction
+            Assert.True(unit.RelaunchSchedule.MinIntervalSeconds >= span);
+            Assert.Contains(logLines, l =>
+                l.Contains("[MissionPeriodicity]") && l.Contains("PhaseLock APPLIED") &&
+                l.Contains("zeroDrift=yes"));
         }
 
         [Fact]
@@ -1145,15 +1217,18 @@ namespace Parsek.Tests
             // anchor); the floor must push both to >= spanEnd.
             var mission = LoopMissionFor("t", anchorUT: 500.0);
 
-            // Phase-locked (Mun) path: the anchor stays a faithful window AND is clamped >= spanEnd.
-            // Without the floor this would be UT0 (1000) < spanEnd; the clamp makes it UT0 + P.
+            // Phase-locked path: the zero-drift schedule's first launch stays a faithful window
+            // (UT0 + k*KerbinRotation, the pad locked exactly) AND is clamped >= spanEnd. Without the
+            // floor the first window could fall at/before spanEnd (a relaunch during the first play);
+            // the floor pushes the schedule's first launch past it.
             var locked = MissionLoopUnitBuilder.Build(
                 new[] { mission }, new[] { tree }, committed, 30.0, StockFake());
             Assert.True(locked.TryGetUnitForMember(0, out var lockedUnit));
+            Assert.NotNull(lockedUnit.RelaunchSchedule);
             Assert.True(lockedUnit.PhaseAnchorUT >= spanEnd,
                 $"locked anchor {lockedUnit.PhaseAnchorUT} must be >= first-play end {spanEnd}");
-            double k = (lockedUnit.PhaseAnchorUT - ut0) / (9 * MunOrbit);
-            Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*P window
+            double k = (lockedUnit.PhaseAnchorUT - ut0) / KerbinRotation; // pad (Kerbin rot) locked exactly
+            Assert.Equal(Math.Round(k), k, 3); // still a faithful UT0 + k*KerbinRotation window
             Assert.True(k >= 1.0, "the clamp pushed past the k=0 (UT0) window that precedes spanEnd");
 
             // No-body-info (no phase-lock) path: clamps the raw anchor straight to spanEnd.

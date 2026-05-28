@@ -364,7 +364,8 @@ namespace Parsek
                     unit.CadenceSeconds,
                     out double spanLoopUT,
                     out _,
-                    out _))
+                    out _,
+                    unit.RelaunchSchedule))
             {
                 return false;
             }
@@ -1810,13 +1811,19 @@ namespace Parsek
                             return true;
                         }
 
-                        // Discard isInInterCycleTail: a unit member uses cadence == span, so the
-                        // parked tail never engages (always false). Future cadence > span producers
-                        // consume the tail directly.
+                        // Pass parentUnit.RelaunchSchedule so ride-along debris rides its scheduled
+                        // parent's non-uniform launches (NOT the debris's own); null for a non-scheduled
+                        // parent keeps the uniform path. With a scheduled parent (or any unit whose
+                        // CadenceSeconds > span) the parked inter-cycle tail DOES engage between
+                        // launches, so we MUST consume isInInterCycleTail and hide the debris during the
+                        // gap (otherwise debris whose own end is at/after the parent's spanEnd would
+                        // stay "in range" at the clamped spanEnd frame and render a frozen stale ghost
+                        // between launches). Route it through parentPaused so it reuses the existing
+                        // hide-and-skip path, exactly as the parent member is hidden by HiddenInterCycleTail.
                         if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                                 ctx.currentUT, parentUnit.PhaseAnchorUT, parentUnit.SpanStartUT,
                                 parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
-                                out parentCycle, out _))
+                                out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -1825,7 +1832,7 @@ namespace Parsek
                             CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
                             return true;
                         }
-                        parentPaused = false; // span clock has no pause window (cadence == span)
+                        parentPaused = parentInInterCycleTail; // parked between launches -> hide debris
                         ParsekLog.VerboseOnChange(
                             "Engine",
                             "loop-sync-debris-unit-" + i.ToString(CultureInfo.InvariantCulture),
@@ -2216,7 +2223,7 @@ namespace Parsek
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
-                out bool isInInterCycleTail);
+                out bool isInInterCycleTail, unit.RelaunchSchedule);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per

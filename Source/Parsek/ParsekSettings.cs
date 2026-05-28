@@ -274,6 +274,32 @@ namespace Parsek
         public float autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
 
+        // Zero-drift A/B flag: how a looped mission that LANDS on a TRANSITED body (e.g. the Mun)
+        // treats that body's landing rotation when scheduling faithful relaunch windows. The launch
+        // pad always stays tight; this only governs the landed-on body. Stored as an int index for
+        // persistence (the TransitedBodyRotationMode enum is internal):
+        //   0=Drop  (shortest cadence ~15 Kerbin days for the stock Mun; handoff seam up to the SOI),
+        //   1=Loose (~1-2 Kerbin months; small handoff seam, a few km),
+        //   2=Tight (~1.65 Kerbin years; pixel-perfect handoff = the original behavior).
+        // Default Loose. See docs/dev/plans/zero-drift-reschedule.md.
+        public int transitedBodyRotationModeIndex = (int)TransitedBodyRotationMode.Loose;
+
+        /// <summary>Typed accessor for <see cref="transitedBodyRotationModeIndex"/>, clamped to a
+        /// valid mode (defaults to Loose on an out-of-range index).</summary>
+        internal TransitedBodyRotationMode TransitedBodyRotationMode
+        {
+            get
+            {
+                int i = transitedBodyRotationModeIndex;
+                if (i == (int)Parsek.TransitedBodyRotationMode.Drop
+                    || i == (int)Parsek.TransitedBodyRotationMode.Loose
+                    || i == (int)Parsek.TransitedBodyRotationMode.Tight)
+                    return (TransitedBodyRotationMode)i;
+                return Parsek.TransitedBodyRotationMode.Loose;
+            }
+            set => transitedBodyRotationModeIndex = (int)value;
+        }
+
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,
             stepCount = 20, displayFormat = "P0",
             toolTip = "Volume multiplier for ghost vessel audio (engines, decouplers, explosions). 0 = muted.")]

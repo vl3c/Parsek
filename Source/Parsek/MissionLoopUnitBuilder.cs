@@ -39,7 +39,8 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
-            IBodyInfo bodyInfo = null)
+            IBodyInfo bodyInfo = null,
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
         {
             if (missions == null)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
@@ -58,6 +59,7 @@ namespace Parsek
 
                 if (!TryBuildMissionUnit(
                         mission, trees, committed, indexById, autoLoopIntervalSeconds, bodyInfo,
+                        transitedBodyRotationMode,
                         out GhostPlaybackLogic.LoopUnit unit, out int[] memberArray))
                     continue;
 
@@ -112,6 +114,7 @@ namespace Parsek
             Dictionary<string, int> indexById,
             double autoLoopIntervalSeconds,
             IBodyInfo bodyInfo,
+            TransitedBodyRotationMode transitedBodyRotationMode,
             out GhostPlaybackLogic.LoopUnit unit,
             out int[] memberArray)
         {
@@ -236,6 +239,8 @@ namespace Parsek
             double effectiveCadence = cadence;
             double effectiveOverlapCadence = overlapCadence;
             bool phaseLocked = false;
+            MissionRelaunchSchedule relaunchSchedule = null;
+            bool scheduleRejectedForOverlap = false;
             PeriodicitySolution solution = default;
             if (bodyInfo != null)
             {
@@ -262,14 +267,56 @@ namespace Parsek
                     effectiveCadence = QuantizeCadenceToMultipleOfP(cadence, solution.P);
                     effectiveOverlapCadence = QuantizeCadenceToMultipleOfP(overlapCadence, solution.P);
                     phaseLocked = true;
+
+                    // 7d. Zero-drift per-window reschedule (docs/dev/plans/zero-drift-reschedule.md):
+                    //     for a DRIFTING multi-constraint incommensurate config, replace the fixed
+                    //     cadence with a NON-UNIFORM schedule so each relaunch is independently within
+                    //     tolerance instead of accumulating drift. The schedule anchors on the TIGHTEST
+                    //     constraint (the pad) for the densest attainable cadence, then THROTTLES down to
+                    //     the player's requested relaunch period (minSpacing) - the player picks how
+                    //     often to launch, never faster than physics allows. TryBuildRelaunchSchedule
+                    //     returns no schedule for single-constraint / tidal-collapse / unsupported
+                    //     configs (they keep the fixed cadence above, byte-identical).
+                    // minSpacing = the throttle = `cadence` (the player's requested relaunch period,
+                    // already raised to at least the span and floored at MinCycleDuration). FLOORING AT
+                    // THE SPAN is the non-overlap guarantee: the schedule places consecutive launches
+                    // >= minSpacing apart, and minSpacing >= span, so EVERY interval is >= span. That
+                    // makes a scheduled unit non-overlapping BY CONSTRUCTION (UnitMemberOverlaps false),
+                    // independent of the MinIntervalSeconds probe - which only sampled the first few
+                    // launches and could otherwise miss a later short gap (review S1). Auto throttles to
+                    // one mission instance per span (faithful windows >= span apart); an explicit period
+                    // launches no more often than that. The realistic faithful gap (days for an
+                    // inter-body mission) is >> span, so this floor only bites a pathological short-gap
+                    // config (where it correctly merges to one-at-a-time single-instance playback).
+                    double minSpacing = cadence;
+                    if (MissionPeriodicity.TryBuildRelaunchSchedule(
+                            extraction.Constraints, extraction.Support, extraction.UT0, referenceUT,
+                            bodyInfo, out MissionRelaunchSchedule sched, minSpacing,
+                            extraction.LaunchBodyName, transitedBodyRotationMode))
+                    {
+                        // minSpacing >= span guarantees sched.MinIntervalSeconds >= span; this gate is a
+                        // defensive belt-and-suspenders that always passes for a built schedule.
+                        if (sched.MinIntervalSeconds >= span)
+                        {
+                            relaunchSchedule = sched;
+                            phaseAnchorUT = sched.FirstLaunchUT;             // L_0 (>= the first-play floor)
+                            effectiveCadence = Math.Max(span, sched.MinIntervalSeconds);
+                            effectiveOverlapCadence = effectiveCadence;       // >= span -> never overlaps
+                        }
+                        else
+                        {
+                            scheduleRejectedForOverlap = true;                // (unreachable with the span floor)
+                        }
+                    }
                 }
             }
 
-            // 8. Build the unit (carrying the per-member trimmed render windows).
+            // 8. Build the unit (carrying the per-member trimmed render windows + the optional
+            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
-                effectiveOverlapCadence, memberWindowByIndex);
+                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule);
 
             if (!SuppressLogging)
             {
@@ -282,19 +329,26 @@ namespace Parsek
                     $"cadence={effectiveCadence.ToString("R", ic)} " +
                     $"overlapCadence={effectiveOverlapCadence.ToString("R", ic)} " +
                     $"overlaps={(effectiveOverlapCadence < span ? "yes" : "no")} owner={ownerIndex} " +
+                    $"scheduled={(relaunchSchedule != null ? "yes" : "no")} " +
                     $"phaseAnchor={phaseAnchorUT.ToString("R", ic)}");
 
                 // Phase-lock applied vs skipped (design Diagnostic Logging): Info so a misbehaving
                 // config is never a silent branch.
                 if (phaseLocked)
                 {
+                    string scheduleNote = relaunchSchedule != null
+                        ? $" zeroDrift=yes firstLaunch={relaunchSchedule.FirstLaunchUT.ToString("R", ic)} " +
+                          $"minInterval={relaunchSchedule.MinIntervalSeconds.ToString("R", ic)}"
+                        : (scheduleRejectedForOverlap
+                            ? " zeroDrift=rejected-would-overlap-keeping-fixed-cadence"
+                            : " zeroDrift=no");
                     ParsekLog.Info("MissionPeriodicity",
                         $"PhaseLock APPLIED: mission='{mission.Name}' tree={tree.Id} " +
                         $"anchor {baseAnchorUT.ToString("R", ic)}->{phaseAnchorUT.ToString("R", ic)} " +
                         $"P={solution.P.ToString("R", ic)} method={solution.Method} " +
                         $"cadence {cadence.ToString("R", ic)}->{effectiveCadence.ToString("R", ic)} " +
                         $"residual={solution.ResidualSeconds.ToString("R", ic)} " +
-                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}");
+                        $"withinTol={(solution.WithinTolerance ? "yes" : "no")}" + scheduleNote);
                 }
                 else if (bodyInfo != null)
                 {
@@ -415,10 +469,17 @@ namespace Parsek
             IReadOnlyList<RecordingTree> trees,
             IReadOnlyList<Recording> committed,
             double autoLoopIntervalSeconds,
-            IBodyInfo bodyInfo = null)
+            IBodyInfo bodyInfo = null,
+            TransitedBodyRotationMode transitedBodyRotationMode = TransitedBodyRotationMode.Tight)
         {
             var ic = CultureInfo.InvariantCulture;
             var sb = new System.Text.StringBuilder(128);
+            // The transited-body rotation mode (player A/B setting) changes the zero-drift schedule
+            // (drops / loosens a transited-body landing constraint), so flipping it must rebuild the
+            // cached LoopUnitSet. Fold it in once (only matters when bodyInfo is supplied / phase-lock
+            // wiring active; without it the schedule path is inert and the mode is irrelevant).
+            if (bodyInfo != null)
+                sb.Append("TBR:").Append(transitedBodyRotationMode.ToString()).Append('|');
 
             int loopingCount = 0;
             if (missions != null)
@@ -536,7 +597,13 @@ namespace Parsek
                 sb.Append(b).Append('=')
                   .Append(bodyInfo.RotationPeriod(b).ToString("R", ic)).Append(',')
                   .Append(bodyInfo.OrbitPeriod(b).ToString("R", ic)).Append(',')
-                  .Append(bodyInfo.ReferenceBodyName(b) ?? "-").Append(';');
+                  .Append(bodyInfo.ReferenceBodyName(b) ?? "-").Append(',')
+                  // SoiRadius + OrbitalVelocity feed the orbital tolerance (SoiRadius/OrbitalVelocity),
+                  // which determines the zero-drift schedule's within-tolerance windows. Fold them in
+                  // so a planet pack that changes a body's SOI (without changing its orbit period)
+                  // still re-derives the schedule.
+                  .Append(bodyInfo.SoiRadius(b).ToString("R", ic)).Append(',')
+                  .Append(bodyInfo.OrbitalVelocity(b).ToString("R", ic)).Append(';');
             }
             sb.Append('@');
         }

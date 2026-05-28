@@ -465,6 +465,10 @@ namespace Parsek
                 double autoLoopIntervalSeconds = settings != null
                     ? settings.autoLoopIntervalSeconds
                     : LoopTiming.DefaultLoopIntervalSeconds;
+                // Same transited-body rotation A/B mode the scene drivers use, so the display mirror
+                // matches the engine's schedule (a flipped flag rebuilds via the signature).
+                TransitedBodyRotationMode tbrMode = settings?.TransitedBodyRotationMode
+                                                    ?? TransitedBodyRotationMode.Loose;
                 bool prevSuppress = MissionLoopUnitBuilder.SuppressLogging;
                 MissionLoopUnitBuilder.SuppressLogging = true;
                 try
@@ -472,7 +476,7 @@ namespace Parsek
                     loopUnitSetCache = MissionLoopUnitBuilder.Build(
                         MissionStore.Missions, RecordingStore.CommittedTrees,
                         RecordingStore.CommittedRecordings, autoLoopIntervalSeconds,
-                        FlightGlobalsBodyInfo.Instance);
+                        FlightGlobalsBodyInfo.Instance, tbrMode);
                 }
                 finally
                 {
@@ -1075,6 +1079,17 @@ namespace Parsek
             // mean "this mission is not on a faithful launch schedule".
             public bool UnitBuilt;
 
+            // True when the resolved unit carries a zero-drift relaunch schedule (a drifting
+            // multi-constraint config). The cadence is then NON-UNIFORM, so the period cell shows a
+            // "varies" label off ScheduledTypicalIntervalSeconds instead of the fixed Solution.P.
+            public bool IsScheduled;
+
+            // The scheduled unit's TYPICAL (mean) relaunch interval - the representative cadence for
+            // the "varies" period-cell label. Read off the schedule's AverageIntervalSeconds (NOT its
+            // MinIntervalSeconds, which often coincides across modes because consecutive faithful k's
+            // hit the same short anchor-step gap). NaN when not scheduled.
+            public double ScheduledTypicalIntervalSeconds;
+
             // Supported + constrained: the loop is phase-locked to a real period P (not the free
             // MinCycleDuration). This is the state where the period cell shows P + basis label and
             // the T- cell shows a live countdown.
@@ -1149,6 +1164,15 @@ namespace Parsek
                 tree, committed, mission.ExcludedIntervalKeys, out GhostPlaybackLogic.LoopUnit unit);
             result.NextRelaunchUT = result.UnitBuilt
                 ? ComputeNextRelaunchUT(unit, nowUT)
+                : double.NaN;
+            // Zero-drift: a scheduled (drifting) unit's cadence is non-uniform -> the period cell
+            // shows a "varies" label off the schedule's AVERAGE (typical) interval, not the fixed
+            // Solution.P. We do NOT use MinIntervalSeconds here: it often coincides across modes
+            // (consecutive faithful k's hit the same short anchor-step gap), so the cell would not
+            // visibly differ when the user flips the A/B mode even when the actual cadence does.
+            result.IsScheduled = result.UnitBuilt && unit.RelaunchSchedule != null;
+            result.ScheduledTypicalIntervalSeconds = result.IsScheduled
+                ? unit.RelaunchSchedule.AverageIntervalSeconds
                 : double.NaN;
 
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
@@ -1238,6 +1262,13 @@ namespace Parsek
         /// </summary>
         internal static double ComputeNextRelaunchUT(GhostPlaybackLogic.LoopUnit unit, double nowUT)
         {
+            // Zero-drift: a scheduled unit relaunches at NON-UNIFORM UTs, so the next relaunch is the
+            // schedule's next launch strictly after now (NaN if the safety cap was reached - the cell
+            // then reads "not aligned"). The uniform phaseAnchor + n*cadence below would be wrong for a
+            // non-uniform schedule.
+            if (unit.RelaunchSchedule != null)
+                return unit.RelaunchSchedule.NextLaunchAfter(nowUT);
+
             double anchor = unit.PhaseAnchorUT;
             if (double.IsNaN(anchor) || double.IsInfinity(anchor))
                 return double.NaN;
@@ -1382,6 +1413,29 @@ namespace Parsek
             string period = FormatPeriodCompact(p);
             string basis = BuildPeriodBasisLabel(kind, bodyName);
             return string.IsNullOrEmpty(basis) ? period : period + " " + basis;
+        }
+
+        /// <summary>
+        /// The period-cell display for a ZERO-DRIFT scheduled unit: the cadence is non-uniform, so we
+        /// show the representative (minimum) interval plus a "varies" marker, e.g.
+        /// "~4d (Mun window, varies)". Pure. A null/empty body shows "~P (varies)".
+        ///
+        /// Note the two parts describe DIFFERENT things, intentionally (review N2): the interval is the
+        /// actual relaunch cadence (which is anchored on the tightest constraint - the launch pad - and
+        /// throttled by the player), while the basis label (<paramref name="kind"/>/<paramref name="bodyName"/>)
+        /// names the DOMINANT celestial event each window targets (the Mun intercept). So
+        /// "~4d (Mun window, varies)" reads as "a varying ~4-day cadence, each launch hitting a Mun
+        /// window" - the cadence is set by the pad alignment, the label tells the player what the
+        /// window is FOR.
+        /// </summary>
+        internal static string BuildScheduledPeriodCellDisplay(
+            double minIntervalSeconds, ConstraintKind kind, string bodyName)
+        {
+            string period = FormatPeriodCompact(minIntervalSeconds);
+            string basis = BuildPeriodBasisLabel(kind, bodyName);
+            return string.IsNullOrEmpty(basis)
+                ? period + " (varies)"
+                : period + " " + basis.Substring(0, basis.Length - 1) + ", varies)";
         }
 
         // The mission span in seconds = (max trimmed end - min trimmed start) over the COMMITTED
@@ -1620,8 +1674,15 @@ namespace Parsek
             {
                 if (loopPeriodFocusedMissionId == mission.Id)
                     loopPeriodFocusedMissionId = null;
-                string locked = BuildPeriodCellDisplay(
-                    periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
+                // Zero-drift scheduled unit: the cadence is non-uniform, so show the representative
+                // interval + "varies" rather than the fixed Solution.P (which is the old fixed-cadence
+                // value, not what the schedule actually runs).
+                string locked = periodicity.IsScheduled
+                    ? BuildScheduledPeriodCellDisplay(
+                        periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
+                        periodicity.DominantBodyName)
+                    : BuildPeriodCellDisplay(
+                        periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
                 GUI.enabled = false;
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
