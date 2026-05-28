@@ -67,6 +67,8 @@ All notable changes to Parsek are documented here.
 - Switching to a vessel still sitting on the launch pad (Tracking Station Fly, KSC marker Fly, or map Switch To) no longer starts a recording immediately. It now follows the normal launch rules and begins recording when you launch or stage, like any other vehicle on the pad.
 - Leaving the flight scene with such an idle on-pad recording no longer leaves a stray Merge/Discard dialog that popped up on your next game load instead of on exit.
 - The ghost marker menu in the Tracking Station no longer vanishes the instant you click it. It used to stay open only while you held the mouse button down, because releasing the click that opened it was treated as a click somewhere else; it now stays open until you click away or pick an action.
+- A recording whose saved trajectory had a small backwards time step (a glitch at a relative-to-absolute tracking handoff) now loads and replays cleanly. The recorder no longer writes such a point, and any recording already saved with one drops it on load.
+- The post-flight Merge/Discard dialog could be silently suppressed after you returned to flight from another scene while a recording restore was in progress. The restore guard that caused this is now cleared on the scene change, so the dialog appears as expected.
 
 ### Known limitations
 

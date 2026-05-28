@@ -8813,9 +8813,20 @@ namespace Parsek
             // Callers (this method + SamplePosition) reset lastRecordedUT to point.ut
             // immediately after the trim returns, so the stale value inside
             // TrimRecordingToUT's log line is fine — it reflects the pre-trim state.
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            // A sub-threshold backwards step is a #419-class stale-UT seam artifact:
+            // reject it so the flat Points list and dual-written TrackSection frames
+            // stay monotonic (the BG path rejects the same shape).
+            var timeOrder = ClassifyForegroundCommitTimeOrder(Recording.Count, point.ut, lastRecordedUT);
+            if (timeOrder == ForegroundCommitTimeOrder.TrimThenAppend)
             {
                 TrimRecordingToUT(point.ut);
+            }
+            else if (timeOrder == ForegroundCommitTimeOrder.RejectNonMonotonic)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "foreground-nonmonotonic-reject",
+                    $"rejected non-monotonic foreground point: ut={point.ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"lastRecordedUT={lastRecordedUT.ToString("R", CultureInfo.InvariantCulture)} (#419-class)");
+                return;
             }
 
             // Phase 7 (design doc §13, §18 Phase 7): for surface sections,
@@ -8911,9 +8922,18 @@ namespace Parsek
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
                 return;
 
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            // Same #419-class foreground monotonicity guard as CommitRecordedPointWithVessel.
+            var timeOrder = ClassifyForegroundCommitTimeOrder(Recording.Count, point.ut, lastRecordedUT);
+            if (timeOrder == ForegroundCommitTimeOrder.TrimThenAppend)
             {
                 TrimRecordingToUT(point.ut);
+            }
+            else if (timeOrder == ForegroundCommitTimeOrder.RejectNonMonotonic)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "foreground-nonmonotonic-reject",
+                    $"rejected non-monotonic foreground point: ut={point.ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"lastRecordedUT={lastRecordedUT.ToString("R", CultureInfo.InvariantCulture)} (#419-class, no-vessel)");
+                return;
             }
 
             Recording.Add(point);
@@ -8972,6 +8992,43 @@ namespace Parsek
         /// seconds or more).
         /// </summary>
         internal const double TimeRegressionThresholdSeconds = 1.0;
+
+        /// <summary>
+        /// How a foreground <c>CommitRecordedPoint*</c> append should be handled
+        /// relative to the last recorded UT.
+        /// </summary>
+        internal enum ForegroundCommitTimeOrder
+        {
+            /// <summary>UT is monotonic (>= last) or the buffer is empty — append normally.</summary>
+            Append,
+            /// <summary>Large backwards jump (>= <see cref="TimeRegressionThresholdSeconds"/>) — quickload/revert; trim the invalid future tail, then append.</summary>
+            TrimThenAppend,
+            /// <summary>Sub-threshold backwards step — a stale-UT seam/boundary artifact; reject the append to preserve monotonicity.</summary>
+            RejectNonMonotonic,
+        }
+
+        /// <summary>
+        /// Bug #419 foreground analog of the background-recorder
+        /// <c>ApplyTrajectoryPointToRecording</c> guard. The background path rejects
+        /// any non-monotonic append outright; the foreground commit path historically
+        /// only trimmed on a *large* (&gt;= <see cref="TimeRegressionThresholdSeconds"/>)
+        /// regression (quickload/revert), so a small backwards step — a seam / boundary
+        /// point built with a stale UT, or a duplicate boundary sample — slipped through
+        /// and corrupted both the flat <c>Recording.Points</c> list and the dual-written
+        /// <c>TrackSection.frames</c>. This classifier restores the invariant that
+        /// <c>CommittedRecordingsHaveValidData</c> checks (points[i].ut &gt;= points[i-1].ut):
+        /// equal UTs are accepted (boundary seeds), a large regression trims, and a
+        /// sub-threshold regression is rejected.
+        /// </summary>
+        internal static ForegroundCommitTimeOrder ClassifyForegroundCommitTimeOrder(
+            int recordedCount, double pointUT, double lastRecordedUT)
+        {
+            if (recordedCount <= 0 || pointUT >= lastRecordedUT)
+                return ForegroundCommitTimeOrder.Append;
+            if (pointUT < lastRecordedUT - TimeRegressionThresholdSeconds)
+                return ForegroundCommitTimeOrder.TrimThenAppend;
+            return ForegroundCommitTimeOrder.RejectNonMonotonic;
+        }
 
         /// <summary>
         /// Trims the recording buffer back to before the given UT.
