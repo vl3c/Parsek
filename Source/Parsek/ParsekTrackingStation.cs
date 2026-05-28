@@ -70,6 +70,16 @@ namespace Parsek
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private string lastLoopUnitSignature;
 
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver: it has no direct handle to the per-scene controller's
+        /// private <c>cachedLoopUnits</c>, so it looks the controller up
+        /// via FindObjectOfType and reads through this accessor. The field
+        /// itself stays private.
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
+
         internal enum AtmosphericMarkerSkipReason
         {
             None,

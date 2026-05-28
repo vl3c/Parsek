@@ -1,12 +1,13 @@
-// Non-orbital map polyline renderer (design plan
-// docs/dev/plans/map-trajectory-polyline.md v6).
-// Commit 1 contains pure data + builder + cache helpers only; the Driver
-// MonoBehaviour (which performs the raw RecordingStore walk and earns the
-// [ERS-exempt] file marker + scripts/ers-els-audit-allowlist.txt entry)
-// lands in commit 2.
+// [ERS-exempt] Non-orbital map polyline renderer reads
+// RecordingStore.CommittedRecordings raw to draw physical-visibility map
+// geometry for atmospheric-only recordings (no ledger / ERS routing
+// applies; same physical-visibility scope as DrawAtmosphericMarkers).
+// See scripts/ers-els-audit-allowlist.txt for the matching allowlist
+// entry. Design plan: docs/dev/plans/map-trajectory-polyline.md v6.
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using Vectrosity;
 
 namespace Parsek.Display
 {
@@ -97,7 +98,7 @@ namespace Parsek.Display
 
         /// <summary>
         /// One recording's complete polyline data: an array of body-coherent
-        /// legs plus the cache invariant hash and (commit 2) the shared
+        /// legs, the cache invariant hash, and the shared Vectrosity
         /// VectorLine. Stored by RecordingId in <see cref="polylineCache"/>.
         /// </summary>
         internal struct LegPolylineSet
@@ -115,17 +116,35 @@ namespace Parsek.Display
 
             /// <summary>
             /// Total points packed across all legs into the shared
-            /// VectorLine's points3 array. Pre-computed at cache-build time
-            /// so commit 2 can allocate points3 once.
+            /// VectorLine's points3 array.
             /// </summary>
             public int totalPointCount;
+
+            /// <summary>
+            /// Shared <c>LineType.Continuous</c> Vectrosity VectorLine
+            /// holding every leg's points packed at stable per-leg
+            /// offsets. Each leg is drawn as a ranged slice via
+            /// <c>drawStart</c> / <c>drawEnd</c> per frame, matching the
+            /// pattern <c>GhostOrbitArcPatch.UpdateSpline</c> uses at
+            /// <c>GhostOrbitLinePatch.cs:427</c>. Null until the first
+            /// Driver tick builds it.
+            /// </summary>
+            public VectorLine vectorLine;
         }
 
         /// <summary>
         /// Refreshes the cache for one recording. Recomputes the cheap
         /// content hash; rebuilds the legs and resets the leg offsets only
-        /// when the hash changed. Pure with respect to Vectrosity (commit 2
-        /// extends this to also rebuild the shared VectorLine).
+        /// when the hash changed. When the hash flips, the previous shared
+        /// VectorLine (if any) is destroyed via <see cref="VectorLine.Destroy(ref VectorLine)"/>
+        /// before the rebuild so no Vectrosity GameObjects leak.
+        ///
+        /// The fresh VectorLine itself is constructed lazily on the next
+        /// Driver LateUpdate: building it here would create a Vectrosity
+        /// GameObject from xUnit (no Unity GameObject backing), which the
+        /// unit-test surface forbids. The cache entry's <c>vectorLine</c>
+        /// field is null after a refresh; the Driver inflates it on first
+        /// use.
         /// </summary>
         internal static void RefreshForRecording(Recording rec)
         {
@@ -138,6 +157,14 @@ namespace Parsek.Display
                 && existing.contentHash == hash)
             {
                 return; // cache hit
+            }
+
+            // Stale Vectrosity object on a rebuild: destroy before
+            // overwriting so the GameObject does not leak.
+            if (polylineCache.TryGetValue(id, out var stale) && stale.vectorLine != null)
+            {
+                var staleLine = stale.vectorLine;
+                VectorLine.Destroy(ref staleLine);
             }
 
             var legs = BuildLegsForRecording(rec);
@@ -155,7 +182,8 @@ namespace Parsek.Display
             {
                 legs = legArray,
                 contentHash = hash,
-                totalPointCount = totalPoints
+                totalPointCount = totalPoints,
+                vectorLine = null
             };
 
             ParsekLog.Verbose(Tag,
@@ -166,13 +194,19 @@ namespace Parsek.Display
 
         /// <summary>
         /// Releases the cache entry for a single recording (chain handoff,
-        /// supersede, delete). Commit 2 also calls VectorLine.Destroy here
-        /// before dropping the entry; commit 1 is a plain dictionary remove
-        /// because no Vectrosity object exists yet.
+        /// supersede, delete). Destroys the entry's shared Vectrosity
+        /// VectorLine via <see cref="VectorLine.Destroy(ref VectorLine)"/>
+        /// before dropping the dict entry so the Vectrosity GameObject
+        /// does not leak.
         /// </summary>
         internal static void ReleaseForRecording(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId)) return;
+            if (polylineCache.TryGetValue(recordingId, out var set) && set.vectorLine != null)
+            {
+                var line = set.vectorLine;
+                VectorLine.Destroy(ref line);
+            }
             if (polylineCache.Remove(recordingId))
             {
                 ParsekLog.Verbose(Tag,
@@ -181,14 +215,27 @@ namespace Parsek.Display
         }
 
         /// <summary>
-        /// Drops the entire cache. Called from RemoveAllGhostVessels and
-        /// the useGhostTrajectoryPolyline setting OFF path. Commit 2 also
-        /// calls VectorLine.Destroy per entry before clearing.
+        /// Drops the entire cache. Iterates the cached entries to call
+        /// <see cref="VectorLine.Destroy(ref VectorLine)"/> on each shared
+        /// VectorLine BEFORE dropping the dict, otherwise the Vectrosity
+        /// GameObjects leak. Called from
+        /// <c>GhostMapPresence.RemoveAllGhostVessels</c>, the
+        /// <c>useGhostTrajectoryPolyline</c> setting OFF path, and the
+        /// Driver's <c>onGameStateLoad</c> handler (cross-save invariant
+        /// flush per §1.4 / §6).
         /// </summary>
         internal static void Clear()
         {
             if (polylineCache.Count == 0) return;
             int dropped = polylineCache.Count;
+            foreach (var kvp in polylineCache)
+            {
+                if (kvp.Value.vectorLine != null)
+                {
+                    var line = kvp.Value.vectorLine;
+                    VectorLine.Destroy(ref line);
+                }
+            }
             polylineCache.Clear();
             ParsekLog.Verbose(Tag,
                 "Polyline cache clear: dropped=" + dropped);
@@ -531,6 +578,301 @@ namespace Parsek.Display
                     return points[i].bodyName;
             }
             return null;
+        }
+
+        /// <summary>
+        /// Scene-wide MonoBehaviour that performs the per-frame walk over
+        /// <c>RecordingStore.CommittedRecordings</c>, refreshes the cache
+        /// (hash-gated), and submits each recording's shared VectorLine
+        /// once per leg (range-sliced via <c>drawStart</c>/<c>drawEnd</c>).
+        ///
+        /// Single instance for the AppDomain lifetime; lives across scene
+        /// transitions via <see cref="MonoBehaviour"/>+
+        /// <c>DontDestroyOnLoad</c>, matching the
+        /// <c>TestRunnerShortcut.cs:51-59</c> repo precedent. KSC scene is
+        /// out of scope for v1 (§1.1); the LateUpdate scene gate skips any
+        /// scene other than TRACKSTATION / FLIGHT.
+        /// </summary>
+        [KSPAddon(KSPAddon.Startup.Instantly, true /* once */)]
+        internal sealed class Driver : MonoBehaviour
+        {
+            private const string DriverTag = "GhostMap";
+            private static Driver instance;
+
+            internal static Driver Instance => instance;
+
+            void Awake()
+            {
+                if (instance != null)
+                {
+                    Destroy(gameObject);
+                    return;
+                }
+                instance = this;
+                DontDestroyOnLoad(gameObject);
+                GameEvents.onGameStateLoad.Add(OnGameStateLoad);
+                ParsekLog.Verbose(DriverTag,
+                    "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
+            }
+
+            void OnDestroy()
+            {
+                if (instance == this)
+                {
+                    instance = null;
+                    GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
+                    ParsekLog.Verbose(DriverTag,
+                        "GhostTrajectoryPolylineRenderer.Driver destroyed");
+                }
+            }
+
+            /// <summary>
+            /// Cross-save guard (§1.4 / §6 MAJOR-3). <c>ParsekScenario.OnLoad</c>
+            /// calls <c>RecordingStore.ClearCommitted()</c>; a same-RecordingId
+            /// in the next-loaded save would otherwise hit the stale cache.
+            /// The XOR-of-UTs content hash is byte-stable across a load
+            /// round-trip, so a content-hash gate alone cannot flush. Drop
+            /// every cached entry + destroy the underlying Vectrosity
+            /// GameObjects here so the next per-frame walk rebuilds from
+            /// scratch.
+            /// </summary>
+            private void OnGameStateLoad(ConfigNode node)
+            {
+                ParsekLog.Verbose(DriverTag,
+                    "Polyline driver: onGameStateLoad -> Clear() (cross-save flush)");
+                Clear();
+            }
+
+            void LateUpdate()
+            {
+                // Scene gate: v1 ships TRACKSTATION + FLIGHT only (§1.1).
+                var scene = HighLogic.LoadedScene;
+                if (scene != GameScenes.TRACKSTATION && scene != GameScenes.FLIGHT)
+                    return;
+
+                if (!MapView.MapIsEnabled) return;
+                var settings = ParsekSettings.Current;
+                if (settings == null) return;
+                if (!settings.useGhostTrajectoryPolyline) return;
+
+                // Pull the per-frame filter inputs ONCE, outside the loop.
+                var suppressed = GhostMapPresence.CachedTrackingStationSuppressedIds;
+                int targetLayer = MapView.Draw3DLines ? 24 : 31;
+                double currentUT = Planetarium.GetUniversalTime();
+
+                // Resolve cachedLoopUnits per-scene. The underlying field
+                // is a private per-scene instance member on three
+                // different MonoBehaviours; the DDOL singleton Driver has
+                // no direct handle, so it looks up the matching scene
+                // controller and reads through the internal
+                // CurrentCachedLoopUnits accessor. Transitional frames
+                // before the controller's Awake DEFER the draw rather
+                // than substituting LoopUnitSet.Empty (Empty would defeat
+                // the renderHidden filter).
+                GhostPlaybackLogic.LoopUnitSet loopUnits;
+                if (scene == GameScenes.TRACKSTATION)
+                {
+                    var tsCtl = FindObjectOfType<ParsekTrackingStation>();
+                    if (tsCtl == null)
+                    {
+                        ParsekLog.VerboseRateLimited(DriverTag,
+                            "polyline-defer-ts-controller",
+                            "Deferring polyline draw: ParsekTrackingStation not yet awake.",
+                            5.0);
+                        return;
+                    }
+                    loopUnits = tsCtl.CurrentCachedLoopUnits;
+                }
+                else // FLIGHT
+                {
+                    var flCtl = FindObjectOfType<ParsekFlight>();
+                    if (flCtl == null)
+                    {
+                        ParsekLog.VerboseRateLimited(DriverTag,
+                            "polyline-defer-flight-controller",
+                            "Deferring polyline draw: ParsekFlight not yet awake.",
+                            5.0);
+                        return;
+                    }
+                    loopUnits = flCtl.CurrentCachedLoopUnits;
+                }
+
+                // [ERS-exempt] Driver walks RecordingStore.CommittedRecordings
+                // directly: atmospheric-only recordings are absent from
+                // the ghost-bearing / pending-create iterators that
+                // GhostMapPresence and ParsekPlaybackPolicy use, so the
+                // polyline must reach the raw committed list.
+                var committed = RecordingStore.CommittedRecordings;
+                int frameDrawn = 0;
+                int frameSkippedSuppressed = 0;
+                int frameSkippedHidden = 0;
+                int frameSkippedClassifier = 0;
+                int frameSkippedNoLegs = 0;
+                int frameSkippedNoBody = 0;
+                for (int recordingIndex = 0; recordingIndex < committed.Count; recordingIndex++)
+                {
+                    var rec = committed[recordingIndex];
+                    if (rec == null) continue;
+                    if (suppressed != null && suppressed.Contains(rec.RecordingId))
+                    {
+                        frameSkippedSuppressed++;
+                        continue;
+                    }
+
+                    double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                        recordingIndex,
+                        rec.StartUT,
+                        rec.EndUT,
+                        currentUT,
+                        loopUnits,
+                        out bool renderHidden);
+                    if (renderHidden)
+                    {
+                        frameSkippedHidden++;
+                        continue;
+                    }
+
+                    if (ParsekTrackingStation.ClassifyAtmosphericMarkerSkip(
+                            rec, recordingIndex, effUT, suppressed)
+                        != ParsekTrackingStation.AtmosphericMarkerSkipReason.None)
+                    {
+                        frameSkippedClassifier++;
+                        continue;
+                    }
+
+                    RefreshForRecording(rec);
+                    if (!polylineCache.TryGetValue(rec.RecordingId, out var set))
+                    {
+                        frameSkippedNoLegs++;
+                        continue;
+                    }
+                    if (set.legs == null || set.legs.Length == 0)
+                    {
+                        frameSkippedNoLegs++;
+                        continue;
+                    }
+
+                    // Inflate VectorLine lazily.
+                    if (set.vectorLine == null)
+                    {
+                        set.vectorLine = BuildSharedVectorLine(rec.RecordingId, set.totalPointCount);
+                        polylineCache[rec.RecordingId] = set;
+                    }
+                    if (set.vectorLine == null) continue;
+
+                    set.vectorLine.rectTransform.gameObject.layer = targetLayer;
+
+                    bool anyDrawn = false;
+                    for (int li = 0; li < set.legs.Length; li++)
+                    {
+                        var leg = set.legs[li];
+                        CelestialBody body = ResolveBodyByName(leg.bodyName);
+                        if (body == null)
+                        {
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "polyline-body-missing-" + leg.bodyName,
+                                "Polyline body missing for leg, skipping: " + leg.bodyName,
+                                5.0);
+                            frameSkippedNoBody++;
+                            continue;
+                        }
+                        Vector3d bodyPos = body.position;
+                        int m = leg.bodyLocalPoints.Length;
+                        for (int i = 0; i < m; i++)
+                        {
+                            var world = bodyPos + leg.bodyLocalPoints[i];
+                            leg.scratchScaledSpace[i] =
+                                (Vector3)ScaledSpace.LocalToScaledSpace(world);
+                        }
+
+                        CopyLegIntoVectorLine(set.vectorLine, leg.scratchScaledSpace,
+                            leg.pointsStartIdx);
+                        set.vectorLine.drawStart = leg.pointsStartIdx;
+                        set.vectorLine.drawEnd = leg.pointsStartIdx + m - 1;
+                        set.vectorLine.Draw3D();
+                        anyDrawn = true;
+                    }
+                    if (anyDrawn) frameDrawn++;
+                }
+
+                ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} classifier={4} noLegs={5} noBody={6} cached={7}",
+                        scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
+                        frameSkippedClassifier, frameSkippedNoLegs, frameSkippedNoBody,
+                        polylineCache.Count),
+                    5.0);
+            }
+
+            /// <summary>
+            /// Constructs a fresh shared <c>LineType.Continuous</c>
+            /// VectorLine sized to hold every leg's points packed
+            /// consecutively. Default colour matches the orbit-arc style:
+            /// <c>MapView.OrbitLinesMaterial</c> + a slight alpha overlay
+            /// via <see cref="VectorLine.SetColor(Color32)"/>. Width
+            /// matches the stock orbit-arc width (5f).
+            /// </summary>
+            private static VectorLine BuildSharedVectorLine(
+                string recordingId, int totalPoints)
+            {
+                if (totalPoints <= 0) return null;
+                var points = new List<Vector3>(totalPoints);
+                for (int i = 0; i < totalPoints; i++)
+                    points.Add(Vector3.zero);
+                var line = new VectorLine(
+                    "ParsekGhostTrajectoryPolyline-" + recordingId,
+                    points,
+                    5f,
+                    LineType.Continuous);
+                Material orbitMat = MapView.OrbitLinesMaterial;
+                if (orbitMat != null)
+                {
+                    line.texture = orbitMat.mainTexture;
+                    line.material = orbitMat;
+                }
+                line.continuousTexture = true;
+                line.UpdateImmediate = true;
+                // Per-line colour overlay so the polyline reads as
+                // distinct from the Keplerian orbit arcs without
+                // mutating the shared OrbitLinesMaterial colour
+                // (which would dim every stock orbit line). Solid in
+                // commit 2; commit 3 may swap to
+                // MapView.DottedLinesMaterial for the dashed style.
+                line.SetColor(new Color32(180, 220, 255, 160));
+                return line;
+            }
+
+            /// <summary>
+            /// Copies a leg's scratch <c>Vector3[]</c> into the shared
+            /// VectorLine's <c>points3</c> list at the given stable
+            /// offset.
+            /// </summary>
+            private static void CopyLegIntoVectorLine(
+                VectorLine line, Vector3[] scratch, int startIdx)
+            {
+                if (line == null || scratch == null) return;
+                var points3 = line.points3;
+                if (points3 == null) return;
+                for (int i = 0; i < scratch.Length; i++)
+                {
+                    int dst = startIdx + i;
+                    if (dst < 0 || dst >= points3.Count) continue;
+                    points3[dst] = scratch[i];
+                }
+            }
+
+            private static CelestialBody ResolveBodyByName(string name)
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                var bodies = FlightGlobals.Bodies;
+                if (bodies == null) return null;
+                for (int i = 0; i < bodies.Count; i++)
+                {
+                    if (string.Equals(bodies[i].name, name, StringComparison.Ordinal))
+                        return bodies[i];
+                }
+                return null;
+            }
         }
     }
 }
