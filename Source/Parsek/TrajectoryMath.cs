@@ -529,6 +529,141 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Map-view body-frame helper: like <see cref="FindOrbitSegmentForMapDisplay"/> but
+        /// carries the previous segment across ANY same-body gap, not only orbit-equivalent
+        /// gaps. Used by the per-tick orbit-update path to keep a ghost ProtoVessel alive
+        /// while the playback head crosses brief inter-segment gaps inside one body frame
+        /// (e.g., capture burn between two distinct Mun orbits). The orbit shape stays on
+        /// the previous segment until UT enters the next segment; the SOI / body change is
+        /// the only event that actually drops the ghost.
+        /// </summary>
+        internal static OrbitSegment? FindOrbitSegmentOrSameBodyCarry(List<OrbitSegment> segments, double ut)
+        {
+            if (segments == null || segments.Count == 0)
+                return null;
+
+            // Active segment: same inclusive-end-on-last rule as TryGetOrbitWindowForMapDisplay.
+            for (int i = 0; i < segments.Count; i++)
+            {
+                bool inRange = (i == segments.Count - 1)
+                    ? (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                    : (ut >= segments[i].startUT && ut < segments[i].endUT);
+                if (inRange)
+                    return segments[i];
+            }
+
+            // Gap-carry: previous segment + next segment exist and share a body name.
+            // Orbit equivalence is intentionally NOT checked here — the goal is to keep
+            // the ghost alive across an intra-body-frame burn / sparse-physics region.
+            int previousIndex = -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment candidate = segments[i];
+                if (candidate.endUT <= ut)
+                {
+                    previousIndex = i;
+                    continue;
+                }
+                if (previousIndex < 0 || candidate.startUT <= ut)
+                    return null;
+                if (string.IsNullOrEmpty(segments[previousIndex].bodyName)
+                    || !string.Equals(segments[previousIndex].bodyName, candidate.bodyName, System.StringComparison.Ordinal))
+                    return null;
+                return segments[previousIndex];
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Map-view body-frame helper: return the time bounds covering the run of consecutive
+        /// same-body OrbitSegments that contains <paramref name="ut"/> (or that brackets it
+        /// across a same-body intra-block gap). Orbit equivalence is NOT required — the run
+        /// stops only at a body change or recording boundary. Used by the orbit-line patch
+        /// to decide line visibility independent of per-segment orbit-shape changes, so the
+        /// rendered orbit line stays on continuously while the ghost crosses inter-segment
+        /// gaps within one body frame and only blinks off at an SOI / body change.
+        /// </summary>
+        internal static bool TryGetBodyFrameBoundsForMapDisplay(
+            List<OrbitSegment> segments,
+            double ut,
+            out double bodyFrameStartUT,
+            out double bodyFrameEndUT,
+            out string bodyName,
+            out int firstIndex,
+            out int lastIndex)
+        {
+            bodyFrameStartUT = 0;
+            bodyFrameEndUT = 0;
+            bodyName = null;
+            firstIndex = -1;
+            lastIndex = -1;
+
+            if (segments == null || segments.Count == 0)
+                return false;
+
+            int seed = -1;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                bool inRange = (i == segments.Count - 1)
+                    ? (ut >= segments[i].startUT && ut <= segments[i].endUT)
+                    : (ut >= segments[i].startUT && ut < segments[i].endUT);
+                if (inRange)
+                {
+                    seed = i;
+                    break;
+                }
+            }
+
+            if (seed < 0)
+            {
+                // Try same-body gap-carry seed.
+                int previousIndex = -1;
+                for (int i = 0; i < segments.Count; i++)
+                {
+                    OrbitSegment candidate = segments[i];
+                    if (candidate.endUT <= ut)
+                    {
+                        previousIndex = i;
+                        continue;
+                    }
+                    if (previousIndex < 0 || candidate.startUT <= ut)
+                        return false;
+                    if (string.IsNullOrEmpty(segments[previousIndex].bodyName)
+                        || !string.Equals(segments[previousIndex].bodyName, candidate.bodyName, System.StringComparison.Ordinal))
+                        return false;
+                    seed = previousIndex;
+                    break;
+                }
+                if (seed < 0)
+                    return false;
+            }
+
+            string seedBody = segments[seed].bodyName;
+            if (string.IsNullOrEmpty(seedBody))
+                return false;
+
+            firstIndex = seed;
+            while (firstIndex > 0
+                && string.Equals(segments[firstIndex - 1].bodyName, seedBody, System.StringComparison.Ordinal))
+            {
+                firstIndex--;
+            }
+
+            lastIndex = seed;
+            while (lastIndex < segments.Count - 1
+                && string.Equals(segments[lastIndex + 1].bodyName, seedBody, System.StringComparison.Ordinal))
+            {
+                lastIndex++;
+            }
+
+            bodyFrameStartUT = segments[firstIndex].startUT;
+            bodyFrameEndUT = segments[lastIndex].endUT;
+            bodyName = seedBody;
+            return true;
+        }
+
+        /// <summary>
         /// Find the waypoint index for interpolation using cached lookup.
         /// Parameterized to work with any point list + cached index.
         /// </summary>

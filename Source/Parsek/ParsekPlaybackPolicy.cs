@@ -1377,12 +1377,15 @@ namespace Parsek
                             // Per-chain dedup before deferred creation
                             RemovePreviousChainMapVessel(idx);
                             // Create at the loop-mapped effUT so the source/segment/point match the
-                            // looped phase (effUT == currentUT off the loop path). The orbit epoch is
-                            // not yet shifted here; the rate-limited update pass below (every
-                            // MapOrbitUpdateIntervalSec ~0.5s) re-seeds it with the live-frame epoch
-                            // shift, so a freshly (re)materialized loop ghost can show the wrong
-                            // orbital phase for up to ~0.5s after each window re-entry before it
-                            // snaps to the replayed position.
+                            // looped phase (effUT == currentUT off the loop path). Pass the live-frame
+                            // epoch shift through so the orbit + body-frame cache are shifted at
+                            // create-time too. Without this the body-frame cache holds raw recorded
+                            // UTs on the first frame, and the orbit-line patch sees currentUT past
+                            // those bounds and blanks the line until the next rate-limited update
+                            // pass refreshes it (up to ~0.5s in flight, ~2s in TS) -- visible as a
+                            // brief orbit-line blackout at first appearance and at every window
+                            // re-entry.
+                            double pendingLoopEpochShift = currentUT - toCreate[i].effUT;
                             Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                                 idx,
                                 traj,
@@ -1390,7 +1393,8 @@ namespace Parsek
                                 toCreate[i].segment,
                                 toCreate[i].point,
                                 toCreate[i].effUT,
-                                out bool retryLater);
+                                out bool retryLater,
+                                loopEpochShiftSeconds: pendingLoopEpochShift);
                             // PR #574 review P2 (retry-later semantics): keep
                             // the pending entry alive when the active-Re-Fly
                             // suppression gate fires — otherwise a parent
@@ -1483,7 +1487,14 @@ namespace Parsek
                     continue;
                 }
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, effUT);
+                // Same-body carry: while the playback head is inside a body frame, briefly
+                // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
+                // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
+                // producing the visible flicker the user reported near Mun SOI. We only want
+                // to drop the ghost when the body actually changes (SOI / frame change) or
+                // when the recording is truly past its last segment. Body-frame carry keeps
+                // the previous segment's orbit active until UT enters the next segment.
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
