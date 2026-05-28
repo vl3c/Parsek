@@ -68,7 +68,8 @@ All notable changes to Parsek are documented here.
 
 ### Known limitations
 
-- Looping a mission to a body that orbits the Sun (an interplanetary target like Duna) does not yet line up the replay with the live sky, so the transfer may not reach the target; it keeps relaunching as before until a future update adds the interplanetary launch window. Single-body missions and missions to a moon of the launch body (Mun, Minmus) now do relaunch at the correct window. For a moon mission the transfer reaches the moon, though the orbit may still sit slightly off the launch site (closed in a later update).
+- A faithful interplanetary window (where both the launch body and the target are back at their recorded positions) is genuinely rare, often centuries of in-game time apart, because the replay reuses the exact recorded transfer rather than planning a fresh one. Such a mission shows its next window as an amber years-long countdown, and the "Warp to..." button jumps straight to it. A target so far out that no window is found within the search horizon (some deep multi-moon chains) keeps relaunching as before, flagged amber.
+- For a moon mission (Mun, Minmus) the transfer reaches the moon, though the orbit may still sit slightly off the launch site (closed in a later update).
 
 ---
 

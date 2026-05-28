@@ -658,6 +658,27 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Schedule_BoundedBestOnly_SkipsEagerProbe_PreservesOverlapInvariant()
+        {
+            // Guards the perf guard + overlap invariant for a config whose joint window is BEYOND the
+            // look-ahead (no within-tolerance launch in range): period 99991 with tol 1 has a duty so
+            // small no within-tol k falls inside lookahead=200, so the first launch is BOUNDED-BEST.
+            // The schedule still attaches one launch (never refused), the eager 8-probe is skipped, and
+            // MinIntervalSeconds reports the span-floored throttle max(anchorPeriod, minSpacing) so the
+            // builder's overlap gate (MinIntervalSeconds >= span) passes exactly as before the guard.
+            const double minSpacing = 5000.0;
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 99991.0 }, new double[] { 1.0 }, floorUT: 0.0,
+                lookaheadMultiples: 200, minSpacingSeconds: minSpacing);
+            Assert.False(double.IsNaN(schedule.FirstLaunchUT));         // bounded-best L_0 attached
+            Assert.Equal(Math.Max(100.0, minSpacing), schedule.MinIntervalSeconds, 6);
+            Assert.Equal(schedule.MinIntervalSeconds, schedule.AverageIntervalSeconds, 6);
+            // Lazy extension still resolves (never NaN / throws) for a bounded-best schedule.
+            double next = schedule.NextLaunchAfter(schedule.FirstLaunchUT);
+            Assert.True(next > schedule.FirstLaunchUT);
+        }
+
+        [Fact]
         public void LoopUnit_WithSchedule_IsNonOverlapping_Invariant()
         {
             // Guards the INVARIANT: a unit carrying a schedule is built non-overlapping

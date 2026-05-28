@@ -1796,14 +1796,21 @@ namespace Parsek
             // Perf guard: when the first launch is only BOUNDED-BEST (no true joint window inside the
             // look-ahead - e.g. a config whose coincidence is beyond MaxLookaheadMultiples), every
             // ExtendOnce would FULL-SCAN the horizon for another window that does not exist, 8x. Skip
-            // the eager prefix and report the anchor period as the (meaningless) interval; the schedule
-            // still attaches one bounded-best launch (amber, never refused), but we do not burn ~8 full
-            // horizon scans at construction. A within-tolerance first launch keeps the real prefix (its
-            // ExtendOnce calls return early at each next window, so the prefix is cheap).
+            // the eager prefix; the schedule still attaches one bounded-best launch (amber, never
+            // refused), but we do not burn ~8 full horizon scans at construction. A within-tolerance
+            // first launch keeps the real prefix (its ExtendOnce calls return early at each next
+            // window, so the prefix is cheap).
+            //
+            // Report MinInterval = max(anchorPeriod, throttle): the throttle (minSpacing) is the
+            // builder's span-floored relaunch period (>= span), so this preserves the overlap gate's
+            // invariant (MissionLoopUnitBuilder: MinIntervalSeconds >= span) EXACTLY as the eager probe
+            // would have - a bounded-best schedule attaches the same way it did before this perf guard,
+            // never spuriously rejected to fixed cadence. AverageInterval mirrors it (cosmetic; the
+            // period cell is amber for a bounded-best config anyway).
             if (!within0)
             {
-                MinIntervalSeconds = anchorPeriod;
-                AverageIntervalSeconds = anchorPeriod;
+                MinIntervalSeconds = Math.Max(anchorPeriod, minSpacing);
+                AverageIntervalSeconds = MinIntervalSeconds;
                 return;
             }
 

@@ -454,8 +454,10 @@ cancels it). Worked numbers (stock, anchor = pad, tol = SoiRadius/OrbitalVelocit
   first true window is at k ~= 487,737 ~= **1142 Kerbin years**. With `LookaheadCoverageFactor=3`
   -> ~1.56M, clamped to the 1.05M ceiling, which still SPANS the 487k first window -> the
   schedule FINDS a true within-tolerance launch (the transfer reaches Duna).
-- Kerbin -> Tylo: ~865k first window (~2026 Kerbin yr) -> within the 1.05M ceiling -> found.
-- Kerbin -> Moho: ~722k -> found. Kerbin -> Eeloo: ~330k -> found.
+- Kerbin -> Tylo: first window ~588k anchor steps -> within the 1.05M ceiling -> found.
+- Kerbin -> Moho: ~828k -> found. Kerbin -> Eeloo: ~330k -> found. (Actual first-window k's
+  from simulation; they differ from the bare product expectation by the usual geometric scatter,
+  but all stock 2-3 body pairs land under the ceiling.)
 - Kerbin -> Mun (same-parent): product `~= 16` -> floored to 4096 (byte-identical to today).
 
 `MaxScheduleSteps = 8192` (the launch-cache cap) is unaffected. The k-walk is a single
