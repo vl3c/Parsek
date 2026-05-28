@@ -990,7 +990,7 @@ namespace Parsek
             // loop toggle, so a header "all" toggle that included them would
             // write a flag meaningless on debris while visibly disagreeing
             // with the row's hidden control.
-            var headerLoopAgg = ComputeLoopAggregate(committed, Enumerable.Range(0, committed.Count));
+            var headerLoopAgg = ComputeLoopAggregate(committed);
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
@@ -2165,6 +2165,15 @@ namespace Parsek
             // meaningless. When every descendant is debris (the auto-generated
             // "X / Debris" subgroup, or any custom group that happens to hold
             // only debris), suppress the aggregate toggle entirely.
+            //
+            // NOTE: the bulk write only flips LoopPlayback; it does NOT call
+            // ApplyAutoLoopRange. The original (pre-refactor) group code did
+            // not call it either — touching LoopStartUT/LoopEndUT here would
+            // clobber any user-customized loop window on a member when the
+            // group's aggregate toggle is flipped off then back on. The chain
+            // /block path (DrawRecordingBlock) does call it, preserving a
+            // pre-existing asymmetry: chain/per-row writes auto-narrow the
+            // loop range; group/header writes do not.
             var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
             if (grpLoopAgg.SuppressToggle)
             {
@@ -2185,7 +2194,6 @@ namespace Parsek
                         var dr = committed[idx];
                         if (dr == null || dr.IsDebris) continue;
                         dr.LoopPlayback = newLoop;
-                        ApplyAutoLoopRange(dr, newLoop);
                         written++;
                     }
                     ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
@@ -5003,13 +5011,43 @@ namespace Parsek
         /// caller should render an empty cell instead of the toggle — there is
         /// nothing to loop at that aggregate level (e.g. the auto-generated
         /// "X / Debris" subgroup).
+        ///
+        /// Derived fields (<see cref="AllLoop"/>, <see cref="SuppressToggle"/>)
+        /// are read-only properties computed from the two count inputs to
+        /// eliminate the risk of constructor-site drift: it is impossible to
+        /// build a state whose AllLoop disagrees with the counts.
         /// </summary>
         internal struct LoopAggregateState
         {
             public int NonDebrisCount;
             public int LoopCount;
-            public bool AllLoop;
-            public bool SuppressToggle;
+            public bool AllLoop => NonDebrisCount > 0 && LoopCount == NonDebrisCount;
+            public bool SuppressToggle => NonDebrisCount == 0;
+        }
+
+        /// <summary>
+        /// Header overload: aggregate the loop state across every committed
+        /// recording without forcing the caller to materialise an index
+        /// collection (the previous form passed <c>Enumerable.Range(0, Count)</c>
+        /// which allocated an iterator object on every OnGUI repaint — Unity
+        /// IMGUI calls OnGUI several times per frame, so the cost compounded).
+        /// </summary>
+        internal static LoopAggregateState ComputeLoopAggregate(IReadOnlyList<Recording> committed)
+        {
+            int total = 0;
+            int loops = 0;
+            if (committed != null)
+            {
+                int n = committed.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null || rec.IsDebris) continue;
+                    total++;
+                    if (rec.LoopPlayback) loops++;
+                }
+            }
+            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
         }
 
         internal static LoopAggregateState ComputeLoopAggregate(
@@ -5028,13 +5066,7 @@ namespace Parsek
                     if (rec.LoopPlayback) loops++;
                 }
             }
-            return new LoopAggregateState
-            {
-                NonDebrisCount = total,
-                LoopCount = loops,
-                AllLoop = total > 0 && loops == total,
-                SuppressToggle = total == 0,
-            };
+            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
         }
 
         internal static string UnitSuffix(LoopTimeUnit unit)

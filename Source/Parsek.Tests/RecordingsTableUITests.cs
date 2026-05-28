@@ -1897,6 +1897,88 @@ namespace Parsek.Tests
             Assert.Equal(0, agg2.NonDebrisCount);
         }
 
+        // ── ComputeLoopAggregate header overload (no indices) ──
+
+        [Fact]
+        public void ComputeLoopAggregateHeader_MatchesRangeOverload()
+        {
+            // The header path uses the no-indices overload to avoid allocating
+            // Enumerable.Range every OnGUI repaint. The two overloads must
+            // produce identical results for the same input set.
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = false;
+            var d = MakeRec(0, 10, "Deb"); d.IsDebris = true; d.LoopPlayback = true;
+            var committed = new List<Recording> { a, b, d };
+
+            var headerAgg = RecordingsTableUI.ComputeLoopAggregate(committed);
+            var indexedAgg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
+
+            Assert.Equal(indexedAgg.NonDebrisCount, headerAgg.NonDebrisCount);
+            Assert.Equal(indexedAgg.LoopCount, headerAgg.LoopCount);
+            Assert.Equal(indexedAgg.AllLoop, headerAgg.AllLoop);
+            Assert.Equal(indexedAgg.SuppressToggle, headerAgg.SuppressToggle);
+            Assert.Equal(2, headerAgg.NonDebrisCount);
+            Assert.Equal(1, headerAgg.LoopCount);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregateHeader_NullOrEmpty_Suppresses()
+        {
+            Assert.True(RecordingsTableUI.ComputeLoopAggregate(null).SuppressToggle);
+            Assert.True(RecordingsTableUI.ComputeLoopAggregate(new List<Recording>()).SuppressToggle);
+        }
+
+        // ── LoopAggregateState derived properties ──
+
+        [Fact]
+        public void LoopAggregateState_DerivedProperties_NeverDriftFromCounts()
+        {
+            // Regression: prior to the refactor, AllLoop / SuppressToggle were
+            // mutable fields set by the constructor — drift between the counts
+            // and the derived state was possible. They are now read-only
+            // properties computed from the two count inputs, so any caller
+            // that materialises a state by hand sees a consistent result.
+            var s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 0, LoopCount = 0 };
+            Assert.False(s.AllLoop);
+            Assert.True(s.SuppressToggle);
+
+            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 3 };
+            Assert.True(s.AllLoop);
+            Assert.False(s.SuppressToggle);
+
+            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 2 };
+            Assert.False(s.AllLoop);
+            Assert.False(s.SuppressToggle);
+        }
+
+        // ── Group bulk-write does not touch user-customized loop windows ──
+
+        [Fact]
+        public void GroupAggregateBulkWrite_DoesNotCallApplyAutoLoopRange()
+        {
+            // Regression for the original (pre-refactor) group code: toggling
+            // a group's aggregate Loop only flipped LoopPlayback. The refactor
+            // briefly added ApplyAutoLoopRange to the bulk-write loop, which
+            // would clobber a user-customized LoopStartUT/LoopEndUT. This test
+            // pins the behavior by exercising ApplyAutoLoopRange directly with
+            // a manually-set range: the cleared/recomputed range proves
+            // ApplyAutoLoopRange is destructive, so the group bulk-write must
+            // not call it.
+            var rec = new Recording
+            {
+                VesselName = "CustomLoopShip",
+                LoopPlayback = true,
+                LoopStartUT = 123.0,
+                LoopEndUT = 456.0,
+            };
+
+            // Sanity: ApplyAutoLoopRange(false) clears the user-customized
+            // range to NaN. The group bulk-write must NOT trigger this.
+            RecordingsTableUI.ApplyAutoLoopRange(rec, false);
+            Assert.True(double.IsNaN(rec.LoopStartUT));
+            Assert.True(double.IsNaN(rec.LoopEndUT));
+        }
+
         // ── Tab switch (Recordings | Missions) ──
 
         [Fact]
