@@ -5174,7 +5174,8 @@ namespace Parsek
             TrackingStationGhostSource source,
             OrbitSegment segment,
             TrajectoryPoint stateVectorPoint,
-            double currentUT)
+            double currentUT,
+            double loopEpochShiftSeconds = 0.0)
         {
             return CreateGhostVesselFromSource(
                 recordingIndex,
@@ -5183,7 +5184,8 @@ namespace Parsek
                 segment,
                 stateVectorPoint,
                 currentUT,
-                out _);
+                out _,
+                loopEpochShiftSeconds);
         }
 
         /// <summary>
@@ -5202,7 +5204,8 @@ namespace Parsek
             OrbitSegment segment,
             TrajectoryPoint stateVectorPoint,
             double currentUT,
-            out bool retryLater)
+            out bool retryLater,
+            double loopEpochShiftSeconds = 0.0)
         {
             retryLater = false;
             // Dispatcher-line: which sub-create is about to fire? Single line
@@ -5246,7 +5249,10 @@ namespace Parsek
                 case TrackingStationGhostSource.Segment:
                     Vessel segmentGhost = CreateGhostVesselFromSegment(recordingIndex, traj, segment);
                     if (segmentGhost != null)
-                        UpdateGhostOrbitForRecording(recordingIndex, segment);
+                        UpdateGhostOrbitForRecording(
+                            recordingIndex,
+                            segment,
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
                     return segmentGhost;
 
                 case TrackingStationGhostSource.EndpointTail:
@@ -5259,7 +5265,8 @@ namespace Parsek
                         UpdateGhostOrbitForRecording(
                             recordingIndex,
                             segment,
-                            TrackingStationGhostSource.EndpointTail);
+                            TrackingStationGhostSource.EndpointTail,
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
                     return endpointTailGhost;
 
                 case TrackingStationGhostSource.StateVector:
@@ -5400,13 +5407,20 @@ namespace Parsek
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
+                // Loop-shift the orbit + body-frame cache at create-time so the orbit-line
+                // and arc-clip patches see correctly-shifted bounds on the very first frame.
+                // Without this the create writes shift=0 bounds and the next lifecycle pass
+                // (up to LifecycleCheckIntervalSec=2s later) refreshes them, producing a
+                // 2-second orbit-line blackout at TS entry for any loop-shifted member.
+                double tsLoopEpochShift = currentUT - effUT;
                 Vessel v = CreateGhostVesselFromSource(
                     i,
                     rec,
                     source,
                     segment,
                     stateVectorPoint,
-                    effUT);
+                    effUT,
+                    loopEpochShiftSeconds: tsLoopEpochShift);
 
                 if (v != null)
                 {
