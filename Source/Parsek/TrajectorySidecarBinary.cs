@@ -365,6 +365,18 @@ namespace Parsek
                         $"defaultedBody={stats.DefaultedBody} defaultedFunds={stats.DefaultedFunds} " +
                         $"defaultedScience={stats.DefaultedScience} defaultedRep={stats.DefaultedReputation}");
                 }
+
+                // #419-class load-time invariant: drop any non-monotonic flat point
+                // (e.g. a sub-1s stale-UT seam from a recording made before the
+                // foreground recorder gained its monotonicity guard) so it loads
+                // clean instead of tripping CommittedRecordingsHaveValidData.
+                int droppedNonMonotonic = RecordingStore.DropNonMonotonicTrajectoryPoints(rec.Points);
+                if (droppedNonMonotonic > 0)
+                {
+                    ParsekLog.Warn("RecordingStore",
+                        $"ReadBinaryTrajectoryFile: recording={rec.RecordingId} dropped {droppedNonMonotonic} " +
+                        "non-monotonic flat trajectory point(s) on load (#419-class)");
+                }
             }
         }
 
