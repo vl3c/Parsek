@@ -540,8 +540,13 @@ namespace Parsek
 
             if (rewritten > 0)
             {
-                ParsekLog.Info(Tag,
-                    $"ReverseMapCrewNamesInSnapshot: rewrote {rewritten} stand-in crew name(s) " +
+                // VerboseRateLimited (not Info): TryBackupSnapshot fires often (the
+                // recorder's periodic snapshot refresh drives it ~1100+ times across a
+                // long time-warped recording), and any vessel carrying a seated stand-in
+                // rewrites a crew name on every one. Routine, not a notable event, so it
+                // must not log unconditionally. The zero-rewrite case stays silent.
+                ParsekLog.VerboseRateLimited(Tag, "reverse-map-crew",
+                    () => $"ReverseMapCrewNamesInSnapshot: rewrote {rewritten} stand-in crew name(s) " +
                     $"back to originals in snapshot ({contextForLog ?? "no-context"})");
             }
 
