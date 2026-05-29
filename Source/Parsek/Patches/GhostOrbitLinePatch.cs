@@ -317,6 +317,40 @@ namespace Parsek.Patches
                     return;
                 }
 
+                // Stale-segment guard (only when the trajectory polyline feature is on):
+                // the per-frame orbit reseed lags the head by up to the refresh interval
+                // (~0.5 s), so right after a propulsive->orbital handoff the proto-vessel
+                // still carries the PREVIOUS segment's orbit elements for a moment. The
+                // body-frame bounds above span consecutive same-body segments, so the line
+                // would otherwise re-show that STALE (pre-burn) arc until the reseed catches
+                // up (the "old orbit then the correct one" handoff flicker). Keep the line
+                // hidden (the polyline / non-proto marker covers the gap) until the APPLIED
+                // SEGMENT bounds actually cover the head, so only the correct orbit is ever
+                // drawn. Gated on the feature so stock body-frame continuity is unchanged
+                // when the polyline is off.
+                var polylineSettings = ParsekSettings.Current;
+                if (polylineSettings != null && polylineSettings.useGhostTrajectoryPolyline
+                    && GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                        pid, currentUT, out double segStartUT, out double segEndUT)
+                    && (currentUT > segEndUT || currentUT < segStartUT))
+                {
+                    line.active = false;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "stale-segment-awaiting-reseed",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: true,
+                        currentUT,
+                        segStartUT,
+                        segEndUT);
+                    return;
+                }
+
                 // Inside a body frame, above atmosphere: show line + vessel icon only
                 // (no Ap/Pe/AN/DN). The arc shape itself follows the per-segment orbit
                 // via GhostOrbitArcPatch, so the visible line continuously redraws when

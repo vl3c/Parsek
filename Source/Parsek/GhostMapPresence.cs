@@ -5990,33 +5990,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Diagnostic accessor: reports the proto-vessel orbit-LINE render state for
-        /// a recording index (the live <c>OrbitLine.active</c> flag + orbit sma/body
-        /// + pid). The polyline Driver uses this to detect and log a frame in which
-        /// BOTH its non-orbital leg and the proto orbit line render at once (the
-        /// overlap reported at a propulsive -> orbital handoff). Returns false when
-        /// there is no ghost vessel / orbit renderer for the index.
-        /// </summary>
-        internal static bool TryGetGhostOrbitLineState(
-            int recordingIndex, out uint pid, out bool lineActive, out double sma, out string body)
-        {
-            pid = 0; lineActive = false; sma = double.NaN; body = null;
-            if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel v) || v == null)
-                return false;
-            pid = v.persistentId;
-            var renderer = v.orbitRenderer;
-            if (renderer == null) return false;
-            var line = renderer.OrbitLine;
-            lineActive = line != null && line.active;
-            if (v.orbit != null)
-            {
-                sma = v.orbit.semiMajorAxis;
-                body = v.orbit.referenceBody != null ? v.orbit.referenceBody.bodyName : null;
-            }
-            return true;
-        }
-
-        /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
         internal static void UpdateGhostOrbitForRecording(
