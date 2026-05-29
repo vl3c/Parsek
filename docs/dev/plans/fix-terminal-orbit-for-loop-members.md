@@ -1,23 +1,23 @@
 # Fix terminal-orbit line for loop members with no recorded OrbitSegments (v5)
 
 > **v5 changes (since v4 review):**
-> - MAJOR-1: §1.4 `ResolveMapPresenceGhostSource` signature box rewritten to match the actual 11+2 positional/defaulted signature (`isSuppressed`, `alreadyMaterialized`, `allowTerminalOrbitFallback`, `logOperationName`, `ref stateVectorCachedIndex`, `recordingIndex`, `allowSoiGapStateVectorFallback`, `expectedSoiGapBody`). New `acceptTerminalOrbitForLoopSynthesis` parameter is appended as the trailing optional. Example call-site snippet rewritten to match.
-> - MAJOR-2: 5th production call site at `GhostMapPresence.cs:7227` (inside `ResolveTrackingStationGhostSourceCore`, the TS-startup wrapper) added to §2 table. §1.4 prose updated from "4 caller updates" to "5 production caller updates plus 2 test callers".
-> - MINOR-1: §1.5 / §2 comment-refresh row updated to call out that the SECOND endpoint-tail branch (5725) is now CONDITIONALLY enabled for same-body loop members via `IsTerminalOrbitSynthesisSafeForLoopMember`, while the FIRST branch (5710) stays suppressed.
-> - MINOR-2: §6 OQ #2 (4-caller `effUT` walk) deleted -- already enumerated in §1.4.
-> - MINOR-3: §1.4 caller-4 paragraph trimmed to a one-line cross-reference to §1.6 (the helper widening); §1.6 carries the full code box.
-> - MINOR-4: §3.3 gains `TryResolveTerminalFallbackMapOrbitUpdate_NoSegmentLoopMemberAtZeroSegSplit_PassesAcceptFlagThrough` (covers the new plumbing path end-to-end).
+> - MAJOR-1: section 1.4 `ResolveMapPresenceGhostSource` signature box rewritten to match the actual 11+2 positional/defaulted signature (`isSuppressed`, `alreadyMaterialized`, `allowTerminalOrbitFallback`, `logOperationName`, `ref stateVectorCachedIndex`, `recordingIndex`, `allowSoiGapStateVectorFallback`, `expectedSoiGapBody`). New `acceptTerminalOrbitForLoopSynthesis` parameter is appended as the trailing optional. Example call-site snippet rewritten to match.
+> - MAJOR-2: 5th production call site at `GhostMapPresence.cs:7227` (inside `ResolveTrackingStationGhostSourceCore`, the TS-startup wrapper) added to section 2 table. section 1.4 prose updated from "4 caller updates" to "5 production caller updates plus 2 test callers".
+> - MINOR-1: section 1.5 / section 2 comment-refresh row updated to call out that the SECOND endpoint-tail branch (5725) is now CONDITIONALLY enabled for same-body loop members via `IsTerminalOrbitSynthesisSafeForLoopMember`, while the FIRST branch (5710) stays suppressed.
+> - MINOR-2: section 6 OQ #2 (4-caller `effUT` walk) deleted -- already enumerated in section 1.4.
+> - MINOR-3: section 1.4 caller-4 paragraph trimmed to a one-line cross-reference to section 1.6 (the helper widening); section 1.6 carries the full code box.
+> - MINOR-4: section 3.3 gains `TryResolveTerminalFallbackMapOrbitUpdate_NoSegmentLoopMemberAtZeroSegSplit_PassesAcceptFlagThrough` (covers the new plumbing path end-to-end).
 > - OQ #1 marked RESOLVED (idx 18 = `Orbiting`, persisted phase `(TrajectoryPoint, Kerbin)`).
-> - OQ #4 collapsed to a one-line note in §1.1.
+> - OQ #4 collapsed to a one-line note in section 1.1.
 > - OQ #6 marked RESOLVED (`InternalsVisibleTo` present at `Source/Parsek/Properties/AssemblyInfo.cs:5`).
-> - §0.5 CRITICAL-1 verification step closed out: idx 18 = `terminal=Orbiting`, no SubOrbital widening required.
+> - section 0.5 CRITICAL-1 verification step closed out: idx 18 = `terminal=Orbiting`, no SubOrbital widening required.
 >
 > ## v4 PENDING CHANGES (historical -- already folded; kept for diff readability)
 >
 > Source: clean-context Opus review of v3 (`tasks/ab774e1d69c2d66db.output`,
 > may be wiped on context compaction; full content captured below).
 >
-> ### CRITICAL-1 — IsTerminalMapPresenceRegion rejects SubOrbital; may apply to #18
+> ### CRITICAL-1 - IsTerminalMapPresenceRegion rejects SubOrbital; may apply to #18
 >
 > `IsTerminalStateEligibleForTerminalOrbitMapPresence`
 > (`GhostMapPresence.cs:3455-3460`) admits only `Orbiting | Docked | (null)`.
@@ -30,7 +30,7 @@
 > `SubOrbital`, either widen the eligibility check OR document the scope
 > limit.
 >
-> ### MAJOR-1 — §1.5 prose mischaracterizes when historical body rotation enters
+> ### MAJOR-1 - section 1.5 prose mischaracterizes when historical body rotation enters
 >
 > v3 says "this is the path that does NOT use historical body rotation."
 > Actually `OrbitSeedResolver.TryDeriveTailOrbitSeed`
@@ -44,24 +44,24 @@
 > independent and `SetOrbit(epoch + shift)` propagates them inertially.
 > Mean anomaly advances correctly under the shift.
 >
-> **v4 action:** rewrite §1.5 to acknowledge historical-rotation use, then
+> **v4 action:** rewrite section 1.5 to acknowledge historical-rotation use, then
 > state the actual reason it's shift-safe. Cross-reference and refresh the
 > in-code comment at `GhostMapPresence.cs:5687-5705` so future readers
 > don't conclude the relaxation contradicts the existing #571/#584
 > invariant.
 >
-> ### MAJOR-2 — Caller 1 at ParsekPlaybackPolicy.cs:1045 has no effUT in scope
+> ### MAJOR-2 - Caller 1 at ParsekPlaybackPolicy.cs:1045 has no effUT in scope
 >
-> v3 §1.4 says "all 4 callers compute effUT". Wrong. Caller 1 is the
+> v3 section 1.4 says "all 4 callers compute effUT". Wrong. Caller 1 is the
 > initial-create-on-first-loop-entry path; it passes
 > `startUT = evt.Trajectory.StartUT` as currentUT, with no `loopUnits`, no
 > `effUT`, no `loopEpochShiftSeconds`.
 >
 > **v4 action:** explicitly enumerate caller 1 as a "pass false" site in
-> §1.4 + §2 table. It is conceptually similar to the TS-startup-create
+> section 1.4 + section 2 table. It is conceptually similar to the TS-startup-create
 > path that already passes false.
 >
-> ### MAJOR-3 — TryResolveTerminalFallbackMapOrbitUpdate needs signature widening
+> ### MAJOR-3 - TryResolveTerminalFallbackMapOrbitUpdate needs signature widening
 >
 > Caller 4 (`ParsekPlaybackPolicy.cs:1867`) lives INSIDE
 > `TryResolveTerminalFallbackMapOrbitUpdate` which takes only `double
@@ -69,7 +69,7 @@
 > `loopEpochShiftSeconds`, but the helper signature doesn't carry them
 > through to the resolver call.
 >
-> **v4 action:** add to §2 table:
+> **v4 action:** add to section 2 table:
 > ```
 > ParsekPlaybackPolicy.cs:1852 TryResolveTerminalFallbackMapOrbitUpdate:
 >   add `double loopEpochShiftSeconds` parameter (or pre-compute
@@ -77,27 +77,27 @@
 >   it down)
 > ```
 >
-> ### MINOR-1 — InternalsVisibleTo verification
+> ### MINOR-1 - InternalsVisibleTo verification
 >
-> v3 §1.1 says "verify". v4 action: grep `InternalsVisibleTo` in
+> v3 section 1.1 says "verify". v4 action: grep `InternalsVisibleTo` in
 > `Source/Parsek/Properties/AssemblyInfo.cs` and confirm `Parsek.Tests` is
 > listed. Almost certainly is, given dozens of existing `internal static`
 > tested helpers.
 >
-> ### MINOR-2 — IsTrackingTerminalOrbitBody redundancy is muddy
+> ### MINOR-2 - IsTrackingTerminalOrbitBody redundancy is muddy
 >
-> v3 §1.1 introduces it inside the synthesizer; the outer `IsTerminalOrbitSynthesisSafeForLoopMember(rec)`
+> v3 section 1.1 introduces it inside the synthesizer; the outer `IsTerminalOrbitSynthesisSafeForLoopMember(rec)`
 > already covers same-body at the call site. The two DO compare different
 > things (inner: `endpointBodyName` from persisted-decision vs
 > `traj.TerminalOrbitBody`; outer: `rec.Points[last].bodyName` vs
 > `rec.TerminalOrbitBody`). For #18 both agree, but they could in theory
 > diverge across `RefreshEndpointDecision` calls.
 >
-> **v4 action:** add one sentence to §1.1 noting "the inner check guards
+> **v4 action:** add one sentence to section 1.1 noting "the inner check guards
 > against persisted body diverging from last-point body across
 > `RefreshEndpointDecision` calls."
 >
-> ### MINOR-3 — Predicate should defensively check TerminalOrbitSemiMajorAxis > 0
+> ### MINOR-3 - Predicate should defensively check TerminalOrbitSemiMajorAxis > 0
 >
 > A recording could have `TerminalOrbitBody="Kerbin"` but
 > `TerminalOrbitSemiMajorAxis=0` (uninitialized). The `endpoint-terminal-orbit`
@@ -108,18 +108,18 @@
 > **v4 action:** add `traj.TerminalOrbitSemiMajorAxis > 0` to
 > `IsTerminalOrbitSynthesisSafeForLoopMember`.
 >
-> ### Additional flag — in-game test callers of ResolveMapPresenceGhostSource
+> ### Additional flag - in-game test callers of ResolveMapPresenceGhostSource
 >
 > `RuntimeTests.cs:1203` and `:4190` also call `ResolveMapPresenceGhostSource`.
-> v3 omits these from the §2 table. Default-false parameter means they
+> v3 omits these from the section 2 table. Default-false parameter means they
 > remain byte-identical, but the call sites still need re-inspection.
 >
-> **v4 action:** note in §2 table; if either RuntimeTest constructs and
+> **v4 action:** note in section 2 table; if either RuntimeTest constructs and
 > passes a non-zero loop shift, plumb the new param accordingly.
 >
 > ### v4 additional regression test
 >
-> Add to §3.3: "non-loop caller with default false param on a no-segment
+> Add to section 3.3: "non-loop caller with default false param on a no-segment
 > Orbiting recording still returns None" -- pins that the relaxation
 > default stays safe.
 >
@@ -145,14 +145,14 @@ showed the real fix is substantially bigger:
   no-OrbitSegment recordings and would make the predicate tautological).
 
 This is no longer a small fix. The user previously chose "leave as-is" for this
-regression twice. Re-read §5 before committing to ship.
+regression twice. Re-read section 5 before committing to ship.
 
 Revision history:
 - 2026-05-28 v1 draft -- flipped outer SECOND-branch gate; was a no-op for #18.
 - 2026-05-28 v2 -- relaxed inner gate's source half; still a no-op because
   the persisted-phase half AND the create-path resolver both reject.
 - 2026-05-28 v5 (this) -- folded fourth clean-context review:
-  - MAJOR-1: §1.4 `ResolveMapPresenceGhostSource` signature corrected to the
+  - MAJOR-1: section 1.4 `ResolveMapPresenceGhostSource` signature corrected to the
     actual 11+2-param shape (`isSuppressed`, `alreadyMaterialized`,
     `allowTerminalOrbitFallback`, `logOperationName`,
     `ref stateVectorCachedIndex`, `out segment`, `out stateVectorPoint`,
@@ -161,30 +161,30 @@ Revision history:
     appended as the trailing optional. Example call-site snippet rewritten.
   - MAJOR-2: 5th production call site at `GhostMapPresence.cs:7227` (inside
     `ResolveTrackingStationGhostSourceCore`, the TS-startup wrapper) added
-    to §2 table. §1.4 prose updated from "4 caller updates" to "5 production
+    to section 2 table. section 1.4 prose updated from "4 caller updates" to "5 production
     caller updates plus 2 test callers".
-  - MINOR-1: §1.5 / §2 comment-refresh row updated to call out that the
+  - MINOR-1: section 1.5 / section 2 comment-refresh row updated to call out that the
     SECOND endpoint-tail branch (5725) is now CONDITIONALLY enabled for
     same-body loop members via `IsTerminalOrbitSynthesisSafeForLoopMember`,
     while the FIRST branch (5710) stays suppressed.
-  - MINOR-2: §6 OQ #2 deleted (already enumerated in §1.4).
-  - MINOR-3: §1.4 caller-4 paragraph trimmed to a one-line cross-reference
-    to §1.6.
-  - MINOR-4: §3.3 gains
+  - MINOR-2: section 6 OQ #2 deleted (already enumerated in section 1.4).
+  - MINOR-3: section 1.4 caller-4 paragraph trimmed to a one-line cross-reference
+    to section 1.6.
+  - MINOR-4: section 3.3 gains
     `TryResolveTerminalFallbackMapOrbitUpdate_NoSegmentLoopMemberAtZeroSegSplit_PassesAcceptFlagThrough`
     (covers the new plumbing path end-to-end).
   - OQ #1 RESOLVED (idx 18 = `Orbiting`, persisted phase
-    `(TrajectoryPoint, Kerbin)`); OQ #4 collapsed to a one-line note in §1.1;
+    `(TrajectoryPoint, Kerbin)`); OQ #4 collapsed to a one-line note in section 1.1;
     OQ #6 RESOLVED (`InternalsVisibleTo` present at
     `Source/Parsek/Properties/AssemblyInfo.cs:5`).
-  - §0.5 CRITICAL-1 closed: idx 18 = `Orbiting`, no SubOrbital widening
+  - section 0.5 CRITICAL-1 closed: idx 18 = `Orbiting`, no SubOrbital widening
     required.
 - 2026-05-28 v4 -- folded second clean-context review:
   - CRITICAL-1: pre-implementation verification step added (read playtest log
     line for idx 18 / `BackfillEndpointDecision`; widen
     `IsTerminalStateEligibleForTerminalOrbitMapPresence` defensively only
-    if `SubOrbital`). See §0.4 / §3.4.
-  - MAJOR-1: §1.5 prose rewritten -- historical body rotation DOES enter at
+    if `SubOrbital`). See section 0.4 / section 3.4.
+  - MAJOR-1: section 1.5 prose rewritten -- historical body rotation DOES enter at
     seed CONSTRUCTION time via `OrbitSeedResolver.TryDeriveTailOrbitSeed`,
     but inertial elements + Planetarium `OrbitalFrame` make propagation
     body-rotation-frame independent. `Orbit.SetOrbit` line 488 / `Orbit.Init`
@@ -195,15 +195,15 @@ Revision history:
   - MAJOR-3: `TryResolveTerminalFallbackMapOrbitUpdate` (line 1852) signature
     widened with `double loopEpochShiftSeconds`; line 1495 call site passes
     the shift in.
-  - MINOR-1: `InternalsVisibleTo("Parsek.Tests")` grep step added to §6.
-  - MINOR-2: `IsTrackingTerminalOrbitBody` rationale documented in §1.1
+  - MINOR-1: `InternalsVisibleTo("Parsek.Tests")` grep step added to section 6.
+  - MINOR-2: `IsTrackingTerminalOrbitBody` rationale documented in section 1.1
     (defense in depth across `RefreshEndpointDecision` calls).
   - MINOR-3: `traj.TerminalOrbitSemiMajorAxis > 0` guard added to
     `IsTerminalOrbitSynthesisSafeForLoopMember`.
-  - NEW: `RuntimeTests.cs:1203, 4190` resolver call sites added to §2 table.
+  - NEW: `RuntimeTests.cs:1203, 4190` resolver call sites added to section 2 table.
   - NEW: `ResolveMapPresenceGhostSource_NonLoopCallerOnNoSegmentOrbitingRecording_StillReturnsNone`
-    regression test added to §3.3.
-  - NEW: KSP disassembly verification block appended to §7.
+    regression test added to section 3.3.
+  - NEW: KSP disassembly verification block appended to section 7.
 - 2026-05-28 v3 -- folded clean-context review:
   - CRITICAL #1: Open Question #1 answer pinned. The persisted-phase gate is
     ALSO blocking. Plan now relaxes both halves behind
@@ -251,7 +251,7 @@ References:
     (`TryGetTerminalOrbitAlignedOrbitDecision` line 737,
     `ShouldUseOrbitEndpointByHeuristic` line 670) gate on `OrbitSegments.Count > 0`
   - `RefreshEndpointDecision` lines 90-141 -- overwrites persisted phase; safe
-    by inspection today, see §6 OQ #4
+    by inspection today, see section 6 OQ #4
 - `Source/Parsek/Recording.cs`:
   - line 161 `SegmentBodyName`
   - line 164 `StartBodyName`
@@ -379,7 +379,7 @@ if (!sourceAccepted || !persistedPhaseAccepted)
 The new `IsTrackingTerminalOrbitBody(traj, lastPointBody)` helper (pure)
 returns true when `lastPointBody` matches `traj.TerminalOrbitBody` (i.e., the
 recording's last sampled point is in the same body as the terminal orbit's
-reference body). This is the SAME-BODY predicate per §1.3; we apply it here
+reference body). This is the SAME-BODY predicate per section 1.3; we apply it here
 inside the synthesizer so the persisted-phase relaxation is gated by it, not
 just the outer caller's gate. Defense in depth.
 
@@ -401,7 +401,7 @@ The recording's `IsTerminalMapPresenceRegion` precondition stays (line 3804-
 `IsTerminalStateEligibleForTerminalOrbitMapPresence` eligibility check
 (`GhostMapPresence.cs:3455-3460`); the user's specific #18 should pass via
 `terminal=Orbiting` per the playtest log. Widening that eligibility to
-include `SubOrbital` is cited in §0.5 as a defensive future option only.
+include `SubOrbital` is cited in section 0.5 as a defensive future option only.
 For a loop member, `effUT` near the recording's end satisfies the region
 check as long as `ResolveGhostActivationStartUT(traj)` is `<= effUT`
 (verified in testing).
@@ -477,7 +477,7 @@ bool acceptTerminalOrbitForLoopSynthesis =
 ### 1.4 Create-path plumbing (CRITICAL #2 from earlier review; signature corrected in v5)
 
 The create path is the load-bearing site for the user's #18 case. Without
-this change, the proto-vessel is never created and §1.3 is dead code.
+this change, the proto-vessel is never created and section 1.3 is dead code.
 
 **`ResolveMapPresenceGhostSource` signature change:** append a new trailing
 optional parameter `bool acceptTerminalOrbitForLoopSynthesis = false` AFTER
@@ -563,7 +563,7 @@ TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
 
 Caller 4 (`ParsekPlaybackPolicy.cs:1867`) lives INSIDE
 `TryResolveTerminalFallbackMapOrbitUpdate`; its signature is widened to
-carry the loop shift through (see §1.6).
+carry the loop shift through (see section 1.6).
 
 Caller 5 -- TS-startup wrapper at `GhostMapPresence.cs:7227`
 (`ResolveTrackingStationGhostSourceCore`, invoked by
@@ -658,7 +658,7 @@ The existing in-code comment at `GhostMapPresence.cs:5687-5705` currently
 asserts forcefully that "both endpoint-tail branches are suppressed for
 loop members". v5 partially contradicts that for the same-body subset.
 
-The §2 comment-refresh task MUST explicitly call out that:
+The section 2 comment-refresh task MUST explicitly call out that:
 - The FIRST endpoint-tail branch (`GhostMapPresence.cs:5710` -- covering-
   segment OVERRIDE) stays unconditionally suppressed for loop members.
   This is the 181 Mm bug class and the suppression remains the protective
@@ -667,7 +667,7 @@ The §2 comment-refresh task MUST explicitly call out that:
   segment FALLBACK) is now CONDITIONALLY enabled for loop members when
   `IsTerminalOrbitSynthesisSafeForLoopMember(rec)` returns true (same-body
   terminal-orbit elements), and stays suppressed for cross-body loop
-  terminals. Refresh the comment to state this and cross-link to §1.5 of
+  terminals. Refresh the comment to state this and cross-link to section 1.5 of
   this plan for the inertial-frame propagation rationale.
 
 ---
@@ -678,14 +678,14 @@ The §2 comment-refresh task MUST explicitly call out that:
 |---|---|---|
 | `GhostMapPresence.cs` | 108 | `EndpointTailAllowedInTrackingStationUpdate` unchanged. |
 | `GhostMapPresence.cs` | 3808 | `TryResolveEndpointTailForMapPresence`: promote to `internal static`, add `acceptTerminalOrbitSource = false` param. |
-| `GhostMapPresence.cs` | 3868-3891 | Relax both halves of the inner gate per §1.1. |
-| `GhostMapPresence.cs` | new helper | `IsTerminalOrbitSynthesisSafeForLoopMember(Recording)` per §1.2. |
-| `GhostMapPresence.cs` | new helper | `IsTrackingTerminalOrbitBody(traj, body)` per §1.1. |
+| `GhostMapPresence.cs` | 3868-3891 | Relax both halves of the inner gate per section 1.1. |
+| `GhostMapPresence.cs` | new helper | `IsTerminalOrbitSynthesisSafeForLoopMember(Recording)` per section 1.2. |
+| `GhostMapPresence.cs` | new helper | `IsTrackingTerminalOrbitBody(traj, body)` per section 1.1. |
 | `GhostMapPresence.cs` | 4028 | Diagnostic-only; no change. |
 | `GhostMapPresence.cs` | 4215, 4435 | Pass new `acceptTerminalOrbitForLoopSynthesis` through. |
 | `GhostMapPresence.cs` | `ResolveMapPresenceGhostSource` | Add `acceptTerminalOrbitForLoopSynthesis = false` param. |
-| `GhostMapPresence.cs` | 5596 (rescue), 5710 (FIRST), 5725 (SECOND) | Apply split gates per §1.3. |
-| `GhostMapPresence.cs` | 5687-5705 | Comment refresh: state explicitly that the SECOND endpoint-tail branch (5725) is now CONDITIONALLY enabled for same-body loop members via `IsTerminalOrbitSynthesisSafeForLoopMember`, while the FIRST branch (5710) stays unconditionally suppressed (181 Mm bug class). Cross-link to §1.5 for the inertial-frame propagation rationale. |
+| `GhostMapPresence.cs` | 5596 (rescue), 5710 (FIRST), 5725 (SECOND) | Apply split gates per section 1.3. |
+| `GhostMapPresence.cs` | 5687-5705 | Comment refresh: state explicitly that the SECOND endpoint-tail branch (5725) is now CONDITIONALLY enabled for same-body loop members via `IsTerminalOrbitSynthesisSafeForLoopMember`, while the FIRST branch (5710) stays unconditionally suppressed (181 Mm bug class). Cross-link to section 1.5 for the inertial-frame propagation rationale. |
 | `GhostMapPresence.cs:7227` | `ResolveTrackingStationGhostSourceCore` (TS-startup wrapper used by `CreateGhostVesselsFromCommittedRecordings`) | Pass `acceptTerminalOrbitForLoopSynthesis: false` -- TS-startup wrapper is not loop-aware. Recording #18's orbit line comes up on the first loop-aware refresh tick within `LifecycleCheckIntervalSec = 2.0s`. |
 | `ParsekPlaybackPolicy.cs:1045` | Caller 1 | Initial spawn (no `effUT`). Pass `acceptTerminalOrbitForLoopSynthesis: false`. Same treatment as TS-startup. |
 | `ParsekPlaybackPolicy.cs:1343` | Caller 2 | Loop-aware (`effUT` in scope). Pass `(shift != 0) && IsTerminalOrbitSynthesisSafeForLoopMember(rec)`. |
@@ -753,7 +753,7 @@ relevant trajectories during loop tracking (verified by grep).
 - `ResolveMapPresenceGhostSource_NonLoopCallerOnNoSegmentOrbitingRecording_StillReturnsNone`
   (regression: relaxation default false stays safe for non-loop callers).
 - `TryResolveTerminalFallbackMapOrbitUpdate_NoSegmentLoopMemberAtZeroSegSplit_PassesAcceptFlagThrough`
-  (covers the §1.6 helper plumbing path end-to-end: the new
+  (covers the section 1.6 helper plumbing path end-to-end: the new
   `loopEpochShiftSeconds` parameter is correctly converted into the
   `acceptTerminalOrbitForLoopSynthesis` flag inside the helper and the
   flag reaches the resolver call).
@@ -764,7 +764,7 @@ relevant trajectories during loop tracking (verified by grep).
   (confirm `ResolveGhostActivationStartUT(traj)` admits the effective UT
   for a typical loop window).
 
-(Former CRITICAL-1 pre-implementation verification step is resolved in §0.5;
+(Former CRITICAL-1 pre-implementation verification step is resolved in section 0.5;
 idx 18 = `terminal=Orbiting`, no `SubOrbital` widening required.)
 
 ### 3.5 No in-game canary (reviewer-flagged not feasible)
@@ -786,8 +786,8 @@ line does NOT draw.
 One PR, one commit (the synthesizer + resolver + caller changes are tightly
 coupled; splitting would land dead code).
 
-- All §2 code changes.
-- All §3 unit tests.
+- All section 2 code changes.
+- All section 3 unit tests.
 - CHANGELOG.md entry.
 - `docs/dev/todo-and-known-bugs.md` deferred-item-B entry flipped to "fixed"
   with cross-link to v3 of this plan.
@@ -840,7 +840,7 @@ parked artifact in case the user revisits.
 1. **RESOLVED (v5).** Persisted-phase answer for idx 18. The playtest log
    for #18 shows `terminal=Orbiting` with persisted phase
    `(TrajectoryPoint, Kerbin)`. The persisted-phase relaxation IS required;
-   §1.1's inner-gate change is on-target. No further verification needed
+   section 1.1's inner-gate change is on-target. No further verification needed
    before code.
 
 2. **TS-startup-create path (former OQ #3).** Pass `false` via the new
@@ -863,9 +863,9 @@ parked artifact in case the user revisits.
    without further AssemblyInfo work.
 
 (Former OQ #2 -- "walk each caller and confirm `effUT` is computed and
-available" -- deleted in v5; §1.4 already enumerates all five production
+available" -- deleted in v5; section 1.4 already enumerates all five production
 callers with their `effUT` availability. Former OQ #4 -- "RefreshEndpointDecision
-clobber risk" -- collapsed to a one-line note in §1.1.)
+clobber risk" -- collapsed to a one-line note in section 1.1.)
 
 ---
 
@@ -883,7 +883,7 @@ clobber risk" -- collapsed to a one-line note in §1.1.)
 
 ### Verified from KSP disassembly (Assembly-CSharp.dll, 2026-05-28)
 
-Backs the MAJOR-1 prose correction in §1.5 -- inertial-frame propagation
+Backs the MAJOR-1 prose correction in section 1.5 -- inertial-frame propagation
 under epoch shift is the right model.
 
 - `Orbit.SetOrbit(double inc, double e, double sma, double lan, double argPe,
@@ -900,7 +900,7 @@ under epoch shift is the right model.
   cancels against any compensating shift in the propagation UT.
 - `Orbit` constructor takes the same `(inc, e, sma, lan, argPe, mEp, t,
   body)` tuple at line 464 -- structurally equivalent to `SetOrbit`.
-- Confirms v3 §1.5 / §1.4 conclusion: `SetOrbit(epoch + shift, ...)`
+- Confirms v3 section 1.5 / section 1.4 conclusion: `SetOrbit(epoch + shift, ...)`
   propagates inertially under same-body loop synthesis. The corrected v4
   reasoning is: historical body rotation enters at seed construction (when
   the recorder converted body-fixed lat/lon/alt + recorded velocity into

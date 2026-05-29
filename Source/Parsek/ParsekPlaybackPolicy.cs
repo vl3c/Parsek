@@ -1351,8 +1351,12 @@ namespace Parsek
                     //    persisted real terminal vessel (loopMemberInWindow). Without the latter, a
                     //    looped leg whose mission left a real craft parked at its terminal (e.g. the
                     //    Mun-return leg) gets no trajectory following the ghost, because the static
-                    //    real vessel claims the materialization. Both default false off the loop path,
-                    //    keeping non-loop create behaviour byte-identical.
+                    //    real vessel claims the materialization. Both flags default false off the loop
+                    //    path, so neither the terminal-orbit synthesis nor the materialization bypass
+                    //    affects non-loop members. (The EndpointTail entry in the acceptance check below
+                    //    is a SEPARATE, intentional consistency fix -- it materializes a non-loop
+                    //    member that resolves to EndpointTail, which the create path previously left
+                    //    pending -- and is NOT gated by these flags.)
                     bool isLoopMemberInWindow = pendingLoopShift != 0.0;
                     bool acceptTerminalOrbitForLoopSynthesis =
                         isLoopMemberInWindow
@@ -1978,7 +1982,9 @@ namespace Parsek
                 fields.RecordingId = rec?.RecordingId;
                 fields.RecordingIndex = idx;
                 fields.VesselName = rec?.VesselName;
-                fields.Source = "TerminalOrbit";
+                // Report the actual resolved source; this fallback accepts both
+                // TerminalOrbit and EndpointTail (see the acceptance check above).
+                fields.Source = fallbackSource.ToString();
                 fields.Branch = "(n/a)";
                 fields.Body = fallbackSegment.bodyName;
                 fields.Segment = fallbackSegment;

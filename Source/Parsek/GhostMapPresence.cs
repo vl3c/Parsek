@@ -4047,12 +4047,15 @@ namespace Parsek
                 && (!string.Equals(endpointSeedSource, "endpoint-segment", StringComparison.Ordinal)
                     || endpointPhase == RecordingEndpointPhase.TrajectoryPoint))
             {
-                // Log the relaxation acceptance once per call so a KSP.log capture can
-                // confirm the loop-aware path actually fired (vs. the legacy
-                // endpoint-segment route). One-shot per call (not per frame): callers
-                // gate this via a non-zero loop epoch shift, which only flips at unit
-                // boundaries.
-                ParsekLog.Verbose(Tag,
+                // Log the relaxation acceptance so a KSP.log capture can confirm the
+                // loop-aware path actually fired (vs. the legacy endpoint-segment route).
+                // Rate-limited per recording: a non-zero loop epoch shift is the STEADY
+                // STATE for a member's whole loop window (not an edge), and this resolver
+                // runs every refresh tick (now 4 Hz in the TS), so a raw Verbose here
+                // would fire every frame for a same-body loop member sitting in its
+                // terminal-orbit phase.
+                ParsekLog.VerboseRateLimited(Tag,
+                    "endpoint-tail-loop-accept-" + (traj.RecordingId ?? "(null)"),
                     string.Format(ic,
                         "endpoint-tail-synthesis-loop-accept rec={0} terminalBody={1} endpointSeedSource={2} endpointPhase={3} endpointBody={4} tailUT={5:F2} tailSma={6:F1}",
                         traj.RecordingId ?? "(null)",
@@ -4061,7 +4064,8 @@ namespace Parsek
                         endpointPhase,
                         endpointBodyName ?? "(null)",
                         tailSeed.TailUT,
-                        tailSeed.Segment.semiMajorAxis));
+                        tailSeed.Segment.semiMajorAxis),
+                    5.0);
             }
 
             if (selectedSegment.HasValue
