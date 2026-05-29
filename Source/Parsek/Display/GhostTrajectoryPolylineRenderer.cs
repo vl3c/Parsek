@@ -1046,6 +1046,26 @@ namespace Parsek.Display
                         // Tell GhostMapPresence the polyline owns this recording's
                         // current phase so it hides the overlapping orbit line.
                         activeLegRecordings.Add(rec.RecordingId);
+
+                        // Overlap detector (diagnostic for the propulsive->orbital
+                        // handoff report): if this recording's proto-vessel orbit
+                        // LINE is ALSO active in the same frame the polyline drew a
+                        // non-orbital leg for it, two trajectories render at once.
+                        // Rate-limited per recording so it never spams; only fires
+                        // when the overlap condition is actually present.
+                        if (GhostMapPresence.TryGetGhostOrbitLineState(
+                                recordingIndex, out uint ovPid, out bool ovLineActive,
+                                out double ovSma, out string ovBody)
+                            && ovLineActive)
+                        {
+                            ParsekLog.VerboseRateLimited(DriverTag,
+                                "polyline-orbit-overlap-" + rec.RecordingId,
+                                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "RENDER OVERLAP rec={0} pid={1}: polyline non-orbital leg AND proto orbit line BOTH active this frame (orbitSma={2:F0} body={3} headUT={4:F1} frame={5}). Expected only at a propulsive<->orbital handoff; sustained = a publish/read race.",
+                                    rec.RecordingId, ovPid, ovSma, ovBody ?? "(null)",
+                                    headUT, drawFrame),
+                                2.0);
+                        }
                     }
                 }
 
