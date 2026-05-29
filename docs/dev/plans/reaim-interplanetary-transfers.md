@@ -264,6 +264,20 @@ states them so a reviewer/playtester judges them deliberately, not as bugs.
   `LoopUnit`, instead of the faithful zero-drift schedule. A cross-parent config with NO usable S2
   (never warped / background coast) falls back to the existing faithful path (which will read amber /
   rare - acceptable, never garbage). Same-parent path is untouched.
+
+- **Engine seam (mapped 2026-05-29).** The engine rebuilds its per-member `IPlaybackTrajectory` list
+  every frame from the committed recordings at `ParsekFlight.cs:18341-18343` (no immutability barrier),
+  and samples each member at `loopUT in [spanStart, spanEnd]` (`GhostPlaybackLogic.TryComputeSpanLoopUT`,
+  `loopUT = spanStart + phaseWithinSpan`). So re-aim substitutes a per-window `ReaimedTrajectory` for a
+  re-aim member at that list-build point, CACHED by the active window index (from the schedule's
+  `TryResolveActiveLaunch`) so the Lambert/CalculatePatch synthesis runs only on window-advance, not
+  per frame (review C3). The assembled segments are RECORDED-SPAN-relative (not absolute - see
+  `ReaimSegmentAssembler`); only the transfer's inertial orientation varies per window. `GhostMapPresence`
+  (`:3627`) + the new `GhostTrajectoryPolylineRenderer`/`GhostOrbitLinePatch` (#970) read
+  `traj.OrbitSegments`, so the re-aimed transfer renders on the map/TS for free. Remaining wiring:
+  the re-aim synodic schedule producer (new, NOT `TryBuildRelaunchSchedule`), the re-aim descriptor on
+  the `LoopUnit`, and the per-window-cached substitution - this is the Phase-3c step that ends in the
+  in-game playtest.
 - **Per-window trajectory.** The `LoopUnit` carries a re-aim descriptor (launch body, target,
   recorded parking/arrival segments). Per loop instance, the engine asks for the trajectory at the
   active window; the adapter computes (and caches) the synthesized segments for that window. Recompute

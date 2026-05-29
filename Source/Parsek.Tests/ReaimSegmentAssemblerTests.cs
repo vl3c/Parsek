@@ -21,13 +21,15 @@ namespace Parsek.Tests
             };
         }
 
-        private static ReaimMissionPlan SupportedPlan(OrbitSegment parking, OrbitSegment arrival)
+        private static ReaimMissionPlan SupportedPlan(OrbitSegment parking, OrbitSegment arrival,
+            double recordedDepartureUT)
         {
             return new ReaimMissionPlan
             {
                 Supported = true,
                 LaunchBody = "Kerbin", TargetBody = "Duna", CommonAncestor = "Sun",
-                ParkingOrbit = parking, ArrivalLeg = arrival
+                ParkingOrbit = parking, ArrivalLeg = arrival,
+                RecordedDepartureUT = recordedDepartureUT
             };
         }
 
@@ -59,33 +61,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Assemble_KerbinToDuna_ContiguousAbsoluteUTs()
+        public void Assemble_KerbinToDuna_ContiguousRecordedSpanUTs()
         {
-            var parking = Seg("Kerbin", 100, 600, 300);     // 500 s parking
+            // Recorded mission: parking [100,600], SOI exit at 600 (recorded), arrival recorded
+            // [2000,5000]. Re-aim re-times the transfer to a (constant) Hohmann tof and re-anchors
+            // the arrival after it; the parking keeps its recorded UTs.
+            var parking = Seg("Kerbin", 100, 600, 300);     // 500 s parking, ends at the recorded exit
             var arrival = Seg("Duna", 2000, 5000, 2500);    // 3000 s arrival
-            var plan = SupportedPlan(parking, arrival);
+            var plan = SupportedPlan(parking, arrival, recordedDepartureUT: 600.0);
 
-            double departureUT = 1_000_000.0;
-            double soiEntryUT = 1_500_000.0;
-            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10); // raw transfer; assembler normalizes span
+            double tof = 1200.0; // Hohmann tof (constant across windows)
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10); // per-window orientation set by caller
 
-            var segs = ReaimSegmentAssembler.Assemble(plan, departureUT, transfer, soiEntryUT);
+            var segs = ReaimSegmentAssembler.Assemble(plan, transfer, tof);
 
             Assert.NotNull(segs);
             Assert.Equal(3, segs.Count);
-            // S0 parking: ends exactly at departure, keeps its 500 s duration.
+            // S0 parking: recorded UTs unchanged, ends at the recorded exit (600).
             Assert.Equal("Kerbin", segs[0].bodyName);
-            Assert.Equal(departureUT, segs[0].endUT, 3);
-            Assert.Equal(departureUT - 500.0, segs[0].startUT, 3);
-            // S2 transfer: spans [departure, soiEntry], Sun-bodied, not predicted.
+            Assert.Equal(100.0, segs[0].startUT, 3);
+            Assert.Equal(600.0, segs[0].endUT, 3);
+            // S2 transfer: [exitUT, exitUT+tof] = [600, 1800], Sun-bodied, not predicted.
             Assert.Equal("Sun", segs[1].bodyName);
-            Assert.Equal(departureUT, segs[1].startUT, 3);
-            Assert.Equal(soiEntryUT, segs[1].endUT, 3);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(1800.0, segs[1].endUT, 3);
             Assert.False(segs[1].isPredicted);
-            // S3 arrival: starts at SOI entry, keeps its 3000 s duration, Duna-bodied.
+            // S3 arrival: re-anchored to start at 1800, keeps its 3000 s duration, Duna-bodied.
             Assert.Equal("Duna", segs[2].bodyName);
-            Assert.Equal(soiEntryUT, segs[2].startUT, 3);
-            Assert.Equal(soiEntryUT + 3000.0, segs[2].endUT, 3);
+            Assert.Equal(1800.0, segs[2].startUT, 3);
+            Assert.Equal(4800.0, segs[2].endUT, 3);
             // Contiguous: parking.end == transfer.start, transfer.end == arrival.start.
             Assert.Equal(segs[0].endUT, segs[1].startUT, 3);
             Assert.Equal(segs[1].endUT, segs[2].startUT, 3);
@@ -96,16 +100,15 @@ namespace Parsek.Tests
         {
             var parking = Seg("Kerbin", 100, 600, 300);
             var arrival = Seg("Duna", 2000, 5000, 2500);
-            var plan = SupportedPlan(parking, arrival);
+            var plan = SupportedPlan(parking, arrival, recordedDepartureUT: 600.0);
             var transfer = Seg("Sun", 0, 0, 0);
 
             // Unsupported plan.
             var bad = plan; bad.Supported = false;
-            Assert.Null(ReaimSegmentAssembler.Assemble(bad, 1e6, transfer, 1.5e6));
-            // soiEntry <= departure (degenerate span).
-            Assert.Null(ReaimSegmentAssembler.Assemble(plan, 1.5e6, transfer, 1.0e6));
-            // NaN.
-            Assert.Null(ReaimSegmentAssembler.Assemble(plan, double.NaN, transfer, 1.5e6));
+            Assert.Null(ReaimSegmentAssembler.Assemble(bad, transfer, 1200.0));
+            // Degenerate tof.
+            Assert.Null(ReaimSegmentAssembler.Assemble(plan, transfer, 0.0));
+            Assert.Null(ReaimSegmentAssembler.Assemble(plan, transfer, double.NaN));
         }
     }
 }
