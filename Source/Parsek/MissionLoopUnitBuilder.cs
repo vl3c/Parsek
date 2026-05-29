@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Reaim;
 
 namespace Parsek
 {
@@ -242,6 +243,8 @@ namespace Parsek
             MissionRelaunchSchedule relaunchSchedule = null;
             bool scheduleRejectedForOverlap = false;
             PeriodicitySolution solution = default;
+            ReaimMissionPlan? reaimPlan = null;
+            ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -309,14 +312,84 @@ namespace Parsek
                         }
                     }
                 }
+
+                // 7e. Re-aim (cross-parent interplanetary): the faithful path reports cross-parent
+                //      targets UnsupportedCrossParent (their faithful celestial geometry recurs on the
+                //      order of ~1000 Kerbin years - useless for logistics), so phaseLocked stays
+                //      false. When that happens, try the re-aim model: classify the recorded SOI chain
+                //      as a single-hop interplanetary transfer and, if eligible, REPLACE the recorded
+                //      heliocentric geometry with a per-window re-aimed transfer that relaunches every
+                //      SYNODIC window (~2 Kerbin years for Kerbin->Duna). The classifier + planner both
+                //      fail closed: a same-parent target, a missing heliocentric leg, a multi-hop chain,
+                //      or degenerate geometry all leave the mission on today's faithful path (the raw
+                //      cadence above), never half-applied. Only the per-window transfer ORIENTATION
+                //      varies between windows; the Hohmann tof (hence the recorded span) is constant.
+                if (!phaseLocked)
+                {
+                    List<OrbitSegment> missionSegments = GatherMemberOrbitSegments(committed, memberIndices);
+                    ReaimMissionPlan plan = ReaimClassifier.Classify(missionSegments, bodyInfo);
+                    if (plan.Supported)
+                    {
+                        double aOrigin = bodyInfo.SemiMajorAxis(plan.LaunchBody);
+                        double aTarget = bodyInfo.SemiMajorAxis(plan.TargetBody);
+                        double muParent = bodyInfo.GravParameter(plan.CommonAncestor);
+                        double pOrigin = bodyInfo.OrbitPeriod(plan.LaunchBody);
+                        double pTarget = bodyInfo.OrbitPeriod(plan.TargetBody);
+                        double launchLon = bodyInfo.TrueLongitudeAtUTDegrees(plan.LaunchBody, referenceUT);
+                        double targetLon = bodyInfo.TrueLongitudeAtUTDegrees(plan.TargetBody, referenceUT);
+                        double currentPhase = TransferWindowMath.ClampDegrees360(targetLon - launchLon);
+
+                        ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                            aOrigin, aTarget, muParent, pOrigin, pTarget, currentPhase,
+                            plan.RecordedDepartureUT, spanStartUT, spanEndUT, referenceUT);
+
+                        if (sched.Valid)
+                        {
+                            reaimPlan = plan;
+                            reaimSchedule = sched;
+                            // The synodic period dwarfs the recorded span, so the cadence is synodic and
+                            // the mission is single-instance per window (overlap cadence >= span => never
+                            // overlaps). The faithful zero-drift schedule does not apply to re-aim.
+                            phaseAnchorUT = sched.PhaseAnchorUT;
+                            effectiveCadence = Math.Max(span, sched.CadenceSeconds);
+                            effectiveOverlapCadence = effectiveCadence;
+                            relaunchSchedule = null;
+
+                            if (!SuppressLogging)
+                            {
+                                var ric = CultureInfo.InvariantCulture;
+                                ParsekLog.Info("Reaim",
+                                    $"MissionLoopUnit: mission='{mission.Name}' ENGAGED re-aim " +
+                                    $"{plan.LaunchBody}->{plan.TargetBody} via {plan.CommonAncestor}; " +
+                                    $"{ReaimWindowPlanner.Describe(sched)} " +
+                                    $"phaseAnchor={phaseAnchorUT.ToString("R", ric)} " +
+                                    $"cadence={effectiveCadence.ToString("R", ric)}");
+                            }
+                        }
+                        else if (!SuppressLogging)
+                        {
+                            ParsekLog.Verbose("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' re-aim eligible " +
+                                $"({plan.LaunchBody}->{plan.TargetBody}) but window plan invalid " +
+                                $"({sched.Reason}); staying faithful");
+                        }
+                    }
+                    else if (!SuppressLogging)
+                    {
+                        ParsekLog.Verbose("Reaim",
+                            $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful");
+                    }
+                }
             }
 
             // 8. Build the unit (carrying the per-member trimmed render windows + the optional
-            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock).
+            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock; the
+            //    optional re-aim plan + synodic schedule drive the flight engine's per-window transfer
+            //    substitution).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
-                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule);
+                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule);
 
             if (!SuppressLogging)
             {
@@ -360,6 +433,34 @@ namespace Parsek
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Gathers the non-predicted OrbitSegments of all loop members into one startUT-ordered list
+        /// for re-aim classification. The classifier picks the launch body (earliest segment), the
+        /// heliocentric (common-ancestor) leg, and the arrival, so interleaved debris segments are
+        /// harmless. Pure (reads committed recordings' segment lists). Returns an empty list when no
+        /// member has orbit segments.
+        /// </summary>
+        internal static List<OrbitSegment> GatherMemberOrbitSegments(
+            IReadOnlyList<Recording> committed, List<int> memberIndices)
+        {
+            var segs = new List<OrbitSegment>();
+            if (committed == null || memberIndices == null)
+                return segs;
+            for (int i = 0; i < memberIndices.Count; i++)
+            {
+                int idx = memberIndices[i];
+                if (idx < 0 || idx >= committed.Count)
+                    continue;
+                Recording rec = committed[idx];
+                if (rec == null || rec.OrbitSegments == null)
+                    continue;
+                for (int s = 0; s < rec.OrbitSegments.Count; s++)
+                    segs.Add(rec.OrbitSegments[s]);
+            }
+            segs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            return segs;
         }
 
         /// <summary>

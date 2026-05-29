@@ -6585,6 +6585,24 @@ namespace Parsek
                 double overlapCadenceSeconds,
                 IReadOnlyDictionary<int, MemberWindow> memberWindows,
                 MissionRelaunchSchedule relaunchSchedule)
+                : this(ownerIndex, memberIndices, spanStartUT, spanEndUT, cadenceSeconds,
+                       phaseAnchorUT, overlapCadenceSeconds, memberWindows, relaunchSchedule,
+                       null, null)
+            {
+            }
+
+            internal LoopUnit(
+                int ownerIndex,
+                int[] memberIndices,
+                double spanStartUT,
+                double spanEndUT,
+                double cadenceSeconds,
+                double phaseAnchorUT,
+                double overlapCadenceSeconds,
+                IReadOnlyDictionary<int, MemberWindow> memberWindows,
+                MissionRelaunchSchedule relaunchSchedule,
+                Parsek.Reaim.ReaimMissionPlan? reaimPlan,
+                Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6595,6 +6613,8 @@ namespace Parsek
                 OverlapCadenceSeconds = overlapCadenceSeconds;
                 this.memberWindows = memberWindows;
                 RelaunchSchedule = relaunchSchedule;
+                ReaimPlan = reaimPlan;
+                ReaimSchedule = reaimSchedule;
             }
 
             /// <summary>
@@ -6663,6 +6683,28 @@ namespace Parsek
             /// byte-identical.
             /// </summary>
             internal MissionRelaunchSchedule RelaunchSchedule { get; }
+
+            /// <summary>
+            /// The re-aim mission plan (launch / target / common-ancestor + the recorded parking +
+            /// arrival legs) for a cross-parent single-hop interplanetary loop, or NULL for every other
+            /// config (same-parent, no heliocentric leg, multi-hop, non-interplanetary). When set
+            /// (alongside <see cref="ReaimSchedule"/>) the flight engine substitutes a per-window
+            /// re-aimed transfer trajectory for this member so the ghost relaunches every synodic
+            /// window instead of replaying the faithful (rarely-recurring) recorded geometry
+            /// (docs/dev/plans/reaim-interplanetary-transfers.md). Null keeps the faithful path.
+            /// </summary>
+            internal Parsek.Reaim.ReaimMissionPlan? ReaimPlan { get; }
+
+            /// <summary>The synodic relaunch schedule (first window, synodic period, Hohmann tof,
+            /// phase anchor, cadence) for a re-aim loop, or NULL when not re-aim. Paired with
+            /// <see cref="ReaimPlan"/>.</summary>
+            internal Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? ReaimSchedule { get; }
+
+            /// <summary>True when this unit is a fully-resolved re-aim interplanetary loop (a supported
+            /// plan + a valid synodic schedule).</summary>
+            internal bool IsReaim =>
+                ReaimPlan.HasValue && ReaimPlan.Value.Supported
+                && ReaimSchedule.HasValue && ReaimSchedule.Value.Valid;
         }
 
         /// <summary>

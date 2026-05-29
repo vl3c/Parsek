@@ -18350,6 +18350,14 @@ namespace Parsek
             // contract), but Build (and its log) only fires on an actual input change.
             DriveMissionLoopUnits(committed);
 
+            // === Re-aim per-window transfer substitution (Phase 3c) ===
+            // For each looping mission classified as a cross-parent single-hop interplanetary transfer,
+            // replace the OWNER member's recorded trajectory with a per-window re-aimed transfer (the
+            // recorded geometry re-planned to the target's actual position at this synodic window). The
+            // resolver caches by window, so the live Lambert/PatchedConics solve runs only when the
+            // window advances. Non-re-aim units + non-owner members are untouched (faithful path).
+            SubstituteReaimTrajectories(currentUT);
+
             if (HasAnchorReFlyUnstableFlag(flags))
             {
                 reFlySettlePoseLogActiveFrame = Time.frameCount;
@@ -18412,6 +18420,51 @@ namespace Parsek
             watchMode.ValidateWatchedGhostStillActive();
         }
 
+        // Replaces each re-aim loop unit's OWNER member trajectory in cachedTrajectories with the
+        // per-window re-aimed transfer (Phase 3c). Runs after DriveMissionLoopUnits (so cachedLoopUnits
+        // is fresh) and before engine.UpdatePlayback. v1 substitutes the owner member only - the main
+        // interplanetary leg captured in one continuous recording; non-owner members (ride-along debris)
+        // keep the faithful path. The resolver caches by window, so this is cheap on non-advancing
+        // frames. The map-presence / tracking-station orbit path resolves the SAME adapter from the
+        // shared resolver, so the map orbit line stays in sync with the flight ghost.
+        private void SubstituteReaimTrajectories(double currentUT)
+        {
+            if (cachedLoopUnits == null || cachedLoopUnits.Count == 0)
+                return;
+
+            int substituted = 0;
+            foreach (var kv in cachedLoopUnits.UnitsByOwner)
+            {
+                GhostPlaybackLogic.LoopUnit unit = kv.Value;
+                if (!unit.IsReaim)
+                    continue;
+                int ownerIdx = unit.OwnerIndex;
+                if (ownerIdx < 0 || ownerIdx >= cachedTrajectories.Count)
+                    continue;
+
+                IPlaybackTrajectory inner = cachedTrajectories[ownerIdx];
+                if (inner == null)
+                    continue;
+
+                IPlaybackTrajectory sub = Parsek.Reaim.ReaimPlaybackResolver.Shared.ResolveForFrame(
+                    inner.RecordingId, inner, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                    unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    currentUT, out long windowIndex);
+
+                if (!ReferenceEquals(sub, inner))
+                {
+                    cachedTrajectories[ownerIdx] = sub;
+                    substituted++;
+                }
+                ParsekLog.VerboseRateLimited("Reaim", $"sub-{ownerIdx}",
+                    $"re-aim owner={ownerIdx} id={inner.RecordingId} window={windowIndex} " +
+                    $"substituted={!ReferenceEquals(sub, inner)}");
+            }
+            if (substituted > 0)
+                ParsekLog.VerboseRateLimited("Reaim", "sub-summary",
+                    $"re-aim substituted {substituted} owner trajectory(ies) this frame");
+        }
+
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
         // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
         // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
@@ -18439,6 +18492,9 @@ namespace Parsek
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
                     MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
+                // The committed set / missions changed: drop every cached per-window re-aim adapter so a
+                // stale window transfer can never survive a recording edit / re-classification.
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
             }

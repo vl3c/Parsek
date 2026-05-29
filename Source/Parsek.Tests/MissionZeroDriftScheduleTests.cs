@@ -42,6 +42,9 @@ namespace Parsek.Tests
             public string ReferenceBodyName(string b) => null;
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
+            public double SemiMajorAxis(string b) => double.NaN;
+            public double GravParameter(string b) => double.NaN;
+            public double TrueLongitudeAtUTDegrees(string b, double ut) => double.NaN;
         }
 
         private static PhaseConstraint Rotation(string body, double period, double offset = 0.0)
@@ -604,6 +607,9 @@ namespace Parsek.Tests
             public string ReferenceBodyName(string b) => null;
             public double SoiRadius(string b) => b == "Mun" ? 2429559.0 : double.NaN;
             public double OrbitalVelocity(string b) => b == "Mun" ? 543.0 : double.NaN;
+            public double SemiMajorAxis(string b) => double.NaN;
+            public double GravParameter(string b) => double.NaN;
+            public double TrueLongitudeAtUTDegrees(string b, double ut) => double.NaN;
         }
 
         // ===================== Anchor = tightest band (max cadence) =====================
