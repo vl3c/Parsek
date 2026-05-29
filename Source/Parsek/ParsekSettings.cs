@@ -165,34 +165,9 @@ namespace Parsek
         }
         private bool _useAnchorTaxonomy = true;
 
-        /// <summary>
-        /// Map-view non-orbital ghost trajectory polyline (design plan
-        /// docs/dev/plans/map-trajectory-polyline.md). When true, the
-        /// Tracking Station and flight map view draw a solid orbit-style
-        /// line tracing each active ghost's current non-orbital phase
-        /// (ascent, burns, transfer, descent), handing off to the real
-        /// orbit line during orbital phases. Default false: stays OFF until
-        /// the geometry is verified in game (the rollout flip waits on the
-        /// in-game GetWorldSurfacePosition validation).
-        /// </summary>
-        [GameParameters.CustomParameterUI("Use ghost trajectory polyline",
-            toolTip = "When on, the map view draws a solid orbit-style line tracing each active ghost's current non-orbital phase (ascent, burns, transfer, descent), handing off to the real orbit line during orbital phases.")]
-        public bool useGhostTrajectoryPolyline
-        {
-            get { return _useGhostTrajectoryPolyline; }
-            set
-            {
-                if (_useGhostTrajectoryPolyline == value) return;
-                bool prev = _useGhostTrajectoryPolyline;
-                _useGhostTrajectoryPolyline = value;
-                NotifyUseGhostTrajectoryPolylineChanged(prev, value);
-                // See useSmoothingSplines comment above for the
-                // reconciliation gate rationale (PR #328 P2-A).
-                if (ParsekSettingsPersistence.IsReconciled)
-                    ParsekSettingsPersistence.RecordUseGhostTrajectoryPolyline(value);
-            }
-        }
-        private bool _useGhostTrajectoryPolyline = false;
+        // The map-view non-orbital ghost trajectory polyline is always on (no
+        // setting). It renders unconditionally in the DDOL Driver; there is no
+        // useGhostTrajectoryPolyline field, CustomParameterUI, or persistence.
 
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
@@ -561,18 +536,6 @@ namespace Parsek
         {
             if (oldValue == newValue) return;
             ParsekLog.Info("Pipeline-Outlier", $"useOutlierRejection: {oldValue}->{newValue}");
-        }
-
-        /// <summary>
-        /// Emits a single GhostMap log line when
-        /// <see cref="useGhostTrajectoryPolyline"/> flips. Mirrors the
-        /// other Notify* helpers so the rollout-gate flip is attributable
-        /// in KSP.log.
-        /// </summary>
-        internal static void NotifyUseGhostTrajectoryPolylineChanged(bool oldValue, bool newValue)
-        {
-            if (oldValue == newValue) return;
-            ParsekLog.Info("GhostMap", $"useGhostTrajectoryPolyline: {oldValue}->{newValue}");
         }
     }
 }

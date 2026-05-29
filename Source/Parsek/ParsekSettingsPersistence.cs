@@ -47,7 +47,6 @@ namespace Parsek
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
         private const string UseOutlierRejectionKey = "useOutlierRejection";
-        private const string UseGhostTrajectoryPolylineKey = "useGhostTrajectoryPolyline";
         private const string WarpYearKey = "warpYear";
         private const string WarpDayKey = "warpDay";
         private const string WarpHourKey = "warpHour";
@@ -63,7 +62,6 @@ namespace Parsek
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
         private static bool? storedUseOutlierRejection;
-        private static bool? storedUseGhostTrajectoryPolyline;
         // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
         // sessions so the user need not re-type a frequently-used target date.
         private static int? storedWarpYear;
@@ -220,17 +218,6 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
                 }
 
-                string useGhostPolylineStr = root.GetValue(UseGhostTrajectoryPolylineKey);
-                if (!string.IsNullOrEmpty(useGhostPolylineStr)
-                    && bool.TryParse(useGhostPolylineStr, out bool useGhostPolyline))
-                {
-                    storedUseGhostTrajectoryPolyline = useGhostPolyline;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseGhostTrajectoryPolylineKey} — using default");
-                }
-
                 storedWarpYear = ParseStoredInt(root, WarpYearKey);
                 storedWarpDay = ParseStoredInt(root, WarpDayKey);
                 storedWarpHour = ParseStoredInt(root, WarpHourKey);
@@ -245,8 +232,7 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}" +
-                    $" useGhostTrajectoryPolyline={(storedUseGhostTrajectoryPolyline.HasValue ? storedUseGhostTrajectoryPolyline.Value.ToString() : "<default>")}");
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<default>")}");
             }
             catch (Exception ex)
             {
@@ -375,16 +361,6 @@ namespace Parsek
                 settings.useOutlierRejection = storedUseOutlierRejection.Value;
                 ParsekLog.Info(Tag,
                     $"Restored useOutlierRejection {prev} -> {storedUseOutlierRejection.Value} from persistent store");
-            }
-
-            if (storedUseGhostTrajectoryPolyline.HasValue
-                && storedUseGhostTrajectoryPolyline.Value != settings.useGhostTrajectoryPolyline)
-            {
-                bool prev = settings.useGhostTrajectoryPolyline;
-                // Property setter emits Notify on change.
-                settings.useGhostTrajectoryPolyline = storedUseGhostTrajectoryPolyline.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored useGhostTrajectoryPolyline {prev} -> {storedUseGhostTrajectoryPolyline.Value} from persistent store");
             }
 
             // PR #328 P2-A: mark reconciled AFTER writes complete. Only now is
@@ -528,26 +504,6 @@ namespace Parsek
             }
         }
 
-        internal static void RecordUseGhostTrajectoryPolyline(bool value)
-        {
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseGhostTrajectoryPolyline: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-            if (storedUseGhostTrajectoryPolyline.HasValue && storedUseGhostTrajectoryPolyline.Value == value) return;
-            storedUseGhostTrajectoryPolyline = value;
-            try { Save(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"RecordUseGhostTrajectoryPolyline: Save threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-            }
-        }
-
         /// <summary>
         /// Writes the current store to disk via the shared safe-write helper.
         /// </summary>
@@ -573,8 +529,6 @@ namespace Parsek
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
                 if (storedUseOutlierRejection.HasValue)
                     root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
-                if (storedUseGhostTrajectoryPolyline.HasValue)
-                    root.AddValue(UseGhostTrajectoryPolylineKey, storedUseGhostTrajectoryPolyline.Value.ToString());
                 if (storedWarpYear.HasValue)
                     root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
                 if (storedWarpDay.HasValue)
@@ -593,8 +547,7 @@ namespace Parsek
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
-                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}" +
-                    $" useGhostTrajectoryPolyline={(storedUseGhostTrajectoryPolyline.HasValue ? storedUseGhostTrajectoryPolyline.Value.ToString() : "<null>")}");
+                    $" useOutlierRejection={(storedUseOutlierRejection.HasValue ? storedUseOutlierRejection.Value.ToString() : "<null>")}");
             }
             catch (Exception ex)
             {
@@ -618,7 +571,6 @@ namespace Parsek
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
             storedUseOutlierRejection = null;
-            storedUseGhostTrajectoryPolyline = null;
             storedWarpYear = null;
             storedWarpDay = null;
             storedWarpHour = null;
@@ -690,8 +642,6 @@ namespace Parsek
 
         internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
-        internal static bool? GetStoredUseGhostTrajectoryPolyline() => storedUseGhostTrajectoryPolyline;
-
         internal static int? GetStoredWarpYear() => storedWarpYear;
         internal static int? GetStoredWarpDay() => storedWarpDay;
         internal static int? GetStoredWarpHour() => storedWarpHour;
@@ -756,12 +706,6 @@ namespace Parsek
         internal static void SetStoredUseOutlierRejectionForTesting(bool? value)
         {
             storedUseOutlierRejection = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredUseGhostTrajectoryPolylineForTesting(bool? value)
-        {
-            storedUseGhostTrajectoryPolyline = value;
             loaded = true;
         }
     }
