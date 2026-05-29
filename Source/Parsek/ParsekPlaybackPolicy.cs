@@ -1042,6 +1042,12 @@ namespace Parsek
             int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(evt.Index, out int cached)
                 ? cached
                 : -1;
+            // Initial-create-on-first-loop-entry: pass acceptTerminalOrbitForLoopSynthesis:
+            // false. This path runs at startUT with no loopUnits / effUT / shift in scope, so
+            // the relaxed terminal-orbit source would seed at the raw recorded UT (wrong
+            // position). The proto-vessel is created later on a loop-aware tick once the
+            // pending queue and per-frame ResolveMapPresenceSampleUT compute effUT and the
+            // accompanying loop epoch shift. Same reasoning as the TS-startup wrapper. Plan section 1.4.
             TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                 evt.Trajectory,
                 false,
@@ -1053,7 +1059,8 @@ namespace Parsek
                 out OrbitSegment segment,
                 out TrajectoryPoint stateVectorPoint,
                 out _,
-                recordingIndex: evt.Index);
+                recordingIndex: evt.Index,
+                acceptTerminalOrbitForLoopSynthesis: false);
             stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
 
             if (source != TrackingStationGhostSource.None)
@@ -1333,9 +1340,40 @@ namespace Parsek
                     // create, exactly like the Tracking Station create pass skips it.
                     double effUT = ResolveMapPresenceSampleUT(
                         idx, traj.StartUT, traj.EndUT, currentUT, loopUnits,
-                        out bool renderHidden, out _);
+                        out bool renderHidden, out double pendingLoopShift);
                     if (renderHidden)
                         continue;
+
+                    // A non-zero loop epoch shift means this is a Mission-loop member replaying
+                    // inside its window this cycle (effUT != live currentUT). Two consequences:
+                    //  - it unlocks the no-segment terminal-orbit synthesis (plan section 1.4); and
+                    //  - it lets the map ghost draw even when the recording already materialized a
+                    //    persisted real terminal vessel (loopMemberInWindow). Without the latter, a
+                    //    looped leg whose mission left a real craft parked at its terminal (e.g. the
+                    //    Mun-return leg) gets no trajectory following the ghost, because the static
+                    //    real vessel claims the materialization. Both flags default false off the loop
+                    //    path, so neither the terminal-orbit synthesis nor the materialization bypass
+                    //    affects non-loop members. (The EndpointTail entry in the acceptance check below
+                    //    is a SEPARATE, intentional consistency fix -- it materializes a non-loop
+                    //    member that resolves to EndpointTail, which the create path previously left
+                    //    pending -- and is NOT gated by these flags.)
+                    bool isLoopMemberInWindow = pendingLoopShift != 0.0;
+                    bool acceptTerminalOrbitForLoopSynthesis =
+                        isLoopMemberInWindow
+                        && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
+                    if (acceptTerminalOrbitForLoopSynthesis)
+                    {
+                        ParsekLog.VerboseRateLimited("Policy",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "pending-map-accept-terminal-{0}", idx),
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Pending map-create accepting terminal-orbit synthesis for loop member " +
+                                "rec=#{0} vessel=\"{1}\" pendingLoopShift={2:F1}",
+                                idx,
+                                traj.VesselName ?? "(null)",
+                                pendingLoopShift),
+                            5.0);
+                    }
 
                     int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
@@ -1353,12 +1391,15 @@ namespace Parsek
                         out _,
                         recordingIndex: idx,
                         allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
-                        expectedSoiGapBody: pending.ExpectedSoiGapBody);
+                        expectedSoiGapBody: pending.ExpectedSoiGapBody,
+                        acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                        loopMemberInWindow: isLoopMemberInWindow);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
                     if (source == TrackingStationGhostSource.Segment
                         || GhostMapPresence.IsStateVectorGhostSource(source)
-                        || source == TrackingStationGhostSource.TerminalOrbit)
+                        || source == TrackingStationGhostSource.TerminalOrbit
+                        || source == TrackingStationGhostSource.EndpointTail)
                     {
                         if (toCreate == null)
                             toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string, double)>();
@@ -1507,6 +1548,7 @@ namespace Parsek
                         rec,
                         idx,
                         effUT,
+                        loopEpochShiftSeconds,
                         kvp.Value,
                         IsMaterializedForMapPresence(rec),
                         ref cachedStateVectorIndex,
@@ -1664,6 +1706,10 @@ namespace Parsek
 
                     if (soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
                     {
+                        // Loop-aware caller (state-vector orbit update pass): plan section 1.4.
+                        bool acceptTerminalOrbitForLoopSynthesis =
+                            loopEpochShiftSeconds != 0.0
+                            && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
                         TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                             traj,
                             false,
@@ -1677,7 +1723,11 @@ namespace Parsek
                             out _,
                             recordingIndex: idx,
                             allowSoiGapStateVectorFallback: true,
-                            expectedSoiGapBody: expectedSoiGapBody);
+                            expectedSoiGapBody: expectedSoiGapBody,
+                            acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                            // Keep updating a loop member's ghost alongside any persisted real
+                            // terminal vessel (mirrors the create-path bypass).
+                            loopMemberInWindow: loopEpochShiftSeconds != 0.0);
                         stateVectorCachedIndices[idx] = cached;
 
                         if (source == TrackingStationGhostSource.StateVectorSoiGap)
@@ -1701,8 +1751,15 @@ namespace Parsek
                         }
 
                         if (source == TrackingStationGhostSource.Segment
-                            || source == TrackingStationGhostSource.TerminalOrbit)
+                            || source == TrackingStationGhostSource.TerminalOrbit
+                            || source == TrackingStationGhostSource.EndpointTail)
                         {
+                            // EndpointTail populates a valid `segment` out-param exactly
+                            // like TerminalOrbit (the loop-synthesis no-segment fallback),
+                            // so consume it here too; otherwise a terminal-region loop
+                            // member resolving to EndpointTail would fall through to the
+                            // flat BracketPointAtUT path below. Matches the pending-create
+                            // (line ~1387) and orbit-update (line ~1922) callers.
                             GhostMapPresence.UpdateGhostOrbitForRecording(
                                 idx, segment,
                                 loopEpochShiftSeconds: loopEpochShiftSeconds);
@@ -1864,6 +1921,7 @@ namespace Parsek
             Recording rec,
             int idx,
             double currentUT,
+            double loopEpochShiftSeconds,
             (string body, double sma, double ecc) currentKey,
             bool alreadyMaterialized,
             ref int cachedStateVectorIndex,
@@ -1874,6 +1932,15 @@ namespace Parsek
             fallbackSegment = default(OrbitSegment);
             fallbackKey = default((string, double, double));
             changed = false;
+
+            // Loop-aware caller: a non-zero shift on a same-body terminal recording
+            // unlocks the no-segment terminal-orbit synthesis (plan section 1.6). The flag is
+            // computed from the new loopEpochShiftSeconds parameter so the line 1495 call
+            // site can pass the shift in unconditionally; non-loop calls (shift == 0)
+            // produce false and the helper stays byte-identical for non-loop members.
+            bool acceptTerminalOrbitForLoopSynthesis =
+                loopEpochShiftSeconds != 0.0
+                && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(rec);
 
             TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
                 rec,
@@ -1886,8 +1953,13 @@ namespace Parsek
                 out fallbackSegment,
                 out _,
                 out _,
-                recordingIndex: idx);
-            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
+                recordingIndex: idx,
+                acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                // A loop member at its terminal (no covering segment) keeps its synthesized
+                // terminal-orbit fallback even when a persisted real terminal vessel exists.
+                loopMemberInWindow: loopEpochShiftSeconds != 0.0);
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit
+                && fallbackSource != TrackingStationGhostSource.EndpointTail)
                 return false;
 
             fallbackKey = (
@@ -1910,7 +1982,9 @@ namespace Parsek
                 fields.RecordingId = rec?.RecordingId;
                 fields.RecordingIndex = idx;
                 fields.VesselName = rec?.VesselName;
-                fields.Source = "TerminalOrbit";
+                // Report the actual resolved source; this fallback accepts both
+                // TerminalOrbit and EndpointTail (see the acceptance check above).
+                fields.Source = fallbackSource.ToString();
                 fields.Branch = "(n/a)";
                 fields.Body = fallbackSegment.bodyName;
                 fields.Segment = fallbackSegment;
