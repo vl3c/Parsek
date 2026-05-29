@@ -280,6 +280,9 @@ namespace Parsek
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
                     MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
+                // Drop cached per-window re-aim adapters so a stale window transfer can't survive a
+                // recording / mission edit made from the Tracking Station (mirrors ParsekFlight).
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 ParsekLog.Verbose("Mission",
                     $"TS Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
             }

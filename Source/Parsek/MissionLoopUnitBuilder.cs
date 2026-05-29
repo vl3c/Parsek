@@ -326,7 +326,16 @@ namespace Parsek
                 //      varies between windows; the Hohmann tof (hence the recorded span) is constant.
                 if (!phaseLocked)
                 {
-                    List<OrbitSegment> missionSegments = GatherMemberOrbitSegments(committed, memberIndices);
+                    // Classify from the OWNER recording's segments ALONE (not all merged members): the
+                    // per-window re-aim substitution applies only to the owner (the earliest leg), so
+                    // what we classify must be exactly what we substitute. A mission whose
+                    // parking->transfer->arrival chain is split across recordings then classifies as
+                    // unsupported (the owner has no arrival leg) and stays faithful, rather than
+                    // half-applying re-aim to the owner while a separate arrival recording renders its
+                    // faithful orbit (review E). A single continuous interplanetary recording (the
+                    // common case) self-contains the whole chain.
+                    List<OrbitSegment> missionSegments =
+                        GatherMemberOrbitSegments(committed, new List<int> { ownerIndex });
                     ReaimMissionPlan plan = ReaimClassifier.Classify(missionSegments, bodyInfo);
                     if (plan.Supported)
                     {
