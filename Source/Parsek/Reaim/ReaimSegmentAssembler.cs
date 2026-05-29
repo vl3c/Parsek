@@ -7,21 +7,24 @@ namespace Parsek.Reaim
     // so the assembly ordering + UT coherence is unit-testable; the live caller supplies the
     // synthesized heliocentric transfer segment (built from ReaimTransferSynthesizer's Orbit).
     //
-    // TIMELINE MODEL (corrected after mapping the engine seam): the engine samples a loop member's
-    // trajectory at loopUT in [spanStart, spanEnd] (GhostPlaybackLogic.TryComputeSpanLoopUT: loopUT =
-    // spanStart + phaseWithinSpan), then the schedule + phaseAnchor map the live clock to the chosen
-    // window. So the assembled segments are RECORDED-SPAN-relative, NOT absolute: the parking orbit
-    // keeps its recorded UTs, the transfer occupies [recordedExitUT, recordedExitUT + tof], and the
-    // arrival is re-anchored after it. What varies PER WINDOW is only the transfer orbit's INERTIAL
-    // ORIENTATION (inc/LAN/argPe, aiming at the target's position at that window) and its epoch - which
-    // the live caller shifts into recorded-span time before calling here; the Hohmann tof is constant
-    // (depends only on the SMAs), so the span itself is fixed across windows.
+    // TIMELINE MODEL (recorded-span, recorded-tof): the engine samples a loop member's trajectory at
+    // loopUT in [spanStart, spanEnd] (GhostPlaybackLogic.TryComputeSpanLoopUT: loopUT = spanStart +
+    // phaseWithinSpan), then phaseAnchor maps the live clock to the chosen synodic window. So the
+    // assembled segments are RECORDED-SPAN-relative, NOT absolute: the parking orbit keeps its recorded
+    // UTs, the transfer occupies [recordedExitUT, recordedExitUT + tof], and the arrival is re-anchored
+    // after it. The caller passes the RECORDED transfer tof (recordedExitUT = the recorded SOI-exit, and
+    // tof = the recorded transfer duration), so the arrival re-anchors to the RECORDED arrival UT and the
+    // assembled span fits the fixed recorded loop span [spanStart, spanEnd] EXACTLY - no clipping (this
+    // is why re-aim uses the recorded tof, not an idealized Hohmann tof: a Hohmann tof != recorded tof
+    // would shift the arrival out of the fixed span). What varies PER WINDOW is only the transfer orbit's
+    // INERTIAL ORIENTATION (inc/LAN/argPe, aiming at the target's actual position at that window) and its
+    // epoch - which the live caller shifts into recorded-span time before calling here.
     //
     // v1 layout: [S0 recorded parking (recorded UTs)] [S2 transfer at [exitUT, exitUT+tof]] [S3 recorded
-    // arrival (re-anchored to start at exitUT+tof)]. The S1 ejection (a launch-body hyperbola anchored
-    // to the recorded SOI-exit state) is a deferred refinement; v1 accepts the tiny SOI-edge seam
-    // between the parking orbit and the heliocentric transfer start (both ~at the launch body,
-    // sub-pixel at map scale).
+    // arrival (re-anchored to start at exitUT+tof = the recorded arrival UT)]. The S1 ejection (a
+    // launch-body hyperbola anchored to the recorded SOI-exit state) is a deferred refinement; v1 accepts
+    // the tiny SOI-edge seam between the parking orbit and the heliocentric transfer start (both ~at the
+    // launch body, sub-pixel at map scale).
     internal static class ReaimSegmentAssembler
     {
         /// <summary>

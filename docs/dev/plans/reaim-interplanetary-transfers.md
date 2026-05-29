@@ -134,6 +134,29 @@ target is the body entered after it. (Salvaged: `AncestorChain` / `TryFindCommon
 
 ## 3. The pipeline
 
+> **REVISION (Phase 3c, C1 fix - SUPERSEDES the "Hohmann tof, not recorded (review M3)" decision below).**
+> The implemented model uses the **RECORDED transfer tof** and a **congruent-window** schedule, not the
+> idealized Hohmann tof + phase-angle window. Reason: a clean Opus review of the wiring found that placing
+> the transfer with the Hohmann tof while the loop span is fixed to the recorded duration shifts the arrival
+> leg out of the fixed recorded span `[spanStart, spanEnd]`, clipping or freezing the arrival for any
+> non-Hohmann recorded transfer (most real flights). The fix:
+> - **Windows are congruent to the recorded departure:** `D_k = RecordedDepartureUT + k * synodic`. After
+>   one synodic period the launch + target bodies return to the SAME relative configuration, so this needs
+>   only the two solar orbital periods (no Hohmann phase-angle math, no SMA/mu, no `IBodyInfo` extension).
+> - **tof = the recorded transfer tof**, fed to BOTH the per-window Lambert solve and the segment placement.
+>   The re-solved transfer is then *congruent* to the recorded one (identical shape, rotated in inertial
+>   space to point at the target's actual position at `D_k`) and arrives at the RECORDED arrival UT, so it
+>   fits the fixed recorded span exactly. Congruent geometry => a sane transfer at EVERY window (strictly
+>   better than Hohmann's ~7/36 hit rate at arbitrary departures).
+> - This is also more faithful to the player intent ("replay my transfer, shifted forward by whole synodic
+>   periods"). The `Reaim/` code (`ReaimWindowPlanner`, `ReaimPlaybackResolver`, `ReaimSegmentAssembler`)
+>   implements this; `TransferWindowMath`'s Hohmann phase/time helpers remain for a future porkchop option
+>   (deferred, section 12) but are not on the v1 scheduling path.
+>
+> The pseudo-pipeline below is the ORIGINAL Hohmann-model sketch; read it for the Lambert/patch/assemble
+> structure (still accurate), but substitute "recorded tof" for "Hohmann tof" and "D_k = recorded departure
+> + k*synodic" for the phase-angle window finder.
+
 Per looped re-aim mission, per window:
 
 ```

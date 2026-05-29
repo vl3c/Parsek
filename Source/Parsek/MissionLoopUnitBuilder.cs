@@ -330,18 +330,17 @@ namespace Parsek
                     ReaimMissionPlan plan = ReaimClassifier.Classify(missionSegments, bodyInfo);
                     if (plan.Supported)
                     {
-                        double aOrigin = bodyInfo.SemiMajorAxis(plan.LaunchBody);
-                        double aTarget = bodyInfo.SemiMajorAxis(plan.TargetBody);
-                        double muParent = bodyInfo.GravParameter(plan.CommonAncestor);
+                        // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
+                        // (the bodies' relative configuration recurs every synodic period), and each
+                        // window re-solves the transfer for the target's actual position using the
+                        // RECORDED tof - so the transfer stays congruent to the recorded one and fits
+                        // the recorded span exactly. Needs only the two solar orbital periods.
                         double pOrigin = bodyInfo.OrbitPeriod(plan.LaunchBody);
                         double pTarget = bodyInfo.OrbitPeriod(plan.TargetBody);
-                        double launchLon = bodyInfo.TrueLongitudeAtUTDegrees(plan.LaunchBody, referenceUT);
-                        double targetLon = bodyInfo.TrueLongitudeAtUTDegrees(plan.TargetBody, referenceUT);
-                        double currentPhase = TransferWindowMath.ClampDegrees360(targetLon - launchLon);
 
                         ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
-                            aOrigin, aTarget, muParent, pOrigin, pTarget, currentPhase,
-                            plan.RecordedDepartureUT, spanStartUT, spanEndUT, referenceUT);
+                            pOrigin, pTarget, plan.RecordedDepartureUT, plan.RecordedTransferTofSeconds,
+                            spanStartUT, spanEndUT, referenceUT);
 
                         if (sched.Valid)
                         {

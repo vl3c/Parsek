@@ -108,7 +108,7 @@ namespace Parsek.Reaim
             }
 
             if (!ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                    launchBody, targetBody, departureUT, schedule.HohmannTofSeconds, schedule.Prograde,
+                    launchBody, targetBody, departureUT, schedule.TofSeconds, schedule.Prograde,
                     out Orbit transferOrbit, out double soiEntryUT, out CelestialBody encounterBody,
                     out string failReason))
             {
@@ -123,7 +123,7 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, plan.RecordedDepartureUT - departureUT);
 
-            List<OrbitSegment> assembled = ReaimSegmentAssembler.Assemble(plan, transferSeg, schedule.HohmannTofSeconds);
+            List<OrbitSegment> assembled = ReaimSegmentAssembler.Assemble(plan, transferSeg, schedule.TofSeconds);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -133,7 +133,7 @@ namespace Parsek.Reaim
 
             ParsekLog.Verbose("ReaimPlayback",
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} " +
-                $"tof={schedule.HohmannTofSeconds.ToString("R", ic)} soiEntryUT={soiEntryUT.ToString("R", ic)} " +
+                $"tof={schedule.TofSeconds.ToString("R", ic)} soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count}");
             return new ReaimedTrajectory(inner, assembled);
         }

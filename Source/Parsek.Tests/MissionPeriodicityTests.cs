@@ -56,12 +56,6 @@ namespace Parsek.Tests
             public string ReferenceBodyName(string b) => Parent.TryGetValue(b ?? "", out string v) ? v : null;
             public double SoiRadius(string b) => Soi.TryGetValue(b ?? "", out double v) ? v : double.NaN;
             public double OrbitalVelocity(string b) => Velocity.TryGetValue(b ?? "", out double v) ? v : double.NaN;
-
-            public readonly Dictionary<string, double> Sma = new Dictionary<string, double>();
-            public readonly Dictionary<string, double> Mu = new Dictionary<string, double>();
-            public double SemiMajorAxis(string b) => Sma.TryGetValue(b ?? "", out double v) ? v : double.NaN;
-            public double GravParameter(string b) => Mu.TryGetValue(b ?? "", out double v) ? v : double.NaN;
-            public double TrueLongitudeAtUTDegrees(string b, double ut) => double.NaN;
         }
 
         // A stock-like Sun/Kerbin/Mun/Minmus/Duna fake.

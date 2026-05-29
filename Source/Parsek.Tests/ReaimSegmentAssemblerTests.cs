@@ -96,6 +96,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Assemble_WithRecordedTof_ArrivalLandsAtRecordedArrival_FitsSpan()
+        {
+            // Span coherence (review C1): when the caller passes the RECORDED transfer tof
+            // (tof == recordedArrivalUT - recordedDepartureUT), the re-anchored arrival lands back at
+            // its RECORDED start, so the assembled trajectory fits the fixed recorded loop span exactly
+            // (no clipping). This is the invariant that makes re-aim use the recorded tof, not Hohmann.
+            var parking = Seg("Kerbin", 100, 600, 300);     // ends at recorded SOI exit (600)
+            var arrival = Seg("Duna", 2600, 5000, 3000);    // recorded arrival starts at 2600
+            // Recorded: departure 600, recorded transfer [600,2600] -> recorded tof 2000, arrival start 2600.
+            var plan = SupportedPlan(parking, arrival, recordedDepartureUT: 600.0);
+            double recordedTof = 2600.0 - 600.0; // == arrival.startUT - departure
+
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+            var segs = ReaimSegmentAssembler.Assemble(plan, transfer, recordedTof);
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            // Transfer occupies the recorded transfer interval; arrival re-anchors to its RECORDED start.
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2600.0, segs[1].endUT, 3);
+            Assert.Equal(2600.0, segs[2].startUT, 3);   // == recorded arrival start (unchanged)
+            Assert.Equal(5000.0, segs[2].endUT, 3);     // == recorded arrival end -> fits the recorded span
+        }
+
+        [Fact]
         public void Assemble_UnsupportedOrDegenerate_ReturnsNull()
         {
             var parking = Seg("Kerbin", 100, 600, 300);

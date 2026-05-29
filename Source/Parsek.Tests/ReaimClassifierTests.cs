@@ -21,9 +21,6 @@ namespace Parsek.Tests
             public string ReferenceBodyName(string b) => Parent.TryGetValue(b ?? "", out var v) ? v : null;
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
-            public double SemiMajorAxis(string b) => double.NaN;
-            public double GravParameter(string b) => double.NaN;
-            public double TrueLongitudeAtUTDegrees(string b, double ut) => double.NaN;
         }
 
         private static Bodies StockParents()

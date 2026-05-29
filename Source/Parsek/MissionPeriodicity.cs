@@ -226,19 +226,6 @@ namespace Parsek
 
         /// <summary>Approximate orbital velocity in m/s (for the Phase 2 tolerance formula).</summary>
         double OrbitalVelocity(string bodyName);
-
-        /// <summary>Orbit semi-major axis in metres about the body's reference body (0/NaN for the
-        /// Sun or a body with no orbit). Re-aim window planning (Phase 3c).</summary>
-        double SemiMajorAxis(string bodyName);
-
-        /// <summary>Gravitational parameter (GM, m^3/s^2) of the body itself - used as the COMMON
-        /// PARENT mu for the heliocentric Hohmann/Lambert solve. Re-aim window planning (Phase 3c).</summary>
-        double GravParameter(string bodyName);
-
-        /// <summary>The body's heliocentric (parent-relative) true longitude in degrees [0,360) at
-        /// <paramref name="ut"/>: the angle of its position vector about the reference body, used to
-        /// compute the launch->target phase lead. NaN when the body has no orbit. Re-aim (Phase 3c).</summary>
-        double TrueLongitudeAtUTDegrees(string bodyName, double ut);
     }
 
     internal static class MissionPeriodicity
@@ -1820,35 +1807,6 @@ namespace Parsek
             if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
                 return double.NaN;
             return 2.0 * Math.PI * b.orbit.semiMajorAxis / period;
-        }
-
-        public double SemiMajorAxis(string bodyName)
-        {
-            CelestialBody b = Find(bodyName);
-            return b != null && b.orbit != null ? b.orbit.semiMajorAxis : double.NaN;
-        }
-
-        public double GravParameter(string bodyName)
-        {
-            CelestialBody b = Find(bodyName);
-            return b != null ? b.gravParameter : double.NaN;
-        }
-
-        public double TrueLongitudeAtUTDegrees(string bodyName, double ut)
-        {
-            CelestialBody b = Find(bodyName);
-            if (b == null || b.orbit == null)
-                return double.NaN;
-            // Parent-relative position; .xzy un-swizzles AliceWorld to a consistent world frame (same
-            // convention ReaimTransferSynthesizer uses). The longitude is the angle in the parent's
-            // x-z plane (the ecliptic plane in KSP's swizzled-then-unswizzled frame), measured from
-            // the +x axis. Only the launch->target DIFFERENCE is used, so the absolute zero is
-            // irrelevant as long as both bodies are measured identically.
-            Vector3d r = b.orbit.getRelativePositionAtUT(ut).xzy;
-            double deg = Math.Atan2(r.z, r.x) * (180.0 / Math.PI);
-            if (deg < 0.0)
-                deg += 360.0;
-            return deg;
         }
     }
 }
