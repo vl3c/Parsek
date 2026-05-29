@@ -1304,8 +1304,22 @@ namespace Parsek.InGameTests
 
             InGameAssert.IsTrue(checkedVessels > 0,
                 $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
-            InGameAssert.IsTrue(checkedParts > 0,
-                $"Expected to inspect at least one marker part, vessels={checkedVessels}");
+
+            // On-rails ghost map markers (the normal TRACKSTATION case) stay
+            // unloaded: GhostVesselLoadPatch blocks Vessel.GoOffRails for ghost map
+            // vessels, so KSP never instantiates live Part objects (v.parts stays
+            // empty). The aero/thermal/structural hardening in
+            // HardenGhostVesselPartPhysics acts on live Part instances, so there is
+            // nothing to assert when no marker loaded its parts. Treat that as
+            // not-applicable rather than a failure — the per-part +Inf assertions
+            // above still fire for any marker that DID instantiate live parts.
+            if (checkedParts == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: {checkedVessels} marker vessel(s) found, " +
+                    "none with instantiated live parts (on-rails markers stay unloaded in TRACKSTATION) — not applicable");
+                return;
+            }
 
             ParsekLog.Info("TestRunner",
                 $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
@@ -8431,6 +8445,70 @@ namespace Parsek.InGameTests
             });
             rec.MarkFilesDirty();
             return rec;
+        }
+
+        /// <summary>
+        /// Direct-invoke coverage for the §5.3 plan path plus the geometry
+        /// check xUnit cannot provide. Asserts
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording"/>
+        /// produces one leg with three points from a single Absolute
+        /// TrackSection, then converts each cached (lat, lon, alt) triple
+        /// through the LIVE <c>CelestialBody.GetWorldSurfacePosition</c> and
+        /// confirms it lands EXACTLY where the same call would put an
+        /// atmospheric marker (the Driver uses the identical conversion at
+        /// frame time, mirroring ParsekTrackingStation.cs:1199). This is the
+        /// geometry coverage the pure xUnit builder cannot exercise (no live
+        /// CelestialBody). The DDOL Driver / Vectrosity submission stays out
+        /// of scope of this test (per §5.3 the helper-in-isolation pattern);
+        /// a live playtest exercises the full draw.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Polyline builder produces one absolute-ascent leg; cached triples map to GetWorldSurfacePosition")]
+        public void GhostTrajectoryPolyline_AbsoluteAscent_BuildsLegThroughPoints()
+        {
+            var rec = new Recording { RecordingId = "ingame-polyline-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+            InGameAssert.AreEqual(3, legs[0].PointCount, "expected 3 cached lat/lon/alt triples");
+            InGameAssert.AreEqual("Kerbin", legs[0].bodyName, "expected leg body Kerbin");
+
+            // Geometry: each cached (lat, lon, alt) must reconstruct to the
+            // SAME world position GetWorldSurfacePosition would produce for
+            // the recorded triple (this is what the Driver does per frame).
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+            var leg = legs[0];
+            for (int i = 0; i < leg.PointCount; i++)
+            {
+                Vector3d expected = kerbin.GetWorldSurfacePosition(
+                    frames[i].latitude, frames[i].longitude, frames[i].altitude);
+                Vector3d actual = kerbin.GetWorldSurfacePosition(
+                    leg.lats[i], leg.lons[i], leg.alts[i]);
+                double dist = (expected - actual).magnitude;
+                InGameAssert.IsTrue(dist < 1e-3,
+                    "cached triple " + i + " must map to the recorded world position (dist="
+                    + dist.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "m)");
+            }
         }
     }
 

@@ -136,6 +136,7 @@ Key source files and what they do - read the relevant one before modifying:
 - `BallisticExtrapolator.cs` - extrapolates incomplete ballistic tails through atmosphere / terrain / SOI events to a terminal endpoint
 - `IncompleteBallisticSceneExitFinalizer.cs` - scene-exit seam that snapshots, extrapolates, validates, and applies extended tail results to recordings
 - `GhostVisualBuilder.cs` - ghost mesh building from vessel snapshots
+- `Display/GhostTrajectoryPolylineRenderer.cs` - map-view non-orbital ghost trajectory polyline (data structs + pure builder + cache, plus DDOL Driver MonoBehaviour that walks `RecordingStore.CommittedRecordings` for atmospheric / non-orbital phases). `[ERS-exempt]` (same physical-visibility scope as `DrawAtmosphericMarkers`). Always on (no setting / persistence / CustomParameterUI). Per-leg head-UT gate + contiguous-span merge; publishes `IsRenderingNonOrbitalLeg` so `GhostOrbitLinePatch` hides the overlapping proto orbit line and the marker paths (`ParsekUI.DrawMapMarkers` / `ClassifyAtmosphericMarkerSkip`) draw the non-proto marker during the phase. `Driver` carries `[DefaultExecutionOrder(-50)]` so its publish precedes the orbit patch read.
 - `TrajectoryMath.cs` - pure static math (sampling, interpolation, orbit search)
 - `VesselSpawner.cs` - vessel spawn/recover/snapshot utilities, resource manifest extraction (`ExtractResourceManifest`)
 - `ResourceManifest.cs` - `ResourceAmount` struct and `ComputeResourceDelta` for per-resource change computation (Phase 11)

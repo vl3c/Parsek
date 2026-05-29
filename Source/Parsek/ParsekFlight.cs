@@ -873,6 +873,13 @@ namespace Parsek
         // current set.
         private string lastLoopUnitSignature;
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver (mirrors <c>ParsekTrackingStation.CurrentCachedLoopUnits</c>).
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
@@ -1911,6 +1918,17 @@ namespace Parsek
         void OnDestroy()
         {
             Instance = null;
+            // #267: clear the static restore-reentrancy guard. The restore coroutines
+            // set it true and clear it in a finally, but Unity abandons a running
+            // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
+            // running the finally — so a mid-restore scene exit would leave the static
+            // flag stuck true, and the next scene's fresh ParsekFlight would inherit it
+            // (suppressing the OnFlightReady merge dialog and tripping
+            // ReentrancyGuard_ClearedAfterRestore). The next scene re-schedules its own
+            // restore from scratch, so clearing here is always safe.
+            if (restoringActiveTree)
+                ParsekLog.Info("Flight", "OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)");
+            restoringActiveTree = false;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
             Camera.onPreCull -= OnCameraPreCull;
             DisarmPostSwitchAutoRecord("ParsekFlight destroyed");

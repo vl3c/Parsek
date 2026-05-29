@@ -4251,8 +4251,13 @@ namespace Parsek
             orbitNode.AddValue("EPH", "0");
             orbitNode.AddValue("REF", bodyIndex.ToString(CultureInfo.InvariantCulture));
             snapshot.AddNode(orbitNode);
-            ParsekLog.Info("Spawner",
-                $"ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for " +
+            // VerboseRateLimited (not Info): this fires once per TryBackupSnapshot for
+            // every landed/splashed-vessel snapshot. The recorder's periodic snapshot
+            // refresh (FlightRecorder.RefreshBackupSnapshot, 10s-UT throttle) drives it
+            // ~1100+ times across a long time-warped recording. Routine normalization,
+            // not a notable event, so it must not log unconditionally.
+            ParsekLog.VerboseRateLimited("Spawner", "apply-surface-orbit",
+                () => $"ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple for " +
                 $"{(string.IsNullOrEmpty(logContext) ? "snapshot" : logContext)} on body " +
                 $"'{DescribeBodyForLog(body)}' (REF={bodyIndex})");
             return true;

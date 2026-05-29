@@ -229,6 +229,14 @@ namespace Parsek.InGameTests
                     ParsekScenario.IsReFlySessionActiveForQuickloadDiscard(),
                     "IsReFlySessionActiveForQuickloadDiscard should report false with no marker / no pending invoke");
 
+                // ShouldShowOnFlightReadyMergeDialog also requires !restoringActiveTree.
+                // A leaked #267 guard (e.g. a restore coroutine aborted by a prior
+                // scene change without running its finally) silently suppresses the
+                // dialog and this control would time out with an opaque message.
+                // Assert the dependency explicitly so a regression points at the guard.
+                InGameAssert.IsFalse(ParsekFlight.restoringActiveTree,
+                    "restoringActiveTree must be false for the positive control — a leaked #267 guard suppresses the OnFlightReady merge dialog");
+
                 MaybeShowDialogMethod.Invoke(flight, null);
 
                 yield return WaitForPopupDialog(DialogName, 2f);
