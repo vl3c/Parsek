@@ -1047,12 +1047,11 @@ namespace Parsek.Display
             /// shared line drawn once per leg via <c>drawStart</c>/<c>drawEnd</c>
             /// range slicing does NOT work, because <c>Draw3D()</c> zeroes
             /// every vertex outside the current window on each call. Uses
-            /// <c>MapView.DottedLinesMaterial</c> for the dashed style
-            /// (verified as a public static stock property; closes OQ#1 /
-            /// §2.3), falling back to <c>MapView.OrbitLinesMaterial</c> when
-            /// the dotted material is unavailable. Width is a fine 2.5f (thinner
-            /// than the 5f stock orbit arc) so the dashes read as crisp segments
-            /// rather than a thick feathered brush stroke. A per-line colour overlay via
+            /// <c>MapView.OrbitLinesMaterial</c> (the SOLID stock orbit-line
+            /// material, NOT the dotted/dashed one) with the same 5f width and
+            /// distance/direction fade, so each leg reads as one unbroken
+            /// orbit-style line with no dashes, gaps, or interruptions (mirrors
+            /// <c>OrbitRendererBase.MakeLine</c>). A per-line colour overlay via
             /// <see cref="VectorLine.SetColor(Color32)"/> tints the polyline
             /// so it reads as distinct from the Keplerian arcs without
             /// mutating the shared material's colour (which would dim every
@@ -1068,22 +1067,32 @@ namespace Parsek.Display
                 var line = new VectorLine(
                     "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
                     points,
-                    2.5f,
+                    5f,
                     LineType.Continuous);
-                Material dashedMat = MapView.DottedLinesMaterial;
+                // Match the stock map orbit line exactly: a SOLID continuous line
+                // via MapView.OrbitLinesMaterial (NOT the dotted/dashed material),
+                // the same 5f width and the same distance/direction fade, so the
+                // ghost's non-orbital path reads as one unbroken orbit-style line
+                // with no dashes, gaps, or interruptions. Mirrors
+                // OrbitRendererBase.MakeLine. _FadeStrength / _FadeSign are global
+                // GameSettings values set on the SHARED material (idempotent:
+                // stock sets the same values every time it makes an orbit line),
+                // so this does not disturb real orbit lines.
                 Material orbitMat = MapView.OrbitLinesMaterial;
-                Material chosen = dashedMat != null ? dashedMat : orbitMat;
-                if (chosen != null)
+                if (orbitMat != null)
                 {
-                    line.texture = chosen.mainTexture;
-                    line.material = chosen;
+                    line.texture = orbitMat.mainTexture;
+                    line.material = orbitMat;
+                    orbitMat.SetFloat("_FadeStrength", GameSettings.ORBIT_FADE_STRENGTH);
+                    orbitMat.SetFloat("_FadeSign",
+                        GameSettings.ORBIT_FADE_DIRECTION_INV ? -1f : 1f);
                 }
                 line.continuousTexture = true;
                 line.UpdateImmediate = true;
-                // Near-opaque so the dashes read as crisp segments rather than a
-                // faint feathered brush stroke; the thin 2.5f width keeps the
-                // dotted texture from blooming at the line edges.
-                line.SetColor(new Color32(180, 220, 255, 235));
+                // Soft-blue tint so the ghost path stays distinguishable from real
+                // orbit lines while sharing their solid style. Per-line vertex
+                // colour, so the shared OrbitLinesMaterial is left untouched.
+                line.SetColor(new Color32(150, 200, 255, 255));
                 return line;
             }
 
