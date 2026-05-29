@@ -351,20 +351,30 @@ namespace Parsek.Display
         }
 
         /// <summary>
-        /// Pure leg-construction (§1.3). Walks the recording's TrackSections
-        /// dispatching per-section by referenceFrame, then folds in the
-        /// pre-first / post-last flat Recording.Points as body-grouped
-        /// fallback legs. Points whose UT falls inside any OrbitSegment
-        /// interval are dropped (the orbit-arc covers them).
+        /// Pure leg-construction (§1.3). Collects every non-orbital sample from
+        /// the recording's TrackSections (dispatched per referenceFrame) plus the
+        /// flat Recording.Points outside any section, drops samples inside an
+        /// OrbitSegment interval (the orbit-arc covers them), then MERGES the
+        /// remaining samples into one leg per contiguous non-orbital span.
         ///
-        /// Per-section policy:
+        /// The merge is the important part: the recorder fragments a single burn
+        /// into many short env-class sections (e.g. circularization or the
+        /// trans-Munar relight each split into 5-7 sub-second ExoBallistic<->
+        /// ExoPropulsive sections). One-leg-per-section plus the head-UT draw gate
+        /// would then show only a short stub under the playback head. Merging
+        /// contiguous samples (splitting only on a body change or an OrbitSegment
+        /// coast falling between two samples) makes the whole burn render as one
+        /// continuous line from the end of the previous orbit arc to the start of
+        /// the next.
+        ///
+        /// Per-section source policy:
         /// - Absolute: walk section.frames (body-fixed lat/lon/alt).
         /// - Relative with non-null bodyFixedFrames: walk section.bodyFixedFrames.
-        /// - Relative WITHOUT bodyFixedFrames: SKIP the leg entirely;
-        ///   reading section.frames[i].latitude/longitude/altitude as
-        ///   lat/lon/alt would place the leg deep inside the planet (the
-        ///   CLAUDE.md RELATIVE-frame footgun: those fields are metre
-        ///   offsets along the anchor's local x/y/z, NOT lat/lon/alt).
+        /// - Relative WITHOUT bodyFixedFrames: SKIP; reading
+        ///   section.frames[i].latitude/longitude/altitude as lat/lon/alt would
+        ///   place the leg deep inside the planet (the CLAUDE.md RELATIVE-frame
+        ///   footgun: those fields are metre offsets along the anchor's local
+        ///   x/y/z, NOT lat/lon/alt).
         /// </summary>
         internal static List<LegPolyline> BuildLegsForRecording(Recording rec)
         {
@@ -374,11 +384,13 @@ namespace Parsek.Display
             var orbitalIntervals = ComputeOrbitalCoverIntervals(rec.OrbitSegments);
 
             int skippedRelativeWithoutBodyFixed = 0;
-            int builtAbsoluteSections = 0;
-            int builtRelativeSections = 0;
-            int builtFallbackLegs = 0;
+            int sectionPointCount = 0;
+            int flatPointCount = 0;
 
-            // (1) Walk TrackSections in order.
+            // (1) Collect every non-orbital sample into one stream. Per-section
+            //     dispatch + the orbital-interval filter are unchanged; the merge
+            //     into one leg per contiguous span happens in step (2).
+            var pts = new List<TrajectoryPoint>();
             if (rec.TrackSections != null)
             {
                 for (int s = 0; s < rec.TrackSections.Count; s++)
@@ -392,49 +404,98 @@ namespace Parsek.Display
                         continue;
                     }
                     var filtered = FilterPointsForLeg(source, section.startUT, section.endUT, orbitalIntervals);
-                    if (filtered.Count < 2) continue;
-
-                    string bodyName = ResolveBodyForPoints(filtered);
-                    if (string.IsNullOrEmpty(bodyName)) continue;
-
-                    legs.Add(BuildLegFromBodyFixedPoints(filtered, bodyName));
-                    if (section.referenceFrame == ReferenceFrame.Absolute)
-                        builtAbsoluteSections++;
-                    else
-                        builtRelativeSections++;
+                    pts.AddRange(filtered);
+                    sectionPointCount += filtered.Count;
                 }
             }
 
-            // (2) Walk Recording.Points entries OUTSIDE every section's
-            //     [startUT, endUT] range (flat Absolute fallback).
+            // Flat Recording.Points OUTSIDE every section range (and outside any
+            // orbital interval) fold into the same stream (pre/post-section
+            // fallback coverage).
             if (rec.Points != null && rec.Points.Count > 0)
             {
-                var outsidePoints = new List<TrajectoryPoint>(rec.Points.Count);
                 for (int i = 0; i < rec.Points.Count; i++)
                 {
                     var p = rec.Points[i];
                     if (IsInsideAnySection(p.ut, rec.TrackSections)) continue;
                     if (IsInsideAnyOrbitalInterval(p.ut, orbitalIntervals)) continue;
-                    outsidePoints.Add(p);
-                }
-                foreach (var bodyRun in GroupConsecutiveByBody(outsidePoints))
-                {
-                    if (bodyRun.Count < 2) continue;
-                    string bodyName = bodyRun[0].bodyName;
-                    if (string.IsNullOrEmpty(bodyName)) continue;
-                    legs.Add(BuildLegFromBodyFixedPoints(bodyRun, bodyName));
-                    builtFallbackLegs++;
+                    pts.Add(p);
+                    flatPointCount++;
                 }
             }
 
+            // (2) UT-sort and split into legs. A new leg starts on a body change
+            //     or when an OrbitSegment coast lies between two consecutive
+            //     non-orbital samples (the orbit arc owns that span). Otherwise
+            //     contiguous same-body samples MERGE into one leg, so the head-UT
+            //     draw gate shows a whole non-orbital span (the full burn arc)
+            //     instead of a single fragmented section.
+            pts.Sort((a, b) => a.ut.CompareTo(b.ut));
+            var run = new List<TrajectoryPoint>();
+            string runBody = null;
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var p = pts[i];
+                if (run.Count > 0)
+                {
+                    var prev = run[run.Count - 1];
+                    if (p.ut == prev.ut) continue; // dedupe shared section-boundary samples
+                    bool breakRun =
+                        !string.Equals(p.bodyName, runBody, StringComparison.Ordinal)
+                        || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
+                    if (breakRun)
+                    {
+                        FlushPolylineRun(run, runBody, legs);
+                        run.Clear();
+                    }
+                }
+                if (run.Count == 0) runBody = p.bodyName;
+                run.Add(p);
+            }
+            FlushPolylineRun(run, runBody, legs);
+
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline build: rec={0} legs={1} (absSection={2} relSection={3} fallback={4} skippedRelNoBodyFixed={5})",
+                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4})",
                     rec.RecordingId,
-                    legs.Count, builtAbsoluteSections, builtRelativeSections,
-                    builtFallbackLegs, skippedRelativeWithoutBodyFixed));
+                    legs.Count, sectionPointCount, flatPointCount,
+                    skippedRelativeWithoutBodyFixed));
 
             return legs;
+        }
+
+        /// <summary>
+        /// Appends a merged non-orbital run to <paramref name="legs"/> as one leg
+        /// (downsampled, endpoints preserved). Runs shorter than two points or
+        /// with no resolvable body are dropped.
+        /// </summary>
+        private static void FlushPolylineRun(
+            List<TrajectoryPoint> run, string body, List<LegPolyline> legs)
+        {
+            if (run == null || run.Count < 2) return;
+            if (string.IsNullOrEmpty(body)) return;
+            legs.Add(BuildLegFromBodyFixedPoints(run, body));
+        }
+
+        /// <summary>
+        /// True when an OrbitSegment coast interval overlaps the OPEN span between
+        /// two consecutive non-orbital samples, i.e. an orbit arc owns the gap so
+        /// the polyline must break into a new leg there instead of drawing a chord
+        /// across the orbit. Touching exactly at an interval endpoint (a burn leg
+        /// meeting the orbit-arc boundary) does not count. Pure / xUnit-testable.
+        /// </summary>
+        internal static bool OrbitalIntervalBetween(
+            double a, double b, List<(double startUT, double endUT)> intervals)
+        {
+            if (intervals == null) return false;
+            double lo = a < b ? a : b;
+            double hi = a < b ? b : a;
+            for (int i = 0; i < intervals.Count; i++)
+            {
+                if (intervals[i].endUT > lo && intervals[i].startUT < hi)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
@@ -584,46 +645,6 @@ namespace Parsek.Display
                 result.Add(p);
             }
             return result;
-        }
-
-        /// <summary>
-        /// Groups a flat point list into consecutive-same-body sublists so
-        /// each emitted leg is body-coherent. The flat
-        /// <c>Recording.Points</c> list can span multiple bodies across an
-        /// SOI crossing that occurred outside any TrackSection.
-        /// </summary>
-        internal static List<List<TrajectoryPoint>> GroupConsecutiveByBody(
-            List<TrajectoryPoint> points)
-        {
-            var groups = new List<List<TrajectoryPoint>>();
-            if (points == null || points.Count == 0) return groups;
-            string currentBody = null;
-            List<TrajectoryPoint> current = null;
-            for (int i = 0; i < points.Count; i++)
-            {
-                var p = points[i];
-                if (current == null
-                    || !string.Equals(p.bodyName ?? "", currentBody ?? "", StringComparison.Ordinal))
-                {
-                    if (current != null && current.Count > 0) groups.Add(current);
-                    current = new List<TrajectoryPoint>();
-                    currentBody = p.bodyName;
-                }
-                current.Add(p);
-            }
-            if (current != null && current.Count > 0) groups.Add(current);
-            return groups;
-        }
-
-        private static string ResolveBodyForPoints(List<TrajectoryPoint> points)
-        {
-            if (points == null) return null;
-            for (int i = 0; i < points.Count; i++)
-            {
-                if (!string.IsNullOrEmpty(points[i].bodyName))
-                    return points[i].bodyName;
-            }
-            return null;
         }
 
         /// <summary>

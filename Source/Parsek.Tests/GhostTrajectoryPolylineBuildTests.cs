@@ -492,6 +492,72 @@ namespace Parsek.Tests
             Assert.Equal("Kerbin", legs[0].bodyName);
         }
 
+        // --- Contiguous-span merge (burn fragmented into many env-class sections) ---
+
+        [Fact]
+        public void BuildLegs_ContiguousAbsoluteSections_MergeIntoOneLeg()
+        {
+            // The recorder fragments a burn into several short same-body Absolute
+            // sections (env-class flip-flop). They must MERGE into one leg so the
+            // whole burn renders continuously, not one stub per fragment under the
+            // head-UT draw gate.
+            var builder = new RecordingBuilder("rec-burn").WithRecordingId("rec-burn");
+            builder.AddTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                100.0, 110.0, frames: new List<TrajectoryPoint> { MakePoint(100.0, 0.0, 0.0, 100000.0), MakePoint(110.0, 0.1, 0.0, 101000.0) }, sampleRateHz: 10f);
+            builder.AddTrackSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                110.0, 120.0, frames: new List<TrajectoryPoint> { MakePoint(110.0, 0.1, 0.0, 101000.0), MakePoint(120.0, 0.2, 0.0, 102000.0) }, sampleRateHz: 10f);
+            builder.AddTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                120.0, 130.0, frames: new List<TrajectoryPoint> { MakePoint(120.0, 0.2, 0.0, 102000.0), MakePoint(130.0, 0.3, 0.0, 103000.0) }, sampleRateHz: 10f);
+            var rec = new Recording { RecordingId = "rec-burn" };
+            foreach (var ts in builder.GetTrackSections()) rec.TrackSections.Add(ts);
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            Assert.Single(legs);
+            Assert.Equal("Kerbin", legs[0].bodyName);
+        }
+
+        [Fact]
+        public void BuildLegs_NonOrbitalSpansSplitByOrbit_SeparateLegs()
+        {
+            // Two non-orbital spans separated by an orbital coast stay separate
+            // legs (the orbit arc owns the gap; the polyline must not chord it).
+            var builder = new RecordingBuilder("rec-split").WithRecordingId("rec-split");
+            builder.AddTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                100.0, 118.0, frames: new List<TrajectoryPoint> { MakePoint(100.0, 0.0, 0.0, 100000.0), MakePoint(118.0, 0.1, 0.0, 101000.0) }, sampleRateHz: 10f);
+            builder.AddTrackSection(SegmentEnvironment.ExoPropulsive, ReferenceFrame.Absolute, TrackSectionSource.Active,
+                302.0, 320.0, frames: new List<TrajectoryPoint> { MakePoint(302.0, 0.2, 0.0, 102000.0), MakePoint(320.0, 0.3, 0.0, 103000.0) }, sampleRateHz: 10f);
+            var rec = new Recording { RecordingId = "rec-split" };
+            foreach (var ts in builder.GetTrackSections()) rec.TrackSections.Add(ts);
+            rec.OrbitSegments.Add(new OrbitSegment { startUT = 120.0, endUT = 300.0, bodyName = "Kerbin", semiMajorAxis = 700000.0 });
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            Assert.Equal(2, legs.Count);
+        }
+
+        [Fact]
+        public void OrbitalIntervalBetween_IntervalInGap_True()
+        {
+            var iv = new List<(double startUT, double endUT)> { (120.0, 300.0) };
+            Assert.True(GhostTrajectoryPolylineRenderer.OrbitalIntervalBetween(110.0, 310.0, iv));
+        }
+
+        [Fact]
+        public void OrbitalIntervalBetween_NoIntervalInGap_False()
+        {
+            var iv = new List<(double startUT, double endUT)> { (120.0, 300.0) };
+            Assert.False(GhostTrajectoryPolylineRenderer.OrbitalIntervalBetween(305.0, 310.0, iv));
+        }
+
+        [Fact]
+        public void OrbitalIntervalBetween_TouchingEndpoint_False()
+        {
+            // A burn sample exactly at the orbit-arc boundary is contiguous, not split.
+            var iv = new List<(double startUT, double endUT)> { (120.0, 300.0) };
+            Assert.False(GhostTrajectoryPolylineRenderer.OrbitalIntervalBetween(300.0, 320.0, iv));
+        }
+
         // --- Static visibility filter (MAJOR fix: polyline is a static
         //     full-path bridge; it must NOT inherit the per-head-UT gates
         //     OrbitSegmentActive / NativeIconActive) ---
