@@ -807,7 +807,20 @@ namespace Parsek.Display
 
                 // Pull the per-frame filter inputs ONCE, outside the loop.
                 var suppressed = GhostMapPresence.CachedTrackingStationSuppressedIds;
-                int targetLayer = MapView.Draw3DLines ? 24 : 31;
+                // Layer 31 ALWAYS, matching stock map orbit lines. KSP's
+                // OrbitRendererBase keeps layerMask=31 (never reassigned) and
+                // puts every orbit VectorLine on it (decompiled
+                // OrbitRendererBase: `protected int layerMask = 31;` +
+                // `l.rectTransform.gameObject.layer = layerMask;`), regardless of
+                // MapView.Draw3DLines. The earlier `Draw3DLines ? 24 : 31` put the
+                // polyline on layer 24 (the map-NODE/icon layer, used by
+                // MapNode.Create(..., 24, ...)) whenever 3D lines were on: the
+                // flight map camera happens to render layer 24, but the Tracking
+                // Station map camera does not, so the polyline drew (drawn=1 in the
+                // log) yet was invisible in the TS. Since the polyline always uses
+                // Draw3D(), it belongs on the same 3D orbit-line layer stock uses in
+                // both scenes.
+                const int targetLayer = 31;
                 double currentUT = Planetarium.GetUniversalTime();
                 int drawFrame = Time.frameCount;
 
