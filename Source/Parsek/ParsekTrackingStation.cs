@@ -28,6 +28,17 @@ namespace Parsek
     {
         private const string Tag = "TrackingStation";
         private const float LifecycleCheckIntervalSec = 2.0f;
+        // While a Mission loop is replaying, the create/remove pass must run far more
+        // often than the 2 s steady-state cadence: a looped mission hands off between
+        // members (each one's proto-vessel orbit line) every cycle, and at the 2 s
+        // cadence the OUTGOING member's orbit line is gone for up to ~2 s before the
+        // INCOMING member's is created -- the visible handoff gap (both the proto orbit
+        // line and, during a member's orbital phase, the only thing on screen). The
+        // per-tick scan is light (resolve sources + update a few existing ghost orbits);
+        // the expensive create/destroy only fires at actual boundaries regardless of
+        // cadence, so a short interval just makes the handoff prompt. Only applied when
+        // a loop is active (UnitsByOwner non-empty), so non-loop TS keeps the 2 s cadence.
+        private const float LoopLifecycleCheckIntervalSec = 0.25f;
         private const float GhostPopupWidth = 180f;
         private const float MaterializedFocusRetryDurationSec = 20.0f;
         private const float MaterializedFocusRetryIntervalSec = 0.1f;
@@ -240,7 +251,13 @@ namespace Parsek
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
 
             if (Time.time < nextLifecycleCheckTime) return;
-            nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
+            // A short cadence while a Mission loop is active so member-to-member orbit-line
+            // handoffs are prompt (no ~2 s blackout); the steady 2 s cadence otherwise.
+            bool loopActive = cachedLoopUnits != null
+                && cachedLoopUnits.UnitsByOwner != null
+                && cachedLoopUnits.UnitsByOwner.Count > 0;
+            nextLifecycleCheckTime = Time.time
+                + (loopActive ? LoopLifecycleCheckIntervalSec : LifecycleCheckIntervalSec);
 
             GhostMapPresence.UpdateTrackingStationGhostLifecycle(cachedLoopUnits);
         }
