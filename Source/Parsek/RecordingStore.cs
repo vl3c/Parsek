@@ -7609,6 +7609,11 @@ namespace Parsek
             return TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, points);
         }
 
+        internal static int DropNonMonotonicTrajectoryPoints(List<TrajectoryPoint> points)
+        {
+            return TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points);
+        }
+
         internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)
         {
             return TrajectoryTextSidecarCodec.ContainsRelativeTrackSections(tracks);

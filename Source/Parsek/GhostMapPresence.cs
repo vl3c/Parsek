@@ -6160,6 +6160,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the map-view trajectory polyline is currently drawing the
+        /// non-orbital leg of the recording that owns ghost vessel
+        /// <paramref name="pid"/>. <c>GhostOrbitLinePatch</c> uses this to hide the
+        /// proto-vessel orbit LINE (via <c>line.active = false</c>, keeping the
+        /// renderer enabled so it re-shows automatically) while the polyline owns
+        /// the phase, so the two visuals do not overlap and the orbit does not
+        /// churn under warp. Maps pid to RecordingId via <see cref="vesselPidToRecordingId"/>
+        /// and queries the Driver's published set. No-op when the polyline feature
+        /// is off (the set is empty), so stock orbit behaviour is unchanged.
+        /// </summary>
+        internal static bool IsPolylineOwningGhostPhase(uint pid)
+        {
+            return vesselPidToRecordingId.TryGetValue(pid, out string recId)
+                && Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recId);
+        }
+
+        /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
         internal static void UpdateGhostOrbitForRecording(

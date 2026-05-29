@@ -165,6 +165,10 @@ namespace Parsek
         }
         private bool _useAnchorTaxonomy = true;
 
+        // The map-view non-orbital ghost trajectory polyline is always on (no
+        // setting). It renders unconditionally in the DDOL Driver; there is no
+        // useGhostTrajectoryPolyline field, CustomParameterUI, or persistence.
+
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
         /// §14, §18 Phase 8). When true, kraken-event single-frame

@@ -229,6 +229,49 @@ namespace Parsek.Patches
                 return;
             }
 
+            // Polyline ownership (PR #970): while the map-view trajectory polyline
+            // draws this recording's CURRENT non-orbital leg, hide the orbit LINE so
+            // the two visuals do not overlap (and the orbit does not churn under
+            // warp). Keep the renderer ENABLED (do NOT touch orbitRenderer.enabled)
+            // so this Postfix keeps running every frame and re-shows the line
+            // automatically once the polyline relinquishes the phase. line.active is
+            // the real visibility control (same idiom as the atmosphere / out-of-
+            // bounds suppression below). The vessel icon (OBJ) stays so the ghost's
+            // position is still marked. Takes precedence over the atmosphere /
+            // body-frame branches, and works identically in flight and the Tracking
+            // Station because it is driven by the renderer's own LateUpdate, not the
+            // orbit-updater cadence.
+            if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
+            {
+                // Hide the orbit line AND the proto-vessel icon, and mark the icon
+                // suppressed (same as the below-atmosphere branch). During a
+                // non-orbital phase the proto orbit is meaningless and
+                // GhostOrbitIconClampPatch already suppresses the icon off-arc,
+                // which makes ClassifyAtmosphericMarkerSkip draw the non-proto
+                // trajectory marker. Leaving the proto icon as OBJ here would draw
+                // BOTH the proto icon and the non-proto marker (the overlapping
+                // icons seen in playtest), so the proto icon is hidden and the
+                // non-proto marker is the sole position indicator for the phase.
+                // Renderer stays enabled, so this re-shows next frame once the
+                // polyline relinquishes (visible-body-frame / terminal branches
+                // restore OBJ/ALL + remove the suppression).
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "polyline-owns-phase",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere: false,
+                    hasBounds: false,
+                    Planetarium.GetUniversalTime(),
+                    double.NaN,
+                    double.NaN);
+                return;
+            }
+
             // Atmosphere suppression — shared by both segment-based and terminal-orbit ghosts.
             // Below the atmosphere boundary, Keplerian orbits are meaningless (drag makes them
             // flicker wildly). Suppress the orbit line and icon, letting the trajectory-interpolated
@@ -271,6 +314,37 @@ namespace Parsek.Patches
                         currentUT,
                         startUT,
                         endUT);
+                    return;
+                }
+
+                // Stale-segment guard: the per-frame orbit reseed lags the head by up to
+                // the refresh interval (~0.5 s), so right after a propulsive->orbital
+                // handoff the proto-vessel still carries the PREVIOUS segment's orbit
+                // elements for a moment. The body-frame bounds above span consecutive
+                // same-body segments, so the line would otherwise re-show that STALE
+                // (pre-burn) arc until the reseed catches up (the "old orbit then the
+                // correct one" handoff flicker). Keep the line hidden (the always-on
+                // trajectory polyline / non-proto marker covers the gap) until the APPLIED
+                // SEGMENT bounds actually cover the head, so only the correct orbit is ever
+                // drawn.
+                if (GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                        pid, currentUT, out double segStartUT, out double segEndUT)
+                    && (currentUT > segEndUT || currentUT < segStartUT))
+                {
+                    line.active = false;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "stale-segment-awaiting-reseed",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: true,
+                        currentUT,
+                        segStartUT,
+                        segEndUT);
                     return;
                 }
 

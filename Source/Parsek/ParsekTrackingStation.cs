@@ -70,6 +70,16 @@ namespace Parsek
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
         private string lastLoopUnitSignature;
 
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver: it has no direct handle to the per-scene controller's
+        /// private <c>cachedLoopUnits</c>, so it looks the controller up
+        /// via FindObjectOfType and reads through this accessor. The field
+        /// itself stays private.
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
+
         internal enum AtmosphericMarkerSkipReason
         {
             None,
@@ -481,7 +491,14 @@ namespace Parsek
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
                 uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
-                if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                // The native proto icon is NOT visible when the icon is suppressed OR
+                // when the trajectory polyline owns this recording's non-orbital phase
+                // (GhostOrbitLinePatch hides the proto icon then), so the atmospheric
+                // marker must still draw as the sole position indicator (otherwise an
+                // airless descent shows the polyline with no ghost icon).
+                if (ghostPid == 0
+                    || (!GhostMapPresence.IsIconSuppressed(ghostPid)
+                        && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
                     return AtmosphericMarkerSkipReason.NativeIconActive;
             }
             if (rec == null) return AtmosphericMarkerSkipReason.NullRecording;
