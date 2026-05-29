@@ -277,6 +277,21 @@ namespace Parsek.Display
             => currentlyActive && lastDrawnFrame != drawFrame;
 
         /// <summary>
+        /// Per-leg head-UT visibility gate: a non-orbital leg is drawn only
+        /// while the ghost's current playback position (<paramref name="headUT"/>,
+        /// in the recording's own timeline) lies within the leg's recorded
+        /// [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>] span
+        /// (inclusive). Outside that span the leg is skipped and the
+        /// deactivation sweep hides it, so the polyline tracks the moving ghost
+        /// (visible only where the ghost currently is) instead of painting the
+        /// whole recorded path continuously. Pure so the contract is xUnit
+        /// testable without Unity.
+        /// </summary>
+        internal static bool ShouldDrawLegAtHeadUT(
+            double legStartUT, double legEndUT, double headUT)
+            => headUT >= legStartUT && headUT <= legEndUT;
+
+        /// <summary>
         /// Sets <c>vectorLine.active = false</c> on every cached leg line that
         /// is currently active. Called from the Driver's feature-OFF early
         /// return, where the per-frame draw + deactivation sweep do not run, so
@@ -824,6 +839,7 @@ namespace Parsek.Display
                 int frameSkippedStatic = 0;
                 int frameSkippedNoLegs = 0;
                 int frameSkippedNoBody = 0;
+                int frameLegsHeadUtGated = 0;
                 for (int recordingIndex = 0; recordingIndex < committed.Count; recordingIndex++)
                 {
                     var rec = committed[recordingIndex];
@@ -834,16 +850,15 @@ namespace Parsek.Display
                         continue;
                     }
 
-                    // STATIC visibility filter only (MAJOR fix). The polyline
-                    // is a full-path bridge drawn for the whole recording
-                    // regardless of where the playback head currently is, so
-                    // it must NOT inherit the per-head-UT gates
-                    // (OrbitSegmentActive / NativeIconActive) that
-                    // ClassifyAtmosphericMarkerSkip applies -- those would
-                    // blink the entire polyline out whenever the head enters
-                    // an orbital phase or while an un-suppressed ghost
-                    // ProtoVessel exists. Keep only the recording-level static
-                    // subset: debris / no-trajectory / suppression.
+                    // RECORDING-level static filter: debris / no-trajectory /
+                    // suppression. This is intentionally NOT the
+                    // ClassifyAtmosphericMarkerSkip per-head-UT recording gate
+                    // (OrbitSegmentActive / NativeIconActive), which would blink
+                    // the WHOLE recording's polyline out the moment a ghost
+                    // ProtoVessel or orbit line exists. Instead the polyline is
+                    // gated per-LEG on the head UT (in the leg loop below), so
+                    // it follows the ghost through each non-orbital phase and
+                    // hands off cleanly to the orbit arc during orbital phases.
                     var staticSkip = ClassifyPolylineStaticSkip(rec, suppressed);
                     if (staticSkip != PolylineStaticSkipReason.None)
                     {
@@ -853,7 +868,12 @@ namespace Parsek.Display
 
                     // renderHidden gate (loop-unit visibility): hide the
                     // polyline for a loop unit the marker pass is hiding too.
-                    GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    // The returned headUT is the ghost's CURRENT playback
+                    // position in this recording's own timeline (loopUT for a
+                    // loop member, liveUT otherwise); the per-leg gate below
+                    // uses it so the line follows the ghost instead of painting
+                    // the whole recorded path at once.
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         recordingIndex,
                         rec.StartUT,
                         rec.EndUT,
@@ -882,6 +902,21 @@ namespace Parsek.Display
                     for (int li = 0; li < set.legs.Length; li++)
                     {
                         var leg = set.legs[li];
+
+                        // Head-UT gate: draw a leg only while the ghost's
+                        // current playback position (headUT) is within the leg's
+                        // recorded [startUT, endUT] span. Outside it (an orbital
+                        // phase, or another leg's window) the leg is skipped and
+                        // the deactivation sweep below hides it, so the line
+                        // tracks the moving ghost and a multi-leg recording shows
+                        // only the single leg it is currently flying instead of
+                        // every leg at once.
+                        if (!ShouldDrawLegAtHeadUT(leg.startUT, leg.endUT, headUT))
+                        {
+                            frameLegsHeadUtGated++;
+                            continue;
+                        }
+
                         CelestialBody body = ResolveBodyByName(scene, leg.bodyName);
                         if (body == null)
                         {
@@ -968,10 +1003,10 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} deactivated={7} cached={8}",
+                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
                         frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
-                        frameDeactivated, polylineCache.Count),
+                        frameLegsHeadUtGated, frameDeactivated, polylineCache.Count),
                     5.0);
             }
 
@@ -1015,8 +1050,9 @@ namespace Parsek.Display
             /// <c>MapView.DottedLinesMaterial</c> for the dashed style
             /// (verified as a public static stock property; closes OQ#1 /
             /// §2.3), falling back to <c>MapView.OrbitLinesMaterial</c> when
-            /// the dotted material is unavailable. Width matches the stock
-            /// orbit-arc width (5f). A per-line colour overlay via
+            /// the dotted material is unavailable. Width is a fine 2.5f (thinner
+            /// than the 5f stock orbit arc) so the dashes read as crisp segments
+            /// rather than a thick feathered brush stroke. A per-line colour overlay via
             /// <see cref="VectorLine.SetColor(Color32)"/> tints the polyline
             /// so it reads as distinct from the Keplerian arcs without
             /// mutating the shared material's colour (which would dim every
@@ -1032,7 +1068,7 @@ namespace Parsek.Display
                 var line = new VectorLine(
                     "ParsekGhostTrajectoryPolyline-" + recordingId + "-leg" + legIndex,
                     points,
-                    5f,
+                    2.5f,
                     LineType.Continuous);
                 Material dashedMat = MapView.DottedLinesMaterial;
                 Material orbitMat = MapView.OrbitLinesMaterial;
@@ -1044,7 +1080,10 @@ namespace Parsek.Display
                 }
                 line.continuousTexture = true;
                 line.UpdateImmediate = true;
-                line.SetColor(new Color32(180, 220, 255, 160));
+                // Near-opaque so the dashes read as crisp segments rather than a
+                // faint feathered brush stroke; the thin 2.5f width keeps the
+                // dotted texture from blooming at the line edges.
+                line.SetColor(new Color32(180, 220, 255, 235));
                 return line;
             }
 

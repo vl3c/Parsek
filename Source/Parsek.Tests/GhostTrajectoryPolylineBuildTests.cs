@@ -613,6 +613,43 @@ namespace Parsek.Tests
                 currentlyActive: true, lastDrawnFrame: 0, drawFrame: 42));
         }
 
+        // --- Per-leg head-UT gate (line follows the ghost) ---
+
+        [Fact]
+        public void ShouldDrawLegAtHeadUT_HeadInsideSpan_Draws()
+        {
+            // Ghost is currently flying this leg's window: show it.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                legStartUT: 100.0, legEndUT: 200.0, headUT: 150.0));
+        }
+
+        [Fact]
+        public void ShouldDrawLegAtHeadUT_HeadBeforeSpan_Hidden()
+        {
+            // Ghost has not reached this leg yet (e.g. a later phase): hide.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                legStartUT: 100.0, legEndUT: 200.0, headUT: 50.0));
+        }
+
+        [Fact]
+        public void ShouldDrawLegAtHeadUT_HeadAfterSpan_Hidden()
+        {
+            // Ghost has moved past this leg (e.g. into an orbital phase): hide.
+            Assert.False(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                legStartUT: 100.0, legEndUT: 200.0, headUT: 250.0));
+        }
+
+        [Fact]
+        public void ShouldDrawLegAtHeadUT_HeadOnBoundaries_Draws()
+        {
+            // Inclusive at both ends so the leg does not flicker off for a frame
+            // exactly at its first / last recorded sample.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                legStartUT: 100.0, legEndUT: 200.0, headUT: 100.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                legStartUT: 100.0, legEndUT: 200.0, headUT: 200.0));
+        }
+
         // --- Helpers ---
 
         private static TrajectoryPoint MakePoint(
