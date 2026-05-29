@@ -328,6 +328,16 @@ Four distinct in-game test failures from the 2026-05-28 batch run, root-caused a
 
 ---
 
+## Done - v0.10.0 Snapshot capture flooded KSP.log with two INFO lines per backup
+
+- Investigation 2026-05-29 (`Kerbal Space Program/KSP.log`). `[INFO][Spawner] ApplySurfaceOrbitToSnapshot: rewrote ORBIT to canonical surface tuple ...` and `[INFO][KerbalsModule] ReverseMapCrewNamesInSnapshot: rewrote N stand-in crew name(s) ...` each logged 1121 times (~2242 INFO lines) for a single landed vessel ('Jumping Flea') in one session. Both fire inside `VesselSpawner.TryBackupSnapshot` (the crew remap and the surface-orbit normalization of the backed-up snapshot).
+- **Root cause (frequency is legitimate, not a per-frame loop):** the dominant `TryBackupSnapshot` caller is `FlightRecorder.RefreshBackupSnapshot(v, "periodic")` (`FlightRecorder.cs`), invoked from the per-recorded-sample path and gated by a 10 s-UT throttle (`ShouldRefreshSnapshot`, `snapshotRefreshIntervalUT = 10.0`). The session was a ~6.75 game-hour recording (1840 points, UT 46701606 -> 46725917) captured under heavy time warp, so the 10 s-UT throttle elapsed ~1121 times. Confirmed: 1121 snapshots < 1840 recorded points < 2431 (UT span / 10 s), and the recorder's own `OnPhysicsFrame sample` verbose fired only 23 times (rate-limited), ruling out a per-real-frame loop. The orbit rewrite (a landed/splashed snapshot) and crew remap (a seated stand-in) are correct routine work; only the unconditional INFO logging was wrong.
+- **Fix:** both lines demoted from `ParsekLog.Info` to `ParsekLog.VerboseRateLimited` (shared keys `apply-surface-orbit` / `reverse-map-crew`, default 5 s real-time interval), using the `Func<string>` overload so the message is not built on suppressed calls. The zero-rewrite crew case stays silent as before. Existing assertions (`Bug278FinalizeLimboTests` ORBIT log, `ReverseMapCrewNamesInSnapshotTests` rewrote-1 log) still pass: both test classes enable verbose and reset rate-limit state per test, and `VerboseRateLimited` emits on the first call per key.
+- **Note (not changed):** the 10 s-UT throttle is UT-based, so under time warp the refresh fires far more often in real-time than the "every ~10 s" intent implies. Making it hybrid (UT + real-time) would cut the snapshot work itself, but that changes recording fidelity and is out of scope here; left as a possible follow-up.
+- **Status:** CLOSED 2026-05-29.
+
+---
+
 ## Done - v0.9.3 Fast-Forward / Warp to Departure landed exactly at the event instead of before it
 
 - Request 2026-05-22. Fast-Forward (recordings table + timeline) jumped to a recording's launch UT exactly, and Warp to Departure (Real Spawn Control) jumped to the ghost's departure UT exactly, dropping the player into the event with no setup time. Rewind already restores `RewindToLaunchLeadTimeSeconds` (15 s) of pre-launch lead; the forward jumps should match. Warp to Spawn must stay precise at the spawn moment.

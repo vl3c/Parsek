@@ -71,6 +71,10 @@ All notable changes to Parsek are documented here.
 - A recording whose saved trajectory had a small backwards time step (a glitch at a relative-to-absolute tracking handoff) now loads and replays cleanly. The recorder no longer writes such a point, and any recording already saved with one drops it on load.
 - The post-flight Merge/Discard dialog could be silently suppressed after you returned to flight from another scene while a recording restore was in progress. The restore guard that caused this is now cleared on the scene change, so the dialog appears as expected.
 
+### Log Hygiene
+
+- Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
+
 ### Known limitations
 
 - Looping a mission to a body that orbits the Sun (an interplanetary target like Duna) does not yet line up the replay with the live sky, so the transfer may not reach the target; it keeps relaunching as before until a future update adds the interplanetary launch window. Single-body missions and missions to a moon of the launch body (Mun, Minmus) now do relaunch at the correct window. For a moon mission the transfer reaches the moon, though the orbit may still sit slightly off the launch site (closed in a later update).
