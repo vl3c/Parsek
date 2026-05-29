@@ -217,6 +217,13 @@ Source/Parsek/LoadTimeSweep.cs
 # reference for removal.
 Source/Parsek/RevertInterceptor.cs
 
+# --- Ghost trajectory map polyline (docs/dev/plans/map-trajectory-polyline.md) ---
+# GhostTrajectoryPolylineRenderer's DDOL Driver MonoBehaviour walks
+# RecordingStore.CommittedRecordings raw to draw physical-visibility map
+# geometry for atmospheric / non-orbital phases. Same scope as
+# DrawAtmosphericMarkers; no ledger / ERS routing applies.
+Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+
 # --- Ghost trajectory rendering pipeline (Phase 2) ---
 # RenderSessionState.RebuildFromMarker (ghost-trajectory-rendering-design
 # §7.1 / §6.3 / §18 Phase 2) reads marker.OriginChildRecordingId — the

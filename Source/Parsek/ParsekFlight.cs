@@ -873,6 +873,13 @@ namespace Parsek
         // current set.
         private string lastLoopUnitSignature;
         private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver (mirrors <c>ParsekTrackingStation.CurrentCachedLoopUnits</c>).
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
