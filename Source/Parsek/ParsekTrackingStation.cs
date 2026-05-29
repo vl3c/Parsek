@@ -491,7 +491,14 @@ namespace Parsek
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
                 uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
-                if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                // The native proto icon is NOT visible when the icon is suppressed OR
+                // when the trajectory polyline owns this recording's non-orbital phase
+                // (GhostOrbitLinePatch hides the proto icon then), so the atmospheric
+                // marker must still draw as the sole position indicator (otherwise an
+                // airless descent shows the polyline with no ghost icon).
+                if (ghostPid == 0
+                    || (!GhostMapPresence.IsIconSuppressed(ghostPid)
+                        && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
                     return AtmosphericMarkerSkipReason.NativeIconActive;
             }
             if (rec == null) return AtmosphericMarkerSkipReason.NullRecording;
