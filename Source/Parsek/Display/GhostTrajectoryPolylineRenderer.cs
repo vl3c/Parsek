@@ -1051,11 +1051,11 @@ namespace Parsek.Display
             /// material, NOT the dotted/dashed one) with the same 5f width and
             /// distance/direction fade, so each leg reads as one unbroken
             /// orbit-style line with no dashes, gaps, or interruptions (mirrors
-            /// <c>OrbitRendererBase.MakeLine</c>). A per-line colour overlay via
-            /// <see cref="VectorLine.SetColor(Color32)"/> tints the polyline
-            /// so it reads as distinct from the Keplerian arcs without
-            /// mutating the shared material's colour (which would dim every
-            /// stock orbit line).
+            /// <c>OrbitRendererBase.MakeLine</c>). A per-line vertex colour via
+            /// <see cref="VectorLine.SetColor(Color)"/> is set to the EXACT stock
+            /// vessel orbit-line grey so the polyline matches the ghost's own
+            /// orbit arcs; being a per-line colour it does not mutate the shared
+            /// material (which would dim every stock orbit line).
             /// </summary>
             private static VectorLine BuildLegVectorLine(
                 string recordingId, int legIndex, int pointCount)
@@ -1089,10 +1089,18 @@ namespace Parsek.Display
                 }
                 line.continuousTexture = true;
                 line.UpdateImmediate = true;
-                // Soft-blue tint so the ghost path stays distinguishable from real
-                // orbit lines while sharing their solid style. Per-line vertex
-                // colour, so the shared OrbitLinesMaterial is left untouched.
-                line.SetColor(new Color32(150, 200, 255, 255));
+                // EXACT stock vessel orbit-line colour so the polyline is
+                // indistinguishable from the ghost's own orbit arcs: KSP's
+                // OrbitRenderer seeds an unfocused vessel with
+                // SetColor(new Color(0.71,0.71,0.71,1)) and draws the line at
+                // orbitColor = nodeColor * 0.5 (alpha preserved) with lineOpacity
+                // 1 (OrbitRenderer.GetOrbitColour / OrbitRendererBase), i.e. the
+                // mid-grey below. Per-line vertex colour, so the shared
+                // OrbitLinesMaterial is left untouched.
+                Color stockNode = new Color(0.71f, 0.71f, 0.71f, 1f);
+                Color stockOrbit = stockNode * 0.5f;
+                stockOrbit.a = stockNode.a;
+                line.SetColor(stockOrbit);
                 return line;
             }
 
