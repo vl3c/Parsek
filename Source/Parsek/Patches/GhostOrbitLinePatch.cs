@@ -243,8 +243,21 @@ namespace Parsek.Patches
             // orbit-updater cadence.
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
+                // Hide the orbit line AND the proto-vessel icon, and mark the icon
+                // suppressed (same as the below-atmosphere branch). During a
+                // non-orbital phase the proto orbit is meaningless and
+                // GhostOrbitIconClampPatch already suppresses the icon off-arc,
+                // which makes ClassifyAtmosphericMarkerSkip draw the non-proto
+                // trajectory marker. Leaving the proto icon as OBJ here would draw
+                // BOTH the proto icon and the non-proto marker (the overlapping
+                // icons seen in playtest), so the proto icon is hidden and the
+                // non-proto marker is the sole position indicator for the phase.
+                // Renderer stays enabled, so this re-shows next frame once the
+                // polyline relinquishes (visible-body-frame / terminal branches
+                // restore OBJ/ALL + remove the suppression).
                 line.active = false;
-                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 LogOrbitLineDecision(
                     pid,
                     "polyline-owns-phase",
