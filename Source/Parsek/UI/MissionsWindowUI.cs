@@ -117,16 +117,12 @@ namespace Parsek
 
         // Mission-header loop-period cell width (lives on the header row, not the table columns).
         // The "Loop" label + checkbox are emitted as bare siblings (no fixed width), so the only
-        // sized loop control here is the period cell.
+        // sized loop control here is the period cell. The cell is content-sized (it sizes to the
+        // read-only "~P (basis)" / "~P (basis, varies)" label or the editable value+unit), and a
+        // FlexibleSpace after it right-pins the Watch / Rewind buttons against the Archive checkbox.
+        // That gives a long scheduled label ("~32.2d (Mun window, varies)") the whole middle of the
+        // header bar to render on one line, instead of wrapping inside a fixed-width box.
         private const float ColW_Period = 90f;
-        // Fixed width of the whole loop-period cell on the mission header bar, sized to fit the widest
-        // state (the read-only phase-locked "~P (basis)" label, e.g. "~6.4d (Mun window)" /
-        // "~14.5d (Minmus window)"). EVERY period-cell state is wrapped in a container of this width
-        // (the narrower editable value+unit pads the remainder with a FlexibleSpace), so the Watch /
-        // Rewind buttons that follow start at the same x on every mission row. 160 fits the longest
-        // basis label and leaves room in the (fixed-width) header right block for the "Warp to..."
-        // button added before Loop.
-        private const float ColW_PeriodLocked = 160f;
 
         // How a Mission row list is ordered. Index = the per-tree index number (clones of a
         // tree share it); Name = alphabetic mission name; StartTime = the mission span start.
@@ -767,6 +763,12 @@ namespace Parsek
             // period + its basis label have room to render on a single line here.
             DrawMissionLoopPeriodCell(mission, view, periodicity);
 
+            // Right-pin Watch / Rewind against the Archive checkbox: this FlexibleSpace takes all the
+            // slack between the (content-sized) period cell and the buttons, so the period label gets
+            // the whole middle of the header bar to render on one line, and Watch / Rewind sit at the
+            // right edge next to Archive (same x across every mission row).
+            GUILayout.FlexibleSpace();
+
             DrawMissionWatchButton(mission, view);
 
             // Rewind / Forward button (right of Watch): a plain fixed-width button (matching the
@@ -782,10 +784,6 @@ namespace Parsek
             parentUI.GetRecordingsTableUI().DrawMissionRewindForwardButton(
                 rootIdx >= 0 ? rewindCommitted[rootIdx] : null,
                 rootIdx, Planetarium.GetUniversalTime(), parentUI.Flight, ColW_HeaderButton);
-
-            // FlexibleSpace fills the gap between the buttons and the right-pinned Archive checkbox
-            // (the buttons are narrower than the data-column block they sit in).
-            GUILayout.FlexibleSpace();
 
             // Rightmost Archive checkbox: marks this mission for the list-hiding the Archive header
             // toggle controls. Centered in the column like the recordings window's cell, and under
@@ -1657,11 +1655,12 @@ namespace Parsek
 
             string controlName = "MissionLoopPeriod_" + mission.Id;
 
-            // FIXED-width period cell (always ColW_PeriodLocked, the widest state) so the Watch /
-            // Rewind buttons that follow start at the SAME x on every mission row, regardless of the
-            // cell's content (a wide read-only "~P (basis)" locked label vs a narrow editable
-            // value+unit). A trailing FlexibleSpace pads the unused width inside the container.
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_PeriodLocked));
+            // Content-sized period cell: it sizes to whichever state renders (a wide read-only
+            // "~P (basis)" / "~P (basis, varies)" locked label, or a narrow editable value+unit). The
+            // caller emits a FlexibleSpace right after this cell to right-pin the Watch / Rewind
+            // buttons against the Archive checkbox, so a long scheduled label gets the whole middle of
+            // the header bar and renders on one line instead of wrapping inside a fixed-width box.
+            GUILayout.BeginHorizontal();
 
             // Phase-locked + constrained (supported, P != MinCycleDuration): the cadence is
             // determined by physics (quantized to a multiple of P), not freely editable, so show the
@@ -1806,10 +1805,6 @@ namespace Parsek
             GUI.enabled = true;
             }
 
-            // Pad the rest of the fixed-width cell so the period cell always occupies exactly
-            // ColW_PeriodLocked and the following Watch / Rewind buttons stay column-aligned across
-            // every mission row regardless of which period-cell state rendered above.
-            GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
         }
 
