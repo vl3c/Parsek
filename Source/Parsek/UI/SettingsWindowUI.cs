@@ -407,7 +407,7 @@ namespace Parsek
 
             bool useGhostTrajectoryPolyline = GUILayout.Toggle(s.useGhostTrajectoryPolyline,
                 new GUIContent(" Trajectory polyline in map view",
-                    "Draw a dashed polyline through every recorded non-orbital phase of every active ghost in map view (Tracking Station and flight), bridging the gaps between orbit-line arcs."));
+                    "In map view (Tracking Station and flight), draw a solid orbit-style line tracing each active ghost's current non-orbital phase (ascent, burns, transfer, descent), handing off to the real orbit line during orbital phases."));
             if (useGhostTrajectoryPolyline != s.useGhostTrajectoryPolyline)
             {
                 // The property setter persists the value and logs the GhostMap

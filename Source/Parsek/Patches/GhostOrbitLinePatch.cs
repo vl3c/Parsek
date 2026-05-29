@@ -229,6 +229,36 @@ namespace Parsek.Patches
                 return;
             }
 
+            // Polyline ownership (PR #970): while the map-view trajectory polyline
+            // draws this recording's CURRENT non-orbital leg, hide the orbit LINE so
+            // the two visuals do not overlap (and the orbit does not churn under
+            // warp). Keep the renderer ENABLED (do NOT touch orbitRenderer.enabled)
+            // so this Postfix keeps running every frame and re-shows the line
+            // automatically once the polyline relinquishes the phase. line.active is
+            // the real visibility control (same idiom as the atmosphere / out-of-
+            // bounds suppression below). The vessel icon (OBJ) stays so the ghost's
+            // position is still marked. Takes precedence over the atmosphere /
+            // body-frame branches, and works identically in flight and the Tracking
+            // Station because it is driven by the renderer's own LateUpdate, not the
+            // orbit-updater cadence.
+            if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
+            {
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                LogOrbitLineDecision(
+                    pid,
+                    "polyline-owns-phase",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere: false,
+                    hasBounds: false,
+                    Planetarium.GetUniversalTime(),
+                    double.NaN,
+                    double.NaN);
+                return;
+            }
+
             // Atmosphere suppression — shared by both segment-based and terminal-orbit ghosts.
             // Below the atmosphere boundary, Keplerian orbits are meaningless (drag makes them
             // flicker wildly). Suppress the orbit line and icon, letting the trajectory-interpolated

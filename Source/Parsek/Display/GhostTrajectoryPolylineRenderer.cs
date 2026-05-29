@@ -462,10 +462,13 @@ namespace Parsek.Display
                 if (run.Count > 0)
                 {
                     var prev = run[run.Count - 1];
-                    if (p.ut == prev.ut) continue; // dedupe shared section-boundary samples
+                    bool sameBody = string.Equals(p.bodyName, runBody, StringComparison.Ordinal);
+                    // Dedupe a sample shared at a section boundary ONLY within the same
+                    // body, so an SOI crossing recorded at a single UT still starts a new
+                    // leg below instead of being silently dropped.
+                    if (sameBody && p.ut == prev.ut) continue;
                     bool breakRun =
-                        !string.Equals(p.bodyName, runBody, StringComparison.Ordinal)
-                        || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
+                        !sameBody || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
                     if (breakRun)
                     {
                         FlushPolylineRun(run, runBody, legs);
