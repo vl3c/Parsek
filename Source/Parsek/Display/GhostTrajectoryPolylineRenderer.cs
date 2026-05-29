@@ -941,6 +941,20 @@ namespace Parsek.Display
 
                         leg.vectorLine.rectTransform.gameObject.layer = targetLayer;
 
+                        // Stable scaled-space placement: zero the line's transform
+                        // every frame (matches OrbitRendererBase's REDRAW path,
+                        // which sets OrbitLine.rectTransform.position = zero before
+                        // each redraw). The points3 we feed are ABSOLUTE ScaledSpace
+                        // positions, so the line's GameObject transform must be the
+                        // identity; otherwise the mesh inherits its parent/canvas
+                        // transform and visibly drifts as the map camera pans
+                        // (it is not anchored in space). Position is the load-bearing
+                        // reset; rotation/scale are pinned defensively.
+                        var lineXform = leg.vectorLine.rectTransform;
+                        lineXform.position = Vector3.zero;
+                        lineXform.rotation = Quaternion.identity;
+                        lineXform.localScale = Vector3.one;
+
                         // CRITICAL geometry: convert each recorded body-fixed
                         // (lat, lon, alt) to a LIVE world position via the same
                         // CelestialBody.GetWorldSurfacePosition call the
