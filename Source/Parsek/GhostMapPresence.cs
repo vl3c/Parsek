@@ -5973,6 +5973,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Returns true (and disables the proto-vessel orbit renderer) when the
+        /// map-view trajectory polyline is currently drawing this recording's
+        /// non-orbital leg, so the orbit-update caller skips the orbit and the two
+        /// visuals do not overlap. Returns false otherwise (the caller applies the
+        /// orbit normally, which re-enables the renderer). Tied to the polyline
+        /// being active, so it is a no-op when the polyline feature is off (the
+        /// published set is empty) and stock orbit behaviour is unchanged.
+        /// [ERS-exempt] reason: this file already reads CommittedRecordings for map
+        /// presence; here it only maps the recording index to its RecordingId to
+        /// query the polyline's active-leg set.
+        /// </summary>
+        private static bool TrySuppressOrbitForActivePolylineLeg(int recordingIndex, Vessel vessel)
+        {
+            var committed = RecordingStore.CommittedRecordings;
+            if (committed == null || recordingIndex < 0 || recordingIndex >= committed.Count)
+                return false;
+            string recId = committed[recordingIndex]?.RecordingId;
+            if (recId == null
+                || !Parsek.Display.GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recId))
+                return false;
+
+            if (vessel != null && vessel.orbitRenderer != null && vessel.orbitRenderer.enabled)
+            {
+                vessel.orbitRenderer.enabled = false;
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "polyline-orbit-suppress|{0}", recordingIndex),
+                    string.Format(ic,
+                        "Hid proto-vessel orbit for recording #{0}: trajectory polyline owns the current non-orbital phase",
+                        recordingIndex),
+                    5.0);
+            }
+            return true;
+        }
+
+        /// <summary>
         /// Update orbit for a recording-index ghost when the ghost traverses orbit segments.
         /// </summary>
         internal static void UpdateGhostOrbitForRecording(
@@ -5983,6 +6018,15 @@ namespace Parsek
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
+
+            // Polyline ownership: if the trajectory polyline is drawing this
+            // recording's non-orbital leg this frame, hide the proto-vessel orbit
+            // line and skip the update so the two do not overlap (and the orbit
+            // does not churn under warp on top of the polyline). The next update
+            // re-enables it once the head re-enters an orbital segment.
+            if (TrySuppressOrbitForActivePolylineLeg(recordingIndex, vessel))
+                return;
+
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
                 loopEpochShiftSeconds);
             lifecycleUpdatedThisTick++;
@@ -6680,6 +6724,12 @@ namespace Parsek
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return false;
+
+            // Polyline ownership (same rule as UpdateGhostOrbitForRecording): hide
+            // the orbit line + skip the state-vector update while the polyline draws
+            // this recording's non-orbital leg. Treated as handled (return true).
+            if (TrySuppressOrbitForActivePolylineLeg(recordingIndex, vessel))
+                return true;
 
             if (vessel.orbitDriver == null)
             {

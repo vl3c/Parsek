@@ -58,6 +58,29 @@ namespace Parsek.Display
             new Dictionary<string, LegPolylineSet>(StringComparer.Ordinal);
 
         /// <summary>
+        /// Recordings whose non-orbital polyline leg is being drawn THIS frame
+        /// (head-UT inside a leg). Published for <c>GhostMapPresence</c> so it can
+        /// hide that ghost's proto-vessel orbit LINE while the polyline owns the
+        /// phase (otherwise the lingering orbit and the polyline overlap, and the
+        /// orbit churns under warp). Cleared at the top of every <c>LateUpdate</c>,
+        /// so it is empty whenever the polyline is not actively drawing (feature
+        /// off, not in map view, other scene) and the stock orbit behaviour is
+        /// left untouched. The orbit updater is throttled (~0.5 s), far slower
+        /// than this per-frame publish, so no double-buffering is needed.
+        /// </summary>
+        private static readonly HashSet<string> activeLegRecordings =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// True when the trajectory polyline is currently drawing a non-orbital
+        /// leg for <paramref name="recordingId"/> (see
+        /// <see cref="activeLegRecordings"/>). Read by <c>GhostMapPresence</c> to
+        /// suppress the overlapping proto-vessel orbit line for that phase.
+        /// </summary>
+        internal static bool IsRenderingNonOrbitalLeg(string recordingId)
+            => recordingId != null && activeLegRecordings.Contains(recordingId);
+
+        /// <summary>
         /// Test-only accessor: returns the live cache dictionary so the
         /// xUnit suite can assert on cache contents after a refresh.
         /// </summary>
@@ -783,6 +806,12 @@ namespace Parsek.Display
 
             void LateUpdate()
             {
+                // Publish-set for GhostMapPresence orbit suppression: clear FIRST,
+                // before any early return, so it reflects only recordings whose
+                // non-orbital leg actually draws this frame (empty when the
+                // polyline is off / not in map view / wrong scene).
+                activeLegRecordings.Clear();
+
                 // Scene gate: v1 ships TRACKSTATION + FLIGHT only (§1.1).
                 var scene = HighLogic.LoadedScene;
                 if (scene != GameScenes.TRACKSTATION && scene != GameScenes.FLIGHT)
@@ -1008,7 +1037,13 @@ namespace Parsek.Display
                         set.legs[li] = leg;
                         anyDrawn = true;
                     }
-                    if (anyDrawn) frameDrawn++;
+                    if (anyDrawn)
+                    {
+                        frameDrawn++;
+                        // Tell GhostMapPresence the polyline owns this recording's
+                        // current phase so it hides the overlapping orbit line.
+                        activeLegRecordings.Add(rec.RecordingId);
+                    }
                 }
 
                 // Deactivation sweep: hide any cached leg line NOT drawn this
