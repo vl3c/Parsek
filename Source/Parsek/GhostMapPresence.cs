@@ -5608,8 +5608,8 @@ namespace Parsek
                 // Loop-shift the orbit + body-frame cache at create-time so the orbit-line
                 // and arc-clip patches see correctly-shifted bounds on the very first frame.
                 // Without this the create writes shift=0 bounds and the next lifecycle pass
-                // (up to LifecycleCheckIntervalSec=2s later) refreshes them, producing a
-                // 2-second orbit-line blackout at TS entry for any loop-shifted member.
+                // (up to LifecycleCheckIntervalSec later) refreshes them, producing an
+                // orbit-line blackout at TS entry for any loop-shifted member.
                 double tsLoopEpochShift = currentUT - effUT;
                 Vessel v = CreateGhostVesselFromSource(
                     i,
@@ -7575,7 +7575,7 @@ namespace Parsek
             // no-segment terminal-orbit synthesis at raw recorded UTs would seed at the wrong
             // position (the PR #967 class). The proto-vessel for a no-segment loop member
             // comes up on the first loop-aware refresh tick after TS entry (within
-            // LifecycleCheckIntervalSec = 2.0s), not at startup.
+            // LifecycleCheckIntervalSec), not at startup.
             // loopMemberInWindow (passed true only by the loop-aware lifecycle create pass)
             // lets a looped member draw its map ghost alongside a persisted real terminal
             // vessel; false on the startup / pure-predicate paths keeps them unchanged.

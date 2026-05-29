@@ -27,18 +27,17 @@ namespace Parsek
     public class ParsekTrackingStation : MonoBehaviour
     {
         private const string Tag = "TrackingStation";
-        private const float LifecycleCheckIntervalSec = 2.0f;
-        // While a Mission loop is replaying, the create/remove pass must run far more
-        // often than the 2 s steady-state cadence: a looped mission hands off between
-        // members (each one's proto-vessel orbit line) every cycle, and at the 2 s
-        // cadence the OUTGOING member's orbit line is gone for up to ~2 s before the
-        // INCOMING member's is created -- the visible handoff gap (both the proto orbit
-        // line and, during a member's orbital phase, the only thing on screen). The
-        // per-tick scan is light (resolve sources + update a few existing ghost orbits);
-        // the expensive create/destroy only fires at actual boundaries regardless of
-        // cadence, so a short interval just makes the handoff prompt. Only applied when
-        // a loop is active (UnitsByOwner non-empty), so non-loop TS keeps the 2 s cadence.
-        private const float LoopLifecycleCheckIntervalSec = 0.25f;
+        // Cadence of the TS ghost create/remove + orbit-refresh pass. Kept short so the
+        // map stays responsive: a looped mission hands off between members (each one's
+        // proto-vessel orbit line) every cycle, and at the old 2 s cadence the OUTGOING
+        // member's orbit line was gone for up to ~2 s before the INCOMING member's was
+        // created -- a visible handoff blackout (during a member's orbital phase the
+        // orbit line is the ONLY thing on screen). A short interval makes that handoff
+        // prompt, and also makes ordinary (non-loop) recordings refresh promptly. This is
+        // cheap to run often: a no-mutation tick only re-scans sources and reseeds a few
+        // already-tracked ghost orbits; the expensive create/destroy + stock vessel-list
+        // rebuild fire only at actual boundaries regardless of cadence.
+        private const float LifecycleCheckIntervalSec = 0.25f;
         private const float GhostPopupWidth = 180f;
         private const float MaterializedFocusRetryDurationSec = 20.0f;
         private const float MaterializedFocusRetryIntervalSec = 0.1f;
@@ -225,7 +224,7 @@ namespace Parsek
         {
             // Detect live recording commits (merge dialog, approval dialog) and force
             // an immediate lifecycle tick so proto-vessel ghosts appear without waiting
-            // for the normal 2-second interval.
+            // for the next LifecycleCheckIntervalSec tick.
             // NOTE: count-based detection has a blind spot if a recording is removed and
             // another added in the same frame (net zero change). This can't happen in TS
             // today — removals only occur via clear-all which resets the entire session.
@@ -251,13 +250,7 @@ namespace Parsek
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
 
             if (Time.time < nextLifecycleCheckTime) return;
-            // A short cadence while a Mission loop is active so member-to-member orbit-line
-            // handoffs are prompt (no ~2 s blackout); the steady 2 s cadence otherwise.
-            bool loopActive = cachedLoopUnits != null
-                && cachedLoopUnits.UnitsByOwner != null
-                && cachedLoopUnits.UnitsByOwner.Count > 0;
-            nextLifecycleCheckTime = Time.time
-                + (loopActive ? LoopLifecycleCheckIntervalSec : LifecycleCheckIntervalSec);
+            nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
             GhostMapPresence.UpdateTrackingStationGhostLifecycle(cachedLoopUnits);
         }
