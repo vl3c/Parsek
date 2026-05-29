@@ -28,7 +28,7 @@ namespace Parsek.Reaim
         {
             public long Window;
             public bool Resolved;          // a cache entry exists for this window
-            public IPlaybackTrajectory Adapter; // the re-aimed adapter, or null on a miss (=> faithful)
+            public List<OrbitSegment> Segments; // the re-aimed segment list, or null on a miss (=> faithful)
         }
 
         // Keyed by the member recording id (stable across frames; the committed index can shuffle).
@@ -58,9 +58,42 @@ namespace Parsek.Reaim
             double currentUT,
             out long windowIndex)
         {
+            if (inner == null)
+            {
+                windowIndex = -1;
+                return null;
+            }
+            if (TryResolveWindowSegments(memberId, plan, schedule,
+                    unitPhaseAnchorUT, unitSpanStartUT, unitSpanEndUT, unitCadenceSeconds, currentUT,
+                    out List<OrbitSegment> segments, out windowIndex))
+            {
+                return new ReaimedTrajectory(inner, segments);
+            }
+            return inner;
+        }
+
+        /// <summary>
+        /// Resolves the re-aimed OrbitSegment list for one re-aim member at the current frame, or false
+        /// (keep the faithful recorded segments) on a window miss / pre-first-window. Shared by the flight
+        /// engine (which wraps the list in a <see cref="ReaimedTrajectory"/>) AND the map-presence /
+        /// tracking-station orbit path (which searches the list at the recorded-span effUT). The window is
+        /// mapped from the LIVE <paramref name="currentUT"/> using the SAME span-clock + unit fields the
+        /// engine uses, so flight and map resolve the IDENTICAL window. Cached by (member, window) so the
+        /// live Lambert / CalculatePatch solve runs only when the window advances.
+        /// <paramref name="windowIndex"/> is the resolved synodic window (or -1 before the first window).
+        /// </summary>
+        internal bool TryResolveWindowSegments(
+            string memberId,
+            ReaimMissionPlan plan,
+            ReaimWindowPlanner.ReaimWindowSchedule schedule,
+            double unitPhaseAnchorUT, double unitSpanStartUT, double unitSpanEndUT, double unitCadenceSeconds,
+            double currentUT,
+            out List<OrbitSegment> segments, out long windowIndex)
+        {
+            segments = null;
             windowIndex = -1;
-            if (inner == null || !plan.Supported || !schedule.Valid || string.IsNullOrEmpty(memberId))
-                return inner;
+            if (!plan.Supported || !schedule.Valid || string.IsNullOrEmpty(memberId))
+                return false;
 
             // Map the live clock to the synodic window index using the SAME span-clock the engine uses
             // (schedule == null => uniform cadence path; cadence is the synodic period set by the builder).
@@ -69,30 +102,32 @@ namespace Parsek.Reaim
                     out double _, out long cycleIndex, out bool _, schedule: null))
             {
                 // Parked before the first window: nothing renders yet, keep the faithful surface.
-                return inner;
+                return false;
             }
             windowIndex = cycleIndex;
 
-            if (cacheByMember.TryGetValue(memberId, out CacheEntry entry)
-                && entry.Resolved && entry.Window == cycleIndex)
+            if (!cacheByMember.TryGetValue(memberId, out CacheEntry entry)
+                || !entry.Resolved || entry.Window != cycleIndex)
             {
-                return entry.Adapter ?? inner;
+                entry = new CacheEntry
+                {
+                    Window = cycleIndex,
+                    Resolved = true,
+                    Segments = BuildWindowSegments(memberId, plan, schedule, cycleIndex)
+                };
+                cacheByMember[memberId] = entry;
             }
 
-            IPlaybackTrajectory adapter = BuildWindowAdapter(memberId, inner, plan, schedule, cycleIndex);
-            cacheByMember[memberId] = new CacheEntry
-            {
-                Window = cycleIndex,
-                Resolved = true,
-                Adapter = adapter
-            };
-            return adapter ?? inner;
+            if (entry.Segments == null)
+                return false; // window miss (cached) => faithful
+            segments = entry.Segments;
+            return true;
         }
 
-        // Synthesizes + assembles the re-aimed trajectory for one window. Returns null (=> faithful) on
+        // Synthesizes + assembles the re-aimed segment list for one window. Returns null (=> faithful) on
         // any synthesis/assembly failure. One-shot per window (cached), so logs at Verbose.
-        private static IPlaybackTrajectory BuildWindowAdapter(
-            string memberId, IPlaybackTrajectory inner, ReaimMissionPlan plan,
+        private static List<OrbitSegment> BuildWindowSegments(
+            string memberId, ReaimMissionPlan plan,
             ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -135,7 +170,7 @@ namespace Parsek.Reaim
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} " +
                 $"tof={schedule.TofSeconds.ToString("R", ic)} soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count}");
-            return new ReaimedTrajectory(inner, assembled);
+            return assembled;
         }
 
         private static CelestialBody FindBody(string bodyName)
