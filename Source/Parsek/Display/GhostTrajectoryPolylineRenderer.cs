@@ -725,6 +725,17 @@ namespace Parsek.Display
         /// out of scope for v1 (§1.1); the LateUpdate scene gate skips any
         /// scene other than TRACKSTATION / FLIGHT.
         /// </summary>
+        // Run this Driver's LateUpdate BEFORE stock components (OrbitRendererBase is
+        // at default execution order 0). The Driver publishes activeLegRecordings in
+        // its LateUpdate and GhostOrbitLinePatch (on OrbitRendererBase.LateUpdate)
+        // reads it; without a forced order the orbit patch ran first and read the
+        // PREVIOUS frame's set, so at a burn's first frame it still showed the prior
+        // orbit arc while the polyline drew the burn (the "RENDER OVERLAP" handoff
+        // artifact). Running the Driver first makes the publish current when the
+        // patch reads it. Safe w.r.t. loop units: cachedLoopUnits is computed in the
+        // scene controllers' Update(), which always precedes every LateUpdate
+        // regardless of execution order, so the Driver still reads current units.
+        [DefaultExecutionOrder(-50)]
         [KSPAddon(KSPAddon.Startup.Instantly, true /* once */)]
         internal sealed class Driver : MonoBehaviour
         {
