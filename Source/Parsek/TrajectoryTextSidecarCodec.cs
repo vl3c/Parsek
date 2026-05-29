@@ -865,6 +865,42 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Bug #419-class load-time defense-in-depth: drops any trajectory point
+        /// whose UT regresses below the last kept point's UT, preserving the
+        /// monotonically-non-decreasing invariant that
+        /// <c>CommittedRecordingsHaveValidData</c> checks. Mirrors the flush-time
+        /// guard in <see cref="AppendPointsFromTrackSections"/> but operates on the
+        /// final flat <c>rec.Points</c> view at load, so a recording persisted before
+        /// the foreground recorder gained its monotonicity guard (a sub-1s stale-UT
+        /// seam point) loads clean instead of failing the invariant on every scene.
+        /// Equal UTs are kept (boundary seeds). Returns the number of points dropped.
+        /// Not version-gated — it enforces a universal invariant, not a format migration.
+        /// </summary>
+        internal static int DropNonMonotonicTrajectoryPoints(List<TrajectoryPoint> points)
+        {
+            if (points == null || points.Count < 2)
+                return 0;
+
+            int writeIdx = 1;
+            int dropped = 0;
+            double lastKeptUT = points[0].ut;
+            for (int readIdx = 1; readIdx < points.Count; readIdx++)
+            {
+                if (points[readIdx].ut < lastKeptUT)
+                {
+                    dropped++;
+                    continue;
+                }
+                points[writeIdx] = points[readIdx];
+                lastKeptUT = points[readIdx].ut;
+                writeIdx++;
+            }
+            if (dropped > 0)
+                points.RemoveRange(writeIdx, points.Count - writeIdx);
+            return dropped;
+        }
+
         private static bool TrajectoryPointListIsMonotonicNonDecreasing(
             List<TrajectoryPoint> points,
             int startIndex = 1)
@@ -1362,6 +1398,17 @@ namespace Parsek
                             $"trackSections={rec.TrackSections.Count}");
                     }
                 }
+            }
+
+            // #419-class load-time invariant: drop any non-monotonic flat point so a
+            // recording persisted before the foreground recorder's monotonicity guard
+            // (a sub-1s stale-UT seam) loads clean. Mirrors the binary-load guard.
+            int droppedNonMonotonic = DropNonMonotonicTrajectoryPoints(rec.Points);
+            if (droppedNonMonotonic > 0 && !RecordingStore.SuppressLogging)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"DeserializeTrajectoryFrom: recording={rec.RecordingId} dropped {droppedNonMonotonic} " +
+                    "non-monotonic flat trajectory point(s) on load (#419-class)");
             }
 
             DeserializePartEvents(sourceNode, rec);

@@ -1304,8 +1304,22 @@ namespace Parsek.InGameTests
 
             InGameAssert.IsTrue(checkedVessels > 0,
                 $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
-            InGameAssert.IsTrue(checkedParts > 0,
-                $"Expected to inspect at least one marker part, vessels={checkedVessels}");
+
+            // On-rails ghost map markers (the normal TRACKSTATION case) stay
+            // unloaded: GhostVesselLoadPatch blocks Vessel.GoOffRails for ghost map
+            // vessels, so KSP never instantiates live Part objects (v.parts stays
+            // empty). The aero/thermal/structural hardening in
+            // HardenGhostVesselPartPhysics acts on live Part instances, so there is
+            // nothing to assert when no marker loaded its parts. Treat that as
+            // not-applicable rather than a failure — the per-part +Inf assertions
+            // above still fire for any marker that DID instantiate live parts.
+            if (checkedParts == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: {checkedVessels} marker vessel(s) found, " +
+                    "none with instantiated live parts (on-rails markers stay unloaded in TRACKSTATION) — not applicable");
+                return;
+            }
 
             ParsekLog.Info("TestRunner",
                 $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
