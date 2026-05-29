@@ -1824,6 +1824,58 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void GetTrackingStationGhostRemovalReason_MaterializedLoopMemberInWindow_KeepsGhost()
+        {
+            // A Mission-loop member replaying inside its window keeps its map ghost even
+            // when a persisted real terminal vessel exists, so the looped leg's trajectory
+            // follows the ghost (the "no trajectory after the Mun takeoff" fix). Without the
+            // loopMemberInWindow bypass this same input returns "tracking-station-spawned-real-vessel".
+            var rec = new Recording
+            {
+                RecordingId = "loop-member-real-vessel",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: true,
+                hasOrbitBounds: false,
+                isStateVector: false,
+                currentUT: 320,
+                loopMemberInWindow: true);
+
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_SuppressedLoopMemberInWindow_StillRemoves()
+        {
+            // The loopMemberInWindow bypass only relaxes the materialized gate; an active
+            // child / re-fly suppression (isSuppressed) still removes the ghost.
+            var rec = new Recording
+            {
+                RecordingId = "loop-member-suppressed",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: true,
+                alreadyMaterialized: true,
+                hasOrbitBounds: false,
+                isStateVector: false,
+                currentUT: 320,
+                loopMemberInWindow: true);
+
+            Assert.Equal("tracking-station-child-started", reason);
+        }
+
+        [Fact]
         public void GetTrackingStationGhostRemovalReason_StateVectorPastEndUT_ExpiresGhost()
         {
             var rec = new Recording

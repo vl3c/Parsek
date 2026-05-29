@@ -3849,58 +3849,72 @@ namespace Parsek
         /// </summary>
         internal static bool IsTerminalOrbitSynthesisSafeForLoopMember(IPlaybackTrajectory traj)
         {
+            // This is a PURE per-frame predicate called from the flight pending-create and
+            // TS lifecycle passes for every loop member every tick. Its result is stable for
+            // a given recording, so all six log paths are rate-limited per recording (shared
+            // key) to one line per interval — without this it produces thousands of identical
+            // lines per session (5212 in the 2026-05-29 capture). Callers that care about the
+            // bool log the acted-on decision separately.
             if (traj == null)
             {
-                ParsekLog.Verbose(Tag,
-                    "IsTerminalOrbitSynthesisSafeForLoopMember: result=false reason=null-trajectory");
+                ParsekLog.VerboseRateLimited(Tag,
+                    "terminal-orbit-safe-null",
+                    "IsTerminalOrbitSynthesisSafeForLoopMember: result=false reason=null-trajectory",
+                    10.0);
                 return false;
             }
             string recId = traj.RecordingId ?? "(null)";
+            string safeKey = "terminal-orbit-safe-" + recId;
             if (traj.Points == null || traj.Points.Count == 0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, safeKey,
                     string.Format(ic,
                         "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=empty-points",
-                        recId));
+                        recId),
+                    10.0);
                 return false;
             }
             string terminalBody = traj.TerminalOrbitBody;
             if (string.IsNullOrEmpty(terminalBody))
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, safeKey,
                     string.Format(ic,
                         "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=no-terminal-orbit-body",
-                        recId));
+                        recId),
+                    10.0);
                 return false;
             }
             if (traj.TerminalOrbitSemiMajorAxis <= 0.0)
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, safeKey,
                     string.Format(ic,
                         "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=zero-terminal-sma terminalBody={1}",
                         recId,
-                        terminalBody));
+                        terminalBody),
+                    10.0);
                 return false;
             }
             string lastPointBody = traj.Points[traj.Points.Count - 1].bodyName;
             if (string.IsNullOrEmpty(lastPointBody))
             {
-                ParsekLog.Verbose(Tag,
+                ParsekLog.VerboseRateLimited(Tag, safeKey,
                     string.Format(ic,
                         "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result=false reason=no-last-point-body terminalBody={1}",
                         recId,
-                        terminalBody));
+                        terminalBody),
+                    10.0);
                 return false;
             }
             bool sameBody = string.Equals(lastPointBody, terminalBody, StringComparison.Ordinal);
-            ParsekLog.Verbose(Tag,
+            ParsekLog.VerboseRateLimited(Tag, safeKey,
                 string.Format(ic,
                     "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result={1} reason={2} terminalBody={3} lastPointBody={4}",
                     recId,
                     sameBody,
                     sameBody ? "same-body" : "cross-body-terminal",
                     terminalBody,
-                    lastPointBody));
+                    lastPointBody),
+                10.0);
             return sameBody;
         }
 
@@ -4217,7 +4231,8 @@ namespace Parsek
             int recordingIndex = -1,
             bool allowSoiGapStateVectorFallback = false,
             string expectedSoiGapBody = null,
-            bool acceptTerminalOrbitForLoopSynthesis = false)
+            bool acceptTerminalOrbitForLoopSynthesis = false,
+            bool loopMemberInWindow = false)
         {
             segment = default(OrbitSegment);
             stateVectorPoint = default(TrajectoryPoint);
@@ -4314,10 +4329,30 @@ namespace Parsek
                 return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isSuppressed=True");
             }
 
-            if (alreadyMaterialized)
+            // A persisted real vessel (a completed mission's craft materialized at its
+            // terminal, e.g. parked in orbit) normally suppresses a duplicate map ghost.
+            // But when this recording is a Mission-loop member replaying inside its loop
+            // window (loopMemberInWindow), that real vessel sits frozen at the mission's
+            // FINAL state while the loop replays an EARLIER phase somewhere else, so
+            // suppressing here leaves the looped leg with no map trajectory following the
+            // ghost (the "no trajectory after the Mun takeoff" report). Per the loop-render
+            // decision we draw the animated loop ghost ALONGSIDE the real vessel in that
+            // case (both icons may show). Re-fly / active-session duplicates stay blocked
+            // because isSuppressed is evaluated above this gate.
+            if (alreadyMaterialized && !loopMemberInWindow)
             {
                 skipReason = TrackingStationGhostSkipAlreadySpawned;
                 return ReturnDecision(TrackingStationGhostSource.None, skipReason, "already spawned");
+            }
+            if (alreadyMaterialized)
+            {
+                ParsekLog.VerboseRateLimited(Tag,
+                    string.Format(ic, "loop-ghost-alongside-real-{0}", recId),
+                    string.Format(ic,
+                        "ResolveMapPresenceGhostSource: loop member rec={0} drawing map ghost "
+                        + "alongside persisted real vessel (loopMemberInWindow)",
+                        recId),
+                    5.0);
             }
 
             var terminal = traj.TerminalStateValue;
@@ -5563,7 +5598,10 @@ namespace Parsek
                     out _,
                     sourceBatch,
                     i,
-                    "tracking-station-lifecycle");
+                    "tracking-station-lifecycle",
+                    // Loop member replaying in its window (effUT != live currentUT): allow the
+                    // map ghost to be created alongside any persisted real terminal vessel.
+                    loopMemberInWindow: (currentUT - effUT) != 0.0);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None) continue;
 
@@ -5786,7 +5824,10 @@ namespace Parsek
                     alreadyMaterialized,
                     hasOrbitBounds,
                     isStateVector || fromCheckpoint,
-                    effUT);
+                    effUT,
+                    // Loop member replaying in its window: keep the ghost alongside any
+                    // persisted real terminal vessel (mirrors the create-path bypass).
+                    loopMemberInWindow: tsLoopEpochShift != 0.0);
                 // Rescue path: a "tracking-station-expired" removal is suppressed if the
                 // synthesizer can still produce a terminal-orbit seed. For a non-loop member
                 // this is the unchanged contract (loop-aware flag false). For a same-body
@@ -7526,7 +7567,8 @@ namespace Parsek
             out string skipReason,
             TrackingStationGhostSourceBatch batch,
             int recordingIndex,
-            string context)
+            string context,
+            bool loopMemberInWindow = false)
         {
             // TS-startup wrapper is not loop-aware (no loop epoch shift in scope here).
             // Pass acceptTerminalOrbitForLoopSynthesis: false explicitly per plan section 1.4: a
@@ -7534,6 +7576,9 @@ namespace Parsek
             // position (the PR #967 class). The proto-vessel for a no-segment loop member
             // comes up on the first loop-aware refresh tick after TS entry (within
             // LifecycleCheckIntervalSec = 2.0s), not at startup.
+            // loopMemberInWindow (passed true only by the loop-aware lifecycle create pass)
+            // lets a looped member draw its map ghost alongside a persisted real terminal
+            // vessel; false on the startup / pure-predicate paths keeps them unchanged.
             TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
                 rec,
                 isSuppressed,
@@ -7546,7 +7591,8 @@ namespace Parsek
                 out stateVectorPoint,
                 out skipReason,
                 recordingIndex: recordingIndex,
-                acceptTerminalOrbitForLoopSynthesis: false);
+                acceptTerminalOrbitForLoopSynthesis: false,
+                loopMemberInWindow: loopMemberInWindow);
 
             LogTrackingStationGhostSourceDecision(
                 context,
@@ -7726,7 +7772,8 @@ namespace Parsek
             bool alreadyMaterialized,
             bool hasOrbitBounds,
             bool isStateVector,
-            double currentUT)
+            double currentUT,
+            bool loopMemberInWindow = false)
         {
             if (rec == null)
                 return "tracking-station-expired";
@@ -7734,7 +7781,13 @@ namespace Parsek
             if (isSuppressed)
                 return "tracking-station-child-started";
 
-            if (alreadyMaterialized)
+            // Mirror the create-path bypass: a Mission-loop member replaying inside its
+            // window keeps its map ghost even when a persisted real terminal vessel exists,
+            // so the looped leg's trajectory follows the ghost. Without this the very next
+            // refresh tick after creation would tear the ghost down again (create/remove
+            // churn) for a member like the Mun-return leg whose mission left a real craft
+            // parked at its terminal. Non-loop members are unaffected (flag false).
+            if (alreadyMaterialized && !loopMemberInWindow)
                 return "tracking-station-spawned-real-vessel";
 
             if (isStateVector)
