@@ -85,13 +85,20 @@ namespace Parsek
         // Uniform width for the mission-header-bar buttons (Clone, Delete, Watch, Rewind/Forward):
         // the old Clone width (60) + 10 px, so they all read as one button group.
         private const float ColW_HeaderButton = 70f;
-        // Width of the mission-header bar's right-side control block (Clone..Rewind + Archive). It
-        // equals the data columns' total footprint (the 7 cells right of "Missions and vessels" plus
-        // their 6 inter-cell margins), so the expanding title fills exactly the same width as the
-        // data rows' name column and the buttons begin at the data-column boundary (where "Start
-        // time" starts) instead of being pushed to the far right.
+        // Extra width added to the mission-header right block beyond the data-column footprint, so a
+        // long looped-mission period label ("~14.5d (Minmus window, varies)") fits on one line in the
+        // content-sized period cell between the Loop toggle and the right-pinned Watch / Rewind
+        // buttons. Without it the fixed block is ~6 px too narrow for the widest stock label and the
+        // word-wrapping label spills to a second row. The buttons therefore begin slightly left of
+        // the exact data-column boundary; the right-pinned Archive checkbox still lines up under its
+        // column header (it sits at the row's right edge regardless of this slack).
+        private const float MissionHeaderPeriodSlack = 48f;
+        // Width of the mission-header bar's right-side control block (Clone..Rewind + Archive): the
+        // data columns' total footprint (the 7 cells right of "Missions and vessels" plus their 6
+        // inter-cell margins) plus MissionHeaderPeriodSlack for the one-line period label.
         private const float MissionHeaderRightBlockWidth =
-            ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f;
+            ColW_StartTime + ColW_StartEvent + ColW_EndEvent + ColW_EndTime + ColW_TMinus + ColW_ReFly + ColW_Archive + 6 * 4f
+            + MissionHeaderPeriodSlack;
         // Re-Fly column (mirrors the recordings window's Re-Fly/Fly-Seal column width): a per-vessel
         // Fly / Seal cell for unfinished-flight recordings, drawn by reusing RecordingsTableUI.
         private const float ColW_ReFly = 90f;
@@ -1686,8 +1693,9 @@ namespace Parsek
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;
                 // missionHeaderInlineLabel (vertically centered) so "~6.4d (Mun window)" sits on the
-                // same baseline as the "Loop" label and the buttons; ExpandWidth(false) lets the
-                // trailing FlexibleSpace below own the rest of the fixed-width cell.
+                // same baseline as the "Loop" label and the buttons; ExpandWidth(false) keeps the
+                // label content-sized so the caller's FlexibleSpace right-pins the Watch / Rewind
+                // buttons (the cell no longer reserves a fixed width).
                 GUILayout.Label(locked, missionHeaderInlineLabel, GUILayout.ExpandWidth(false));
                 GUI.contentColor = prevLocked;
                 GUI.enabled = true;
