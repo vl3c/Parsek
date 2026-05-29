@@ -146,6 +146,16 @@ namespace Parsek.Reaim
             }
 
             OrbitSegment helio = segs[helioIdx];
+            OrbitSegment arrival = segs[arrivalIdx];
+            // The transfer time spans from the launch-body SOI EXIT (first heliocentric segment start)
+            // to the target SOI ENTRY (arrival leg start), NOT the first heliocentric segment's end. A
+            // mid-course correction burn splits the heliocentric coast into multiple Sun-bodied segments
+            // (coast1 / [burn] / coast2 / ...); using helio.endUT would capture only the pre-correction
+            // coast and synthesize a wrong, too-short transfer. Spanning to the arrival start collapses
+            // any number of correction coasts into one re-aimed arc over the FULL recorded transfer time
+            // (identical to helio.endUT for a single uninterrupted coast). The intermediate correction
+            // coasts are replaced by the single synthesized arc - the small kink is not meaningful at map
+            // scale, and the single-impulse Lambert still arrives at the target.
             return new ReaimMissionPlan
             {
                 Supported = true,
@@ -155,10 +165,10 @@ namespace Parsek.Reaim
                 CommonAncestor = commonAncestor,
                 ParkingOrbit = segs[parkingIdx],
                 HeliocentricLeg = helio,
-                ArrivalLeg = segs[arrivalIdx],
+                ArrivalLeg = arrival,
                 RecordedDepartureUT = helio.startUT,
-                RecordedArrivalUT = helio.endUT,
-                RecordedTransferTofSeconds = helio.endUT - helio.startUT
+                RecordedArrivalUT = arrival.startUT,
+                RecordedTransferTofSeconds = arrival.startUT - helio.startUT
             };
         }
     }

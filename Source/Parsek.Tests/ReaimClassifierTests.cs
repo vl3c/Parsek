@@ -66,6 +66,31 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_KerbinToDuna_WithMidCourseCorrection_SpansFullTransfer()
+        {
+            // A mid-course correction burn splits the heliocentric coast into two Sun-bodied segments
+            // (coast1 / [burn gap] / coast2). The transfer time must span the FULL departure->arrival
+            // window (5000 -> 1000000), not just the pre-correction coast (5000 -> 400000) - otherwise
+            // re-aim would synthesize a wrong, too-short transfer. coast2 (between the heliocentric leg
+            // and Duna) is correctly skipped by the arrival search, and the multi-hop guard (which only
+            // looks AFTER the arrival) does not fire.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 5000),       // parking
+                Seg("Sun", 5000, 400000),       // coast 1 (pre-correction)
+                Seg("Sun", 400500, 1000000),    // coast 2 (post-correction; 500s burn gap)
+                Seg("Duna", 1000000, 1005000),  // arrival
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal("Duna", plan.TargetBody);
+            Assert.Equal(5000.0, plan.RecordedDepartureUT, 3);
+            Assert.Equal(1000000.0, plan.RecordedArrivalUT, 3);          // Duna SOI entry, not coast1 end
+            Assert.Equal(995000.0, plan.RecordedTransferTofSeconds, 3);  // FULL transfer span
+        }
+
+        [Fact]
         public void Classify_SameParentMun_NotSupported_StaysFaithful()
         {
             // Guards: a same-parent target (Mun orbits Kerbin) has no heliocentric leg -> re-aim does
