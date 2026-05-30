@@ -1121,7 +1121,7 @@ namespace Parsek
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
-                out bool isInInterCycleTail, unit.RelaunchSchedule);
+                out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts);
 
             // Cycle-wrap / camera-handoff diagnostics: the first member to run this frame observes
             // the unit-wide transition and logs it once (rate-limited per unit owner).

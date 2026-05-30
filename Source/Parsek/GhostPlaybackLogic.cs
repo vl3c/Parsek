@@ -6663,7 +6663,8 @@ namespace Parsek
                 IReadOnlyDictionary<int, MemberWindow> memberWindows,
                 MissionRelaunchSchedule relaunchSchedule,
                 Parsek.Reaim.ReaimMissionPlan? reaimPlan,
-                Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule)
+                Parsek.Reaim.ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule,
+                IReadOnlyList<LoopCut> loiterCuts = null)
             {
                 OwnerIndex = ownerIndex;
                 MemberIndices = memberIndices ?? System.Array.Empty<int>();
@@ -6676,6 +6677,7 @@ namespace Parsek
                 RelaunchSchedule = relaunchSchedule;
                 ReaimPlan = reaimPlan;
                 ReaimSchedule = reaimSchedule;
+                LoiterCuts = loiterCuts;
             }
 
             /// <summary>
@@ -6766,6 +6768,17 @@ namespace Parsek
             internal bool IsReaim =>
                 ReaimPlan.HasValue && ReaimPlan.Value.Supported
                 && ReaimSchedule.HasValue && ReaimSchedule.Value.Valid;
+
+            /// <summary>
+            /// Whole-period loiter cuts (docs/dev/plans/reaim-loiter-compression.md) compressing this
+            /// re-aim loop's repeated parking orbits to ~1 revolution, or NULL when none. The span clock
+            /// (<see cref="TryComputeSpanLoopUT"/>) wraps over the COMPRESSED span and remaps the loopUT to
+            /// skip these recorded intervals, so the loop relaunches close to the transfer window instead
+            /// of replaying a year-long loiter. Members render at recorded UTs (the cut interval is just
+            /// never sampled), so this is the only place the compression lives. Null on every non-re-aim
+            /// unit and on a re-aim loop with no compressible loiter.
+            /// </summary>
+            internal IReadOnlyList<LoopCut> LoiterCuts { get; }
         }
 
         /// <summary>
@@ -6824,12 +6837,85 @@ namespace Parsek
         }
 
         /// <summary>
+        /// A whole-period loiter interval excised from a re-aim loop's recorded timeline
+        /// (docs/dev/plans/reaim-loiter-compression.md). Recorded
+        /// [<see cref="StartUT"/>, <see cref="StartUT"/> + <see cref="LengthSeconds"/>] is removed from
+        /// the loop's ACTIVE duration; the span clock skips it. NEUTRAL value type (no re-aim / Recording
+        /// reference) so the shared clock and the standalone-target engine stay decoupled from
+        /// <c>Parsek.Reaim</c>; the re-aim detector (<c>ReaimLoiterCompressor.ComputeCuts</c>) produces it.
+        /// </summary>
+        internal struct LoopCut
+        {
+            public double StartUT;
+            public double LengthSeconds;
+            public double EndUT => StartUT + LengthSeconds;
+        }
+
+        /// <summary>Total excised duration of <paramref name="cuts"/> (0 for null/empty). Pure.</summary>
+        internal static double TotalCutLength(IReadOnlyList<LoopCut> cuts)
+        {
+            if (cuts == null)
+                return 0.0;
+            double sum = 0.0;
+            for (int i = 0; i < cuts.Count; i++)
+                sum += cuts[i].LengthSeconds;
+            return sum;
+        }
+
+        /// <summary>
+        /// Recorded UT -> compressed UT: <c>t - sum of the parts of each cut at or before t</c>. Monotonic
+        /// non-decreasing; a recorded UT INSIDE a cut collapses to the cut start (the cut interval maps to
+        /// a single compressed instant). Identity for an empty cut list. Pure.
+        /// </summary>
+        internal static double CompressSpanUT(double t, IReadOnlyList<LoopCut> cuts)
+        {
+            if (cuts == null || cuts.Count == 0)
+                return t;
+            double removed = 0.0;
+            for (int c = 0; c < cuts.Count; c++)
+            {
+                LoopCut cut = cuts[c];
+                if (t <= cut.StartUT)
+                    continue;
+                double overlapEnd = t < cut.EndUT ? t : cut.EndUT;
+                removed += overlapEnd - cut.StartUT;
+            }
+            return t - removed;
+        }
+
+        /// <summary>
+        /// Compressed UT -> recorded UT: the inverse of <see cref="CompressSpanUT"/>. A compressed instant
+        /// at a cut's collapse point maps to the cut END, so the loop resumes AFTER the excised interval
+        /// (the cut is skipped, position-/velocity-continuous because it is a whole number of periods).
+        /// <paramref name="cuts"/> must be sorted by StartUT ascending (ComputeCuts emits them in order).
+        /// Identity for an empty cut list. Pure.
+        /// </summary>
+        internal static double DecompressSpanUT(double c, IReadOnlyList<LoopCut> cuts)
+        {
+            if (cuts == null || cuts.Count == 0)
+                return c;
+            double t = c;
+            for (int i = 0; i < cuts.Count; i++)
+            {
+                if (cuts[i].StartUT <= t)
+                    t += cuts[i].LengthSeconds;
+            }
+            return t;
+        }
+
+        /// <summary>
         /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
         /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
         /// returns the <paramref name="loopUT"/> inside that span plus the 0-based unit cycle
         /// index. v1 cadence == span duration, so the wrap from spanEnd back to spanStart is
         /// seamless (no pause window): unlike <see cref="ComputeLoopPhaseFromUT"/> there is no
         /// inter-cycle pause to report.
+        ///
+        /// <paramref name="loiterCuts"/> (re-aim only) excises whole-period loiters: the phase then wraps
+        /// over the COMPRESSED span (<c>span - totalCut</c>) and the clamped compressed phase is remapped
+        /// to a recorded loopUT that SKIPS the cut intervals. Null/empty cuts =&gt; byte-identical to the
+        /// pre-compression clock (every non-re-aim caller). Only the uniform path honors cuts; the
+        /// <paramref name="schedule"/> path ignores them (re-aim always passes schedule = null).
         ///
         /// The cadence is clamped to <see cref="LoopTiming.MinCycleDuration"/> INSIDE this
         /// helper (edge 14): the span clock does NOT route through ResolveLoopInterval, so it
@@ -6860,7 +6946,8 @@ namespace Parsek
             out double loopUT,
             out long cycleIndex,
             out bool isInInterCycleTail,
-            MissionRelaunchSchedule schedule = null)
+            MissionRelaunchSchedule schedule = null,
+            IReadOnlyList<LoopCut> loiterCuts = null)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -6903,6 +6990,17 @@ namespace Parsek
             cycleIndex = (long)(elapsed / cycleDuration);
             double phaseInCycle = elapsed - (cycleIndex * cycleDuration);
 
+            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md section 5): when a re-aim unit
+            // carries whole-period loiter cuts, the loop's ACTIVE duration is the COMPRESSED span
+            // (span - totalCut); the phase wraps over that, and the clamped compressed phase is remapped to
+            // a recorded loopUT that SKIPS the cut intervals. Members stay on recorded UTs (so faithful
+            // Points members render unchanged, just earlier in live time); the cut interval is never
+            // sampled. Cadence is cut-independent (a cut lives within one cycle), so cycleIndex / elapsed /
+            // the boundary-rollback below are unchanged. Empty/null cuts => effectiveSpan == span and the
+            // remap is the identity, so every non-re-aim caller is byte-identical.
+            double totalCut = TotalCutLength(loiterCuts);
+            double effectiveSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+
             // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
             // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
             // final frame (spanEnd), not the next cycle's first frame. This makes "currentUT ==
@@ -6924,9 +7022,11 @@ namespace Parsek
             // parked at spanEnd; cadence == span never reaches span except at the rolled-back
             // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
             // the phase ran past the span and we are idling at spanEnd until the next cycle.
-            double clampedPhase = phaseInCycle >= span ? span : phaseInCycle;
-            loopUT = spanStartUT + clampedPhase;
-            isInInterCycleTail = (phaseInCycle >= span);
+            double clampedPhase = phaseInCycle >= effectiveSpan ? effectiveSpan : phaseInCycle;
+            loopUT = (effectiveSpan < span)
+                ? DecompressSpanUT(spanStartUT + clampedPhase, loiterCuts) // skip the excised loiters
+                : spanStartUT + clampedPhase;                              // no cuts: identity
+            isInInterCycleTail = (phaseInCycle >= effectiveSpan);
             return true;
         }
 
@@ -7046,7 +7146,8 @@ namespace Parsek
             out double spanLoopUT,
             out long unitCycle,
             out bool isInInterCycleTail,
-            MissionRelaunchSchedule schedule = null)
+            MissionRelaunchSchedule schedule = null,
+            IReadOnlyList<LoopCut> loiterCuts = null)
         {
             spanLoopUT = spanStartUT;
             unitCycle = 0;
@@ -7054,7 +7155,7 @@ namespace Parsek
 
             if (!TryComputeSpanLoopUT(
                     currentUT, phaseAnchorUT, spanStartUT, spanEndUT, cadenceSeconds, out spanLoopUT,
-                    out unitCycle, out isInInterCycleTail, schedule))
+                    out unitCycle, out isInInterCycleTail, schedule, loiterCuts))
                 return UnitMemberRenderDecision.SpanClockUnresolved;
 
             // Inter-cycle tail (the "wait" between cycles when cadence > span): render nothing.
@@ -7111,7 +7212,8 @@ namespace Parsek
                 out double loopUT,
                 out _,
                 out _,
-                unit.RelaunchSchedule);
+                unit.RelaunchSchedule,
+                unit.LoiterCuts);
 
             if (decision == UnitMemberRenderDecision.Render)
                 return loopUT;

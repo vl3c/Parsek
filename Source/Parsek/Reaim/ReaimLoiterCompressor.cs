@@ -23,16 +23,6 @@ namespace Parsek.Reaim
         internal const double DefaultAStepRelThreshold = 0.05;
         internal const double DefaultContiguityEpsilonSeconds = 1.0;
 
-        /// <summary>An excised whole-period interval of a loiter run: recorded
-        /// [<see cref="StartUT"/>, <see cref="StartUT"/> + <see cref="LengthSeconds"/>] is removed from
-        /// the loop timeline.</summary>
-        internal struct LoiterCut
-        {
-            public double StartUT;
-            public double LengthSeconds;
-            public double EndUT => StartUT + LengthSeconds;
-        }
-
         /// <summary>
         /// Orbital period <c>2*pi*sqrt(a^3/mu)</c> in seconds for an ELLIPTICAL orbit (a &gt; 0, finite
         /// mu &gt; 0). Returns NaN for a hyperbolic/parabolic (a &lt;= 0 in the KSP convention),
@@ -57,14 +47,14 @@ namespace Parsek.Reaim
         /// remainder, ending at the recorded run end so the exit phase is preserved). Pure. Returns an
         /// empty list when there are no loiters (then the compressed timeline == the recorded timeline).
         /// </summary>
-        internal static List<LoiterCut> ComputeCuts(
+        internal static List<GhostPlaybackLogic.LoopCut> ComputeCuts(
             IReadOnlyList<OrbitSegment> segs,
             Func<string, double> bodyMu,
             int keepRevs = DefaultKeepRevs,
             double aStepRelThreshold = DefaultAStepRelThreshold,
             double contiguityEpsilonSeconds = DefaultContiguityEpsilonSeconds)
         {
-            var cuts = new List<LoiterCut>();
+            var cuts = new List<GhostPlaybackLogic.LoopCut>();
             if (segs == null || segs.Count == 0 || bodyMu == null || keepRevs < 0)
                 return cuts;
 
@@ -125,7 +115,7 @@ namespace Parsek.Reaim
                     if (wholeRevs > keepRevs)
                     {
                         double cutLength = (wholeRevs - keepRevs) * tRep;
-                        cuts.Add(new LoiterCut { StartUT = runStart, LengthSeconds = cutLength });
+                        cuts.Add(new GhostPlaybackLogic.LoopCut { StartUT = runStart, LengthSeconds = cutLength });
                     }
                 }
 
@@ -133,29 +123,6 @@ namespace Parsek.Reaim
             }
 
             return cuts;
-        }
-
-        /// <summary>
-        /// The compressed UT for a recorded UT <paramref name="t"/>: <c>t - sum of the parts of each cut
-        /// at or before t</c>. Monotonic non-decreasing; a recorded UT INSIDE a cut interval collapses to
-        /// the cut's start (the cut interval maps to a single compressed instant). For an empty cut list
-        /// this is the identity. Pure.
-        /// </summary>
-        internal static double CompressUT(double t, IReadOnlyList<LoiterCut> cuts)
-        {
-            if (cuts == null || cuts.Count == 0)
-                return t;
-            double removed = 0.0;
-            for (int c = 0; c < cuts.Count; c++)
-            {
-                LoiterCut cut = cuts[c];
-                if (t <= cut.StartUT)
-                    continue;
-                // Overlap of the cut with (-inf, t]: full cut when t is past it, partial when t is inside.
-                double overlapEnd = t < cut.EndUT ? t : cut.EndUT;
-                removed += overlapEnd - cut.StartUT;
-            }
-            return t - removed;
         }
     }
 }

@@ -163,43 +163,85 @@ namespace Parsek.Tests
         [Fact]
         public void CompressUT_EmptyCuts_IsIdentity()
         {
-            var cuts = new List<ReaimLoiterCompressor.LoiterCut>();
-            Assert.Equal(12345.0, ReaimLoiterCompressor.CompressUT(12345.0, cuts), 6);
+            var cuts = new List<GhostPlaybackLogic.LoopCut>();
+            Assert.Equal(12345.0, GhostPlaybackLogic.CompressSpanUT(12345.0, cuts), 6);
         }
 
         [Fact]
         public void CompressUT_SingleCut_RemovesAfter_CollapsesInside_KeepsBefore()
         {
-            var cuts = new List<ReaimLoiterCompressor.LoiterCut>
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
             {
-                new ReaimLoiterCompressor.LoiterCut { StartUT = 1000.0, LengthSeconds = 500.0 }, // [1000,1500]
+                new GhostPlaybackLogic.LoopCut { StartUT = 1000.0, LengthSeconds = 500.0 }, // [1000,1500]
             };
-            Assert.Equal(800.0, ReaimLoiterCompressor.CompressUT(800.0, cuts), 6);    // before -> unchanged
-            Assert.Equal(1000.0, ReaimLoiterCompressor.CompressUT(1000.0, cuts), 6);  // at start -> unchanged
-            Assert.Equal(1000.0, ReaimLoiterCompressor.CompressUT(1250.0, cuts), 6);  // inside -> collapses to start
-            Assert.Equal(1000.0, ReaimLoiterCompressor.CompressUT(1500.0, cuts), 6);  // at end -> start
-            Assert.Equal(1500.0, ReaimLoiterCompressor.CompressUT(2000.0, cuts), 6);  // after -> minus full cut
+            Assert.Equal(800.0, GhostPlaybackLogic.CompressSpanUT(800.0, cuts), 6);    // before -> unchanged
+            Assert.Equal(1000.0, GhostPlaybackLogic.CompressSpanUT(1000.0, cuts), 6);  // at start -> unchanged
+            Assert.Equal(1000.0, GhostPlaybackLogic.CompressSpanUT(1250.0, cuts), 6);  // inside -> collapses to start
+            Assert.Equal(1000.0, GhostPlaybackLogic.CompressSpanUT(1500.0, cuts), 6);  // at end -> start
+            Assert.Equal(1500.0, GhostPlaybackLogic.CompressSpanUT(2000.0, cuts), 6);  // after -> minus full cut
         }
 
         [Fact]
         public void CompressUT_MultipleCuts_Monotonic_RemovesCumulatively()
         {
-            var cuts = new List<ReaimLoiterCompressor.LoiterCut>
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
             {
-                new ReaimLoiterCompressor.LoiterCut { StartUT = 1000.0, LengthSeconds = 500.0 },  // [1000,1500]
-                new ReaimLoiterCompressor.LoiterCut { StartUT = 3000.0, LengthSeconds = 1000.0 }, // [3000,4000]
+                new GhostPlaybackLogic.LoopCut { StartUT = 1000.0, LengthSeconds = 500.0 },  // [1000,1500]
+                new GhostPlaybackLogic.LoopCut { StartUT = 3000.0, LengthSeconds = 1000.0 }, // [3000,4000]
             };
             // After both cuts: 5000 - 500 - 1000 = 3500.
-            Assert.Equal(3500.0, ReaimLoiterCompressor.CompressUT(5000.0, cuts), 6);
+            Assert.Equal(3500.0, GhostPlaybackLogic.CompressSpanUT(5000.0, cuts), 6);
             // Between the cuts (e.g. 2000): only the first removed -> 1500.
-            Assert.Equal(1500.0, ReaimLoiterCompressor.CompressUT(2000.0, cuts), 6);
+            Assert.Equal(1500.0, GhostPlaybackLogic.CompressSpanUT(2000.0, cuts), 6);
             // Monotonic non-decreasing across the range.
             double prev = double.NegativeInfinity;
             for (double t = 0; t <= 5000; t += 250)
             {
-                double c = ReaimLoiterCompressor.CompressUT(t, cuts);
+                double c = GhostPlaybackLogic.CompressSpanUT(t, cuts);
                 Assert.True(c >= prev - 1e-9);
                 prev = c;
+            }
+        }
+
+        [Fact]
+        public void DecompressSpanUT_EmptyCuts_IsIdentity()
+        {
+            var cuts = new List<GhostPlaybackLogic.LoopCut>();
+            Assert.Equal(12345.0, GhostPlaybackLogic.DecompressSpanUT(12345.0, cuts), 6);
+            Assert.Equal(0.0, GhostPlaybackLogic.TotalCutLength(cuts), 6);
+            Assert.Equal(0.0, GhostPlaybackLogic.TotalCutLength(null), 6);
+        }
+
+        [Fact]
+        public void DecompressSpanUT_SingleCut_SkipsToCutEnd()
+        {
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 1000.0, LengthSeconds = 500.0 }, // [1000,1500]
+            };
+            Assert.Equal(500.0, GhostPlaybackLogic.TotalCutLength(cuts), 6);
+            Assert.Equal(800.0, GhostPlaybackLogic.DecompressSpanUT(800.0, cuts), 6);   // before -> unchanged
+            Assert.Equal(1500.0, GhostPlaybackLogic.DecompressSpanUT(1000.0, cuts), 6); // collapse point -> cut END
+            Assert.Equal(2000.0, GhostPlaybackLogic.DecompressSpanUT(1500.0, cuts), 6); // after -> plus full cut
+        }
+
+        [Fact]
+        public void DecompressSpanUT_InvertsCompressSpanUT_OutsideCuts()
+        {
+            // Decompress(Compress(t)) == t for any recorded UT in the kept (non-excised) ranges: strictly
+            // before a cut start or at/after a cut end. The half-open cut interval [start, end) is lossy by
+            // design (the whole interval collapses to one compressed instant that decompresses to the cut
+            // END), so the cut START itself does NOT round-trip - it is excised. Round-trips the kept
+            // points of a two-cut timeline: cut ends (1500, 4000) round-trip; cut starts (1000, 3000) do not.
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 1000.0, LengthSeconds = 500.0 },  // [1000,1500]
+                new GhostPlaybackLogic.LoopCut { StartUT = 3000.0, LengthSeconds = 1000.0 }, // [3000,4000]
+            };
+            foreach (double t in new[] { 0.0, 500.0, 999.0, 1500.0, 2000.0, 2999.0, 4000.0, 4500.0, 6000.0 })
+            {
+                double c = GhostPlaybackLogic.CompressSpanUT(t, cuts);
+                Assert.Equal(t, GhostPlaybackLogic.DecompressSpanUT(c, cuts), 6);
             }
         }
     }

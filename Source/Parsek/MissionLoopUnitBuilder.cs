@@ -245,6 +245,7 @@ namespace Parsek
             PeriodicitySolution solution = default;
             ReaimMissionPlan? reaimPlan = null;
             ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts = null;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -361,15 +362,39 @@ namespace Parsek
                             effectiveOverlapCadence = effectiveCadence;
                             relaunchSchedule = null;
 
+                            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md): the
+                            // recorded mission usually parks for a year or more waiting for the transfer
+                            // window. For a SUPPLY-ROUTE loop that loiter must not replay, so excise every
+                            // repeated parking orbit down to ~1 revolution. The cuts feed the shared span
+                            // clock (TryComputeSpanLoopUT remaps loopUT to skip them); the phase anchor
+                            // shifts LATER by the cut excised before the transfer departure so the launch
+                            // still lands ~1 orbit before the (unchanged, absolute) synodic window. Empty
+                            // cuts (no compressible loiter) leave the clock byte-identical to faithful.
+                            List<GhostPlaybackLogic.LoopCut> cuts =
+                                ReaimLoiterCompressor.ComputeCuts(missionSegments, bodyInfo.GravParameter);
+                            if (cuts.Count > 0)
+                            {
+                                double cutBeforeDeparture = plan.RecordedDepartureUT
+                                    - GhostPlaybackLogic.CompressSpanUT(plan.RecordedDepartureUT, cuts);
+                                phaseAnchorUT = sched.PhaseAnchorUT + cutBeforeDeparture;
+                                loiterCuts = cuts;
+                            }
+
                             if (!SuppressLogging)
                             {
                                 var ric = CultureInfo.InvariantCulture;
+                                double totalCut = GhostPlaybackLogic.TotalCutLength(loiterCuts);
+                                double recordedSpan = spanEndUT - spanStartUT;
                                 ParsekLog.Info("Reaim",
                                     $"MissionLoopUnit: mission='{mission.Name}' ENGAGED re-aim " +
                                     $"{plan.LaunchBody}->{plan.TargetBody} via {plan.CommonAncestor}; " +
                                     $"{ReaimWindowPlanner.Describe(sched)} " +
                                     $"phaseAnchor={phaseAnchorUT.ToString("R", ric)} " +
-                                    $"cadence={effectiveCadence.ToString("R", ric)}");
+                                    $"cadence={effectiveCadence.ToString("R", ric)} " +
+                                    $"loiterCuts={(loiterCuts?.Count ?? 0).ToString(ric)} " +
+                                    $"cutSeconds={totalCut.ToString("F0", ric)} " +
+                                    $"compressedSpan={(recordedSpan - totalCut).ToString("F0", ric)}" +
+                                    $"/{recordedSpan.ToString("F0", ric)}");
                             }
                         }
                         else if (!SuppressLogging)
@@ -395,7 +420,8 @@ namespace Parsek
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
-                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule);
+                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
+                loiterCuts);
 
             if (!SuppressLogging)
             {

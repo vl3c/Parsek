@@ -158,53 +158,63 @@ For a detected loiter run spanning recorded `[runStart, runEnd]` with representa
 - **Snap:** because `T` is from the snapshot `a`, recompute `cutLength` so `runStart + cutLength` lands
   on the segment's nearest true periapsis/anomaly-repeat (eliminates the `a`-drift residual of 2.1).
 
-## 5. Implementation: pre-baked per-member compressed segments (shared clock UNTOUCHED)
+## 5. Implementation: gated uniform-path remap in the shared span clock
 
-Decision (review M1): do NOT modify the shared `TryComputeSpanLoopUT`. Bake the compression into the
-re-aim members' segment UTs at build time, so the shared span clock plays a compressed `loopUT` linearly
-with **zero change** (and zero regression surface on faithful / overlap / zero-drift / KSC / TS loops).
+Decision (review M1, REVERSED after implementation): modify `TryComputeSpanLoopUT` via a gated
+uniform-path remap. The original M1 preferred pre-baked per-member compressed segments on the premise
+that compression is "local to the loiter-owning member" -- **that premise is false for a chain.** A cut
+is a deletion of recorded-UT range, and every member after it in UT (the faithful Duna landing Points
+member, ride-along debris) must shift earlier; in the engine EVERY unit member, faithful Points members
+included, is positioned at the shared `spanLoopUT` (`GhostPlaybackEngine.cs:2395`). So pre-baking would
+have to re-time the faithful Points members too (a Points-shifting wrapper per member type, plus a
+second consistency surface between the unit's compressed windows and each wrapper's shifted Points). The
+remap does that global shift **once, for every member type** (Points, surface, orbit all read
+`spanLoopUT`), so the cut belongs in the shared clock.
 
-### 5.1 Build-time (static) compression
+### 5.1 The remap (the only clock change)
 
-`MissionLoopUnitBuilder`, when re-aim engages, computes:
-1. The loiter runs + cuts (section 4) across the mission's gathered segments.
-2. A monotonic recorded->compressed UT map: `comp(t) = t - sum(cutLength for cuts ending <= t)`.
-3. For each re-aim member, a **pre-baked compressed segment list**: each segment time-shifted via
-   `ReaimSegmentAssembler.ShiftInTime` by the cumulative cut before it (phase-preserving -- see parent
-   doc), loiter runs trimmed, and the heliocentric transfer leg left as a MARKER (the live resolver
-   fills it). **Trimming a loiter run = ONE operation, not two (review M1):** drop the segments inside
-   the cut interval `[runStart, runStart + cutLength]` entirely, and shift the kept tail (the segments in
-   `[runStart + cutLength, runEnd]`) by that run's OWN `cutLength` under the same `comp` map -- i.e. the
-   run's `cutLength` is a cut "ending at `runStart + cutLength`", which is `<= ` every kept-tail
-   segment's `startUT`, so the "shift by cumulative cut ending <= seg.startUT" rule already shifts the
-   tail by exactly `cutLength`. Do NOT shift the tail a second time and do NOT leave it unshifted; the
-   trim and the shift are the same cut. The kept tail thus lands at compressed `[comp(runStart+cutLength)
-   , comp(runEnd)] = [runStart_compressed, runStart_compressed + (N revs + remainder)]`, seamless at both
-   ends (section 2.1 / 4.3).
-4. The compressed **span** = `comp(spanEnd) - comp(spanStart)`, the compressed **member windows** (each
-   `[memberStart, memberEnd]` mapped through `comp`), and `phaseAnchorUT = D_0 - comp(RecordedDepartureUT
-   - spanStart)` so the transfer departs on `D_k` (compressed). These live on the `LoopUnit`.
+Inside `TryComputeSpanLoopUT`'s UNIFORM branch only (after the `schedule != null` early-return), with a
+`loiterCuts` parameter (neutral `GhostPlaybackLogic.LoopCut` -- no `Parsek.Reaim` reference in the
+standalone-target engine):
+- the active duration is the **compressed span** `effectiveSpan = span - totalCut`; `phaseInCycle` wraps
+  over `effectiveSpan` (not `span`);
+- the clamped compressed phase is remapped to a recorded `loopUT` that SKIPS the cut intervals:
+  `loopUT = DecompressSpanUT(spanStartUT + clampedPhase, cuts)` (the inverse of `CompressSpanUT`, mapping
+  a cut's collapse point to the cut END so the loop resumes after the excised whole periods);
+- `isInInterCycleTail = phaseInCycle >= effectiveSpan`.
 
-Because every member is re-timed onto the SAME compressed clock, the chain stays coherent: member B's
-window shifts earlier by exactly the cuts inside member A. The shared clock sees only the compressed
-span/anchor/windows -- ordinary numbers, no cut awareness.
+`cycleIndex` / `elapsed` / the boundary-epsilon rollback are UNCHANGED (a cut lives within one cycle, so
+the cadence = synodic is cut-independent; the rollback still emits the recorded `spanEndUT`, which equals
+`DecompressSpanUT(spanStart + effectiveSpan)` by construction). Empty/null cuts => `effectiveSpan == span`
+and the remap is the identity, so every non-re-aim caller is byte-identical.
 
-### 5.2 Live (dynamic) transfer
+### 5.2 Build-time + live (almost nothing else changes)
 
-The per-window resolver (`ReaimPlaybackResolver`) takes the member's **pre-baked compressed segment
-list** (from the unit, NOT `rec.OrbitSegments`), synthesizes the window transfer (Lambert + patch),
-shifts its epoch into the compressed transfer slot, and `ReplaceHeliocentricLeg` swaps the marker for
-the re-aimed arc. Output: compressed + re-aimed segments at compressed UTs. Cached by window as today.
+- `MissionLoopUnitBuilder` (re-aim engaged): compute the cuts (section 4) across the gathered mission
+  segments; set `phaseAnchorUT = sched.PhaseAnchorUT + (RecordedDepartureUT - comp(RecordedDepartureUT))`
+  (the launch shifts LATER by the cut excised before the transfer departure, so it lands ~1 orbit before
+  the unchanged absolute synodic window); attach the cuts to the `LoopUnit`. The span and member windows
+  stay RECORDED (the remap gates against them in recorded UT).
+- The per-window resolver (`ReaimPlaybackResolver`) is UNCHANGED: it operates on the recorded segments +
+  the uncompressed plan, and the cut-skipping recorded `loopUT` naturally skips the loiter (a whole number
+  of periods, so the orbital phase is continuous -- seamless, section 2.1). It consumes only the
+  cut-independent `cycleIndex`, so the window resolution is unaffected.
+- Members render at recorded UTs (the cut interval is simply never sampled), so faithful Points members
+  (ascent / landing / debris) render unchanged, just earlier in live time -- the chain stays coherent
+  with no per-member compression.
 
-### 5.3 Why this is lower-risk than the remap
+### 5.3 The three guards (reviewer sign-off conditions, all tested)
 
-- The shared clock, its `schedule`/`overlap`/`tail`/boundary-epsilon branches, and its five call sites
-  are untouched -- no `cut`-skipping `loopUT` vs uncompressed-`memberWindow` scale mismatch (the remap's
-  liability), no boundary-rollback UT-scale bug.
-- The cut is applied where the data lives (the member's own segments + the unit's own span/windows),
-  not threaded through shared infra.
-- The `ReaimedTrajectory` span (`StartUT`/`EndUT`) derives from the (compressed) assembled segments and
-  stays consistent with the unit's compressed span by construction.
+1. **Gate strictly + empty = hard identity.** The cut is honored only in the uniform branch; the
+   `schedule != null` path ignores it (re-aim always passes `schedule = null`).
+   `TryComputeSpanLoopUT_EmptyOrNullCuts_BitIdenticalToNoCompression` sweeps `currentUT` and asserts
+   bit-identical `(loopUT, cycleIndex, tail)`.
+2. **Remap order + boundary scale.** Cut AFTER the clamp, wrapping over the compressed span; the
+   boundary-rollback `spanEndUT` is on the same recorded-UT scale as the compressed-span-end play frame.
+   `TryComputeSpanLoopUT_WithCut_WrapsOverCompressedSpan_SkipsCut_BoundaryMatches`.
+3. **Member-window gate stays recorded; straddle is intended.** A member window straddling a cut renders
+   its non-cut portions and never samples inside the cut, with `Render` throughout.
+   `DecideUnitMemberRender_MemberWindowStraddlingCut_RendersNonCutPortions_NeverInsideCut`.
 
 ## 6. Render contract (review C2) -- what is actually visible
 
@@ -253,14 +263,19 @@ loiter compression deferred (sections 3.2, 10).
 ## 9. Testing
 
 - **Unit (pure):** the contiguous-same-body-run loiter detector (single long segment; chunked run;
-  hyperbolic/parabolic skip; body-change run termination; station-keeping split); cut computation
-  (`wholeRevs = floor(D/T)`, `cutLength = (wholeRevs - N)*T`, exact-period snap); the recorded->compressed
-  UT map (monotonic; empty cuts == identity); `ShiftInTime` phase preservation across the compression;
-  `phaseAnchor` alignment (transfer departs on `D_k` for k>=0, against the unchanged span-clock math);
+  hyperbolic/parabolic skip; body-change run termination; station-keeping split; gradual-drift split
+  anchored to the run's first `a`); cut computation (`wholeRevs = floor(D/T)`,
+  `cutLength = (wholeRevs - N)*T`, exact-period snap); the recorded<->compressed UT map
+  (`CompressSpanUT` monotonic / empty == identity; `DecompressSpanUT` inverse / skips to the cut END);
   the reworked classifier (transfer = run ending at SOI entry; heliocentric-loiter decline;
-  `RecordedDepartureUT`/tof correct with a leading Sun loiter).
-- **Regression:** every non-re-aim loop is byte-identical (the shared clock is untouched -- this is now
-  trivially true, the design's main de-risking move).
+  `RecordedDepartureUT`/tof correct with a leading Sun loiter; >1-rev-run decline; real-sma data).
+- **Shared clock (the three guards, section 5.3):** empty/null cuts byte-identical to the
+  pre-compression clock; remap order + compressed-span wrap + boundary-rollback UT-scale agreement; a
+  member window straddling a cut renders its non-cut portions and never samples inside the cut. These
+  replace the old "shared clock untouched -> trivially true" claim, which no longer holds (the remap is a
+  deliberate, gated clock change).
+- **Regression:** every non-re-aim loop is byte-identical via guard 1 (the cut parameter is identity on
+  the empty list that every faithful / overlap / zero-drift / KSC / TS caller passes).
 - **In-game:** a synthetic mission with an LKO loiter + a high-orbit loiter + a transfer; assert the
   compressed span, the window-aligned launch, and (canary) world-position continuity across a cut
   boundary (sample the same orbit at the two cut-boundary recorded UTs at one live frame apart, assert
