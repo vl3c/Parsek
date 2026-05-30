@@ -97,6 +97,48 @@ namespace Parsek.Tests
             Assert.Equal(995000.0, plan.RecordedTransferTofSeconds, 3);  // FULL transfer span
         }
 
+        private static OrbitSegment SegA(string body, double start, double end, double a)
+        {
+            return new OrbitSegment { bodyName = body, startUT = start, endUT = end, semiMajorAxis = a };
+        }
+
+        [Fact]
+        public void Classify_KerbinLoiterBeforeDirectTransfer_DepartsAtTransferStart()
+        {
+            // A long Kerbin LKO loiter (Kerbin-bodied) then a DIRECT transfer (Sun) to Duna. The Kerbin
+            // loiter must NOT affect transfer detection: RecordedDepartureUT = the Sun transfer start
+            // (the launch-body SOI exit), not the loiter start.
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 1000000, 700000),    // long LKO loiter (Kerbin-bodied)
+                SegA("Sun", 1000000, 2000000, 1.7e10),   // transfer
+                SegA("Duna", 2000000, 2005000, 500000),  // arrival
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal(1000000.0, plan.RecordedDepartureUT, 3); // transfer start, not the loiter start
+            Assert.Equal(2000000.0, plan.RecordedArrivalUT, 3);
+        }
+
+        [Fact]
+        public void Classify_HeliocentricLoiterBeforeTransfer_Declined()
+        {
+            // Kerbin parking -> heliocentric loiter (a closed Sun orbit) -> transfer burn (a-step) ->
+            // transfer (Sun, ending at Duna) -> Duna. The transfer departs from a SOLAR parking orbit, so
+            // re-aim's Lambert (r1 = launch body) would mis-aim -> declined to faithful. Crucially the
+            // (different-SMA) heliocentric loiter does NOT become the transfer departure.
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),
+                SegA("Sun", 5000, 500000, 2.5e10),       // heliocentric loiter (closed, larger SMA)
+                SegA("Sun", 500000, 1000000, 1.7e10),    // transfer (SMA step at the departure burn)
+                SegA("Duna", 1000000, 1005000, 500000),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("heliocentric parking", plan.Reason);
+        }
+
         [Fact]
         public void Classify_SameParentMun_NotSupported_StaysFaithful()
         {

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Parsek.Reaim
@@ -145,17 +146,49 @@ namespace Parsek.Reaim
                         "more than one heliocentric leg (multi-hop / gravity assist) - deferred");
             }
 
-            OrbitSegment helio = segs[helioIdx];
             OrbitSegment arrival = segs[arrivalIdx];
-            // The transfer time spans from the launch-body SOI EXIT (first heliocentric segment start)
-            // to the target SOI ENTRY (arrival leg start), NOT the first heliocentric segment's end. A
-            // mid-course correction burn splits the heliocentric coast into multiple Sun-bodied segments
-            // (coast1 / [burn] / coast2 / ...); using helio.endUT would capture only the pre-correction
-            // coast and synthesize a wrong, too-short transfer. Spanning to the arrival start collapses
-            // any number of correction coasts into one re-aimed arc over the FULL recorded transfer time
-            // (identical to helio.endUT for a single uninterrupted coast). The intermediate correction
-            // coasts are replaced by the single synthesized arc - the small kink is not meaningful at map
-            // scale, and the single-impulse Lambert still arrives at the target.
+
+            // TRANSFER RUN (docs/dev/plans/reaim-loiter-compression.md section 3.2): the transfer is the
+            // run of common-ancestor (Sun) segments on the SAME orbit ENDING at the target SOI entry
+            // (arrival.startUT). RecordedDepartureUT = the start of the EARLIEST such segment (NOT the
+            // first Sun segment in the mission, which would wrongly include a heliocentric loiter and feed
+            // a too-long tof to the Lambert solve). Walk backwards from the arrival, including contiguous
+            // Sun segments whose semi-major axis matches (mid-course-correction coasts are ~the same
+            // orbit, so they stay in the run); STOP at a body change (the launch-body parking) or a
+            // semi-major-axis STEP (a maneuver -- the transfer burn out of a heliocentric loiter, or any
+            // deliberate orbit change). The a-step, not a UT gap, is the discriminator: an MCC burn leaves
+            // a small UT gap but ~the same orbit, while the transfer-departure burn is a real a change.
+            const double AStepRelThreshold = ReaimLoiterCompressor.DefaultAStepRelThreshold;
+            int transferStartIdx = -1;
+            double prevIncludedA = double.NaN;
+            for (int i = arrivalIdx - 1; i >= 0; i--)
+            {
+                OrbitSegment s = segs[i];
+                if (s.bodyName != commonAncestor)
+                    break;                                   // hit the launch-body parking -> run ends
+                if (!double.IsNaN(prevIncludedA))
+                {
+                    double aRel = Math.Abs(s.semiMajorAxis - prevIncludedA)
+                        / Math.Max(1.0, Math.Abs(prevIncludedA));
+                    if (aRel > AStepRelThreshold)
+                        break;                               // a maneuver (transfer burn) -> run ends
+                }
+                transferStartIdx = i;
+                prevIncludedA = s.semiMajorAxis;
+            }
+            if (transferStartIdx < 0)
+                return ReaimMissionPlan.Unsupported(launchBody,
+                    "no transfer arc ending at the target SOI entry");
+
+            // Declined v1 case: the segment immediately before the transfer run is also a common-ancestor
+            // (Sun) segment -> the transfer departs from a heliocentric PARKING orbit, not the launch
+            // body. The Lambert solve assumes r1 = launchBody position, so re-aim would mis-aim; decline
+            // to faithful (heliocentric-parking departures are deferred).
+            if (transferStartIdx - 1 >= 0 && segs[transferStartIdx - 1].bodyName == commonAncestor)
+                return ReaimMissionPlan.Unsupported(launchBody,
+                    "transfer departs from a heliocentric parking orbit (deferred); staying faithful");
+
+            OrbitSegment transferStart = segs[transferStartIdx];
             return new ReaimMissionPlan
             {
                 Supported = true,
@@ -164,11 +197,11 @@ namespace Parsek.Reaim
                 TargetBody = targetBody,
                 CommonAncestor = commonAncestor,
                 ParkingOrbit = segs[parkingIdx],
-                HeliocentricLeg = helio,
+                HeliocentricLeg = transferStart,
                 ArrivalLeg = arrival,
-                RecordedDepartureUT = helio.startUT,
-                RecordedArrivalUT = arrival.startUT,
-                RecordedTransferTofSeconds = arrival.startUT - helio.startUT
+                RecordedDepartureUT = transferStart.startUT,            // transfer departure (SOI exit)
+                RecordedArrivalUT = arrival.startUT,                    // target SOI entry
+                RecordedTransferTofSeconds = arrival.startUT - transferStart.startUT
             };
         }
     }
