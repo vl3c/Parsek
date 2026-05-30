@@ -51,6 +51,33 @@ namespace Parsek.Display
         /// </summary>
         internal const int MaxPolylinePointsPerLeg = 200;
 
+        /// <summary>
+        /// Per-body atmosphere geometry needed to decide whether an OrbitSegment
+        /// is degenerate (its drawn conic plunges below atmosphere/surface so the
+        /// orbit line is unreliable there). Injected into the pure builder via
+        /// <see cref="BodyAtmosphereProvider"/> so the builder never calls
+        /// FlightGlobals (the Driver populates it from the live bodies).
+        /// </summary>
+        internal struct BodyAtmosphereInfo
+        {
+            /// <summary>Atmosphere top above the body radius (metres). 0 for an
+            /// airless body.</summary>
+            public double atmosphereDepth;
+
+            /// <summary>Body radius (metres).</summary>
+            public double radius;
+        }
+
+        /// <summary>
+        /// Seam (FIX #27): resolves per-body atmosphere geometry by body name.
+        /// Returns false when the body is unknown, in which case the orbital
+        /// cover keeps EVERY segment (byte-identical to the pre-fix behaviour, so
+        /// a recording with no degenerate/below-atmosphere segments is
+        /// unaffected). The Driver supplies a FlightGlobals-backed lookup; the
+        /// xUnit builder tests pass null (no exclusion) or a synthetic provider.
+        /// </summary>
+        internal delegate bool BodyAtmosphereProvider(string bodyName, out BodyAtmosphereInfo info);
+
         // RecordingId -> per-recording leg set. Atmospheric-only recordings
         // have pid=0 so PID is NOT a usable key; RecordingId (string) is.
         // Matches the pattern MapMarkerRenderer.stickyMarkers uses.
@@ -225,7 +252,8 @@ namespace Parsek.Display
         /// unit-test surface forbids. Each leg's <c>vectorLine</c> field is
         /// null after a refresh; the Driver inflates it on first use.
         /// </summary>
-        internal static void RefreshForRecording(Recording rec)
+        internal static void RefreshForRecording(
+            Recording rec, BodyAtmosphereProvider atmosphere = null)
         {
             if (rec == null) return;
             string id = rec.RecordingId;
@@ -243,7 +271,7 @@ namespace Parsek.Display
             if (polylineCache.TryGetValue(id, out var stale))
                 DestroyLegLines(stale.legs);
 
-            var legs = BuildLegsForRecording(rec);
+            var legs = BuildLegsForRecording(rec, atmosphere);
             var legArray = legs.ToArray();
 
             polylineCache[id] = new LegPolylineSet
@@ -398,12 +426,29 @@ namespace Parsek.Display
         ///   footgun: those fields are metre offsets along the anchor's local
         ///   x/y/z, NOT lat/lon/alt).
         /// </summary>
-        internal static List<LegPolyline> BuildLegsForRecording(Recording rec)
+        internal static List<LegPolyline> BuildLegsForRecording(
+            Recording rec, BodyAtmosphereProvider atmosphere = null)
         {
             var legs = new List<LegPolyline>();
             if (rec == null) return legs;
 
-            var orbitalIntervals = ComputeOrbitalCoverIntervals(rec.OrbitSegments);
+            var orbitalIntervals = ComputeOrbitalCoverIntervals(rec.OrbitSegments, atmosphere);
+
+            // FIX #27: count + report the degenerate below-atmosphere segments
+            // the cover now excludes (one-shot, build-time). When any are
+            // excluded the descent samples they used to drop merge into the
+            // descent leg, so log the resulting leg span window for diagnosis.
+            int excludedBelowAtmosphereSegments = 0;
+            if (atmosphere != null && rec.OrbitSegments != null)
+            {
+                for (int i = 0; i < rec.OrbitSegments.Count; i++)
+                {
+                    var seg = rec.OrbitSegments[i];
+                    if (seg.endUT <= seg.startUT) continue;
+                    if (IsOrbitSegmentBelowAtmosphere(seg, atmosphere))
+                        excludedBelowAtmosphereSegments++;
+                }
+            }
 
             int skippedRelativeWithoutBodyFixed = 0;
             int sectionPointCount = 0;
@@ -481,10 +526,24 @@ namespace Parsek.Display
 
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4})",
+                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowAtmoSegs={5})",
                     rec.RecordingId,
                     legs.Count, sectionPointCount, flatPointCount,
-                    skippedRelativeWithoutBodyFixed));
+                    skippedRelativeWithoutBodyFixed, excludedBelowAtmosphereSegments));
+
+            // FIX #27 one-shot: when the cover excluded degenerate
+            // below-atmosphere segments, the descent samples they used to drop
+            // now merge into a leg. Report that leg's span (the last leg, which
+            // is the descent tail) so a coverage hole is diagnosable from the log.
+            if (excludedBelowAtmosphereSegments > 0 && legs.Count > 0)
+            {
+                var descentLeg = legs[legs.Count - 1];
+                ParsekLog.Verbose(Tag,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "excluded {0} below-atmosphere orbit segments from cover rec={1} -> descent leg [{2:F1},{3:F1}]",
+                        excludedBelowAtmosphereSegments, rec.RecordingId,
+                        descentLeg.startUT, descentLeg.endUT));
+            }
 
             return legs;
         }
@@ -611,12 +670,55 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Pure (FIX #27): is this OrbitSegment degenerate, i.e. does its drawn
+        /// Keplerian conic plunge below the body's atmosphere top so the orbit
+        /// line is unreliable across it? True when the segment's periapsis
+        /// altitude is below the body's atmosphere depth.
+        ///
+        /// Periapsis radius is <c>sma * (1 - ecc)</c>, which is valid for the
+        /// hyperbolic case too (sma &lt; 0, ecc &gt; 1 give a positive periapsis
+        /// radius). Periapsis altitude = that minus the body radius. The check
+        /// mirrors the orbit-line's reliability boundary: the orbit-line patch
+        /// suppresses the line wherever the ghost's CURRENT altitude is below
+        /// <c>body.atmosphereDepth</c>, and a segment whose periapsis is below
+        /// that depth draws a conic that dives into / under the atmosphere (for
+        /// the Duna arrival the final segments have periapsis well BELOW the
+        /// surface), so the orbit line cannot reliably trace it and the polyline
+        /// must own it instead.
+        ///
+        /// Returns false (segment kept as orbit-owned) when the provider is null
+        /// or the body is unknown, so a normal in-space orbit segment (periapsis
+        /// well above atmosphere) is UNCHANGED. Gated strictly on periapsis below
+        /// atmosphere, so an ordinary parking / transfer orbit is never excluded.
+        /// </summary>
+        internal static bool IsOrbitSegmentBelowAtmosphere(
+            OrbitSegment segment, BodyAtmosphereProvider atmosphere)
+        {
+            if (atmosphere == null) return false;
+            if (string.IsNullOrEmpty(segment.bodyName)) return false;
+            if (!atmosphere(segment.bodyName, out BodyAtmosphereInfo info)) return false;
+            // Airless bodies have atmosphereDepth 0: the boundary is the surface,
+            // so a segment with periapsis below the surface is still degenerate.
+            double periapsisRadius = segment.semiMajorAxis * (1.0 - segment.eccentricity);
+            double periapsisAltitude = periapsisRadius - info.radius;
+            return periapsisAltitude < info.atmosphereDepth;
+        }
+
+        /// <summary>
         /// Computes the union of every OrbitSegment's [startUT, endUT]
         /// interval. Points whose UT falls inside the union are dropped
         /// from the polyline at filter time (the orbit-arc covers them).
+        ///
+        /// FIX #27: a degenerate below-atmosphere segment (see
+        /// <see cref="IsOrbitSegmentBelowAtmosphere"/>) is EXCLUDED from the
+        /// cover so the polyline picks up the descent samples the unreliable
+        /// orbit line abandons there, tiling the two surfaces without a gap. When
+        /// <paramref name="atmosphere"/> is null (the xUnit builder default) no
+        /// segment is excluded, so a recording with no degenerate segments is
+        /// byte-identical to the pre-fix behaviour.
         /// </summary>
         internal static List<(double startUT, double endUT)> ComputeOrbitalCoverIntervals(
-            List<OrbitSegment> segments)
+            List<OrbitSegment> segments, BodyAtmosphereProvider atmosphere = null)
         {
             var intervals = new List<(double, double)>();
             if (segments == null || segments.Count == 0) return intervals;
@@ -624,6 +726,7 @@ namespace Parsek.Display
             {
                 var s = segments[i];
                 if (s.endUT <= s.startUT) continue;
+                if (IsOrbitSegmentBelowAtmosphere(s, atmosphere)) continue;
                 intervals.Add((s.startUT, s.endUT));
             }
             return intervals;
@@ -890,6 +993,14 @@ namespace Parsek.Display
                     loopUnits = flCtl.CurrentCachedLoopUnits;
                 }
 
+                // FIX #27: per-body atmosphere provider for the cover exclusion.
+                // Built once per frame from the per-scene body map (so the pure
+                // builder never calls FlightGlobals). The map is rebuilt lazily
+                // per scene inside ResolveBodyByName; ensure it is populated here
+                // so RefreshForRecording can resolve below-atmosphere segments.
+                EnsureBodyMap(scene);
+                BodyAtmosphereProvider atmosphere = ResolveBodyAtmosphere;
+
                 // [ERS-exempt] Driver walks RecordingStore.CommittedRecordings
                 // directly: atmospheric-only recordings are absent from
                 // the ghost-bearing / pending-create iterators that
@@ -949,7 +1060,7 @@ namespace Parsek.Display
                         continue;
                     }
 
-                    RefreshForRecording(rec);
+                    RefreshForRecording(rec, atmosphere);
                     if (!polylineCache.TryGetValue(rec.RecordingId, out var set))
                     {
                         frameSkippedNoLegs++;
@@ -1289,22 +1400,52 @@ namespace Parsek.Display
             private CelestialBody ResolveBodyByName(GameScenes scene, string name)
             {
                 if (string.IsNullOrEmpty(name)) return null;
-                if (bodyMapScene != scene || bodyByName.Count == 0)
-                {
-                    bodyByName.Clear();
-                    var bodies = FlightGlobals.Bodies;
-                    if (bodies != null)
-                    {
-                        for (int i = 0; i < bodies.Count; i++)
-                        {
-                            var b = bodies[i];
-                            if (b != null && !string.IsNullOrEmpty(b.name))
-                                bodyByName[b.name] = b;
-                        }
-                    }
-                    bodyMapScene = scene;
-                }
+                EnsureBodyMap(scene);
                 return bodyByName.TryGetValue(name, out var body) ? body : null;
+            }
+
+            /// <summary>
+            /// Rebuilds the per-scene name-&gt;CelestialBody map when it is empty
+            /// or stale (scene changed). Bodies are stable within a scene; the
+            /// scene-change handler clears the map.
+            /// </summary>
+            private void EnsureBodyMap(GameScenes scene)
+            {
+                if (bodyMapScene == scene && bodyByName.Count != 0) return;
+                bodyByName.Clear();
+                var bodies = FlightGlobals.Bodies;
+                if (bodies != null)
+                {
+                    for (int i = 0; i < bodies.Count; i++)
+                    {
+                        var b = bodies[i];
+                        if (b != null && !string.IsNullOrEmpty(b.name))
+                            bodyByName[b.name] = b;
+                    }
+                }
+                bodyMapScene = scene;
+            }
+
+            /// <summary>
+            /// FIX #27 atmosphere seam (a <see cref="BodyAtmosphereProvider"/>):
+            /// resolves a body's atmosphere depth + radius from the per-scene
+            /// body map for the pure cover-exclusion builder. Returns false for
+            /// an unknown body so the builder keeps every segment (byte-identical
+            /// to the pre-fix path). An airless body reports atmosphereDepth 0, so
+            /// the boundary is its surface.
+            /// </summary>
+            private bool ResolveBodyAtmosphere(string bodyName, out BodyAtmosphereInfo info)
+            {
+                info = default(BodyAtmosphereInfo);
+                if (string.IsNullOrEmpty(bodyName)) return false;
+                if (!bodyByName.TryGetValue(bodyName, out var body) || body == null)
+                    return false;
+                info = new BodyAtmosphereInfo
+                {
+                    atmosphereDepth = body.atmosphere ? body.atmosphereDepth : 0.0,
+                    radius = body.Radius
+                };
+                return true;
             }
         }
     }

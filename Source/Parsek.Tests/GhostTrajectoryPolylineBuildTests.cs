@@ -716,6 +716,249 @@ namespace Parsek.Tests
                 legStartUT: 100.0, legEndUT: 200.0, headUT: 200.0));
         }
 
+        // --- FIX #27: below-atmosphere degenerate-segment cover exclusion ---
+        //
+        // Duna-like geometry: radius 320000, atmosphereDepth 50000 (atmosphere
+        // top at radius 370000). A "clean" arrival segment sits at ~58 km
+        // (periapsis above the atmosphere top); the degenerate descent segments
+        // have periapsis BELOW the atmosphere top / surface, so the orbit line is
+        // unreliable across them and the polyline must own their samples.
+
+        private const double DunaRadius = 320000.0;
+        private const double DunaAtmoTop = 50000.0;
+
+        // Synthetic atmosphere provider keyed by body name (the pure-builder
+        // seam the Driver fills from FlightGlobals at runtime).
+        private static GhostTrajectoryPolylineRenderer.BodyAtmosphereProvider DunaAtmosphere()
+        {
+            return (string body,
+                out GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo info) =>
+            {
+                if (body == "Duna")
+                {
+                    info = new GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo
+                    {
+                        atmosphereDepth = DunaAtmoTop,
+                        radius = DunaRadius
+                    };
+                    return true;
+                }
+                info = default(GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo);
+                return false;
+            };
+        }
+
+        // A clean above-atmosphere Duna segment: sma chosen so periapsis altitude
+        // is ~58 km (above the 50 km atmosphere top).
+        private static OrbitSegment CleanDunaSegment(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT, endUT = endUT,
+                bodyName = "Duna",
+                eccentricity = 0.004,
+                // peri = sma*(1-ecc) - radius ; aim ~58 km
+                semiMajorAxis = (DunaRadius + 58000.0) / (1.0 - 0.004)
+            };
+        }
+
+        // A degenerate Duna descent segment: periapsis well BELOW the surface
+        // (matches the real recording's seg#20/21, periapsis ~-17 km).
+        private static OrbitSegment DegenerateDunaSegment(double startUT, double endUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT, endUT = endUT,
+                bodyName = "Duna",
+                eccentricity = 0.11,
+                semiMajorAxis = 340660.0 // peri = 340660*0.89 - 320000 = ~-17 km
+            };
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowAtmosphere_DegenerateSegment_True()
+        {
+            var seg = DegenerateDunaSegment(100.0, 200.0);
+            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+                seg, DunaAtmosphere()));
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowAtmosphere_CleanSegment_False()
+        {
+            var seg = CleanDunaSegment(100.0, 200.0);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+                seg, DunaAtmosphere()));
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowAtmosphere_NullProvider_False()
+        {
+            // No provider -> never excluded (byte-identical pre-fix behaviour).
+            var seg = DegenerateDunaSegment(100.0, 200.0);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+                seg, null));
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowAtmosphere_UnknownBody_False()
+        {
+            // Provider does not know the body -> not excluded.
+            var seg = new OrbitSegment
+            {
+                startUT = 100.0, endUT = 200.0,
+                bodyName = "Eve",
+                eccentricity = 0.11,
+                semiMajorAxis = 340660.0
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+                seg, DunaAtmosphere()));
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowAtmosphere_HyperbolicBelowAtmosphere_True()
+        {
+            // Hyperbolic arrival (sma < 0, ecc > 1) with periapsis below the
+            // atmosphere: sma*(1-ecc) stays a positive periapsis radius. Aim peri
+            // ~10 km (below the 50 km atmosphere top).
+            double peri = DunaRadius + 10000.0;
+            double ecc = 1.4;
+            double sma = peri / (1.0 - ecc); // negative
+            var seg = new OrbitSegment
+            {
+                startUT = 100.0, endUT = 200.0,
+                bodyName = "Duna",
+                eccentricity = ecc,
+                semiMajorAxis = sma
+            };
+            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+                seg, DunaAtmosphere()));
+        }
+
+        [Fact]
+        public void ComputeOrbitalCoverIntervals_ExcludesDegenerateSegment()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                CleanDunaSegment(100.0, 200.0),
+                DegenerateDunaSegment(200.0, 300.0)
+            };
+            var intervals = GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(
+                segments, DunaAtmosphere());
+
+            // Only the clean segment remains in the cover.
+            Assert.Single(intervals);
+            Assert.Equal(100.0, intervals[0].startUT);
+            Assert.Equal(200.0, intervals[0].endUT);
+        }
+
+        [Fact]
+        public void ComputeOrbitalCoverIntervals_NullProvider_KeepsAllSegments()
+        {
+            var segments = new List<OrbitSegment>
+            {
+                CleanDunaSegment(100.0, 200.0),
+                DegenerateDunaSegment(200.0, 300.0)
+            };
+            var intervals = GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(
+                segments, null);
+            Assert.Equal(2, intervals.Count);
+        }
+
+        [Fact]
+        public void BuildLegs_DunaDescentInsideDegenerateSegments_MergesIntoOneLegWithProvider()
+        {
+            // Descent points (body=Duna, ~58 km down to ~50 km) fall INSIDE the
+            // degenerate descent segment's interval. WITHOUT the provider they
+            // are dropped (orbit-owned) -> coverage hole. WITH the provider the
+            // degenerate segment is excluded from the cover, so the descent
+            // samples are picked up and merge into ONE continuous Duna leg.
+            var rec = new Recording { RecordingId = "rec-duna-descent" };
+            // Clean arrival orbit, then the degenerate descent segment.
+            rec.OrbitSegments.Add(CleanDunaSegment(70000.0, 70100.0));
+            rec.OrbitSegments.Add(DegenerateDunaSegment(70100.0, 70300.0));
+            // Descent points all INSIDE the degenerate segment's [70100,70300].
+            for (int i = 0; i < 20; i++)
+            {
+                double ut = 70100.0 + i * 10.0; // 70100..70290
+                double alt = 58000.0 - i * 400.0; // 58000 down to ~50400
+                rec.Points.Add(MakePoint(ut, 5.0 + 0.01 * i, -10.0, alt, "Duna"));
+            }
+
+            var withProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, DunaAtmosphere());
+            var withoutProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            // Without the provider: the descent points are inside the (kept)
+            // degenerate interval -> dropped -> no descent leg (the hole).
+            Assert.Empty(withoutProvider);
+
+            // With the provider: the degenerate segment is excluded, so the
+            // descent samples form one continuous Duna leg covering the tail.
+            // The first descent point (ut=70100) sits exactly on the CLEAN
+            // segment's endUT, so it stays orbit-owned (the inclusive interval
+            // claims it); the leg therefore starts at the next point (70110).
+            Assert.Single(withProvider);
+            Assert.Equal("Duna", withProvider[0].bodyName);
+            Assert.Equal(70110.0, withProvider[0].startUT);
+            Assert.Equal(70290.0, withProvider[0].endUT);
+
+            // The head-UT gate selects that leg for a descent head UT.
+            Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
+                withProvider[0].startUT, withProvider[0].endUT, 70200.0));
+
+            // One-shot exclusion summary logged with the descent leg span.
+            Assert.Contains(logLines, l => l.Contains("[GhostMap]")
+                && l.Contains("excluded 1 below-atmosphere orbit segments from cover")
+                && l.Contains("rec=rec-duna-descent"));
+        }
+
+        [Fact]
+        public void BuildLegs_NoDegenerateSegments_ProviderIsByteIdenticalNoOp()
+        {
+            // REGRESSION GUARD: a recording with no below-atmosphere segments must
+            // produce identical legs with and without the provider, so a normal
+            // in-space orbit is untouched and its samples stay orbit-owned.
+            var rec = new Recording { RecordingId = "rec-clean" };
+            // A clean parking orbit (well above atmosphere) + an ascent leg.
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 0.0, endUT = 100.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    MakePoint(0.0, -0.1, -74.5, 70.0, "Duna"),
+                    MakePoint(50.0, -0.05, -74.5, 20000.0, "Duna"),
+                    MakePoint(100.0, 0.0, -74.5, 60000.0, "Duna")
+                },
+                checkpoints = new List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f
+            });
+            rec.OrbitSegments.Add(CleanDunaSegment(100.0, 600.0));
+
+            var withProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, DunaAtmosphere());
+            var withoutProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            Assert.Equal(withoutProvider.Count, withProvider.Count);
+            for (int i = 0; i < withProvider.Count; i++)
+            {
+                Assert.Equal(withoutProvider[i].PointCount, withProvider[i].PointCount);
+                Assert.Equal(withoutProvider[i].bodyName, withProvider[i].bodyName);
+                Assert.Equal(withoutProvider[i].startUT, withProvider[i].startUT);
+                Assert.Equal(withoutProvider[i].endUT, withProvider[i].endUT);
+                Assert.Equal(withoutProvider[i].lats, withProvider[i].lats);
+                Assert.Equal(withoutProvider[i].lons, withProvider[i].lons);
+                Assert.Equal(withoutProvider[i].alts, withProvider[i].alts);
+            }
+            // No exclusion summary logged for a clean recording.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("excluded") && l.Contains("below-atmosphere orbit segments"));
+        }
+
         // --- Helpers ---
 
         private static TrajectoryPoint MakePoint(
