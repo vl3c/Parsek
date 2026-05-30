@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Reaim;
 
 namespace Parsek
 {
@@ -242,6 +243,9 @@ namespace Parsek
             MissionRelaunchSchedule relaunchSchedule = null;
             bool scheduleRejectedForOverlap = false;
             PeriodicitySolution solution = default;
+            ReaimMissionPlan? reaimPlan = null;
+            ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
+            IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts = null;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -309,14 +313,236 @@ namespace Parsek
                         }
                     }
                 }
+
+                // 7e. Re-aim (cross-parent interplanetary): the faithful path reports cross-parent
+                //      targets UnsupportedCrossParent (their faithful celestial geometry recurs on the
+                //      order of ~1000 Kerbin years - useless for logistics), so phaseLocked stays
+                //      false. When that happens, try the re-aim model: classify the recorded SOI chain
+                //      as a single-hop interplanetary transfer and, if eligible, REPLACE the recorded
+                //      heliocentric geometry with a per-window re-aimed transfer that relaunches every
+                //      SYNODIC window (~2 Kerbin years for Kerbin->Duna). The classifier + planner both
+                //      fail closed: a same-parent target, a missing heliocentric leg, a multi-hop chain,
+                //      or degenerate geometry all leave the mission on today's faithful path (the raw
+                //      cadence above), never half-applied. Only the per-window transfer ORIENTATION
+                //      varies between windows; the Hohmann tof (hence the recorded span) is constant.
+                if (!phaseLocked)
+                {
+                    // Classify across ALL members' segments (the mission's combined SOI chain): a real
+                    // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
+                    // leg / debris as separate recordings), so the heliocentric transfer lives in a
+                    // non-owner member. The per-window substitution then re-aims ONLY each member's
+                    // heliocentric leg(s) (ReaimPlaybackResolver / ReaimSegmentAssembler.
+                    // ReplaceHeliocentricLeg) and leaves body-relative legs faithful, so classifying
+                    // across the whole chain and substituting per-member is consistent (no half-apply).
+                    // Classify PER-MEMBER, not the flattened multi-member gather. A member parked in orbit
+                    // DURING the transfer (a station, a tug, a jettisoned stage left in LKO) interleaves
+                    // its orbit segments with the transfer member's heliocentric coast in the flattened
+                    // startUT-sorted list. That broke both algorithms in playtest: the classifier's
+                    // backward walk from the target SOI coast hit an interleaved launch-body segment and
+                    // stopped (transfer = the last coast only -> a too-short tof -> a bogus re-aimed
+                    // geometry), and the loiter compressor cut the interleaved launch-body loiter whose UT
+                    // range OVERLAPS the transfer (excising the transfer itself). The transfer is ONE
+                    // member's continuous heliocentric arc, so classify each member's own segments; the
+                    // member that yields a supported plan is the re-aim source and ITS segments drive the
+                    // loiter cuts (only its parking is compressed, never another member's overlapping
+                    // loiter). Members with no heliocentric leg (the parked station) classify as
+                    // unsupported and loop faithfully alongside.
+                    ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
+                    List<OrbitSegment> transferSegments = null;
+                    int gatheredCount = 0;
+                    for (int mi = 0; mi < memberIndices.Count; mi++)
+                    {
+                        int midx = memberIndices[mi];
+                        if (midx < 0 || midx >= committed.Count)
+                            continue;
+                        Recording mrec = committed[midx];
+                        if (mrec == null || mrec.OrbitSegments == null || mrec.OrbitSegments.Count == 0)
+                            continue;
+                        gatheredCount += mrec.OrbitSegments.Count;
+                        var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
+                        msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+                        ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
+                        if (mp.Supported && transferSegments == null)
+                        {
+                            plan = mp;
+                            transferSegments = msegs;
+                            // keep scanning only to finish the gatheredCount tally for the diagnostic
+                        }
+                    }
+
+                    // Diagnostic: dump the transfer member's segments + the classifier's transfer
+                    // measurement so a save reload reveals the recorded structure (which segment is the
+                    // transfer, where any loiter is, what the loiter detector + classifier see). Verbose,
+                    // one-shot per build.
+                    if (!SuppressLogging && bodyInfo != null)
+                    {
+                        var dic = CultureInfo.InvariantCulture;
+                        List<OrbitSegment> dumpSegs = transferSegments ?? new List<OrbitSegment>();
+                        ParsekLog.Verbose("ReaimDiag",
+                            $"mission='{mission.Name}' gatheredSegs={gatheredCount} transferMemberSegs={dumpSegs.Count} " +
+                            $"plan.Supported={plan.Supported} reason='{plan.Reason}'" +
+                            (plan.Supported
+                                ? $" departUT={plan.RecordedDepartureUT.ToString("F0", dic)}" +
+                                  $" arrivalUT={plan.RecordedArrivalUT.ToString("F0", dic)}" +
+                                  $" tof={plan.RecordedTransferTofSeconds.ToString("F0", dic)}" +
+                                  $" ancestor={plan.CommonAncestor}"
+                                : ""));
+                        int logged = 0;
+                        for (int si = 0; si < dumpSegs.Count && logged < 60; si++, logged++)
+                        {
+                            OrbitSegment s = dumpSegs[si];
+                            double per = ReaimLoiterCompressor.OrbitalPeriod(
+                                s.semiMajorAxis, bodyInfo.GravParameter(s.bodyName));
+                            double dur = s.endUT - s.startUT;
+                            ParsekLog.Verbose("ReaimDiag",
+                                $"  seg#{si} {s.bodyName} [{s.startUT.ToString("F0", dic)},{s.endUT.ToString("F0", dic)}]" +
+                                $" dur={dur.ToString("F0", dic)} sma={s.semiMajorAxis.ToString("R", dic)}" +
+                                $" period={(double.IsNaN(per) ? "NaN" : per.ToString("F0", dic))}" +
+                                $" revs={(double.IsNaN(per) || per <= 0.0 ? "-" : (dur / per).ToString("F2", dic))}" +
+                                $" pred={s.isPredicted}");
+                        }
+                    }
+
+                    if (plan.Supported)
+                    {
+                        // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
+                        // (the bodies' relative configuration recurs every synodic period), and each
+                        // window re-solves the transfer for the target's actual position using the
+                        // RECORDED tof - so the transfer stays congruent to the recorded one and fits
+                        // the recorded span exactly. Needs only the two solar orbital periods.
+                        double pOrigin = bodyInfo.OrbitPeriod(plan.LaunchBody);
+                        double pTarget = bodyInfo.OrbitPeriod(plan.TargetBody);
+
+                        ReaimWindowPlanner.ReaimWindowSchedule sched = ReaimWindowPlanner.Plan(
+                            pOrigin, pTarget, plan.RecordedDepartureUT, plan.RecordedTransferTofSeconds,
+                            spanStartUT, spanEndUT, referenceUT);
+
+                        if (sched.Valid)
+                        {
+                            reaimPlan = plan;
+                            reaimSchedule = sched;
+                            // The synodic period dwarfs the recorded span, so the cadence is synodic and
+                            // the mission is single-instance per window (overlap cadence >= span => never
+                            // overlaps). The faithful zero-drift schedule does not apply to re-aim.
+                            phaseAnchorUT = sched.PhaseAnchorUT;
+                            effectiveCadence = Math.Max(span, sched.CadenceSeconds);
+                            effectiveOverlapCadence = effectiveCadence;
+                            relaunchSchedule = null;
+
+                            // Loiter compression (docs/dev/plans/reaim-loiter-compression.md): the
+                            // recorded mission usually parks for a year or more waiting for the transfer
+                            // window. For a SUPPLY-ROUTE loop that loiter must not replay, so excise every
+                            // repeated parking orbit down to ~1 revolution. The cuts feed the shared span
+                            // clock (TryComputeSpanLoopUT remaps loopUT to skip them); the phase anchor
+                            // shifts LATER by the cut excised before the transfer departure so the launch
+                            // still lands ~1 orbit before the (unchanged, absolute) synodic window. Empty
+                            // cuts (no compressible loiter) leave the clock byte-identical to faithful.
+                            List<GhostPlaybackLogic.LoopCut> cuts =
+                                ReaimLoiterCompressor.ComputeCuts(transferSegments, bodyInfo.GravParameter);
+                            // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
+                            // already guarantees each cutLength < its run duration (so totalCut < span),
+                            // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
+                            // check: that gate falls back to the identity remap when totalCut >= span, so
+                            // applying the anchor shift here without the same gate would produce a
+                            // shifted-but-uncompressed clock in the (unreachable) degenerate case.
+                            // Diagnostic: dump each cut (cross-reference start with the seg# dump above to
+                            // see which run was excised, and whether the transfer arc was wrongly cut).
+                            if (!SuppressLogging)
+                            {
+                                var cic = CultureInfo.InvariantCulture;
+                                for (int ci = 0; ci < cuts.Count && ci < 30; ci++)
+                                    ParsekLog.Verbose("ReaimDiag",
+                                        $"  cut#{ci} start={cuts[ci].StartUT.ToString("F0", cic)}" +
+                                        $" len={cuts[ci].LengthSeconds.ToString("F0", cic)}" +
+                                        $" end={cuts[ci].EndUT.ToString("F0", cic)}");
+                            }
+
+                            if (cuts.Count > 0 && GhostPlaybackLogic.TotalCutLength(cuts) < span)
+                            {
+                                double cutBeforeDeparture = plan.RecordedDepartureUT
+                                    - GhostPlaybackLogic.CompressSpanUT(plan.RecordedDepartureUT, cuts);
+                                phaseAnchorUT = sched.PhaseAnchorUT + cutBeforeDeparture;
+                                loiterCuts = cuts;
+                            }
+
+                            // Launch-pad alignment (option 1, departure side). Snap the (now loiter-shifted)
+                            // launch to the launch body's recorded rotation phase so the body-fixed ascent
+                            // replays from the pad EXACTLY as recorded and feeds the recorded inertial parking
+                            // orbit + escape with no seam (the atmo-exit -> circular-orbit misalignment the
+                            // playtest flagged). Quantizes the cadence + the schedule's window spacing to the
+                            // same sidereal day so EVERY relaunch stays aligned, and moves the departure offset
+                            // by the same delta so the window-index <-> launch mapping the resolver uses is
+                            // preserved. Identity for a non-rotating launch body.
+                            double launchRotationPeriod = bodyInfo.RotationPeriod(plan.LaunchBody);
+                            ReaimWindowPlanner.PadAlignResult pad = ReaimWindowPlanner.PadAlignLaunch(
+                                phaseAnchorUT, effectiveCadence,
+                                sched.FirstDepartureUT, sched.SynodicPeriodSeconds,
+                                spanStartUT, launchRotationPeriod, referenceUT);
+                            if (pad.Applied)
+                            {
+                                phaseAnchorUT = pad.PhaseAnchorUT;
+                                effectiveCadence = pad.CadenceSeconds;
+                                effectiveOverlapCadence = effectiveCadence;
+                                sched.FirstDepartureUT = pad.FirstDepartureUT;
+                                sched.SynodicPeriodSeconds = pad.SynodicPeriodSeconds;
+                                sched.CadenceSeconds = pad.CadenceSeconds;
+                                reaimSchedule = sched; // re-store the pad-aligned schedule the resolver reads
+                                if (!SuppressLogging)
+                                {
+                                    var pic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' PAD-ALIGN launch to " +
+                                        $"{plan.LaunchBody} rotation: siderealDay={launchRotationPeriod.ToString("F1", pic)}s " +
+                                        $"launchShift={pad.DeltaSeconds.ToString("F1", pic)}s " +
+                                        $"phaseAnchor={phaseAnchorUT.ToString("R", pic)} " +
+                                        $"cadence={effectiveCadence.ToString("R", pic)} " +
+                                        $"(launch-recLaunch)/day=" +
+                                        $"{((phaseAnchorUT - spanStartUT) / launchRotationPeriod).ToString("F3", pic)}");
+                                }
+                            }
+
+                            if (!SuppressLogging)
+                            {
+                                var ric = CultureInfo.InvariantCulture;
+                                double totalCut = GhostPlaybackLogic.TotalCutLength(loiterCuts);
+                                double recordedSpan = spanEndUT - spanStartUT;
+                                ParsekLog.Info("Reaim",
+                                    $"MissionLoopUnit: mission='{mission.Name}' ENGAGED re-aim " +
+                                    $"{plan.LaunchBody}->{plan.TargetBody} via {plan.CommonAncestor}; " +
+                                    $"{ReaimWindowPlanner.Describe(sched)} " +
+                                    $"phaseAnchor={phaseAnchorUT.ToString("R", ric)} " +
+                                    $"cadence={effectiveCadence.ToString("R", ric)} " +
+                                    $"loiterCuts={(loiterCuts?.Count ?? 0).ToString(ric)} " +
+                                    $"cutSeconds={totalCut.ToString("F0", ric)} " +
+                                    $"compressedSpan={(recordedSpan - totalCut).ToString("F0", ric)}" +
+                                    $"/{recordedSpan.ToString("F0", ric)}");
+                            }
+                        }
+                        else if (!SuppressLogging)
+                        {
+                            ParsekLog.Verbose("Reaim",
+                                $"MissionLoopUnit: mission='{mission.Name}' re-aim eligible " +
+                                $"({plan.LaunchBody}->{plan.TargetBody}) but window plan invalid " +
+                                $"({sched.Reason}); staying faithful");
+                        }
+                    }
+                    else if (!SuppressLogging)
+                    {
+                        ParsekLog.Verbose("Reaim",
+                            $"MissionLoopUnit: mission='{mission.Name}' not re-aim ({plan.Reason}); faithful");
+                    }
+                }
             }
 
             // 8. Build the unit (carrying the per-member trimmed render windows + the optional
-            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock).
+            //    zero-drift schedule; null schedule => the existing uniform-cadence span clock; the
+            //    optional re-aim plan + synodic schedule drive the flight engine's per-window transfer
+            //    substitution).
             memberArray = memberIndices.ToArray();
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
-                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule);
+                effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
+                loiterCuts);
 
             if (!SuppressLogging)
             {

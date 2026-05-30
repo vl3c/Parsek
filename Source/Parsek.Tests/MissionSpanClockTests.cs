@@ -157,6 +157,140 @@ namespace Parsek.Tests
             Assert.True(tailSecond);
         }
 
+        // ─── Loiter compression (re-aim): cut remap in the uniform path ──────────
+
+        [Fact]
+        public void TryComputeSpanLoopUT_EmptyOrNullCuts_BitIdenticalToNoCompression()
+        {
+            // Guard 1 (review): an empty / null cut list must yield byte-identical
+            // (loopUT, cycleIndex, tail) to the pre-compression clock across a UT sweep, so every
+            // non-re-aim caller (faithful / overlap / TS / KSC) is provably unaffected.
+            double spanStart = 100, spanEnd = 1100, cadence = 5000; // cadence > span => a tail exists
+            var empty = new List<GhostPlaybackLogic.LoopCut>();
+            for (double t = 100; t <= 11000; t += 37.0)
+            {
+                bool baseOk = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, spanStart, spanStart, spanEnd, cadence,
+                    out double lBase, out long cBase, out bool tailBase); // default null cut arg
+                bool nullOk = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, spanStart, spanStart, spanEnd, cadence,
+                    out double lNull, out long cNull, out bool tailNull, null, null);
+                bool emptyOk = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    t, spanStart, spanStart, spanEnd, cadence,
+                    out double lEmpty, out long cEmpty, out bool tailEmpty, null, empty);
+                Assert.Equal(baseOk, nullOk);
+                Assert.Equal(baseOk, emptyOk);
+                Assert.Equal(lBase, lNull, 9);
+                Assert.Equal(lBase, lEmpty, 9);
+                Assert.Equal(cBase, cNull);
+                Assert.Equal(cBase, cEmpty);
+                Assert.Equal(tailBase, tailNull);
+                Assert.Equal(tailBase, tailEmpty);
+            }
+        }
+
+        [Fact]
+        public void TryComputeSpanLoopUT_WithCut_WrapsOverCompressedSpan_SkipsCut_BoundaryMatches()
+        {
+            // Guard 2 (review): with a cut [300,700] (400s) in span [100,1100] (1000s), the active
+            // duration is the COMPRESSED span (600s). The phase wraps over that; the clamped compressed
+            // phase is remapped to a recorded loopUT that SKIPS [300,700]; the boundary-rollback (spanEnd)
+            // is on the SAME recorded-UT scale as the play branch at the compressed-span end.
+            double spanStart = 100, spanEnd = 1100, cadence = 5000;
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 300.0, LengthSeconds = 400.0 }, // recorded [300,700]
+            };
+
+            // compressed phase 100 -> recorded 200 (before the cut).
+            GhostPlaybackLogic.TryComputeSpanLoopUT(spanStart + 100, spanStart, spanStart, spanEnd, cadence,
+                out double l1, out _, out bool tail1, null, cuts);
+            Assert.Equal(200.0, l1, 6);
+            Assert.False(tail1);
+
+            // compressed phase 250 -> compressedLoopUT 350 -> past the cut -> recorded 750 (cut skipped).
+            GhostPlaybackLogic.TryComputeSpanLoopUT(spanStart + 250, spanStart, spanStart, spanEnd, cadence,
+                out double l2, out _, out bool tail2, null, cuts);
+            Assert.Equal(750.0, l2, 6);
+            Assert.False(tail2);
+
+            // No remapped loopUT ever lands strictly inside the excised (300,700) across a fine sweep.
+            for (double ph = 0; ph <= 600; ph += 0.5)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(spanStart + ph, spanStart, spanStart, spanEnd, cadence,
+                    out double l, out _, out _, null, cuts);
+                Assert.False(l > 300.0 + 1e-6 && l < 700.0 - 1e-6);
+            }
+
+            // At the compressed-span end (phase 600) the clock parks at spanEnd (1100) and the tail engages.
+            GhostPlaybackLogic.TryComputeSpanLoopUT(spanStart + 600, spanStart, spanStart, spanEnd, cadence,
+                out double lEnd, out _, out bool tailEnd, null, cuts);
+            Assert.Equal(1100.0, lEnd, 6);
+            Assert.True(tailEnd);
+
+            // Boundary-rollback frame (currentUT == phaseAnchor + cadence) emits recorded spanEnd, on the
+            // same scale as the compressed-span-end play frame above (both 1100) - the UT-scale agreement
+            // the reviewer flagged to verify rather than assume.
+            GhostPlaybackLogic.TryComputeSpanLoopUT(spanStart + cadence, spanStart, spanStart, spanEnd, cadence,
+                out double lBoundary, out long cBoundary, out bool tailBoundary, null, cuts);
+            Assert.Equal(1100.0, lBoundary, 6);
+            Assert.Equal(0, cBoundary);     // rolled back to the prior cycle
+            Assert.False(tailBoundary);
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_MemberWindowStraddlingCut_RendersNonCutPortions_NeverInsideCut()
+        {
+            // Guard 3 (review): a member window [200,900] STRADDLING a cut [300,700]. The member renders
+            // its non-cut portions ([200,300] and [700,900] in recorded UT) and NEVER samples a loopUT
+            // inside the excised (300,700); DecideUnitMemberRender returns Render throughout the in-window
+            // recorded UTs (the straddle is intended behavior, not a HiddenOutsideWindow gap).
+            double spanStart = 100, spanEnd = 1100, cadence = 5000;
+            double memberStart = 200, memberEnd = 900;
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 300.0, LengthSeconds = 400.0 }, // recorded [300,700]
+            };
+            bool renderedPreCut = false, renderedPostCut = false;
+            for (double ph = 0; ph <= 600; ph += 0.5)
+            {
+                var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                    spanStart + ph, spanStart, spanStart, spanEnd, cadence, memberStart, memberEnd,
+                    out double loopUT, out _, out _, null, cuts);
+                Assert.False(loopUT > 300.0 + 1e-6 && loopUT < 700.0 - 1e-6); // never inside the cut
+                if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+                {
+                    Assert.True(loopUT >= memberStart - 1.0 && loopUT <= memberEnd + 1.0);
+                    if (loopUT <= 300.0) renderedPreCut = true;
+                    if (loopUT >= 700.0) renderedPostCut = true;
+                }
+            }
+            Assert.True(renderedPreCut);  // the [200,300] pre-cut portion rendered
+            Assert.True(renderedPostCut); // the [700,900] post-cut portion rendered
+        }
+
+        [Fact]
+        public void DecideUnitMemberRender_MemberWindowFullyInsideCut_NeverRenders()
+        {
+            // A member window [400,600] entirely INSIDE a cut [300,700] is fully excised: the remapped
+            // loopUT never enters (300,700), so the member never sees its window and is HiddenOutsideWindow
+            // across the whole cycle (it never renders, never errors). Safe fall-through, now pinned.
+            double spanStart = 100, spanEnd = 1100, cadence = 5000;
+            double memberStart = 400, memberEnd = 600; // inside the cut
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 300.0, LengthSeconds = 400.0 }, // recorded [300,700]
+            };
+            for (double ph = 0; ph <= 600; ph += 0.5)
+            {
+                var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                    spanStart + ph, spanStart, spanStart, spanEnd, cadence, memberStart, memberEnd,
+                    out double loopUT, out _, out _, null, cuts);
+                Assert.NotEqual(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+                Assert.False(loopUT > 300.0 + 1e-6 && loopUT < 700.0 - 1e-6);
+            }
+        }
+
         // ─── Phase anchor (re-enable restarts from the recording start) ─────────
 
         [Fact]

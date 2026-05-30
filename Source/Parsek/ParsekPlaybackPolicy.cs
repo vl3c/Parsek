@@ -952,6 +952,17 @@ namespace Parsek
         private const float MapOrbitUpdateIntervalSec = 0.5f;
         private float nextMapOrbitUpdateTime;
 
+        /// <summary>
+        /// Pure gate for the rate-limited map-orbit reseed pass (warp-aware). Proceeds when the real-time
+        /// timer has elapsed (the steady-state path) OR, only while time-warping, when a tracked ghost's
+        /// playback head has left its applied segment (so the reseed keeps up with the fast head through
+        /// short segments and the orbit line stops blinking). At 1x (<paramref name="warpRate"/> &lt;= 1)
+        /// this is exactly the old timer-only gate, so non-warp behavior is byte-identical.
+        /// </summary>
+        internal static bool ShouldRunMapOrbitReseed(
+            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment)
+            => timerElapsed || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
@@ -1396,6 +1407,19 @@ namespace Parsek
                         loopMemberInWindow: isLoopMemberInWindow);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
+                    // Re-aim: swap the recorded covering segment for the re-aimed one at create time so
+                    // the orbit line is aimed at the target's CURRENT position from the first frame the
+                    // ghost re-enters its window. A re-aim owner in a TRIM GAP (between a recorded
+                    // body-relative leg and the trimmed interplanetary transfer) has no covering re-aimed
+                    // segment: skip the create entirely (keep the member pending / hidden) rather than
+                    // fall back to a recorded sub-segment, which re-created the ghost at a random orbit
+                    // position every frame while the refresh removed it (the SOI-boundary icon flicker).
+                    if (source == TrackingStationGhostSource.Segment
+                        && !GhostMapPresence.TryResolveReaimedCoveringSegment(
+                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits,
+                            segment, out segment))
+                        continue;
+
                     if (source == TrackingStationGhostSource.Segment
                         || GhostMapPresence.IsStateVectorGhostSource(source)
                         || source == TrackingStationGhostSource.TerminalOrbit
@@ -1486,8 +1510,20 @@ namespace Parsek
                 }
             }
 
-            // 2. Rate-limited orbit updates for existing ProtoVessels.
-            if (UnityEngine.Time.time < nextMapOrbitUpdateTime) return;
+            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
+            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
+            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
+            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
+            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
+            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
+            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
+            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
+            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
+            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
+                && TimeWarp.CurrentRate > 1.0f
+                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
+            if (!ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+                return;
             nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
 
             var committed = RecordingStore.CommittedRecordings;
@@ -1528,6 +1564,15 @@ namespace Parsek
                     continue;
                 }
 
+                // Re-aim: for a re-aim loop owner, the flight map orbit line must follow the per-window
+                // RE-AIMED transfer (aimed at the target's CURRENT position), not the recorded geometry
+                // (which points at the target's RECORDED position - the "wrong place in the target's
+                // orbit" the playtest showed). Resolved ONCE here from the LIVE currentUT (same window
+                // the flight engine + tracking station use) and threaded through every effUT-based read
+                // below; reference-identical to rec.OrbitSegments for every non-re-aim member.
+                List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                    idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
+
                 // Same-body carry: while the playback head is inside a body frame, briefly
                 // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
                 // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
@@ -1535,7 +1580,7 @@ namespace Parsek
                 // to drop the ghost when the body actually changes (SOI / frame change) or
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
@@ -1571,7 +1616,7 @@ namespace Parsek
 
                     bool hasFutureSegment = false;
                     string futureSegmentBody = null;
-                    var segs = rec.OrbitSegments;
+                    var segs = effectiveSegments;
                     for (int s = 0; s < segs.Count; s++)
                     {
                         if (segs[s].startUT > effUT)
@@ -1636,7 +1681,8 @@ namespace Parsek
 
                 GhostMapPresence.UpdateGhostOrbitForRecording(
                     idx, seg.Value,
-                    loopEpochShiftSeconds: loopEpochShiftSeconds);
+                    loopEpochShiftSeconds: loopEpochShiftSeconds,
+                    effectiveOrbitSegments: effectiveSegments);
                 if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
                 orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
                     idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));

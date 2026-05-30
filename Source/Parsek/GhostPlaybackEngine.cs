@@ -365,7 +365,8 @@ namespace Parsek
                     out double spanLoopUT,
                     out _,
                     out _,
-                    unit.RelaunchSchedule))
+                    unit.RelaunchSchedule,
+                    unit.LoiterCuts))
             {
                 return false;
             }
@@ -1823,7 +1824,8 @@ namespace Parsek
                         if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
                                 ctx.currentUT, parentUnit.PhaseAnchorUT, parentUnit.SpanStartUT,
                                 parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
-                                out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule))
+                                out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule,
+                                parentUnit.LoiterCuts))
                         {
                             GhostRenderTrace.EmitGuardSkip(
                                 traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
@@ -2223,7 +2225,7 @@ namespace Parsek
             var decision = GhostPlaybackLogic.DecideUnitMemberRender(
                 ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                 memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
-                out bool isInInterCycleTail, unit.RelaunchSchedule);
+                out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts);
 
             // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
             // to run this frame observes the unit-wide transition and acts once (rate-limited per

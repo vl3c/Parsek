@@ -1182,10 +1182,18 @@ namespace Parsek
                     }
                 }
 
-                // Resolve marker world position: use ghost mesh when active, otherwise
+                // Resolve marker world position: use ghost mesh when it is actually POSITIONED, otherwise
                 // compute from trajectory data (map view only — hidden ghosts need icons too).
+                // A meshActive ghost whose transform sits at the world origin is stale / unpositioned: in map
+                // view the engine drives a far ghost by its orbit/trajectory and leaves the hidden mesh
+                // transform at (0,0,0) (the FloatingOrigin #245/#247 artifact), so reading it would pin the
+                // labelled marker to the map centre (the "static yellow-label icon in the wrong location"
+                // seam the playtest showed via Marker pos markerPos=(0,0,0)). Treat a near-origin transform
+                // as unpositioned and fall through to the trajectory-derived position below; a genuinely
+                // positioned mesh is never at the floating-origin centre (it is a different vessel).
                 Vector3 markerPos;
-                if (meshActive)
+                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f;
+                if (meshPositioned)
                 {
                     markerPos = state.ghost.transform.position;
                 }
@@ -1238,6 +1246,32 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+
+                // Diagnostic (loiter-seam icon debugging): when the marker rides the LIVE ghost mesh
+                // (meshActive), compare the drawn mesh position against the trajectory-interpolated position
+                // at the same span-clock head UT. Both are in the current world frame, so their gap
+                // (meshVsTraj) is frame-independent: a large gap means the engine's mesh sits off the
+                // recorded path (the "non-proto icon in the wrong location / not moving correctly on the
+                // polyline" seam), while a ~0 gap means the icon is on the path and any apparent freeze is
+                // just the sub-pixel parking circle at map scale. Rate-limited per recording.
+                if (meshActive && isMapView && kvp.Key < committed.Count)
+                {
+                    var recDiag = committed[kvp.Key];
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                        kvp.Key, recDiag.StartUT, recDiag.EndUT, currentUT,
+                        flight.Engine.CurrentLoopUnits, out bool _);
+                    bool haveTraj = TryComputeGhostWorldPosition(
+                        kvp.Key, committed, headUT, out Vector3 trajPos, out _);
+                    Vector3 meshXform = state.ghost.transform.position;
+                    double meshVsTraj = haveTraj ? (meshXform - trajPos).magnitude : double.NaN;
+                    ParsekLog.VerboseRateLimited("GhostMap",
+                        "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
+                            kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
+                            meshXform.ToString("F0"), haveTraj ? trajPos.ToString("F0") : "(none)", meshVsTraj),
+                        2.0);
+                }
             }
 
             LogMapMarkerSummary(summary);

@@ -226,6 +226,11 @@ namespace Parsek
 
         /// <summary>Approximate orbital velocity in m/s (for the Phase 2 tolerance formula).</summary>
         double OrbitalVelocity(string bodyName);
+
+        /// <summary>Gravitational parameter (GM, m^3/s^2) of the body itself - the mu for an orbit
+        /// AROUND this body, used to compute a loiter segment's orbital period
+        /// (T = 2*pi*sqrt(a^3/mu)). Re-aim loiter compression. NaN for an unknown body.</summary>
+        double GravParameter(string bodyName);
     }
 
     internal static class MissionPeriodicity
@@ -1379,6 +1384,84 @@ namespace Parsek
             return !string.IsNullOrEmpty(parent) && parent == launchBody;
         }
 
+        // Hard cap on the body-reference walk so a malformed planet-pack graph (a cycle) can never
+        // hang the walk. Far deeper than any real Kerbol/RSS hierarchy (root -> planet -> moon is 3).
+        private const int MaxBodyHierarchyDepth = 32;
+
+        /// <summary>
+        /// Walks the body-reference chain from <paramref name="bodyName"/> up to the root (the Sun has
+        /// no parent, so <see cref="IBodyInfo.ReferenceBodyName"/> returns null there). Returns the chain
+        /// ordered child-to-root INCLUDING the input body AND the root, e.g. for Ike:
+        /// ["Ike", "Duna", "Sun"]; for the Sun itself: ["Sun"]. Empty when the body is null/unknown.
+        /// Cycle-safe (stops at the first repeat or <see cref="MaxBodyHierarchyDepth"/>). Pure; reads
+        /// only <see cref="IBodyInfo.ReferenceBodyName"/>. (Salvaged from the abandoned faithful-cross-
+        /// parent PR #968; re-aim uses it to classify a recorded mission's SOI segments by body.)
+        /// </summary>
+        internal static List<string> AncestorChain(string bodyName, IBodyInfo bodyInfo)
+        {
+            var chain = new List<string>();
+            if (string.IsNullOrEmpty(bodyName) || bodyInfo == null)
+                return chain;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            string cur = bodyName;
+            while (!string.IsNullOrEmpty(cur) && seen.Add(cur) && chain.Count < MaxBodyHierarchyDepth)
+            {
+                chain.Add(cur);
+                cur = bodyInfo.ReferenceBodyName(cur);
+            }
+            return chain;
+        }
+
+        /// <summary>
+        /// Finds the lowest common ancestor (LCA) of two bodies in the reference-body graph. On success
+        /// returns true and the LCA plus each side's downward chain to (but EXCLUDING) it, each
+        /// INCLUDING its own endpoint body:
+        ///   - commonAncestor: "Sun" for Kerbin/Duna, "Kerbin" for Kerbin/Mun, "Eve" for Eve/Gilly.
+        ///   - launchToAncestor: [launchBody, ..., direct child of the LCA]; EMPTY when the launch body
+        ///     IS the LCA (the same-parent case, e.g. [] for Kerbin/Mun).
+        ///   - targetToAncestor: [targetBody, ..., direct child of the LCA], e.g. [Mun] for Kerbin/Mun,
+        ///     [Duna] for Kerbin/Duna, [Ike, Duna] for Kerbin/Ike.
+        /// Returns false (and empty out lists) when the two chains are disconnected (a planet-pack with
+        /// unrelated roots). Pure. (Salvaged from PR #968.) Re-aim uses the result to tell whether a
+        /// mission is same-parent (LCA == launch body -> faithful replay) or cross-parent (LCA deeper
+        /// -> re-aim), and to identify the heliocentric leg (the LCA-bodied segment) to re-synthesize.
+        /// </summary>
+        internal static bool TryFindCommonAncestor(
+            string launchBody, string targetBody, IBodyInfo bodyInfo,
+            out string commonAncestor, out List<string> launchToAncestor, out List<string> targetToAncestor)
+        {
+            commonAncestor = null;
+            launchToAncestor = new List<string>();
+            targetToAncestor = new List<string>();
+            if (string.IsNullOrEmpty(launchBody) || string.IsNullOrEmpty(targetBody) || bodyInfo == null)
+                return false;
+
+            List<string> launchChain = AncestorChain(launchBody, bodyInfo);
+            List<string> targetChain = AncestorChain(targetBody, bodyInfo);
+            if (launchChain.Count == 0 || targetChain.Count == 0)
+                return false;
+
+            var targetSet = new HashSet<string>(targetChain, StringComparer.Ordinal);
+            string anc = null;
+            for (int i = 0; i < launchChain.Count; i++)
+            {
+                if (targetSet.Contains(launchChain[i]))
+                {
+                    anc = launchChain[i];
+                    break;
+                }
+            }
+            if (anc == null)
+                return false; // disconnected body graph (unrelated roots)
+
+            commonAncestor = anc;
+            for (int i = 0; i < launchChain.Count && launchChain[i] != anc; i++)
+                launchToAncestor.Add(launchChain[i]);
+            for (int i = 0; i < targetChain.Count && targetChain[i] != anc; i++)
+                targetToAncestor.Add(targetChain[i]);
+            return true;
+        }
+
         /// <summary>
         /// Detects whether the included window contains a Relative-frame TrackSection that aligns
         /// to another vessel (rendezvous / dock). A non-loop Relative section carries an
@@ -1729,6 +1812,12 @@ namespace Parsek
             if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
                 return double.NaN;
             return 2.0 * Math.PI * b.orbit.semiMajorAxis / period;
+        }
+
+        public double GravParameter(string bodyName)
+        {
+            CelestialBody b = Find(bodyName);
+            return b != null ? b.gravParameter : double.NaN;
         }
     }
 }

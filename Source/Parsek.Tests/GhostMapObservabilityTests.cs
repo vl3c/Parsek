@@ -607,5 +607,138 @@ namespace Parsek.Tests
             Assert.Contains("idx=7", line);
             Assert.DoesNotContain("idx=0 ", line);
         }
+
+        // -----------------------------------------------------------------
+        // Re-aim effective-segment resolution: the FLIGHT map path now resolves
+        // the per-window re-aimed segments through the SAME helper the tracking
+        // station uses. These pin the faithful NO-OP contract (the branches that
+        // do not touch the live Lambert resolver): a non-re-aim member's flight
+        // map orbit source must be byte-identical to the recorded segments, and
+        // the covering-segment substitution must return the recorded segment
+        // unchanged. The actual re-aim substitution is exercised by the in-game
+        // canary (it needs live FlightGlobals bodies).
+        // -----------------------------------------------------------------
+
+        private static OrbitSegment HelioSeg()
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Sun", startUT = 1000, endUT = 2000, epoch = 1000,
+                semiMajorAxis = 1.76e10, eccentricity = 0.2, inclination = 1.0,
+                longitudeOfAscendingNode = 10.0, argumentOfPeriapsis = 20.0,
+                meanAnomalyAtEpoch = 0.3, isPredicted = false
+            };
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_EmptyLoopUnits_ReturnsRecordedReference()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty);
+
+            // Empty loop-unit set => no member is a re-aim owner => faithful: the SAME list reference.
+            Assert.Same(recorded, effective);
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_NullOrEmptyRecordingId_ReturnsRecorded()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, null, recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty));
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "", recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty));
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_NullLoopUnits_ReturnsRecorded()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, null);
+
+            Assert.Same(recorded, effective);
+        }
+
+        [Fact]
+        public void TryResolveReaimedCoveringSegment_FaithfulMember_ReturnsTrueWithRecordedSegment()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+            OrbitSegment input = recorded[0];
+
+            // Empty loop-unit set => effective is reference-identical to recorded => the helper must
+            // return TRUE (create the ghost) with the caller's recorded segment verbatim (the flight
+            // create path stays unchanged for every non-re-aim member).
+            bool ok = GhostMapPresence.TryResolveReaimedCoveringSegment(
+                0, "rec-x", recorded, 5000.0, 1500.0, GhostPlaybackLogic.LoopUnitSet.Empty,
+                input, out OrbitSegment result);
+
+            Assert.True(ok);
+            Assert.Equal(input.semiMajorAxis, result.semiMajorAxis, 6);
+            Assert.Equal(input.bodyName, result.bodyName);
+            Assert.Equal(input.startUT, result.startUT, 6);
+        }
+
+        // -----------------------------------------------------------------
+        // Warp-aware map-orbit reseed (the Duna-approach blink fix). The orbit line blinks under warp
+        // because the rate-limited reseed lags the fast head through short segments. These pin the two
+        // pure helpers: the head-left-segment scan and the reseed gate (byte-identical to the timer-only
+        // gate at 1x; the warp override only fires while warping AND a head has left its segment).
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_HeadInsideAllBounds_False()
+        {
+            GhostMapPresence.ghostOrbitBounds[1] = (100.0, 200.0);
+            GhostMapPresence.ghostOrbitBounds[2] = (150.0, 400.0);
+
+            Assert.False(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(175.0));
+        }
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_HeadPastABound_True()
+        {
+            GhostMapPresence.ghostOrbitBounds[1] = (100.0, 200.0);
+            GhostMapPresence.ghostOrbitBounds[2] = (150.0, 400.0);
+
+            // 250 is inside #2 but PAST #1's end -> at least one ghost's head left its segment.
+            Assert.True(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(250.0));
+            // Before all starts also counts.
+            Assert.True(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(50.0));
+        }
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_NoGhosts_False()
+        {
+            Assert.False(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(1234.0));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_TimerElapsed_AlwaysRuns()
+        {
+            // Timer elapsed => run regardless of warp / head state.
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(true, 1.0f, false));
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(true, 100000.0f, false));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_NotWarping_TimerOnly()
+        {
+            // At 1x the head-left override never fires -> byte-identical to the timer-only gate.
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, true));
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, false));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_WarpingAndHeadLeft_Runs()
+        {
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, true));
+            // Warping but no head left its segment yet -> wait for the timer.
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, false));
+        }
     }
 }

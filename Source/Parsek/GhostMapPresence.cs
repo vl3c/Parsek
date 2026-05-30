@@ -803,6 +803,28 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
 
         /// <summary>
+        /// True if any live map-ghost's playback head (<paramref name="currentUT"/>, live frame) has moved
+        /// outside the orbit-segment bounds currently applied to it. When that happens the applied orbit is
+        /// stale and <see cref="Parsek.Patches.GhostOrbitLinePatch"/>'s stale-segment guard blanks the line
+        /// until the next reseed; under time warp the head sprints through short segments faster than the
+        /// real-time-rate-limited reseed, so the line blinks off every frame (the warped Duna-approach
+        /// blink). The flight policy (<c>CheckPendingMapVessels</c>) uses this to drive a WARP-AWARE reseed:
+        /// re-apply the moment the head leaves its segment instead of waiting for the timer. This fixes the
+        /// lag WITHOUT weakening the stale-segment guard (which still suppresses the genuine pre-burn arc on
+        /// a propulsive->orbital handoff). Cheap allocation-free dict scan over the live bounds.
+        /// </summary>
+        internal static bool AnyGhostHeadLeftAppliedSegment(double currentUT)
+        {
+            foreach (var kvp in ghostOrbitBounds)
+            {
+                var b = kvp.Value;
+                if (currentUT > b.endUT || currentUT < b.startUT)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>
@@ -5705,6 +5727,111 @@ namespace Parsek
                 || destroyedAfter - destroyedBefore > 0;
         }
 
+        // Resolves the OrbitSegment list the map orbit line / icon should follow for a committed
+        // recording this frame: for a re-aim loop unit member that carries a heliocentric leg, the
+        // per-window list with that leg RE-AIMED; otherwise the recorded segments. Applies to ANY member
+        // of a re-aim unit (the resolver's heliocentric pre-check leaves launch / arrival / debris
+        // members on the faithful path, since only the inertial-fixed heliocentric leg needs re-aiming).
+        // The window is mapped from the LIVE <paramref name="liveCurrentUT"/> via the shared resolver
+        // (the SAME window the flight engine uses), and the returned list is in recorded-span time, so
+        // the caller searches it at the recorded-span effUT exactly as it would the recorded list.
+        // Recording overload (tracking-station path).
+        internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
+            int committedIndex, Recording rec, double liveCurrentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits)
+            => ResolveEffectiveMapOrbitSegments(
+                committedIndex,
+                rec != null ? rec.RecordingId : null,
+                rec != null ? rec.OrbitSegments : null,
+                liveCurrentUT,
+                loopUnits);
+
+        // Raw-pieces overload so the FLIGHT map path (ParsekPlaybackPolicy, which holds an
+        // IPlaybackTrajectory, not a Recording) resolves the SAME re-aimed window list the tracking
+        // station does. Both flight create + per-frame refresh and the tracking-station refresh must
+        // draw the re-aimed transfer; the flight path previously read the recorded segments directly,
+        // so its map orbit line pointed at the target's RECORDED position (wrong place in the target's
+        // orbit). Returns the recorded list unchanged for every non-re-aim member / faithful window.
+        internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
+            int committedIndex, string recordingId, List<OrbitSegment> recorded,
+            double liveCurrentUT, GhostPlaybackLogic.LoopUnitSet loopUnits)
+        {
+            if (string.IsNullOrEmpty(recordingId) || loopUnits == null)
+                return recorded;
+            if (!loopUnits.TryGetUnitForMember(committedIndex, out GhostPlaybackLogic.LoopUnit unit))
+                return recorded;
+            if (!unit.IsReaim)
+                return recorded;
+            if (Parsek.Reaim.ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
+                    recordingId, recorded, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                    unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                    liveCurrentUT, out List<OrbitSegment> reaimed, out long _))
+            {
+                LogMapEffectiveSegments(committedIndex, "RE-AIMED", reaimed, unit.ReaimPlan.Value.CommonAncestor);
+                return reaimed;
+            }
+            LogMapEffectiveSegments(committedIndex, "RECORDED-resolver-miss", recorded, unit.ReaimPlan.Value.CommonAncestor);
+            return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful
+        }
+
+        // Re-aim covering-segment substitution for the FLIGHT create paths: when a Segment-source map
+        // ghost is about to be created for a re-aim owner, swap the recorded covering segment for the
+        // re-aimed one (transfer elements aimed at the target's CURRENT position, trimmed to the
+        // interplanetary span). Returns FALSE (and the caller must NOT create the ghost) when the member
+        // is a re-aim owner whose re-aimed list has NO covering segment at <paramref name="sampleUT"/> -
+        // a TRIM GAP between a recorded body-relative leg (escape / capture) and the trimmed transfer, or
+        // a window the resolver declined. Falling back to the recorded segment there (the old behavior)
+        // re-created the ghost from the recorded sub-segments at random orbit positions while the
+        // per-frame refresh kept removing it (the create/destroy icon flicker at the SOI boundaries).
+        // Returns TRUE with the caller's recorded segment unchanged for a non-re-aim member / faithful
+        // window (effective list reference-identical to the recorded one). <paramref name="liveCurrentUT"/>
+        // maps the synodic window; <paramref name="sampleUT"/> is the recorded-span effUT searched at.
+        internal static bool TryResolveReaimedCoveringSegment(
+            int committedIndex, string recordingId, List<OrbitSegment> recorded,
+            double liveCurrentUT, double sampleUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits, OrbitSegment recordedSegment,
+            out OrbitSegment segment)
+        {
+            List<OrbitSegment> effective = ResolveEffectiveMapOrbitSegments(
+                committedIndex, recordingId, recorded, liveCurrentUT, loopUnits);
+            if (effective == null || ReferenceEquals(effective, recorded))
+            {
+                segment = recordedSegment; // non-re-aim / faithful window: keep the recorded segment
+                return true;
+            }
+            OrbitSegment? coveringReaimed = TrajectoryMath.FindOrbitSegmentForMapDisplay(effective, sampleUT);
+            if (coveringReaimed.HasValue)
+            {
+                segment = coveringReaimed.Value;
+                return true;
+            }
+            segment = recordedSegment;
+            return false; // re-aim owner in a trim gap -> caller keeps the ghost hidden (no create)
+        }
+
+        // Diagnostic: log whether the map got the RE-AIMED or RECORDED segments, plus the heliocentric
+        // (common-ancestor) leg's sma + count, so a map line still on the recorded transfer (wrong place in
+        // the target's orbit) is caught. The re-aimed list has ONE synthesized common-ancestor segment; the
+        // recorded list has the original (typically several). Verbose, rate-limited per member.
+        private static void LogMapEffectiveSegments(int idx, string kind, List<OrbitSegment> segs, string ancestor)
+        {
+            if (segs == null)
+                return;
+            int helioCount = 0;
+            double firstHelioSma = double.NaN;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                if (segs[i].bodyName == ancestor)
+                {
+                    if (helioCount == 0) firstHelioSma = segs[i].semiMajorAxis;
+                    helioCount++;
+                }
+            }
+            ParsekLog.VerboseRateLimited("ReaimSeam", "map-eff-" + idx.ToString(ic),
+                string.Format(ic, "map effective segments: {0} member={1} segs={2} helioSegs={3} firstHelioSma={4:F0}",
+                    kind, idx, segs.Count, helioCount, firstHelioSma), 2.0);
+        }
+
         private static void RefreshTrackingStationGhosts(
             IReadOnlyList<Recording> committed,
             HashSet<string> suppressed,
@@ -5762,6 +5889,13 @@ namespace Parsek
                 // UpdateGhostOrbitFromStateVectors loopEpochShiftSeconds.
                 double tsLoopEpochShift = currentUT - effUT;
 
+                // Re-aim: for a re-aim loop owner, the map orbit line / icon follow the per-window
+                // re-aimed transfer instead of the recorded geometry. Resolved ONCE here from the LIVE
+                // clock (the same window the flight engine uses) and threaded through every effUT-based
+                // orbit-source read below; identical to rec.OrbitSegments for every non-re-aim member.
+                List<OrbitSegment> effectiveSegments =
+                    ResolveEffectiveMapOrbitSegments(idx, rec, currentUT, loopUnits);
+
                 bool isSuppressed = rec != null
                     && !string.IsNullOrEmpty(rec.RecordingId)
                     && suppressed != null
@@ -5791,8 +5925,8 @@ namespace Parsek
                 // tear down and recreate the ProtoVessel, flashing the icon and orbit line.
                 // Carry the previous segment across same-body intra-block gaps so the ghost
                 // stays alive and only blinks when the body actually changes (SOI crossing).
-                OrbitSegment? coveringSegment = (rec != null && rec.OrbitSegments != null)
-                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT)
+                OrbitSegment? coveringSegment = (rec != null && effectiveSegments != null)
+                    ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
 
@@ -5831,7 +5965,8 @@ namespace Parsek
                     effUT,
                     // Loop member replaying in its window: keep the ghost alongside any
                     // persisted real terminal vessel (mirrors the create-path bypass).
-                    loopMemberInWindow: tsLoopEpochShift != 0.0);
+                    loopMemberInWindow: tsLoopEpochShift != 0.0,
+                    effectiveOrbitSegments: effectiveSegments);
                 // Rescue path: a "tracking-station-expired" removal is suppressed if the
                 // synthesizer can still produce a terminal-orbit seed. For a non-loop member
                 // this is the unchanged contract (loop-aware flag false). For a same-body
@@ -5966,7 +6101,7 @@ namespace Parsek
                 // via rewind/warp) must remove the ghost rather than jump to the terminal orbit;
                 // the endpoint tail stays reserved for the genuine terminal region (no future
                 // segment).
-                bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(rec.OrbitSegments, effUT);
+                bool hasFutureOrbitSegment = HasOrbitSegmentStartingAfter(effectiveSegments, effUT);
                 bool endpointTailOverrideAllowed = EndpointTailAllowedInTrackingStationUpdate(tsLoopEpochShift);
                 // acceptTerminalOrbitForLoopSynthesis is computed above (rescue-path block).
 
@@ -6016,7 +6151,8 @@ namespace Parsek
                 if (bounds.startUT != seg.Value.startUT + tsLoopEpochShift
                     || bounds.endUT != seg.Value.endUT + tsLoopEpochShift)
                     UpdateGhostOrbitForRecording(idx, seg.Value, orbitUpdateSource,
-                        loopEpochShiftSeconds: tsLoopEpochShift);
+                        loopEpochShiftSeconds: tsLoopEpochShift,
+                        effectiveOrbitSegments: effectiveSegments);
             }
 
             if (toRemove == null)
@@ -6228,12 +6364,21 @@ namespace Parsek
             int recordingIndex,
             OrbitSegment segment,
             TrackingStationGhostSource source = TrackingStationGhostSource.Segment,
-            double loopEpochShiftSeconds = 0.0)
+            double loopEpochShiftSeconds = 0.0,
+            List<OrbitSegment> effectiveOrbitSegments = null)
         {
             if (!vesselsByRecordingIndex.TryGetValue(recordingIndex, out Vessel vessel))
                 return;
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
                 loopEpochShiftSeconds);
+            // Diagnostic: which segment was actually applied to the map orbit (source + sma), and whether
+            // the re-aimed list was threaded. A re-aim transfer should apply the synthesized sma; a
+            // recorded sma here means the re-aimed segment was bypassed (e.g. a state-vector/checkpoint
+            // source winning over the re-aimed OrbitSegment).
+            ParsekLog.VerboseRateLimited("ReaimSeam", "map-apply-" + recordingIndex.ToString(ic),
+                string.Format(ic, "map orbit applied: rec={0} source={1} body={2} segSma={3:F0} hasEffective={4}",
+                    recordingIndex, source, segment.bodyName ?? "(null)", segment.semiMajorAxis,
+                    effectiveOrbitSegments != null), 2.0);
             lifecycleUpdatedThisTick++;
 
             // Cache body-frame bounds (consecutive same-body OrbitSegments around this
@@ -6243,13 +6388,18 @@ namespace Parsek
             // shifted by the same loop epoch offset applied to ghostOrbitBounds above,
             // keeping the loop-shifted edge cases identical to per-segment arc clipping.
             var committed = RecordingStore.CommittedRecordings;
-            if (committed != null
-                && recordingIndex >= 0
-                && recordingIndex < committed.Count
-                && committed[recordingIndex] != null
-                && committed[recordingIndex].HasOrbitSegments
+            // Re-aim: a re-aim owner's body-frame bounds must come from the SAME re-aimed segment list
+            // the orbit was applied from (effectiveOrbitSegments), not the recorded segments, so the
+            // orbit-line draw window matches the re-aimed arc. Null for non-re-aim => recorded segments.
+            List<OrbitSegment> bodyFrameSource = effectiveOrbitSegments
+                ?? (committed != null && recordingIndex >= 0 && recordingIndex < committed.Count
+                    && committed[recordingIndex] != null
+                    ? committed[recordingIndex].OrbitSegments
+                    : null);
+            if (bodyFrameSource != null
+                && bodyFrameSource.Count > 0
                 && TrajectoryMath.TryGetBodyFrameBoundsForMapDisplay(
-                    committed[recordingIndex].OrbitSegments,
+                    bodyFrameSource,
                     // Probe just inside the active segment so the resolver always finds
                     // it (endUT is exclusive for non-last segments).
                     segment.startUT,
@@ -7855,7 +8005,8 @@ namespace Parsek
             bool hasOrbitBounds,
             bool isStateVector,
             double currentUT,
-            bool loopMemberInWindow = false)
+            bool loopMemberInWindow = false,
+            List<OrbitSegment> effectiveOrbitSegments = null)
         {
             if (rec == null)
                 return "tracking-station-expired";
@@ -7883,7 +8034,8 @@ namespace Parsek
             // Same-body carry: don't expire the ghost in a brief intra-body-frame gap
             // between two non-orbit-equivalent segments (e.g., capture burn). Only an
             // actual body change or end-of-recording should remove the ghost.
-            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, currentUT);
+            OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(
+                effectiveOrbitSegments ?? rec.OrbitSegments, currentUT);
             return seg.HasValue ? null : "tracking-station-expired";
         }
 

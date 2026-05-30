@@ -18397,6 +18397,14 @@ namespace Parsek
             // contract), but Build (and its log) only fires on an actual input change.
             DriveMissionLoopUnits(committed);
 
+            // === Re-aim per-window transfer substitution (Phase 3c) ===
+            // For each looping mission classified as a cross-parent single-hop interplanetary transfer,
+            // replace the OWNER member's recorded trajectory with a per-window re-aimed transfer (the
+            // recorded geometry re-planned to the target's actual position at this synodic window). The
+            // resolver caches by window, so the live Lambert/PatchedConics solve runs only when the
+            // window advances. Non-re-aim units + non-owner members are untouched (faithful path).
+            SubstituteReaimTrajectories(currentUT);
+
             if (HasAnchorReFlyUnstableFlag(flags))
             {
                 reFlySettlePoseLogActiveFrame = Time.frameCount;
@@ -18459,6 +18467,54 @@ namespace Parsek
             watchMode.ValidateWatchedGhostStillActive();
         }
 
+        // Replaces each re-aim loop unit member's heliocentric leg in cachedTrajectories with the
+        // per-window re-aimed transfer (Phase 3c). Runs after DriveMissionLoopUnits (so cachedLoopUnits
+        // is fresh) and before engine.UpdatePlayback. Iterates ALL members of a re-aim unit: the
+        // resolver substitutes only the member(s) that actually carry a heliocentric leg (the transfer
+        // leg of the mission chain) and leaves launch / arrival / debris members faithful (their
+        // body-relative segments already follow their bodies). The resolver caches by window, so this is
+        // cheap on non-advancing frames. The map-presence / tracking-station orbit path resolves the
+        // SAME segments from the shared resolver, so the map orbit line stays in sync with the flight ghost.
+        private void SubstituteReaimTrajectories(double currentUT)
+        {
+            if (cachedLoopUnits == null || cachedLoopUnits.Count == 0)
+                return;
+
+            int substituted = 0;
+            foreach (var kv in cachedLoopUnits.UnitsByOwner)
+            {
+                GhostPlaybackLogic.LoopUnit unit = kv.Value;
+                if (!unit.IsReaim || unit.MemberIndices == null)
+                    continue;
+
+                for (int m = 0; m < unit.MemberIndices.Length; m++)
+                {
+                    int memberIdx = unit.MemberIndices[m];
+                    if (memberIdx < 0 || memberIdx >= cachedTrajectories.Count)
+                        continue;
+                    IPlaybackTrajectory inner = cachedTrajectories[memberIdx];
+                    if (inner == null)
+                        continue;
+
+                    IPlaybackTrajectory sub = Parsek.Reaim.ReaimPlaybackResolver.Shared.ResolveForFrame(
+                        inner.RecordingId, inner, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                        currentUT, out long windowIndex);
+
+                    if (!ReferenceEquals(sub, inner))
+                    {
+                        cachedTrajectories[memberIdx] = sub;
+                        substituted++;
+                        ParsekLog.VerboseRateLimited("Reaim", $"sub-{memberIdx}",
+                            $"re-aim member={memberIdx} id={inner.RecordingId} window={windowIndex} heliocentric leg substituted");
+                    }
+                }
+            }
+            if (substituted > 0)
+                ParsekLog.VerboseRateLimited("Reaim", "sub-summary",
+                    $"re-aim substituted {substituted} member trajectory(ies) this frame");
+        }
+
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
         // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
         // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
@@ -18486,6 +18542,9 @@ namespace Parsek
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
                     MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
+                // The committed set / missions changed: drop every cached per-window re-aim adapter so a
+                // stale window transfer can never survive a recording edit / re-classification.
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 ParsekLog.Verbose("Mission",
                     $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
             }
@@ -20648,7 +20707,62 @@ namespace Parsek
                     index * 10000 + Math.Max(0, segmentIndex),
                     traj.RecordingId,
                     traj);
+
+                // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
+                // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
+                if (traj is Parsek.Reaim.ReaimedTrajectory && state.ghost != null)
+                    LogReaimGhostTrace(index, seg, segmentIndex, ut, state.ghost.transform.position);
             }
+        }
+
+        // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
+        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
+            = new Dictionary<int, (int, Vector3, double)>();
+
+        /// <summary>
+        /// Diagnostic trace of a re-aimed orbit ghost vs the live bodies. Logs (rate-limited) the ghost's
+        /// world position and its distance to the segment's own body, the launch body, and the target, so
+        /// "arrives where the target is not" is measurable. On a SEGMENT CHANGE (a trajectory seam) it logs
+        /// the world-position discontinuity between the prior frame and this one - a large jump is a
+        /// teleport (no trajectory continuity across the seam). Verbose; never throws.
+        /// </summary>
+        private void LogReaimGhostTrace(int memberIndex, OrbitSegment seg, int segmentIndex, double loopUT, Vector3 ghostPos)
+        {
+            try
+            {
+                var ic = CultureInfo.InvariantCulture;
+                double currentUT = Planetarium.GetUniversalTime();
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == seg.bodyName);
+                CelestialBody target = null, launch = null;
+                if (cachedLoopUnits != null && cachedLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit)
+                    && unit.ReaimPlan.HasValue)
+                {
+                    target = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.TargetBody);
+                    launch = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.LaunchBody);
+                }
+                double dSeg = segBody != null ? (ghostPos - (Vector3)segBody.position).magnitude : double.NaN;
+                double dLaunch = launch != null ? (ghostPos - (Vector3)launch.position).magnitude : double.NaN;
+                double dTarget = target != null ? (ghostPos - (Vector3)target.position).magnitude : double.NaN;
+
+                // Seam-teleport detection: if the segment changed since the last frame, log the jump.
+                if (reaimLastGhostFrame.TryGetValue(memberIndex, out var last) && last.segIdx != segmentIndex)
+                {
+                    double jump = (ghostPos - last.pos).magnitude;
+                    ParsekLog.Verbose("ReaimSeam",
+                        $"SEAM member={memberIndex} seg#{last.segIdx}->{segmentIndex} body={seg.bodyName} " +
+                        $"loopUT {last.loopUT.ToString("F0", ic)}->{loopUT.ToString("F0", ic)} " +
+                        $"jump={jump.ToString("F0", ic)}m (prevPos->thisPos discontinuity)");
+                }
+                reaimLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT);
+
+                ParsekLog.VerboseRateLimited("ReaimSeam", "trace-" + memberIndex.ToString(ic),
+                    $"member={memberIndex} seg#{segmentIndex} body={seg.bodyName} loopUT={loopUT.ToString("F0", ic)} " +
+                    $"currentUT={currentUT.ToString("F0", ic)} dist[{seg.bodyName}]={dSeg.ToString("F0", ic)}m " +
+                    $"dist[{(launch != null ? launch.bodyName : "launch")}]={dLaunch.ToString("F0", ic)}m " +
+                    $"dist[{(target != null ? target.bodyName : "target")}]={dTarget.ToString("F0", ic)}m" +
+                    (target != null ? $"(SOI={target.sphereOfInfluence.ToString("F0", ic)})" : ""), 2.0);
+            }
+            catch { /* diagnostic only */ }
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
