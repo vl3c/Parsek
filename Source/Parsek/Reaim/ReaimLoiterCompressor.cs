@@ -22,6 +22,14 @@ namespace Parsek.Reaim
         internal const int DefaultKeepRevs = 1;
         internal const double DefaultAStepRelThreshold = 0.05;
         internal const double DefaultContiguityEpsilonSeconds = 1.0;
+        // A gap LARGER than the contiguity window still merges when the two segments are the SAME orbit to
+        // this tight relative tolerance (~0.1%). The recorder/optimizer splits one continuous parking
+        // orbit into several OrbitalCheckpoint sections at warp boundaries, leaving small UT gaps between
+        // byte-identical-sma segments; merging them keeps ONE parking orbit as ONE loiter run (kept to
+        // ~keepRevs total, not keepRevs per chunk). The whole-period cut stays seamless because the merged
+        // segments are the same orbit (identical period). A real maneuver shifts sma well past this
+        // tolerance, so a genuine orbit change across a gap still ends the run.
+        internal const double DefaultSameOrbitRelThreshold = 0.001;
 
         /// <summary>
         /// Orbital period <c>2*pi*sqrt(a^3/mu)</c> in seconds for an ELLIPTICAL orbit (a &gt; 0, finite
@@ -52,7 +60,8 @@ namespace Parsek.Reaim
             Func<string, double> bodyMu,
             int keepRevs = DefaultKeepRevs,
             double aStepRelThreshold = DefaultAStepRelThreshold,
-            double contiguityEpsilonSeconds = DefaultContiguityEpsilonSeconds)
+            double contiguityEpsilonSeconds = DefaultContiguityEpsilonSeconds,
+            double sameOrbitRelThreshold = DefaultSameOrbitRelThreshold)
         {
             var cuts = new List<GhostPlaybackLogic.LoopCut>();
             if (segs == null || segs.Count == 0 || bodyMu == null || keepRevs < 0)
@@ -91,11 +100,16 @@ namespace Parsek.Reaim
                     double nextPeriod = OrbitalPeriod(next.semiMajorAxis, bodyMu(next.bodyName));
                     if (double.IsNaN(nextPeriod) || nextPeriod <= 0.0)
                         break; // non-elliptical ends the run
-                    if (next.startUT - prevEnd > contiguityEpsilonSeconds)
-                        break; // a gap ends the run
                     double aRel = Math.Abs(next.semiMajorAxis - firstA) / Math.Max(1.0, Math.Abs(firstA));
                     if (aRel > aStepRelThreshold)
                         break; // drifted past the threshold from the anchor -> ends the run (T_rep valid)
+                    // A gap ends the run UNLESS it is a sampling artifact within the SAME orbit (sma
+                    // matches to the tight sameOrbit tolerance): the recorder/optimizer splits one
+                    // continuous parking orbit into warp-boundary checkpoint sections with small gaps, and
+                    // merging them keeps one parking orbit as ONE loiter run. A real orbit change across a
+                    // gap (sma shifted past the tolerance, but still within the 5% a-step) still ends it.
+                    if (next.startUT - prevEnd > contiguityEpsilonSeconds && aRel > sameOrbitRelThreshold)
+                        break; // a real gap to a (slightly) different orbit -> ends the run
                     j++;
                     runEnd = next.endUT;
                     prevEnd = next.endUT;

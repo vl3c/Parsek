@@ -148,16 +148,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ComputeCuts_GapBetweenSegments_EndsRun()
+        public void ComputeCuts_GapToDifferentOrbit_EndsRun()
         {
-            // A large UT gap (a burn / off-rails interval) between two Kerbin orbits ends the run.
+            // A UT gap to a DIFFERENT orbit (a real burn: sma shifted past the sameOrbit tolerance, but
+            // still within the 5% a-step) ends the run -> two separate loiter runs / cuts.
             var segs = new List<OrbitSegment>
             {
                 Seg("Kerbin", 0.0, 50000.0, LkoA),
-                Seg("Kerbin", 60000.0, 110000.0, LkoA), // 10000 s gap >> contiguity epsilon
+                Seg("Kerbin", 60000.0, 110000.0, LkoA * 1.02), // 10000 s gap + 2% sma change (a real burn)
             };
             var cuts = ReaimLoiterCompressor.ComputeCuts(segs, Mu, keepRevs: 1);
             Assert.Equal(2, cuts.Count);
+        }
+
+        [Fact]
+        public void ComputeCuts_SameOrbitAcrossSamplingGaps_MergesToOneRun()
+        {
+            // The recorder/optimizer splits one continuous LKO parking orbit into several checkpoint
+            // chunks at warp boundaries, leaving small UT gaps between SAME-sma segments. They must merge
+            // into ONE loiter run (kept to ~1 rev TOTAL, not ~1 rev per chunk) since they are the same
+            // orbit; the whole-period cut stays seamless (identical period). Regression for the Duna 'Duna
+            // One' parking, which the optimizer split into 5 same-sma chunks.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0.0, 50000.0, LkoA),
+                Seg("Kerbin", 50002.0, 100000.0, LkoA),  // 2 s gap (warp boundary), same orbit
+                Seg("Kerbin", 100050.0, 150000.0, LkoA), // 50 s gap, same orbit
+            };
+            var cuts = ReaimLoiterCompressor.ComputeCuts(segs, Mu, keepRevs: 1);
+            Assert.Single(cuts);                    // merged across the gaps -> ONE cut, not three
+            Assert.Equal(0.0, cuts[0].StartUT, 3);  // run starts at the first chunk
+            double keptTail = 150000.0 - cuts[0].LengthSeconds; // ~1 rev kept for the WHOLE parking
+            Assert.InRange(keptTail, LkoT, 2.0 * LkoT);
         }
 
         [Fact]

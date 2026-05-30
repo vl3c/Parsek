@@ -86,6 +86,7 @@ def parse_segments(path, indented=False):
 
 # --- ReaimLoiterCompressor.ComputeCuts -------------------------------------
 A_STEP = 0.05
+SAME_ORBIT = 0.001
 CONTIG_EPS = 1.0
 KEEP_REVS = 1
 
@@ -112,11 +113,11 @@ def compute_cuts(segs):
             np_ = orbit_period(nxt.sma, MU.get(nxt.body))
             if math.isnan(np_) or np_ <= 0.0:
                 break
-            if nxt.startUT - prev_end > CONTIG_EPS:
-                break
             a_rel = abs(nxt.sma - firstA) / max(1.0, abs(firstA))
             if a_rel > A_STEP:
                 break
+            if nxt.startUT - prev_end > CONTIG_EPS and a_rel > SAME_ORBIT:
+                break  # a real gap to a different orbit; same-orbit sampling gaps merge
             j += 1
             run_end = nxt.endUT
             prev_end = nxt.endUT
