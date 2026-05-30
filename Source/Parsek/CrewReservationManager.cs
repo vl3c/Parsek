@@ -355,6 +355,15 @@ namespace Parsek
         /// SetReplacement runs on every commit/recalculate cycle and would pay the
         /// snapshot-walk cost on hot paths even when no orphan exists. The orphan
         /// pass only runs when the swap actually fails to place every replacement.
+        ///
+        /// Pass 2 is suppressed when the active vessel is the fresh VAB/SPH rollout
+        /// for this scene (<see cref="RecordingStore.SceneEntryFreshRolloutVesselPid"/>,
+        /// 0 outside a fresh launch). A fresh launch is never a continuation of a
+        /// prior recording, so it has no orphaned crew to reclaim, and reclaiming
+        /// would mis-seat stand-ins through KSP's craft-stable part persistentId
+        /// reuse (see <see cref="ShouldSuppressOrphanPlacementForFreshRollout"/>).
+        /// This applies to every call site (flight-ready, chain-commit, tree-commit),
+        /// since any of them can fire while the fresh-rollout vessel is still active.
         /// </summary>
         public static int SwapReservedCrewInFlight()
         {
@@ -449,7 +458,29 @@ namespace Parsek
             // Pass 2 — bug #277 orphan placement: reserved kerbals NOT seated in
             // the active vessel (typically EVA'd before merge). Look up where the
             // recording snapshot originally seated them and place the stand-in there.
-            int orphanPlaced = PlaceOrphanedReplacements(roster, swappedOriginals);
+            //
+            // Suppressed for a fresh-rollout active vessel (VAB/SPH launch): a ship
+            // just rolled out is not a continuation or merge of any prior recording,
+            // so it has no orphaned crew to reclaim. Running orphan placement here
+            // mis-injects stand-ins because KSP reuses craft part persistentIds across
+            // relaunches of the same .craft — a brand-new launch's command pod can
+            // share the persistentId of an old recording's pod, so the pid-tier
+            // matcher seats the stand-in into the fresh vessel the player just crewed.
+            // Pass 1 still runs, so a reserved kerbal that KSP auto-assigned onto the
+            // fresh launch is swapped for its stand-in as usual.
+            int orphanPlaced = 0;
+            uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
+            if (ShouldSuppressOrphanPlacementForFreshRollout(activePid, freshRolloutPid))
+            {
+                ParsekLog.Info("CrewReservation",
+                    $"Orphan placement skipped: active vessel pid={activePid} is a fresh-rollout " +
+                    "launch (new mission has no orphaned crew to reclaim; avoids craft-pid-reuse " +
+                    "stand-in mis-injection)");
+            }
+            else
+            {
+                orphanPlaced = PlaceOrphanedReplacements(roster, swappedOriginals);
+            }
             swapCount += orphanPlaced;
 
             if (swapCount > 0)
@@ -468,6 +499,28 @@ namespace Parsek
             RemoveReservedEvaVessels(spawnedPids);
 
             return swapCount;
+        }
+
+        /// <summary>
+        /// Pure decision: suppress Pass-2 orphan crew placement when the active
+        /// vessel is the just-rolled-out fresh launch (VAB/SPH). A fresh launch is
+        /// never a continuation/merge of a prior recording, so it has no orphaned
+        /// reserved crew to reclaim — and reclaiming would mis-seat a stand-in via
+        /// KSP's craft-stable part persistentId reuse (a relaunch of the same .craft
+        /// reuses the old recording's pod persistentId, which the pid-tier matcher
+        /// then false-matches). Returns false when no fresh-rollout pid was captured
+        /// (<paramref name="freshRolloutVesselPid"/> == 0), i.e. for merge /
+        /// chain-commit / resumed-save call sites where orphan placement is intended.
+        ///
+        /// Body mirrors <c>ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch</c>
+        /// (same fresh-rollout identity test); kept separate because the two are
+        /// distinct decisions that may diverge, and this one lives with the crew
+        /// manager rather than the Unity flight controller for direct unit testing.
+        /// </summary>
+        internal static bool ShouldSuppressOrphanPlacementForFreshRollout(
+            uint activeVesselPid, uint freshRolloutVesselPid)
+        {
+            return activeVesselPid != 0 && activeVesselPid == freshRolloutVesselPid;
         }
 
         /// <summary>

@@ -557,5 +557,49 @@ namespace Parsek.Tests
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
         }
+
+        // ────────────────────────────────────────────────────────
+        // ShouldSuppressOrphanPlacementForFreshRollout — fresh-launch gate.
+        // Regression for the crew-auto-add bug: a fresh VAB/SPH launch whose
+        // command pod reuses an old recording's part persistentId must NOT have
+        // orphaned reserved crew's stand-ins placed onto it (Pass 2 suppressed).
+        // ────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActiveIsFreshRollout_Suppresses()
+        {
+            // Same pid as the captured fresh-rollout vessel → suppress orphan placement.
+            Assert.True(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 57152010u, freshRolloutVesselPid: 57152010u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActivePidDiffersFromRollout_DoesNotSuppress()
+        {
+            // Mid-scene switch to a different (already-spawned) vessel: orphan
+            // placement should still run for that continuation/merge target.
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 2708531065u, freshRolloutVesselPid: 57152010u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_NoRolloutCaptured_DoesNotSuppress()
+        {
+            // freshRolloutVesselPid == 0 is the merge / chain-commit / resumed-save
+            // call sites where orphan placement is the intended behaviour.
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 57152010u, freshRolloutVesselPid: 0u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActivePidZero_DoesNotSuppress()
+        {
+            // Defensive: an unknown active pid never counts as a fresh rollout,
+            // even if the captured rollout pid is also 0 (no false 0==0 match).
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 0u, freshRolloutVesselPid: 0u));
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 0u, freshRolloutVesselPid: 57152010u));
+        }
     }
 }
