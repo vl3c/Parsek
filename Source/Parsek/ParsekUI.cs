@@ -1238,6 +1238,31 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+
+                // Diagnostic (loiter-seam icon debugging): when the marker rides the LIVE ghost mesh
+                // (meshActive), compare the drawn mesh position against the trajectory-interpolated position
+                // at the same span-clock head UT. Both are in the current world frame, so their gap
+                // (meshVsTraj) is frame-independent: a large gap means the engine's mesh sits off the
+                // recorded path (the "non-proto icon in the wrong location / not moving correctly on the
+                // polyline" seam), while a ~0 gap means the icon is on the path and any apparent freeze is
+                // just the sub-pixel parking circle at map scale. Rate-limited per recording.
+                if (meshActive && isMapView && kvp.Key < committed.Count)
+                {
+                    var recDiag = committed[kvp.Key];
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                        kvp.Key, recDiag.StartUT, recDiag.EndUT, currentUT,
+                        flight.Engine.CurrentLoopUnits, out bool _);
+                    bool haveTraj = TryComputeGhostWorldPosition(
+                        kvp.Key, committed, headUT, out Vector3 trajPos, out _);
+                    double meshVsTraj = haveTraj ? (markerPos - trajPos).magnitude : double.NaN;
+                    ParsekLog.VerboseRateLimited("GhostMap",
+                        "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Marker pos: rec={0} meshActive=True headUT={1:F1} markerPos={2} trajPos={3} meshVsTraj={4:F0}",
+                            kvp.Key, headUT, markerPos.ToString("F0"),
+                            haveTraj ? trajPos.ToString("F0") : "(none)", meshVsTraj),
+                        2.0);
+                }
             }
 
             LogMapMarkerSummary(summary);
@@ -1313,21 +1338,6 @@ namespace Parsek
             }
 
             worldPos = (Vector3)body.GetWorldSurfacePosition(lat, lon, alt);
-            // Diagnostic (loiter-seam non-proto marker debugging): the decompressed sample UT, the
-            // bracketing recorded-point UTs, the interpolated body-fixed lat/lon/alt, and the resolved
-            // world position. A large before->after UT gap means the interpolation straddles a loiter cut
-            // (the marker would chord across the excised span instead of following the kept revolution); a
-            // sampleUT that jumps non-monotonically frame-to-frame points at the decompress mapping. This is
-            // the "non-proto ghost icon in the wrong location / not moving correctly on the polyline" seam.
-            // Rate-limited per recording so it is cheap on the per-frame marker hot path.
-            ParsekLog.VerboseRateLimited("GhostMap",
-                "marker-pos-" + recordingIndex.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Marker pos: rec={0} sampleUT={1:F1} bracket=[{2:F1},{3:F1}] gap={4:F1} t={5:F3} " +
-                    "body={6} latlonalt=({7:F4},{8:F4},{9:F0}) worldMag={10:F0}",
-                    recordingIndex, ut, before.ut, after.ut, after.ut - before.ut,
-                    found ? t : float.NaN, before.bodyName ?? "(null)", lat, lon, alt, worldPos.magnitude),
-                2.0);
             return true;
         }
 
