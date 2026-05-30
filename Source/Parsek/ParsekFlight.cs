@@ -8023,11 +8023,19 @@ namespace Parsek
                 ? Planetarium.GetUniversalTime()
                 : marker.CapturedUT;
 
-            // PRELAUNCH targets defer to the normal auto-record-on-launch
-            // trigger instead of starting a switch-fly segment immediately
-            // (a vessel still on the pad has not launched yet).
-            bool targetIsPrelaunch =
-                newVessel.situation == Vessel.Situations.PRELAUNCH;
+            // On-surface targets defer to the normal auto-record trigger instead
+            // of starting a switch-fly segment the instant you fly to them. A
+            // vessel that is PRELAUNCH (on the pad), LANDED (on the ground), or
+            // SPLASHED (on the water) has not started flying yet. Without the
+            // LANDED/SPLASHED arms, flying to a vessel already sitting on the
+            // ground (a Parsek-spawned committed vessel, reported LANDED, or a
+            // saved landed craft) started a recording immediately, which was then
+            // discarded as idle-on-pad on scene exit — the "Jumping Flea on the
+            // pad" report whose PRELAUNCH-only fix missed the LANDED case.
+            bool targetIsOnSurface =
+                newVessel.situation == Vessel.Situations.PRELAUNCH
+                || newVessel.situation == Vessel.Situations.LANDED
+                || newVessel.situation == Vessel.Situations.SPLASHED;
 
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker,
@@ -8037,7 +8045,7 @@ namespace Parsek
                 currentUT,
                 missedSwitchRecoveryActive,
                 activeSessionFocusedPid,
-                targetIsPrelaunch);
+                targetIsOnSurface);
 
             if (outcome != StockActionIntentConsumeDecision.Outcome.Authorized
                 && outcome != StockActionIntentConsumeDecision.Outcome.NoIntent)
