@@ -16,11 +16,13 @@ namespace Parsek.Tests
         private sealed class Bodies : IBodyInfo
         {
             public readonly Dictionary<string, string> Parent = new Dictionary<string, string>();
+            public readonly Dictionary<string, double> Mu = new Dictionary<string, double>();
             public double RotationPeriod(string b) => double.NaN;
             public double OrbitPeriod(string b) => double.NaN;
             public string ReferenceBodyName(string b) => Parent.TryGetValue(b ?? "", out var v) ? v : null;
             public double SoiRadius(string b) => double.NaN;
             public double OrbitalVelocity(string b) => double.NaN;
+            public double GravParameter(string b) => Mu.TryGetValue(b ?? "", out double v) ? v : double.NaN;
         }
 
         private static Bodies StockParents()
@@ -33,6 +35,11 @@ namespace Parsek.Tests
             f.Parent["Ike"] = "Duna";
             f.Parent["Jool"] = "Sun";
             f.Parent["Tylo"] = "Jool";
+            // Gravitational parameters (stock), for loiter-period computation in the classifier rework.
+            f.Mu["Kerbin"] = 3.5316e12;
+            f.Mu["Mun"] = 6.5138398e10;
+            f.Mu["Duna"] = 3.0136321e11;
+            f.Mu["Sun"] = 1.1723328e18;
             return f;
         }
 

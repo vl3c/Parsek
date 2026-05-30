@@ -226,6 +226,11 @@ namespace Parsek
 
         /// <summary>Approximate orbital velocity in m/s (for the Phase 2 tolerance formula).</summary>
         double OrbitalVelocity(string bodyName);
+
+        /// <summary>Gravitational parameter (GM, m^3/s^2) of the body itself - the mu for an orbit
+        /// AROUND this body, used to compute a loiter segment's orbital period
+        /// (T = 2*pi*sqrt(a^3/mu)). Re-aim loiter compression. NaN for an unknown body.</summary>
+        double GravParameter(string bodyName);
     }
 
     internal static class MissionPeriodicity
@@ -1807,6 +1812,12 @@ namespace Parsek
             if (double.IsNaN(period) || double.IsInfinity(period) || period <= 0.0)
                 return double.NaN;
             return 2.0 * Math.PI * b.orbit.semiMajorAxis / period;
+        }
+
+        public double GravParameter(string bodyName)
+        {
+            CelestialBody b = Find(bodyName);
+            return b != null ? b.gravParameter : double.NaN;
         }
     }
 }
