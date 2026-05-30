@@ -803,6 +803,28 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
 
         /// <summary>
+        /// True if any live map-ghost's playback head (<paramref name="currentUT"/>, live frame) has moved
+        /// outside the orbit-segment bounds currently applied to it. When that happens the applied orbit is
+        /// stale and <see cref="Parsek.Patches.GhostOrbitLinePatch"/>'s stale-segment guard blanks the line
+        /// until the next reseed; under time warp the head sprints through short segments faster than the
+        /// real-time-rate-limited reseed, so the line blinks off every frame (the warped Duna-approach
+        /// blink). The flight policy (<c>CheckPendingMapVessels</c>) uses this to drive a WARP-AWARE reseed:
+        /// re-apply the moment the head leaves its segment instead of waiting for the timer. This fixes the
+        /// lag WITHOUT weakening the stale-segment guard (which still suppresses the genuine pre-burn arc on
+        /// a propulsive->orbital handoff). Cheap allocation-free dict scan over the live bounds.
+        /// </summary>
+        internal static bool AnyGhostHeadLeftAppliedSegment(double currentUT)
+        {
+            foreach (var kvp in ghostOrbitBounds)
+            {
+                var b = kvp.Value;
+                if (currentUT > b.endUT || currentUT < b.startUT)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// O(1) check used by all guard code throughout the codebase.
         /// Returns true if the given persistentId belongs to a ghost map ProtoVessel.
         /// </summary>

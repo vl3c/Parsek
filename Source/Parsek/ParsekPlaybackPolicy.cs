@@ -952,6 +952,17 @@ namespace Parsek
         private const float MapOrbitUpdateIntervalSec = 0.5f;
         private float nextMapOrbitUpdateTime;
 
+        /// <summary>
+        /// Pure gate for the rate-limited map-orbit reseed pass (warp-aware). Proceeds when the real-time
+        /// timer has elapsed (the steady-state path) OR, only while time-warping, when a tracked ghost's
+        /// playback head has left its applied segment (so the reseed keeps up with the fast head through
+        /// short segments and the orbit line stops blinking). At 1x (<paramref name="warpRate"/> &lt;= 1)
+        /// this is exactly the old timer-only gate, so non-warp behavior is byte-identical.
+        /// </summary>
+        internal static bool ShouldRunMapOrbitReseed(
+            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment)
+            => timerElapsed || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
@@ -1494,8 +1505,20 @@ namespace Parsek
                 }
             }
 
-            // 2. Rate-limited orbit updates for existing ProtoVessels.
-            if (UnityEngine.Time.time < nextMapOrbitUpdateTime) return;
+            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
+            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
+            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
+            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
+            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
+            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
+            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
+            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
+            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
+            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
+                && TimeWarp.CurrentRate > 1.0f
+                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
+            if (!ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+                return;
             nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
 
             var committed = RecordingStore.CommittedRecordings;

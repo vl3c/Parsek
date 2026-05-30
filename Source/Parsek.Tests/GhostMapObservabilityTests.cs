@@ -680,5 +680,63 @@ namespace Parsek.Tests
             Assert.Equal(input.bodyName, result.bodyName);
             Assert.Equal(input.startUT, result.startUT, 6);
         }
+
+        // -----------------------------------------------------------------
+        // Warp-aware map-orbit reseed (the Duna-approach blink fix). The orbit line blinks under warp
+        // because the rate-limited reseed lags the fast head through short segments. These pin the two
+        // pure helpers: the head-left-segment scan and the reseed gate (byte-identical to the timer-only
+        // gate at 1x; the warp override only fires while warping AND a head has left its segment).
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_HeadInsideAllBounds_False()
+        {
+            GhostMapPresence.ghostOrbitBounds[1] = (100.0, 200.0);
+            GhostMapPresence.ghostOrbitBounds[2] = (150.0, 400.0);
+
+            Assert.False(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(175.0));
+        }
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_HeadPastABound_True()
+        {
+            GhostMapPresence.ghostOrbitBounds[1] = (100.0, 200.0);
+            GhostMapPresence.ghostOrbitBounds[2] = (150.0, 400.0);
+
+            // 250 is inside #2 but PAST #1's end -> at least one ghost's head left its segment.
+            Assert.True(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(250.0));
+            // Before all starts also counts.
+            Assert.True(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(50.0));
+        }
+
+        [Fact]
+        public void AnyGhostHeadLeftAppliedSegment_NoGhosts_False()
+        {
+            Assert.False(GhostMapPresence.AnyGhostHeadLeftAppliedSegment(1234.0));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_TimerElapsed_AlwaysRuns()
+        {
+            // Timer elapsed => run regardless of warp / head state.
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(true, 1.0f, false));
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(true, 100000.0f, false));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_NotWarping_TimerOnly()
+        {
+            // At 1x the head-left override never fires -> byte-identical to the timer-only gate.
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, true));
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1.0f, false));
+        }
+
+        [Fact]
+        public void ShouldRunMapOrbitReseed_WarpingAndHeadLeft_Runs()
+        {
+            Assert.True(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, true));
+            // Warping but no head left its segment yet -> wait for the timer.
+            Assert.False(ParsekPlaybackPolicy.ShouldRunMapOrbitReseed(false, 1000.0f, false));
+        }
     }
 }
