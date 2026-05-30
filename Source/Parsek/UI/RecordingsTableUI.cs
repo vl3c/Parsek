@@ -3804,7 +3804,28 @@ namespace Parsek
                 return;
             }
 
-            // Apply rename in recordings and hierarchy
+            // A tree's root group is the same abstraction as its main mission in the Missions
+            // window. Rename both together (and the auto "/ Debris" / "/ Crew" subgroups), atomically.
+            RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(oldName);
+            if (missionTree != null)
+            {
+                if (!MissionGroupLink.RenameMissionGroup(missionTree, newName, out string reason))
+                {
+                    ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' ({reason})");
+                    return;
+                }
+                // Remap UI expansion / known-empty state for the root and any cascaded subgroups.
+                RemapGroupUIState(oldName, newName);
+                RemapGroupUIState(oldName + RecordingGroupStore.DebrisSubgroupSuffix,
+                    newName + RecordingGroupStore.DebrisSubgroupSuffix);
+                RemapGroupUIState(oldName + RecordingGroupStore.CrewSubgroupSuffix,
+                    newName + RecordingGroupStore.CrewSubgroupSuffix);
+                ParsekLog.Info("UI",
+                    $"Group '{oldName}' renamed to '{newName}' (linked to main mission + subgroups)");
+                return;
+            }
+
+            // Plain group (user group, a subgroup renamed directly, or a chain block): no mission link.
             if (!RecordingStore.RenameGroup(oldName, newName))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' already exists");
@@ -3812,16 +3833,21 @@ namespace Parsek
             }
 
             GroupHierarchyStore.RenameGroupInHierarchy(oldName, newName);
-
-            // Update expansion state
-            if (expandedGroups.Remove(oldName))
-                expandedGroups.Add(newName);
-
-            // Update KnownEmptyGroups
-            int emptyIdx = KnownEmptyGroups.IndexOf(oldName);
-            if (emptyIdx >= 0) KnownEmptyGroups[emptyIdx] = newName;
+            RemapGroupUIState(oldName, newName);
 
             ParsekLog.Info("UI", $"Group '{oldName}' renamed to '{newName}'");
+        }
+
+        // Carries a group's UI-only view state (expansion + known-empty bookkeeping) across a
+        // rename so the renamed folder keeps its expanded/known state.
+        private void RemapGroupUIState(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName)
+                return;
+            if (expandedGroups.Remove(oldName))
+                expandedGroups.Add(newName);
+            int emptyIdx = KnownEmptyGroups.IndexOf(oldName);
+            if (emptyIdx >= 0) KnownEmptyGroups[emptyIdx] = newName;
         }
 
         private string GenerateUniqueGroupName()

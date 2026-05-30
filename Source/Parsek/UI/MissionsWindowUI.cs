@@ -1545,9 +1545,28 @@ namespace Parsek
             string newName = (renamingMissionText ?? "").Trim();
             if (!string.IsNullOrEmpty(newName) && newName != mission.Name)
             {
-                string old = mission.Name;
-                mission.Name = newName;
-                ParsekLog.Info("Mission", $"Renamed mission '{old}' -> '{newName}'");
+                if (MissionStore.IsOriginalMission(mission))
+                {
+                    // The main mission IS the tree's Recordings-window folder. Rename both (and the
+                    // auto subgroups) atomically; on a group-name collision the rename is refused and
+                    // the mission keeps its old name, so the two views never drift.
+                    RecordingTree tree = FindTree(RecordingStore.CommittedTrees, mission.TreeId);
+                    if (tree != null)
+                    {
+                        if (!MissionGroupLink.RenameMissionGroup(tree, newName, out string reason))
+                            ParsekLog.Warn("Mission", $"Mission rename rejected: '{newName}' ({reason})");
+                    }
+                    else
+                    {
+                        // No committed tree (unexpected for a main mission) - rename the mission only.
+                        MissionStore.RenameMission(mission, newName);
+                    }
+                }
+                else
+                {
+                    // A clone is a variant selection that does not own the folder; rename it alone.
+                    MissionStore.RenameMission(mission, newName);
+                }
             }
             renamingMissionId = null;
             renamingMissionFocused = false;
