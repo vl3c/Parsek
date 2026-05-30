@@ -195,6 +195,16 @@ namespace Parsek
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
 
+        // PID of the vessel that rolled out fresh from the VAB/SPH this scene
+        // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
+        // Read by CrewReservationManager.SwapReservedCrewInFlight to suppress Pass-2
+        // orphan crew placement when the active vessel is this fresh launch — a new
+        // mission has no orphaned reserved crew to reclaim, and reclaiming would
+        // mis-seat stand-ins via KSP's craft-stable part persistentId reuse. Static
+        // so the chain-commit / merge call sites (which have no ParsekFlight handle)
+        // can consult it, mirroring SceneEntryActiveVesselPid.
+        internal static uint SceneEntryFreshRolloutVesselPid;
+
         // During launch-point rewind, scope the #226 duplicate-source bypass to the
         // recording whose rewind was actually requested. Other scene-entry vessels may
         // also match committed recordings, but they are not the replay target.
@@ -1529,7 +1539,19 @@ namespace Parsek
             if (prior.EndUT > continued.EndUT + 1e-3)
                 return false;
 
-            if (prior.SpawnedVesselPersistentId == continued.VesselPersistentId)
+            // #976-class: an adoption-stamped prior carries SpawnedVesselPersistentId == its
+            // craft-baked VesselPersistentId, which a relaunch of the same craft reuses as its own
+            // VesselPersistentId, so a bare pid match would mark an unrelated later launch as
+            // superseding this prior's terminal spawn. Guid-disambiguate only the adoption-stamp
+            // case (real spawns use a KSP-unique spawn pid that cannot collide). A relaunch then
+            // falls through to the name+UT-contiguity branch below, which rejects it (the relaunch's
+            // tree starts after prior ends). Null/unknown guid keeps today's pid-only behavior.
+            bool spawnedPidMatch = prior.SpawnedVesselPersistentId == continued.VesselPersistentId;
+            bool adoptionRelaunchCollision = spawnedPidMatch
+                && prior.SpawnedVesselPersistentId == prior.VesselPersistentId
+                && VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    prior.RecordedVesselGuid, continued.RecordedVesselGuid);
+            if (spawnedPidMatch && !adoptionRelaunchCollision)
             {
                 reason = "spawned-pid-match";
                 return true;
@@ -4582,6 +4604,7 @@ namespace Parsek
             second.TreeId = original.TreeId;
             second.VesselName = original.VesselName;
             second.VesselPersistentId = original.VesselPersistentId;
+            second.RecordedVesselGuid = original.RecordedVesselGuid; // same launch as the split source
             second.PreLaunchFunds = original.PreLaunchFunds;
             second.PreLaunchScience = original.PreLaunchScience;
             second.PreLaunchReputation = original.PreLaunchReputation;
@@ -5263,6 +5286,7 @@ namespace Parsek
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
+            SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;

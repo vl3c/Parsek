@@ -672,6 +672,7 @@ namespace Parsek
                 tip.TreeId = origin.TreeId;
                 tip.VesselName = origin.VesselName;
                 tip.VesselPersistentId = origin.VesselPersistentId;
+                tip.RecordedVesselGuid = origin.RecordedVesselGuid; // HEAD/TIP are the same launch
                 tip.PreLaunchFunds = origin.PreLaunchFunds;
                 tip.PreLaunchScience = origin.PreLaunchScience;
                 tip.PreLaunchReputation = origin.PreLaunchReputation;

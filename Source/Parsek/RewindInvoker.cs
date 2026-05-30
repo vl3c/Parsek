@@ -237,6 +237,10 @@ namespace Parsek
         {
             if (provisional == null || inheritFrom == null) return;
             provisional.VesselPersistentId = inheritFrom.VesselPersistentId;
+            // The re-fly fork restores from a quicksave that preserves the origin's Vessel.id, so it
+            // is the same launch lineage. Inherit the launch guid (live capture overwrites it if the
+            // fork later recaptures from a vessel that somehow differs).
+            provisional.RecordedVesselGuid = inheritFrom.RecordedVesselGuid;
             provisional.VesselName = inheritFrom.VesselName;
             provisional.IsDebris = inheritFrom.IsDebris;
             // PR 3b: critical Re-Fly safety hook: propagate the debris

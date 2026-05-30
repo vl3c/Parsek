@@ -1052,6 +1052,8 @@ namespace Parsek
         private Dictionary<string, InventoryItem> pendingStartInventory;
         private int pendingStartInventorySlots;
         private Dictionary<string, int> pendingStartCrew;
+        // Launch-unique vessel identity (Vessel.id Guid, "N" form) captured at record-start.
+        private string pendingRecordedVesselGuid;
         // Captured once at recording-start time. Forwarded to CaptureAtStop verbatim;
         // never re-captured from the stop/remnant vessel, so a destructive breakup
         // that leaves a 1-part decoupler cannot overwrite the recorded controllable
@@ -6502,6 +6504,13 @@ namespace Parsek
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
             pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
+            // Launch-unique identity: capture the live Vessel.id Guid (assigned fresh per launch,
+            // unlike the craft-baked persistentId). Falls back to the snapshot's `pid` value when
+            // the live vessel is unavailable. Disambiguates relaunches of the same craft.
+            pendingRecordedVesselGuid = (v != null && v.id != Guid.Empty)
+                ? v.id.ToString("N")
+                : VesselLaunchIdentity.TryReadVesselGuid(lastGoodVesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
             // Backstop: forward the just-captured identity onto the active tree
             // recording if it doesn't already carry it. Covers the always-tree-root
             // path (created with whatever vessel was active at the time of root
@@ -6530,6 +6539,16 @@ namespace Parsek
                     backstopChanged = true;
                     ParsekLog.Verbose("Recorder",
                         $"StartRecording: forwarded {pendingStartCrew.Count} start crew trait(s) " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                // Forward the launch guid too (same always-tree-root gap): the root recording is
+                // created before the vessel snapshot exists, so without this it never carries the
+                // launch-unique identity even though its snapshot's `pid` has it.
+                if (treeRecBackstop.AdoptRecordedVesselGuidIfEmpty(pendingRecordedVesselGuid))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded launch guid {pendingRecordedVesselGuid} " +
                         $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
                 }
                 if (backstopChanged)
@@ -6910,6 +6929,12 @@ namespace Parsek
             capture.StartCrew = pendingStartCrew;
             capture.EndCrew = VesselSpawner.ExtractCrewManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndCrew?.Count ?? 0} end crew trait(s)");
+            // Launch-unique identity: prefer the value captured at record-start; otherwise backfill
+            // from this capture's own snapshot `pid` (a capture that did not go through a guid-aware
+            // StartRecording still carries its launch guid in the snapshot).
+            capture.RecordedVesselGuid = !string.IsNullOrEmpty(pendingRecordedVesselGuid)
+                ? pendingRecordedVesselGuid
+                : VesselLaunchIdentity.TryReadVesselGuid(capture.VesselSnapshot);
             // Forward the start-time controller identity. Never re-derive from the live
             // stop/remnant vessel here: a destructive breakup leaves a 1-part decoupler
             // with no command authority, and re-capturing would clobber the recorded

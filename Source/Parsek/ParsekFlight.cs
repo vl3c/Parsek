@@ -3534,11 +3534,15 @@ namespace Parsek
                 return false;
             }
 
+            string activeVesselGuid = activeVessel.id != Guid.Empty
+                ? activeVessel.id.ToString("N")
+                : null;
             if (!TryTakeCommittedTreeForSpawnedVesselRestore(
                     activeVesselPid,
                     out RecordingTree committedTree,
                     out string targetRecordingId,
-                    out CommittedSpawnedVesselRestoreAction action))
+                    out CommittedSpawnedVesselRestoreAction action,
+                    activeVesselGuid))
                 return false;
 
             activeTree = committedTree;
@@ -8188,7 +8192,9 @@ namespace Parsek
             // unchanged once we route this way.
             if (!activeIsCommittedClone && activeTree == null)
             {
-                bool committedMatchExists = TryFindCommittedTreeMatchingVessel(newPid);
+                bool committedMatchExists = TryFindCommittedTreeMatchingVessel(
+                    newPid,
+                    newVessel.id != Guid.Empty ? newVessel.id.ToString("N") : null);
                 if (committedMatchExists)
                 {
                     // L5 (PR #876 final review): only emit the
@@ -8340,6 +8346,14 @@ namespace Parsek
         /// committed-clone branch.</para>
         /// </summary>
         internal static bool TryFindCommittedTreeMatchingVessel(uint pid)
+            => TryFindCommittedTreeMatchingVessel(pid, null);
+
+        // liveGuid is the focused live vessel's Vessel.id ("N" form, null = unknown). #976-class:
+        // the VesselPersistentId branch matches the craft-baked pid, which a relaunch of the same
+        // craft reuses, so it additionally requires the same launch (guid). The SpawnedVesselPersistentId
+        // branch matches a KSP-unique spawn pid that cannot collide with a baked pid, so it stays
+        // pid-only. A null/unknown guid falls back to today's pid-only behavior.
+        internal static bool TryFindCommittedTreeMatchingVessel(uint pid, string liveGuid)
         {
             if (pid == 0u) return false;
             var trees = RecordingStore.CommittedTrees;
@@ -8351,7 +8365,8 @@ namespace Parsek
                 foreach (var rec in tree.Recordings.Values)
                 {
                     if (rec == null) continue;
-                    if (rec.VesselPersistentId == pid)
+                    if (rec.VesselPersistentId == pid
+                        && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, pid, liveGuid))
                         return true;
                     // Bug 5: also match recordings whose Parsek-spawned vessel
                     // is the focused one. SpawnedVesselPersistentId is set by
@@ -10426,6 +10441,13 @@ namespace Parsek
         // in the same scene keep resuming their recordings.
         private void CaptureFreshRolloutVesselPidIfApplicable()
         {
+            // Default to 0 every scene so a non-fresh startup (resumed save / revert)
+            // leaves the shared static cleared and the crew-swap call sites keep
+            // running orphan placement. The instance field defaults to 0 per new
+            // ParsekFlight; the static must be reset explicitly.
+            freshRolloutVesselPid = 0;
+            RecordingStore.SceneEntryFreshRolloutVesselPid = 0;
+
             FlightDriver.StartupBehaviours startup = FlightDriver.StartupBehaviour;
             if (!IsFreshLaunchStartupBehaviour(startup))
                 return;
@@ -10439,6 +10461,10 @@ namespace Parsek
                 return;
             }
             freshRolloutVesselPid = v.persistentId;
+            // Publish to the shared static so SwapReservedCrewInFlight can suppress
+            // Pass-2 orphan placement for this fresh launch from any call site
+            // (flight-ready, chain-commit, tree-commit) without a ParsekFlight handle.
+            RecordingStore.SceneEntryFreshRolloutVesselPid = freshRolloutVesselPid;
             ParsekLog.Info("Flight",
                 $"FreshRollout: captured scene-entry vessel pid={freshRolloutVesselPid} " +
                 $"('{v.vesselName}', StartupBehaviour={startup}) — committed-tree restore " +
@@ -10664,7 +10690,11 @@ namespace Parsek
             MaybeShowPendingTreeMergeDialogOnFlightReady();
 
             // Swap reserved crew out of the active vessel so the player
-            // can't record with them again (they belong to deferred-spawn vessels)
+            // can't record with them again (they belong to deferred-spawn vessels).
+            // A brand-new VAB/SPH launch suppresses Pass-2 orphan placement inside
+            // SwapReservedCrewInFlight (via RecordingStore.SceneEntryFreshRolloutVesselPid),
+            // otherwise KSP's craft-stable part persistentId reuse lets the pid
+            // matcher mis-seat stand-ins into the fresh vessel the player just crewed.
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapResult > 0)
                 Log($"Crew swap on flight ready: {swapResult} crew swapped out of active vessel");
@@ -13298,7 +13328,8 @@ namespace Parsek
             IReadOnlyList<RecordingTree> committedTrees,
             uint activeVesselPid,
             out RecordingTree tree,
-            out string recordingId)
+            out string recordingId,
+            string activeVesselGuid = null)
         {
             tree = null;
             recordingId = null;
@@ -13320,10 +13351,16 @@ namespace Parsek
                     bool spawnedMatch = rec.VesselSpawned
                         && rec.SpawnedVesselPersistentId != 0
                         && rec.SpawnedVesselPersistentId == activeVesselPid;
+                    // #976-class: the direct VesselPersistentId match is the craft-baked pid, which
+                    // a relaunch of the same craft reuses (notably on RESUME/quickload where the
+                    // editor-only fresh-rollout guard above is inactive). Require the same launch
+                    // (guid); a null/unknown guid falls back to today's pid-only behavior. The
+                    // spawnedMatch branch uses a KSP-unique spawn pid and stays pid-only.
                     bool directMatch = !rec.VesselSpawned
                         && rec.SpawnedVesselPersistentId == 0
                         && rec.VesselPersistentId != 0
-                        && rec.VesselPersistentId == activeVesselPid;
+                        && rec.VesselPersistentId == activeVesselPid
+                        && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, activeVesselPid, activeVesselGuid);
                     if (!spawnedMatch && !directMatch)
                         continue;
 
@@ -13352,7 +13389,8 @@ namespace Parsek
             uint activeVesselPid,
             out RecordingTree tree,
             out string recordingId,
-            out CommittedSpawnedVesselRestoreAction action)
+            out CommittedSpawnedVesselRestoreAction action,
+            string activeVesselGuid = null)
         {
             tree = null;
             recordingId = null;
@@ -13362,7 +13400,8 @@ namespace Parsek
                     RecordingStore.CommittedTrees,
                     activeVesselPid,
                     out RecordingTree committedTree,
-                    out string targetRecordingId))
+                    out string targetRecordingId,
+                    activeVesselGuid))
             {
                 return false;
             }

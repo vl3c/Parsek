@@ -384,6 +384,68 @@ namespace Parsek.Tests
                 "Guard should NOT detect pid=99999 as spawned");
         }
 
+        // --- ActiveVesselIsParsekSpawned - F2 whole-swap-skip guard, guid-aware ---
+
+        private const string GuidA = "2b6e6a60d2c947489753371317fa067e";
+        private const string GuidB = "a424011b746440baae6030e225c9de31";
+        private const uint BakedPid = 2708531065u;
+
+        [Fact]
+        public void ActiveVesselIsParsekSpawned_AdoptionStampGuidMismatch_NotSpawned()
+        {
+            // Relaunch of the same craft: the prior adoption-stamped recording (SpawnedVesselPersistentId
+            // == baked pid) shares the relaunch's pid but is a different launch -> not the spawned vessel.
+            var recs = new List<Recording>
+            {
+                new Recording { VesselPersistentId = BakedPid, SpawnedVesselPersistentId = BakedPid, RecordedVesselGuid = GuidA }
+            };
+            Assert.False(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, BakedPid, GuidB));
+        }
+
+        [Fact]
+        public void ActiveVesselIsParsekSpawned_AdoptionStampGuidMatch_IsSpawned()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { VesselPersistentId = BakedPid, SpawnedVesselPersistentId = BakedPid, RecordedVesselGuid = GuidA }
+            };
+            Assert.True(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, BakedPid, GuidA));
+        }
+
+        [Fact]
+        public void ActiveVesselIsParsekSpawned_AdoptionStampGuidUnknown_FallsBackToPid()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { VesselPersistentId = BakedPid, SpawnedVesselPersistentId = BakedPid, RecordedVesselGuid = null }
+            };
+            Assert.True(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, BakedPid, GuidB));
+        }
+
+        [Fact]
+        public void ActiveVesselIsParsekSpawned_RealSpawnDistinctPid_StaysPidOnly()
+        {
+            // A genuine Parsek spawn uses a KSP-unique spawn pid distinct from the baked pid, so the
+            // guid (fresh spawned-ghost guid != recorded launch guid) must NOT defeat the pid match.
+            var recs = new List<Recording>
+            {
+                new Recording { VesselPersistentId = BakedPid, SpawnedVesselPersistentId = 555000u, RecordedVesselGuid = GuidA }
+            };
+            Assert.True(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, 555000u, "ffffffffffffffffffffffffffffffff"));
+        }
+
+        [Fact]
+        public void ActiveVesselIsParsekSpawned_NoMatchingPid_False()
+        {
+            var recs = new List<Recording>
+            {
+                new Recording { VesselPersistentId = BakedPid, SpawnedVesselPersistentId = BakedPid, RecordedVesselGuid = GuidA }
+            };
+            Assert.False(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, 999u, GuidA));
+            Assert.False(CrewReservationManager.ActiveVesselIsParsekSpawned(null, BakedPid, GuidA));
+            Assert.False(CrewReservationManager.ActiveVesselIsParsekSpawned(recs, 0u, GuidA));
+        }
+
         // ────────────────────────────────────────────────────────
         // Bug #413 — KSP ProtoPartSnapshot writes the part pid under
         // `persistentId`, not `pid`. The matcher must read the real
@@ -556,6 +618,50 @@ namespace Parsek.Tests
             {
                 System.Threading.Thread.CurrentThread.CurrentCulture = saved;
             }
+        }
+
+        // ────────────────────────────────────────────────────────
+        // ShouldSuppressOrphanPlacementForFreshRollout — fresh-launch gate.
+        // Regression for the crew-auto-add bug: a fresh VAB/SPH launch whose
+        // command pod reuses an old recording's part persistentId must NOT have
+        // orphaned reserved crew's stand-ins placed onto it (Pass 2 suppressed).
+        // ────────────────────────────────────────────────────────
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActiveIsFreshRollout_Suppresses()
+        {
+            // Same pid as the captured fresh-rollout vessel → suppress orphan placement.
+            Assert.True(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 57152010u, freshRolloutVesselPid: 57152010u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActivePidDiffersFromRollout_DoesNotSuppress()
+        {
+            // Mid-scene switch to a different (already-spawned) vessel: orphan
+            // placement should still run for that continuation/merge target.
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 2708531065u, freshRolloutVesselPid: 57152010u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_NoRolloutCaptured_DoesNotSuppress()
+        {
+            // freshRolloutVesselPid == 0 is the merge / chain-commit / resumed-save
+            // call sites where orphan placement is the intended behaviour.
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 57152010u, freshRolloutVesselPid: 0u));
+        }
+
+        [Fact]
+        public void ShouldSuppressOrphanPlacement_ActivePidZero_DoesNotSuppress()
+        {
+            // Defensive: an unknown active pid never counts as a fresh rollout,
+            // even if the captured rollout pid is also 0 (no false 0==0 match).
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 0u, freshRolloutVesselPid: 0u));
+            Assert.False(CrewReservationManager.ShouldSuppressOrphanPlacementForFreshRollout(
+                activeVesselPid: 0u, freshRolloutVesselPid: 57152010u));
         }
     }
 }
