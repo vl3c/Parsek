@@ -1539,7 +1539,19 @@ namespace Parsek
             if (prior.EndUT > continued.EndUT + 1e-3)
                 return false;
 
-            if (prior.SpawnedVesselPersistentId == continued.VesselPersistentId)
+            // #976-class: an adoption-stamped prior carries SpawnedVesselPersistentId == its
+            // craft-baked VesselPersistentId, which a relaunch of the same craft reuses as its own
+            // VesselPersistentId — so a bare pid match would mark an unrelated later launch as
+            // superseding this prior's terminal spawn. Guid-disambiguate only the adoption-stamp
+            // case (real spawns use a KSP-unique spawn pid that cannot collide). A relaunch then
+            // falls through to the name+UT-contiguity branch below, which rejects it (the relaunch's
+            // tree starts after prior ends). Null/unknown guid keeps today's pid-only behavior.
+            bool spawnedPidMatch = prior.SpawnedVesselPersistentId == continued.VesselPersistentId;
+            bool adoptionRelaunchCollision = spawnedPidMatch
+                && prior.SpawnedVesselPersistentId == prior.VesselPersistentId
+                && VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    prior.RecordedVesselGuid, continued.RecordedVesselGuid);
+            if (spawnedPidMatch && !adoptionRelaunchCollision)
             {
                 reason = "spawned-pid-match";
                 return true;
