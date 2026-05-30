@@ -120,6 +120,7 @@ namespace Parsek.Reaim
                 transferOrbit = transfer;
                 soiEntryUT = transfer.UTsoi;
                 encounterBody = targetBody;
+                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "patched-conic");
                 return true;
             }
 
@@ -134,6 +135,7 @@ namespace Parsek.Reaim
                 transferOrbit = transfer;
                 soiEntryUT = geomSoiUT;
                 encounterBody = targetBody;
+                LogSynthGeometry(transfer, launchBody, targetBody, departureUT, arrivalUT, soiEntryUT, "proximity");
                 return true;
             }
 
@@ -141,6 +143,34 @@ namespace Parsek.Reaim
                          $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")}; " +
                          $"proximity check also failed)";
             return false;
+        }
+
+        // Diagnostic: log the synthesized transfer's geometry against the bodies it must connect, so a
+        // mis-aimed transfer (arrives where the target is NOT) is caught at the source. All positions are
+        // parent-relative in the orbit API's native frame, so the distances are frame-consistent without
+        // any swizzle. xfer-vs-launch@depart and xfer-vs-target@arrival must be ~0 (the Lambert connects
+        // r1->r2 by construction); xfer-vs-target@soi must be <= the target SOI. Verbose, one-shot per
+        // window resolve (the resolver caches the window).
+        private static void LogSynthGeometry(
+            Orbit transfer, CelestialBody launchBody, CelestialBody targetBody,
+            double departureUT, double arrivalUT, double soiEntryUT, string path)
+        {
+            var ic = CultureInfo.InvariantCulture;
+            double depMiss = (transfer.getRelativePositionAtUT(departureUT)
+                - launchBody.orbit.getRelativePositionAtUT(departureUT)).magnitude;
+            double arrMiss = (transfer.getRelativePositionAtUT(arrivalUT)
+                - targetBody.orbit.getRelativePositionAtUT(arrivalUT)).magnitude;
+            double soiMiss = double.IsNaN(soiEntryUT) ? double.NaN
+                : (transfer.getRelativePositionAtUT(soiEntryUT)
+                    - targetBody.orbit.getRelativePositionAtUT(soiEntryUT)).magnitude;
+            ParsekLog.Verbose("ReaimSeam",
+                $"synth geometry ({path}): departUT={departureUT.ToString("F0", ic)} " +
+                $"arrivalUT={arrivalUT.ToString("F0", ic)} soiEntryUT={soiEntryUT.ToString("F0", ic)} " +
+                $"sma={transfer.semiMajorAxis.ToString("R", ic)} ecc={transfer.eccentricity.ToString("F4", ic)} | " +
+                $"xfer-vs-{launchBody.bodyName}@depart={depMiss.ToString("F0", ic)}m (~0) | " +
+                $"xfer-vs-{targetBody.bodyName}@arrival={arrMiss.ToString("F0", ic)}m (~0) | " +
+                $"xfer-vs-{targetBody.bodyName}@soi={(double.IsNaN(soiMiss) ? "NaN" : soiMiss.ToString("F0", ic))}m " +
+                $"(SOI={targetBody.sphereOfInfluence.ToString("F0", ic)})");
         }
 
         // Direct geometric encounter check: samples the heliocentric transfer's distance to the target

@@ -20707,7 +20707,62 @@ namespace Parsek
                     index * 10000 + Math.Max(0, segmentIndex),
                     traj.RecordingId,
                     traj);
+
+                // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
+                // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
+                if (traj is Parsek.Reaim.ReaimedTrajectory && state.ghost != null)
+                    LogReaimGhostTrace(index, seg, segmentIndex, ut, state.ghost.transform.position);
             }
+        }
+
+        // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
+        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
+            = new Dictionary<int, (int, Vector3, double)>();
+
+        /// <summary>
+        /// Diagnostic trace of a re-aimed orbit ghost vs the live bodies. Logs (rate-limited) the ghost's
+        /// world position and its distance to the segment's own body, the launch body, and the target, so
+        /// "arrives where the target is not" is measurable. On a SEGMENT CHANGE (a trajectory seam) it logs
+        /// the world-position discontinuity between the prior frame and this one - a large jump is a
+        /// teleport (no trajectory continuity across the seam). Verbose; never throws.
+        /// </summary>
+        private void LogReaimGhostTrace(int memberIndex, OrbitSegment seg, int segmentIndex, double loopUT, Vector3 ghostPos)
+        {
+            try
+            {
+                var ic = CultureInfo.InvariantCulture;
+                double currentUT = Planetarium.GetUniversalTime();
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == seg.bodyName);
+                CelestialBody target = null, launch = null;
+                if (cachedLoopUnits != null && cachedLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit)
+                    && unit.ReaimPlan.HasValue)
+                {
+                    target = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.TargetBody);
+                    launch = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.LaunchBody);
+                }
+                double dSeg = segBody != null ? (ghostPos - (Vector3)segBody.position).magnitude : double.NaN;
+                double dLaunch = launch != null ? (ghostPos - (Vector3)launch.position).magnitude : double.NaN;
+                double dTarget = target != null ? (ghostPos - (Vector3)target.position).magnitude : double.NaN;
+
+                // Seam-teleport detection: if the segment changed since the last frame, log the jump.
+                if (reaimLastGhostFrame.TryGetValue(memberIndex, out var last) && last.segIdx != segmentIndex)
+                {
+                    double jump = (ghostPos - last.pos).magnitude;
+                    ParsekLog.Verbose("ReaimSeam",
+                        $"SEAM member={memberIndex} seg#{last.segIdx}->{segmentIndex} body={seg.bodyName} " +
+                        $"loopUT {last.loopUT.ToString("F0", ic)}->{loopUT.ToString("F0", ic)} " +
+                        $"jump={jump.ToString("F0", ic)}m (prevPos->thisPos discontinuity)");
+                }
+                reaimLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT);
+
+                ParsekLog.VerboseRateLimited("ReaimSeam", "trace-" + memberIndex.ToString(ic),
+                    $"member={memberIndex} seg#{segmentIndex} body={seg.bodyName} loopUT={loopUT.ToString("F0", ic)} " +
+                    $"currentUT={currentUT.ToString("F0", ic)} dist[{seg.bodyName}]={dSeg.ToString("F0", ic)}m " +
+                    $"dist[{(launch != null ? launch.bodyName : "launch")}]={dLaunch.ToString("F0", ic)}m " +
+                    $"dist[{(target != null ? target.bodyName : "target")}]={dTarget.ToString("F0", ic)}m" +
+                    (target != null ? $"(SOI={target.sphereOfInfluence.ToString("F0", ic)})" : ""), 2.0);
+            }
+            catch { /* diagnostic only */ }
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
