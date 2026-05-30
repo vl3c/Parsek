@@ -203,19 +203,6 @@ namespace Parsek.Reaim
             }
 
             double shift = plan.RecordedDepartureUT - departureUT;
-            double arrivalUT = departureUT + schedule.TofSeconds;
-
-            // Trim the rendered transfer to the INTERPLANETARY span (outside both SOIs). The center-to-center
-            // transfer's first/last stretches sit inside the launch / target SOI at the body center ("below
-            // atmosphere"), where the map suppresses + flickers them; draw the transfer only from the launch
-            // SOI exit to the target SOI entry (in recorded-span time) so the recorded escape / capture cover
-            // inside the SOI and the ghost hides in the brief handoff gap. NaN on either end -> no trim there.
-            double launchExitUT = ReaimTransferSynthesizer.FindTransferSoiCrossingUT(
-                transferOrbit, launchBody, departureUT, arrivalUT, wantInside: false);
-            double targetEntryUT = ReaimTransferSynthesizer.FindTransferSoiCrossingUT(
-                transferOrbit, targetBody, departureUT, arrivalUT, wantInside: true);
-            double renderStartUT = double.IsNaN(launchExitUT) ? double.NaN : launchExitUT + shift;
-            double renderEndUT = double.IsNaN(targetEntryUT) ? double.NaN : targetEntryUT + shift;
 
             OrbitSegment transferSeg = ReaimOrbitSegmentConverter.ToSegment(transferOrbit, plan.CommonAncestor);
             // Shift the transfer's epoch from the absolute departure into recorded-span time so the
@@ -223,13 +210,22 @@ namespace Parsek.Reaim
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, shift);
 
-            // Replace ONLY this member's heliocentric leg(s) with the re-aimed transfer, trimmed to the
-            // interplanetary span; keep its body-relative segments (parking / capture / body-fixed), which
-            // already follow their bodies.
+            // Render the re-aimed transfer over the FULL recorded heliocentric span
+            // [RecordedDepartureUT, RecordedArrivalUT] (NaN render bounds => no trim). That span is exactly
+            // where the member's recorded launch-escape leg ENDS and its recorded capture leg BEGINS, so the
+            // re-aimed transfer hands off seamlessly from the recorded escape - no gap. An earlier pass
+            // trimmed the launch side to the SYNTHESIZED center-to-center transfer's launch-SOI-exit UT,
+            // which lands ~0.9 day LATER (in recorded-span time) than where the recorded escape ends: that
+            // opened a gap right after the launch SOI exit where the orbit ghost was destroyed
+            // (gap-between-orbit-segments) and the transfer line restarted displaced by the launch body's own
+            // motion across the gap (the "transfer is in the wrong place right after Kerbin SOI exit"
+            // regression). Full-span render restores the seamless handoff; the brief in-SOI stub sits
+            // sub-pixel at the body centre at map scale, and the recorded escape / capture legs cover inside
+            // the SOI.
             List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
                 memberSegments, transferSeg, plan.CommonAncestor,
                 plan.RecordedDepartureUT, plan.RecordedArrivalUT,
-                renderStartUT, renderEndUT);
+                double.NaN, double.NaN);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
@@ -241,9 +237,7 @@ namespace Parsek.Reaim
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} " +
                 $"tof={schedule.TofSeconds.ToString("R", ic)} soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
-                $"trim: launchExitUT={launchExitUT.ToString("R", ic)} targetEntryUT={targetEntryUT.ToString("R", ic)} " +
-                $"renderSpan=[{renderStartUT.ToString("R", ic)},{renderEndUT.ToString("R", ic)}] " +
-                $"(recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}])");
+                $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
         }
 

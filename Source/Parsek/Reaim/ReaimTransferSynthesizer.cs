@@ -232,49 +232,5 @@ namespace Parsek.Reaim
             }
             return false;
         }
-
-        // Forward-scan + bisect for the first UT in [fromUT, toUT] where the synthesized transfer crosses
-        // a body's SOI radius (both positions parent-relative, .xzy-unswizzled to a consistent frame).
-        // <paramref name="wantInside"/> = false finds the first EXIT (distance first exceeds the SOI - used
-        // to trim the LAUNCH-body in-SOI stub of the center-to-center transfer); true finds the first ENTRY
-        // (distance first drops below the SOI - used to trim the TARGET in-SOI stub). The transfer departs
-        // at the launch body's center and arrives at the target's center, so each stub sits at/near a body
-        // center ("below atmosphere") and the map suppresses + flickers it; trimming the rendered segment to
-        // the interplanetary span (outside both SOIs) leaves the recorded escape / capture to cover inside
-        // the SOI. Returns NaN when no crossing is found (degenerate) so the caller falls back to no trim.
-        internal static double FindTransferSoiCrossingUT(
-            Orbit transfer, CelestialBody body, double fromUT, double toUT, bool wantInside)
-        {
-            if (transfer == null || body == null || body.orbit == null)
-                return double.NaN;
-            double soi = body.sphereOfInfluence;
-            if (double.IsNaN(soi) || soi <= 0.0 || !(fromUT < toUT))
-                return double.NaN;
-
-            const int coarse = 256;
-            double span = toUT - fromUT;
-            double prev = fromUT;
-            for (int i = 1; i <= coarse; i++)
-            {
-                double t = fromUT + span * i / coarse;
-                double d = (transfer.getRelativePositionAtUT(t).xzy
-                    - body.orbit.getRelativePositionAtUT(t).xzy).magnitude;
-                if ((d < soi) == wantInside)
-                {
-                    // Bracket [prev, t] straddles the SOI; bisect for a tight crossing UT.
-                    double lo = prev, hi = t;
-                    for (int it = 0; it < 40; it++)
-                    {
-                        double mid = 0.5 * (lo + hi);
-                        double dm = (transfer.getRelativePositionAtUT(mid).xzy
-                            - body.orbit.getRelativePositionAtUT(mid).xzy).magnitude;
-                        if ((dm < soi) == wantInside) hi = mid; else lo = mid;
-                    }
-                    return 0.5 * (lo + hi);
-                }
-                prev = t;
-            }
-            return double.NaN; // never crosses in [fromUT, toUT]
-        }
     }
 }
