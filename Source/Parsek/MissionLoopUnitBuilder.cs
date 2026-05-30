@@ -589,34 +589,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Gathers the non-predicted OrbitSegments of all loop members into one startUT-ordered list
-        /// for re-aim classification. The classifier picks the launch body (earliest segment), the
-        /// heliocentric (common-ancestor) leg, and the arrival, so interleaved debris segments are
-        /// harmless. Pure (reads committed recordings' segment lists). Returns an empty list when no
-        /// member has orbit segments.
-        /// </summary>
-        internal static List<OrbitSegment> GatherMemberOrbitSegments(
-            IReadOnlyList<Recording> committed, List<int> memberIndices)
-        {
-            var segs = new List<OrbitSegment>();
-            if (committed == null || memberIndices == null)
-                return segs;
-            for (int i = 0; i < memberIndices.Count; i++)
-            {
-                int idx = memberIndices[i];
-                if (idx < 0 || idx >= committed.Count)
-                    continue;
-                Recording rec = committed[idx];
-                if (rec == null || rec.OrbitSegments == null)
-                    continue;
-                for (int s = 0; s < rec.OrbitSegments.Count; s++)
-                    segs.Add(rec.OrbitSegments[s]);
-            }
-            segs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
-            return segs;
-        }
-
-        /// <summary>
         /// Quantizes a cadence to the nearest multiple of <paramref name="p"/> at or ABOVE the
         /// cadence (which is already floored at MinCycleDuration / the overlap cap). Rounds UP so
         /// the quantized cadence never drops below the existing floor, keeping the instance-count

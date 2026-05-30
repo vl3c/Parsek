@@ -48,7 +48,10 @@ namespace Parsek.Reaim
         /// True when a synthesized transfer is RETROGRADE relative to the parent's reference plane
         /// (inclination &gt; 90 deg). A transfer between two prograde planets must be prograde; a
         /// retrograde solution (inclination ~180 deg) connects the endpoints but travels the wrong way and
-        /// must be rejected. Pure; KSP <c>Orbit.inclination</c> is in degrees, 0..180.
+        /// must be rejected. Pure; KSP <c>Orbit.inclination</c> is in degrees, 0..180. The strict
+        /// <c>&gt; 90</c> classifies an exactly-polar (90 deg) transfer as prograde, but the ecliptic plane
+        /// constraint in <see cref="TrySynthesizeTransfer"/> forces the synthesized inclination to near 0 /
+        /// near 180, so the boundary is not reached in practice.
         /// </summary>
         internal static bool IsRetrogradeTransfer(double inclinationDegrees)
         {
@@ -127,6 +130,13 @@ namespace Parsek.Reaim
             // the target. The plane normal r1 x v_launch lies along the reference normal (the swizzled z
             // axis), so the Lambert prograde/retrograde branch is now well-determined instead of riding the
             // tiny out-of-plane component of r1 x r2.
+            // LIMITATION (v1 Kerbin->Duna scope): the projection removes the target's out-of-plane offset
+            // a*sin(inc). TryFindTargetEncounterByProximity below still measures against the target's ACTUAL
+            // position, so the offset must stay inside the target SOI. For a low-inclination target that
+            // holds (Duna ~0.06 deg => ~2.4e7 m, well inside Duna's ~4.7e7 m SOI). A high-inclination target
+            // (e.g. Moho ~7 deg, small SOI) projects FAR outside its SOI, so the proximity check finds no
+            // encounter and re-aim DECLINES to faithful replay for that window. This fails closed (no garbage
+            // transfer); re-aiming a steeply-inclined target is deferred (see the design doc deferred list).
             Vector3d launchPlaneNormal = Vector3d.Cross(
                 r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
             r2 = ProjectOntoPlane(r2, launchPlaneNormal);

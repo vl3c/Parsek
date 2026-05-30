@@ -488,6 +488,15 @@ Gravity assists, multi-hop chains, aerocapture, replaying a target LANDING after
 (S4), the porkchop dV-grid, and the parking-orbit-LAN re-timing polish. Each is a follow-up once the
 single-hop orbital-arrival core is proven in playtest.
 
+**Steeply-inclined targets.** The synthesizer projects the target endpoint onto the launch body's
+orbital plane (the ecliptic) to kill the ~180-degree single-rev Lambert plane singularity. The
+encounter check then measures the transfer against the target's ACTUAL position, so the removed
+out-of-plane offset `a*sin(inc)` must stay inside the target SOI. This holds for low-inclination
+targets (Duna ~0.06 deg => ~2.4e7 m, well inside Duna's ~4.7e7 m SOI) but not for a steeply-inclined
+target (e.g. Moho ~7 deg, small SOI): there the proximity check finds no encounter and re-aim declines
+to faithful replay for that window (fails closed, no garbage transfer). A plane-aware solve for
+inclined targets is deferred.
+
 ## 14. What does NOT change
 
 - Same-parent (Mun/Minmus) looped missions: byte-identical faithful replay, untouched.
