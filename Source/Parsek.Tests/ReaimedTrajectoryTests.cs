@@ -21,6 +21,8 @@ namespace Parsek.Tests
             // The recorded trajectory differs from the assembled one (to prove the override).
             rec.OrbitSegments.Add(Seg("Kerbin", 0, 100));
             rec.Points.Add(new TrajectoryPoint { ut = 5, bodyName = "Kerbin" });
+            // A recorded engine event so PartEvents delegation is observable.
+            rec.PartEvents.Add(new PartEvent { ut = 10, partPersistentId = 42, moduleIndex = 0 });
             return rec;
         }
 
@@ -44,18 +46,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void Adapter_EmptiesTimelineIncoherentSurfaces()
+        public void Adapter_EmptiesPositionDependentSurfaces()
         {
             var rec = WrappedRecording();
             var assembled = new List<OrbitSegment> { Seg("Sun", 100, 200) };
             IPlaybackTrajectory adapter = new ReaimedTrajectory(rec, assembled);
 
-            // Points/TrackSections/PartEvents/FlagEvents are at the recorded timeline -> presented empty
-            // so nothing binds to a UT outside the absolute-UT assembled segments (review M1).
+            // Points/TrackSections trace the PRE-re-aim heliocentric path -> presented empty (the
+            // synthesized OrbitSegment replaces that phase). FlagEvents stay empty (surface flags are
+            // not part of the transfer replay).
             Assert.Empty(adapter.Points);
             Assert.Empty(adapter.TrackSections);
-            Assert.Empty(adapter.PartEvents);
             Assert.Empty(adapter.FlagEvents);
+        }
+
+        [Fact]
+        public void Adapter_DelegatesPartEventsToRecording()
+        {
+            // PartEvents ARE delegated: the assembled segments sit on the recorded-span clock, so a
+            // recorded-UT engine/staging event resolves coherently, and the ghost MUST see the real engine
+            // events or the orphan-engine audio auto-start (zero events => assume debris booster) misfires
+            // on the main ship and loops every engine through the coast.
+            var rec = WrappedRecording();
+            var assembled = new List<OrbitSegment> { Seg("Sun", 100, 200) };
+            IPlaybackTrajectory adapter = new ReaimedTrajectory(rec, assembled);
+
+            Assert.Same(rec.PartEvents, adapter.PartEvents);
+            Assert.Single(adapter.PartEvents);
+            Assert.Equal(42u, adapter.PartEvents[0].partPersistentId);
         }
 
         [Fact]

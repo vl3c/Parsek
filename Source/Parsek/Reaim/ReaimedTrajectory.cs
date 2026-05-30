@@ -12,13 +12,20 @@ namespace Parsek.Reaim
     // passed to the constructor; the OrbitSegments getter is a pure field return. No Lambert /
     // CalculatePatch ever runs inside a getter (those are on the per-frame hot path).
     //
-    // v1 render contract: the re-aim ghost renders from OrbitSegments ONLY. Points, TrackSections,
-    // PartEvents, and FlagEvents are presented EMPTY because they are recorded at the original
-    // timeline's UTs and cannot be coherently mixed with the absolute-UT synthesized transfer (review
-    // M1 - an event bound to a recorded UT would resolve against the wrong segment). This means v1 has
-    // no surface-ascent/landing replay or staging FX on the re-aim ghost; the dominant visual (the
-    // interplanetary transfer arc + capture orbit) is what renders. Re-timing the ascent/arrival
-    // surface tracks + events onto the synthesized spans is a deferred refinement.
+    // Render contract: the re-aim ghost renders its TRAJECTORY from OrbitSegments. Points and
+    // TrackSections stay EMPTY because the recorded per-frame samples for the heliocentric leg trace the
+    // PRE-re-aim path (aimed at the target's ORIGINAL position); the synthesized OrbitSegment replaces that
+    // phase, and re-timing the surface ascent/landing tracks onto the synthesized spans is a deferred
+    // refinement.
+    //
+    // PartEvents ARE delegated, though (this was the review-M1 concern, now obsolete): the assembled
+    // segments are placed on the RECORDED-span clock - ReaimSegmentAssembler.ShiftInTime shifts the
+    // transfer epoch into recorded time so it lines up with the recorded escape/capture legs - so a
+    // recorded-UT engine/staging event resolves coherently against the right span again. And the ghost MUST
+    // see the real engine events: the engine-FX/audio orphan auto-start fires whenever a recording reports
+    // ZERO engine events (assuming a debris booster firing continuously), so empty PartEvents made it
+    // misfire on the MAIN ship and loop every engine through the coast (the "engine sounds on the transfer
+    // segment" playtest bug). FlagEvents stay empty (a surface-planted flag is not part of the transfer replay).
     internal sealed class ReaimedTrajectory : IPlaybackTrajectory
     {
         private readonly IPlaybackTrajectory inner;
@@ -27,7 +34,6 @@ namespace Parsek.Reaim
         private readonly double spanEndUT;
         private static readonly List<TrajectoryPoint> EmptyPoints = new List<TrajectoryPoint>();
         private static readonly List<TrackSection> EmptySections = new List<TrackSection>();
-        private static readonly List<PartEvent> EmptyPartEvents = new List<PartEvent>();
         private static readonly List<FlagEvent> EmptyFlagEvents = new List<FlagEvent>();
 
         /// <summary>
@@ -56,8 +62,9 @@ namespace Parsek.Reaim
         public bool HasOrbitSegments => segments.Count > 0;
         public List<TrajectoryPoint> Points => EmptyPoints;
         public List<TrackSection> TrackSections => EmptySections;
-        public List<PartEvent> PartEvents => EmptyPartEvents;
+        public List<PartEvent> PartEvents => inner != null ? inner.PartEvents : EmptyPartEventsFallback;
         public List<FlagEvent> FlagEvents => EmptyFlagEvents;
+        private static readonly List<PartEvent> EmptyPartEventsFallback = new List<PartEvent>();
         public double StartUT => spanStartUT;
         public double EndUT => spanEndUT;
 
