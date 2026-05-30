@@ -332,24 +332,34 @@ namespace Parsek.Patches
                 // Grace (FIX #26): a TRANSIENT single-frame dip into
                 // polyline-owns at a short phase boundary (the ghost is really
                 // orbital this frame but a sub-second non-orbital leg covers the
-                // instant) is deferred while the grace window is open, so the
-                // orbit LINE does not blink. This keeps the line + icon visible
-                // exactly as the visible-body-frame branch would. A SUSTAINED
-                // polyline-owns phase (e.g. the whole below-atmosphere descent
-                // FIX #27 makes the polyline own) is NOT deferred: the grace
-                // deadline was last stamped while the line was genuinely shown,
-                // so it expires within OrbitLineGraceSeconds and the hide takes
-                // effect, preventing a double-draw of line + polyline.
+                // instant) defers ONLY the orbit LINE hide while the grace window
+                // is open, so the line does not blink. It must NOT re-show the
+                // proto ICON: IsPolylineOwningGhostPhase(pid) is TRUE in this
+                // branch, so the marker paths (ClassifyAtmosphericMarkerSkip /
+                // DrawMapMarkers) still draw the non-proto trajectory marker
+                // regardless of the suppressed-icon flag; re-enabling the proto
+                // icon (OBJ) here would draw BOTH it and the non-proto marker for
+                // the deferred frame (the transient double-icon the polyline-owns
+                // branch exists to prevent). So keep drawIcons=NONE and leave the
+                // icon suppressed; only line.active is deferred. (The
+                // stale-segment grace-defer below DOES re-show OBJ because
+                // IsPolylineOwningGhostPhase is FALSE there, so the marker is
+                // already skipped and the proto icon is the right indicator.)
+                // A SUSTAINED polyline-owns phase (e.g. the whole below-atmosphere
+                // descent FIX #27 makes the polyline own) is NOT deferred at all:
+                // the grace deadline was last stamped while the line was genuinely
+                // shown, so it expires within OrbitLineGraceSeconds and the hide
+                // takes effect, preventing a double-draw of line + polyline.
                 if (ShouldDeferOrbitLineHide(
                         OffReasonPolylineOwns, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
                 {
                     line.active = true;
-                    __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
-                    GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     ParsekLog.VerboseRateLimited(Tag,
                         "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
                         string.Format(CultureInfo.InvariantCulture,
-                            "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1}",
+                            "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1} (line only, icon stays suppressed)",
                             pid, OffReasonPolylineOwns, graceCurrentUT, graceUntilUT),
                         1.0);
                     return;
@@ -457,6 +467,14 @@ namespace Parsek.Patches
                     if (ShouldDeferOrbitLineHide(
                             OffReasonStaleSegment, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
                     {
+                        // Re-show the proto ICON here (unlike the polyline-owns
+                        // grace-defer above): the polyline does NOT own this
+                        // recording's phase in the stale-segment branch
+                        // (IsPolylineOwningGhostPhase is false), so the marker
+                        // paths already SKIP the non-proto marker (NativeIconActive
+                        // is returned), making the proto icon the correct sole
+                        // indicator. Showing OBJ here matches the visible-body-frame
+                        // branch and does not double up with a non-proto marker.
                         line.active = true;
                         __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                         GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);

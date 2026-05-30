@@ -59,6 +59,39 @@ namespace Parsek.Tests
                 orbitFiniteElliptical: true));
         }
 
+        [Fact]
+        public void Defer_BothTransientReasons_DeferTheLineIdentically()
+        {
+            // CHANGE 1 invariant: the LINE-hide deferral decision is symmetric for
+            // the two transient reasons (both keep the orbit line visible across a
+            // transient boundary dip). The asymmetry between the two branches is
+            // PURELY in the proto-ICON side-effect, NOT in this decision: the
+            // polyline-owns branch keeps the proto icon SUPPRESSED (drawIcons=NONE)
+            // because IsPolylineOwningGhostPhase is true there, so the non-proto
+            // marker draws and re-showing the proto icon would double up; the
+            // stale-segment branch re-shows the proto icon (OBJ) because the
+            // polyline does not own the phase and the marker is already skipped.
+            // That side-effect lives in the Unity Postfix; here we pin that the
+            // decision input itself is identical for both reasons.
+            const double cur = 100.0;
+            const double until = 101.0;
+            bool polyline = GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns, cur, until, true);
+            bool stale = GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment, cur, until, true);
+            Assert.True(polyline);
+            Assert.True(stale);
+            Assert.Equal(polyline, stale);
+        }
+
+        [Fact]
+        public void OffReasonConstants_AreDistinct()
+        {
+            Assert.NotEqual(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                GhostOrbitLinePatch.OffReasonStaleSegment);
+        }
+
         // --- Grace window expired: sustained transient phase hides ---
 
         [Fact]

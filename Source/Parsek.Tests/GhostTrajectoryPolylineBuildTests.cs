@@ -716,40 +716,42 @@ namespace Parsek.Tests
                 legStartUT: 100.0, legEndUT: 200.0, headUT: 200.0));
         }
 
-        // --- FIX #27: below-atmosphere degenerate-segment cover exclusion ---
+        // --- FIX #27: below-SURFACE degenerate-segment cover exclusion ---
         //
-        // Duna-like geometry: radius 320000, atmosphereDepth 50000 (atmosphere
-        // top at radius 370000). A "clean" arrival segment sits at ~58 km
-        // (periapsis above the atmosphere top); the degenerate descent segments
-        // have periapsis BELOW the atmosphere top / surface, so the orbit line is
-        // unreliable across them and the polyline must own their samples.
+        // Duna-like geometry: radius 320000, atmosphere top 50000 above radius.
+        // The exclusion boundary is the SURFACE (CHANGE 2), not the atmosphere
+        // top: only a DEGENERATE segment whose conic plunges below the ground is
+        // claimed by the polyline. A valid orbit that merely grazes the
+        // atmosphere at periapsis but stays above the surface is still drawn by
+        // the orbit line, so it must NOT be excluded (the latent in-space
+        // eccentric-orbit double-draw the review flagged).
 
         private const double DunaRadius = 320000.0;
         private const double DunaAtmoTop = 50000.0;
 
-        // Synthetic atmosphere provider keyed by body name (the pure-builder
-        // seam the Driver fills from FlightGlobals at runtime).
-        private static GhostTrajectoryPolylineRenderer.BodyAtmosphereProvider DunaAtmosphere()
+        // Synthetic surface provider keyed by body name (the pure-builder seam
+        // the Driver fills from FlightGlobals at runtime). Only the radius is
+        // needed under the surface boundary.
+        private static GhostTrajectoryPolylineRenderer.BodySurfaceProvider DunaSurface()
         {
             return (string body,
-                out GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo info) =>
+                out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info) =>
             {
                 if (body == "Duna")
                 {
-                    info = new GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo
+                    info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo
                     {
-                        atmosphereDepth = DunaAtmoTop,
                         radius = DunaRadius
                     };
                     return true;
                 }
-                info = default(GhostTrajectoryPolylineRenderer.BodyAtmosphereInfo);
+                info = default(GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
                 return false;
             };
         }
 
-        // A clean above-atmosphere Duna segment: sma chosen so periapsis altitude
-        // is ~58 km (above the 50 km atmosphere top).
+        // A clean Duna segment whose periapsis is ~58 km, above BOTH the surface
+        // and the atmosphere top: orbit-owned, never excluded.
         private static OrbitSegment CleanDunaSegment(double startUT, double endUT)
         {
             return new OrbitSegment
@@ -759,6 +761,24 @@ namespace Parsek.Tests
                 eccentricity = 0.004,
                 // peri = sma*(1-ecc) - radius ; aim ~58 km
                 semiMajorAxis = (DunaRadius + 58000.0) / (1.0 - 0.004)
+            };
+        }
+
+        // A GRAZING Duna segment: periapsis ~12 km, BELOW the 50 km atmosphere
+        // top but ABOVE the surface, with a high apoapsis. The orbit line draws
+        // this correctly, so the polyline must NOT exclude it (this is the
+        // CHANGE-2 case: the OLD below-atmosphere boundary would have wrongly
+        // excluded it). Mirrors the recording's Kerbin seg#00/01 shape.
+        private static OrbitSegment GrazingDunaSegment(double startUT, double endUT)
+        {
+            double peri = DunaRadius + 12000.0; // 12 km: below atmo top (50 km), above surface
+            double ecc = 0.30;                  // high apoapsis
+            return new OrbitSegment
+            {
+                startUT = startUT, endUT = endUT,
+                bodyName = "Duna",
+                eccentricity = ecc,
+                semiMajorAxis = peri / (1.0 - ecc)
             };
         }
 
@@ -776,32 +796,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsOrbitSegmentBelowAtmosphere_DegenerateSegment_True()
+        public void IsOrbitSegmentBelowSurface_DegenerateSegment_True()
         {
             var seg = DegenerateDunaSegment(100.0, 200.0);
-            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
-                seg, DunaAtmosphere()));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
         }
 
         [Fact]
-        public void IsOrbitSegmentBelowAtmosphere_CleanSegment_False()
+        public void IsOrbitSegmentBelowSurface_CleanSegment_False()
         {
             var seg = CleanDunaSegment(100.0, 200.0);
-            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
-                seg, DunaAtmosphere()));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
         }
 
         [Fact]
-        public void IsOrbitSegmentBelowAtmosphere_NullProvider_False()
+        public void IsOrbitSegmentBelowSurface_GrazingOrbit_NotExcluded()
+        {
+            // CHANGE 2: an in-space eccentric orbit whose periapsis dips below the
+            // atmosphere top but stays ABOVE the surface (high apoapsis) is drawn
+            // correctly by the orbit line and must NOT be claimed by the polyline
+            // (the latent double-draw the review flagged). The OLD
+            // below-atmosphere boundary would have excluded it.
+            var seg = GrazingDunaSegment(100.0, 200.0);
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowSurface_NullProvider_False()
         {
             // No provider -> never excluded (byte-identical pre-fix behaviour).
             var seg = DegenerateDunaSegment(100.0, 200.0);
-            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
                 seg, null));
         }
 
         [Fact]
-        public void IsOrbitSegmentBelowAtmosphere_UnknownBody_False()
+        public void IsOrbitSegmentBelowSurface_UnknownBody_False()
         {
             // Provider does not know the body -> not excluded.
             var seg = new OrbitSegment
@@ -811,17 +844,17 @@ namespace Parsek.Tests
                 eccentricity = 0.11,
                 semiMajorAxis = 340660.0
             };
-            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
-                seg, DunaAtmosphere()));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
         }
 
         [Fact]
-        public void IsOrbitSegmentBelowAtmosphere_HyperbolicBelowAtmosphere_True()
+        public void IsOrbitSegmentBelowSurface_HyperbolicBelowSurface_True()
         {
             // Hyperbolic arrival (sma < 0, ecc > 1) with periapsis below the
-            // atmosphere: sma*(1-ecc) stays a positive periapsis radius. Aim peri
-            // ~10 km (below the 50 km atmosphere top).
-            double peri = DunaRadius + 10000.0;
+            // surface: sma*(1-ecc) stays a positive periapsis radius. Aim peri
+            // ~-10 km (below the surface).
+            double peri = DunaRadius - 10000.0;
             double ecc = 1.4;
             double sma = peri / (1.0 - ecc); // negative
             var seg = new OrbitSegment
@@ -831,25 +864,48 @@ namespace Parsek.Tests
                 eccentricity = ecc,
                 semiMajorAxis = sma
             };
-            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowAtmosphere(
-                seg, DunaAtmosphere()));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
         }
 
         [Fact]
-        public void ComputeOrbitalCoverIntervals_ExcludesDegenerateSegment()
+        public void IsOrbitSegmentBelowSurface_HyperbolicGrazingAtmosphere_NotExcluded()
+        {
+            // A hyperbolic arrival whose periapsis grazes the atmosphere but stays
+            // above the surface (peri ~+5 km): the orbit line draws it, so it is
+            // NOT excluded under the surface boundary.
+            double peri = DunaRadius + 5000.0;
+            double ecc = 1.4;
+            double sma = peri / (1.0 - ecc);
+            var seg = new OrbitSegment
+            {
+                startUT = 100.0, endUT = 200.0,
+                bodyName = "Duna",
+                eccentricity = ecc,
+                semiMajorAxis = sma
+            };
+            Assert.False(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                seg, DunaSurface()));
+        }
+
+        [Fact]
+        public void ComputeOrbitalCoverIntervals_ExcludesDegenerateKeepsGrazing()
         {
             var segments = new List<OrbitSegment>
             {
                 CleanDunaSegment(100.0, 200.0),
-                DegenerateDunaSegment(200.0, 300.0)
+                GrazingDunaSegment(200.0, 300.0),     // below atmo top, above surface: KEEP
+                DegenerateDunaSegment(300.0, 400.0)   // below surface: EXCLUDE
             };
             var intervals = GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(
-                segments, DunaAtmosphere());
+                segments, DunaSurface());
 
-            // Only the clean segment remains in the cover.
-            Assert.Single(intervals);
+            // The clean + grazing segments stay; only the degenerate one drops.
+            Assert.Equal(2, intervals.Count);
             Assert.Equal(100.0, intervals[0].startUT);
             Assert.Equal(200.0, intervals[0].endUT);
+            Assert.Equal(200.0, intervals[1].startUT);
+            Assert.Equal(300.0, intervals[1].endUT);
         }
 
         [Fact]
@@ -866,61 +922,89 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void BuildLegs_DunaDescentInsideDegenerateSegments_MergesIntoOneLegWithProvider()
+        public void BuildLegs_RealDunaDescentSectionGeometry_MergesAcrossExcludedGaps()
         {
-            // Descent points (body=Duna, ~58 km down to ~50 km) fall INSIDE the
-            // degenerate descent segment's interval. WITHOUT the provider they
-            // are dropped (orbit-owned) -> coverage hole. WITH the provider the
-            // degenerate segment is excluded from the cover, so the descent
-            // samples are picked up and merge into ONE continuous Duna leg.
-            var rec = new Recording { RecordingId = "rec-duna-descent" };
-            // Clean arrival orbit, then the degenerate descent segment.
-            rec.OrbitSegments.Add(CleanDunaSegment(70000.0, 70100.0));
-            rec.OrbitSegments.Add(DegenerateDunaSegment(70100.0, 70300.0));
-            // Descent points all INSIDE the degenerate segment's [70100,70300].
-            for (int i = 0; i < 20; i++)
-            {
-                double ut = 70100.0 + i * 10.0; // 70100..70290
-                double alt = 58000.0 - i * 400.0; // 58000 down to ~50400
-                rec.Points.Add(MakePoint(ut, 5.0 + 0.01 * i, -10.0, alt, "Duna"));
-            }
+            // CHANGE 3: reproduces the ACTUAL final-descent geometry from the
+            // recording 61e9177... (the region the user sees as the broken "last
+            // segment"): ref=0 Absolute section FRAME clusters separated by
+            // frameless ref=2 OrbitalCheckpoint gaps that the two degenerate
+            // below-surface Duna segments (seg#20/21) span. The playback head
+            // 70963566 lands INSIDE the seg#21 frameless gap.
+            //
+            // Pre-fix: the [70963441,70963444] cluster ends at 70963444 < head ->
+            // activeLeg=-1 -> hole. After excluding seg#20/21 from the cover,
+            // OrbitalIntervalBetween returns false across them, so all the Duna
+            // ref=0 clusters MERGE into ONE continuous Duna leg spanning the tail
+            // that ShouldDrawLegAtHeadUT selects for head 70963566.
+            var rec = new Recording { RecordingId = "rec-duna-real-descent" };
+
+            // The clean arrival orbit ending exactly where the first frame cluster
+            // starts (seg#19: periapsis ~58 km, above surface, NOT excluded).
+            rec.OrbitSegments.Add(CleanDunaSegment(70962515.846912, 70963373.370910));
+            // The two degenerate descent segments spanning the frameless gaps.
+            rec.OrbitSegments.Add(DegenerateDunaSegment(70963396.390905, 70963441.181716)); // seg#20
+            rec.OrbitSegments.Add(DegenerateDunaSegment(70963444.461716, 70963652.559612)); // seg#21
+
+            // ref=0 Absolute frame clusters (the real section boundaries).
+            AddAbsoluteDunaSection(rec, 70963373.370910, 70963381.030908, 20);
+            AddAbsoluteDunaSection(rec, 70963381.030908, 70963383.330908, 2);
+            AddAbsoluteDunaSection(rec, 70963383.330908, 70963391.150906, 3);
+            AddAbsoluteDunaSection(rec, 70963391.150906, 70963396.390905, 4);
+            // frameless ref=2 gap [70963396.390905, 70963441.181716] spanned by seg#20
+            AddOrbitalCheckpointSection(rec, 70963396.390905, 70963441.181716);
+            AddAbsoluteDunaSection(rec, 70963441.181716, 70963444.461716, 12);
+            // frameless ref=2 gap [70963444.461716, 70963652.559612] spanned by seg#21
+            AddOrbitalCheckpointSection(rec, 70963444.461716, 70963652.559612);
+            AddAbsoluteDunaSection(rec, 70963652.559612, 70963652.639612, 2);
 
             var withProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
-                rec, DunaAtmosphere());
+                rec, DunaSurface());
             var withoutProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
-            // Without the provider: the descent points are inside the (kept)
-            // degenerate interval -> dropped -> no descent leg (the hole).
-            Assert.Empty(withoutProvider);
+            // WITHOUT the provider: the degenerate segments stay in the cover, so
+            // OrbitalIntervalBetween breaks the clusters into fragmented legs and
+            // the [70963441,70963444] cluster ends before the head -> the head
+            // (70963566) lands in no leg (the hole the user saw).
+            const double headUT = 70963566.0;
+            bool anyLegCoversHeadWithout = withoutProvider.Exists(l =>
+                GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(l.startUT, l.endUT, headUT));
+            Assert.False(anyLegCoversHeadWithout);
 
-            // With the provider: the degenerate segment is excluded, so the
-            // descent samples form one continuous Duna leg covering the tail.
-            // The first descent point (ut=70100) sits exactly on the CLEAN
-            // segment's endUT, so it stays orbit-owned (the inclusive interval
-            // claims it); the leg therefore starts at the next point (70110).
+            // WITH the provider: the degenerate segments are excluded, so the Duna
+            // clusters MERGE into ONE continuous leg spanning ~[70963373,70963652].
             Assert.Single(withProvider);
-            Assert.Equal("Duna", withProvider[0].bodyName);
-            Assert.Equal(70110.0, withProvider[0].startUT);
-            Assert.Equal(70290.0, withProvider[0].endUT);
+            var merged = withProvider[0];
+            Assert.Equal("Duna", merged.bodyName);
+            // Start is the first kept frame after seg#19's inclusive endUT
+            // (the exact-boundary frame at 70963373.371 is orbit-owned).
+            Assert.True(merged.startUT >= 70963373.0 && merged.startUT < 70963382.0,
+                "merged leg startUT was " + merged.startUT.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            Assert.True(merged.endUT >= 70963652.0 && merged.endUT <= 70963653.0,
+                "merged leg endUT was " + merged.endUT.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
 
-            // The head-UT gate selects that leg for a descent head UT.
+            // The head 70963566 (inside the seg#21 frameless gap) now lands inside
+            // the merged leg.
             Assert.True(GhostTrajectoryPolylineRenderer.ShouldDrawLegAtHeadUT(
-                withProvider[0].startUT, withProvider[0].endUT, 70200.0));
+                merged.startUT, merged.endUT, headUT));
 
-            // One-shot exclusion summary logged with the descent leg span.
+            // Two below-surface segments excluded; one-shot summary logged.
             Assert.Contains(logLines, l => l.Contains("[GhostMap]")
-                && l.Contains("excluded 1 below-atmosphere orbit segments from cover")
-                && l.Contains("rec=rec-duna-descent"));
+                && l.Contains("excluded 2 below-surface orbit segments from cover")
+                && l.Contains("rec=rec-duna-real-descent"));
         }
 
         [Fact]
         public void BuildLegs_NoDegenerateSegments_ProviderIsByteIdenticalNoOp()
         {
-            // REGRESSION GUARD: a recording with no below-atmosphere segments must
+            // REGRESSION GUARD: a recording with no below-surface segments must
             // produce identical legs with and without the provider, so a normal
-            // in-space orbit is untouched and its samples stay orbit-owned.
+            // in-space orbit (incl. a grazing one) is untouched and its samples
+            // stay orbit-owned.
             var rec = new Recording { RecordingId = "rec-clean" };
-            // A clean parking orbit (well above atmosphere) + an ascent leg.
+            // A clean parking orbit (well above surface) + a grazing orbit + an
+            // ascent leg.
             rec.TrackSections.Add(new TrackSection
             {
                 environment = SegmentEnvironment.Atmospheric,
@@ -938,9 +1022,10 @@ namespace Parsek.Tests
                 sampleRateHz = 10f
             });
             rec.OrbitSegments.Add(CleanDunaSegment(100.0, 600.0));
+            rec.OrbitSegments.Add(GrazingDunaSegment(600.0, 1200.0));
 
             var withProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
-                rec, DunaAtmosphere());
+                rec, DunaSurface());
             var withoutProvider = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
 
             Assert.Equal(withoutProvider.Count, withProvider.Count);
@@ -956,7 +1041,52 @@ namespace Parsek.Tests
             }
             // No exclusion summary logged for a clean recording.
             Assert.DoesNotContain(logLines, l =>
-                l.Contains("excluded") && l.Contains("below-atmosphere orbit segments"));
+                l.Contains("excluded") && l.Contains("below-surface orbit segments"));
+        }
+
+        // Adds an Absolute (ref=0) Duna section with `count` frames evenly spaced
+        // across [startUT, endUT], descending in altitude through the tail.
+        private static void AddAbsoluteDunaSection(
+            Recording rec, double startUT, double endUT, int count)
+        {
+            var frames = new List<TrajectoryPoint>(count);
+            for (int i = 0; i < count; i++)
+            {
+                double f = count == 1 ? 0.0 : (double)i / (count - 1);
+                double ut = startUT + (endUT - startUT) * f;
+                double alt = 58000.0 - 8000.0 * ((ut - 70963373.0) / (70963652.6 - 70963373.0));
+                frames.Add(MakePoint(ut, -2.8 + 0.001 * i, -5.4 + 0.001 * i, alt, "Duna"));
+            }
+            rec.TrackSections.Add(new TrackSection
+            {
+                // Matches the real recording's env=2 (ExoBallistic) ref=0 frames.
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = startUT, endUT = endUT,
+                frames = frames,
+                checkpoints = new List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 3f
+            });
+        }
+
+        // Adds a frameless (ref=2) OrbitalCheckpoint section spanning a gap (no
+        // per-frame trajectory points; the orbit-arc / excluded segment owns it).
+        private static void AddOrbitalCheckpointSection(
+            Recording rec, double startUT, double endUT)
+        {
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                source = TrackSectionSource.Active,
+                startUT = startUT, endUT = endUT,
+                frames = new List<TrajectoryPoint>(),
+                checkpoints = new List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 0f
+            });
         }
 
         // --- Helpers ---
