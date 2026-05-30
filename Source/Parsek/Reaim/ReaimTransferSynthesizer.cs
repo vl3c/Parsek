@@ -106,27 +106,73 @@ namespace Parsek.Reaim
             }
 
             // Bound the SOI search to the transfer span and propagate through stock patched conics to
-            // detect the target encounter. Under default settings the ENCOUNTER promotes when the
-            // transfer's radial band intersects the target's orbit (it does) and the closest approach
-            // falls inside the target SOI (it does - Lambert aimed r2 at the target's position).
+            // detect the target encounter (fast path: when stock cleanly promotes it, we get an accurate
+            // SOI-entry UT for free).
             transfer.StartUT = departureUT;
             transfer.EndUT = arrivalUT;
             var nextPatch = new Orbit();
             PatchedConics.CalculatePatch(
                 transfer, nextPatch, departureUT, new PatchedConics.SolverParameters(), targetBody);
 
-            if (transfer.patchEndTransition != Orbit.PatchTransitionType.ENCOUNTER
-                || transfer.closestEncounterBody != targetBody)
+            if (transfer.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER
+                && transfer.closestEncounterBody == targetBody)
             {
-                failReason = $"no target encounter (transition={transfer.patchEndTransition} " +
-                             $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")})";
-                return false;
+                transferOrbit = transfer;
+                soiEntryUT = transfer.UTsoi;
+                encounterBody = targetBody;
+                return true;
             }
 
-            transferOrbit = transfer;
-            soiEntryUT = transfer.UTsoi;
-            encounterBody = transfer.closestEncounterBody;
-            return true;
+            // CalculatePatch resolved to the LAUNCH body instead (or did not promote an encounter): the
+            // heliocentric transfer STARTS at the launch body's position (inside its SOI), so the first
+            // patch is that launch-SOI transition, which masks the downstream target encounter. The
+            // Lambert solution passes through the target's exact position at arrivalUT BY CONSTRUCTION, so
+            // validate the encounter DIRECTLY by proximity: sample the transfer-to-target distance over
+            // the leg and accept if it comes within the target's SOI. Robust to the launch-SOI masking.
+            if (TryFindTargetEncounterByProximity(transfer, targetBody, departureUT, arrivalUT, out double geomSoiUT))
+            {
+                transferOrbit = transfer;
+                soiEntryUT = geomSoiUT;
+                encounterBody = targetBody;
+                return true;
+            }
+
+            failReason = $"no target encounter (transition={transfer.patchEndTransition} " +
+                         $"closest={(transfer.closestEncounterBody != null ? transfer.closestEncounterBody.bodyName : "<none>")}; " +
+                         $"proximity check also failed)";
+            return false;
+        }
+
+        // Direct geometric encounter check: samples the heliocentric transfer's distance to the target
+        // over [departureUT, arrivalUT] (both positions parent-relative, .xzy-unswizzled to a consistent
+        // frame) and returns true with the first within-SOI UT when the closest approach falls inside the
+        // target's sphere of influence. The Lambert solve aims the transfer at the target's position at
+        // arrivalUT, so a converged solution always passes near arrivalUT; this bypasses
+        // PatchedConics.CalculatePatch masking the target behind the launch body's SOI.
+        private static bool TryFindTargetEncounterByProximity(
+            Orbit transfer, CelestialBody target, double departureUT, double arrivalUT, out double soiEntryUT)
+        {
+            soiEntryUT = double.NaN;
+            if (transfer == null || target == null || target.orbit == null)
+                return false;
+            double soi = target.sphereOfInfluence;
+            if (double.IsNaN(soi) || soi <= 0.0 || arrivalUT <= departureUT)
+                return false;
+
+            const int samples = 96;
+            double span = arrivalUT - departureUT;
+            for (int i = 1; i <= samples; i++)
+            {
+                double t = departureUT + span * i / samples;
+                Vector3d tp = transfer.getRelativePositionAtUT(t).xzy;
+                Vector3d dp = target.orbit.getRelativePositionAtUT(t).xzy;
+                if ((tp - dp).magnitude <= soi)
+                {
+                    soiEntryUT = t;
+                    return true;
+                }
+            }
+            return false;
         }
     }
 }
