@@ -402,6 +402,40 @@ namespace Parsek.Tests
             Assert.Contains("terminal spawn superseded", reason);
         }
 
+        // F5 / #976: an adoption-stamped prior (SpawnedVesselPersistentId == its craft-baked
+        // VesselPersistentId) must NOT be marked superseded by a DIFFERENT launch of the same craft
+        // (same baked pid, different launch guid). Real spawns (distinct spawn pid) are unaffected.
+        [Fact]
+        public void CommitTree_DoesNotSupersedeAdoptionStampedPriorByDifferentLaunch()
+        {
+            var prior = MakeRecording("launch-A", null,
+                vesselName: "Kerbal X",
+                pid: 2708531065u,
+                terminalState: TerminalState.Landed,
+                vesselSnapshot: MakeMinimalSnapshot());
+            prior.ExplicitStartUT = 18.0;
+            prior.ExplicitEndUT = 61.0;
+            prior.VesselSpawned = true;
+            prior.SpawnedVesselPersistentId = 2708531065u;             // adoption stamp == baked pid
+            prior.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            RecordingStore.AddRecordingWithTreeForTesting(prior, "Kerbal X");
+
+            var tree = MakeSimpleTree("relaunch_tree");
+            var continued = tree.Recordings["root"];
+            continued.RecordingId = "launch-B";
+            continued.VesselName = "Kerbal X";
+            continued.VesselPersistentId = 2708531065u;                // relaunch reuses the baked pid
+            continued.TerminalStateValue = TerminalState.Landed;
+            continued.VesselSnapshot = MakeMinimalSnapshot();
+            continued.ExplicitStartUT = 97.0;
+            continued.ExplicitEndUT = 116.0;
+            continued.RecordedVesselGuid = "a424011b746440baae6030e225c9de31"; // different launch
+
+            RecordingStore.CommitTree(tree);
+
+            Assert.Null(prior.TerminalSpawnSupersededByRecordingId);
+        }
+
         [Fact]
         public void CommitTree_MarksPriorSpawnEndpointSupersededByPidMatchAfterRename()
         {

@@ -220,6 +220,53 @@ namespace Parsek.Tests
             Assert.False(alreadyMaterialized);
         }
 
+        // --- RealVesselExistsForRecording - F5b guid-aware TS materialization check ---
+
+        [Fact]
+        public void RealVesselExistsForRecording_GuidMatch_True()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => "2b6e6a60d2c947489753371317fa067e");
+
+            Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_GuidMismatch_False_Relaunch()
+        {
+            // A relaunch of the same craft (same pid, different launch guid) must NOT make the
+            // prior recording look materialized; otherwise its TS ghost is wrongly suppressed.
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => "a424011b746440baae6030e225c9de31");
+
+            Assert.False(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_GuidUnknown_FallsBackToPid()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => null); // live guid unknown
+
+            Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_NoRealVessel_False()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(_ => false);
+
+            Assert.False(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
         [Fact]
         public void TryRunTrackingStationSpawnHandoffs_MatchingSceneEntryPidMarksRecordingMaterialized()
         {

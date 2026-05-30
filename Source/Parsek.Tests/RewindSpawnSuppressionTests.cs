@@ -665,6 +665,44 @@ namespace Parsek.Tests
             Assert.Null(beforeReason);
         }
 
+        // F3 / #829: a DIFFERENT launch of the same craft (same baked pid, different launch guid)
+        // overlapping the rewind UT must NOT be spawn-suppressed; only the rewound launch is.
+        [Fact]
+        public void ShouldApplyRewindSpawnSuppression_DifferentLaunchSamePid_NotSuppressed()
+        {
+            const uint pid = 2708531065u;
+            const double rewindUT = 100.0;
+            const string rewoundGuid = "2b6e6a60d2c947489753371317fa067e";
+            const string otherGuid = "a424011b746440baae6030e225c9de31";
+
+            // A prior, unrelated launch of the same craft, in its own tree, overlapping the rewind UT.
+            var otherLaunch = MakeRecording("other-launch", "Kerbal X", pid, "other-tree", 0.0, rewindUT + 50.0);
+            otherLaunch.RecordedVesselGuid = otherGuid;
+
+            Assert.False(ParsekScenario.ShouldApplyRewindSpawnSuppression(
+                otherLaunch,
+                rewindRecordingId: "rewound-rec",
+                rewindSourcePid: pid,
+                rewoundTreeId: null,            // standalone-branch path (the most permissive)
+                rewindUT: rewindUT,
+                out string otherReason,
+                rewindRecordingGuid: rewoundGuid));
+            Assert.Null(otherReason);
+
+            // The genuinely-rewound launch (matching guid) is still suppressed.
+            var sameLaunch = MakeRecording("same-launch", "Kerbal X", pid, "rewound-tree", 0.0, rewindUT + 50.0);
+            sameLaunch.RecordedVesselGuid = rewoundGuid;
+            Assert.True(ParsekScenario.ShouldApplyRewindSpawnSuppression(
+                sameLaunch,
+                rewindRecordingId: "rewound-rec",
+                rewindSourcePid: pid,
+                rewoundTreeId: null,
+                rewindUT: rewindUT,
+                out string sameReason,
+                rewindRecordingGuid: rewoundGuid));
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording, sameReason);
+        }
+
         private static Recording MakeRecording(
             string recordingId,
             string vesselName,

@@ -963,6 +963,21 @@ namespace Parsek
             vesselExistsOverride = finder;
         }
 
+        // Resolves the live vessel's launch Guid for a pid (null = unknown). Paired with
+        // vesselExistsOverride so the guid-aware RealVesselExistsForRecording is unit-testable (R4):
+        // tests that set only the existence override get pid-only fallback (unchanged behavior).
+        private static Func<uint, string> vesselGuidResolverOverride;
+
+        internal static void SetVesselGuidResolverOverrideForTesting(Func<uint, string> resolver)
+        {
+            vesselGuidResolverOverride = resolver;
+        }
+
+        internal static void ResetVesselGuidResolverOverrideForTesting()
+        {
+            vesselGuidResolverOverride = null;
+        }
+
         /// <summary>
         /// Sets an injectable override for IsGhostedByChain, enabling unit testing
         /// without VesselGhoster. Pass null to restore default behavior (not ghosted).
@@ -1014,6 +1029,51 @@ namespace Parsek
             }
 
             return cachedVesselPids.Contains(vesselPersistentId);
+        }
+
+        /// <summary>
+        /// Guid-aware existence check for tracking-station / spawn dedup (#976-class): true only when
+        /// a real vessel with the recording's pid exists AND is the SAME launch (its Vessel.id matches
+        /// the recording's RecordedVesselGuid). A relaunch of the same craft reuses the craft-baked
+        /// pid but carries a different launch guid, so it no longer makes a prior recording look
+        /// "already materialized" (which would suppress its ghost / corrupt its spawn state). Falls
+        /// back to today's pid-only behavior when the launch guid is unknown on either side.
+        /// </summary>
+        internal static bool RealVesselExistsForRecording(Recording rec)
+        {
+            if (rec == null || rec.VesselPersistentId == 0)
+                return false;
+            if (!RealVesselExists(rec.VesselPersistentId))
+                return false;
+            string liveGuid = ResolveLiveVesselGuid(rec.VesselPersistentId);
+            return VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, rec.VesselPersistentId, liveGuid);
+        }
+
+        // Resolves the launch Guid of the live vessel with the given pid (null = none / unknown).
+        private static string ResolveLiveVesselGuid(uint vesselPersistentId)
+        {
+            if (vesselGuidResolverOverride != null)
+                return vesselGuidResolverOverride(vesselPersistentId);
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels == null) return null;
+                for (int i = 0; i < vessels.Count; i++)
+                {
+                    Vessel v = vessels[i];
+                    if (v != null
+                        && v.persistentId == vesselPersistentId
+                        && !GhostMapPresence.IsGhostMapVessel(v.persistentId))
+                    {
+                        return v.id != System.Guid.Empty ? v.id.ToString("N") : null;
+                    }
+                }
+            }
+            catch (System.Exception)
+            {
+                // Headless / no-FlightGlobals: treat the guid as unknown (pid-only fallback).
+            }
+            return null;
         }
 
         /// <summary>
@@ -1098,6 +1158,7 @@ namespace Parsek
         internal static void ResetVesselExistsOverride()
         {
             vesselExistsOverride = null;
+            vesselGuidResolverOverride = null;
         }
 
         /// <summary>

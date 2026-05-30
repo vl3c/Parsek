@@ -507,6 +507,26 @@ namespace Parsek
                 ghostSnapshotMode = RecordingStore.DetermineGhostSnapshotMode(rec);
 
             rec.GhostSnapshotMode = ghostSnapshotMode;
+
+            // Backfill the launch-unique identity for recordings captured before the
+            // RecordedVesselGuid field existed: the loaded snapshot already carries the
+            // Vessel.id Guid as its top-level `pid` value. Prefer the vessel snapshot, fall
+            // back to the ghost snapshot. No-op when the recording already carries a guid or
+            // neither snapshot has one. Gives existing recordings the same relaunch protection
+            // as freshly-captured ones without a schema migration.
+            if (string.IsNullOrEmpty(rec.RecordedVesselGuid))
+            {
+                string backfilled = VesselLaunchIdentity.TryReadVesselGuid(rec.VesselSnapshot)
+                    ?? VesselLaunchIdentity.TryReadVesselGuid(rec.GhostVisualSnapshot);
+                if (!string.IsNullOrEmpty(backfilled))
+                {
+                    rec.RecordedVesselGuid = backfilled;
+                    if (!RecordingStore.SuppressLogging)
+                        ParsekLog.Verbose("RecordingStore",
+                            $"Backfilled launch guid {backfilled} from snapshot {FormatSidecarContext(rec)}");
+                }
+            }
+
             summary.FailureReason = DetermineSnapshotLoadFailureReason(summary, rec);
             return summary;
         }

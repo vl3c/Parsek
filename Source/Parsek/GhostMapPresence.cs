@@ -3056,7 +3056,7 @@ namespace Parsek
             {
                 try
                 {
-                    realVesselExists = GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                    realVesselExists = GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 }
                 catch (Exception)
                 {
@@ -5587,7 +5587,7 @@ namespace Parsek
 
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
@@ -5768,7 +5768,7 @@ namespace Parsek
                     && suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec != null
                     && rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 bool alreadyMaterialized =
                     IsTrackingStationRecordingMaterialized(rec, realVesselExists);
                 uint pid = kvp.Value.persistentId;
@@ -6138,7 +6138,7 @@ namespace Parsek
             TrackingStationSpawnHandoffState handoffState =
                 CaptureTrackingStationSpawnHandoffState(index);
             bool realVesselExists = rec.VesselPersistentId != 0
-                && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
             bool alreadyMaterialized = ShouldSkipTrackingStationDuplicateSpawn(
                 rec,
                 realVesselExists);
@@ -7670,7 +7670,7 @@ namespace Parsek
                 var rec = committed[i];
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
-                    && GhostPlaybackLogic.RealVesselExists(rec.VesselPersistentId);
+                    && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(i, out int cached)
                     ? cached
                     : -1;
