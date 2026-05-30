@@ -30,6 +30,17 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// True when a synthesized transfer is RETROGRADE relative to the parent's reference plane
+        /// (inclination &gt; 90 deg). A transfer between two prograde planets must be prograde; a
+        /// retrograde solution (inclination ~180 deg) connects the endpoints but travels the wrong way and
+        /// must be rejected. Pure; KSP <c>Orbit.inclination</c> is in degrees, 0..180.
+        /// </summary>
+        internal static bool IsRetrogradeTransfer(double inclinationDegrees)
+        {
+            return !double.IsNaN(inclinationDegrees) && inclinationDegrees > 90.0;
+        }
+
+        /// <summary>
         /// Re-plans + builds the heliocentric transfer Orbit for one window and finds its target-SOI
         /// entry. Returns true with <paramref name="transferOrbit"/> (Sun-relative conic),
         /// <paramref name="soiEntryUT"/> (when the transfer enters the target's SOI), and
@@ -102,6 +113,23 @@ namespace Parsek.Reaim
             {
                 failReason = $"degenerate transfer conic ecc={transfer.eccentricity.ToString("R", CultureInfo.InvariantCulture)} " +
                              $"sma={transfer.semiMajorAxis.ToString("R", CultureInfo.InvariantCulture)}";
+                return false;
+            }
+
+            // Match the recorded mission's DIRECTION (handedness), adapting to what was recorded instead of
+            // forcing prograde: the caller passes <paramref name="prograde"/> reflecting the recorded
+            // transfer's handedness (prograde => recorded transfer was prograde; if the recorded transfer
+            // was retrograde the caller passes false). Near a ~180-degree (Hohmann) transfer angle the
+            // Lambert prograde/retrograde branch is unstable (it turns on the sign of the tiny r1 x r2 cross
+            // product), so a window can flip handedness: a valid ellipse that connects the endpoints but
+            // travels the WRONG way relative to the recording. IsSaneTransferConic accepts it (ecc < 1,
+            // sma > 0), so guard direction here and let the localized departure search step to a departure
+            // whose transfer matches the recorded handedness (or fall back to faithful).
+            bool resultRetrograde = IsRetrogradeTransfer(transfer.inclination);
+            if (resultRetrograde != !prograde)
+            {
+                failReason = $"transfer direction mismatch inc={transfer.inclination.ToString("F2", CultureInfo.InvariantCulture)} deg " +
+                             $"(resultRetrograde={resultRetrograde}, recordedRetrograde={!prograde})";
                 return false;
             }
 

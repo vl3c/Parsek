@@ -162,6 +162,17 @@ namespace Parsek.Reaim
             const double SearchStepFraction = 0.005; // of the synodic period (~2-3 days for Kerbin->Duna)
             const int SearchMaxSteps = 12;            // +-6% of synodic
             double step = schedule.SynodicPeriodSeconds * SearchStepFraction;
+
+            // Adapt to the RECORDED transfer's direction (handedness) instead of forcing prograde: find the
+            // recorded heliocentric leg's inclination (> 90 deg => the recorded transfer was retrograde) and
+            // require the synthesized transfer to match it. Near a ~180-degree transfer angle the Lambert
+            // branch is unstable, so a window can flip handedness; the synth rejects a mismatch and the
+            // search steps to a departure whose transfer travels the same way the recording did.
+            double recordedInc = RecordedHeliocentricInclination(
+                memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT, plan.RecordedArrivalUT);
+            bool recordedRetrograde = ReaimTransferSynthesizer.IsRetrogradeTransfer(recordedInc);
+            bool progradeWanted = !recordedRetrograde;
+
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
@@ -175,7 +186,7 @@ namespace Parsek.Reaim
                 for (int t = 0; t < tries.Length; t++)
                 {
                     if (ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                            launchBody, targetBody, tries[t], schedule.TofSeconds, schedule.Prograde,
+                            launchBody, targetBody, tries[t], schedule.TofSeconds, progradeWanted,
                             out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
                     {
                         departureUT = tries[t];
@@ -234,6 +245,26 @@ namespace Parsek.Reaim
                 $"renderSpan=[{renderStartUT.ToString("R", ic)},{renderEndUT.ToString("R", ic)}] " +
                 $"(recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}])");
             return assembled;
+        }
+
+        // The recorded heliocentric (common-ancestor) leg's inclination within the transfer window, or NaN
+        // when the member has none. Used to match the synthesized transfer's handedness to the recorded
+        // mission's (the re-aim adapts to what was recorded; it does not force prograde). Same window
+        // predicate as ReaimSegmentAssembler.ReplaceHeliocentricLeg / HasHeliocentricLegInWindow.
+        private static double RecordedHeliocentricInclination(
+            IReadOnlyList<OrbitSegment> memberSegments, string commonAncestor,
+            double recordedDepartureUT, double recordedArrivalUT)
+        {
+            if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
+                return double.NaN;
+            for (int i = 0; i < memberSegments.Count; i++)
+            {
+                OrbitSegment s = memberSegments[i];
+                if (!s.isPredicted && s.bodyName == commonAncestor
+                    && s.startUT < recordedArrivalUT && s.endUT > recordedDepartureUT)
+                    return s.inclination;
+            }
+            return double.NaN;
         }
 
         private static CelestialBody FindBody(string bodyName)

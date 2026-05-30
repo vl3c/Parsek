@@ -30,5 +30,29 @@ namespace Parsek.Tests
             Assert.False(ReaimTransferSynthesizer.IsSaneTransferConic(double.PositiveInfinity, 1.0e10));
             Assert.False(ReaimTransferSynthesizer.IsSaneTransferConic(0.4, double.PositiveInfinity));
         }
+
+        // IsRetrogradeTransfer is the handedness predicate the synth uses to match the synthesized
+        // transfer's direction to the RECORDED transfer's (the re-aim adapts to what was recorded; a
+        // recorded-prograde mission stays prograde, a recorded-retrograde one stays retrograde).
+        [Theory]
+        [InlineData(0.0, false)]     // equatorial prograde
+        [InlineData(0.08, false)]    // the recorded Kerbin->Duna transfer inclination (prograde)
+        [InlineData(5.0, false)]     // a few degrees, still prograde
+        [InlineData(89.9, false)]    // just under polar, prograde side
+        [InlineData(90.1, true)]     // just over polar -> retrograde
+        [InlineData(179.14, true)]   // the flipped re-aim transfer seen in the playtest
+        [InlineData(180.0, true)]    // fully retrograde
+        public void IsRetrogradeTransfer_FlagsInclinationOver90(double incDeg, bool expected)
+        {
+            Assert.Equal(expected, ReaimTransferSynthesizer.IsRetrogradeTransfer(incDeg));
+        }
+
+        [Fact]
+        public void IsRetrogradeTransfer_NaN_NotRetrograde()
+        {
+            // NaN inclination (no recorded leg found) must not be classified retrograde, so the synth
+            // falls back to the prograde default rather than throwing.
+            Assert.False(ReaimTransferSynthesizer.IsRetrogradeTransfer(double.NaN));
+        }
     }
 }
