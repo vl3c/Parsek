@@ -29,15 +29,25 @@ namespace Parsek
         internal static ResolveBodyByNameDelegate BodyResolverForTesting;
         internal static ResolveBodyIndexDelegate BodyIndexResolverForTesting;
         private static Func<uint, bool> materializedSourceVesselExistsOverrideForTesting;
+        // Resolves the launch Guid of the live/proto vessel with a given pid (null = unknown).
+        // Paired with the existence override so the guid-aware adoption path is unit-testable
+        // (R4): existence tests that leave this null get pid-only fallback (unchanged behavior).
+        private static Func<uint, string> materializedSourceVesselGuidOverrideForTesting;
 
         internal static void SetMaterializedSourceVesselExistsOverrideForTesting(Func<uint, bool> checker)
         {
             materializedSourceVesselExistsOverrideForTesting = checker;
         }
 
+        internal static void SetMaterializedSourceVesselGuidOverrideForTesting(Func<uint, string> resolver)
+        {
+            materializedSourceVesselGuidOverrideForTesting = resolver;
+        }
+
         internal static void ResetMaterializedSourceVesselExistsOverrideForTesting()
         {
             materializedSourceVesselExistsOverrideForTesting = null;
+            materializedSourceVesselGuidOverrideForTesting = null;
         }
 
         internal static bool TryAdoptExistingSourceVesselForSpawn(
@@ -46,8 +56,11 @@ namespace Parsek
             string logContext,
             bool allowExistingSourceDuplicate = false)
         {
-            uint sourcePid = rec != null ? rec.VesselPersistentId : 0u;
-            bool sourceVesselExists = MaterializedSourceVesselExists(sourcePid);
+            // #976-class guard: only adopt a live/proto vessel as this recording's spawn endpoint
+            // when it is genuinely the SAME launch (pid + launch guid), not a relaunch of the same
+            // craft that reuses the craft-baked pid. MaterializedSourceVesselExists(rec) applies the
+            // guid disambiguator; it falls back to pid-only when the launch guid is unknown.
+            bool sourceVesselExists = MaterializedSourceVesselExists(rec);
             return TryAdoptExistingSourceVesselForSpawn(
                 rec,
                 sourceVesselExists,
@@ -173,6 +186,9 @@ namespace Parsek
             return allow;
         }
 
+        // Pid-only existence check. Retained for callers that have no recording context (e.g. the
+        // post-Die() "is the vessel I tried to kill still around" check in VesselGhoster). For the
+        // spawn-adoption identity decision use the Recording overload below, which is guid-aware.
         internal static bool MaterializedSourceVesselExists(uint sourcePid)
         {
             if (sourcePid == 0 || GhostMapPresence.IsGhostMapVessel(sourcePid))
@@ -181,14 +197,54 @@ namespace Parsek
             if (materializedSourceVesselExistsOverrideForTesting != null)
                 return materializedSourceVesselExistsOverrideForTesting(sourcePid);
 
-            if (LoadedRealVesselExists(sourcePid))
-                return true;
-
-            return ProtoVesselExists(sourcePid);
+            string ignored;
+            return LoadedRealVesselExists(sourcePid, out ignored)
+                || ProtoVesselExists(sourcePid, out ignored);
         }
 
-        private static bool LoadedRealVesselExists(uint sourcePid)
+        // Guid-aware existence check for spawn adoption (#976-class): true only when a live/proto
+        // vessel with the recording's pid exists AND is the same launch (its Vessel.id matches the
+        // recording's RecordedVesselGuid, or either guid is unknown -> pid-only fallback). A relaunch
+        // of the same craft reuses the baked pid but carries a different launch guid, so it is rejected.
+        internal static bool MaterializedSourceVesselExists(Recording rec)
         {
+            if (rec == null)
+                return false;
+
+            uint sourcePid = rec.VesselPersistentId;
+            if (sourcePid == 0 || GhostMapPresence.IsGhostMapVessel(sourcePid))
+                return false;
+
+            bool exists;
+            string liveGuid;
+            if (materializedSourceVesselExistsOverrideForTesting != null)
+            {
+                exists = materializedSourceVesselExistsOverrideForTesting(sourcePid);
+                liveGuid = materializedSourceVesselGuidOverrideForTesting != null
+                    ? materializedSourceVesselGuidOverrideForTesting(sourcePid)
+                    : null;
+            }
+            else
+            {
+                exists = LoadedRealVesselExists(sourcePid, out liveGuid)
+                    || ProtoVesselExists(sourcePid, out liveGuid);
+            }
+
+            if (!exists)
+                return false;
+
+            bool sameLaunch = VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, sourcePid, liveGuid);
+            if (!sameLaunch)
+                ParsekLog.Info("Spawner",
+                    $"Adoption rejected: live vessel pid={sourcePid} is a different launch than recording " +
+                    $"'{rec.RecordingId ?? rec.VesselName ?? "(unknown)"}' (recorded guid={rec.RecordedVesselGuid ?? "(none)"}, " +
+                    $"live guid={liveGuid ?? "(none)"}) — not adopting (relaunch of the same craft reuses the baked pid)");
+            return sameLaunch;
+        }
+
+        private static bool LoadedRealVesselExists(uint sourcePid, out string vesselGuid)
+        {
+            vesselGuid = null;
             try
             {
                 var vessels = FlightGlobals.Vessels;
@@ -202,6 +258,7 @@ namespace Parsek
                         && vessel.persistentId == sourcePid
                         && !GhostMapPresence.IsGhostMapVessel(vessel.persistentId))
                     {
+                        vesselGuid = vessel.id != Guid.Empty ? vessel.id.ToString("N") : null;
                         return true;
                     }
                 }
@@ -218,8 +275,9 @@ namespace Parsek
             return false;
         }
 
-        private static bool ProtoVesselExists(uint sourcePid)
+        private static bool ProtoVesselExists(uint sourcePid, out string vesselGuid)
         {
+            vesselGuid = null;
             try
             {
                 var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
@@ -233,6 +291,7 @@ namespace Parsek
                         && pv.persistentId == sourcePid
                         && !GhostMapPresence.IsGhostMapVessel(pv.persistentId))
                     {
+                        vesselGuid = pv.vesselID != Guid.Empty ? pv.vesselID.ToString("N") : null;
                         return true;
                     }
                 }

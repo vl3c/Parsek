@@ -80,6 +80,59 @@ namespace Parsek.Tests
             Assert.Equal(0u, rec.SpawnedVesselPersistentId);
         }
 
+        // #976-class: a relaunch of the same craft reuses the baked persistentId but carries a
+        // different launch guid, so it must NOT be adopted as a prior recording's spawn endpoint.
+        [Fact]
+        public void MaterializedSourceVesselExists_GuidMismatch_RejectsRelaunch()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-launch-A",
+                VesselPersistentId = 2708531065u,
+                RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e"
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 2708531065u);
+            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
+                pid => "a424011b746440baae6030e225c9de31"); // a different launch of the same craft
+
+            Assert.False(VesselSpawner.MaterializedSourceVesselExists(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[Spawner]") && l.Contains("Adoption rejected") && l.Contains("different launch"));
+        }
+
+        [Fact]
+        public void MaterializedSourceVesselExists_GuidMatch_ConfirmsSameLaunch()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "rec-launch-A",
+                VesselPersistentId = 2708531065u,
+                RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e"
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 2708531065u);
+            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
+                pid => "2b6e6a60d2c947489753371317fa067e"); // same launch
+
+            Assert.True(VesselSpawner.MaterializedSourceVesselExists(rec));
+        }
+
+        [Fact]
+        public void MaterializedSourceVesselExists_RecordingGuidUnknown_FallsBackToPidMatch()
+        {
+            // Legacy recording with no captured/backfillable guid keeps today's pid-only behavior.
+            var rec = new Recording
+            {
+                RecordingId = "rec-legacy",
+                VesselPersistentId = 2708531065u,
+                RecordedVesselGuid = null
+            };
+            VesselSpawner.SetMaterializedSourceVesselExistsOverrideForTesting(pid => pid == 2708531065u);
+            VesselSpawner.SetMaterializedSourceVesselGuidOverrideForTesting(
+                pid => "a424011b746440baae6030e225c9de31");
+
+            Assert.True(VesselSpawner.MaterializedSourceVesselExists(rec));
+        }
+
         [Fact]
         public void RespawnValidatedRecording_SourceExists_AdoptsBeforeSnapshotValidation()
         {
