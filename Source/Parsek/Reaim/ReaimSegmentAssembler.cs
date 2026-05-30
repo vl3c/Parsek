@@ -82,10 +82,26 @@ namespace Parsek.Reaim
         /// </summary>
         internal static List<OrbitSegment> ReplaceHeliocentricLeg(
             IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
-            string commonAncestor, double recordedDepartureUT, double recordedArrivalUT)
+            string commonAncestor, double recordedDepartureUT, double recordedArrivalUT,
+            double transferRenderStartUT, double transferRenderEndUT)
         {
             if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
                 return null;
+
+            // The synthesized transfer is center-to-center (departs the launch body's center, arrives at the
+            // target's center), so its first/last stretches sit inside the launch / target SOI at the body
+            // center - "below atmosphere", which the map suppresses and flickers. Render the transfer only
+            // over the interplanetary span [transferRenderStartUT, transferRenderEndUT] (the SOI-exit /
+            // SOI-entry UTs in recorded-span time); the recorded escape / capture legs cover inside the SOI,
+            // and the ghost is hidden in the brief handoff gap. The caller passes the recorded departure /
+            // arrival UTs when a clean SOI crossing was not found, degrading to the full (untrimmed) leg.
+            double renderStart = double.IsNaN(transferRenderStartUT) ? recordedDepartureUT : transferRenderStartUT;
+            double renderEnd = double.IsNaN(transferRenderEndUT) ? recordedArrivalUT : transferRenderEndUT;
+            if (!(renderStart >= recordedDepartureUT && renderEnd <= recordedArrivalUT && renderStart < renderEnd))
+            {
+                renderStart = recordedDepartureUT;
+                renderEnd = recordedArrivalUT;
+            }
 
             var result = new List<OrbitSegment>(memberSegments.Count + 1);
             bool replaced = false;
@@ -99,8 +115,8 @@ namespace Parsek.Reaim
                     if (!replaced)
                     {
                         OrbitSegment transfer = transferSegment;
-                        transfer.startUT = recordedDepartureUT;
-                        transfer.endUT = recordedArrivalUT;
+                        transfer.startUT = renderStart;
+                        transfer.endUT = renderEnd;
                         transfer.bodyName = commonAncestor;
                         transfer.isPredicted = false;
                         result.Add(transfer);

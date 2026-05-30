@@ -52,7 +52,8 @@ namespace Parsek.Tests
             var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10); // per-window orientation set by caller
 
             var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
-                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0);
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: double.NaN, transferRenderEndUT: double.NaN); // no trim -> full leg
 
             Assert.NotNull(segs);
             Assert.Equal(3, segs.Count);
@@ -70,6 +71,57 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReplaceHeliocentricLeg_TrimsTransferToInterplanetarySpan()
+        {
+            // The transfer is rendered only over the interplanetary span (SOI exit -> SOI entry): the
+            // in-SOI stubs at the body centers are dropped so the map does not flicker them.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // Launch SOI exit at 700, target SOI entry at 2500 (inside the recorded [600,2600] window).
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 700.0, transferRenderEndUT: 2500.0);
+
+            Assert.NotNull(segs);
+            Assert.Equal(3, segs.Count);
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(700.0, segs[1].startUT, 3);   // trimmed to the SOI-exit UT, not 600
+            Assert.Equal(2500.0, segs[1].endUT, 3);    // trimmed to the SOI-entry UT, not 2600
+            // The body-relative legs keep their recorded UTs, so a gap now sits between the Kerbin leg
+            // (ends 600) and the trimmed transfer (starts 700), and between the transfer (ends 2500) and
+            // the Duna leg (starts 2600) - where the ghost is hidden (the in-SOI handoff).
+            Assert.Equal(600.0, segs[0].endUT, 3);
+            Assert.Equal(2600.0, segs[2].startUT, 3);
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_InvalidTrimBounds_FallsBackToFullLeg()
+        {
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            // renderStart below the recorded departure (out of range) -> fall back to the full leg.
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: 500.0, transferRenderEndUT: 2500.0);
+
+            Assert.NotNull(segs);
+            Assert.Equal(600.0, segs[1].startUT, 3);   // untrimmed
+            Assert.Equal(2600.0, segs[1].endUT, 3);
+        }
+
+        [Fact]
         public void ReplaceHeliocentricLeg_MidCourseCorrection_CollapsesBothSunLegs()
         {
             // Two Sun coasts (a mid-course correction between them) collapse into the single re-aimed arc.
@@ -83,7 +135,8 @@ namespace Parsek.Tests
             var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
 
             var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
-                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0);
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: double.NaN, transferRenderEndUT: double.NaN);
 
             Assert.NotNull(segs);
             Assert.Equal(3, segs.Count); // Kerbin + ONE re-aimed Sun arc + Duna (both coasts collapsed)
@@ -104,9 +157,9 @@ namespace Parsek.Tests
             var transfer = Seg("Sun", 0, 0, 0);
 
             Assert.Null(ReaimSegmentAssembler.ReplaceHeliocentricLeg(
-                launchMember, transfer, "Sun", 600.0, 2600.0));
+                launchMember, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN));
             Assert.Null(ReaimSegmentAssembler.ReplaceHeliocentricLeg(
-                arrivalMember, transfer, "Sun", 600.0, 2600.0));
+                arrivalMember, transfer, "Sun", 600.0, 2600.0, double.NaN, double.NaN));
             Assert.False(ReaimSegmentAssembler.HasHeliocentricLegInWindow(launchMember, "Sun", 600.0, 2600.0));
             Assert.False(ReaimSegmentAssembler.HasHeliocentricLegInWindow(arrivalMember, "Sun", 600.0, 2600.0));
         }
