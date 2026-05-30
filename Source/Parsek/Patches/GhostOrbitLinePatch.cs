@@ -124,6 +124,78 @@ namespace Parsek.Patches
     {
         private const string Tag = "GhostOrbitLine";
 
+        /// <summary>
+        /// UT length of the orbit-line grace window. When the line is genuinely
+        /// shown (`visible-body-frame`) a grace deadline of currentUT + this is
+        /// stamped; a subsequent TRANSIENT off-dip within the deadline is
+        /// deferred one frame so the line does not blink at a short
+        /// phase-boundary segment while the per-frame reseed catches up. A
+        /// universe-time window (not a frame count) keeps the grace warp-stable:
+        /// at high warp the head sprints through short segments faster than the
+        /// real-time-rate-limited reseed, so a frame count would expire
+        /// instantly while ~1.5 s of game time still covers the chatter.
+        /// </summary>
+        internal const double OrbitLineGraceSeconds = 1.5;
+
+        /// <summary>
+        /// The two TRANSIENT off reasons that the grace window may defer for one
+        /// frame at a short phase-boundary segment.
+        /// </summary>
+        internal const string OffReasonStaleSegment = "stale-segment-awaiting-reseed";
+        internal const string OffReasonPolylineOwns = "polyline-owns-phase";
+
+        /// <summary>
+        /// Pure grace decision: should a transient orbit-line hide be DEFERRED
+        /// (kept visible) for this frame?
+        ///
+        /// Returns true only when ALL of:
+        /// - the off reason is one of the two TRANSIENT reasons
+        ///   (<see cref="OffReasonStaleSegment"/> / <see cref="OffReasonPolylineOwns"/>);
+        ///   the durable reasons (below-atmosphere, out-of-body-frame) are never
+        ///   graced and hide instantly;
+        /// - the grace window is still open (<paramref name="currentUT"/> &lt;=
+        ///   <paramref name="graceUntilUT"/>); and
+        /// - the orbit elements are still finite and elliptical
+        ///   (<paramref name="orbitFiniteElliptical"/>), so a real arc exists to
+        ///   keep showing (a hyperbolic / degenerate orbit has no meaningful
+        ///   ellipse to bridge with).
+        ///
+        /// A SUSTAINED transient phase (e.g. the polyline owning a whole
+        /// below-atmosphere descent) keeps hiding because the grace deadline was
+        /// last stamped while the line was visible, so it expires within
+        /// <see cref="OrbitLineGraceSeconds"/> of the last genuine show and the
+        /// off then takes effect normally (the coupling with FIX 2's sustained
+        /// descent ownership).
+        /// </summary>
+        internal static bool ShouldDeferOrbitLineHide(
+            string offReason,
+            double currentUT,
+            double graceUntilUT,
+            bool orbitFiniteElliptical)
+        {
+            if (!orbitFiniteElliptical) return false;
+            bool transient =
+                offReason == OffReasonStaleSegment || offReason == OffReasonPolylineOwns;
+            if (!transient) return false;
+            return currentUT <= graceUntilUT;
+        }
+
+        /// <summary>
+        /// Pure: are the orbit elements finite and elliptical (eccentricity &lt; 1,
+        /// period &gt; 0, both finite)? Only an elliptical arc has a meaningful
+        /// shape to keep showing across transient boundary chatter.
+        /// </summary>
+        internal static bool IsOrbitFiniteElliptical(Orbit orbit)
+        {
+            return orbit != null
+                && !double.IsNaN(orbit.eccentricity)
+                && !double.IsInfinity(orbit.eccentricity)
+                && orbit.eccentricity < 1.0
+                && !double.IsNaN(orbit.period)
+                && !double.IsInfinity(orbit.period)
+                && orbit.period > 0.0;
+        }
+
         internal static string BuildGhostOrbitLineDecisionStateKey(
             bool lineActive,
             OrbitRendererBase.DrawIcons drawIcons,
@@ -229,6 +301,20 @@ namespace Parsek.Patches
                 return;
             }
 
+            // Grace inputs (FIX #26 blink): the two TRANSIENT off reasons
+            // (polyline-owns-phase / stale-segment-awaiting-reseed) can chatter
+            // on/off frame-to-frame at a short phase-boundary segment because the
+            // per-frame orbit reseed lags the playback head by up to one refresh
+            // interval. A short UT grace window, stamped whenever the line is
+            // genuinely shown, defers a transient off for one frame so the line
+            // does not blink. Computed once here for both branches; the orbit
+            // elements must still be finite + elliptical to have an arc to keep
+            // showing. Durable off reasons (below-atmosphere / out-of-body-frame)
+            // are NEVER graced (they are checked separately below).
+            double graceCurrentUT = Planetarium.GetUniversalTime();
+            double graceUntilUT = GhostMapPresence.GetOrbitLineGraceUntil(pid);
+            bool orbitFiniteElliptical = IsOrbitFiniteElliptical(__instance.vessel?.orbit);
+
             // Polyline ownership (PR #970): while the map-view trajectory polyline
             // draws this recording's CURRENT non-orbital leg, hide the orbit LINE so
             // the two visuals do not overlap (and the orbit does not churn under
@@ -243,6 +329,32 @@ namespace Parsek.Patches
             // orbit-updater cadence.
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
+                // Grace (FIX #26): a TRANSIENT single-frame dip into
+                // polyline-owns at a short phase boundary (the ghost is really
+                // orbital this frame but a sub-second non-orbital leg covers the
+                // instant) is deferred while the grace window is open, so the
+                // orbit LINE does not blink. This keeps the line + icon visible
+                // exactly as the visible-body-frame branch would. A SUSTAINED
+                // polyline-owns phase (e.g. the whole below-atmosphere descent
+                // FIX #27 makes the polyline own) is NOT deferred: the grace
+                // deadline was last stamped while the line was genuinely shown,
+                // so it expires within OrbitLineGraceSeconds and the hide takes
+                // effect, preventing a double-draw of line + polyline.
+                if (ShouldDeferOrbitLineHide(
+                        OffReasonPolylineOwns, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
+                {
+                    line.active = true;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
+                        string.Format(CultureInfo.InvariantCulture,
+                            "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1}",
+                            pid, OffReasonPolylineOwns, graceCurrentUT, graceUntilUT),
+                        1.0);
+                    return;
+                }
+
                 // Hide the orbit line AND the proto-vessel icon, and mark the icon
                 // suppressed (same as the below-atmosphere branch). During a
                 // non-orbital phase the proto orbit is meaningless and
@@ -331,6 +443,32 @@ namespace Parsek.Patches
                         pid, currentUT, out double segStartUT, out double segEndUT)
                     && (currentUT > segEndUT || currentUT < segStartUT))
                 {
+                    // Grace (FIX #26): the stale-segment guard fires every frame
+                    // the head sits in the lag between leaving one segment and the
+                    // reseed applying the next. At a phase boundary the head
+                    // crosses many short segments, so without a debounce the line
+                    // blinks off once per boundary. Defer the hide while the grace
+                    // window is open: we are inside the body frame (the durable
+                    // out-of-body-frame / below-atmosphere checks already passed
+                    // above), so the line genuinely belongs on this frame; only
+                    // the reseed has not caught up yet. Once grace expires the
+                    // hide takes effect, so a genuinely stale arc is never shown
+                    // for long.
+                    if (ShouldDeferOrbitLineHide(
+                            OffReasonStaleSegment, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
+                    {
+                        line.active = true;
+                        __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
+                        GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                        ParsekLog.VerboseRateLimited(Tag,
+                            "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
+                            string.Format(CultureInfo.InvariantCulture,
+                                "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1}",
+                                pid, OffReasonStaleSegment, graceCurrentUT, graceUntilUT),
+                            1.0);
+                        return;
+                    }
+
                     line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
@@ -356,6 +494,12 @@ namespace Parsek.Patches
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.OBJ;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                // Grace (FIX #26): the line is genuinely shown this frame, so
+                // (re)stamp the grace deadline. A transient off-dip in the next
+                // ~OrbitLineGraceSeconds is deferred; once the line stops being
+                // genuinely shown the deadline stops advancing and any sustained
+                // off takes effect when it expires.
+                GhostMapPresence.StampOrbitLineGrace(pid, currentUT + OrbitLineGraceSeconds);
                 LogOrbitLineDecision(
                     pid,
                     "visible-body-frame",
@@ -393,6 +537,10 @@ namespace Parsek.Patches
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+                // Grace (FIX #26): a terminal-orbit ghost genuinely shown this
+                // frame restamps the grace deadline too, so a transient
+                // polyline-owns dip on a terminal ghost is debounced as well.
+                GhostMapPresence.StampOrbitLineGrace(pid, currentUT + OrbitLineGraceSeconds);
                 LogOrbitLineDecision(
                     pid,
                     "terminal-visible",

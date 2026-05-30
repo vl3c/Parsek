@@ -736,6 +736,46 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostsWithSuppressedIcon = new HashSet<uint>();
 
         /// <summary>
+        /// Per-ghost orbit-line "grace deadline" (in universe time). When
+        /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> genuinely shows the
+        /// orbit line (`visible-body-frame`), it stamps a short UT grace window
+        /// here. While the live UT is still inside that window, a TRANSIENT off
+        /// reason (`stale-segment-awaiting-reseed` or `polyline-owns-phase`) is
+        /// deferred for one frame so the line does not blink off at a short
+        /// phase-boundary segment while the per-frame reseed catches up.
+        /// Durable off reasons (below-atmosphere / out-of-body-frame) are never
+        /// graced. A UT-based window (not a frame count) is used so the grace is
+        /// warp-stable. Cleared alongside <see cref="ghostsWithSuppressedIcon"/>
+        /// on every ghost teardown / scene change.
+        /// </summary>
+        internal static readonly Dictionary<uint, double> ghostOrbitLineGraceUntilUT =
+            new Dictionary<uint, double>();
+
+        /// <summary>
+        /// Stamps the orbit-line grace deadline for <paramref name="pid"/> at
+        /// <paramref name="graceUntilUT"/>. Called by
+        /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> on every frame the
+        /// line is genuinely shown so a subsequent transient off-dip can be
+        /// deferred until the deadline.
+        /// </summary>
+        internal static void StampOrbitLineGrace(uint pid, double graceUntilUT)
+        {
+            ghostOrbitLineGraceUntilUT[pid] = graceUntilUT;
+        }
+
+        /// <summary>
+        /// Returns the orbit-line grace deadline (UT) for <paramref name="pid"/>,
+        /// or <see cref="double.NegativeInfinity"/> when none is stamped (so any
+        /// `currentUT &lt;= graceUntil` test is false and grace is inactive).
+        /// </summary>
+        internal static double GetOrbitLineGraceUntil(uint pid)
+        {
+            return ghostOrbitLineGraceUntilUT.TryGetValue(pid, out double until)
+                ? until
+                : double.NegativeInfinity;
+        }
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>
@@ -2171,6 +2211,8 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostOrbitLineGraceUntilUT.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
@@ -3212,6 +3254,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
@@ -3432,6 +3475,8 @@ namespace Parsek
             }
 
             ghostMapVesselPids.Remove(ghostPid);
+            ghostsWithSuppressedIcon.Remove(ghostPid);
+            ghostOrbitLineGraceUntilUT.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
@@ -8433,6 +8478,7 @@ namespace Parsek
             OrbitSeedResolver.ResetForTesting();
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
@@ -8496,6 +8542,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
+            ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
