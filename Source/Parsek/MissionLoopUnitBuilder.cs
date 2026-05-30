@@ -326,16 +326,14 @@ namespace Parsek
                 //      varies between windows; the Hohmann tof (hence the recorded span) is constant.
                 if (!phaseLocked)
                 {
-                    // Classify from the OWNER recording's segments ALONE (not all merged members): the
-                    // per-window re-aim substitution applies only to the owner (the earliest leg), so
-                    // what we classify must be exactly what we substitute. A mission whose
-                    // parking->transfer->arrival chain is split across recordings then classifies as
-                    // unsupported (the owner has no arrival leg) and stays faithful, rather than
-                    // half-applying re-aim to the owner while a separate arrival recording renders its
-                    // faithful orbit (review E). A single continuous interplanetary recording (the
-                    // common case) self-contains the whole chain.
-                    List<OrbitSegment> missionSegments =
-                        GatherMemberOrbitSegments(committed, new List<int> { ownerIndex });
+                    // Classify across ALL members' segments (the mission's combined SOI chain): a real
+                    // interplanetary mission is usually a CHAIN (launch leg / transfer leg / arrival
+                    // leg / debris as separate recordings), so the heliocentric transfer lives in a
+                    // non-owner member. The per-window substitution then re-aims ONLY each member's
+                    // heliocentric leg(s) (ReaimPlaybackResolver / ReaimSegmentAssembler.
+                    // ReplaceHeliocentricLeg) and leaves body-relative legs faithful, so classifying
+                    // across the whole chain and substituting per-member is consistent (no half-apply).
+                    List<OrbitSegment> missionSegments = GatherMemberOrbitSegments(committed, memberIndices);
                     ReaimMissionPlan plan = ReaimClassifier.Classify(missionSegments, bodyInfo);
                     if (plan.Supported)
                     {

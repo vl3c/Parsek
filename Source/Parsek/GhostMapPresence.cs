@@ -5706,12 +5706,13 @@ namespace Parsek
         }
 
         // Resolves the OrbitSegment list the map orbit line / icon should follow for a committed
-        // recording this frame: the per-window RE-AIMED segments when <paramref name="committedIndex"/>
-        // is a re-aim loop unit's owner member, else the recorded segments. The re-aim window is mapped
-        // from the LIVE <paramref name="liveCurrentUT"/> via the shared resolver (the SAME window the
-        // flight engine uses), and the returned list is in recorded-span time, so the caller searches it
-        // at the recorded-span effUT exactly as it would the recorded list. Returns rec's recorded
-        // segments (possibly null) for every non-re-aim recording, so non-re-aim playback is unchanged.
+        // recording this frame: for a re-aim loop unit member that carries a heliocentric leg, the
+        // per-window list with that leg RE-AIMED; otherwise the recorded segments. Applies to ANY member
+        // of a re-aim unit (the resolver's heliocentric pre-check leaves launch / arrival / debris
+        // members on the faithful path, since only the inertial-fixed heliocentric leg needs re-aiming).
+        // The window is mapped from the LIVE <paramref name="liveCurrentUT"/> via the shared resolver
+        // (the SAME window the flight engine uses), and the returned list is in recorded-span time, so
+        // the caller searches it at the recorded-span effUT exactly as it would the recorded list.
         private static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
             int committedIndex, Recording rec, double liveCurrentUT,
             GhostPlaybackLogic.LoopUnitSet loopUnits)
@@ -5721,18 +5722,16 @@ namespace Parsek
                 return recorded;
             if (!loopUnits.TryGetUnitForMember(committedIndex, out GhostPlaybackLogic.LoopUnit unit))
                 return recorded;
-            // v1 re-aims the OWNER member only (the main interplanetary leg). Ride-along debris members
-            // keep the faithful path.
-            if (!unit.IsReaim || unit.OwnerIndex != committedIndex)
+            if (!unit.IsReaim)
                 return recorded;
             if (Parsek.Reaim.ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
-                    rec.RecordingId, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                    rec.RecordingId, recorded, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
                     unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                     liveCurrentUT, out List<OrbitSegment> reaimed, out long _))
             {
                 return reaimed;
             }
-            return recorded; // window miss / pre-first-window -> faithful
+            return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful
         }
 
         private static void RefreshTrackingStationGhosts(

@@ -63,7 +63,9 @@ namespace Parsek.Reaim
                 windowIndex = -1;
                 return null;
             }
-            if (TryResolveWindowSegments(memberId, plan, schedule,
+            // The member's OWN recorded segments are the substitution base: only this member's
+            // heliocentric leg (if any) is re-aimed; its body-relative segments pass through.
+            if (TryResolveWindowSegments(memberId, inner.OrbitSegments, plan, schedule,
                     unitPhaseAnchorUT, unitSpanStartUT, unitSpanEndUT, unitCadenceSeconds, currentUT,
                     out List<OrbitSegment> segments, out windowIndex))
             {
@@ -84,6 +86,7 @@ namespace Parsek.Reaim
         /// </summary>
         internal bool TryResolveWindowSegments(
             string memberId,
+            IReadOnlyList<OrbitSegment> memberSegments,
             ReaimMissionPlan plan,
             ReaimWindowPlanner.ReaimWindowSchedule schedule,
             double unitPhaseAnchorUT, double unitSpanStartUT, double unitSpanEndUT, double unitCadenceSeconds,
@@ -93,6 +96,13 @@ namespace Parsek.Reaim
             segments = null;
             windowIndex = -1;
             if (!plan.Supported || !schedule.Valid || string.IsNullOrEmpty(memberId))
+                return false;
+
+            // Cheap pre-check: a member with no heliocentric leg in the transfer window (a launch /
+            // arrival / debris leg of a chained mission) has nothing to re-aim - skip the Lambert solve
+            // entirely and keep its faithful body-relative segments.
+            if (!ReaimSegmentAssembler.HasHeliocentricLegInWindow(
+                    memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT, plan.RecordedArrivalUT))
                 return false;
 
             // Map the live clock to the synodic window index using the SAME span-clock the engine uses
@@ -113,7 +123,7 @@ namespace Parsek.Reaim
                 {
                     Window = cycleIndex,
                     Resolved = true,
-                    Segments = BuildWindowSegments(memberId, plan, schedule, cycleIndex)
+                    Segments = BuildWindowSegments(memberId, memberSegments, plan, schedule, cycleIndex)
                 };
                 cacheByMember[memberId] = entry;
             }
@@ -124,10 +134,10 @@ namespace Parsek.Reaim
             return true;
         }
 
-        // Synthesizes + assembles the re-aimed segment list for one window. Returns null (=> faithful) on
-        // any synthesis/assembly failure. One-shot per window (cached), so logs at Verbose.
+        // Synthesizes the window transfer and replaces the member's heliocentric leg with it. Returns null
+        // (=> faithful) on any synthesis/replacement failure. One-shot per window (cached), so logs at Verbose.
         private static List<OrbitSegment> BuildWindowSegments(
-            string memberId, ReaimMissionPlan plan,
+            string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
             ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
         {
             var ic = CultureInfo.InvariantCulture;
@@ -154,15 +164,19 @@ namespace Parsek.Reaim
 
             OrbitSegment transferSeg = ReaimOrbitSegmentConverter.ToSegment(transferOrbit, plan.CommonAncestor);
             // Shift the transfer's epoch from the absolute departure into recorded-span time so the
-            // assembled segment's phase matches the recorded-span playback clock: at recorded-span
+            // segment's phase matches the recorded-span playback clock: at recorded-span
             // RecordedDepartureUT the orbit sits where it was at absolute departureUT.
             transferSeg = ReaimSegmentAssembler.ShiftInTime(transferSeg, plan.RecordedDepartureUT - departureUT);
 
-            List<OrbitSegment> assembled = ReaimSegmentAssembler.Assemble(plan, transferSeg, schedule.TofSeconds);
+            // Replace ONLY this member's heliocentric leg(s) with the re-aimed transfer; keep its
+            // body-relative segments (parking / capture / body-fixed), which already follow their bodies.
+            List<OrbitSegment> assembled = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                memberSegments, transferSeg, plan.CommonAncestor,
+                plan.RecordedDepartureUT, plan.RecordedArrivalUT);
             if (assembled == null || assembled.Count == 0)
             {
                 ParsekLog.Warn("ReaimPlayback",
-                    $"member={memberId} window={windowIndex} assemble returned empty - faithful this window");
+                    $"member={memberId} window={windowIndex} heliocentric-leg replace returned empty - faithful this window");
                 return null;
             }
 

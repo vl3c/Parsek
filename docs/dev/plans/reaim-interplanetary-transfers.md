@@ -134,6 +134,24 @@ target is the body entered after it. (Salvaged: `AncestorChain` / `TryFindCommon
 
 ## 3. The pipeline
 
+> **REVISION 2 (per-member heliocentric replacement - SUPERSEDES the whole-trajectory 3-segment
+> assembly).** Playtest of a real Duna mission showed that real interplanetary missions are CHAINS
+> (launch leg / transfer leg / arrival leg / debris as separate recordings), not one continuous
+> recording. The owner (earliest member) is often a Points-only ascent leg with no orbit segments, so the
+> earlier "classify + substitute the owner" model declined ("no usable orbit segments") and the ghost
+> replayed faithfully and missed the moved target. Key insight: **only the heliocentric (common-ancestor /
+> Sun) leg needs re-aiming** - a Kerbin-relative parking orbit, a Duna-relative capture orbit, and
+> body-fixed ascent/descent are reconstructed RELATIVE to their live body, so they already follow it and
+> stay correct. The implemented model now: (1) classifies across ALL members' segments (the mission's
+> combined SOI chain); (2) substitutes PER MEMBER, replacing only that member's heliocentric leg(s) in the
+> recorded transfer window with the re-aimed transfer (`ReaimSegmentAssembler.ReplaceHeliocentricLeg`),
+> and leaving every body-relative segment untouched. A member with no heliocentric leg (launch / arrival /
+> debris) passes through faithfully (a cheap `HasHeliocentricLegInWindow` pre-check skips the Lambert
+> solve for it). This handles chained missions and is also cleaner for a single recording (parking/arrival
+> follow their bodies instead of being re-anchored). The `RecordedArrivalUT`/tof span the full SOI-exit ->
+> SOI-entry window (REVISION 1b, mid-course-correction handling).
+
+
 > **REVISION (Phase 3c, C1 fix - SUPERSEDES the "Hohmann tof, not recorded (review M3)" decision below).**
 > The implemented model uses the **RECORDED transfer tof** and a **congruent-window** schedule, not the
 > idealized Hohmann tof + phase-angle window. Reason: a clean Opus review of the wiring found that placing

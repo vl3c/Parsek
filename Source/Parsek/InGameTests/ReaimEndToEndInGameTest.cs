@@ -65,27 +65,30 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            // 2. Build a synthetic re-aim plan anchored on that departure: Kerbin parking just before,
-            //    Sun heliocentric leg = [goodDep, goodDep+tof], Duna arrival just after.
+            // 2. Build a synthetic re-aim plan + the member's OWN recorded segments: Kerbin parking just
+            //    before, Sun heliocentric leg = [goodDep, goodDep+tof], Duna arrival just after.
+            string parent = kerbin.referenceBody.bodyName;
             double spanStart = goodDep - 600.0;
             double recordedArrivalUT = goodDep + tof;
             double spanEnd = recordedArrivalUT + 600.0;
+            var memberSegments = new System.Collections.Generic.List<OrbitSegment>
+            {
+                new OrbitSegment { bodyName = "Kerbin", startUT = spanStart, endUT = goodDep,
+                    semiMajorAxis = 700000.0, eccentricity = 0.0, epoch = spanStart },
+                new OrbitSegment { bodyName = parent, startUT = goodDep, endUT = recordedArrivalUT,
+                    semiMajorAxis = 1.5e10, eccentricity = 0.2, epoch = goodDep }, // recorded heliocentric leg
+                new OrbitSegment { bodyName = "Duna", startUT = recordedArrivalUT, endUT = spanEnd,
+                    semiMajorAxis = 500000.0, eccentricity = 0.1, epoch = recordedArrivalUT },
+            };
             var plan = new ReaimMissionPlan
             {
                 Supported = true,
                 LaunchBody = "Kerbin",
                 TargetBody = "Duna",
-                CommonAncestor = kerbin.referenceBody.bodyName,
-                ParkingOrbit = new OrbitSegment
-                {
-                    bodyName = "Kerbin", startUT = spanStart, endUT = goodDep,
-                    semiMajorAxis = 700000.0, eccentricity = 0.0, epoch = spanStart
-                },
-                ArrivalLeg = new OrbitSegment
-                {
-                    bodyName = "Duna", startUT = recordedArrivalUT, endUT = spanEnd,
-                    semiMajorAxis = 500000.0, eccentricity = 0.1, epoch = recordedArrivalUT
-                },
+                CommonAncestor = parent,
+                ParkingOrbit = memberSegments[0],
+                HeliocentricLeg = memberSegments[1],
+                ArrivalLeg = memberSegments[2],
                 RecordedDepartureUT = goodDep,
                 RecordedArrivalUT = recordedArrivalUT,
                 RecordedTransferTofSeconds = tof
@@ -112,14 +115,14 @@ namespace Parsek.InGameTests
                 // A live UT that lands inside window k's recorded span (phaseAnchor + k*cadence + mid-span).
                 double currentUT = sched.PhaseAnchorUT + k * sched.CadenceSeconds + 0.5 * span;
                 bool ok = ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
-                    memberId, plan, sched,
+                    memberId, memberSegments, plan, sched,
                     sched.PhaseAnchorUT, spanStart, spanEnd, sched.CadenceSeconds, currentUT,
                     out System.Collections.Generic.List<OrbitSegment> segs, out long windowIndex);
 
                 InGameAssert.IsTrue(ok, $"window k={k} must resolve a re-aimed transfer (congruent-window model)");
                 InGameAssert.AreEqual(k, windowIndex, $"resolved window index must equal k={k}");
                 InGameAssert.IsTrue(segs != null && segs.Count == 3,
-                    $"window k={k} must assemble 3 segments (parking/transfer/arrival)");
+                    $"window k={k} must keep 3 segments (Kerbin parking / re-aimed Sun transfer / Duna arrival)");
 
                 OrbitSegment transfer = segs[1];
                 InGameAssert.AreEqual(plan.CommonAncestor, transfer.bodyName,
@@ -127,11 +130,14 @@ namespace Parsek.InGameTests
                 InGameAssert.IsTrue(
                     ReaimTransferSynthesizer.IsSaneTransferConic(transfer.eccentricity, transfer.semiMajorAxis),
                     $"window k={k} transfer must be a sane elliptic conic (ecc={transfer.eccentricity.ToString("R", ic)} sma={transfer.semiMajorAxis.ToString("R", ic)})");
-                // Recorded-span placement: transfer occupies [goodDep, goodDep+tof], arrival ends at spanEnd.
+                // Per-member: only the Sun leg is re-aimed (placed at [goodDep, recordedArrivalUT]); the
+                // Kerbin parking + Duna arrival legs keep their recorded UTs + bodies (follow their bodies).
+                InGameAssert.AreEqual("Kerbin", segs[0].bodyName, $"window k={k} must keep the Kerbin parking leg");
+                InGameAssert.AreEqual("Duna", segs[2].bodyName, $"window k={k} must keep the Duna arrival leg");
                 InGameAssert.IsTrue(System.Math.Abs(segs[1].startUT - goodDep) < 1.0,
                     $"window k={k} transfer must start at the recorded departure (recorded-span)");
                 InGameAssert.IsTrue(System.Math.Abs(segs[2].endUT - spanEnd) < 1.0,
-                    $"window k={k} arrival must end at the recorded span end (fits span, no clip)");
+                    $"window k={k} arrival must keep its recorded span end (fits span)");
 
                 if (k == 0) { firstEcc = transfer.eccentricity; firstSma = transfer.semiMajorAxis; window0Lan = transfer.longitudeOfAscendingNode; }
                 lastLan = transfer.longitudeOfAscendingNode;

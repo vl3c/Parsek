@@ -18420,13 +18420,14 @@ namespace Parsek
             watchMode.ValidateWatchedGhostStillActive();
         }
 
-        // Replaces each re-aim loop unit's OWNER member trajectory in cachedTrajectories with the
+        // Replaces each re-aim loop unit member's heliocentric leg in cachedTrajectories with the
         // per-window re-aimed transfer (Phase 3c). Runs after DriveMissionLoopUnits (so cachedLoopUnits
-        // is fresh) and before engine.UpdatePlayback. v1 substitutes the owner member only - the main
-        // interplanetary leg captured in one continuous recording; non-owner members (ride-along debris)
-        // keep the faithful path. The resolver caches by window, so this is cheap on non-advancing
-        // frames. The map-presence / tracking-station orbit path resolves the SAME adapter from the
-        // shared resolver, so the map orbit line stays in sync with the flight ghost.
+        // is fresh) and before engine.UpdatePlayback. Iterates ALL members of a re-aim unit: the
+        // resolver substitutes only the member(s) that actually carry a heliocentric leg (the transfer
+        // leg of the mission chain) and leaves launch / arrival / debris members faithful (their
+        // body-relative segments already follow their bodies). The resolver caches by window, so this is
+        // cheap on non-advancing frames. The map-presence / tracking-station orbit path resolves the
+        // SAME segments from the shared resolver, so the map orbit line stays in sync with the flight ghost.
         private void SubstituteReaimTrajectories(double currentUT)
         {
             if (cachedLoopUnits == null || cachedLoopUnits.Count == 0)
@@ -18436,33 +18437,35 @@ namespace Parsek
             foreach (var kv in cachedLoopUnits.UnitsByOwner)
             {
                 GhostPlaybackLogic.LoopUnit unit = kv.Value;
-                if (!unit.IsReaim)
-                    continue;
-                int ownerIdx = unit.OwnerIndex;
-                if (ownerIdx < 0 || ownerIdx >= cachedTrajectories.Count)
+                if (!unit.IsReaim || unit.MemberIndices == null)
                     continue;
 
-                IPlaybackTrajectory inner = cachedTrajectories[ownerIdx];
-                if (inner == null)
-                    continue;
-
-                IPlaybackTrajectory sub = Parsek.Reaim.ReaimPlaybackResolver.Shared.ResolveForFrame(
-                    inner.RecordingId, inner, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
-                    unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
-                    currentUT, out long windowIndex);
-
-                if (!ReferenceEquals(sub, inner))
+                for (int m = 0; m < unit.MemberIndices.Length; m++)
                 {
-                    cachedTrajectories[ownerIdx] = sub;
-                    substituted++;
+                    int memberIdx = unit.MemberIndices[m];
+                    if (memberIdx < 0 || memberIdx >= cachedTrajectories.Count)
+                        continue;
+                    IPlaybackTrajectory inner = cachedTrajectories[memberIdx];
+                    if (inner == null)
+                        continue;
+
+                    IPlaybackTrajectory sub = Parsek.Reaim.ReaimPlaybackResolver.Shared.ResolveForFrame(
+                        inner.RecordingId, inner, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                        currentUT, out long windowIndex);
+
+                    if (!ReferenceEquals(sub, inner))
+                    {
+                        cachedTrajectories[memberIdx] = sub;
+                        substituted++;
+                        ParsekLog.VerboseRateLimited("Reaim", $"sub-{memberIdx}",
+                            $"re-aim member={memberIdx} id={inner.RecordingId} window={windowIndex} heliocentric leg substituted");
+                    }
                 }
-                ParsekLog.VerboseRateLimited("Reaim", $"sub-{ownerIdx}",
-                    $"re-aim owner={ownerIdx} id={inner.RecordingId} window={windowIndex} " +
-                    $"substituted={!ReferenceEquals(sub, inner)}");
             }
             if (substituted > 0)
                 ParsekLog.VerboseRateLimited("Reaim", "sub-summary",
-                    $"re-aim substituted {substituted} owner trajectory(ies) this frame");
+                    $"re-aim substituted {substituted} member trajectory(ies) this frame");
         }
 
         // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set

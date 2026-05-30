@@ -2,29 +2,30 @@ using System.Collections.Generic;
 
 namespace Parsek.Reaim
 {
-    // Assembles the per-window OrbitSegment list for a re-aimed ghost (docs/dev/plans/
-    // reaim-interplanetary-transfers.md, Phase 3). PURE: operates on OrbitSegment structs + scalars,
-    // so the assembly ordering + UT coherence is unit-testable; the live caller supplies the
-    // synthesized heliocentric transfer segment (built from ReaimTransferSynthesizer's Orbit).
+    // Per-member OrbitSegment substitution for a re-aimed ghost (docs/dev/plans/
+    // reaim-interplanetary-transfers.md, Phase 3). PURE: operates on OrbitSegment structs + scalars, so
+    // the substitution + UT coherence is unit-testable; the live caller supplies the synthesized
+    // heliocentric transfer segment (built from ReaimTransferSynthesizer's Orbit) and the member's OWN
+    // recorded segments.
     //
-    // TIMELINE MODEL (recorded-span, recorded-tof): the engine samples a loop member's trajectory at
-    // loopUT in [spanStart, spanEnd] (GhostPlaybackLogic.TryComputeSpanLoopUT: loopUT = spanStart +
-    // phaseWithinSpan), then phaseAnchor maps the live clock to the chosen synodic window. So the
-    // assembled segments are RECORDED-SPAN-relative, NOT absolute: the parking orbit keeps its recorded
-    // UTs, the transfer occupies [recordedExitUT, recordedExitUT + tof], and the arrival is re-anchored
-    // after it. The caller passes the RECORDED transfer tof (recordedExitUT = the recorded SOI-exit, and
-    // tof = the recorded transfer duration), so the arrival re-anchors to the RECORDED arrival UT and the
-    // assembled span fits the fixed recorded loop span [spanStart, spanEnd] EXACTLY - no clipping (this
-    // is why re-aim uses the recorded tof, not an idealized Hohmann tof: a Hohmann tof != recorded tof
-    // would shift the arrival out of the fixed span). What varies PER WINDOW is only the transfer orbit's
-    // INERTIAL ORIENTATION (inc/LAN/argPe, aiming at the target's actual position at that window) and its
-    // epoch - which the live caller shifts into recorded-span time before calling here.
+    // MODEL (per-member heliocentric replacement). Only the heliocentric (common-ancestor / Sun) leg is
+    // inertial-fixed and "misses" when replayed faithfully after the target body has moved over a synodic
+    // period. The launch-body parking orbit, the target-body capture orbit, and body-fixed ascent/descent
+    // are reconstructed RELATIVE to their live body (new Orbit(..., body)), so they already follow that
+    // body's current position and stay correct. So re-aim replaces ONLY the heliocentric leg(s) within
+    // each member that has them, leaving every other segment untouched. This handles a chained mission
+    // (launch leg / transfer leg / arrival leg / debris as separate recordings) correctly: the transfer
+    // member's heliocentric segments are re-aimed; the launch / arrival / debris members carry no
+    // heliocentric leg and pass through faithfully (their body-relative segments follow Kerbin / Duna /
+    // their parent).
     //
-    // v1 layout: [S0 recorded parking (recorded UTs)] [S2 transfer at [exitUT, exitUT+tof]] [S3 recorded
-    // arrival (re-anchored to start at exitUT+tof = the recorded arrival UT)]. The S1 ejection (a
-    // launch-body hyperbola anchored to the recorded SOI-exit state) is a deferred refinement; v1 accepts
-    // the tiny SOI-edge seam between the parking orbit and the heliocentric transfer start (both ~at the
-    // launch body, sub-pixel at map scale).
+    // TIMELINE: the engine samples a loop member's trajectory at loopUT in [spanStart, spanEnd]
+    // (GhostPlaybackLogic.TryComputeSpanLoopUT), and phaseAnchor maps the live clock to the chosen synodic
+    // window. The re-aimed transfer is placed at the member's RECORDED [recordedDepartureUT,
+    // recordedArrivalUT] (the SOI-exit -> target-SOI-entry window) with the recorded tof, so it fits the
+    // member's recorded timeline exactly. What varies PER WINDOW is only the transfer orbit's INERTIAL
+    // ORIENTATION (inc/LAN/argPe, aiming at the target's actual position at that window) and its epoch -
+    // which the live caller shifts into recorded-span time before calling here.
     internal static class ReaimSegmentAssembler
     {
         /// <summary>
@@ -41,57 +42,83 @@ namespace Parsek.Reaim
             return seg;
         }
 
+
         /// <summary>
-        /// Re-anchors a segment so its startUT becomes <paramref name="newStartUT"/> (preserving its
-        /// duration + phase). Pure.
+        /// True when <paramref name="memberSegments"/> contains at least one non-predicted
+        /// <paramref name="commonAncestor"/>-bodied (heliocentric) OrbitSegment overlapping the recorded
+        /// transfer window [<paramref name="recordedDepartureUT"/>, <paramref name="recordedArrivalUT"/>].
+        /// This is the cheap pre-check that lets the live caller skip the Lambert solve for members that
+        /// carry no heliocentric leg (launch / arrival / debris legs of a chained mission). Pure.
         /// </summary>
-        internal static OrbitSegment ReanchorStart(OrbitSegment seg, double newStartUT)
+        internal static bool HasHeliocentricLegInWindow(
+            IReadOnlyList<OrbitSegment> memberSegments, string commonAncestor,
+            double recordedDepartureUT, double recordedArrivalUT)
         {
-            return ShiftInTime(seg, newStartUT - seg.startUT);
+            if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
+                return false;
+            for (int i = 0; i < memberSegments.Count; i++)
+            {
+                OrbitSegment s = memberSegments[i];
+                if (!s.isPredicted && s.bodyName == commonAncestor
+                    && s.startUT < recordedArrivalUT && s.endUT > recordedDepartureUT)
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
-        /// Re-anchors a segment so its endUT becomes <paramref name="newEndUT"/>. Pure.
+        /// Returns a copy of <paramref name="memberSegments"/> with its heliocentric
+        /// (<paramref name="commonAncestor"/>-bodied) leg(s) in the recorded transfer window
+        /// [<paramref name="recordedDepartureUT"/>, <paramref name="recordedArrivalUT"/>] REPLACED by the
+        /// single re-aimed <paramref name="transferSegment"/>, and every OTHER segment kept untouched.
+        /// This is the per-member substitution (docs/dev/plans/reaim-interplanetary-transfers.md): only
+        /// the heliocentric coast is inertial-fixed and must be re-aimed; the launch-body parking orbit,
+        /// the target-body capture orbit, and body-fixed legs are reconstructed relative to their LIVE
+        /// body, so they already follow it and stay faithful. Any number of recorded heliocentric
+        /// segments in the window (e.g. mid-course-correction coasts) collapse into the one re-aimed arc.
+        /// The caller has already placed the transfer at [departure, arrival] with its per-window
+        /// orientation + recorded-span epoch. Pure. Returns null when the member has NO heliocentric leg
+        /// in the window (nothing to substitute -> the member stays faithful).
         /// </summary>
-        internal static OrbitSegment ReanchorEnd(OrbitSegment seg, double newEndUT)
+        internal static List<OrbitSegment> ReplaceHeliocentricLeg(
+            IReadOnlyList<OrbitSegment> memberSegments, OrbitSegment transferSegment,
+            string commonAncestor, double recordedDepartureUT, double recordedArrivalUT)
         {
-            return ShiftInTime(seg, newEndUT - seg.endUT);
-        }
-
-        /// <summary>
-        /// Builds the RECORDED-SPAN-relative OrbitSegment list for a re-aim window: the recorded
-        /// parking orbit (unchanged recorded UTs), the heliocentric <paramref name="transferSegment"/>
-        /// placed at [recordedExitUT, recordedExitUT + <paramref name="tofSeconds"/>] (the caller has
-        /// already set its per-window inertial orientation + shifted its epoch into recorded-span
-        /// time), and the recorded arrival leg re-anchored to start at recordedExitUT + tof. The
-        /// recorded SOI-exit time is <c>plan.RecordedDepartureUT</c>. Pure. Returns null when the plan
-        /// is unsupported or the tof is degenerate.
-        /// </summary>
-        internal static List<OrbitSegment> Assemble(
-            ReaimMissionPlan plan, OrbitSegment transferSegment, double tofSeconds)
-        {
-            if (!plan.Supported)
-                return null;
-            if (double.IsNaN(tofSeconds) || double.IsInfinity(tofSeconds) || tofSeconds <= 0.0)
+            if (memberSegments == null || string.IsNullOrEmpty(commonAncestor))
                 return null;
 
-            double exitUT = plan.RecordedDepartureUT;        // recorded-span SOI-exit time
-            double arrivalUT = exitUT + tofSeconds;          // re-timed to the (constant) Hohmann tof
+            var result = new List<OrbitSegment>(memberSegments.Count + 1);
+            bool replaced = false;
+            for (int i = 0; i < memberSegments.Count; i++)
+            {
+                OrbitSegment s = memberSegments[i];
+                bool isHelioInWindow = !s.isPredicted && s.bodyName == commonAncestor
+                    && s.startUT < recordedArrivalUT && s.endUT > recordedDepartureUT;
+                if (isHelioInWindow)
+                {
+                    if (!replaced)
+                    {
+                        OrbitSegment transfer = transferSegment;
+                        transfer.startUT = recordedDepartureUT;
+                        transfer.endUT = recordedArrivalUT;
+                        transfer.bodyName = commonAncestor;
+                        transfer.isPredicted = false;
+                        result.Add(transfer);
+                        replaced = true;
+                    }
+                    // else: a further heliocentric coast in the window collapses into the one arc.
+                }
+                else
+                {
+                    result.Add(s);
+                }
+            }
 
-            // S0: recorded parking orbit, unchanged (it hands off to the transfer at exitUT).
-            OrbitSegment parking = plan.ParkingOrbit;
+            if (!replaced)
+                return null; // no heliocentric leg in this member -> faithful (body-relative legs follow their bodies)
 
-            // S2: the per-window heliocentric transfer, placed in recorded-span time.
-            OrbitSegment transfer = transferSegment;
-            transfer.startUT = exitUT;
-            transfer.endUT = arrivalUT;
-            transfer.bodyName = plan.CommonAncestor;
-            transfer.isPredicted = false;
-
-            // S3: recorded arrival leg, re-anchored to begin when the re-timed transfer ends.
-            OrbitSegment arrival = ReanchorStart(plan.ArrivalLeg, arrivalUT);
-
-            return new List<OrbitSegment> { parking, transfer, arrival };
+            result.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            return result;
         }
     }
 }
