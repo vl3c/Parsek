@@ -148,47 +148,73 @@ namespace Parsek.Reaim
 
             OrbitSegment arrival = segs[arrivalIdx];
 
-            // TRANSFER RUN (docs/dev/plans/reaim-loiter-compression.md section 3.2): the transfer is the
-            // run of common-ancestor (Sun) segments on the SAME orbit ENDING at the target SOI entry
-            // (arrival.startUT). RecordedDepartureUT = the start of the EARLIEST such segment (NOT the
-            // first Sun segment in the mission, which would wrongly include a heliocentric loiter and feed
-            // a too-long tof to the Lambert solve). Walk backwards from the arrival, including contiguous
-            // Sun segments whose semi-major axis matches (mid-course-correction coasts are ~the same
-            // orbit, so they stay in the run); STOP at a body change (the launch-body parking) or a
-            // semi-major-axis STEP (a maneuver -- the transfer burn out of a heliocentric loiter, or any
-            // deliberate orbit change). The a-step, not a UT gap, is the discriminator: an MCC burn leaves
-            // a small UT gap but ~the same orbit, while the transfer-departure burn is a real a change.
+            // TRANSFER RUN (docs/dev/plans/reaim-loiter-compression.md section 3.2). The transfer is the
+            // run of common-ancestor (Sun) segments on the SAME orbit ENDING at the target SOI entry.
+            // RecordedDepartureUT = the start of the EARLIEST such segment (NOT the first Sun segment in
+            // the mission -- a heliocentric loiter before the transfer would feed a too-long tof to the
+            // Lambert solve). The gathered list is flattened across ALL members (review C1), so:
+            //   1. Anchor on the SOI boundary by UT, not list index: the transfer's LAST coast is the Sun
+            //      segment whose endUT is contiguous with arrival.startUT (an interleaved debris segment
+            //      from another member does NOT end at the arrival, so it cannot masquerade as it).
+            //   2. Walk back from that coast including Sun segments whose a matches the FIRST coast's a
+            //      (MCC coasts are ~the same orbit; the a-step is the discriminator, anchored to the run
+            //      start so gradual drift still ends the run) AND that CHAIN in UT (within a generous
+            //      burn tolerance) -- so a same-a debris coast that does not chain to the transfer is
+            //      excluded.
+            //   3. Decline (faithful) when the run spans more than ~1 revolution (a heliocentric loiter
+            //      got absorbed, review M1) or when a chaining Sun segment precedes it (a heliocentric
+            //      PARKING departure -- Lambert assumes r1 = launch body, deferred).
             const double AStepRelThreshold = ReaimLoiterCompressor.DefaultAStepRelThreshold;
-            int transferStartIdx = -1;
-            double prevIncludedA = double.NaN;
-            for (int i = arrivalIdx - 1; i >= 0; i--)
+            const double SoiBoundaryEps = 1.0;     // seconds; the SOI-entry boundary is a segment edge
+            const double BurnChainTolerance = 3600.0; // generous off-rails (MCC burn) gap between coasts
+
+            int lastCoastIdx = -1;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                if (segs[i].bodyName == commonAncestor
+                    && Math.Abs(segs[i].endUT - arrival.startUT) <= SoiBoundaryEps)
+                    lastCoastIdx = i; // last contiguous Sun coast handing off to the target SOI entry
+            }
+            if (lastCoastIdx < 0)
+                return ReaimMissionPlan.Unsupported(launchBody,
+                    "no transfer coast contiguous with the target SOI entry");
+
+            double firstA = segs[lastCoastIdx].semiMajorAxis;
+            int transferStartIdx = lastCoastIdx;
+            double runStartUT = segs[lastCoastIdx].startUT;
+            for (int i = lastCoastIdx - 1; i >= 0; i--)
             {
                 OrbitSegment s = segs[i];
                 if (s.bodyName != commonAncestor)
                     break;                                   // hit the launch-body parking -> run ends
-                if (!double.IsNaN(prevIncludedA))
-                {
-                    double aRel = Math.Abs(s.semiMajorAxis - prevIncludedA)
-                        / Math.Max(1.0, Math.Abs(prevIncludedA));
-                    if (aRel > AStepRelThreshold)
-                        break;                               // a maneuver (transfer burn) -> run ends
-                }
+                double aRel = Math.Abs(s.semiMajorAxis - firstA) / Math.Max(1.0, Math.Abs(firstA));
+                if (aRel > AStepRelThreshold)
+                    break;                                   // a maneuver (transfer burn) -> run ends
+                if (runStartUT - s.endUT > BurnChainTolerance)
+                    break;                                   // does not chain (interleaved debris) -> ends
                 transferStartIdx = i;
-                prevIncludedA = s.semiMajorAxis;
+                runStartUT = s.startUT;
             }
-            if (transferStartIdx < 0)
-                return ReaimMissionPlan.Unsupported(launchBody,
-                    "no transfer arc ending at the target SOI entry");
-
-            // Declined v1 case: the segment immediately before the transfer run is also a common-ancestor
-            // (Sun) segment -> the transfer departs from a heliocentric PARKING orbit, not the launch
-            // body. The Lambert solve assumes r1 = launchBody position, so re-aim would mis-aim; decline
-            // to faithful (heliocentric-parking departures are deferred).
-            if (transferStartIdx - 1 >= 0 && segs[transferStartIdx - 1].bodyName == commonAncestor)
-                return ReaimMissionPlan.Unsupported(launchBody,
-                    "transfer departs from a heliocentric parking orbit (deferred); staying faithful");
 
             OrbitSegment transferStart = segs[transferStartIdx];
+            OrbitSegment lastCoast = segs[lastCoastIdx];
+
+            // Decline a run that spans more than ~1 revolution: a clean transfer is a single partial pass
+            // (duration < period), so a longer run means a heliocentric loiter was absorbed (review M1).
+            double tRep = ReaimLoiterCompressor.OrbitalPeriod(firstA, bodyInfo.GravParameter(commonAncestor));
+            if (!double.IsNaN(tRep) && tRep > 0.0
+                && (lastCoast.endUT - transferStart.startUT) > 1.5 * tRep)
+                return ReaimMissionPlan.Unsupported(launchBody,
+                    "transfer run spans >1 revolution (heliocentric loiter absorbed); staying faithful");
+
+            // Heliocentric-parking departure: a CHAINING common-ancestor segment immediately before the
+            // transfer run -> the transfer departs from a solar parking orbit, not the launch body;
+            // decline (Lambert assumes r1 = launch body; deferred).
+            if (transferStartIdx - 1 >= 0
+                && segs[transferStartIdx - 1].bodyName == commonAncestor
+                && transferStart.startUT - segs[transferStartIdx - 1].endUT <= BurnChainTolerance)
+                return ReaimMissionPlan.Unsupported(launchBody,
+                    "transfer departs from a heliocentric parking orbit (deferred); staying faithful");
             return new ReaimMissionPlan
             {
                 Supported = true,

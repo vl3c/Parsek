@@ -82,12 +82,15 @@ namespace Parsek.Reaim
                     continue;
                 }
 
-                // Extend the run while contiguous, same body, elliptical, no a-step.
+                // Extend the run while contiguous, same body, elliptical, no a-step. The a-step is
+                // measured against the run's FIRST a (the anchor T_rep is computed from), NOT the
+                // previous segment: a slow gradual drift (sub-threshold per step) must still end the run
+                // once it has drifted past the threshold from the anchor, or T_rep would be wrong for the
+                // late segments and the cut would land off a true period (review M2).
                 string body = seg.bodyName;
                 double firstA = seg.semiMajorAxis;
                 double runStart = seg.startUT;
                 double runEnd = seg.endUT;
-                double prevA = seg.semiMajorAxis;
                 double prevEnd = seg.endUT;
                 int j = i;
                 while (j + 1 < segs.Count)
@@ -100,12 +103,11 @@ namespace Parsek.Reaim
                         break; // non-elliptical ends the run
                     if (next.startUT - prevEnd > contiguityEpsilonSeconds)
                         break; // a gap ends the run
-                    double aRel = Math.Abs(next.semiMajorAxis - prevA) / Math.Max(1.0, Math.Abs(prevA));
+                    double aRel = Math.Abs(next.semiMajorAxis - firstA) / Math.Max(1.0, Math.Abs(firstA));
                     if (aRel > aStepRelThreshold)
-                        break; // a maneuver to a different orbit ends the run (keeps T_rep valid)
+                        break; // drifted past the threshold from the anchor -> ends the run (T_rep valid)
                     j++;
                     runEnd = next.endUT;
-                    prevA = next.semiMajorAxis;
                     prevEnd = next.endUT;
                 }
 

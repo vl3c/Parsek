@@ -121,6 +121,64 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_RealSmaSingleTransfer_DepartsAtTransferStart()
+        {
+            // Real sma on every segment (not the sma=0 the older tests use, which zeroes the a-step). A
+            // plain Kerbin->Duna with a Kerbin parking + a single Sun transfer arc must classify with
+            // RecordedDepartureUT = the transfer start (byte-identical to the pre-rework result).
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),
+                SegA("Sun", 5000, 5000000, 1.7e10),       // transfer (~0.4 rev, < 1 rev)
+                SegA("Duna", 5000000, 5005000, 500000),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal(5000.0, plan.RecordedDepartureUT, 3);
+            Assert.Equal(5000000.0, plan.RecordedArrivalUT, 3);
+            Assert.Equal(4995000.0, plan.RecordedTransferTofSeconds, 3);
+        }
+
+        [Fact]
+        public void Classify_HeliocentricDebrisAfterDeparture_DoesNotCorruptTransfer()
+        {
+            // A jettisoned transfer stage coasts heliocentrically AFTER departure (similar sma, does NOT
+            // reach Duna), interleaved in the flattened multi-member list. The SOI-contiguity anchor
+            // picks the REAL transfer coast (the one ending at the Duna SOI entry); the debris (higher
+            // startUT, not contiguous with the arrival) is not pulled into the transfer run (review C1).
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),
+                SegA("Sun", 5000, 5000000, 1.7e10),       // the real transfer (ends at the Duna SOI)
+                SegA("Sun", 100000, 4000000, 1.69e10),    // jettisoned stage (similar sma, ends mid-transfer)
+                SegA("Duna", 5000000, 5005000, 500000),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal(5000.0, plan.RecordedDepartureUT, 3); // the transfer start, NOT the debris start
+            Assert.Equal(4995000.0, plan.RecordedTransferTofSeconds, 3);
+        }
+
+        [Fact]
+        public void Classify_ChunkedSameSmaHeliocentricLoiter_Declined()
+        {
+            // A heliocentric loiter on the SAME sma as the transfer (no a-step to separate them) absorbed
+            // into the Sun run, making the run span > 1 revolution -> declined (review M1: the a-step
+            // alone would miss a same-sma loiter; the >1-rev duration gate catches it).
+            // Sun period at sma 1.7e10 ~ 1.286e7 s; ~1 rev loiter + ~0.5 rev transfer -> ~1.5 rev run.
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),
+                SegA("Sun", 5000, 13000000, 1.7e10),        // heliocentric loiter (~1 rev, same sma)
+                SegA("Sun", 13000000, 20000000, 1.7e10),    // transfer (same sma, ends at Duna SOI)
+                SegA("Duna", 20000000, 20005000, 500000),
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains(">1 revolution", plan.Reason);
+        }
+
+        [Fact]
         public void Classify_HeliocentricLoiterBeforeTransfer_Declined()
         {
             // Kerbin parking -> heliocentric loiter (a closed Sun orbit) -> transfer burn (a-step) ->

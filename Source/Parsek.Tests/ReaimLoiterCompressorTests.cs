@@ -93,6 +93,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputeCuts_GradualDriftPastThreshold_SplitsRun_AnchoredToFirst()
+        {
+            // Gradual sub-5%-per-step drift that cumulatively exceeds 5% from the FIRST segment. Anchoring
+            // the a-step to the run's first segment (not the previous) ends the run once cumulative drift
+            // passes the threshold, so T_rep stays valid (review M2). "Compare to previous" would merge
+            // all three (each step <5%) into one run with a wrong T_rep -> a cut off a true period.
+            double a0 = 1.0e7;
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 0, 500000, a0),              // anchor
+                Seg("Kerbin", 500000, 1000000, a0 * 1.03), // +3% from first (within 5%) -> same run
+                Seg("Kerbin", 1000000, 1500000, a0 * 1.06),// +6% from first (>5%) -> new run
+            };
+            var cuts = ReaimLoiterCompressor.ComputeCuts(segs, Mu, keepRevs: 1);
+            Assert.Equal(2, cuts.Count); // split at the cumulative-drift threshold, not merged into one
+        }
+
+        [Fact]
         public void ComputeCuts_TransferArc_NotALoiter()
         {
             // A heliocentric transfer arc: duration < its own period -> single pass -> kept (no cut).
