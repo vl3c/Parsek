@@ -396,9 +396,19 @@ namespace Parsek
             // [Phase 3] ERS-routed: spawned-PID set is derived from the Effective
             // Recording Set so NotCommitted / superseded / session-suppressed
             // recordings no longer claim active-vessel spawn attribution.
-            var spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
+            // #976-class: an adoption-stamped recording carries SpawnedVesselPersistentId ==
+            // its craft-baked VesselPersistentId, which a relaunch of the same craft reuses.
+            // So a bare pid match would wrongly classify a fresh relaunch as "Parsek-spawned"
+            // and skip the whole swap, leaving reserved crew on the player's new ship. Require
+            // the matching adoption-stamped recording to be the SAME launch (guid) as the active
+            // vessel; real spawns use a KSP-unique pid and stay pid-only (see ActiveVesselIsParsekSpawned).
+            var ers = EffectiveState.ComputeERS();
+            var spawnedPids = BuildSpawnedVesselPidSet(ers);
             uint activePid = FlightGlobals.ActiveVessel.persistentId;
-            if (spawnedPids.Contains(activePid))
+            string activeGuid = FlightGlobals.ActiveVessel.id != Guid.Empty
+                ? FlightGlobals.ActiveVessel.id.ToString("N")
+                : null;
+            if (ActiveVesselIsParsekSpawned(ers, activePid, activeGuid))
             {
                 ParsekLog.Info("CrewReservation",
                     $"SwapReservedCrewInFlight skipped: active vessel pid={activePid} " +
@@ -1469,6 +1479,39 @@ namespace Parsek
                     pids.Add(pid);
             }
             return pids;
+        }
+
+        /// <summary>
+        /// Pure decision: is the active vessel (pid + launch guid) genuinely a Parsek-spawned
+        /// vessel per the Effective Recording Set? A recording "spawned" the active vessel when its
+        /// <see cref="Recording.SpawnedVesselPersistentId"/> equals the active pid. For an
+        /// adoption-stamped recording (SpawnedVesselPersistentId == its craft-baked VesselPersistentId)
+        /// the pid is reused by every relaunch of the same craft, so that match additionally requires
+        /// the launch guids to agree (a conclusive guid mismatch means a relaunch, not the spawned
+        /// vessel). Real spawns use a KSP-unique spawn pid that cannot collide with a baked pid, so
+        /// they stay pid-only. Falls back to pid-only when the guid is unknown on either side.
+        /// </summary>
+        internal static bool ActiveVesselIsParsekSpawned(
+            IReadOnlyList<Recording> recordings, uint activePid, string activeGuid)
+        {
+            if (recordings == null || activePid == 0) return false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording r = recordings[i];
+                if (r == null || r.SpawnedVesselPersistentId == 0 || r.SpawnedVesselPersistentId != activePid)
+                    continue;
+
+                bool adoptionStamp = r.SpawnedVesselPersistentId == r.VesselPersistentId;
+                if (adoptionStamp
+                    && VesselLaunchIdentity.GuidsConclusivelyDiffer(r.RecordedVesselGuid, activeGuid))
+                {
+                    // Relaunch of the same craft reused the baked pid; this recording did not
+                    // spawn the active vessel. Keep looking for a genuine match.
+                    continue;
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>
