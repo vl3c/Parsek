@@ -141,7 +141,7 @@ namespace Parsek.Reaim
             ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
         {
             var ic = CultureInfo.InvariantCulture;
-            double departureUT = schedule.DepartureUTForWindow(windowIndex);
+            double nominalDepartureUT = schedule.DepartureUTForWindow(windowIndex);
 
             CelestialBody launchBody = FindBody(plan.LaunchBody);
             CelestialBody targetBody = FindBody(plan.TargetBody);
@@ -152,13 +152,42 @@ namespace Parsek.Reaim
                 return null;
             }
 
-            if (!ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                    launchBody, targetBody, departureUT, schedule.TofSeconds, schedule.Prograde,
-                    out Orbit transferOrbit, out double soiEntryUT, out CelestialBody encounterBody,
-                    out string failReason))
+            // Localized departure search. The congruent-window D_k = D0 + k*synodic is only an APPROXIMATE
+            // geometric recurrence: the target's eccentricity drifts the window over k, so the nominal D_k
+            // can land in a Lambert non-convergence (the near-180-degree single-rev singularity the canary
+            // also hits ~5/36 of the time). Search a small range around D_k for the CLOSEST departure that
+            // yields a sane transfer actually reaching the target (the canary proves convergent departures
+            // exist near every window), keeping the departure offset from D_k small (days at this cadence,
+            // sub-pixel at map scale). Cached per window, so the search runs once when the window advances.
+            const double SearchStepFraction = 0.005; // of the synodic period (~2-3 days for Kerbin->Duna)
+            const int SearchMaxSteps = 12;            // +-6% of synodic
+            double step = schedule.SynodicPeriodSeconds * SearchStepFraction;
+            Orbit transferOrbit = null;
+            double soiEntryUT = double.NaN;
+            CelestialBody encounterBody = null;
+            double departureUT = double.NaN;
+            string failReason = null;
+            for (int s = 0; s <= SearchMaxSteps && double.IsNaN(departureUT); s++)
+            {
+                double[] tries = s == 0
+                    ? new[] { nominalDepartureUT }
+                    : new[] { nominalDepartureUT + s * step, nominalDepartureUT - s * step };
+                for (int t = 0; t < tries.Length; t++)
+                {
+                    if (ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                            launchBody, targetBody, tries[t], schedule.TofSeconds, schedule.Prograde,
+                            out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
+                    {
+                        departureUT = tries[t];
+                        break;
+                    }
+                }
+            }
+            if (double.IsNaN(departureUT))
             {
                 ParsekLog.Verbose("ReaimPlayback",
-                    $"member={memberId} window={windowIndex} departUT={departureUT.ToString("R", ic)} synth failed ({failReason}) - faithful this window");
+                    $"member={memberId} window={windowIndex} nominalDepartUT={nominalDepartureUT.ToString("R", ic)} " +
+                    $"synth failed across +-{(SearchMaxSteps * step).ToString("F0", ic)}s search ({failReason}) - faithful this window");
                 return null;
             }
 
