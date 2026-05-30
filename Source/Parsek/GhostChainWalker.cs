@@ -103,9 +103,31 @@ namespace Parsek
                 if (links.Count == 0)
                     continue;
 
+                // #976-class: claims for one baked pid may come from two distinct launches of the
+                // same craft (different trees, different launch guids). Pooling them into one chain
+                // lets a relaunch's later claim reclassify a prior launch's tip recording as an
+                // intermediate link (suppressing its spawn). Keep only the links of the LATEST launch
+                // (the launch of the last/tip-most link); a conclusive guid mismatch drops the stale
+                // launch's links, which then simply spawn normally instead of being suppressed. When
+                // all links share a launch (or the guid is unknown) nothing is dropped — unchanged.
+                string launchGuid = links[links.Count - 1].recordedVesselGuid;
+                int droppedStaleLaunchLinks = links.RemoveAll(
+                    l => VesselLaunchIdentity.GuidsConclusivelyDiffer(l.recordedVesselGuid, launchGuid));
+                if (droppedStaleLaunchLinks > 0)
+                    ParsekLog.VerboseOnChange(Tag,
+                        identity: string.Format(ic, "launch-split|{0}", pid),
+                        stateKey: string.Format(ic, "{0}|{1}", droppedStaleLaunchLinks, launchGuid ?? "null"),
+                        message: string.Format(ic,
+                            "Vessel PID={0} claimed by {1} distinct launch(es); kept latest launch={2}, " +
+                            "dropped {3} stale-launch claim(s) so a relaunch does not suppress a prior launch",
+                            pid, "multiple", launchGuid ?? "(none)", droppedStaleLaunchLinks));
+                if (links.Count == 0)
+                    continue;
+
                 var chain = new GhostChain
                 {
                     OriginalVesselPid = pid,
+                    LaunchGuid = launchGuid,
                     GhostStartUT = links[0].ut
                 };
                 chain.Links.AddRange(links);
@@ -165,11 +187,15 @@ namespace Parsek
                 }
 
                 // Check if rec's VesselPersistentId matches a chain's OriginalVesselPid
-                // and the chain's SpawnUT > rec.EndUT (a later recording extends through this vessel)
+                // and the chain's SpawnUT > rec.EndUT (a later recording extends through this vessel).
+                // #976-class: the chain's OriginalVesselPid is the craft-baked pid; require the chain
+                // to be the SAME launch as rec (its LaunchGuid), so a relaunch's chain does not
+                // suppress a prior launch's recording. Null/unknown guid falls back to pid-only.
                 if (rec.VesselPersistentId != 0
                     && rec.VesselPersistentId == chain.OriginalVesselPid
                     && chain.SpawnUT > rec.EndUT
-                    && chain.TipRecordingId != rec.RecordingId)
+                    && chain.TipRecordingId != rec.RecordingId
+                    && !VesselLaunchIdentity.GuidsConclusivelyDiffer(chain.LaunchGuid, rec.RecordedVesselGuid))
                     return true;
             }
 
@@ -199,6 +225,22 @@ namespace Parsek
         /// Scans a tree's BranchPoints for claiming events (Dock, Board, Undock, EVA, JointBreak)
         /// with a non-zero TargetVesselPersistentId.
         /// </summary>
+        // Launch-unique Guid of the vessel with the given pid within this tree (one launch per pid
+        // per tree). Lets a chain claim carry the launch it pertains to, so two launches of the same
+        // craft (same baked pid, different trees) do not pool into one chain. Null when not found.
+        private static string ResolveLaunchGuidForPid(RecordingTree tree, uint pid)
+        {
+            if (tree?.Recordings == null || pid == 0)
+                return null;
+            foreach (var rec in tree.Recordings.Values)
+            {
+                if (rec != null && rec.VesselPersistentId == pid
+                    && !string.IsNullOrEmpty(rec.RecordedVesselGuid))
+                    return rec.RecordedVesselGuid;
+            }
+            return null;
+        }
+
         private static void ScanBranchPointClaims(
             RecordingTree tree, Dictionary<uint, List<ChainLink>> claimsByPid,
             ref int skippedSessionSuppressed)
@@ -253,16 +295,17 @@ namespace Parsek
                     continue;
                 }
 
+                uint pid = bp.TargetVesselPersistentId;
                 var link = new ChainLink
                 {
                     recordingId = claimingRecordingId,
                     treeId = tree.Id,
                     branchPointId = bp.Id,
                     ut = bp.UT,
-                    interactionType = interactionType
+                    interactionType = interactionType,
+                    recordedVesselGuid = ResolveLaunchGuidForPid(tree, pid)
                 };
 
-                uint pid = bp.TargetVesselPersistentId;
                 List<ChainLink> list;
                 if (!claimsByPid.TryGetValue(pid, out list))
                 {
@@ -322,7 +365,8 @@ namespace Parsek
                     treeId = tree.Id,
                     branchPointId = null,
                     ut = rec.StartUT,
-                    interactionType = "BACKGROUND_EVENT"
+                    interactionType = "BACKGROUND_EVENT",
+                    recordedVesselGuid = rec.RecordedVesselGuid
                 };
 
                 uint pid = rec.VesselPersistentId;
