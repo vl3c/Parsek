@@ -1101,6 +1101,16 @@ namespace Parsek
             public bool IsPhaseLockedConstrained =>
                 Solved && Solution.ShouldPhaseLock
                 && !double.IsNaN(Solution.P) && Solution.P > LoopTiming.MinCycleDuration + 1e-6;
+
+            // True when the resolved unit is a re-aim interplanetary loop (cross-parent single-hop). The
+            // faithful periodicity Solve reports cross-parent UnsupportedCrossParent (ShouldPhaseLock
+            // false), so without this the period / T- cells would read "not aligned" even though the
+            // engine relaunches the re-aimed transfer every synodic window. When set, the period cell
+            // shows the synodic cadence + a "(<target> transfer)" basis and the T- cell counts down to
+            // the next window (NextRelaunchUT is already the uniform synodic anchor + n*cadence).
+            public bool IsReaim;
+            public double ReaimSynodicSeconds;   // the synodic relaunch cadence (NaN when not re-aim)
+            public string ReaimTargetBody;        // the interplanetary destination (null when not re-aim)
         }
 
         // Computes the Phase-1 (Tier-1) periodicity solution for one looping mission, mirroring the
@@ -1180,6 +1190,15 @@ namespace Parsek
                 ? unit.RelaunchSchedule.AverageIntervalSeconds
                 : double.NaN;
 
+            // Re-aim (cross-parent interplanetary): the unit carries a synodic schedule the faithful
+            // periodicity Solve cannot represent (it reports UnsupportedCrossParent). Surface it so the
+            // cells show the ~synodic cadence + a window countdown instead of "not aligned".
+            result.IsReaim = result.UnitBuilt && unit.IsReaim;
+            result.ReaimSynodicSeconds = result.IsReaim
+                ? unit.ReaimSchedule.Value.SynodicPeriodSeconds
+                : double.NaN;
+            result.ReaimTargetBody = result.IsReaim ? unit.ReaimPlan.Value.TargetBody : null;
+
             ParsekLog.VerboseRateLimited("MissionPeriodicity", "missions-ui-solve",
                 $"Missions UI: mission='{mission.Name}' tree={tree.Id} " +
                 $"support={solution.Support} P={solution.P.ToString("R", System.Globalization.CultureInfo.InvariantCulture)} " +
@@ -1237,7 +1256,8 @@ namespace Parsek
                 periodicity.UnitBuilt,
                 periodicity.Solution.P,
                 periodicity.NextRelaunchUT,
-                periodicity.NowUT);
+                periodicity.NowUT,
+                periodicity.IsReaim);
 
             // Tint a live countdown amber when the best-effort window misses its physics tolerance
             // (over-constrained config - the user may want to re-trim), matching the design's
@@ -1314,10 +1334,22 @@ namespace Parsek
         /// </summary>
         internal static string BuildTMinusCellText(
             bool looping, bool solved, bool shouldPhaseLock, bool unitBuilt,
-            double p, double nextRelaunchUT, double nowUT)
+            double p, double nextRelaunchUT, double nowUT, bool isReaim = false)
         {
             if (!looping || !solved)
                 return "";
+            // Re-aim: the cross-parent transfer IS aligned to a synodic launch window, even though the
+            // faithful Solve reports it unsupported. Count down to the next window (NextRelaunchUT is the
+            // uniform synodic anchor + n*cadence).
+            if (isReaim && unitBuilt)
+            {
+                if (double.IsNaN(nextRelaunchUT))
+                    return "not aligned";   // defensive: re-aim with no resolvable window
+                double dr = nextRelaunchUT - nowUT;
+                if (dr < 0.0)
+                    dr = 0.0;
+                return "T- " + FormatCountdownCompact(dr);
+            }
             if (!shouldPhaseLock || !unitBuilt)
                 // Unsupported (cross-parent / rendezvous, the no-lock sentinel) or no live loop
                 // member maps to a unit: this mission is not on a faithful launch schedule.
@@ -1418,6 +1450,17 @@ namespace Parsek
             string period = FormatPeriodCompact(p);
             string basis = BuildPeriodBasisLabel(kind, bodyName);
             return string.IsNullOrEmpty(basis) ? period : period + " " + basis;
+        }
+
+        /// <summary>
+        /// The period-cell display for a RE-AIM interplanetary loop: the synodic relaunch cadence + a
+        /// "(&lt;target&gt; transfer)" basis, e.g. "~2.1y (Duna transfer)". Pure. A null/empty target
+        /// drops the basis suffix.
+        /// </summary>
+        internal static string BuildReaimPeriodCellDisplay(double synodicSeconds, string targetBody)
+        {
+            string period = FormatPeriodCompact(synodicSeconds);
+            return string.IsNullOrEmpty(targetBody) ? period : period + " (" + targetBody + " transfer)";
         }
 
         /// <summary>
@@ -1676,19 +1719,21 @@ namespace Parsek
             // dropped here (the value is a fixed physical period, not a user-typed value in a unit).
             // An unconstrained (continuous) or unsupported (not-aligned) config falls through to the
             // normal editable cell below. End any stale edit focus on this field first.
-            if (enabled && periodicity.IsPhaseLockedConstrained)
+            if (enabled && (periodicity.IsPhaseLockedConstrained || periodicity.IsReaim))
             {
                 if (loopPeriodFocusedMissionId == mission.Id)
                     loopPeriodFocusedMissionId = null;
-                // Zero-drift scheduled unit: the cadence is non-uniform, so show the representative
-                // interval + "varies" rather than the fixed Solution.P (which is the old fixed-cadence
-                // value, not what the schedule actually runs).
-                string locked = periodicity.IsScheduled
-                    ? BuildScheduledPeriodCellDisplay(
-                        periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
-                        periodicity.DominantBodyName)
-                    : BuildPeriodCellDisplay(
-                        periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
+                // Re-aim takes precedence: a cross-parent transfer relaunches on the (fixed) synodic
+                // cadence, shown read-only like a phase-locked period. Zero-drift scheduled units show a
+                // "varies" interval; otherwise the fixed faithful period P + basis.
+                string locked = periodicity.IsReaim
+                    ? BuildReaimPeriodCellDisplay(periodicity.ReaimSynodicSeconds, periodicity.ReaimTargetBody)
+                    : periodicity.IsScheduled
+                        ? BuildScheduledPeriodCellDisplay(
+                            periodicity.ScheduledTypicalIntervalSeconds, periodicity.DominantKind,
+                            periodicity.DominantBodyName)
+                        : BuildPeriodCellDisplay(
+                            periodicity.Solution.P, periodicity.DominantKind, periodicity.DominantBodyName);
                 GUI.enabled = false;
                 Color prevLocked = GUI.contentColor;
                 GUI.contentColor = LoopPeriodClampColor;

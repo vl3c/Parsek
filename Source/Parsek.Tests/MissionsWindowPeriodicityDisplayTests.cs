@@ -162,6 +162,39 @@ namespace Parsek.Tests
             Assert.Equal("~6h", BuildPeriodCellDisplay(6 * 3600, ConstraintKind.Rotation, null));
         }
 
+        [Fact]
+        public void BuildReaimPeriodCellDisplay_ShowsSynodicAndTargetTransfer()
+        {
+            // Re-aim period cell: the synodic cadence + a "(<target> transfer)" basis. The fixture pins
+            // the Earth calendar (365 d/y), so 2.1 years = 2.1 * 31536000 s reads "~2.1y".
+            double synodic = 2.1 * 365.0 * 86400.0;
+            Assert.Equal("~2.1y (Duna transfer)",
+                BuildReaimPeriodCellDisplay(synodic, "Duna"));
+            // No target -> just the period (no empty parens).
+            Assert.Equal("~2.1y", BuildReaimPeriodCellDisplay(synodic, null));
+        }
+
+        [Fact]
+        public void BuildTMinus_Reaim_ShowsCountdown_NotNotAligned()
+        {
+            // Re-aim is cross-parent (ShouldPhaseLock==false), which would normally read "not aligned",
+            // but a re-aim unit IS aligned to a synodic window: it must count down to the next relaunch.
+            double now = 1000.0;
+            double next = now + (2 * 3600 + 14 * 60 + 9);
+            Assert.Equal("T- 2h 14m", BuildTMinusCellText(
+                looping: true, solved: true, shouldPhaseLock: false, unitBuilt: true,
+                p: double.NaN, nextRelaunchUT: next, nowUT: now, isReaim: true));
+        }
+
+        [Fact]
+        public void BuildTMinus_Reaim_NoWindow_FallsBackToNotAligned()
+        {
+            // Defensive: a re-aim unit with no resolvable relaunch UT still reads "not aligned".
+            Assert.Equal("not aligned", BuildTMinusCellText(
+                looping: true, solved: true, shouldPhaseLock: false, unitBuilt: true,
+                p: double.NaN, nextRelaunchUT: double.NaN, nowUT: 1000.0, isReaim: true));
+        }
+
         // ===================== BuildTMinusCellText (the four states) =====================
 
         [Fact]
