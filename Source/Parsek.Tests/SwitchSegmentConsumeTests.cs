@@ -418,14 +418,20 @@ namespace Parsek.Tests
             string source = File.ReadAllText(flightPath);
 
             // The on-surface situations are captured into a local that is then
-            // threaded into the Evaluate call as targetIsOnSurface. Require all
-            // three situation arms so a dropped LANDED / SPLASHED arm fails here.
-            Assert.Matches(new Regex(
-                @"bool targetIsOnSurface\s*=\s*[\s\S]{0,200}?Vessel\.Situations\.PRELAUNCH" +
-                @"[\s\S]{0,120}?Vessel\.Situations\.LANDED" +
-                @"[\s\S]{0,120}?Vessel\.Situations\.SPLASHED;",
-                RegexOptions.Multiline),
-                source);
+            // threaded into the Evaluate call as targetIsOnSurface. Isolate the
+            // assignment expression (up to its terminating ';') and require all
+            // three situation arms inside it, order-independent so a benign
+            // reorder or an inline comment does not false-fail this gate while a
+            // genuinely dropped LANDED / SPLASHED arm still does.
+            var assignMatch = Regex.Match(source,
+                @"bool\s+targetIsOnSurface\s*=\s*(?<expr>[\s\S]*?);",
+                RegexOptions.Multiline);
+            Assert.True(assignMatch.Success,
+                "targetIsOnSurface assignment not found in ParsekFlight.cs");
+            string expr = assignMatch.Groups["expr"].Value;
+            Assert.Contains("Vessel.Situations.PRELAUNCH", expr);
+            Assert.Contains("Vessel.Situations.LANDED", expr);
+            Assert.Contains("Vessel.Situations.SPLASHED", expr);
             Assert.Matches(new Regex(
                 @"ConsumeDecision\.Evaluate\([\s\S]{0,600}?targetIsOnSurface\);",
                 RegexOptions.Multiline),
