@@ -465,6 +465,42 @@ namespace Parsek
                                 loiterCuts = cuts;
                             }
 
+                            // Launch-pad alignment (option 1, departure side). Snap the (now loiter-shifted)
+                            // launch to the launch body's recorded rotation phase so the body-fixed ascent
+                            // replays from the pad EXACTLY as recorded and feeds the recorded inertial parking
+                            // orbit + escape with no seam (the atmo-exit -> circular-orbit misalignment the
+                            // playtest flagged). Quantizes the cadence + the schedule's window spacing to the
+                            // same sidereal day so EVERY relaunch stays aligned, and moves the departure offset
+                            // by the same delta so the window-index <-> launch mapping the resolver uses is
+                            // preserved. Identity for a non-rotating launch body.
+                            double launchRotationPeriod = bodyInfo.RotationPeriod(plan.LaunchBody);
+                            ReaimWindowPlanner.PadAlignResult pad = ReaimWindowPlanner.PadAlignLaunch(
+                                phaseAnchorUT, effectiveCadence,
+                                sched.FirstDepartureUT, sched.SynodicPeriodSeconds,
+                                spanStartUT, launchRotationPeriod);
+                            if (pad.Applied)
+                            {
+                                phaseAnchorUT = pad.PhaseAnchorUT;
+                                effectiveCadence = pad.CadenceSeconds;
+                                effectiveOverlapCadence = effectiveCadence;
+                                sched.FirstDepartureUT = pad.FirstDepartureUT;
+                                sched.SynodicPeriodSeconds = pad.SynodicPeriodSeconds;
+                                sched.CadenceSeconds = pad.CadenceSeconds;
+                                reaimSchedule = sched; // re-store the pad-aligned schedule the resolver reads
+                                if (!SuppressLogging)
+                                {
+                                    var pic = CultureInfo.InvariantCulture;
+                                    ParsekLog.Info("Reaim",
+                                        $"MissionLoopUnit: mission='{mission.Name}' PAD-ALIGN launch to " +
+                                        $"{plan.LaunchBody} rotation: siderealDay={launchRotationPeriod.ToString("F1", pic)}s " +
+                                        $"launchShift={pad.DeltaSeconds.ToString("F1", pic)}s " +
+                                        $"phaseAnchor={phaseAnchorUT.ToString("R", pic)} " +
+                                        $"cadence={effectiveCadence.ToString("R", pic)} " +
+                                        $"(launch-recLaunch)/day=" +
+                                        $"{((phaseAnchorUT - spanStartUT) / launchRotationPeriod).ToString("F3", pic)}");
+                                }
+                            }
+
                             if (!SuppressLogging)
                             {
                                 var ric = CultureInfo.InvariantCulture;

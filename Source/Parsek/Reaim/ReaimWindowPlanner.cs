@@ -119,6 +119,84 @@ namespace Parsek.Reaim
             };
         }
 
+        /// <summary>Result of <see cref="PadAlignLaunch"/>: the launch-pad-aligned phase anchor, the
+        /// quantized relaunch cadence, and the matching adjusted window departure spacing.</summary>
+        internal struct PadAlignResult
+        {
+            public double PhaseAnchorUT;
+            public double CadenceSeconds;
+            public double FirstDepartureUT;
+            public double SynodicPeriodSeconds;
+            public double DeltaSeconds;   // how far the launch moved (diagnostic; |delta| <= half a day)
+            public bool Applied;
+        }
+
+        /// <summary>
+        /// Launch-pad alignment for a re-aim loop (the cross-parent fix for the recorded body-fixed ascent
+        /// not connecting to the recorded inertial parking orbit). The body-fixed ascent replays from the
+        /// pad, so its inertial track follows the launch body's rotation at the LIVE launch time. The
+        /// recorded parking orbit + escape are replayed at their recorded INERTIAL orientation. They only
+        /// connect when the launch body's rotation at the live launch matches the recorded launch, i.e.
+        /// when (livePhaseAnchorUT - recordedLaunchUT) is a whole number of the body's sidereal days.
+        ///
+        /// Re-aim schedules the launch off the synodic window, NOT the pad rotation, so generally they are
+        /// out of phase. This snaps the phase anchor to the nearest whole sidereal day (a sub-half-day
+        /// nudge, negligible inside a multi-year transfer window: the per-window Lambert re-solves to the
+        /// target's actual position regardless) so the ascent replays at the recorded rotation phase and
+        /// feeds the recorded parking orbit/escape exactly. The relaunch cadence + window departure spacing
+        /// are quantized to a whole sidereal day too, so EVERY relaunch stays pad-aligned (not just window
+        /// 0). The departure offset is moved by the SAME delta as the launch, so the window index <-> launch
+        /// mapping the resolver relies on stays intact.
+        ///
+        /// Pure (no Unity); <paramref name="launchBodyRotationPeriodSeconds"/> is the launch body's sidereal
+        /// rotation period (CelestialBody.rotationPeriod via IBodyInfo). Returns Applied=false (identity)
+        /// for a degenerate / non-rotating body so the caller falls back to the unaligned schedule.
+        /// </summary>
+        internal static PadAlignResult PadAlignLaunch(
+            double phaseAnchorUT, double cadenceSeconds,
+            double firstDepartureUT, double synodicPeriodSeconds,
+            double spanStartUT, double launchBodyRotationPeriodSeconds)
+        {
+            var r = new PadAlignResult
+            {
+                PhaseAnchorUT = phaseAnchorUT,
+                CadenceSeconds = cadenceSeconds,
+                FirstDepartureUT = firstDepartureUT,
+                SynodicPeriodSeconds = synodicPeriodSeconds,
+                DeltaSeconds = 0.0,
+                Applied = false
+            };
+
+            double day = launchBodyRotationPeriodSeconds;
+            if (double.IsNaN(day) || double.IsInfinity(day) || day <= 0.0
+                || double.IsNaN(phaseAnchorUT) || double.IsNaN(spanStartUT)
+                || double.IsNaN(cadenceSeconds) || double.IsNaN(synodicPeriodSeconds))
+                return r; // non-rotating / degenerate => keep the unaligned schedule
+
+            // Snap the live launch to the nearest whole sidereal day from the recorded launch.
+            double offset = phaseAnchorUT - spanStartUT;
+            double snappedOffset = Math.Round(offset / day) * day;
+            double delta = snappedOffset - offset; // |delta| <= half a sidereal day
+
+            // Quantize the cadence + window spacing to a whole sidereal day so every relaunch is aligned.
+            // For interplanetary re-aim the cadence == synodic (synodic dwarfs the span), so both round to
+            // the same multiple and the window-index<->launch mapping stays 1:1.
+            double quantizedSynodic = Math.Round(synodicPeriodSeconds / day) * day;
+            if (quantizedSynodic <= 0.0)
+                quantizedSynodic = synodicPeriodSeconds; // guard: synodic shorter than a day (not a real re-aim case)
+            double quantizedCadence = Math.Round(cadenceSeconds / day) * day;
+            if (quantizedCadence <= 0.0)
+                quantizedCadence = cadenceSeconds;
+
+            r.PhaseAnchorUT = phaseAnchorUT + delta;
+            r.FirstDepartureUT = firstDepartureUT + delta; // departure tracks the launch (same delta)
+            r.SynodicPeriodSeconds = quantizedSynodic;
+            r.CadenceSeconds = quantizedCadence;
+            r.DeltaSeconds = delta;
+            r.Applied = true;
+            return r;
+        }
+
         internal static string Describe(ReaimWindowSchedule s)
         {
             var ic = CultureInfo.InvariantCulture;

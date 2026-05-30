@@ -259,6 +259,24 @@ This is where re-aim earns its complexity; the doc commits to v1 choices and fla
   and the same seam class the existing faithful landing-handoff already tolerates - instead of a
   plane-change kink in low orbit. (Deferred polish: rotate the parking-orbit LAN to contain v_inf and
   re-time the ascent, erasing the seam entirely.)
+  - **IMPLEMENTED (2026-05-30, departure side, "pad-align the launch"):** the playtest showed the
+    biggest visual break was earlier than the SOI edge: the recorded body-fixed ASCENT did not connect
+    to the recorded inertial PARKING orbit (the "atmo exit -> circular orbit not aligned" report). Root
+    cause: the ascent replays from the pad (its inertial track follows the launch body's rotation at the
+    LIVE launch time), but the parking orbit + escape are replayed at their recorded INERTIAL
+    orientation; re-aim schedules the launch off the synodic window, NOT the pad rotation, so the launch
+    body has rotated between recorded and replay launch and they no longer meet. Fix:
+    `ReaimWindowPlanner.PadAlignLaunch` (pure, unit-tested) snaps the loiter-shifted phase anchor so
+    `(livePhaseAnchorUT - recordedLaunchUT)` is a whole number of the launch body's sidereal days, and
+    quantizes the relaunch cadence + window departure spacing to the same sidereal day so EVERY relaunch
+    stays aligned (the departure offset moves by the same delta, preserving the window-index<->launch
+    mapping). Wired in `MissionLoopUnitBuilder` right after the loiter-compression anchor shift, gated on
+    `IBodyInfo.RotationPeriod(launchBody) > 0`. The launch nudge is < half a sidereal day, absorbed by
+    the per-window Lambert re-solve (which always aims at the target's actual position). Result: the
+    whole Kerbin departure (ascent + parking + escape) now replays pixel-perfect as recorded; only the
+    heliocentric transfer is re-aimed. The remaining SOI-edge residual (recorded escape asymptote vs
+    re-aimed transfer direction) is the accepted small seam above. Arrival-side capture rotation +
+    the orbit-line blink fix are tracked separately.
   - **Phase 3 implementation note (review #4):** the classifier surfaces only the parking orbit's
     KEPLER elements (an `OrbitSegment`), not a state vector. Recover the SOI-exit state by sampling
     that `ParkingOrbit` segment at its `endUT` (Kepler->state is deterministic via `Orbit`); verify

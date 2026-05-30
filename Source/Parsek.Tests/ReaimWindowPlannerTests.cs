@@ -96,5 +96,83 @@ namespace Parsek.Tests
             Assert.True(s.Valid, s.Reason);
             Assert.Equal(s.SynodicPeriodSeconds, s.CadenceSeconds, 3);
         }
+
+        // ------------------------------------------------------------------
+        // PadAlignLaunch: launch-pad alignment for the cross-parent ascent->parking seam fix.
+        // ------------------------------------------------------------------
+
+        private const double KerbinSiderealDay = 21549.425; // stock Kerbin rotation period (s)
+
+        [Fact]
+        public void PadAlignLaunch_SnapsLaunchToWholeSiderealDay()
+        {
+            // recordedLaunch (spanStart) = 1000; an arbitrary live anchor 0.6 days off a whole day.
+            double recordedLaunch = 1000.0;
+            double phaseAnchor = recordedLaunch + 4175.6 * KerbinSiderealDay; // 0.6-day misaligned
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                phaseAnchor, 19_645_697.0, phaseAnchor + 50_000.0, 19_645_697.0,
+                recordedLaunch, KerbinSiderealDay);
+
+            Assert.True(r.Applied);
+            // (alignedLaunch - recordedLaunch) is now a whole number of sidereal days.
+            double daysAfter = (r.PhaseAnchorUT - recordedLaunch) / KerbinSiderealDay;
+            Assert.Equal(System.Math.Round(daysAfter), daysAfter, 6);
+            // The nudge is at most half a sidereal day.
+            Assert.True(System.Math.Abs(r.DeltaSeconds) <= KerbinSiderealDay / 2.0 + 1e-6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_QuantizesCadenceAndSpacingToWholeDay()
+        {
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                500_000.0, 19_645_697.0, 600_000.0, 19_645_697.0, 1000.0, KerbinSiderealDay);
+
+            Assert.True(r.Applied);
+            double cadenceDays = r.CadenceSeconds / KerbinSiderealDay;
+            double synodicDays = r.SynodicPeriodSeconds / KerbinSiderealDay;
+            Assert.Equal(System.Math.Round(cadenceDays), cadenceDays, 6);
+            Assert.Equal(System.Math.Round(synodicDays), synodicDays, 6);
+            // Quantized within half a day of the original synodic.
+            Assert.True(System.Math.Abs(r.SynodicPeriodSeconds - 19_645_697.0) <= KerbinSiderealDay / 2.0 + 1e-6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_DepartureMovesBySameDeltaAsLaunch()
+        {
+            double phaseAnchor = 500_000.0, firstDeparture = 600_000.0;
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                phaseAnchor, 19_645_697.0, firstDeparture, 19_645_697.0, 1000.0, KerbinSiderealDay);
+
+            // The whole timeline shifts by one delta: launch and departure move together so the
+            // window-index <-> launch mapping stays intact.
+            Assert.Equal(r.PhaseAnchorUT - phaseAnchor, r.FirstDepartureUT - firstDeparture, 6);
+            Assert.Equal(r.DeltaSeconds, r.PhaseAnchorUT - phaseAnchor, 6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_NonRotatingBody_Identity()
+        {
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                500_000.0, 19_645_697.0, 600_000.0, 19_645_697.0, 1000.0, 0.0);
+
+            Assert.False(r.Applied);
+            Assert.Equal(500_000.0, r.PhaseAnchorUT, 6);
+            Assert.Equal(19_645_697.0, r.CadenceSeconds, 6);
+            Assert.Equal(600_000.0, r.FirstDepartureUT, 6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_AlreadyAligned_ZeroDelta()
+        {
+            double recordedLaunch = 1000.0;
+            double phaseAnchor = recordedLaunch + 4176.0 * KerbinSiderealDay; // exact whole-day offset
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                phaseAnchor, 19_645_697.0, phaseAnchor + 50_000.0, 19_645_697.0,
+                recordedLaunch, KerbinSiderealDay);
+
+            Assert.True(r.Applied);
+            Assert.Equal(0.0, r.DeltaSeconds, 3);
+            Assert.Equal(phaseAnchor, r.PhaseAnchorUT, 3);
+        }
     }
 }
