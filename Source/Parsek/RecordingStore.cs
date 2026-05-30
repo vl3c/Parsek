@@ -4604,6 +4604,7 @@ namespace Parsek
             second.TreeId = original.TreeId;
             second.VesselName = original.VesselName;
             second.VesselPersistentId = original.VesselPersistentId;
+            second.RecordedVesselGuid = original.RecordedVesselGuid; // same launch as the split source
             second.PreLaunchFunds = original.PreLaunchFunds;
             second.PreLaunchScience = original.PreLaunchScience;
             second.PreLaunchReputation = original.PreLaunchReputation;
