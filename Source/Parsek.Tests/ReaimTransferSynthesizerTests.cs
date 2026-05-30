@@ -54,5 +54,55 @@ namespace Parsek.Tests
             // falls back to the prograde default rather than throwing.
             Assert.False(ReaimTransferSynthesizer.IsRetrogradeTransfer(double.NaN));
         }
+
+        // ProjectOntoPlane flattens the target endpoint into the launch body's orbital plane to kill the
+        // near-180-degree Lambert plane singularity (which otherwise forced the departure search to step
+        // days off the synodic window and desynced the transfer perigee from live Kerbin).
+        [Fact]
+        public void ProjectOntoPlane_RemovesNormalComponent()
+        {
+            // Normal along +z: projecting (3, 4, 5) drops the z component, keeping (3, 4, 0).
+            var normal = new Vector3d(0, 0, 2); // length need not be 1
+            var v = new Vector3d(3, 4, 5);
+            var projected = ReaimTransferSynthesizer.ProjectOntoPlane(v, normal);
+            Assert.Equal(3.0, projected.x, 9);
+            Assert.Equal(4.0, projected.y, 9);
+            Assert.Equal(0.0, projected.z, 9);
+        }
+
+        [Fact]
+        public void ProjectOntoPlane_VectorAlreadyInPlane_Unchanged()
+        {
+            // A vector already orthogonal to the normal (in the plane) is returned unchanged: the launch
+            // endpoint r1 lies in the launch body's plane, so projecting it must be a no-op.
+            var normal = new Vector3d(0, 0, 1);
+            var v = new Vector3d(10, -7, 0);
+            var projected = ReaimTransferSynthesizer.ProjectOntoPlane(v, normal);
+            Assert.Equal(10.0, projected.x, 9);
+            Assert.Equal(-7.0, projected.y, 9);
+            Assert.Equal(0.0, projected.z, 9);
+        }
+
+        [Fact]
+        public void ProjectOntoPlane_ResultIsOrthogonalToNormal()
+        {
+            // For an arbitrary (non-axis-aligned) normal, the projection must be orthogonal to it.
+            var normal = new Vector3d(1, 2, 3);
+            var v = new Vector3d(-4, 5, 6);
+            var projected = ReaimTransferSynthesizer.ProjectOntoPlane(v, normal);
+            double dot = projected.x * normal.x + projected.y * normal.y + projected.z * normal.z;
+            Assert.Equal(0.0, dot, 6);
+        }
+
+        [Fact]
+        public void ProjectOntoPlane_DegenerateNormal_ReturnsInput()
+        {
+            // A zero-length normal (degenerate launch geometry) must not divide by zero; return v as-is.
+            var v = new Vector3d(1, 2, 3);
+            var projected = ReaimTransferSynthesizer.ProjectOntoPlane(v, Vector3d.zero);
+            Assert.Equal(v.x, projected.x, 9);
+            Assert.Equal(v.y, projected.y, 9);
+            Assert.Equal(v.z, projected.z, 9);
+        }
     }
 }

@@ -30,6 +30,21 @@ namespace Parsek.Reaim
         }
 
         /// <summary>
+        /// Projects <paramref name="v"/> onto the plane through the origin whose normal is
+        /// <paramref name="planeNormal"/> (subtracts the component of v along the normal). Returns v
+        /// unchanged when the normal is degenerate (zero-length / NaN). Pure; used to flatten the target
+        /// endpoint into the launch body's orbital plane so the near-180-degree Lambert plane singularity
+        /// cannot flip the transfer onto a wild-inclination / retrograde branch.
+        /// </summary>
+        internal static Vector3d ProjectOntoPlane(Vector3d v, Vector3d planeNormal)
+        {
+            double n2 = planeNormal.sqrMagnitude;
+            if (n2 <= 0.0 || double.IsNaN(n2))
+                return v;
+            return v - (Vector3d.Dot(v, planeNormal) / n2) * planeNormal;
+        }
+
+        /// <summary>
         /// True when a synthesized transfer is RETROGRADE relative to the parent's reference plane
         /// (inclination &gt; 90 deg). A transfer between two prograde planets must be prograde; a
         /// retrograde solution (inclination ~180 deg) connects the endpoints but travels the wrong way and
@@ -97,6 +112,24 @@ namespace Parsek.Reaim
             // silently corrupt the orbit. (Verified correct in-game by the C2 canary.)
             Vector3d r1 = launchBody.orbit.getRelativePositionAtUT(departureUT).xzy;
             Vector3d r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy;
+
+            // Constrain the transfer to the LAUNCH body's orbital plane (the reference / ecliptic plane in
+            // stock KSP) to resolve the near-180-degree Lambert plane singularity. At a Hohmann (~180 deg)
+            // transfer angle the plane normal from r1 x r2 is ill-conditioned: the solver flips between a
+            // wild-inclination and a retrograde branch, which forced the caller's localized departure
+            // search to step DAYS away from the synodic window to find a sane prograde transfer. That step
+            // then desynced the rendered transfer's perigee from where the launch body actually is when the
+            // loop replays the departure (the "heliocentric transfer far from Kerbin" regression). Both the
+            // launch body and the target orbit nearly in this plane, so projecting the TARGET endpoint onto
+            // it (the launch endpoint r1 already lies in it) removes only the target's small out-of-plane
+            // offset (much less than its SOI) and yields a stable, prograde, near-coplanar transfer that
+            // departs the launch body's EXACT position at the nominal synodic departure and still reaches
+            // the target. The plane normal r1 x v_launch lies along the reference normal (the swizzled z
+            // axis), so the Lambert prograde/retrograde branch is now well-determined instead of riding the
+            // tiny out-of-plane component of r1 x r2.
+            Vector3d launchPlaneNormal = Vector3d.Cross(
+                r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
+            r2 = ProjectOntoPlane(r2, launchPlaneNormal);
 
             if (!UvLambert.Solve(mu, r1, r2, tofSeconds, prograde, out Vector3d v1, out _))
             {
