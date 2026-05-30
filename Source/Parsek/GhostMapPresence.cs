@@ -7574,15 +7574,17 @@ namespace Parsek
             string context,
             bool loopMemberInWindow = false)
         {
-            // TS-startup wrapper is not loop-aware (no loop epoch shift in scope here).
-            // Pass acceptTerminalOrbitForLoopSynthesis: false explicitly per plan section 1.4: a
-            // no-segment terminal-orbit synthesis at raw recorded UTs would seed at the wrong
-            // position (the PR #967 class). The proto-vessel for a no-segment loop member
-            // comes up on the first loop-aware refresh tick after TS entry (within
-            // LifecycleCheckIntervalSec), not at startup.
-            // loopMemberInWindow (passed true only by the loop-aware lifecycle create pass)
-            // lets a looped member draw its map ghost alongside a persisted real terminal
-            // vessel; false on the startup / pure-predicate paths keeps them unchanged.
+            // Both create callers (the per-frame lifecycle pass AND the one-shot startup create)
+            // now sample at the loop-mapped effUT and pass loopMemberInWindow, so for an in-window
+            // loop member the resolver's currentUT < EndUT gate returns before-terminal-orbit and
+            // never reaches a terminal-orbit branch. acceptTerminalOrbitForLoopSynthesis stays false
+            // for BOTH create paths per plan section 1.4: a no-segment terminal-orbit synthesis at
+            // a raw recorded UT would seed at the wrong position (the PR #967 class), and a
+            // no-segment loop member's proto-vessel instead comes up on a later loop-aware refresh
+            // tick (the refresh path is the one that opts into the synthesis when it is safe).
+            // loopMemberInWindow (true whenever effUT != live currentUT) lets a looped member draw
+            // its map ghost alongside a persisted real terminal vessel; false on the pure-predicate
+            // wrapper keeps it unchanged.
             TrackingStationGhostSource source = ResolveMapPresenceGhostSource(
                 rec,
                 isSuppressed,
@@ -7642,6 +7644,47 @@ namespace Parsek
         /// already-started child recording. Skips debris, non-orbital terminal states, and
         /// recordings without orbital data at the current UT.
         /// </summary>
+        /// <summary>
+        /// Build the Mission <see cref="GhostPlaybackLogic.LoopUnitSet"/> for the Tracking Station
+        /// one-shot startup create path (<see cref="CreateGhostVesselsFromCommittedRecordings"/>).
+        /// That path runs before the addon's per-frame <c>ParsekTrackingStation.DriveMissionLoopUnits</c>
+        /// has populated its cached set (the <c>SpaceTracking.Awake</c> precreate runs before
+        /// <c>ParsekTrackingStation.Start</c>), and the Harmony precreate is a static method with no
+        /// addon instance to read a cached set from, so the set must be built here. Mirrors the exact
+        /// builder inputs of <c>DriveMissionLoopUnits</c> (auto-loop interval, live-body phase-lock seam,
+        /// transited-body rotation mode) so startup and the per-frame lifecycle phase-lock identically.
+        /// Returns <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when there are no looping missions;
+        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/> is then a no-op (effUT == liveUT,
+        /// renderHidden false) and the startup create is byte-identical to its pre-loop-aware behavior.
+        /// </summary>
+        internal static GhostPlaybackLogic.LoopUnitSet BuildStartupTrackingStationLoopUnits(
+            IReadOnlyList<Recording> committed)
+        {
+            // No missions => no loop units (MissionLoopUnitBuilder.Build would return Empty anyway).
+            // Early-out before touching settings / the live-body seam so the common no-loop case is a
+            // pure no-op and the result is byte-identical to the pre-loop-aware startup create.
+            IReadOnlyList<Mission> missions = MissionStore.Missions;
+            if (missions == null || missions.Count == 0)
+                return GhostPlaybackLogic.LoopUnitSet.Empty;
+
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): the same live-body seam the flight engine + KSC use.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            // Pass the resolved mode explicitly: MissionLoopUnitBuilder.Build defaults to Tight, but the
+            // running setting (Loose default) is what every per-frame pass uses, so do not rely on the
+            // builder's parameter default here.
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
+            return MissionLoopUnitBuilder.Build(
+                missions,
+                RecordingStore.CommittedTrees,
+                committed,
+                autoLoopIntervalSeconds,
+                bodyInfo,
+                tbrMode);
+        }
+
         internal static int CreateGhostVesselsFromCommittedRecordings()
         {
             var committed = RecordingStore.CommittedRecordings;
@@ -7658,16 +7701,41 @@ namespace Parsek
             CachedTrackingStationSuppressedIds = suppressed;
             GhostPlaybackLogic.InvalidateVesselCache();
 
+            // Loop-aware startup: substitute the shared Mission span-clock loopUT (effUT) for the raw
+            // live UT per loop-unit member, exactly like the per-frame UpdateTrackingStationGhostLifecycle
+            // create pass. Without this a looped member is sampled at the raw live UT (far past its
+            // recorded window), so the source resolver misclassifies it as "at its terminal" and seeds the
+            // historical, unshifted terminal orbit (EndpointTail) off-position for ~one tick before the
+            // first lifecycle pass corrects it (deferred item C / TS-entry wrong-position icon flash).
+            // Built here because both startup call sites (ParsekTrackingStation.Start and the
+            // SpaceTracking.Awake precreate) run before the addon's per-frame DriveMissionLoopUnits.
+            GhostPlaybackLogic.LoopUnitSet loopUnits = BuildStartupTrackingStationLoopUnits(committed);
+
             int created = 0, skippedDebris = 0, skippedSuppressed = 0, skippedSpawned = 0;
             int skippedTerminal = 0, skippedBeforeActivation = 0;
             int skippedBeforeTerminalOrbit = 0, skippedNoOrbit = 0;
             int skippedEndpointConflict = 0, skippedUnseedableTerminalOrbit = 0;
+            int loopMemberHidden = 0;
             int sourceVisibleSegment = 0, sourceTerminalOrbit = 0, sourceEndpointTail = 0, sourceStateVector = 0;
             var sourceBatch = new TrackingStationGhostSourceBatch("tracking-station-startup");
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
+
+                // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
+                // committed index is a loop-unit member. Inert (effUT == currentUT, renderHidden false)
+                // for every non-member and when loopUnits is Empty. A member outside its loop window this
+                // cycle is skipped (no ghost created); the first lifecycle tick after TS entry creates /
+                // removes it as its window dictates.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i, rec.StartUT, rec.EndUT, currentUT, loopUnits, out bool renderHidden);
+                if (renderHidden)
+                {
+                    loopMemberHidden++;
+                    continue;
+                }
+
                 bool isSuppressed = suppressed.Contains(rec.RecordingId);
                 bool realVesselExists = rec.VesselPersistentId != 0
                     && GhostPlaybackLogic.RealVesselExistsForRecording(rec);
@@ -7679,14 +7747,17 @@ namespace Parsek
                     rec,
                     isSuppressed,
                     realVesselExists,
-                    currentUT,
+                    effUT,
                     ref cachedStateVectorIndex,
                     out OrbitSegment segment,
                     out TrajectoryPoint stateVectorPoint,
                     out string skipReason,
                     sourceBatch,
                     i,
-                    "tracking-station-startup");
+                    "tracking-station-startup",
+                    // Loop member replaying in its window (effUT != live currentUT): allow the map ghost
+                    // to be created alongside any persisted real terminal vessel, matching the lifecycle pass.
+                    loopMemberInWindow: (currentUT - effUT) != 0.0);
                 trackingStationStateVectorCachedIndices[i] = cachedStateVectorIndex;
                 if (source == TrackingStationGhostSource.None)
                 {
@@ -7711,13 +7782,19 @@ namespace Parsek
                 else if (IsStateVectorGhostSource(source))
                     sourceStateVector++;
 
+                // Loop-shift the orbit + body-frame cache at create-time (effUT seed + tsLoopEpochShift)
+                // so the orbit-line and arc-clip patches see correctly-shifted bounds on the very first
+                // frame, matching the lifecycle create pass. Zero shift for non-loop members (effUT ==
+                // currentUT), so their seed is byte-identical to before.
+                double tsLoopEpochShift = currentUT - effUT;
                 Vessel v = CreateGhostVesselFromSource(
                     i,
                     rec,
                     source,
                     segment,
                     stateVectorPoint,
-                    currentUT);
+                    effUT,
+                    loopEpochShiftSeconds: tsLoopEpochShift);
 
                 if (v != null)
                 {
@@ -7738,12 +7815,13 @@ namespace Parsek
                     "CreateGhostVesselsFromCommittedRecordings: created={0} from {1} recordings " +
                     "sources(visibleSegment={2} terminalOrbit={3} endpointTail={4} stateVector={5}) " +
                     "(skipped: debris={6} suppressed={7} spawned={8} terminal={9} beforeActivation={10} " +
-                    "beforeTerminalOrbit={11} noOrbit={12} endpointConflict={13} terminalUnseedable={14})",
+                    "beforeTerminalOrbit={11} noOrbit={12} endpointConflict={13} terminalUnseedable={14} " +
+                    "loopMemberHidden={15})",
                     created, committed.Count,
                     sourceVisibleSegment, sourceTerminalOrbit, sourceEndpointTail, sourceStateVector,
                     skippedDebris, skippedSuppressed, skippedSpawned, skippedTerminal,
                     skippedBeforeActivation, skippedBeforeTerminalOrbit, skippedNoOrbit,
-                    skippedEndpointConflict, skippedUnseedableTerminalOrbit));
+                    skippedEndpointConflict, skippedUnseedableTerminalOrbit, loopMemberHidden));
 
             sourceBatch.Log(
                 "CreateGhostVesselsFromCommittedRecordings",
