@@ -665,17 +665,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void SubstituteReaimedCoveringSegment_FaithfulMember_ReturnsRecordedSegmentUnchanged()
+        public void TryResolveReaimedCoveringSegment_FaithfulMember_ReturnsTrueWithRecordedSegment()
         {
             var recorded = new List<OrbitSegment> { HelioSeg() };
             OrbitSegment input = recorded[0];
 
             // Empty loop-unit set => effective is reference-identical to recorded => the helper must
-            // return the caller's recorded segment verbatim (the flight create path stays unchanged for
-            // every non-re-aim member).
-            OrbitSegment result = GhostMapPresence.SubstituteReaimedCoveringSegment(
-                0, "rec-x", recorded, 5000.0, 1500.0, GhostPlaybackLogic.LoopUnitSet.Empty, input);
+            // return TRUE (create the ghost) with the caller's recorded segment verbatim (the flight
+            // create path stays unchanged for every non-re-aim member).
+            bool ok = GhostMapPresence.TryResolveReaimedCoveringSegment(
+                0, "rec-x", recorded, 5000.0, 1500.0, GhostPlaybackLogic.LoopUnitSet.Empty,
+                input, out OrbitSegment result);
 
+            Assert.True(ok);
             Assert.Equal(input.semiMajorAxis, result.semiMajorAxis, 6);
             Assert.Equal(input.bodyName, result.bodyName);
             Assert.Equal(input.startUT, result.startUT, 6);

@@ -1409,11 +1409,16 @@ namespace Parsek
 
                     // Re-aim: swap the recorded covering segment for the re-aimed one at create time so
                     // the orbit line is aimed at the target's CURRENT position from the first frame the
-                    // ghost re-enters its window (no recorded-transfer flash before the refresh corrects
-                    // it). No-op for non-re-aim members / faithful windows.
-                    if (source == TrackingStationGhostSource.Segment)
-                        segment = GhostMapPresence.SubstituteReaimedCoveringSegment(
-                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits, segment);
+                    // ghost re-enters its window. A re-aim owner in a TRIM GAP (between a recorded
+                    // body-relative leg and the trimmed interplanetary transfer) has no covering re-aimed
+                    // segment: skip the create entirely (keep the member pending / hidden) rather than
+                    // fall back to a recorded sub-segment, which re-created the ghost at a random orbit
+                    // position every frame while the refresh removed it (the SOI-boundary icon flicker).
+                    if (source == TrackingStationGhostSource.Segment
+                        && !GhostMapPresence.TryResolveReaimedCoveringSegment(
+                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits,
+                            segment, out segment))
+                        continue;
 
                     if (source == TrackingStationGhostSource.Segment
                         || GhostMapPresence.IsStateVectorGhostSource(source)

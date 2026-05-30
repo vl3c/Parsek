@@ -5776,22 +5776,37 @@ namespace Parsek
 
         // Re-aim covering-segment substitution for the FLIGHT create paths: when a Segment-source map
         // ghost is about to be created for a re-aim owner, swap the recorded covering segment for the
-        // re-aimed one (same recorded-span UT bounds, transfer elements aimed at the target's CURRENT
-        // position). No-ops (returns <paramref name="recordedSegment"/> unchanged) for non-re-aim
-        // members and faithful windows, where the effective list is reference-identical to the recorded
-        // one. <paramref name="liveCurrentUT"/> maps the synodic window; <paramref name="sampleUT"/> is
-        // the recorded-span effUT the covering segment is searched at.
-        internal static OrbitSegment SubstituteReaimedCoveringSegment(
+        // re-aimed one (transfer elements aimed at the target's CURRENT position, trimmed to the
+        // interplanetary span). Returns FALSE (and the caller must NOT create the ghost) when the member
+        // is a re-aim owner whose re-aimed list has NO covering segment at <paramref name="sampleUT"/> -
+        // a TRIM GAP between a recorded body-relative leg (escape / capture) and the trimmed transfer, or
+        // a window the resolver declined. Falling back to the recorded segment there (the old behavior)
+        // re-created the ghost from the recorded sub-segments at random orbit positions while the
+        // per-frame refresh kept removing it (the create/destroy icon flicker at the SOI boundaries).
+        // Returns TRUE with the caller's recorded segment unchanged for a non-re-aim member / faithful
+        // window (effective list reference-identical to the recorded one). <paramref name="liveCurrentUT"/>
+        // maps the synodic window; <paramref name="sampleUT"/> is the recorded-span effUT searched at.
+        internal static bool TryResolveReaimedCoveringSegment(
             int committedIndex, string recordingId, List<OrbitSegment> recorded,
             double liveCurrentUT, double sampleUT,
-            GhostPlaybackLogic.LoopUnitSet loopUnits, OrbitSegment recordedSegment)
+            GhostPlaybackLogic.LoopUnitSet loopUnits, OrbitSegment recordedSegment,
+            out OrbitSegment segment)
         {
             List<OrbitSegment> effective = ResolveEffectiveMapOrbitSegments(
                 committedIndex, recordingId, recorded, liveCurrentUT, loopUnits);
             if (effective == null || ReferenceEquals(effective, recorded))
-                return recordedSegment; // non-re-aim / faithful window
+            {
+                segment = recordedSegment; // non-re-aim / faithful window: keep the recorded segment
+                return true;
+            }
             OrbitSegment? coveringReaimed = TrajectoryMath.FindOrbitSegmentForMapDisplay(effective, sampleUT);
-            return coveringReaimed ?? recordedSegment;
+            if (coveringReaimed.HasValue)
+            {
+                segment = coveringReaimed.Value;
+                return true;
+            }
+            segment = recordedSegment;
+            return false; // re-aim owner in a trim gap -> caller keeps the ghost hidden (no create)
         }
 
         // Diagnostic: log whether the map got the RE-AIMED or RECORDED segments, plus the heliocentric
