@@ -384,7 +384,7 @@ namespace Parsek.Tests
                 "Guard should NOT detect pid=99999 as spawned");
         }
 
-        // ── ActiveVesselIsParsekSpawned — F2 whole-swap-skip guard, guid-aware ──
+        // --- ActiveVesselIsParsekSpawned - F2 whole-swap-skip guard, guid-aware ---
 
         private const string GuidA = "2b6e6a60d2c947489753371317fa067e";
         private const string GuidB = "a424011b746440baae6030e225c9de31";

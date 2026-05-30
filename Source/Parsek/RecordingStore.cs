@@ -1541,7 +1541,7 @@ namespace Parsek
 
             // #976-class: an adoption-stamped prior carries SpawnedVesselPersistentId == its
             // craft-baked VesselPersistentId, which a relaunch of the same craft reuses as its own
-            // VesselPersistentId — so a bare pid match would mark an unrelated later launch as
+            // VesselPersistentId, so a bare pid match would mark an unrelated later launch as
             // superseding this prior's terminal spawn. Guid-disambiguate only the adoption-stamp
             // case (real spawns use a KSP-unique spawn pid that cannot collide). A relaunch then
             // falls through to the name+UT-contiguity branch below, which rejects it (the relaunch's

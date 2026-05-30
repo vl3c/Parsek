@@ -109,7 +109,7 @@ namespace Parsek
                 // intermediate link (suppressing its spawn). Keep only the links of the LATEST launch
                 // (the launch of the last/tip-most link); a conclusive guid mismatch drops the stale
                 // launch's links, which then simply spawn normally instead of being suppressed. When
-                // all links share a launch (or the guid is unknown) nothing is dropped — unchanged.
+                // all links share a launch (or the guid is unknown) nothing is dropped (unchanged).
                 string launchGuid = links[links.Count - 1].recordedVesselGuid;
                 int droppedStaleLaunchLinks = links.RemoveAll(
                     l => VesselLaunchIdentity.GuidsConclusivelyDiffer(l.recordedVesselGuid, launchGuid));

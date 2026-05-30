@@ -3,7 +3,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Tests for <see cref="Parsek.VesselLaunchIdentity"/> — the launch-unique-Guid
+    /// Tests for <see cref="Parsek.VesselLaunchIdentity"/> - the launch-unique-Guid
     /// disambiguator that distinguishes two launches of the same craft (which KSP gives
     /// the same baked persistentId) by their per-launch Vessel.id Guid.
     ///
@@ -19,7 +19,7 @@ namespace Parsek.Tests
         private static Recording Rec(uint pid, string guid) =>
             new Recording { VesselPersistentId = pid, RecordedVesselGuid = guid };
 
-        // ── NormalizeGuid ──────────────────────────────────────────
+        // -- NormalizeGuid ------------------------------------------
 
         [Theory]
         [InlineData(null)]
@@ -49,7 +49,7 @@ namespace Parsek.Tests
             Assert.Equal("not-a-guid", VesselLaunchIdentity.NormalizeGuid("  not-a-guid  "));
         }
 
-        // ── GuidsConclusivelyDiffer ────────────────────────────────
+        // -- GuidsConclusivelyDiffer --------------------------------
 
         [Fact]
         public void GuidsConclusivelyDiffer_TwoKnownDifferent_True()
@@ -71,11 +71,11 @@ namespace Parsek.Tests
         [InlineData(null, null)]
         public void GuidsConclusivelyDiffer_EitherUnknown_False(string a, string b)
         {
-            // Unknown on either side is never conclusive — preserves pid-only fallback.
+            // Unknown on either side is never conclusive - preserves pid-only fallback.
             Assert.False(VesselLaunchIdentity.GuidsConclusivelyDiffer(a, b));
         }
 
-        // ── LiveVesselIsRecordedLaunch ─────────────────────────────
+        // -- LiveVesselIsRecordedLaunch -----------------------------
 
         [Fact]
         public void LiveVesselIsRecordedLaunch_PidAndGuidMatch_True()
@@ -86,7 +86,7 @@ namespace Parsek.Tests
         [Fact]
         public void LiveVesselIsRecordedLaunch_PidMatchGuidMismatch_False()
         {
-            // The core relaunch case: same baked pid, different launch guid → not the same launch.
+            // The core relaunch case: same baked pid, different launch guid -> not the same launch.
             Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedLaunch(Rec(Pid, GuidA), Pid, GuidB));
         }
 
@@ -122,7 +122,7 @@ namespace Parsek.Tests
             Assert.False(VesselLaunchIdentity.LiveVesselIsRecordedLaunch(null, Pid, GuidA));
         }
 
-        // ── RecordingsShareLaunch ──────────────────────────────────
+        // -- RecordingsShareLaunch ----------------------------------
 
         [Fact]
         public void RecordingsShareLaunch_SamePidSameGuid_True()
@@ -134,7 +134,7 @@ namespace Parsek.Tests
         [Fact]
         public void RecordingsShareLaunch_SamePidDifferentGuid_False()
         {
-            // Two launches of the same craft: same baked pid, different launch guids → distinct.
+            // Two launches of the same craft: same baked pid, different launch guids -> distinct.
             Assert.False(VesselLaunchIdentity.RecordingsShareLaunch(Rec(Pid, GuidA), Rec(Pid, GuidB)));
         }
 
@@ -159,7 +159,7 @@ namespace Parsek.Tests
             Assert.False(VesselLaunchIdentity.RecordingsShareLaunch(null, Rec(Pid, GuidA)));
         }
 
-        // ── TryReadVesselGuid ──────────────────────────────────────
+        // -- TryReadVesselGuid --------------------------------------
 
         [Fact]
         public void TryReadVesselGuid_SnapshotWithPid_ReturnsNormalizedGuid()

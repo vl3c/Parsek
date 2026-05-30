@@ -238,7 +238,7 @@ namespace Parsek
                 ParsekLog.Info("Spawner",
                     $"Adoption rejected: live vessel pid={sourcePid} is a different launch than recording " +
                     $"'{rec.RecordingId ?? rec.VesselName ?? "(unknown)"}' (recorded guid={rec.RecordedVesselGuid ?? "(none)"}, " +
-                    $"live guid={liveGuid ?? "(none)"}) — not adopting (relaunch of the same craft reuses the baked pid)");
+                    $"live guid={liveGuid ?? "(none)"}) - not adopting (relaunch of the same craft reuses the baked pid)");
             return sameLaunch;
         }
 

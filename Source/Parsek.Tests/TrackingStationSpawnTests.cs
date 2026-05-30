@@ -220,7 +220,7 @@ namespace Parsek.Tests
             Assert.False(alreadyMaterialized);
         }
 
-        // ── RealVesselExistsForRecording — F5b guid-aware TS materialization check ──
+        // --- RealVesselExistsForRecording - F5b guid-aware TS materialization check ---
 
         [Fact]
         public void RealVesselExistsForRecording_GuidMatch_True()
@@ -237,7 +237,7 @@ namespace Parsek.Tests
         public void RealVesselExistsForRecording_GuidMismatch_False_Relaunch()
         {
             // A relaunch of the same craft (same pid, different launch guid) must NOT make the
-            // prior recording look materialized — otherwise its TS ghost is wrongly suppressed.
+            // prior recording look materialized; otherwise its TS ghost is wrongly suppressed.
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
             rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
