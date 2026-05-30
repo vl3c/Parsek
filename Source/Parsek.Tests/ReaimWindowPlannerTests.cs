@@ -103,6 +103,10 @@ namespace Parsek.Tests
 
         private const double KerbinSiderealDay = 21549.425; // stock Kerbin rotation period (s)
 
+        // NaN floor = "no floor" for the snap tests that are not exercising the referenceUT guard.
+        private const double NoFloor = double.NaN;
+        private const double Synodic = 19_645_697.0;
+
         [Fact]
         public void PadAlignLaunch_SnapsLaunchToWholeSiderealDay()
         {
@@ -110,8 +114,8 @@ namespace Parsek.Tests
             double recordedLaunch = 1000.0;
             double phaseAnchor = recordedLaunch + 4175.6 * KerbinSiderealDay; // 0.6-day misaligned
             var r = ReaimWindowPlanner.PadAlignLaunch(
-                phaseAnchor, 19_645_697.0, phaseAnchor + 50_000.0, 19_645_697.0,
-                recordedLaunch, KerbinSiderealDay);
+                phaseAnchor, Synodic, phaseAnchor + 50_000.0, Synodic,
+                recordedLaunch, KerbinSiderealDay, NoFloor);
 
             Assert.True(r.Applied);
             // (alignedLaunch - recordedLaunch) is now a whole number of sidereal days.
@@ -125,7 +129,7 @@ namespace Parsek.Tests
         public void PadAlignLaunch_QuantizesCadenceAndSpacingToWholeDay()
         {
             var r = ReaimWindowPlanner.PadAlignLaunch(
-                500_000.0, 19_645_697.0, 600_000.0, 19_645_697.0, 1000.0, KerbinSiderealDay);
+                500_000.0, Synodic, 600_000.0, Synodic, 1000.0, KerbinSiderealDay, NoFloor);
 
             Assert.True(r.Applied);
             double cadenceDays = r.CadenceSeconds / KerbinSiderealDay;
@@ -133,7 +137,9 @@ namespace Parsek.Tests
             Assert.Equal(System.Math.Round(cadenceDays), cadenceDays, 6);
             Assert.Equal(System.Math.Round(synodicDays), synodicDays, 6);
             // Quantized within half a day of the original synodic.
-            Assert.True(System.Math.Abs(r.SynodicPeriodSeconds - 19_645_697.0) <= KerbinSiderealDay / 2.0 + 1e-6);
+            Assert.True(System.Math.Abs(r.SynodicPeriodSeconds - Synodic) <= KerbinSiderealDay / 2.0 + 1e-6);
+            // Cadence == synodic so the window-index <-> departure map stays 1:1.
+            Assert.Equal(r.SynodicPeriodSeconds, r.CadenceSeconds, 6);
         }
 
         [Fact]
@@ -141,7 +147,7 @@ namespace Parsek.Tests
         {
             double phaseAnchor = 500_000.0, firstDeparture = 600_000.0;
             var r = ReaimWindowPlanner.PadAlignLaunch(
-                phaseAnchor, 19_645_697.0, firstDeparture, 19_645_697.0, 1000.0, KerbinSiderealDay);
+                phaseAnchor, Synodic, firstDeparture, Synodic, 1000.0, KerbinSiderealDay, NoFloor);
 
             // The whole timeline shifts by one delta: launch and departure move together so the
             // window-index <-> launch mapping stays intact.
@@ -153,11 +159,11 @@ namespace Parsek.Tests
         public void PadAlignLaunch_NonRotatingBody_Identity()
         {
             var r = ReaimWindowPlanner.PadAlignLaunch(
-                500_000.0, 19_645_697.0, 600_000.0, 19_645_697.0, 1000.0, 0.0);
+                500_000.0, Synodic, 600_000.0, Synodic, 1000.0, 0.0, NoFloor);
 
             Assert.False(r.Applied);
             Assert.Equal(500_000.0, r.PhaseAnchorUT, 6);
-            Assert.Equal(19_645_697.0, r.CadenceSeconds, 6);
+            Assert.Equal(Synodic, r.CadenceSeconds, 6);
             Assert.Equal(600_000.0, r.FirstDepartureUT, 6);
         }
 
@@ -167,12 +173,64 @@ namespace Parsek.Tests
             double recordedLaunch = 1000.0;
             double phaseAnchor = recordedLaunch + 4176.0 * KerbinSiderealDay; // exact whole-day offset
             var r = ReaimWindowPlanner.PadAlignLaunch(
-                phaseAnchor, 19_645_697.0, phaseAnchor + 50_000.0, 19_645_697.0,
-                recordedLaunch, KerbinSiderealDay);
+                phaseAnchor, Synodic, phaseAnchor + 50_000.0, Synodic,
+                recordedLaunch, KerbinSiderealDay, NoFloor);
 
             Assert.True(r.Applied);
             Assert.Equal(0.0, r.DeltaSeconds, 3);
             Assert.Equal(phaseAnchor, r.PhaseAnchorUT, 3);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_CadenceDiffersFromSynodic_NotApplied()
+        {
+            // Case B (span >= synodic): cadence = span != synodic. Pad-align must NOT apply, because the
+            // resolver maps the window index off the cadence but the departure off the synodic spacing,
+            // and quantizing them independently would diverge. Keep the unaligned schedule unchanged.
+            double cadence = 25_000_000.0; // span-dominated cadence, != synodic
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                500_000.0, cadence, 600_000.0, Synodic, 1000.0, KerbinSiderealDay, NoFloor);
+
+            Assert.False(r.Applied);
+            Assert.Equal(500_000.0, r.PhaseAnchorUT, 6);
+            Assert.Equal(cadence, r.CadenceSeconds, 6);
+            Assert.Equal(Synodic, r.SynodicPeriodSeconds, 6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_FloorGuard_SnapsUpAboveFloor()
+        {
+            // A live anchor 0.3 days ABOVE a whole-day offset would round DOWN, but that down-snap lands
+            // below the floor, so the guard rounds UP one day instead and the result stays above it.
+            double recordedLaunch = 1000.0;
+            double phaseAnchor = recordedLaunch + 10.3 * KerbinSiderealDay;
+            double floor = recordedLaunch + 10.1 * KerbinSiderealDay; // between the down-snap (10) and the anchor
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                phaseAnchor, Synodic, phaseAnchor + 50_000.0, Synodic,
+                recordedLaunch, KerbinSiderealDay, floor);
+
+            Assert.True(r.Applied);
+            Assert.True(r.PhaseAnchorUT >= floor);
+            // Snapped UP to whole day 11 (not the nearest, 10), so still a whole-day offset.
+            double daysAfter = (r.PhaseAnchorUT - recordedLaunch) / KerbinSiderealDay;
+            Assert.Equal(System.Math.Round(daysAfter), daysAfter, 6);
+            Assert.Equal(11.0, daysAfter, 6);
+        }
+
+        [Fact]
+        public void PadAlignLaunch_RetrogradeBody_AlignsToRotationMagnitude()
+        {
+            // A retrograde launch body carries a negative rotation period in some representations; the
+            // ascent's inertial track still recurs every |rotationPeriod|, so align to the magnitude.
+            double recordedLaunch = 1000.0;
+            double phaseAnchor = recordedLaunch + 4175.6 * KerbinSiderealDay;
+            var r = ReaimWindowPlanner.PadAlignLaunch(
+                phaseAnchor, Synodic, phaseAnchor + 50_000.0, Synodic,
+                recordedLaunch, -KerbinSiderealDay, NoFloor);
+
+            Assert.True(r.Applied);
+            double daysAfter = (r.PhaseAnchorUT - recordedLaunch) / KerbinSiderealDay;
+            Assert.Equal(System.Math.Round(daysAfter), daysAfter, 6);
         }
     }
 }

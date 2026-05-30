@@ -477,7 +477,7 @@ namespace Parsek
                             ReaimWindowPlanner.PadAlignResult pad = ReaimWindowPlanner.PadAlignLaunch(
                                 phaseAnchorUT, effectiveCadence,
                                 sched.FirstDepartureUT, sched.SynodicPeriodSeconds,
-                                spanStartUT, launchRotationPeriod);
+                                spanStartUT, launchRotationPeriod, referenceUT);
                             if (pad.Applied)
                             {
                                 phaseAnchorUT = pad.PhaseAnchorUT;

@@ -149,13 +149,17 @@ namespace Parsek.Reaim
         /// mapping the resolver relies on stays intact.
         ///
         /// Pure (no Unity); <paramref name="launchBodyRotationPeriodSeconds"/> is the launch body's sidereal
-        /// rotation period (CelestialBody.rotationPeriod via IBodyInfo). Returns Applied=false (identity)
-        /// for a degenerate / non-rotating body so the caller falls back to the unaligned schedule.
+        /// rotation period (CelestialBody.rotationPeriod via IBodyInfo). <paramref name="notBeforeUT"/> is
+        /// the schedule floor (the loop-anchor / first-play UT Plan enforces): a down-snap that would cross
+        /// it rounds up a day instead (pass NaN to skip). Returns Applied=false (identity, unaligned
+        /// schedule) for a degenerate / non-rotating body OR when cadence != synodic (a mission longer than
+        /// its window, where the window-index<->departure mapping would otherwise diverge).
         /// </summary>
         internal static PadAlignResult PadAlignLaunch(
             double phaseAnchorUT, double cadenceSeconds,
             double firstDepartureUT, double synodicPeriodSeconds,
-            double spanStartUT, double launchBodyRotationPeriodSeconds)
+            double spanStartUT, double launchBodyRotationPeriodSeconds,
+            double notBeforeUT)
         {
             var r = new PadAlignResult
             {
@@ -167,31 +171,46 @@ namespace Parsek.Reaim
                 Applied = false
             };
 
-            double day = launchBodyRotationPeriodSeconds;
+            // Sidereal day. Math.Abs so a retrograde launch body (negative rotationPeriod in some
+            // representations) aligns to its rotation magnitude instead of silently no-op'ing - matching
+            // the faithful phase-lock path, which also negates a retrograde period.
+            double day = Math.Abs(launchBodyRotationPeriodSeconds);
             if (double.IsNaN(day) || double.IsInfinity(day) || day <= 0.0
                 || double.IsNaN(phaseAnchorUT) || double.IsNaN(spanStartUT)
                 || double.IsNaN(cadenceSeconds) || double.IsNaN(synodicPeriodSeconds))
                 return r; // non-rotating / degenerate => keep the unaligned schedule
 
+            // Window-index <-> departure consistency: the resolver derives the loop window index from the
+            // CADENCE clock but reads the transfer departure from SynodicPeriodSeconds, so the two MUST
+            // share one period. That holds only when cadence == synodic (the normal interplanetary case,
+            // where synodic dwarfs the span so cadence = max(span, synodic) = synodic). If they differ
+            // (span >= synodic, a mission longer than its own transfer window), pad-aligning would bake a
+            // divergent quantization into the schedule, so skip it and keep the unaligned schedule - that
+            // degenerate case then stays exactly as it was before pad-align (no NEW inconsistency).
+            if (Math.Abs(cadenceSeconds - synodicPeriodSeconds) > 1.0)
+                return r;
+
             // Snap the live launch to the nearest whole sidereal day from the recorded launch.
             double offset = phaseAnchorUT - spanStartUT;
             double snappedOffset = Math.Round(offset / day) * day;
-            double delta = snappedOffset - offset; // |delta| <= half a sidereal day
+            // Floor guard: never let the snap push the launch (and so the loop's first render) before
+            // notBeforeUT (the first-play / loop-anchor floor that Plan enforces on the window). A
+            // down-snap that would cross it rounds up one sidereal day instead.
+            if (!double.IsNaN(notBeforeUT) && spanStartUT + snappedOffset < notBeforeUT)
+                snappedOffset += day;
+            double delta = snappedOffset - offset; // |delta| <= half a day (<= 1.5 days when floor-bumped)
 
-            // Quantize the cadence + window spacing to a whole sidereal day so every relaunch is aligned.
-            // For interplanetary re-aim the cadence == synodic (synodic dwarfs the span), so both round to
-            // the same multiple and the window-index<->launch mapping stays 1:1.
+            // Quantize the window spacing to a whole sidereal day so every relaunch stays aligned, and set
+            // the cadence to the SAME value (guarded equal above) so the window-index<->departure map can
+            // never diverge.
             double quantizedSynodic = Math.Round(synodicPeriodSeconds / day) * day;
             if (quantizedSynodic <= 0.0)
                 quantizedSynodic = synodicPeriodSeconds; // guard: synodic shorter than a day (not a real re-aim case)
-            double quantizedCadence = Math.Round(cadenceSeconds / day) * day;
-            if (quantizedCadence <= 0.0)
-                quantizedCadence = cadenceSeconds;
 
             r.PhaseAnchorUT = phaseAnchorUT + delta;
             r.FirstDepartureUT = firstDepartureUT + delta; // departure tracks the launch (same delta)
             r.SynodicPeriodSeconds = quantizedSynodic;
-            r.CadenceSeconds = quantizedCadence;
+            r.CadenceSeconds = quantizedSynodic; // == cadence; kept identical so window-index<->departure stays 1:1
             r.DeltaSeconds = delta;
             r.Applied = true;
             return r;
