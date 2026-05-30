@@ -5729,9 +5729,34 @@ namespace Parsek
                     unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                     liveCurrentUT, out List<OrbitSegment> reaimed, out long _))
             {
+                LogMapEffectiveSegments(committedIndex, "RE-AIMED", reaimed, unit.ReaimPlan.Value.CommonAncestor);
                 return reaimed;
             }
+            LogMapEffectiveSegments(committedIndex, "RECORDED-resolver-miss", recorded, unit.ReaimPlan.Value.CommonAncestor);
             return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful
+        }
+
+        // Diagnostic: log whether the map got the RE-AIMED or RECORDED segments, plus the heliocentric
+        // (common-ancestor) leg's sma + count, so a map line still on the recorded transfer (wrong place in
+        // the target's orbit) is caught. The re-aimed list has ONE synthesized common-ancestor segment; the
+        // recorded list has the original (typically several). Verbose, rate-limited per member.
+        private static void LogMapEffectiveSegments(int idx, string kind, List<OrbitSegment> segs, string ancestor)
+        {
+            if (segs == null)
+                return;
+            int helioCount = 0;
+            double firstHelioSma = double.NaN;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                if (segs[i].bodyName == ancestor)
+                {
+                    if (helioCount == 0) firstHelioSma = segs[i].semiMajorAxis;
+                    helioCount++;
+                }
+            }
+            ParsekLog.VerboseRateLimited("ReaimSeam", "map-eff-" + idx.ToString(ic),
+                string.Format(ic, "map effective segments: {0} member={1} segs={2} helioSegs={3} firstHelioSma={4:F0}",
+                    kind, idx, segs.Count, helioCount, firstHelioSma), 2.0);
         }
 
         private static void RefreshTrackingStationGhosts(
@@ -6273,6 +6298,14 @@ namespace Parsek
                 return;
             ApplyOrbitToVessel(vessel, segment, string.Format(ic, "recording #{0}", recordingIndex),
                 loopEpochShiftSeconds);
+            // Diagnostic: which segment was actually applied to the map orbit (source + sma), and whether
+            // the re-aimed list was threaded. A re-aim transfer should apply the synthesized sma; a
+            // recorded sma here means the re-aimed segment was bypassed (e.g. a state-vector/checkpoint
+            // source winning over the re-aimed OrbitSegment).
+            ParsekLog.VerboseRateLimited("ReaimSeam", "map-apply-" + recordingIndex.ToString(ic),
+                string.Format(ic, "map orbit applied: rec={0} source={1} body={2} segSma={3:F0} hasEffective={4}",
+                    recordingIndex, source, segment.bodyName ?? "(null)", segment.semiMajorAxis,
+                    effectiveOrbitSegments != null), 2.0);
             lifecycleUpdatedThisTick++;
 
             // Cache body-frame bounds (consecutive same-body OrbitSegments around this
