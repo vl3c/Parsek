@@ -1096,6 +1096,33 @@ namespace Parsek.Display
                         set.legs[li] = leg;
                         anyDrawn = true;
                     }
+
+                    // Diagnostic (multi-leg / re-aim recordings): the head's position vs the leg windows,
+                    // so a non-orbital phase that should draw a polyline but does not (head in a gap
+                    // between legs, head stuck/frozen, or head past the last leg) is visible. Logs which
+                    // leg (if any) contains the head and the first/last leg spans. Rate-limited per rec.
+                    if (set.legs.Length > 1)
+                    {
+                        int activeLeg = -1;
+                        for (int li = 0; li < set.legs.Length; li++)
+                        {
+                            if (ShouldDrawLegAtHeadUT(set.legs[li].startUT, set.legs[li].endUT, headUT))
+                            {
+                                activeLeg = li;
+                                break;
+                            }
+                        }
+                        ParsekLog.VerboseRateLimited(DriverTag, "polyline.head." + rec.RecordingId,
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} " +
+                                "firstLeg=[{5:F1},{6:F1}] lastLeg=[{7:F1},{8:F1}] body0={9} bodyN={10}",
+                                rec.RecordingId, set.legs.Length, headUT, activeLeg, anyDrawn,
+                                set.legs[0].startUT, set.legs[0].endUT,
+                                set.legs[set.legs.Length - 1].startUT, set.legs[set.legs.Length - 1].endUT,
+                                set.legs[0].bodyName ?? "(null)", set.legs[set.legs.Length - 1].bodyName ?? "(null)"),
+                            2.0);
+                    }
+
                     if (anyDrawn)
                     {
                         frameDrawn++;
