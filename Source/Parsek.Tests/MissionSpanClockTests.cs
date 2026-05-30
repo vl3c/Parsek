@@ -269,6 +269,28 @@ namespace Parsek.Tests
             Assert.True(renderedPostCut); // the [700,900] post-cut portion rendered
         }
 
+        [Fact]
+        public void DecideUnitMemberRender_MemberWindowFullyInsideCut_NeverRenders()
+        {
+            // A member window [400,600] entirely INSIDE a cut [300,700] is fully excised: the remapped
+            // loopUT never enters (300,700), so the member never sees its window and is HiddenOutsideWindow
+            // across the whole cycle (it never renders, never errors). Safe fall-through, now pinned.
+            double spanStart = 100, spanEnd = 1100, cadence = 5000;
+            double memberStart = 400, memberEnd = 600; // inside the cut
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 300.0, LengthSeconds = 400.0 }, // recorded [300,700]
+            };
+            for (double ph = 0; ph <= 600; ph += 0.5)
+            {
+                var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                    spanStart + ph, spanStart, spanStart, spanEnd, cadence, memberStart, memberEnd,
+                    out double loopUT, out _, out _, null, cuts);
+                Assert.NotEqual(GhostPlaybackLogic.UnitMemberRenderDecision.Render, decision);
+                Assert.False(loopUT > 300.0 + 1e-6 && loopUT < 700.0 - 1e-6);
+            }
+        }
+
         // ─── Phase anchor (re-enable restarts from the recording start) ─────────
 
         [Fact]

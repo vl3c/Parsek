@@ -372,7 +372,13 @@ namespace Parsek
                             // cuts (no compressible loiter) leave the clock byte-identical to faithful.
                             List<GhostPlaybackLogic.LoopCut> cuts =
                                 ReaimLoiterCompressor.ComputeCuts(missionSegments, bodyInfo.GravParameter);
-                            if (cuts.Count > 0)
+                            // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
+                            // already guarantees each cutLength < its run duration (so totalCut < span),
+                            // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
+                            // check: that gate falls back to the identity remap when totalCut >= span, so
+                            // applying the anchor shift here without the same gate would produce a
+                            // shifted-but-uncompressed clock in the (unreachable) degenerate case.
+                            if (cuts.Count > 0 && GhostPlaybackLogic.TotalCutLength(cuts) < span)
                             {
                                 double cutBeforeDeparture = plan.RecordedDepartureUT
                                     - GhostPlaybackLogic.CompressSpanUT(plan.RecordedDepartureUT, cuts);
