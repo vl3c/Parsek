@@ -45,13 +45,16 @@ namespace Parsek
         /// because the failure is "no vessel at all", not "wrong vessel".</summary>
         Refused_NullVessel = 7,
 
-        /// <summary>Focused vessel is still <see cref="Vessel.Situations.PRELAUNCH"/>
-        /// (sitting on the pad/runway). The switch-fly immediate-start is
-        /// declined so the vessel follows the same auto-record-on-launch
-        /// rules as any other on-pad vessel; the recorder starts on the
-        /// PRELAUNCH->FLYING transition / first staging instead. Cleared
-        /// with reason <c>prelaunch-defer-to-launch</c>.</summary>
-        Refused_PrelaunchTarget = 8,
+        /// <summary>Focused vessel is sitting on the surface, not yet in
+        /// flight: <see cref="Vessel.Situations.PRELAUNCH"/> (on the pad/runway),
+        /// <see cref="Vessel.Situations.LANDED"/> (on the ground), or
+        /// <see cref="Vessel.Situations.SPLASHED"/> (on the water). The
+        /// switch-fly immediate-start is declined so the vessel follows the same
+        /// auto-record rules as any other idle vessel reached this way; the
+        /// recorder starts on the normal trigger (PRELAUNCH->FLYING / first
+        /// staging / first modification after switch) instead of the instant you
+        /// fly to it. Cleared with reason <c>on-surface-defer-to-trigger</c>.</summary>
+        Refused_OnSurfaceTarget = 8,
 
         /// <summary>Started a continuation segment under a committed-tree
         /// clone (plan §"Fly / Switch-To a committed spawned vessel").</summary>
@@ -136,10 +139,12 @@ namespace Parsek
             DuplicateSameTarget = 7,
             MissedSwitchRecovery = 8,
 
-            /// <summary>Focused vessel is still PRELAUNCH (on the pad). Defer
-            /// the switch-fly start to the normal auto-record-on-launch
-            /// trigger; clear the marker with <c>prelaunch-defer-to-launch</c>.</summary>
-            PrelaunchDeferToLaunch = 9,
+            /// <summary>Focused vessel is sitting on the surface (PRELAUNCH on
+            /// the pad, LANDED on the ground, or SPLASHED on the water) and has
+            /// not started flying yet. Defer the switch-fly start to the normal
+            /// auto-record trigger; clear the marker with
+            /// <c>on-surface-defer-to-trigger</c>.</summary>
+            OnSurfaceDeferToTrigger = 9,
         }
 
         /// <summary>
@@ -157,7 +162,7 @@ namespace Parsek
                 case Outcome.TargetMismatch: return "stale-target-mismatch";
                 case Outcome.DuplicateSameTarget: return "duplicate-intent-same-target";
                 case Outcome.MissedSwitchRecovery: return "stale-cross-run";
-                case Outcome.PrelaunchDeferToLaunch: return "prelaunch-defer-to-launch";
+                case Outcome.OnSurfaceDeferToTrigger: return "on-surface-defer-to-trigger";
                 default: return null;
             }
         }
@@ -181,7 +186,7 @@ namespace Parsek
                 case Outcome.TargetMismatch: return SwitchSegmentEntryRoute.Refused_TargetMismatch;
                 case Outcome.DuplicateSameTarget: return SwitchSegmentEntryRoute.Refused_DuplicateSameTarget;
                 case Outcome.MissedSwitchRecovery: return SwitchSegmentEntryRoute.Refused_MissedSwitchRecovery;
-                case Outcome.PrelaunchDeferToLaunch: return SwitchSegmentEntryRoute.Refused_PrelaunchTarget;
+                case Outcome.OnSurfaceDeferToTrigger: return SwitchSegmentEntryRoute.Refused_OnSurfaceTarget;
                 case Outcome.Authorized:
                 default:
                     return SwitchSegmentEntryRoute.NoIntent;
@@ -205,12 +210,16 @@ namespace Parsek
         /// <c>stale-cross-run</c> rather than consumed.</param>
         /// <param name="activeSessionFocusedPid">Focused PID of the currently
         /// armed <see cref="SwitchSegmentSession"/> (0 = no active session).</param>
-        /// <param name="targetIsPrelaunch">True when the just-activated focused
-        /// vessel is still <see cref="Vessel.Situations.PRELAUNCH"/> (sitting on
-        /// the pad/runway). Such a vessel must follow the normal
-        /// auto-record-on-launch rules rather than starting a switch-fly
-        /// segment immediately, so a fresh / matching marker is declined with
-        /// <see cref="Outcome.PrelaunchDeferToLaunch"/>.</param>
+        /// <param name="targetIsOnSurface">True when the just-activated focused
+        /// vessel is sitting on the surface and has not started flying yet:
+        /// <see cref="Vessel.Situations.PRELAUNCH"/> (on the pad/runway),
+        /// <see cref="Vessel.Situations.LANDED"/> (on the ground), or
+        /// <see cref="Vessel.Situations.SPLASHED"/> (on the water). Such a vessel
+        /// must follow the normal auto-record rules rather than starting a
+        /// switch-fly segment the instant you fly to it, so a fresh / matching
+        /// marker is declined with <see cref="Outcome.OnSurfaceDeferToTrigger"/>.
+        /// Covers a Parsek-spawned committed vessel (reported LANDED) and a saved
+        /// landed craft, not just a fresh PRELAUNCH craft on the pad.</param>
         internal static Outcome Evaluate(
             StockActionIntentMarker marker,
             uint newVesselPersistentId,
@@ -219,7 +228,7 @@ namespace Parsek
             double currentUT,
             bool missedSwitchRecoveryInProgress,
             uint activeSessionFocusedPid,
-            bool targetIsPrelaunch)
+            bool targetIsOnSurface)
         {
             if (marker == null)
                 return Outcome.NoIntent;
@@ -267,16 +276,17 @@ namespace Parsek
                 return Outcome.DuplicateSameTarget;
             }
 
-            // PRELAUNCH defer: a vessel still sitting on the pad/runway has not
-            // launched yet, so the stock Fly / Switch-To click must not start a
-            // recording immediately. Decline here and let the normal
-            // auto-record-on-launch trigger (PRELAUNCH->FLYING / first staging)
-            // own the start, matching how any other on-pad vessel behaves. This
-            // is placed after the staleness / target-mismatch / duplicate guards
-            // so those diagnostic-relevant refusals keep precedence over the
-            // routine defer.
-            if (targetIsPrelaunch)
-                return Outcome.PrelaunchDeferToLaunch;
+            // On-surface defer: a vessel sitting on the surface (PRELAUNCH on the
+            // pad, LANDED on the ground, or SPLASHED on the water) has not started
+            // flying yet, so the stock Fly / Switch-To click must not start a
+            // recording the instant you fly to it. Decline here and let the normal
+            // auto-record trigger (PRELAUNCH->FLYING / first staging / first
+            // modification after switch) own the start, matching how any other
+            // idle vessel reached this way behaves. This is placed after the
+            // staleness / target-mismatch / duplicate guards so those
+            // diagnostic-relevant refusals keep precedence over the routine defer.
+            if (targetIsOnSurface)
+                return Outcome.OnSurfaceDeferToTrigger;
 
             return Outcome.Authorized;
         }
