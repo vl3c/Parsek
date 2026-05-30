@@ -196,8 +196,8 @@ def classify(orbit_segments):
         a_rel = abs(s.sma - firstA) / max(1.0, abs(firstA))
         if a_rel > A_STEP:
             break
-        if run_start - s.endUT > BURN_CHAIN:
-            break
+        if run_start - s.endUT > BURN_CHAIN and a_rel > SAME_ORBIT:
+            break  # same-orbit sampling gaps (warped transfer) stay in the run
         tstart = i
         run_start = s.startUT
     transfer = segs[tstart]
@@ -205,8 +205,8 @@ def classify(orbit_segments):
     t_rep = orbit_period(firstA, MU.get(ancestor))
     if not math.isnan(t_rep) and t_rep > 0.0 and (last.endUT - transfer.startUT) > 1.5 * t_rep:
         return {"supported": False, "reason": "transfer run spans >1 revolution"}
-    if tstart-1 >= 0 and segs[tstart-1].body == ancestor and transfer.startUT - segs[tstart-1].endUT <= BURN_CHAIN:
-        return {"supported": False, "reason": "departs from heliocentric parking orbit"}
+    if tstart-1 >= 0 and segs[tstart-1].body == ancestor:
+        return {"supported": False, "reason": "departs from heliocentric parking orbit or mid-course correction"}
     return {"supported": True, "launch": launch, "target": target, "ancestor": ancestor,
             "departUT": transfer.startUT, "arrivalUT": arr.startUT,
             "tof": arr.startUT - transfer.startUT, "transferIdx": tstart, "lastCoastIdx": last_coast,

@@ -103,6 +103,48 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_SlowMidCourseCorrection_Declined()
+        {
+            // A mid-course correction: the transfer coasts, the engines fire (the optimizer splits at the
+            // ExoPropulsive boundary), and the post-burn orbit differs in sma. The pre-burn coast precedes
+            // the transfer run with a WIDE gap (a long coast, then a late burn). The re-aim Lambert assumes
+            // departure from the launch body, so a partial (post-MCC) transfer must decline REGARDLESS of
+            // the gap width (the old gap<=tolerance decline missed a slow MCC).
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),       // launch parking
+                SegA("Sun", 5000, 5000000, 1.6e10),      // pre-MCC heliocentric coast (sma 1.6e10)
+                SegA("Sun", 5050000, 9000000, 1.8e10),   // post-MCC coast (+12.5% sma, a real burn);
+                                                         //   50000 s gap (a slow MCC, >> burn tolerance)
+                SegA("Duna", 9000000, 9005000, 500000),  // arrival
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.False(plan.Supported);
+            Assert.Contains("mid-course correction", plan.Reason);
+        }
+
+        [Fact]
+        public void Classify_WarpedTransferSplitByCheckpoints_MeasuresFullTof()
+        {
+            // A long heliocentric transfer warped at max rate: the optimizer splits it into checkpoint
+            // coasts with WIDE gaps but the SAME orbit (no burn, identical sma). They must merge into one
+            // transfer run so the FULL tof is measured (not just the last checkpoint), since same-orbit
+            // sampling gaps are not maneuvers.
+            var segs = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 5000, 700000),       // launch parking
+                SegA("Sun", 5000, 3000000, 1.7e10),      // transfer checkpoint 1
+                SegA("Sun", 3050000, 6000000, 1.7e10),   // checkpoint 2 (50000 s warp gap, SAME orbit)
+                SegA("Sun", 6050000, 9000000, 1.7e10),   // checkpoint 3 (50000 s warp gap, SAME orbit)
+                SegA("Duna", 9000000, 9005000, 500000),  // arrival
+            };
+            var plan = ReaimClassifier.Classify(segs, StockParents());
+            Assert.True(plan.Supported, plan.Reason);
+            Assert.Equal(5000.0, plan.RecordedDepartureUT, 3);           // the FULL transfer start (cp 1)
+            Assert.Equal(8995000.0, plan.RecordedTransferTofSeconds, 3); // 9000000 - 5000
+        }
+
+        [Fact]
         public void Classify_InterloperParkedInLaunchOrbitDuringTransfer_FlattenedBreaks_PerMemberCorrect()
         {
             // Regression (playtest 2026-05-30, save s15 'Duna One'): a SECOND member parked in a

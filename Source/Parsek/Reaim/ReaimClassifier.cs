@@ -165,6 +165,7 @@ namespace Parsek.Reaim
             //      got absorbed, review M1) or when a chaining Sun segment precedes it (a heliocentric
             //      PARKING departure -- Lambert assumes r1 = launch body, deferred).
             const double AStepRelThreshold = ReaimLoiterCompressor.DefaultAStepRelThreshold;
+            const double SameOrbitRelThreshold = ReaimLoiterCompressor.DefaultSameOrbitRelThreshold;
             const double SoiBoundaryEps = 1.0;     // seconds; the SOI-entry boundary is a segment edge
             const double BurnChainTolerance = 3600.0; // generous off-rails (MCC burn) gap between coasts
 
@@ -190,8 +191,13 @@ namespace Parsek.Reaim
                 double aRel = Math.Abs(s.semiMajorAxis - firstA) / Math.Max(1.0, Math.Abs(firstA));
                 if (aRel > AStepRelThreshold)
                     break;                                   // a maneuver (transfer burn) -> run ends
-                if (runStartUT - s.endUT > BurnChainTolerance)
-                    break;                                   // does not chain (interleaved debris) -> ends
+                // A gap larger than the burn tolerance ends the run UNLESS it is the SAME orbit (sma
+                // matches to the tight sameOrbit tolerance): the optimizer splits one ballistic transfer
+                // coast into warp-boundary checkpoint sections, leaving gaps between same-sma segments;
+                // those stay in the run so a long-warped transfer still measures its full tof. A real
+                // mid-course correction shifts sma past the tolerance, so it still ends the run.
+                if (runStartUT - s.endUT > BurnChainTolerance && aRel > SameOrbitRelThreshold)
+                    break;                                   // a real gap to a different orbit -> ends
                 transferStartIdx = i;
                 runStartUT = s.startUT;
             }
@@ -207,14 +213,18 @@ namespace Parsek.Reaim
                 return ReaimMissionPlan.Unsupported(launchBody,
                     "transfer run spans >1 revolution (heliocentric loiter absorbed); staying faithful");
 
-            // Heliocentric-parking departure: a CHAINING common-ancestor segment immediately before the
-            // transfer run -> the transfer departs from a solar parking orbit, not the launch body;
-            // decline (Lambert assumes r1 = launch body; deferred).
+            // Partial-transfer departure: a DIFFERENT-orbit common-ancestor segment immediately before
+            // the transfer run -> the transfer did not depart from the launch-body SOI exit but from an
+            // earlier heliocentric state (a solar parking orbit, OR a mid-course correction that the
+            // optimizer split at the engine-firing boundary). Either way r1 != launch body, so the Lambert
+            // re-aim would mis-aim; decline to faithful. Gap-INDEPENDENT: a slow MCC (a long coast then a
+            // burn) leaves a wide gap to the prior coast but is still a partial transfer. Same-orbit prior
+            // coasts were already merged into the run above, so a remaining common-ancestor predecessor is
+            // necessarily a different orbit (a real maneuver / parking), never a sampling gap.
             if (transferStartIdx - 1 >= 0
-                && segs[transferStartIdx - 1].bodyName == commonAncestor
-                && transferStart.startUT - segs[transferStartIdx - 1].endUT <= BurnChainTolerance)
+                && segs[transferStartIdx - 1].bodyName == commonAncestor)
                 return ReaimMissionPlan.Unsupported(launchBody,
-                    "transfer departs from a heliocentric parking orbit (deferred); staying faithful");
+                    "transfer departs from a heliocentric parking orbit or mid-course correction (deferred); staying faithful");
             return new ReaimMissionPlan
             {
                 Supported = true,
