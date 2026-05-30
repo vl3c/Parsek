@@ -195,6 +195,16 @@ namespace Parsek
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
 
+        // PID of the vessel that rolled out fresh from the VAB/SPH this scene
+        // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
+        // Read by CrewReservationManager.SwapReservedCrewInFlight to suppress Pass-2
+        // orphan crew placement when the active vessel is this fresh launch — a new
+        // mission has no orphaned reserved crew to reclaim, and reclaiming would
+        // mis-seat stand-ins via KSP's craft-stable part persistentId reuse. Static
+        // so the chain-commit / merge call sites (which have no ParsekFlight handle)
+        // can consult it, mirroring SceneEntryActiveVesselPid.
+        internal static uint SceneEntryFreshRolloutVesselPid;
+
         // During launch-point rewind, scope the #226 duplicate-source bypass to the
         // recording whose rewind was actually requested. Other scene-entry vessels may
         // also match committed recordings, but they are not the replay target.
@@ -5263,6 +5273,7 @@ namespace Parsek
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
+            SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
