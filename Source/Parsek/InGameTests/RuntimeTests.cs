@@ -4561,6 +4561,123 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
+            Description = "Zero-drift: a scheduled loop unit's ghost-mesh activation in the FLIGHT scene renders each member at its NON-UNIFORM scheduled launch (engine TryResolveUnitMemberPlaybackUT + the DecideUnitMemberRender activation gate), hides it in the inter-launch tail, and parks it before the first scheduled launch")]
+        public void FlightSpanClock_ZeroDriftSchedule_ActivatesGhostMeshAtScheduledLaunches()
+        {
+            // Closes the playtest-pending gap from the zero-drift reschedule (#964): the launch-UT
+            // math is xUnit-tested (MissionZeroDriftScheduleTests) and the TS/map seam has an in-game
+            // test (TrackingStationSpanClock_ZeroDriftSchedule_ResolvesScheduledLaunch), but live
+            // FLIGHT-scene ghost-mesh ACTIVATION across the non-uniform schedule was only ever
+            // playtest-verified. Here we drive the two flight seams the live mesh spawn/hide depends
+            // on, in the Unity runtime, against a synthetic scheduled unit:
+            //   1. GhostPlaybackEngine.TryResolveUnitMemberPlaybackUT - the engine instance's
+            //      watch-sync / member-playback resolution (threads unit.RelaunchSchedule via
+            //      currentLoopUnits set through SetLoopUnits).
+            //   2. GhostPlaybackLogic.DecideUnitMemberRender - the documented "testable seam for
+            //      GhostPlaybackEngine.UpdateUnitMemberPlayback" render gate that activates / hides
+            //      the ghost GameObject per frame.
+            // Same synthetic 100/31 schedule as the TS test: launches at UT 900, 1300, 1800; span
+            // [0,50] (< the ~400-500 s intervals, so the clock parks between launches). The 900->1300
+            // (400 s) and 1300->1800 (500 s) intervals DIFFER - this is the non-uniform (zero-drift)
+            // property the test exists to cover.
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+
+            // Prove the schedule is genuinely NON-UNIFORM (the crux of zero-drift): resolve the three
+            // active launches and assert their spacing differs, rather than trusting hard-coded UTs.
+            schedule.TryResolveActiveLaunch(925.0, out double launch1, out _);
+            schedule.TryResolveActiveLaunch(1310.0, out double launch2, out _);
+            schedule.TryResolveActiveLaunch(1820.0, out double launch3, out _);
+            InGameAssert.IsTrue(System.Math.Abs(launch1 - 900.0) < 1e-6,
+                $"First scheduled launch expected 900, got {launch1:F3}");
+            InGameAssert.IsTrue(System.Math.Abs(launch2 - 1300.0) < 1e-6,
+                $"Second scheduled launch expected 1300, got {launch2:F3}");
+            InGameAssert.IsTrue(System.Math.Abs(launch3 - 1800.0) < 1e-6,
+                $"Third scheduled launch expected 1800, got {launch3:F3}");
+            double gapA = launch2 - launch1;
+            double gapB = launch3 - launch2;
+            InGameAssert.IsTrue(System.Math.Abs(gapA - gapB) > 1e-6,
+                $"Schedule must be non-uniform (zero-drift): gaps {gapA:F1} and {gapB:F1} must differ");
+
+            double span = 50.0;
+            double cad = System.Math.Max(span, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: span, cadenceSeconds: cad, phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+            InGameAssert.IsFalse(GhostPlaybackLogic.UnitMemberOverlaps(unit),
+                "A scheduled unit must be non-overlapping (the invariant) so it takes the span-clock branch, not the overlap branch");
+
+            // --- Seam 1: the live engine instance resolves the scheduled member's playback UT. ---
+            var engine = new GhostPlaybackEngine(null);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 0, 0 } };
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex));
+
+            // 25 s into the first scheduled launch (UT 900) -> the engine resolves the member to its
+            // scheduled-launch playback UT (spanStart + 25), so the mesh spawns at the right point.
+            bool resolvedFirst = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 925.0, memberStartUT: 0.0, memberEndUT: span, out double meshUT1);
+            InGameAssert.IsTrue(resolvedFirst, "Engine must resolve the member at the first scheduled launch");
+            InGameAssert.IsTrue(System.Math.Abs(meshUT1 - 25.0) < 1e-6,
+                $"First scheduled launch mesh UT expected 25, got {meshUT1:F3}");
+
+            // 20 s into the THIRD scheduled launch (UT 1800, the 500 s-spaced one) -> resolves again,
+            // proving the engine activates the mesh at the non-uniformly-spaced launch too.
+            bool resolvedThird = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1820.0, memberStartUT: 0.0, memberEndUT: span, out double meshUT3);
+            InGameAssert.IsTrue(resolvedThird, "Engine must resolve the member at the third (non-uniformly-spaced) scheduled launch");
+            InGameAssert.IsTrue(System.Math.Abs(meshUT3 - 20.0) < 1e-6,
+                $"Third scheduled launch mesh UT expected 20, got {meshUT3:F3}");
+
+            // Before the first scheduled launch (UT 500 < 900) -> the engine does NOT resolve, so the
+            // mesh stays unspawned (the first-play / pre-window contract).
+            bool resolvedBefore = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 500.0, memberStartUT: 0.0, memberEndUT: span, out _);
+            InGameAssert.IsFalse(resolvedBefore, "Engine must NOT resolve the member before the first scheduled launch");
+
+            // --- Seam 2: the per-frame render gate that activates / hides the ghost GameObject. ---
+            // At a scheduled launch: Render. Mid-span phase resolves inside the member window.
+            var dRender = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 925.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out double renderLoopUT, out _, out _, schedule);
+            InGameAssert.IsTrue(dRender == GhostPlaybackLogic.UnitMemberRenderDecision.Render,
+                $"At a scheduled launch the member mesh must Render (got {dRender})");
+            InGameAssert.IsTrue(System.Math.Abs(renderLoopUT - 25.0) < 1e-6,
+                $"Render loopUT expected 25, got {renderLoopUT:F3}");
+
+            // 70 s in (past the 50 s span) -> parked in the inter-launch tail -> hide ALL members
+            // (no mesh between launches).
+            var dTail = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 970.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out _, out _, out bool tailFlag, schedule);
+            InGameAssert.IsTrue(dTail == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail,
+                $"Parked in the inter-launch tail the member mesh must be hidden (got {dTail})");
+            InGameAssert.IsTrue(tailFlag, "Inter-launch tail flag must be set");
+
+            // Before the first scheduled launch -> span clock unresolved -> not rendered.
+            var dBefore = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 500.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out _, out _, out _, schedule);
+            InGameAssert.IsTrue(dBefore == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved,
+                $"Before the first scheduled launch the span clock must be unresolved (no mesh) (got {dBefore})");
+
+            // The SECOND scheduled launch (UT 1300, 400 s-spaced) -> Render again at spanStart + 10.
+            var dSecond = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 1310.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out double secondLoopUT, out _, out _, schedule);
+            InGameAssert.IsTrue(dSecond == GhostPlaybackLogic.UnitMemberRenderDecision.Render,
+                $"At the second scheduled launch the member mesh must Render (got {dSecond})");
+            InGameAssert.IsTrue(System.Math.Abs(secondLoopUT - 10.0) < 1e-6,
+                $"Second scheduled launch render loopUT expected 10, got {secondLoopUT:F3}");
+        }
+
+        [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
             Description = "Mission self-overlap: a looping unit with overlap cadence shorter than its span resolves the watched member to its NEWEST staggered instance, not the single span-clock UT")]
         public void MissionSelfOverlap_ResolvesNewestInstanceMemberUT()
         {
