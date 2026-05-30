@@ -152,53 +152,61 @@ namespace Parsek.Reaim
                 return null;
             }
 
-            // Localized departure search. The congruent-window D_k = D0 + k*synodic is only an APPROXIMATE
-            // geometric recurrence: the target's eccentricity drifts the window over k, so the nominal D_k
-            // can land in a Lambert non-convergence (the near-180-degree single-rev singularity the canary
-            // also hits ~5/36 of the time). Search a small range around D_k for the CLOSEST departure that
-            // yields a sane transfer actually reaching the target (the canary proves convergent departures
-            // exist near every window), keeping the departure offset from D_k small (days at this cadence,
-            // sub-pixel at map scale). Cached per window, so the search runs once when the window advances.
-            const double SearchStepFraction = 0.005; // of the synodic period (~2-3 days for Kerbin->Duna)
-            const int SearchMaxSteps = 12;            // +-6% of synodic
-            double step = schedule.SynodicPeriodSeconds * SearchStepFraction;
-
             // Adapt to the RECORDED transfer's direction (handedness) instead of forcing prograde: find the
             // recorded heliocentric leg's inclination (> 90 deg => the recorded transfer was retrograde) and
-            // require the synthesized transfer to match it. Near a ~180-degree transfer angle the Lambert
-            // branch is unstable, so a window can flip handedness; the synth rejects a mismatch and the
-            // search steps to a departure whose transfer travels the same way the recording did.
+            // require the synthesized transfer to match it. With the synth's ecliptic plane constraint the
+            // synthesized transfer is coplanar-prograde, so a recorded-prograde mission matches at the
+            // nominal departure; a recorded-retrograde mission asks the synth for the retrograde branch.
             double recordedInc = RecordedHeliocentricInclination(
                 memberSegments, plan.CommonAncestor, plan.RecordedDepartureUT, plan.RecordedArrivalUT);
             bool recordedRetrograde = ReaimTransferSynthesizer.IsRetrogradeTransfer(recordedInc);
             bool progradeWanted = !recordedRetrograde;
 
+            // Anchor the departure to the loop's NOMINAL replay time of the recorded departure (D_k =
+            // schedule.DepartureUTForWindow). The loop replays the recorded departure EXACTLY at D_k, so
+            // pinning the transfer's departure there places its near-launch point on the LIVE launch body at
+            // the instant the ghost departs (the transfer line touches Kerbin). The synodic window lands on
+            // a ~180-degree transfer angle (the single-rev Lambert degeneracy); an earlier pass searched the
+            // DEPARTURE around D_k to dodge it, but that desynced the transfer from D_k - the loop still
+            // replayed the departure at D_k while the geometry was aimed at the launch body's position days
+            // later, so the heliocentric segment hung in front of Kerbin (the playtest "transfer far from /
+            // in front of Kerbin" regression). Keep the departure FIXED at D_k and search the TIME OF FLIGHT
+            // instead: a small tof step slides the TARGET off the antipodal 180-degree point while the launch
+            // endpoint (and the perigee) stay put. With the plane constraint the nominal departure + recorded
+            // tof converges for almost every window (step 0), so the tof search only nudges the rare exactly-
+            // 180-degree window; the sub-pixel target-end drift it introduces is acceptable, the departure
+            // staying glued to the launch body is what matters. Cached per window (runs once per advance).
+            const double TofSearchStepFraction = 0.005; // of the recorded tof (~0.4 day for Kerbin->Duna)
+            const int SearchMaxSteps = 12;              // +-6% of the recorded tof
+            double tofStep = schedule.TofSeconds * TofSearchStepFraction;
+            double departureUT = nominalDepartureUT;
+
             Orbit transferOrbit = null;
             double soiEntryUT = double.NaN;
             CelestialBody encounterBody = null;
-            double departureUT = double.NaN;
+            double usedTofSeconds = double.NaN;
             string failReason = null;
-            for (int s = 0; s <= SearchMaxSteps && double.IsNaN(departureUT); s++)
+            for (int s = 0; s <= SearchMaxSteps && transferOrbit == null; s++)
             {
-                double[] tries = s == 0
-                    ? new[] { nominalDepartureUT }
-                    : new[] { nominalDepartureUT + s * step, nominalDepartureUT - s * step };
-                for (int t = 0; t < tries.Length; t++)
+                double[] tofs = s == 0
+                    ? new[] { schedule.TofSeconds }
+                    : new[] { schedule.TofSeconds + s * tofStep, schedule.TofSeconds - s * tofStep };
+                for (int t = 0; t < tofs.Length; t++)
                 {
-                    if (ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                            launchBody, targetBody, tries[t], schedule.TofSeconds, progradeWanted,
+                    if (tofs[t] > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                            launchBody, targetBody, departureUT, tofs[t], progradeWanted,
                             out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
                     {
-                        departureUT = tries[t];
+                        usedTofSeconds = tofs[t];
                         break;
                     }
                 }
             }
-            if (double.IsNaN(departureUT))
+            if (transferOrbit == null)
             {
                 ParsekLog.Verbose("ReaimPlayback",
-                    $"member={memberId} window={windowIndex} nominalDepartUT={nominalDepartureUT.ToString("R", ic)} " +
-                    $"synth failed across +-{(SearchMaxSteps * step).ToString("F0", ic)}s search ({failReason}) - faithful this window");
+                    $"member={memberId} window={windowIndex} departUT={nominalDepartureUT.ToString("R", ic)} " +
+                    $"synth failed across tof +-{(SearchMaxSteps * tofStep).ToString("F0", ic)}s search ({failReason}) - faithful this window");
                 return null;
             }
 
@@ -234,8 +242,8 @@ namespace Parsek.Reaim
             }
 
             ParsekLog.Verbose("ReaimPlayback",
-                $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} " +
-                $"tof={schedule.TofSeconds.ToString("R", ic)} soiEntryUT={soiEntryUT.ToString("R", ic)} " +
+                $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} (nominal D_k) " +
+                $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)}) soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
