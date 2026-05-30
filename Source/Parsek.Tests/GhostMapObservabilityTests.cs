@@ -607,5 +607,78 @@ namespace Parsek.Tests
             Assert.Contains("idx=7", line);
             Assert.DoesNotContain("idx=0 ", line);
         }
+
+        // -----------------------------------------------------------------
+        // Re-aim effective-segment resolution: the FLIGHT map path now resolves
+        // the per-window re-aimed segments through the SAME helper the tracking
+        // station uses. These pin the faithful NO-OP contract (the branches that
+        // do not touch the live Lambert resolver): a non-re-aim member's flight
+        // map orbit source must be byte-identical to the recorded segments, and
+        // the covering-segment substitution must return the recorded segment
+        // unchanged. The actual re-aim substitution is exercised by the in-game
+        // canary (it needs live FlightGlobals bodies).
+        // -----------------------------------------------------------------
+
+        private static OrbitSegment HelioSeg()
+        {
+            return new OrbitSegment
+            {
+                bodyName = "Sun", startUT = 1000, endUT = 2000, epoch = 1000,
+                semiMajorAxis = 1.76e10, eccentricity = 0.2, inclination = 1.0,
+                longitudeOfAscendingNode = 10.0, argumentOfPeriapsis = 20.0,
+                meanAnomalyAtEpoch = 0.3, isPredicted = false
+            };
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_EmptyLoopUnits_ReturnsRecordedReference()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty);
+
+            // Empty loop-unit set => no member is a re-aim owner => faithful: the SAME list reference.
+            Assert.Same(recorded, effective);
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_NullOrEmptyRecordingId_ReturnsRecorded()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, null, recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty));
+            Assert.Same(recorded, GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "", recorded, 5000.0, GhostPlaybackLogic.LoopUnitSet.Empty));
+        }
+
+        [Fact]
+        public void ResolveEffectiveMapOrbitSegments_NullLoopUnits_ReturnsRecorded()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+
+            List<OrbitSegment> effective = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                0, "rec-x", recorded, 5000.0, null);
+
+            Assert.Same(recorded, effective);
+        }
+
+        [Fact]
+        public void SubstituteReaimedCoveringSegment_FaithfulMember_ReturnsRecordedSegmentUnchanged()
+        {
+            var recorded = new List<OrbitSegment> { HelioSeg() };
+            OrbitSegment input = recorded[0];
+
+            // Empty loop-unit set => effective is reference-identical to recorded => the helper must
+            // return the caller's recorded segment verbatim (the flight create path stays unchanged for
+            // every non-re-aim member).
+            OrbitSegment result = GhostMapPresence.SubstituteReaimedCoveringSegment(
+                0, "rec-x", recorded, 5000.0, 1500.0, GhostPlaybackLogic.LoopUnitSet.Empty, input);
+
+            Assert.Equal(input.semiMajorAxis, result.semiMajorAxis, 6);
+            Assert.Equal(input.bodyName, result.bodyName);
+            Assert.Equal(input.startUT, result.startUT, 6);
+        }
     }
 }

@@ -5713,19 +5713,35 @@ namespace Parsek
         // The window is mapped from the LIVE <paramref name="liveCurrentUT"/> via the shared resolver
         // (the SAME window the flight engine uses), and the returned list is in recorded-span time, so
         // the caller searches it at the recorded-span effUT exactly as it would the recorded list.
-        private static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
+        // Recording overload (tracking-station path).
+        internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
             int committedIndex, Recording rec, double liveCurrentUT,
             GhostPlaybackLogic.LoopUnitSet loopUnits)
+            => ResolveEffectiveMapOrbitSegments(
+                committedIndex,
+                rec != null ? rec.RecordingId : null,
+                rec != null ? rec.OrbitSegments : null,
+                liveCurrentUT,
+                loopUnits);
+
+        // Raw-pieces overload so the FLIGHT map path (ParsekPlaybackPolicy, which holds an
+        // IPlaybackTrajectory, not a Recording) resolves the SAME re-aimed window list the tracking
+        // station does. Both flight create + per-frame refresh and the tracking-station refresh must
+        // draw the re-aimed transfer; the flight path previously read the recorded segments directly,
+        // so its map orbit line pointed at the target's RECORDED position (wrong place in the target's
+        // orbit). Returns the recorded list unchanged for every non-re-aim member / faithful window.
+        internal static List<OrbitSegment> ResolveEffectiveMapOrbitSegments(
+            int committedIndex, string recordingId, List<OrbitSegment> recorded,
+            double liveCurrentUT, GhostPlaybackLogic.LoopUnitSet loopUnits)
         {
-            List<OrbitSegment> recorded = rec != null ? rec.OrbitSegments : null;
-            if (rec == null || string.IsNullOrEmpty(rec.RecordingId) || loopUnits == null)
+            if (string.IsNullOrEmpty(recordingId) || loopUnits == null)
                 return recorded;
             if (!loopUnits.TryGetUnitForMember(committedIndex, out GhostPlaybackLogic.LoopUnit unit))
                 return recorded;
             if (!unit.IsReaim)
                 return recorded;
             if (Parsek.Reaim.ReaimPlaybackResolver.Shared.TryResolveWindowSegments(
-                    rec.RecordingId, recorded, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                    recordingId, recorded, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
                     unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
                     liveCurrentUT, out List<OrbitSegment> reaimed, out long _))
             {
@@ -5734,6 +5750,26 @@ namespace Parsek
             }
             LogMapEffectiveSegments(committedIndex, "RECORDED-resolver-miss", recorded, unit.ReaimPlan.Value.CommonAncestor);
             return recorded; // no heliocentric leg / window miss / pre-first-window -> faithful
+        }
+
+        // Re-aim covering-segment substitution for the FLIGHT create paths: when a Segment-source map
+        // ghost is about to be created for a re-aim owner, swap the recorded covering segment for the
+        // re-aimed one (same recorded-span UT bounds, transfer elements aimed at the target's CURRENT
+        // position). No-ops (returns <paramref name="recordedSegment"/> unchanged) for non-re-aim
+        // members and faithful windows, where the effective list is reference-identical to the recorded
+        // one. <paramref name="liveCurrentUT"/> maps the synodic window; <paramref name="sampleUT"/> is
+        // the recorded-span effUT the covering segment is searched at.
+        internal static OrbitSegment SubstituteReaimedCoveringSegment(
+            int committedIndex, string recordingId, List<OrbitSegment> recorded,
+            double liveCurrentUT, double sampleUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits, OrbitSegment recordedSegment)
+        {
+            List<OrbitSegment> effective = ResolveEffectiveMapOrbitSegments(
+                committedIndex, recordingId, recorded, liveCurrentUT, loopUnits);
+            if (effective == null || ReferenceEquals(effective, recorded))
+                return recordedSegment; // non-re-aim / faithful window
+            OrbitSegment? coveringReaimed = TrajectoryMath.FindOrbitSegmentForMapDisplay(effective, sampleUT);
+            return coveringReaimed ?? recordedSegment;
         }
 
         // Diagnostic: log whether the map got the RE-AIMED or RECORDED segments, plus the heliocentric

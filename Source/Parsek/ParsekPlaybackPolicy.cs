@@ -1396,6 +1396,14 @@ namespace Parsek
                         loopMemberInWindow: isLoopMemberInWindow);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
 
+                    // Re-aim: swap the recorded covering segment for the re-aimed one at create time so
+                    // the orbit line is aimed at the target's CURRENT position from the first frame the
+                    // ghost re-enters its window (no recorded-transfer flash before the refresh corrects
+                    // it). No-op for non-re-aim members / faithful windows.
+                    if (source == TrackingStationGhostSource.Segment)
+                        segment = GhostMapPresence.SubstituteReaimedCoveringSegment(
+                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits, segment);
+
                     if (source == TrackingStationGhostSource.Segment
                         || GhostMapPresence.IsStateVectorGhostSource(source)
                         || source == TrackingStationGhostSource.TerminalOrbit
@@ -1528,6 +1536,15 @@ namespace Parsek
                     continue;
                 }
 
+                // Re-aim: for a re-aim loop owner, the flight map orbit line must follow the per-window
+                // RE-AIMED transfer (aimed at the target's CURRENT position), not the recorded geometry
+                // (which points at the target's RECORDED position - the "wrong place in the target's
+                // orbit" the playtest showed). Resolved ONCE here from the LIVE currentUT (same window
+                // the flight engine + tracking station use) and threaded through every effUT-based read
+                // below; reference-identical to rec.OrbitSegments for every non-re-aim member.
+                List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                    idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
+
                 // Same-body carry: while the playback head is inside a body frame, briefly
                 // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
                 // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
@@ -1535,7 +1552,7 @@ namespace Parsek
                 // to drop the ghost when the body actually changes (SOI / frame change) or
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(rec.OrbitSegments, effUT);
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
@@ -1571,7 +1588,7 @@ namespace Parsek
 
                     bool hasFutureSegment = false;
                     string futureSegmentBody = null;
-                    var segs = rec.OrbitSegments;
+                    var segs = effectiveSegments;
                     for (int s = 0; s < segs.Count; s++)
                     {
                         if (segs[s].startUT > effUT)
@@ -1636,7 +1653,8 @@ namespace Parsek
 
                 GhostMapPresence.UpdateGhostOrbitForRecording(
                     idx, seg.Value,
-                    loopEpochShiftSeconds: loopEpochShiftSeconds);
+                    loopEpochShiftSeconds: loopEpochShiftSeconds,
+                    effectiveOrbitSegments: effectiveSegments);
                 if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
                 orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
                     idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));

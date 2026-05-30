@@ -319,6 +319,28 @@ states them so a reviewer/playtester judges them deliberately, not as bugs.
   the re-aim synodic schedule producer (new, NOT `TryBuildRelaunchSchedule`), the re-aim descriptor on
   the `LoopUnit`, and the per-window-cached substitution - this is the Phase-3c step that ends in the
   in-game playtest.
+  - **CORRECTION (playtest 2026-05-30, `logs/...reaim-map-source`): the map did NOT render the re-aimed
+    transfer "for free."** The "everything reads `traj.OrbitSegments`" assumption held only for the
+    flight ghost MESH (engine substitutes a `ReaimedTrajectory`) and the TRACKING-STATION map path
+    (`RefreshTrackingStationGhosts`, explicitly wired to `ResolveEffectiveMapOrbitSegments`). The
+    FLIGHT map orbit line is driven by a SEPARATE path, `ParsekPlaybackPolicy.CheckPendingMapVessels`
+    (initial-create, pending-create, and the rate-limited per-frame refresh), which reads
+    `rec.OrbitSegments` / `traj.OrbitSegments` DIRECTLY and never calls the re-aim resolver. So in
+    flight map view the orbit line drew the RECORDED transfer (sma 17,604,964,390, pointed at the
+    target's RECORDED position - "the wrong place in the target's orbit, empty space"), even though the
+    flight mesh and TS line used the re-aimed transfer (synth sma ~17.2-17.6e9). Confirmed by the
+    `[ReaimSeam] map orbit applied ... hasEffective=False` diagnostic firing on every flight-map apply
+    while `map effective segments` (the TS-only resolver log) never fired. **Fix:** made
+    `ResolveEffectiveMapOrbitSegments` `internal` with a raw-pieces overload + a
+    `SubstituteReaimedCoveringSegment` helper, and threaded the re-aimed segment list through all three
+    flight-map sites (per-frame refresh uses it for the covering-segment search, the future-segment
+    scan, and `effectiveOrbitSegments`; pending-create substitutes the re-aimed covering segment at
+    create time). `HandleGhostCreated` (one-time materialize at `startUT`, pre-first-window) is left
+    faithful - the resolver returns the recorded list there anyway and the refresh corrects it within
+    one cycle. Faithful no-op is reference-checked (effective == recorded => unchanged), so every
+    non-re-aim member's flight map path is byte-identical. The SOI-handoff teleports (recorded ejection
+    hyperbola at the Kerbin SOI boundary vs the re-aimed transfer from Kerbin center) are a SEPARATE
+    issue (option 3: re-plan the whole patched-conic chain) tracked below.
 - **Per-window trajectory.** The `LoopUnit` carries a re-aim descriptor (launch body, target,
   recorded parking/arrival segments). Per loop instance, the engine asks for the trajectory at the
   active window; the adapter computes (and caches) the synthesized segments for that window. Recompute
