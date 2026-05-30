@@ -103,6 +103,46 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Classify_InterloperParkedInLaunchOrbitDuringTransfer_FlattenedBreaks_PerMemberCorrect()
+        {
+            // Regression (playtest 2026-05-30, save s15 'Duna One'): a SECOND member parked in a
+            // launch-body orbit DURING the transfer (a station / a jettisoned stage left in LKO)
+            // interleaves its segments with the transfer's heliocentric coasts in the flattened
+            // multi-member gather. The classifier's backward walk from the target SOI coast then hits an
+            // interleaved launch-body segment and STOPS, collapsing the transfer to the last coast alone
+            // (a too-short tof -> a bogus re-aimed geometry; in game tof fell from ~79d to ~35d and the
+            // ghost aimed where Duna was not). The builder now classifies PER-MEMBER (each member's own
+            // segments), so the parked station never pollutes the transfer member. This pins both halves.
+            var transferOnly = new List<OrbitSegment>
+            {
+                SegA("Kerbin", 100, 1000, 700000),  // launch parking
+                SegA("Sun", 1000, 2000, 1.7e10),    // transfer coast 1
+                SegA("Sun", 2000, 3000, 1.7e10),    // transfer coast 2 (mid-course)
+                SegA("Sun", 3000, 4000, 1.7e10),    // transfer coast 3 (ends at the Duna SOI entry)
+                SegA("Duna", 4000, 5000, 500000),   // arrival
+            };
+            var soloPlan = ReaimClassifier.Classify(transferOnly, StockParents());
+            Assert.True(soloPlan.Supported, soloPlan.Reason);
+            Assert.Equal(1000.0, soloPlan.RecordedDepartureUT, 3);          // full transfer run start
+            Assert.Equal(3000.0, soloPlan.RecordedTransferTofSeconds, 3);   // the true ~3000s transfer
+
+            // The same transfer with a parked launch-body-orbit member flattened in, overlapping the
+            // transfer UT (the station). Its Kerbin segments interleave between the Sun coasts.
+            var flattened = new List<OrbitSegment>(transferOnly)
+            {
+                SegA("Kerbin", 1500, 2500, 2360000),
+                SegA("Kerbin", 2500, 3500, 2360000),
+                SegA("Kerbin", 3500, 3999, 2360000),
+            };
+            var brokenPlan = ReaimClassifier.Classify(flattened, StockParents());
+            // The interloper Kerbin segment immediately before the last Sun coast breaks the backward
+            // walk: the transfer collapses to the last coast alone (tof 1000), NOT the true 3000. This is
+            // precisely why the builder must classify per-member, not on the flattened gather.
+            Assert.Equal(3000.0, brokenPlan.RecordedDepartureUT, 3);        // only the last coast
+            Assert.Equal(1000.0, brokenPlan.RecordedTransferTofSeconds, 3); // the broken fragment
+        }
+
+        [Fact]
         public void Classify_KerbinLoiterBeforeDirectTransfer_DepartsAtTransferStart()
         {
             // A long Kerbin LKO loiter (Kerbin-bodied) then a DIRECT transfer (Sun) to Duna. The Kerbin

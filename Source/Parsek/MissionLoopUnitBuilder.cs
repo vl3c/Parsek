@@ -334,8 +334,75 @@ namespace Parsek
                     // heliocentric leg(s) (ReaimPlaybackResolver / ReaimSegmentAssembler.
                     // ReplaceHeliocentricLeg) and leaves body-relative legs faithful, so classifying
                     // across the whole chain and substituting per-member is consistent (no half-apply).
-                    List<OrbitSegment> missionSegments = GatherMemberOrbitSegments(committed, memberIndices);
-                    ReaimMissionPlan plan = ReaimClassifier.Classify(missionSegments, bodyInfo);
+                    // Classify PER-MEMBER, not the flattened multi-member gather. A member parked in orbit
+                    // DURING the transfer (a station, a tug, a jettisoned stage left in LKO) interleaves
+                    // its orbit segments with the transfer member's heliocentric coast in the flattened
+                    // startUT-sorted list. That broke both algorithms in playtest: the classifier's
+                    // backward walk from the target SOI coast hit an interleaved launch-body segment and
+                    // stopped (transfer = the last coast only -> a too-short tof -> a bogus re-aimed
+                    // geometry), and the loiter compressor cut the interleaved launch-body loiter whose UT
+                    // range OVERLAPS the transfer (excising the transfer itself). The transfer is ONE
+                    // member's continuous heliocentric arc, so classify each member's own segments; the
+                    // member that yields a supported plan is the re-aim source and ITS segments drive the
+                    // loiter cuts (only its parking is compressed, never another member's overlapping
+                    // loiter). Members with no heliocentric leg (the parked station) classify as
+                    // unsupported and loop faithfully alongside.
+                    ReaimMissionPlan plan = ReaimMissionPlan.Unsupported(null, "no member yields a re-aim transfer");
+                    List<OrbitSegment> transferSegments = null;
+                    int gatheredCount = 0;
+                    for (int mi = 0; mi < memberIndices.Count; mi++)
+                    {
+                        int midx = memberIndices[mi];
+                        if (midx < 0 || midx >= committed.Count)
+                            continue;
+                        Recording mrec = committed[midx];
+                        if (mrec == null || mrec.OrbitSegments == null || mrec.OrbitSegments.Count == 0)
+                            continue;
+                        gatheredCount += mrec.OrbitSegments.Count;
+                        var msegs = new List<OrbitSegment>(mrec.OrbitSegments);
+                        msegs.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+                        ReaimMissionPlan mp = ReaimClassifier.Classify(msegs, bodyInfo);
+                        if (mp.Supported && transferSegments == null)
+                        {
+                            plan = mp;
+                            transferSegments = msegs;
+                            // keep scanning only to finish the gatheredCount tally for the diagnostic
+                        }
+                    }
+
+                    // Diagnostic: dump the transfer member's segments + the classifier's transfer
+                    // measurement so a save reload reveals the recorded structure (which segment is the
+                    // transfer, where any loiter is, what the loiter detector + classifier see). Verbose,
+                    // one-shot per build.
+                    if (!SuppressLogging && bodyInfo != null)
+                    {
+                        var dic = CultureInfo.InvariantCulture;
+                        List<OrbitSegment> dumpSegs = transferSegments ?? new List<OrbitSegment>();
+                        ParsekLog.Verbose("ReaimDiag",
+                            $"mission='{mission.Name}' gatheredSegs={gatheredCount} transferMemberSegs={dumpSegs.Count} " +
+                            $"plan.Supported={plan.Supported} reason='{plan.Reason}'" +
+                            (plan.Supported
+                                ? $" departUT={plan.RecordedDepartureUT.ToString("F0", dic)}" +
+                                  $" arrivalUT={plan.RecordedArrivalUT.ToString("F0", dic)}" +
+                                  $" tof={plan.RecordedTransferTofSeconds.ToString("F0", dic)}" +
+                                  $" ancestor={plan.CommonAncestor}"
+                                : ""));
+                        int logged = 0;
+                        for (int si = 0; si < dumpSegs.Count && logged < 60; si++, logged++)
+                        {
+                            OrbitSegment s = dumpSegs[si];
+                            double per = ReaimLoiterCompressor.OrbitalPeriod(
+                                s.semiMajorAxis, bodyInfo.GravParameter(s.bodyName));
+                            double dur = s.endUT - s.startUT;
+                            ParsekLog.Verbose("ReaimDiag",
+                                $"  seg#{si} {s.bodyName} [{s.startUT.ToString("F0", dic)},{s.endUT.ToString("F0", dic)}]" +
+                                $" dur={dur.ToString("F0", dic)} sma={s.semiMajorAxis.ToString("R", dic)}" +
+                                $" period={(double.IsNaN(per) ? "NaN" : per.ToString("F0", dic))}" +
+                                $" revs={(double.IsNaN(per) || per <= 0.0 ? "-" : (dur / per).ToString("F2", dic))}" +
+                                $" pred={s.isPredicted}");
+                        }
+                    }
+
                     if (plan.Supported)
                     {
                         // Congruent-window schedule: the windows are RecordedDepartureUT + k*synodic
@@ -371,13 +438,25 @@ namespace Parsek
                             // still lands ~1 orbit before the (unchanged, absolute) synodic window. Empty
                             // cuts (no compressible loiter) leave the clock byte-identical to faithful.
                             List<GhostPlaybackLogic.LoopCut> cuts =
-                                ReaimLoiterCompressor.ComputeCuts(missionSegments, bodyInfo.GravParameter);
+                                ReaimLoiterCompressor.ComputeCuts(transferSegments, bodyInfo.GravParameter);
                             // Apply only when the cuts leave a POSITIVE compressed span. keepRevs >= 1
                             // already guarantees each cutLength < its run duration (so totalCut < span),
                             // but gate on it explicitly to match TryComputeSpanLoopUT's effectiveSpan
                             // check: that gate falls back to the identity remap when totalCut >= span, so
                             // applying the anchor shift here without the same gate would produce a
                             // shifted-but-uncompressed clock in the (unreachable) degenerate case.
+                            // Diagnostic: dump each cut (cross-reference start with the seg# dump above to
+                            // see which run was excised, and whether the transfer arc was wrongly cut).
+                            if (!SuppressLogging)
+                            {
+                                var cic = CultureInfo.InvariantCulture;
+                                for (int ci = 0; ci < cuts.Count && ci < 30; ci++)
+                                    ParsekLog.Verbose("ReaimDiag",
+                                        $"  cut#{ci} start={cuts[ci].StartUT.ToString("F0", cic)}" +
+                                        $" len={cuts[ci].LengthSeconds.ToString("F0", cic)}" +
+                                        $" end={cuts[ci].EndUT.ToString("F0", cic)}");
+                            }
+
                             if (cuts.Count > 0 && GhostPlaybackLogic.TotalCutLength(cuts) < span)
                             {
                                 double cutBeforeDeparture = plan.RecordedDepartureUT
