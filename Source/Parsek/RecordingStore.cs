@@ -6381,88 +6381,13 @@ namespace Parsek
 
             BeginRewindForOwner(owner);
 
-            string tempCopyName = null;
-            try
-            {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "",
-                    "saves",
-                    HighLogic.SaveFolder ?? "");
-
-                string sourcePath = Path.Combine(savesDir,
-                    RecordingPaths.BuildRewindSaveRelativePath(owner.RewindSaveFileName));
-                tempCopyName = owner.RewindSaveFileName;
-                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
-
-                // Copy from Parsek/Saves/ to root saves dir
-                File.Copy(sourcePath, tempPath, true);
-
-                // Pre-process the save file before KSP parses it:
-                // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
-                // 2. Wind back UT by the rewind-to-launch lead time so the player can
-                //    regain control on the pad before launch.
-
-                var stripNames = BuildRewindStripNames(owner);
-                // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
-                // alongside name matching — catches renamed vessels or debris)
-                var (stripPids, _) = CollectSpawnedVesselInfo();
-                PreProcessRewindSave(tempPath, stripNames, stripPids, RewindToLaunchLeadTimeSeconds);
-
-                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
-
-                // Delete the temp copy (file already parsed into Game object)
-                TryDeleteFileQuietly(tempPath);
-
-                if (game == null)
-                {
-                    ResetRewindFlags();
-                    if (!SuppressLogging)
-                        ParsekLog.Error("Rewind",
-                            $"Rewind failed: LoadGame returned null for save '{owner.RewindSaveFileName}'. " +
-                            $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
-                    return;
-                }
-
-                // Capture the adjusted UT from the preprocessed save.
-                RewindContext.SetAdjustedUT(game.flightState.universalTime);
-
-                if (!SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Rewind: adjustedUT={RewindAdjustedUT:F1}, " +
-                        $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
-
-                // Drop supersede relations whose forks are entirely in the rewound-out
-                // future. Without this, a rewound-to-launch source recording stays
-                // suppressed by `reason=superseded-by-relation` after re-launch even
-                // though the user has rewound past the moment the forks were created.
-                // Walk the whole rewound owner's tree so branch recordings (e.g. an
-                // upper-stage Probe) are unsuppressed too, not just the owner. Runs
-                // AFTER SetAdjustedUT so the comparison `fork.StartUT >= rewindAdjustedUT`
-                // uses the post-load UT.
-                int droppedSupersedes = DropSupersedesRewoundOutOfExistence(owner, RewindAdjustedUT);
-                if (droppedSupersedes > 0 && !SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
-                        $"(rewindUT={RewindAdjustedUT:F1} owner='{owner.VesselName}')");
-
-                HighLogic.CurrentGame = game;
-                HighLogic.LoadScene(GameScenes.SPACECENTER);
-
-                if (!SuppressLogging)
-                    ParsekLog.Info("Rewind",
-                        $"Rewind: loading save '{owner.RewindSaveFileName}' into SpaceCenter");
-            }
-            catch (Exception ex)
-            {
-                ResetRewindFlags();
-
-                DeleteTemporaryRewindSaveCopy(tempCopyName);
-
-                if (!SuppressLogging)
-                    ParsekLog.Error("Rewind",
-                        $"Rewind failed: {ex.Message}. " +
-                        $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
-            }
+            // Shared load: pre-process (strip + lead-time windback) keyed by the owner, and
+            // drop supersede relations rewound out of existence for the owner's tree.
+            ExecuteRewindSaveLoad(
+                owner.RewindSaveFileName,
+                preProcessOwner: owner,
+                dropSupersedeOwner: owner,
+                messageLabel: "Rewind");
         }
 
         private static void BeginRewindForOwner(Recording owner)
@@ -6485,6 +6410,128 @@ namespace Parsek
                     $"Rewind-to-Launch initiated to UT {owner.StartUT} " +
                     $"(save: {owner.RewindSaveFileName}). Plain launch rewind via parsek_rw_* quicksave; " +
                     $"this is NOT a Re-Fly (no RewindPoint / ReFlySessionMarker / MergeJournal)");
+        }
+
+        /// <summary>
+        /// Shared load mechanics for both rewind entry points (<see cref="InitiateRewind"/>
+        /// and <see cref="InitiateRewindToCareerStart"/>). Copies the Parsek/Saves snapshot to
+        /// the root saves dir (KSP's LoadGame cannot read subdirectory paths), optionally
+        /// pre-processes it, loads it via <see cref="GamePersistence.LoadGame"/>, deletes the
+        /// temp copy, captures the adjusted UT, optionally drops supersede relations rewound
+        /// out of existence, swaps in the loaded game, and loads the Space Center. On any
+        /// failure resets the rewind flags and removes the temp copy. Returns true when the
+        /// scene load was initiated.
+        ///
+        /// <para>Callers own the precondition gates (merge-journal refusal, supersede-count
+        /// refusal) and the rewind-context setup (<see cref="BeginRewindForOwner"/> vs the
+        /// UT-0 reset) BEFORE calling this; this helper is purely the mechanical save-copy /
+        /// load / scene-swap wrapper that the two entry points used to duplicate.</para>
+        /// </summary>
+        /// <param name="saveFileName">Parsek/Saves snapshot base name (no .sfs extension).</param>
+        /// <param name="preProcessOwner">When non-null, runs <see cref="PreProcessRewindSave"/>
+        /// with that owner's strip set plus the rewind-to-launch lead-time windback. Null skips
+        /// pre-processing (the pristine career-start snapshot, which must not be wound back
+        /// below UT 0).</param>
+        /// <param name="dropSupersedeOwner">When non-null, drops supersede relations rewound
+        /// out of existence for that owner's tree once the adjusted UT is known. Null skips the
+        /// drop (the career-start path refuses up front when any supersede relation exists).</param>
+        /// <param name="messageLabel">Message-text prefix for the adjusted-UT / failure logs
+        /// ("Rewind" vs "Warp-to-game-start"); the subsystem tag stays "Rewind" either way.</param>
+        private static bool ExecuteRewindSaveLoad(
+            string saveFileName,
+            Recording preProcessOwner,
+            Recording dropSupersedeOwner,
+            string messageLabel)
+        {
+            string tempCopyName = null;
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "",
+                    "saves",
+                    HighLogic.SaveFolder ?? "");
+
+                string sourcePath = Path.Combine(savesDir,
+                    RecordingPaths.BuildRewindSaveRelativePath(saveFileName));
+                tempCopyName = saveFileName;
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+
+                // Copy from Parsek/Saves/ to the root saves dir so LoadGame can find it.
+                File.Copy(sourcePath, tempPath, true);
+
+                if (preProcessOwner != null)
+                {
+                    // Pre-process the save file before KSP parses it:
+                    // 1. Remove recorded vessel + any EVA child vessels (other vessels stay intact)
+                    // 2. Wind back UT by the rewind-to-launch lead time so the player can
+                    //    regain control on the pad before launch.
+                    var stripNames = BuildRewindStripNames(preProcessOwner);
+                    // Collect spawned vessel PIDs for PID-based stripping (belt-and-suspenders
+                    // alongside name matching, catches renamed vessels or debris)
+                    var (stripPids, _) = CollectSpawnedVesselInfo();
+                    PreProcessRewindSave(tempPath, stripNames, stripPids, RewindToLaunchLeadTimeSeconds);
+                }
+
+                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
+
+                // Delete the temp copy (file already parsed into Game object)
+                TryDeleteFileQuietly(tempPath);
+
+                if (game == null)
+                {
+                    ResetRewindFlags();
+                    if (!SuppressLogging)
+                        ParsekLog.Error("Rewind",
+                            $"{messageLabel} failed: LoadGame returned null for save '{saveFileName}'. " +
+                            $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
+                    return false;
+                }
+
+                // Capture the adjusted UT from the (possibly preprocessed) save.
+                RewindContext.SetAdjustedUT(game.flightState.universalTime);
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"{messageLabel}: adjustedUT={RewindAdjustedUT:F1}, " +
+                        $"rewindUT={RewindUT:F1}, flags=[IsRewinding={IsRewinding}]");
+
+                if (dropSupersedeOwner != null)
+                {
+                    // Drop supersede relations whose forks are entirely in the rewound-out
+                    // future. Without this, a rewound-to-launch source recording stays
+                    // suppressed by `reason=superseded-by-relation` after re-launch even
+                    // though the user has rewound past the moment the forks were created.
+                    // Walk the whole rewound owner's tree so branch recordings (e.g. an
+                    // upper-stage Probe) are unsuppressed too, not just the owner. Runs
+                    // AFTER SetAdjustedUT so the comparison `fork.StartUT >= rewindAdjustedUT`
+                    // uses the post-load UT.
+                    int droppedSupersedes = DropSupersedesRewoundOutOfExistence(dropSupersedeOwner, RewindAdjustedUT);
+                    if (droppedSupersedes > 0 && !SuppressLogging)
+                        ParsekLog.Info("Rewind",
+                            $"Dropped {droppedSupersedes} supersede relation(s) rewound out of existence " +
+                            $"(rewindUT={RewindAdjustedUT:F1} owner='{dropSupersedeOwner.VesselName}')");
+                }
+
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind",
+                        $"{messageLabel}: loading save '{saveFileName}' into SpaceCenter");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetRewindFlags();
+
+                DeleteTemporaryRewindSaveCopy(tempCopyName);
+
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind",
+                        $"{messageLabel} failed: {ex.Message}. " +
+                        $"Flags reset: IsRewinding={IsRewinding}, RewindUT={RewindUT}, RewindAdjustedUT={RewindAdjustedUT}");
+                return false;
+            }
         }
 
         /// <summary>
@@ -6541,49 +6588,14 @@ namespace Parsek
                     $"Warp-to-game-start initiated to UT 0 (snapshot: {saveFileName}). Keeps in-memory " +
                     "recordings as future ghosts; NOT a Re-Fly.");
 
-            string tempCopyName = null;
-            try
-            {
-                string savesDir = Path.Combine(
-                    KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
-                string sourcePath = Path.Combine(savesDir,
-                    RecordingPaths.BuildRewindSaveRelativePath(saveFileName));
-                tempCopyName = saveFileName;
-                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
-
-                // Copy from Parsek/Saves/ to the root saves dir so LoadGame can find it.
-                File.Copy(sourcePath, tempPath, true);
-
-                // No PreProcessRewindSave: the snapshot is pristine (no future vessels to
-                // strip) and must NOT be wound back below UT 0.
-                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
-                TryDeleteFileQuietly(tempPath);
-
-                if (game == null)
-                {
-                    ResetRewindFlags();
-                    if (!SuppressLogging)
-                        ParsekLog.Error("Rewind",
-                            $"Warp-to-game-start failed: LoadGame returned null for snapshot '{saveFileName}'");
-                    return false;
-                }
-
-                RewindContext.SetAdjustedUT(game.flightState.universalTime);
-                if (!SuppressLogging)
-                    ParsekLog.Info("Rewind", $"Warp-to-game-start: adjustedUT={RewindAdjustedUT:F1}");
-
-                HighLogic.CurrentGame = game;
-                HighLogic.LoadScene(GameScenes.SPACECENTER);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                ResetRewindFlags();
-                DeleteTemporaryRewindSaveCopy(tempCopyName);
-                if (!SuppressLogging)
-                    ParsekLog.Error("Rewind", $"Warp-to-game-start failed: {ex.Message}");
-                return false;
-            }
+            // Pristine snapshot: no PreProcessRewindSave (no future vessels to strip, and it
+            // must NOT be wound back below UT 0) and no supersede drop (refused above when any
+            // supersede relation exists).
+            return ExecuteRewindSaveLoad(
+                saveFileName,
+                preProcessOwner: null,
+                dropSupersedeOwner: null,
+                messageLabel: "Warp-to-game-start");
         }
 
         /// <summary>
