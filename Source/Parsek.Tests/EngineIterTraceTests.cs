@@ -204,6 +204,113 @@ namespace Parsek.Tests
             }
         }
 
+        // --- Visibility-outcome token. Closes the gap that made the
+        // loop-top-only engine-iter trace inconclusive for the
+        // "active=1 but invisible" ghost-vanish symptom: skip=None at the loop
+        // top did NOT prove the ghost rendered, because retire / zone-hide
+        // happens AFTER positioning. The outcome token reports the per-frame
+        // visibility verdict read from the post-loop GhostPlaybackState.
+
+        [Fact]
+        public void FormatEngineIterOutcome_No_Ghost_Reports_None()
+        {
+            Assert.Equal(
+                "[out:none]",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    hasGhost: false,
+                    meshVisible: false,
+                    anchorRetiredThisFrame: false,
+                    zone: RenderingZone.Physics,
+                    renderDistance: double.NaN));
+        }
+
+        [Fact]
+        public void FormatEngineIterOutcome_Visible_Ghost_Reports_Vis_T()
+        {
+            Assert.Equal(
+                "[out:vis=T retired=F zone=Physics rdist=1200m]",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    hasGhost: true,
+                    meshVisible: true,
+                    anchorRetiredThisFrame: false,
+                    zone: RenderingZone.Physics,
+                    renderDistance: 1200.0));
+        }
+
+        [Fact]
+        public void FormatEngineIterOutcome_Retire_Is_Distinguishable_From_Zone_Cull()
+        {
+            // The two competing hypotheses for a positioned-but-invisible ghost
+            // are relative-anchor retire vs distance LOD. The outcome token
+            // separates them: the retire path reports vis=F retired=T.
+            Assert.Equal(
+                "[out:vis=F retired=T zone=Visual rdist=4200m]",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    hasGhost: true,
+                    meshVisible: false,
+                    anchorRetiredThisFrame: true,
+                    zone: RenderingZone.Visual,
+                    renderDistance: 4200.0));
+        }
+
+        [Fact]
+        public void FormatEngineIterOutcome_Zone_Beyond_Cull_Reports_Distance()
+        {
+            // Distance LOD cull (H4): vis=F retired=F zone=Beyond, with the
+            // render distance so a reader can tell a real >120km gap from a
+            // floating-origin seam phantom value.
+            Assert.Equal(
+                "[out:vis=F retired=F zone=Beyond rdist=350000m]",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    hasGhost: true,
+                    meshVisible: false,
+                    anchorRetiredThisFrame: false,
+                    zone: RenderingZone.Beyond,
+                    renderDistance: 350000.0));
+        }
+
+        [Fact]
+        public void FormatEngineIterOutcome_Unresolved_Distance_Reported_As_Unresolved()
+        {
+            // NaN / MaxValue render distances (anchor unresolved) route through
+            // RenderingZoneManager.FormatDistanceForLog -> "unresolved", never a
+            // raw 1.7E308 that would break the log parsers.
+            Assert.Equal(
+                "[out:vis=F retired=T zone=Beyond rdist=unresolved]",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    hasGhost: true,
+                    meshVisible: false,
+                    anchorRetiredThisFrame: true,
+                    zone: RenderingZone.Beyond,
+                    renderDistance: double.MaxValue));
+            Assert.Contains(
+                "rdist=unresolved",
+                GhostPlaybackEngine.FormatEngineIterOutcome(
+                    true, false, true, RenderingZone.Beyond, double.NaN));
+        }
+
+        [Fact]
+        public void EmitEngineIterTrace_Renders_Combined_Input_And_Outcome_Tokens()
+        {
+            // UpdatePlayback's post-loop pass concatenates the input entry and
+            // the outcome token per index. Pin that the rendered line carries
+            // BOTH so the next-repro grep `[Engine] engine-frame-iter` surfaces
+            // vis / retired / zone for the affected ghost in one line.
+            string sample =
+                GhostPlaybackEngine.FormatEngineIterEntry(
+                    9, "rec_152453a952804ee7b54f129bdfe2fdc1",
+                    GhostPlaybackSkipReason.None, false, true, true, 1740.436)
+                + GhostPlaybackEngine.FormatEngineIterOutcome(
+                    true, false, true, RenderingZone.Visual, 4200.0);
+
+            GhostPlaybackEngine.EmitEngineIterTrace(sample);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Engine] engine-frame-iter")
+                && l.Contains("[i=9 rec=rec_1524 skip=None aru=F hd=T hs=T endUT=1740.4]")
+                && l.Contains("[out:vis=F retired=T zone=Visual rdist=4200m]"));
+        }
+
         // --- Rendered-line contract (closes the PR #837 P2 bug where the
         // `engine-frame-iter` token only lived in the rate-limit key and was
         // invisible in KSP.log). The docs' next-repro grep

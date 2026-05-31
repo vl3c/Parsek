@@ -551,6 +551,34 @@ namespace Parsek
                 + "]";
         }
 
+        // Per-frame VISIBILITY OUTCOME token appended to each engine-iter entry,
+        // read from the post-loop GhostPlaybackState. This is the signal that
+        // closes the gap left by FormatEngineIterEntry (which captures only
+        // pre-render inputs): for the "active=1 but invisible" ghost-vanish
+        // symptom it tells, at a glance per frame, whether the ghost's mesh
+        // ended the frame shown (vis=T) or hidden, and if hidden, WHY — the
+        // relative-anchor retire path (retired=T) versus distance LOD
+        // (zone=Beyond + rdist). hasGhost=false means no GhostPlaybackState
+        // entry at all (the slot was skipped/destroyed/never spawned).
+        // Pure/static (primitive args only) so the format is unit-pinnable
+        // without a Unity GameObject.
+        internal static string FormatEngineIterOutcome(
+            bool hasGhost,
+            bool meshVisible,
+            bool anchorRetiredThisFrame,
+            RenderingZone zone,
+            double renderDistance)
+        {
+            if (!hasGhost)
+                return "[out:none]";
+
+            return "[out:vis=" + (meshVisible ? "T" : "F")
+                + " retired=" + (anchorRetiredThisFrame ? "T" : "F")
+                + " zone=" + zone.ToString()
+                + " rdist=" + RenderingZoneManager.FormatDistanceForLog(renderDistance)
+                + "]";
+        }
+
         internal static string FormatRecordingIdShort(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId))
@@ -943,41 +971,26 @@ namespace Parsek
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
 
-            // Engine-iteration trace builder (one ParsekLog line per frame,
-            // rate-limited via VerboseRateLimited so it can ride a 1.0s minimum
-            // without losing fidelity at 60fps). Off when ghostRenderTracing is
-            // off so the steady-state cost is zero. Bypasses GhostRenderTrace
-            // entirely — the trace is gated by IsDetailedWindowOpen, but this
-            // builder must run for every trajectory regardless so a future
-            // repro can distinguish "fell out of iteration" from "rendered with
-            // closed trace window."
+            // Engine-iteration trace gate. The line itself is built once per
+            // frame in a dedicated post-loop pass (see below) so each entry can
+            // report not just the pre-render inputs but the per-frame VISIBILITY
+            // OUTCOME (mesh shown/hidden + reason), read from the final
+            // GhostPlaybackState after the loop has positioned/hidden it.
+            // Bypasses GhostRenderTrace's IsDetailedWindowOpen gate so a
+            // ghost-vanish repro can tell "fell out of iteration" from
+            // "iterated, positioned, then hidden." Auto-on whenever a Re-Fly
+            // session is active (the ghost-vanish-inertial repro is a Re-Fly
+            // continuation ghost) so the next repro is captured without the user
+            // first enabling ghostRenderTracing; emit is rate-limited to 1.0s.
             bool engineIterTraceEnabled =
-                ParsekSettings.Current?.ghostRenderTracing == true;
-            System.Text.StringBuilder engineIterBuilder = engineIterTraceEnabled
-                ? new System.Text.StringBuilder(trajectories.Count * 48)
-                : null;
+                ParsekSettings.Current?.ghostRenderTracing == true
+                || ctx.activeReFlyMarker != null;
 
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
                 var traj = trajectories[i];
                 var f = flags[i];
-
-                if (engineIterBuilder != null)
-                {
-                    if (engineIterBuilder.Length > 0)
-                        engineIterBuilder.Append(',');
-                    engineIterBuilder.Append(FormatEngineIterEntry(
-                        index: i,
-                        recordingId: traj?.RecordingId,
-                        skipReason: f.skipGhost
-                            ? f.skipReason
-                            : GhostPlaybackSkipReason.None,
-                        anchorReFlyUnstable: f.anchorReFlyUnstable,
-                        hasRenderableData: HasRenderableGhostData(traj),
-                        inGhostStates: ghostStates.ContainsKey(i),
-                        endUT: traj?.EndUT ?? double.NaN));
-                }
 
                 // Disabled/suppressed: destroy any active ghost before skipping.
                 // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
@@ -1363,14 +1376,52 @@ namespace Parsek
             }
 
             // Engine-iteration trace emit: one log line listing every iterated
-            // trajectory's identity + skipReason + renderable-data + ghostStates
-            // membership + endUT. Bypasses GhostRenderTrace's anomaly-window
-            // gate so a future ghost-vanish regression repro can answer
-            // definitively: did the recording reach the loop? what skipReason
-            // did it have? was ghostStates[i] still present? Rate-limited to
+            // trajectory's identity + producer-side inputs (skipReason /
+            // anchorReFlyUnstable / renderable-data / ghostStates membership /
+            // endUT) AND its per-frame VISIBILITY OUTCOME, read here from the
+            // post-loop GhostPlaybackState: did the ghost end the frame with its
+            // mesh shown, and if hidden, was it the relative-anchor retire path
+            // (retired=T) or distance LOD (zone=Beyond + rdist)? This closes the
+            // gap that made the loop-top-only trace inconclusive for the
+            // "active=1 but invisible" symptom — skip=None at the loop top did
+            // NOT prove the ghost rendered, because a retire/zone-hide happens
+            // after positioning. Bypasses GhostRenderTrace's anomaly-window gate
+            // so a ghost-vanish repro can answer definitively. Rate-limited to
             // 1.0s to keep steady-state cost negligible.
-            if (engineIterBuilder != null && engineIterBuilder.Length > 0)
+            if (engineIterTraceEnabled)
             {
+                var engineIterBuilder =
+                    new System.Text.StringBuilder(trajectories.Count * 64);
+                for (int i = 0; i < trajectories.Count; i++)
+                {
+                    var iterTraj = trajectories[i];
+                    var iterFlags = flags[i];
+                    if (engineIterBuilder.Length > 0)
+                        engineIterBuilder.Append(',');
+                    engineIterBuilder.Append(FormatEngineIterEntry(
+                        index: i,
+                        recordingId: iterTraj?.RecordingId,
+                        skipReason: iterFlags.skipGhost
+                            ? iterFlags.skipReason
+                            : GhostPlaybackSkipReason.None,
+                        anchorReFlyUnstable: iterFlags.anchorReFlyUnstable,
+                        hasRenderableData: HasRenderableGhostData(iterTraj),
+                        inGhostStates: ghostStates.ContainsKey(i),
+                        endUT: iterTraj?.EndUT ?? double.NaN));
+
+                    GhostPlaybackState iterState;
+                    ghostStates.TryGetValue(i, out iterState);
+                    bool hasGhost = iterState != null;
+                    bool meshVisible = hasGhost
+                        && iterState.ghost != null
+                        && iterState.ghost.activeSelf;
+                    engineIterBuilder.Append(FormatEngineIterOutcome(
+                        hasGhost,
+                        meshVisible,
+                        anchorRetiredThisFrame: hasGhost && iterState.anchorRetiredThisFrame,
+                        zone: hasGhost ? iterState.currentZone : RenderingZone.Physics,
+                        renderDistance: hasGhost ? iterState.lastRenderDistance : double.NaN));
+                }
                 EmitEngineIterTrace(engineIterBuilder.ToString());
             }
 

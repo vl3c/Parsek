@@ -88,6 +88,10 @@ All notable changes to Parsek are documented here.
 
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
 
+### Internals
+
+- The `[Engine] engine-frame-iter` diagnostic trace now reports each ghost's per-frame visibility outcome (`[out:vis=.. retired=.. zone=.. rdist=..]`), not just its pre-render inputs, and auto-enables during a Re-Fly session. This pins down the still-open "ghost vanishes at the Inertial-frame transition" case by showing whether a ghost was actually hidden and why, rather than only that it was iterated.
+
 ### Known limitations
 
 - A looped interplanetary mission now re-aims its transfer to the target's current position so it reaches the target (see Looping, above); the exception is a steeply-inclined target (like Moho), whose transfer window is skipped so the mission replays its original transfer for now. Single-body and moon missions (Mun, Minmus) relaunch at the correct window, though a moon mission's orbit may still sit slightly off the launch site (closed in a later update).
