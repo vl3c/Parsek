@@ -338,6 +338,11 @@ namespace Parsek
                 {
                     FileIOUtils.SafeMove(src, dst, "RewindSave");
                     try { bytes = new FileInfo(dst).Length; } catch { /* best-effort */ }
+
+                    // SaveGame also wrote a .loadmeta sidecar next to the temp .sfs in the
+                    // save root; only the .sfs moves, so delete the orphan instead of leaving
+                    // it to litter the save folder.
+                    FileIOUtils.DeleteSaveSidecarLoadMeta(saveDir, tempName, "RewindSave");
                 }
                 catch (Exception ex)
                 {

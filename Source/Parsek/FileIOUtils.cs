@@ -9,6 +9,48 @@ namespace Parsek
     internal static class FileIOUtils
     {
         /// <summary>
+        /// Extension of the sidecar metadata file that <c>GamePersistence.SaveGame</c>
+        /// writes next to every <c>.sfs</c> in the saves root (load-dialog metadata:
+        /// UT, funds, science, reputation, thumbnail hash, etc.).
+        /// </summary>
+        internal const string LoadMetaExtension = ".loadmeta";
+
+        /// <summary>
+        /// Deletes the orphaned <c>.loadmeta</c> sidecar that <c>GamePersistence.SaveGame</c>
+        /// leaves in the saves root after Parsek moves the matching <c>.sfs</c> into a Parsek
+        /// subdirectory (<c>Parsek/Saves</c>, <c>Parsek/RewindPoints</c>). KSP's
+        /// <c>SaveGame</c> always writes the <c>.sfs</c> + <c>.loadmeta</c> pair to the root;
+        /// Parsek's quicksaves are loaded programmatically (the <c>.sfs</c> is copied back to
+        /// the root first), so the root <c>.loadmeta</c> serves no purpose and only litters the
+        /// save folder and the stock load dialog. Best-effort: a missing sidecar is a no-op and
+        /// a delete failure is logged and swallowed (the orphan is harmless).
+        /// </summary>
+        /// <param name="savesDir">Absolute path to the save folder where SaveGame wrote.</param>
+        /// <param name="saveBaseName">The save base name passed to SaveGame (no extension).</param>
+        /// <param name="tag">Subsystem tag for log lines.</param>
+        internal static void DeleteSaveSidecarLoadMeta(string savesDir, string saveBaseName, string tag)
+        {
+            if (string.IsNullOrEmpty(savesDir) || string.IsNullOrEmpty(saveBaseName))
+                return;
+
+            string loadMetaPath = Path.Combine(savesDir, saveBaseName + LoadMetaExtension);
+            try
+            {
+                if (File.Exists(loadMetaPath))
+                {
+                    File.Delete(loadMetaPath);
+                    ParsekLog.Verbose(tag,
+                        $"Deleted orphaned save sidecar '{saveBaseName}{LoadMetaExtension}'");
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(tag,
+                    $"Failed to delete orphaned save sidecar '{saveBaseName}{LoadMetaExtension}': {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Writes a ConfigNode to disk using the safe-write pattern: write to .tmp, then
         /// atomic rename. Ensures parent directory exists. Logs and re-throws on failure.
         /// </summary>
