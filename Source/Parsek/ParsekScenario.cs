@@ -32,7 +32,6 @@ namespace Parsek
     {
         internal const string RewindSpawnSuppressionReasonSameRecording = "same-recording";
         internal const string RewindSpawnSuppressionReasonSameTreeFutureRecording = "same-tree-future-recording";
-        internal const string RewindSpawnSuppressionReasonLegacyUnscoped = "legacy-unscoped";
 
         private const double RewindSpawnSuppressionUTEpsilon = 1e-3;
         private const double ChainPredecessorRepairUTEpsilon = 1e-3;
@@ -6497,9 +6496,8 @@ namespace Parsek
         /// the player's explicit signal that they want to see this recording's outcome
         /// — the spawn at terminal end should be allowed to evaluate normally.
         /// Returns true when a marker was actually cleared. Only acts on the
-        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason: legacy
-        /// unscoped markers are normalized by
-        /// <c>ShouldBlockSpawnForRewindSuppression</c>'s separate path. This helper
+        /// <see cref="RewindSpawnSuppressionReasonSameRecording"/> reason, which is
+        /// the only marker reason produced today. This helper
         /// deliberately does NOT gate on terminal state — final spawnability is
         /// owned by <c>ShouldSpawnAtRecordingEnd</c>'s other gates (snapshot
         /// situation, terminal-state, PID dedup, etc.). Gating here on an enum
