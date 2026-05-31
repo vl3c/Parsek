@@ -474,7 +474,12 @@ hand-built recordings; only the live render is playtest-verified.
    Hohmann fallback.
 2. **Ejection plane.** v1 ignores the recorded parking-orbit plane (clean ejection in the transfer
    plane). If the dogleg looks bad in playtest, rotate the parking orbit's LAN (re-times the ascent).
-3. **Arrival seam blending** (S2->S3) - accept the snap for v1, blend later.
+3. **Arrival seam blending** (S2->S3) - the arrival-seam v1 ships as the timing objective (see
+   `docs/dev/plans/reaim-arrival-seam-timing.md`): per-window transfer selection now picks the tof whose
+   arrival v_inf best matches the RECORDED arrival v_inf, shrinking the SOI-edge seam toward the
+   eccentric-orbit floor and declining to faithful when it cannot beat the current seam. The recorded
+   destination leg is never rotated / shifted; loiter-residual absorption + tolerance tuning are gated
+   follow-ups on the measured residual.
 4. **Departure body not the homeworld** (a mission launched from, say, Duna to Jool) - the model is
    body-agnostic (LCA walk handles it), but confirm with a non-Kerbin-launch test.
 5. **Multi-rev / no-encounter windows** - bounded refinement of `t_arr`; skip-and-log if unsolvable.
