@@ -3298,7 +3298,8 @@ namespace Parsek.Tests
                 "origin-parented post-rewind debris must be superseded/hidden after commit");
 
             // The two continuation-parented redo debris get NO supersede row,
-            // drop out of the tombstone-scope subtree, and stay visible.
+            // never enter the tombstone-scope subtree (they are outside the
+            // closure rooted at the origin / supersede target), and stay visible.
             Assert.DoesNotContain(scenario.RecordingSupersedes,
                 r => r.OldRecordingId == "d_cont_post_1");
             Assert.DoesNotContain(scenario.RecordingSupersedes,
