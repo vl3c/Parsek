@@ -2344,7 +2344,7 @@ asserts only 2 emits total.
 
 # Known Bugs
 
-## 438. KSC timeline clock does not replay ledger resources as committed action UTs mature
+## 438. KSC timeline clock does not replay ledger resources as committed action UTs mature (done)
 
 **Source:** audit of `logs/2026-05-14_2009_game-actions-audit` after the game-actions / ledger playtest. After rewinding in Space Center, the ledger correctly patched the game back to the adjusted rewind UT, but normal KSC time passing and time warp did not keep applying committed resource actions as their UTs were crossed.
 
@@ -2376,11 +2376,11 @@ asserts only 2 emits total.
 
 **Fix implemented:** `ParsekKSC.Update` now observes the Space Center clock even when no ghosts are committed. It tracks the last ledger cutoff, caches the next non-seed ledger action UT until the ledger version or cutoff changes, and runs the shared current-UT recalculation only when the live KSC clock reaches that action boundary or moves backward. High warp coalesces skipped actions into one cutoff walk at the post-skip UT. Stock resource widgets should repaint from the existing KSP `AddFunds` / `AddScience` / `SetReputation` events emitted by `KspStatePatcher`; no separate widget shim was needed in the headless audit because the missing piece was the absent KSC recalculation.
 
-**Status:** Fixed in `game-actions-audit-todos`; pending in-game UI verification. Size: M-L. Correctness + UX. This is the direct explanation for the observed "KSC top bar did not update live while I time-warped" symptom.
+**Status:** Done - merged via #853; in-game UI verification confirmed (player check). Size: M-L. Correctness + UX. This is the direct explanation for the observed "KSC top bar did not update live while I time-warped" symptom.
 
 ---
 
-## 437. Post-rewind live KSC/flight events drop the current-UT cutoff and credit future ledger rewards early
+## 437. Post-rewind live KSC/flight events drop the current-UT cutoff and credit future ledger rewards early (done)
 
 **Source:** audit of `logs/2026-05-14_2009_game-actions-audit`. The ledger calculation itself is consistent, but a live event recorded after rewind calls the generic no-cutoff recalculation path and reapplies future rewards immediately.
 
@@ -2405,11 +2405,11 @@ asserts only 2 emits total.
 
 **Fix implemented:** `LedgerOrchestrator.RecalculateAndPatchForLiveTimelineEvent` now centralizes the decision: if any non-seed ledger action remains after the live event UT, it runs the cutoff-preserving current-UT path; otherwise it keeps the existing full walk. Rollout spending, direct KSC spending, direct KSC science, and vessel recovery payouts now route through that helper. Deferred tree-resolution recalculations use the same current-timeline cutoff helper when future actions remain, so a patch that was deferred behind a pending/live tree does not fall back to a full future walk when the defer reason clears. Deferred vessel-recovery pairing recalculates at the matched `FundsChanged(VesselRecovery)` event UT, not the earlier recovery callback UT, so the newly-added payout is included while later rewards remain filtered. Cutoff walks also suppress the old "suspicious drawdown" warning so legitimate rewind/current-UT resource reductions do not look like missing earning channels.
 
-**Status:** Fixed in `game-actions-audit-todos`; pending in-game verification. Size: M. Correctness bug; can over-credit funds/reputation and mark future milestones achieved early.
+**Status:** Done - merged via #853; in-game verification confirmed (player check). Size: M. Correctness bug; can over-credit funds/reputation and mark future milestones achieved early.
 
 ---
 
-## 436. Space Center scene load excludes KSC from post-rewind current-UT cutoff
+## 436. Space Center scene load excludes KSC from post-rewind current-UT cutoff (done)
 
 **Source:** audit of `logs/2026-05-14_2009_game-actions-audit`. The post-rewind scene-load safeguard is named and gated as a FLIGHT-only path, so loading Space Center at a UT before future committed actions can still run a full no-cutoff ledger patch.
 
@@ -2434,7 +2434,7 @@ asserts only 2 emits total.
 
 **Fix implemented:** the scene-load predicate now treats `FLIGHT` and `SPACECENTER` as current-UT cutoff-capable scenes, logs the scene-neutral decision, and calls the shared current-UT recalculation path when the loaded UT is behind future ledger actions. Cold-start `OnKspLoad` preserves future committed timeline actions during reconcile, including contract lifecycle rows and spendings, then uses the same cutoff behavior so those rows survive but do not affect live KSP state until their UT matures. The delayed initial resource seeding pass also uses the cutoff behavior when loading behind future actions, so a correct load-time cutoff is not later undone. `HandleRewindOnLoad` prunes stale future baselines before the rewind patch, preserving the earliest seed baseline while deleting post-cutoff baseline sidecars when possible.
 
-**Status:** Fixed in `game-actions-audit-todos`; pending in-game verification. Size: S-M. Correctness bug; related to #437 and #438 but independently reproducible on Space Center load.
+**Status:** Done - merged via #853; in-game verification confirmed (player check). Size: S-M. Correctness bug; related to #437 and #438 but independently reproducible on Space Center load.
 
 ---
 
