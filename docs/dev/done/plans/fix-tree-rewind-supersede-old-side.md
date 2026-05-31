@@ -343,7 +343,7 @@ A `[LoadSweep] Legacy non-Immutable old-side sweep deferred: N of M candidate ro
 
 - `CHANGELOG.md` under `## 0.9.x / ### Bug Fixes`: one-line entry describing the visible behavior change (priorTip ghost visible during Watch after parent Rewind of a Crashed/Provisional re-fly).
 - `docs/dev/todo-and-known-bugs.md`: add a Done entry citing `logs/2026-05-13_2335_kerbal-x-booster-ghost-missing` and the design decision.
-- `docs/dev/plans/fix-rewind-canon-fork-retirement.md`: append a short note that the CommittedProvisional non-goal has been resolved by this PR (point to this doc).
+- `docs/dev/done/plans/fix-rewind-canon-fork-retirement.md`: append a short note that the CommittedProvisional non-goal has been resolved by this PR (point to this doc).
 - This file (`fix-tree-rewind-supersede-old-side.md`): the design record.
 
 No new in-game test. The xUnit coverage above plus the synthetic helper test pins the new contract; ghost-spawn-at-endpoint is already covered by separate Unity in-game tests for the broader spawn machinery, and a tree-rewind-then-watch end-to-end test would duplicate that with extra fixture cost.

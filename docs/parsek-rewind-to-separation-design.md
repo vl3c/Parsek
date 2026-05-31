@@ -1172,7 +1172,7 @@ The implementation lives in a new `UnfinishedFlightClassifier` static class (§6
 
 ### 6.20 Classifier extraction (v0.9.1)
 
-> SUPERSEDED (collapse-seal-into-mergestate): the `considerSealed` parameter on `Qualifies` / `TryQualify` and the `slot.Sealed` gate were removed. `TryQualify` is now a shape-only predicate; the open/closed read moved to `EffectiveState.TryResolveUnfinishedFlightRaw`, which gates on the slot's effective tip `MergeState` (open iff `CommittedProvisional`). Read `considerSealed: ...` arguments and `slot.Sealed = ...` steps in this section as "the tip-`MergeState` open-check" / "set the tip recording's `MergeState`". See §2.2 and the plan `docs/dev/plans/collapse-seal-into-mergestate.md`.
+> SUPERSEDED (collapse-seal-into-mergestate): the `considerSealed` parameter on `Qualifies` / `TryQualify` and the `slot.Sealed` gate were removed. `TryQualify` is now a shape-only predicate; the open/closed read moved to `EffectiveState.TryResolveUnfinishedFlightRaw`, which gates on the slot's effective tip `MergeState` (open iff `CommittedProvisional`). Read `considerSealed: ...` arguments and `slot.Sealed = ...` steps in this section as "the tip-`MergeState` open-check" / "set the tip recording's `MergeState`". See §2.2 and the plan `docs/dev/done/plans/collapse-seal-into-mergestate.md`.
 
 A new file `Source/Parsek/UnfinishedFlightClassifier.cs` (or alternatively all-in-one in `EffectiveState.cs`) owns:
 
@@ -1383,7 +1383,7 @@ Logging on reap:
 
 ### 6.24 The Seal handler (v0.9.1)
 
-> SUPERSEDED (collapse-seal-into-mergestate): the original v0.9.1 design below used a separate `ChildSlot.Sealed` bit decoupled from `MergeState`. That bit (and `SealedRealTime`, the `considerSealed` classifier parameter, and the `sealedSlotsContributing` reaper counter) was removed. Open/closed is now read solely from the slot's effective chain+supersede tip `MergeState`: `CommittedProvisional` = open, `Immutable` = sealed/closed. Seal flips the tip `CommittedProvisional -> Immutable` (permanent); the step "slot.Sealed = true" below is now "set the tip recording's MergeState = Immutable". The rest of the handler (dialog, lock, SupersedeStateVersion bump, reaperImpact, logging, persist-before-reap) is unchanged. See §2.2 and the plan `docs/dev/plans/collapse-seal-into-mergestate.md`.
+> SUPERSEDED (collapse-seal-into-mergestate): the original v0.9.1 design below used a separate `ChildSlot.Sealed` bit decoupled from `MergeState`. That bit (and `SealedRealTime`, the `considerSealed` classifier parameter, and the `sealedSlotsContributing` reaper counter) was removed. Open/closed is now read solely from the slot's effective chain+supersede tip `MergeState`: `CommittedProvisional` = open, `Immutable` = sealed/closed. Seal flips the tip `CommittedProvisional -> Immutable` (permanent); the step "slot.Sealed = true" below is now "set the tip recording's MergeState = Immutable". The rest of the handler (dialog, lock, SupersedeStateVersion bump, reaperImpact, logging, persist-before-reap) is unchanged. See §2.2 and the plan `docs/dev/done/plans/collapse-seal-into-mergestate.md`.
 
 The Seal action lives on each Unfinished Flight row in the Recordings Manager. Visual layout per §6.25.
 

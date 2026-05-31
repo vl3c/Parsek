@@ -535,7 +535,7 @@ When implementing the patch, update these in the same commit:
   - update the earlier "Rewind-to-Launch left source ghost suppressed" entry if
     its fix wording currently implies relation-drop alone is sufficient.
 
-- `docs/dev/plans/fix-rewind-supersede-rollback.md`
+- `docs/dev/done/plans/fix-rewind-supersede-rollback.md`
   - add a short follow-up note that relation-drop alone caused the PR #776/#777
     watch-mode double-probe case, and point to this plan.
 

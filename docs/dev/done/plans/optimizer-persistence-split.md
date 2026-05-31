@@ -786,7 +786,7 @@ depends on them.
   reference this plan and the implementation PR.
 - Update `docs/dev/research/optimizer-meaningful-split-rule.md` — change
   the "Conclusion reverted" callout to "Superseded by
-  `docs/dev/plans/optimizer-persistence-split.md`".
+  `docs/dev/done/plans/optimizer-persistence-split.md`".
 - Update `.claude/CLAUDE.md` "On-rails BG vessels emit no env-classified
   TrackSections" note to add the new invariant: "Producer-C seams carry
   `isBoundarySeam=true`; the optimizer skips boundaries on either side of

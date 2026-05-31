@@ -14,14 +14,14 @@
 | Main-window buttons (KSC) | 4 | 5 |
 | Windows open at once | 1 (Career State only) | 2 (Kerbals + Career State) if the user wants both |
 | Fates → Timeline scroll workflow | User must select Kerbals tab first, then click row. Two user actions before the cross-link fires. | Click Fates row — instant scroll. Windows can sit side-by-side. |
-| Design-intent alignment | Reverses the doc (`docs/dev/plans/career-state-window.md §1`) and spec (`docs/dev/todo-and-known-bugs.md §416`) which explicitly split roster-scoped from career-scoped. | Matches stated intent. |
+| Design-intent alignment | Reverses the doc (`docs/dev/done/plans/career-state-window.md §1`) and spec (`docs/dev/todo-and-known-bugs.md §416`) which explicitly split roster-scoped from career-scoped. | Matches stated intent. |
 | Refactor size | ~704 LOC moved, tests adjusted, tab width recalibrated, per-tab scroll needed | Zero |
 | IMGUI regression risk | Medium — width math, scroll-position behavior, tab label truncation all change | None |
 | Discoverability (new user) | A user looking for "crew roster" searches tabs inside "Career State" — non-obvious grouping | "Kerbals" is its own button, topic-labelled |
 
 ## Against consolidation
 
-1. **The design intent is explicit.** Both `docs/dev/plans/career-state-window.md §1` and `docs/dev/todo-and-known-bugs.md §1228` state that Kerbals is *intentionally roster-scoped* and that Career State exists precisely because those four modules are career-scoped. Merging them reverses a choice that was reasoned through in two separate doc passes.
+1. **The design intent is explicit.** Both `docs/dev/done/plans/career-state-window.md §1` and `docs/dev/todo-and-known-bugs.md §1228` state that Kerbals is *intentionally roster-scoped* and that Career State exists precisely because those four modules are career-scoped. Merging them reverses a choice that was reasoned through in two separate doc passes.
 
 2. **The fresh Fates→Timeline flow takes a hit.** Phase 4 (commit `2bac6694`) just shipped clickable Fates rows that scroll the Timeline. That flow's sweet spot is a user with **Kerbals + Timeline side-by-side**: see a Fates row, click, watch Timeline scroll. Merged layout forces the user to (a) open Career State, (b) click the Kerbals tab, (c) click the row. The feature still works, but its ergonomics are worse on day one. It's a bad trade to regress a brand-new shipped feature in exchange for a button-count tweak.
 

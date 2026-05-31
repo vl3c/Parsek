@@ -179,7 +179,7 @@ internal enum ContractOverlayKind { FutureAccepted, FutureCompleted, FutureFaile
 
 **Caching policy:** marks are built **on `onGUI*Spawn`** and held until `…Despawn`. They are NOT rebuilt per OnGUI frame (the §13 review caught this — per-OnGUI walks would be three full passes over `MilestoneStore.Milestones[*].Events[k..]` per frame at 60Hz, too expensive at hundreds of milestones).
 
-**Refresh trigger** (replaces the original `Ledger.StateVersion` polling proposal): the controller subscribes to `LedgerOrchestrator.OnTimelineDataChanged` (the established subscribe pattern — `Source/Parsek/ParsekUI.cs` already subscribes at lines 116/131/134/1290 for the Timeline, Recordings, Kerbals, and Career windows; see also `docs/dev/plans/career-state-window.md` §5.6). When that fires AND the relevant building is currently open, the controller calls `RebuildAllVisible()` on the next OnGUI frame.
+**Refresh trigger** (replaces the original `Ledger.StateVersion` polling proposal): the controller subscribes to `LedgerOrchestrator.OnTimelineDataChanged` (the established subscribe pattern — `Source/Parsek/ParsekUI.cs` already subscribes at lines 116/131/134/1290 for the Timeline, Recordings, Kerbals, and Career windows; see also `docs/dev/done/plans/career-state-window.md` §5.6). When that fires AND the relevant building is currently open, the controller calls `RebuildAllVisible()` on the next OnGUI frame.
 
 **Honest about the routing** (review feedback): `OnTimelineDataChanged` is `internal static Action` declared at `Source/Parsek/GameActions/LedgerOrchestrator.cs:106`, with **a single publisher** at `LedgerOrchestrator.cs:1577` inside `RecalculateAndPatch`. The overlay's source-of-truth predicate depends on three things:
 1. `Ledger.Actions` mutated.

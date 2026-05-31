@@ -1,7 +1,7 @@
 # Switch / Fly Auto-Record Testing Checklist
 
 Player-driven validation for the segment-scoped switch/Fly auto-record feature
-(plan `docs/dev/plans/segment-scoped-switch-fly-autorecord.md`). These scenarios
+(plan `docs/dev/done/plans/segment-scoped-switch-fly-autorecord.md`). These scenarios
 need real UI button clicks and full scene transitions, which the in-game test
 framework (`Ctrl+Shift+T`) cannot drive. Run each test in a fresh KSP session
 with a save that already contains at least two previously spawned, committed
