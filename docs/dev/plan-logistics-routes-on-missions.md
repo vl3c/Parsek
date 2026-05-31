@@ -1,5 +1,7 @@
 # Supply Route v0: Re-Founding on the Missions Subsystem
 
+> **Status: implemented and merged.** All phases (0-6) are built, tested (full xUnit suite green: 13,513 passing), and merged into `logistics-v0-implementation` (PR #875). The locked-Missions git diff is empty across the whole branch and the ERS/ELS gate is green. This document is retained as the build record and rationale; the implemented-system summary and code map live in section 0 of `docs/parsek-logistics-supply-routes-design.md`. The one open item is in-game validation (Ctrl+Shift+T), which cannot be CI-verified.
+
 Authoritative implementation plan. Builders follow this document. The Missions subsystem is LOCKED; a Supply Route v0 is re-founded as three bound things over a route-owned backing Mission segment held by Logistics.
 
 This plan resolves all six contradictions, three gaps, and the ordering issues surfaced in reconciliation. Where a draft workstream disagreed with the reconciliation, the reconciliation wins and the divergence is called out inline.
