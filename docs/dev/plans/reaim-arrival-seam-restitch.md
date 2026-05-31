@@ -53,7 +53,9 @@ re-aimed:  x'= s_re,   z'= h_re_hat,   y'= z' cross x'
 R = [x' y' z'] * [x y z]^T     (maps the recorded incoming frame onto the re-aimed one)
 ```
 
-R is a proper 3-DOF rotation about the body center. Apply R to the recorded arrival's basis vectors (h and the eccentricity/periapsis direction e) and read back (inc, LAN, argPe) in Zup with KSP conventions. Keep eccentricity, sma, meanAnomalyAtEpoch, epoch UNCHANGED (shape + along-orbit phase preserved). `orbitalFrameRotation` and `angularVelocity` are velocity-frame-relative, so they are NOT rotated (the mesh attitude follows the rotated velocity automatically).
+R is a proper 3-DOF rotation about the body center. Apply R to the recorded arrival's state and read back (inc, LAN, argPe) via KSP's own conversion (see 5.1). Keep eccentricity, sma, meanAnomalyAtEpoch, epoch UNCHANGED (shape + along-orbit phase preserved). `orbitalFrameRotation` and `angularVelocity` are velocity-frame-relative, so they are NOT rotated (the mesh attitude follows the rotated velocity automatically).
+
+HANDEDNESS GUARD (review re-pass): build R only when `dot(h_rec_hat, h_re_hat) > 0` (the recorded capture and the re-aimed approach share the prograde-normal sense). If the dot is negative, the recorded arrival and the re-aimed approach have opposite handedness; rotating would flip the orbit's travel direction (a retrograde join, ghost on the wrong side). In that case log it and fall back to faithful (no rotation) for that window, the same fail-safe the synthesizer uses elsewhere. The `y = z cross x` choice is self-canceling across both frames, so it is not a trap.
 
 ### 4.3 Analytic inbound asymptote from (e, h) (review M1)
 
@@ -66,8 +68,8 @@ q_hat = h_hat cross e_hat    (in-plane, prograde at periapsis)
 s = normalize( sqrt(1 - 1/ecc^2) * e_hat  +  (ecc - 1/ecc) * q_hat )   (inbound v_inf direction, ecc > 1)
 ```
 
-- Recorded side: build the recorded arrival Orbit from `ReaimMissionPlan.ArrivalLeg`, take its (e, h) in Zup (sample state at epoch and compute, or read the Orbit's e/h), derive `s_rec`, `h_rec`.
-- Re-aimed side: from the synthesized transfer's target-relative state at `soiEntryUT` in Zup: `r_rel = transfer.getRelativePositionAtUT(soiEntryUT) - 0` relative to the target body, `v_rel = transfer.getOrbitalVelocityAtUT(soiEntryUT) - targetBody.orbit.getOrbitalVelocityAtUT(soiEntryUT)` (Zup, no `.xzy`), then `h_re = r_rel cross v_rel`, `e_re = (v_rel cross h_re)/mu_target - r_rel_hat`, derive `s_re`, `h_re`. (`mu_target` = target body gravitational parameter.)
+- Recorded side: build the recorded arrival Orbit from `ReaimMissionPlan.ArrivalLeg` (`new Orbit(elements, targetBody)`), read its (e, h) in Zup directly via KSP `Orbit.GetEccVector()` / `Orbit.GetOrbitNormal()` (avoid a second hand-rolled derivation), derive `s_rec`, `h_rec`.
+- Re-aimed side: from the synthesized transfer's target-relative state at `soiEntryUT` in Zup: `r_rel = transfer.getRelativePositionAtUT(soiEntryUT) - targetBody.orbit.getRelativePositionAtUT(soiEntryUT)` (both Sun-relative Zup positions; their difference is the target-relative position -- NOT a literal `- 0`), `v_rel = transfer.getOrbitalVelocityAtUT(soiEntryUT) - targetBody.orbit.getOrbitalVelocityAtUT(soiEntryUT)` (Zup, no `.xzy`), then `h_re = r_rel cross v_rel`, `e_re = (v_rel cross h_re)/mu_target - r_rel_hat`, derive `s_re`, `h_re`. (`mu_target` = target body gravitational parameter.)
 
 ### 4.4 Time / phase alignment (review M2)
 
@@ -75,13 +77,18 @@ Rotation fixes geometry, not the SOI-crossing instant. After rotating, `ShiftInT
 
 ## 5. Implementation (v1 = orbit segments + time-shift)
 
-### 5.1 Pure rotation math (xUnit, no Unity) in `ReaimSegmentAssembler`
+### 5.1 Rotation math: pure primitives + a KSP state-vector round-trip for the element read-back
 
-Implement R and the element rotation as PURE double-precision math (3x3 double matrices / double3), NOT UnityEngine.Quaternion, so the whole pipeline is xUnit-tested off Unity:
+Split the work so the GEOMETRY is pure xUnit and the element read-back uses KSP's own elements<->state conversion (correct by construction, which matters because we cannot playtest the Zup angle convention during this run; hand-deriving it would only be tested against itself).
+
+PURE primitives (double precision, NO UnityEngine, xUnit-tested) in `ReaimSegmentAssembler` (or a small `ReaimRotation` helper):
 - `InboundAsymptoteDir(double[] eVec, double[] hVec, double ecc) -> double[3]` (4.3 formula).
-- `RotationFrameToFrame(double[] sFrom, double[] hFrom, double[] sTo, double[] hTo) -> double[3x3]` (4.2).
-- `RotateOrbitSegmentOrientation(OrbitSegment seg, double[3x3] R) -> OrbitSegment`: rebuild the orbit basis (h, e) from (inc, LAN, argPe) in Zup, rotate both by R, read back (inc, LAN, argPe) with KSP wrap conventions (inc in [0,180], LAN/argPe in [0,360), degrees; mEp radians). Keep ecc/sma/mEp/epoch/body/orbitalFrameRotation/angularVelocity unchanged.
-- `RotateBodyRelativeSegments(IReadOnlyList<OrbitSegment> segs, string targetBody, double recordedArrivalUT, double[3x3] R) -> List<OrbitSegment>`: rotate every non-predicted, `bodyName == targetBody`, `startUT >= recordedArrivalUT - eps` segment; pass all others through. Log (count rotated, count skipped non-target-bodied). Anchor on `recordedArrivalUT` (the classifier's arrival boundary), NOT "transfer end".
+- `RotationFrameToFrame(double[] sFrom, double[] hFrom, double[] sTo, double[] hTo) -> double[3x3]` (4.2). Returns the proper rotation; callers check the 4.2 handedness guard `dot(hFrom_hat, hTo_hat) > 0` first.
+- `RotateVector(double[3x3] R, double[] v) -> double[3]` (trivial; the only thing applied to the state vector).
+
+UNITY element rotation (canary-tested, not xUnit; correct by construction): a live helper that, for each target-body segment, builds its Orbit (`new Orbit(elements, targetBody)`), samples its Zup state at `epoch` (`getRelativePositionAtUT(epoch)`, `getOrbitalVelocityAtUT(epoch)` -- both already Zup, NO `.xzy`), applies `RotateVector(R, .)` to BOTH pos and vel, calls `rotatedOrbit.UpdateFromStateVectors(rotPos, rotVel, targetBody, epoch)`, and reads back (inc, LAN, argPe, mEp, epoch) into a copy of the segment. Keep ecc/sma/orbitalFrameRotation/angularVelocity from the original (the round-trip preserves ecc/sma to round-off; copy them verbatim to avoid drift). Rotating the state vector rigidly rotates the orbit, so KSP's conversion yields the correctly-rotated elements without us touching the Zup angle convention by hand.
+
+The segment-list driver (live, sits beside the resolver since it needs KSP Orbits): rotate every non-predicted, `bodyName == targetBody`, `startUT >= recordedArrivalUT - eps` segment via the Unity helper; pass all others through. Log (count rotated, count skipped non-target-bodied). Anchor on `recordedArrivalUT` (the classifier's arrival boundary), NOT "transfer end". R = identity -> byte-identical (no-op guard, exercised by the canary).
 
 ### 5.2 Compute the two incoming frames
 
