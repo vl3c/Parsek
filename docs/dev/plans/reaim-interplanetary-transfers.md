@@ -118,7 +118,7 @@ synthesized from scratch.
 | **S1** | launch-body inertial | NOT a recorded segment (off-rails burn) | **PURE SYNTHESIS** - no recorded counterpart; build the ejection so the post-SOI-exit state matches the Lambert v1 (see section 4) |
 | **S2** | common-ancestor (Sun) inertial | Sun-bodied OrbitSegment (on-rails only) - **REQUIRED**; classifier bails to faithful if absent | **RE-SYNTHESIZE** (Lambert solve to the target's current position) - the core of re-aim |
 | **S3** | target inertial | target-bodied OrbitSegment (on-rails only) | **REPLAY as-is** (target-relative, placed at the synthesized SOI-entry UT) |
-| **S4** | target surface | Absolute/surface points | **DEFERRED** (v1 stops at orbital arrival; re-stitching a descent to a re-aimed arrival is Phase-later) |
+| **S4** | target surface | Absolute/surface points | **S4 v1 IMPLEMENTED** (arrival-seam restitch, `docs/dev/plans/reaim-arrival-seam-restitch.md`): the recorded target-body ORBIT segments (approach + capture + descent) rotate by a rigid Zup R about the target center onto the re-aimed approach frame, closing the gross arrival seam under ROTATE-ALL (landing site moves). The descent-tail POLYLINE rotation + the moon-flyby residual remain fast-follows. |
 
 So v1 keeps your real launch (S0) and your real arrival orbit (S3), and recomputes the connecting
 transfer (S2, Lambert) + the ejection (S1, pure synthesis) for the chosen window. The destination
@@ -286,8 +286,11 @@ This is where re-aim earns its complexity; the doc commits to v1 choices and fla
   entry UT + the target-relative hyperbola (`nextPatch`). The recorded arrival arc S3 is re-anchored
   so its start coincides with that UT, target-relative. The recorded capture orbit's plane/periapsis
   won't exactly equal the synthesized hyperbola's -> a small discontinuity at the FAR-planet SOI seam.
-  **v1 choice:** snap S3 to the SOI-entry UT and accept the seam (momentary, far from the camera).
-  Deferred: blend the arrival hyperbola into the recorded capture.
+  **UPDATE (S4 v1 implemented, `docs/dev/plans/reaim-arrival-seam-restitch.md`):** the gross seam is now
+  closed by rotating the recorded target-body segments (approach + capture + descent) by a rigid Zup R
+  onto the re-aimed approach frame, so the arrival joins the re-aimed transfer continuously (down to a
+  small |v_inf|-magnitude residual). The earlier "snap S3 + accept the seam" is superseded for the orbit
+  segments + map orbit line; the descent-tail polyline rotation remains a fast-follow.
 - **tof is solved, not transplanted (review M3).** Use the Hohmann tof for the WINDOW's actual r1/r2
   geometry as the default Lambert time-of-flight (recorded tof only as a bounded nudge); after the
   Lambert solve, VALIDATE the resulting conic's energy/eccentricity (reject absurd / retrograde /
