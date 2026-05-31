@@ -1644,7 +1644,7 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 **Status:** Done (superseded). Root causes 1 and 2 shipped in PR #852. Root cause 3 (the actual drift) is now OBSOLETE: it was a property of the co-bubble peer-blend subsystem, which was retired entirely in PR #912 (see "Retire the Phase 5 co-bubble peer blending subsystem"). Controlled-decoupled-child formation coherence is now handled by the parent-anchored contract (see "Controlled-decoupled child vessels lack a parent-anchored recording surface"), which removed the dependence on co-bubble peer-blend for this case. No further work.
 - Root causes 1 and 2 (Breakup-edge propagation; pair-specific co-bubble recursion guard) — **CLOSED 2026-05-14**, shipped in PR #852.
-- Root cause 3 (peer ghosts co-bubble against the frozen committed origin instead of the live re-flown vessel — the actual drift) — **OBSOLETE** (co-bubble subsystem retired in PR #912; controlled-child coherence replaced by the parent-anchored contract). The alias attempt described here was implemented and reverted at the time; it is moot now that co-bubble is gone.
+- Root cause 3 (peer ghosts co-bubble against the frozen committed origin instead of the live re-flown vessel, the actual drift): **OBSOLETE** (co-bubble subsystem retired in PR #912; controlled-child coherence replaced by the parent-anchored contract). The alias attempt described here was implemented and reverted at the time; it is moot now that co-bubble is gone.
 
 ---
 
