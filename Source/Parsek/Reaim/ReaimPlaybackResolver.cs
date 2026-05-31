@@ -165,50 +165,140 @@ namespace Parsek.Reaim
             // Anchor the departure to the loop's NOMINAL replay time of the recorded departure (D_k =
             // schedule.DepartureUTForWindow). The loop replays the recorded departure EXACTLY at D_k, so
             // pinning the transfer's departure there places its near-launch point on the LIVE launch body at
-            // the instant the ghost departs (the transfer line touches Kerbin). The synodic window lands on
-            // a ~180-degree transfer angle (the single-rev Lambert degeneracy); an earlier pass searched the
-            // DEPARTURE around D_k to dodge it, but that desynced the transfer from D_k - the loop still
-            // replayed the departure at D_k while the geometry was aimed at the launch body's position days
-            // later, so the heliocentric segment hung in front of Kerbin (the playtest "transfer far from /
-            // in front of Kerbin" regression). Keep the departure FIXED at D_k and search the TIME OF FLIGHT
-            // instead: a small tof step slides the TARGET off the antipodal 180-degree point while the launch
-            // endpoint (and the perigee) stay put. With the plane constraint the nominal departure + recorded
-            // tof converges for almost every window (step 0), so the tof search only nudges the rare exactly-
-            // 180-degree window; the sub-pixel target-end drift it introduces is acceptable, the departure
-            // staying glued to the launch body is what matters. Cached per window (runs once per advance).
+            // the instant the ghost departs (the transfer line touches Kerbin). Departure stays PINNED at
+            // D_k (we never search departure); only the TIME OF FLIGHT is free.
+            //
+            // SELECTION OBJECTIVE (arrival-seam SOI-timing, docs/dev/plans/reaim-arrival-seam-timing.md):
+            // instead of taking the FIRST tof that hits the body (position-min), evaluate ALL candidate tofs
+            // (the +-6% / 12-step sweep, plus a refine pass around the best) and pick the one whose ARRIVAL
+            // v_inf best matches the RECORDED arrival v_inf. The recorded leg (arrival hyperbola + capture +
+            // descent) is NEVER rotated / shifted / relocated; v1 only changes WHICH transfer timing is
+            // chosen per window so the recorded approach splices on with the smallest seam. The position-min
+            // (first-success) transfer is also kept as the FAITHFUL baseline, and we DECLINE TO FAITHFUL
+            // unless the v_inf-chosen transfer produces a strictly smaller seam under tolerance (so v1 can
+            // never regress). Cached per window (runs once per advance).
             const double TofSearchStepFraction = 0.005; // of the recorded tof (~0.4 day for Kerbin->Duna)
             const int SearchMaxSteps = 12;              // +-6% of the recorded tof
+            const int RefineSteps = 4;                  // parabolic refine around the best coarse tof
+            const double DeclineSoiFraction = 0.25;     // accept the chosen transfer only below 0.25 * SOI
             double tofStep = schedule.TofSeconds * TofSearchStepFraction;
             double departureUT = nominalDepartureUT;
 
-            Orbit transferOrbit = null;
-            double soiEntryUT = double.NaN;
+            // The recorded arrival v_inf (the fixed target we match against), in Zup. Build it once per
+            // window. When the arrival leg is not hyperbolic / degenerate, vInfRec is null and the v_inf
+            // objective cannot score: we then fall back to the faithful (first-success) transfer.
+            double[] vInfRec = ReaimArrivalVInf.RecordedArrivalVInf(plan.ArrivalLeg, targetBody);
+
+            // Collect every successful candidate tof, scoring its arrival-v_inf mismatch. The faithful
+            // baseline is the FIRST success in the existing search order (position-min / current behavior).
+            Orbit faithfulOrbit = null, chosenOrbit = null;
+            double faithfulSoiUT = double.NaN, chosenSoiUT = double.NaN;
+            double faithfulTof = double.NaN, chosenTof = double.NaN;
+            double[] chosenVInf = null;
+            double bestMismatch = double.PositiveInfinity;
             CelestialBody encounterBody = null;
-            double usedTofSeconds = double.NaN;
+            int candidatesEvaluated = 0, candidatesScored = 0;
             string failReason = null;
-            for (int s = 0; s <= SearchMaxSteps && transferOrbit == null; s++)
+
+            // Local: try one tof, and if it synthesizes, record it as the faithful baseline (first success)
+            // and update the best-v_inf-mismatch winner. Returns whether the tof synthesized.
+            bool TryCandidate(double tof)
             {
-                double[] tofs = s == 0
-                    ? new[] { schedule.TofSeconds }
-                    : new[] { schedule.TofSeconds + s * tofStep, schedule.TofSeconds - s * tofStep };
-                for (int t = 0; t < tofs.Length; t++)
+                if (!(tof > 0.0))
+                    return false;
+                candidatesEvaluated++;
+                if (!ReaimTransferSynthesizer.TrySynthesizeTransfer(
+                        launchBody, targetBody, departureUT, tof, progradeWanted,
+                        out Orbit cand, out double candSoiUT, out CelestialBody candEnc, out string candFail))
                 {
-                    if (tofs[t] > 0.0 && ReaimTransferSynthesizer.TrySynthesizeTransfer(
-                            launchBody, targetBody, departureUT, tofs[t], progradeWanted,
-                            out transferOrbit, out soiEntryUT, out encounterBody, out failReason))
+                    failReason = candFail;
+                    return false;
+                }
+                if (faithfulOrbit == null) // first success in search order = the position-min faithful pick
+                {
+                    faithfulOrbit = cand;
+                    faithfulSoiUT = candSoiUT;
+                    faithfulTof = tof;
+                }
+                encounterBody = candEnc;
+                double[] candVInf = ReaimArrivalVInf.CandidateArrivalVInf(cand, targetBody, candSoiUT);
+                double mismatch = ReaimArrivalGeometry.VInfMismatch(candVInf, vInfRec);
+                if (!double.IsNaN(mismatch) && !double.IsInfinity(mismatch))
+                {
+                    candidatesScored++;
+                    if (mismatch < bestMismatch)
                     {
-                        usedTofSeconds = tofs[t];
-                        break;
+                        bestMismatch = mismatch;
+                        chosenOrbit = cand;
+                        chosenSoiUT = candSoiUT;
+                        chosenTof = tof;
+                        chosenVInf = candVInf;
                     }
                 }
+                return true;
             }
-            if (transferOrbit == null)
+
+            // Coarse sweep: recorded tof (step 0), then +- each step out to +-6%. Evaluate ALL (no break).
+            TryCandidate(schedule.TofSeconds);
+            for (int s = 1; s <= SearchMaxSteps; s++)
+            {
+                TryCandidate(schedule.TofSeconds + s * tofStep);
+                TryCandidate(schedule.TofSeconds - s * tofStep);
+            }
+
+            // Refine pass: if a scored winner exists, sample a finer grid around the best coarse tof
+            // (+-1 coarse step at RefineSteps resolution) to nudge the v_inf mismatch toward its local min.
+            if (chosenOrbit != null && !double.IsNaN(chosenTof) && RefineSteps > 0)
+            {
+                double refineStep = tofStep / RefineSteps;
+                double center = chosenTof;
+                for (int s = 1; s <= RefineSteps; s++)
+                {
+                    TryCandidate(center + s * refineStep);
+                    TryCandidate(center - s * refineStep);
+                }
+            }
+
+            if (faithfulOrbit == null)
             {
                 ParsekLog.Verbose("ReaimPlayback",
                     $"member={memberId} window={windowIndex} departUT={nominalDepartureUT.ToString("R", ic)} " +
-                    $"synth failed across tof +-{(SearchMaxSteps * tofStep).ToString("F0", ic)}s search ({failReason}) - faithful this window");
+                    $"synth failed across tof +-{(SearchMaxSteps * tofStep).ToString("F0", ic)}s search " +
+                    $"(evaluated={candidatesEvaluated} lastFail={failReason}) - faithful this window");
                 return null;
             }
+
+            // Decline-to-faithful gate: compute the seam the v_inf-chosen transfer produces and the seam the
+            // faithful (position-min) transfer produces; accept the chosen one only when its seam is strictly
+            // smaller AND below 0.25 * SOI. Otherwise use the faithful transfer (the current cosmetic seam),
+            // so v1 never regresses. When the v_inf objective could not score (vInfRec null, or no scored
+            // candidate), chosenOrbit is null and we go faithful by definition.
+            double faithfulSeam = ReaimArrivalVInf.SoiEdgeSeamMeters(
+                faithfulOrbit, plan.ArrivalLeg, targetBody, faithfulSoiUT);
+            double chosenSeam = chosenOrbit != null
+                ? ReaimArrivalVInf.SoiEdgeSeamMeters(chosenOrbit, plan.ArrivalLeg, targetBody, chosenSoiUT)
+                : double.NaN;
+            bool accepted = chosenOrbit != null && ReaimArrivalGeometry.AcceptChosenOverFaithful(
+                chosenSeam, faithfulSeam, targetBody.sphereOfInfluence, DeclineSoiFraction);
+
+            double dirResidualDeg = (chosenVInf != null && vInfRec != null)
+                ? ReaimArrivalGeometry.AngleBetweenDegrees(chosenVInf, vInfRec)
+                : double.NaN;
+            ParsekLog.Info("ReaimPlayback",
+                $"arrival-timing: member={memberId} window={windowIndex} " +
+                $"vinfRec={ReaimArrivalVInf.FormatVInfMag(vInfRec)}m/s " +
+                $"vinfChosen={ReaimArrivalVInf.FormatVInfMag(chosenVInf)}m/s " +
+                $"vinfResidual={(double.IsInfinity(bestMismatch) ? double.NaN : bestMismatch).ToString("F1", ic)}m/s " +
+                $"dirDeg={dirResidualDeg.ToString("F2", ic)} " +
+                $"faithfulSeam={faithfulSeam.ToString("F0", ic)}m chosenSeam={chosenSeam.ToString("F0", ic)}m " +
+                $"accepted={(accepted ? "true" : "false")} " +
+                $"(scored={candidatesScored}/{candidatesEvaluated} chosenTof={chosenTof.ToString("F0", ic)} " +
+                $"faithfulTof={faithfulTof.ToString("F0", ic)} recordedTof={schedule.TofSeconds.ToString("F0", ic)})");
+
+            // Use the accepted transfer (v_inf-chosen when it beats faithful, else the faithful baseline).
+            Orbit transferOrbit = accepted ? chosenOrbit : faithfulOrbit;
+            double soiEntryUT = accepted ? chosenSoiUT : faithfulSoiUT;
+            double usedTofSeconds = accepted ? chosenTof : faithfulTof;
 
             double shift = plan.RecordedDepartureUT - departureUT;
 
