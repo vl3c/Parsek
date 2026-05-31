@@ -148,6 +148,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldSpawnAtRecordingEnd_FlagTrueNullReason_AllowsWithoutMutatingMarker()
+        {
+            // The exact retired-legacy shape: flag set, reason absent. The old code
+            // consumed (cleared + logged) such a marker; the pure predicate now treats
+            // it as not-an-absolute-block and allows spawn to evaluate without mutating.
+            // Production never produces this shape (the gate always sets same-recording),
+            // so this only pins the predicate's behavior, not a live path.
+            var rec = MakeRecording(
+                "flag-true-null-reason",
+                "Jeb Kerman",
+                736156659u,
+                "tree-null-reason",
+                startUT: 24034.0,
+                endUT: 24062.0);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason = null;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+
+            Assert.True(result.needsSpawn);
+            // Not cleared, not logged: the decision is a pure query.
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Null(rec.SpawnSuppressedByRewindReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("SpawnSuppressedByRewind cleared")
+                || l.Contains("Spawn allowed despite same-tree rewind"));
+        }
+
+        [Fact]
         public void RepeatedRewind_ClearsStaleSuppressionOnUnrelatedRecording()
         {
             const uint firstPid = 111u;
