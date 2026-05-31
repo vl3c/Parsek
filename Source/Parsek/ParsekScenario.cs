@@ -964,6 +964,8 @@ namespace Parsek
 
                 savePhase = "recordings";
                 SaveTreeRecordings(node);
+                savePhase = "missions";
+                MissionStore.Save(node);
                 savePhase = "game-state";
                 PersistGameStateAndMilestones(node);
                 // Rewind-to-Staging Phase 1 (design sections 5.1-5.9). Persistence
@@ -2712,6 +2714,14 @@ namespace Parsek
                 loadPhase = "recording-trees";
                 LoadRecordingTrees(node, recordings);
                 loadedRecordingCount = recordings.Count;
+                loadPhase = "sanitize-debris-loop";
+                RecordingStore.SanitizeDebrisLoopPlayback();
+                loadPhase = "missions";
+                MissionStore.Load(node);
+                MissionStore.PruneOrphans(RecordingStore.CommittedTrees);
+                MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+                MissionStore.ReconcileSelections(RecordingStore.CommittedTrees);
+                MissionStore.NormalizeOneLoopPerTree();
 
                 // Cold-start active-tree restore (quickload-resume cold path).
                 // When the player quits KSP mid-flight and later relaunches + "Resume Saved
@@ -6406,6 +6416,7 @@ namespace Parsek
             uint rewindSourcePid = RecordingStore.RewindReplayTargetSourcePid;
             string rewindRecId = RecordingStore.RewindReplayTargetRecordingId;
             string rewoundTreeId = ResolveRewoundTreeId(recordings, rewindRecId);
+            string rewindRecGuid = ResolveRewoundRecordingGuid(recordings, rewindRecId);
             double rewindUT = RewindContext.RewindUT;
 
             int marked = 0;
@@ -6432,7 +6443,8 @@ namespace Parsek
                         rewindSourcePid,
                         rewoundTreeId,
                         rewindUT,
-                        out string applyReason))
+                        out string applyReason,
+                        rewindRecGuid))
                 {
                     if (!rec.SpawnSuppressedByRewind)
                         marked++;
@@ -6500,7 +6512,8 @@ namespace Parsek
             uint rewindSourcePid,
             string rewoundTreeId,
             double rewindUT,
-            out string reason)
+            out string reason,
+            string rewindRecordingGuid = null)
         {
             reason = null;
             if (rec == null)
@@ -6513,8 +6526,14 @@ namespace Parsek
                 return true;
             }
 
+            // #976-class: rewindSourcePid is the craft-baked pid, reused by every launch of the
+            // same craft, so a bare pid match would suppress prior UNRELATED launches' terminal
+            // spawns (the long-latent #829 hole). Require the candidate to share the rewound
+            // launch (guid); a conclusive guid mismatch means a different launch and is not
+            // suppressed. A null/unknown guid on either side falls back to today's pid-only match.
             bool matchesRewindSource = rewindSourcePid != 0
-                && rec.VesselPersistentId == rewindSourcePid;
+                && rec.VesselPersistentId == rewindSourcePid
+                && !VesselLaunchIdentity.GuidsConclusivelyDiffer(rec.RecordedVesselGuid, rewindRecordingGuid);
             if (!matchesRewindSource)
                 return false;
 
@@ -6635,6 +6654,23 @@ namespace Parsek
                 var rec = recordings[i];
                 if (rec != null && string.Equals(rec.RecordingId, rewindRecordingId, StringComparison.Ordinal))
                     return rec.TreeId;
+            }
+            return null;
+        }
+
+        // Launch guid of the rewound recording, so suppression only catches recordings sharing
+        // that launch (not other launches of the same craft that reuse the baked pid).
+        private static string ResolveRewoundRecordingGuid(
+            IReadOnlyList<Recording> recordings, string rewindRecordingId)
+        {
+            if (string.IsNullOrEmpty(rewindRecordingId))
+                return null;
+
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec != null && string.Equals(rec.RecordingId, rewindRecordingId, StringComparison.Ordinal))
+                    return rec.RecordedVesselGuid;
             }
             return null;
         }

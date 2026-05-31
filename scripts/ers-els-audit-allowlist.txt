@@ -71,6 +71,17 @@ Source/Parsek/UI/SettingsWindowUI.cs
 # above. Documented at the call site with an inline [ERS-exempt] comment.
 Source/Parsek/UI/TimelineWindowUI.cs
 
+# MissionsWindowUI's per-mission Watch button resolves the mission's member
+# recordings to committed indices off the raw CommittedRecordings list because
+# it feeds the same ghost-engine APIs (HasActiveGhost / IsGhostOnSameBody /
+# IsGhostWithinVisualRange / WatchedRecordingIndex / EnterWatchMode) that are
+# keyed on the raw committed index. ERS indices diverge from committed indices
+# after a Re-Fly emits supersede rows, which would mis-target the watch.
+# Same physical-visibility consumer rationale as RecordingsTableUI.cs /
+# TimelineWindowUI.cs above. Documented at the call site with an inline
+# [ERS-exempt] comment.
+Source/Parsek/UI/MissionsWindowUI.cs
+
 # RecordedRelativeAnchorPoseResolver is the shared KSC/map recorded-anchor
 # resolver introduced by Phase D. It resolves exact recording ids from the
 # raw list when the focus/anchor record is a NotCommitted active Re-Fly
@@ -205,6 +216,13 @@ Source/Parsek/LoadTimeSweep.cs
 # The raw read is the only way to resolve the provisional to a Recording
 # reference for removal.
 Source/Parsek/RevertInterceptor.cs
+
+# --- Ghost trajectory map polyline (docs/dev/plans/map-trajectory-polyline.md) ---
+# GhostTrajectoryPolylineRenderer's DDOL Driver MonoBehaviour walks
+# RecordingStore.CommittedRecordings raw to draw physical-visibility map
+# geometry for atmospheric / non-orbital phases. Same scope as
+# DrawAtmosphericMarkers; no ledger / ERS routing applies.
+Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
 
 # --- Ghost trajectory rendering pipeline (Phase 2) ---
 # RenderSessionState.RebuildFromMarker (ghost-trajectory-rendering-design

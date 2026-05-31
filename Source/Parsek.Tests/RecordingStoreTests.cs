@@ -560,6 +560,68 @@ namespace Parsek.Tests
 
             Assert.False(RecordingStore.PendingStashedThisTransition);
         }
+
+        // ── SanitizeDebrisLoopPlayback (load-time debris cleanup) ──
+
+        [Fact]
+        public void SanitizeDebrisLoopPlayback_ClearsStaleDebrisFlags()
+        {
+            // Pre-PR #966 saves can carry a stale LoopPlayback=true on a debris
+            // recording (the per-row toggle existed before but had no effect at
+            // the engine, since debris rides its parent's loop clock). OnLoad's
+            // sanitization clears the flag; non-debris loop flags are kept.
+            var main = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Main");
+            main.LoopPlayback = true;
+            var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
+            deb.IsDebris = true;
+            deb.LoopPlayback = true;
+            RecordingStore.CommitRecordingDirect(main);
+            RecordingStore.CommitRecordingDirect(deb);
+
+            int cleared = RecordingStore.SanitizeDebrisLoopPlayback();
+
+            Assert.Equal(1, cleared);
+            Assert.True(main.LoopPlayback);
+            Assert.False(deb.LoopPlayback);
+        }
+
+        [Fact]
+        public void SanitizeDebrisLoopPlayback_Idempotent()
+        {
+            // A second sweep on the same committed state clears nothing, so the
+            // OnLoad call is safe to fire on every load (including saves that
+            // were already cleaned by a prior load).
+            var deb = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Booster");
+            deb.IsDebris = true;
+            deb.LoopPlayback = true;
+            RecordingStore.CommitRecordingDirect(deb);
+
+            int first = RecordingStore.SanitizeDebrisLoopPlayback();
+            int second = RecordingStore.SanitizeDebrisLoopPlayback();
+
+            Assert.Equal(1, first);
+            Assert.Equal(0, second);
+            Assert.False(deb.LoopPlayback);
+        }
+
+        [Fact]
+        public void SanitizeDebrisLoopPlayback_LeavesNonDebrisAlone()
+        {
+            // The sweep targets debris only: a non-debris recording's
+            // LoopPlayback (true or false) survives unchanged.
+            var loopShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Looper");
+            loopShip.LoopPlayback = true;
+            var quietShip = RecordingStore.CreateRecordingFromFlightData(MakePoints(3), "Quiet");
+            quietShip.LoopPlayback = false;
+            RecordingStore.CommitRecordingDirect(loopShip);
+            RecordingStore.CommitRecordingDirect(quietShip);
+
+            int cleared = RecordingStore.SanitizeDebrisLoopPlayback();
+
+            Assert.Equal(0, cleared);
+            Assert.True(loopShip.LoopPlayback);
+            Assert.False(quietShip.LoopPlayback);
+        }
     }
 
     [Collection("Sequential")]

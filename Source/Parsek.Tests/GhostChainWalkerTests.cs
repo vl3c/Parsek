@@ -606,6 +606,44 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// F7 / #976: two DISTINCT launches of the same craft (same baked pid 100, different launch
+        /// guids) must NOT pool into one chain. Without the fix, the later launch's claim made the
+        /// earlier launch's claiming recording look like an intermediate link (suppressing its spawn).
+        /// </summary>
+        [Fact]
+        public void DistinctLaunchesSamePid_DoNotPool_PriorLaunchNotSuppressed()
+        {
+            const string guidA = "2b6e6a60d2c947489753371317fa067e";
+            const string guidB = "a424011b746440baae6030e225c9de31";
+
+            var r1 = MakeRecording("R1", 50, 1000, 1060, childBpId: "bp-dock1");
+            var r1Leaf = MakeRecording("R1-leaf", 100, 1060, 1120, parentBpId: "bp-dock1");
+            r1.RecordedVesselGuid = guidA;
+            r1Leaf.RecordedVesselGuid = guidA; // launch A occupies pid 100 in tree 1
+            var dock1 = MakeBranchPoint("bp-dock1", BranchPointType.Dock,
+                1060, 100, new[] { "R1" }, new[] { "R1-leaf" });
+            var tree1 = MakeTree("tree-1", new[] { r1, r1Leaf }, new[] { dock1 });
+
+            var r2 = MakeRecording("R2", 60, 1200, 1260, childBpId: "bp-dock2");
+            var r2Leaf = MakeRecording("R2-leaf", 100, 1260, 1320, parentBpId: "bp-dock2");
+            r2.RecordedVesselGuid = guidB;
+            r2Leaf.RecordedVesselGuid = guidB; // launch B occupies pid 100 in tree 2 (different launch)
+            var dock2 = MakeBranchPoint("bp-dock2", BranchPointType.Dock,
+                1260, 100, new[] { "R2" }, new[] { "R2-leaf" });
+            var tree2 = MakeTree("tree-2", new[] { r2, r2Leaf }, new[] { dock2 });
+
+            var chains = GhostChainWalker.ComputeAllGhostChains(
+                new List<RecordingTree> { tree1, tree2 }, 900);
+
+            // The pid-100 chain represents the latest launch (B); A's claim was dropped.
+            Assert.Equal(guidB, chains[100].LaunchGuid);
+            // R1 (launch A) is no longer pooled into launch B's chain, so it is not suppressed.
+            Assert.False(GhostChainWalker.IsIntermediateChainLink(chains, r1));
+            // Launch B's own tip is still not suppressed.
+            Assert.False(GhostChainWalker.IsIntermediateChainLink(chains, r2Leaf));
+        }
+
+        /// <summary>
         /// Recording not in any chain. IsIntermediateChainLink = false.
         /// THE MOST CRITICAL TEST — if this fails, all existing spawn-at-end breaks.
         /// </summary>

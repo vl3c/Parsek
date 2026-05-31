@@ -121,6 +121,7 @@ namespace Parsek
                 merged.VesselName = srcRec.VesselName;
                 merged.TreeId = srcRec.TreeId;
                 merged.VesselPersistentId = srcRec.VesselPersistentId;
+                merged.RecordedVesselGuid = srcRec.RecordedVesselGuid; // merged recording keeps the source launch
                 merged.RecordingFormatVersion = srcRec.RecordingFormatVersion;
                 merged.TrackSections = mergedSections;
                 merged.PartEvents = mergedEvents;
@@ -145,7 +146,7 @@ namespace Parsek
                 if (srcRec.Controllers != null)
                     merged.Controllers = new List<ControllerInfo>(srcRec.Controllers);
                 merged.IsDebris = srcRec.IsDebris;
-                // PR 3b: propagate the v13 debris parent-anchor contract through merges.
+                // PR 3b: propagate the debris parent-anchor contract through merges.
                 merged.ParentAnchorRecordingId = srcRec.ParentAnchorRecordingId;
 
                 // Location context (Phase 10)

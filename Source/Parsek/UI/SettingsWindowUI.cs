@@ -196,11 +196,9 @@ namespace Parsek
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
-                s.showGhostsInTrackingStation = defaults.ShowGhostsInTrackingStation;
                 s.showCommittedFutureOverlays = defaults.ShowCommittedFutureOverlays;
                 s.blockCommittedActions = defaults.BlockCommittedActions;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
-                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(s.showGhostsInTrackingStation);
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
@@ -342,6 +340,49 @@ namespace Parsek
                 }
             }
             GUILayout.EndHorizontal();
+
+            // Zero-drift A/B flag: how a looped mission that LANDS on another body (e.g. the Mun)
+            // aligns that landed-on body's rotation at each faithful relaunch. The launch pad is
+            // always aligned exactly; this only trades the relaunch cadence against the
+            // approach-to-landing handoff seam on the destination body.
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(new GUIContent("Landing-body alignment",
+                "For a looped mission that lands on another body (e.g. the Mun): how precisely that "
+                + "body's rotation lines up at each relaunch. Off = launch as often as possible "
+                + "(largest landing-handoff seam); Loose = roughly monthly windows with a small seam; "
+                + "Precise = rare (about yearly) windows with a pixel-perfect handoff. The launch pad "
+                + "is always aligned exactly. Affects only looped inter-body missions."),
+                GUILayout.Width(150));
+            if (GUILayout.Button(TransitedBodyRotationModeLabel(s.TransitedBodyRotationMode),
+                    GUILayout.Width(120)))
+            {
+                s.TransitedBodyRotationMode = CycleTransitedBodyRotationMode(s.TransitedBodyRotationMode);
+                ParsekLog.Info("UI",
+                    $"Setting changed: transitedBodyRotationMode={s.TransitedBodyRotationMode}");
+            }
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>The cycle-button label for the landing-body alignment A/B mode. Pure.</summary>
+        internal static string TransitedBodyRotationModeLabel(TransitedBodyRotationMode mode)
+        {
+            switch (mode)
+            {
+                case TransitedBodyRotationMode.Drop: return "Off (frequent)";
+                case TransitedBodyRotationMode.Loose: return "Loose (~monthly)";
+                default: return "Precise (rare)";
+            }
+        }
+
+        /// <summary>Cycles the landing-body alignment A/B mode (Drop -&gt; Loose -&gt; Tight -&gt; Drop). Pure.</summary>
+        internal static TransitedBodyRotationMode CycleTransitedBodyRotationMode(TransitedBodyRotationMode mode)
+        {
+            switch (mode)
+            {
+                case TransitedBodyRotationMode.Drop: return TransitedBodyRotationMode.Loose;
+                case TransitedBodyRotationMode.Loose: return TransitedBodyRotationMode.Tight;
+                default: return TransitedBodyRotationMode.Drop;
+            }
         }
 
         private void DrawGhostSettings(ParsekSettings s)
@@ -362,23 +403,6 @@ namespace Parsek
                 s.ghostAudioVolume = newAudioVol;
                 ParsekLog.VerboseRateLimited("UI", "ghostAudioVolume",
                     $"Ghost audio volume set to {newAudioVol:F2}", 1.0);
-            }
-
-            GUILayout.Space(SpacingSmall);
-
-            bool showGhostsTS = GUILayout.Toggle(s.showGhostsInTrackingStation,
-                new GUIContent(" Show ghosts in Tracking Station",
-                    "When off, Parsek ghosts are hidden from the tracking station vessel list and map view"));
-            if (showGhostsTS != s.showGhostsInTrackingStation)
-            {
-                s.showGhostsInTrackingStation = showGhostsTS;
-                // Persist to the external settings store so the value survives
-                // rewind, quickload, and KSP restart — same treatment as
-                // writeReadableSidecarMirrors. Without this,
-                // the user's choice reverts to the GameParameters-default on the
-                // next load.
-                ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhostsTS);
-                ParsekLog.Info("UI", $"Setting changed: showGhostsInTrackingStation={showGhostsTS}");
             }
         }
 

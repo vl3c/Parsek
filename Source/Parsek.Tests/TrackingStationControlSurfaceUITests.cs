@@ -10,68 +10,6 @@ namespace Parsek.Tests
     public class TrackingStationControlSurfaceUITests
     {
         [Fact]
-        public void BuildControlSurfaceState_CountsRecordingsAndMaterializedVessels()
-        {
-            var committed = new List<Recording>
-            {
-                new Recording(),
-                new Recording { VesselSpawned = true },
-                new Recording { SpawnedVesselPersistentId = 42 },
-                null
-            };
-
-            ParsekTrackingStation.TrackingStationControlSurfaceState state =
-                ParsekTrackingStation.BuildControlSurfaceState(
-                    committed,
-                    visibleGhostVessels: 3,
-                    suppressedRecordings: 2,
-                    showGhosts: true);
-
-            Assert.Equal(4, state.CommittedRecordings);
-            Assert.Equal(3, state.VisibleGhostVessels);
-            Assert.Equal(2, state.SuppressedRecordings);
-            Assert.Equal(2, state.MaterializedRecordings);
-            Assert.True(state.ShowGhosts);
-        }
-
-        [Fact]
-        public void BuildControlSurfaceState_ClampsNegativeExternalCounts()
-        {
-            ParsekTrackingStation.TrackingStationControlSurfaceState state =
-                ParsekTrackingStation.BuildControlSurfaceState(
-                    committed: null,
-                    visibleGhostVessels: -4,
-                    suppressedRecordings: -2,
-                    showGhosts: false);
-
-            Assert.Equal(0, state.CommittedRecordings);
-            Assert.Equal(0, state.VisibleGhostVessels);
-            Assert.Equal(0, state.SuppressedRecordings);
-            Assert.Equal(0, state.MaterializedRecordings);
-            Assert.False(state.ShowGhosts);
-        }
-
-        [Fact]
-        public void FormatControlSurfaceLines_UsesCompactStableLabels()
-        {
-            var state = new ParsekTrackingStation.TrackingStationControlSurfaceState
-            {
-                CommittedRecordings = 7,
-                VisibleGhostVessels = 3,
-                SuppressedRecordings = 2,
-                MaterializedRecordings = 1,
-                ShowGhosts = true
-            };
-
-            Assert.Equal(
-                "Recordings: 7 | Map ghosts: 3",
-                ParsekTrackingStation.FormatControlSurfaceCountsLine(state));
-            Assert.Equal(
-                "Suppressed: 2 | Spawned: 1",
-                ParsekTrackingStation.FormatControlSurfaceLifecycleLine(state));
-        }
-
-        [Fact]
         public void BuildGhostPopupText_UsesNativeMenuStatusLabels()
         {
             var selection = new TrackingStationGhostSelectionInfo(
@@ -425,29 +363,6 @@ namespace Parsek.Tests
             Assert.Equal("checkpoint-section", reason);
         }
 
-        [Fact]
-        public void TryApplyGhostVisibilitySetting_UpdatesLiveSettingsWhenPresent()
-        {
-            var settings = new ParsekSettings { showGhostsInTrackingStation = true };
-
-            bool applied = ParsekTrackingStation.TryApplyGhostVisibilitySetting(
-                settings,
-                showGhosts: false);
-
-            Assert.True(applied);
-            Assert.False(settings.showGhostsInTrackingStation);
-        }
-
-        [Fact]
-        public void TryApplyGhostVisibilitySetting_NullSettings_ReturnsFalse()
-        {
-            bool applied = ParsekTrackingStation.TryApplyGhostVisibilitySetting(
-                null,
-                showGhosts: false);
-
-            Assert.False(applied);
-        }
-
         [Theory]
         [InlineData(EventType.Repaint, false, true)]
         [InlineData(EventType.MouseDown, false, true)]
@@ -483,6 +398,33 @@ namespace Parsek.Tests
                 ParsekTrackingStation.ShouldBlockAtmosphericMarkerClickForGhostPopup(
                     eventType,
                     pointerOverGhostPopup));
+        }
+
+        // The ghost popup must survive the click that opened it. It anchors
+        // just below the cursor, so the cursor sits outside the popup rect;
+        // dismissing on the opening click's release was why the menu only
+        // stayed visible while the button was held. Dismiss only on a fresh
+        // outside press once the arm window has elapsed.
+        [Theory]
+        [InlineData(10, true, false, true)]    // armed + fresh outside press -> dismiss
+        [InlineData(10, false, false, false)]  // armed, no press this frame -> stay (opening release ignored)
+        [InlineData(10, true, true, false)]    // armed + press, but over popup -> stay
+        [InlineData(5, true, false, true)]     // exact arm-window boundary (< 5 is false at 5) -> dismiss
+        [InlineData(4, true, false, false)]    // one frame inside the arm window -> stay
+        [InlineData(2, true, false, false)]    // within arm window -> stay (opening press ignored)
+        [InlineData(0, true, false, false)]    // open frame -> stay
+        public void ShouldDismissGhostPopupOnOutsideClick_OnlyOnFreshArmedOutsidePress(
+            int framesSinceOpen,
+            bool freshClickThisFrame,
+            bool mouseOverPopup,
+            bool expected)
+        {
+            Assert.Equal(
+                expected,
+                ParsekTrackingStation.ShouldDismissGhostPopupOnOutsideClick(
+                    framesSinceOpen,
+                    freshClickThisFrame,
+                    mouseOverPopup));
         }
 
         [Fact]

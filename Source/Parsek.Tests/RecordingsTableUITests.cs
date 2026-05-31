@@ -742,8 +742,9 @@ namespace Parsek.Tests
             Assert.Contains("DrawLegacyRewindForwardCell(rec, ri, now, flight);", rowBlock);
             Assert.Contains("DrawReFlyColumnCell(rec, ri, now);", rowBlock);
 
-            int helperStart = uiSrc.IndexOf("private void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
-            int helperEnd = uiSrc.IndexOf("private void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
+            // internal (not private): the Missions tab reuses these cells for its vessel rows.
+            int helperStart = uiSrc.IndexOf("internal void DrawLegacyRewindForwardCell", StringComparison.Ordinal);
+            int helperEnd = uiSrc.IndexOf("internal void DrawReFlyColumnCell", helperStart, StringComparison.Ordinal);
             string helperBlock = uiSrc.Substring(helperStart, helperEnd - helperStart);
 
             Assert.Contains("RecordingStore.CanFastForward(", helperBlock);
@@ -1755,6 +1756,370 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l => l.Contains("Auto loop range") && l.Contains("TestShip"));
         }
 
+        // ── ShouldSuppressRowLoopUi (debris + Unfinished Flights hide) ──
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_NormalRow_NotSuppressed()
+        {
+            var rec = MakeRec(100, 200, "Mainship");
+            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(rec, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_DebrisRow_Suppressed()
+        {
+            // Parent-anchored debris rides its parent's loop clock
+            // (GhostPlaybackEngine.TryUpdateLoopSyncedDebris), so the per-row
+            // loop checkbox + period control must be hidden.
+            var debris = MakeRec(100, 200, "Booster");
+            debris.IsDebris = true;
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(debris, false));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_UnfinishedFlightsGroup_Suppressed()
+        {
+            // Re-fly TODO surface: loop/period are hidden regardless of debris.
+            var rec = MakeRec(100, 200, "Crashed");
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(rec, true));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_DebrisInsideUnfinishedFlightsGroup_Suppressed()
+        {
+            var debris = MakeRec(100, 200, "Booster");
+            debris.IsDebris = true;
+            Assert.True(RecordingsTableUI.ShouldSuppressRowLoopUi(debris, true));
+        }
+
+        [Fact]
+        public void ShouldSuppressRowLoopUi_NullRecording_NotSuppressed_OutsideUnfinishedFlights()
+        {
+            // Null is a defensive case; the predicate only returns true via the
+            // group flag (the loop UI is drawn against a real recording, so a
+            // null here is the "outside group, no row" case — should not crash).
+            Assert.False(RecordingsTableUI.ShouldSuppressRowLoopUi(null, false));
+        }
+
+        // ── ComputeLoopAggregate (group / chain / header) ──
+
+        [Fact]
+        public void ComputeLoopAggregate_AllNonDebrisLoop_AllLoopTrue()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = true;
+            var committed = new List<Recording> { a, b };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(2, agg.LoopCount);
+            Assert.True(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_MixedNonDebrisLoop_AllLoopFalse()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = false;
+            var committed = new List<Recording> { a, b };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(2, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_DebrisExcludedFromCount()
+        {
+            // A "Mission / Debris" subgroup mixed with a non-debris parent row
+            // should not have the debris flip the aggregate state. Even though
+            // the debris carries LoopPlayback=true (stale flag from a prior
+            // session, harmless), it must not count toward the aggregate.
+            var main = MakeRec(0, 10, "Main"); main.LoopPlayback = false;
+            var deb1 = MakeRec(2, 4, "Deb1"); deb1.IsDebris = true; deb1.LoopPlayback = true;
+            var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true; deb2.LoopPlayback = true;
+            var committed = new List<Recording> { main, deb1, deb2 };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
+            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_AllDebris_SuppressesToggle()
+        {
+            // The auto-generated "X / Debris" subgroup: every member is debris,
+            // so the aggregate Loop toggle is hidden (SuppressToggle=true).
+            // Mirrors the Missions window, which omits debris entirely.
+            var deb1 = MakeRec(2, 4, "Deb1"); deb1.IsDebris = true;
+            var deb2 = MakeRec(3, 5, "Deb2"); deb2.IsDebris = true;
+            var committed = new List<Recording> { deb1, deb2 };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1 });
+            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.Equal(0, agg.LoopCount);
+            Assert.False(agg.AllLoop);
+            Assert.True(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_EmptyMembers_SuppressesToggle()
+        {
+            var committed = new List<Recording>();
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, Array.Empty<int>());
+            Assert.Equal(0, agg.NonDebrisCount);
+            Assert.True(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_OutOfRangeIndices_Skipped()
+        {
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var committed = new List<Recording> { a };
+            var agg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { -1, 0, 99 });
+            Assert.Equal(1, agg.NonDebrisCount);
+            Assert.Equal(1, agg.LoopCount);
+            Assert.True(agg.AllLoop);
+            Assert.False(agg.SuppressToggle);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregate_NullCommittedOrIndices_Empty()
+        {
+            var agg1 = RecordingsTableUI.ComputeLoopAggregate(null, new[] { 0 });
+            Assert.True(agg1.SuppressToggle);
+            Assert.Equal(0, agg1.NonDebrisCount);
+
+            var committed = new List<Recording> { MakeRec(0, 10, "A") };
+            var agg2 = RecordingsTableUI.ComputeLoopAggregate(committed, null);
+            Assert.True(agg2.SuppressToggle);
+            Assert.Equal(0, agg2.NonDebrisCount);
+        }
+
+        // ── ComputeLoopAggregate header overload (no indices) ──
+
+        [Fact]
+        public void ComputeLoopAggregateHeader_MatchesRangeOverload()
+        {
+            // The header path uses the no-indices overload to avoid allocating
+            // Enumerable.Range every OnGUI repaint. The two overloads must
+            // produce identical results for the same input set.
+            var a = MakeRec(0, 10, "A"); a.LoopPlayback = true;
+            var b = MakeRec(0, 10, "B"); b.LoopPlayback = false;
+            var d = MakeRec(0, 10, "Deb"); d.IsDebris = true; d.LoopPlayback = true;
+            var committed = new List<Recording> { a, b, d };
+
+            var headerAgg = RecordingsTableUI.ComputeLoopAggregate(committed);
+            var indexedAgg = RecordingsTableUI.ComputeLoopAggregate(committed, new[] { 0, 1, 2 });
+
+            Assert.Equal(indexedAgg.NonDebrisCount, headerAgg.NonDebrisCount);
+            Assert.Equal(indexedAgg.LoopCount, headerAgg.LoopCount);
+            Assert.Equal(indexedAgg.AllLoop, headerAgg.AllLoop);
+            Assert.Equal(indexedAgg.SuppressToggle, headerAgg.SuppressToggle);
+            Assert.Equal(2, headerAgg.NonDebrisCount);
+            Assert.Equal(1, headerAgg.LoopCount);
+        }
+
+        [Fact]
+        public void ComputeLoopAggregateHeader_NullOrEmpty_Suppresses()
+        {
+            Assert.True(RecordingsTableUI.ComputeLoopAggregate(null).SuppressToggle);
+            Assert.True(RecordingsTableUI.ComputeLoopAggregate(new List<Recording>()).SuppressToggle);
+        }
+
+        // ── LoopAggregateState derived properties ──
+
+        [Fact]
+        public void LoopAggregateState_DerivedProperties_NeverDriftFromCounts()
+        {
+            // Regression: prior to the refactor, AllLoop / SuppressToggle were
+            // mutable fields set by the constructor — drift between the counts
+            // and the derived state was possible. They are now read-only
+            // properties computed from the two count inputs, so any caller
+            // that materialises a state by hand sees a consistent result.
+            var s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 0, LoopCount = 0 };
+            Assert.False(s.AllLoop);
+            Assert.True(s.SuppressToggle);
+
+            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 3 };
+            Assert.True(s.AllLoop);
+            Assert.False(s.SuppressToggle);
+
+            s = new RecordingsTableUI.LoopAggregateState { NonDebrisCount = 3, LoopCount = 2 };
+            Assert.False(s.AllLoop);
+            Assert.False(s.SuppressToggle);
+        }
+
+        // ── IPlaybackTrajectory model-layer debris mask ──
+
+        [Fact]
+        public void IPlaybackTrajectory_LoopPlayback_MasksDebris()
+        {
+            // Defense in depth: even if a future code path sets LoopPlayback=true
+            // on a debris recording without going through BulkSetLoopPlayback
+            // (which skips debris), the engine reads LoopPlayback through the
+            // IPlaybackTrajectory boundary, which masks the flag to false on
+            // IsDebris. GhostPlaybackEngine.ShouldLoopPlayback(traj) therefore
+            // never observes a stale debris loop flag.
+            var nonDebris = new Recording { VesselName = "Main", LoopPlayback = true, IsDebris = false };
+            var debris = new Recording { VesselName = "Booster", LoopPlayback = true, IsDebris = true };
+
+            IPlaybackTrajectory nonDebrisTraj = nonDebris;
+            IPlaybackTrajectory debrisTraj = debris;
+
+            Assert.True(nonDebrisTraj.LoopPlayback);
+            Assert.False(debrisTraj.LoopPlayback);
+
+            // The Recording.LoopPlayback field itself is untouched (so the UI
+            // table layer still observes the raw value and can surface its own
+            // hide predicate without ambiguity).
+            Assert.True(debris.LoopPlayback);
+        }
+
+        // ── BulkSetLoopPlayback: shared bulk-write for header / group / chain / block ──
+
+        [Fact]
+        public void BulkSetLoopPlayback_GroupMode_DoesNotTouchCustomRange()
+        {
+            // Header + group writes pass applyAutoRange:false so a user-customized
+            // LoopStartUT/LoopEndUT survives an off/on toggle. Pins the regression
+            // the Opus review caught: ApplyAutoLoopRange in the group bulk write
+            // would clobber custom ranges.
+            var a = new Recording { VesselName = "A", LoopPlayback = false, LoopStartUT = 123.0, LoopEndUT = 456.0 };
+            var b = new Recording { VesselName = "B", LoopPlayback = false, LoopStartUT = 789.0, LoopEndUT = 1011.0 };
+            var committed = new List<Recording> { a, b };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(2, written);
+            Assert.True(a.LoopPlayback);
+            Assert.True(b.LoopPlayback);
+            Assert.Equal(123.0, a.LoopStartUT);
+            Assert.Equal(456.0, a.LoopEndUT);
+            Assert.Equal(789.0, b.LoopStartUT);
+            Assert.Equal(1011.0, b.LoopEndUT);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_GroupMode_OffThenOn_PreservesCustomRange()
+        {
+            // Full round-trip pin: a custom range survives BOTH legs of an
+            // off-then-on toggle. The hand-rolled pre-refactor loop also
+            // satisfied this, so the test guards against future regressions
+            // either way (a switch to applyAutoRange:true would fail here).
+            var rec = new Recording { VesselName = "Custom", LoopPlayback = true, LoopStartUT = 200.0, LoopEndUT = 300.0 };
+            var committed = new List<Recording> { rec };
+
+            RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0 }, value: false, applyAutoRange: false);
+            Assert.False(rec.LoopPlayback);
+            Assert.Equal(200.0, rec.LoopStartUT);
+            Assert.Equal(300.0, rec.LoopEndUT);
+
+            RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0 }, value: true, applyAutoRange: false);
+            Assert.True(rec.LoopPlayback);
+            Assert.Equal(200.0, rec.LoopStartUT);
+            Assert.Equal(300.0, rec.LoopEndUT);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_ChainMode_AppliesAutoRange_ClearsOnDisable()
+        {
+            // Chain / grouped-block writes pass applyAutoRange:true to match
+            // the per-row toggle: flipping a chain's aggregate Loop off clears
+            // the loop window on every member (ApplyAutoLoopRange(_, false)
+            // sets LoopStartUT/LoopEndUT back to NaN). Without applyAutoRange
+            // the custom range would survive instead.
+            var a = new Recording { VesselName = "A", LoopPlayback = true, LoopStartUT = 100.0, LoopEndUT = 200.0 };
+            var b = new Recording { VesselName = "B", LoopPlayback = true, LoopStartUT = 300.0, LoopEndUT = 400.0 };
+            var committed = new List<Recording> { a, b };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1 }, value: false, applyAutoRange: true);
+
+            Assert.Equal(2, written);
+            Assert.False(a.LoopPlayback);
+            Assert.False(b.LoopPlayback);
+            Assert.True(double.IsNaN(a.LoopStartUT));
+            Assert.True(double.IsNaN(a.LoopEndUT));
+            Assert.True(double.IsNaN(b.LoopStartUT));
+            Assert.True(double.IsNaN(b.LoopEndUT));
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_SkipsDebris()
+        {
+            // Debris is excluded so the per-row hide stays consistent with the
+            // aggregate write. Pre-existing LoopPlayback on debris is preserved
+            // (the write value differs from each debris's prior state, so this
+            // catches a skip-bug that ignores debris exclusion).
+            var main = new Recording { VesselName = "Main", LoopPlayback = false };
+            var debTrue = new Recording { VesselName = "DebTrue", LoopPlayback = true, IsDebris = true };
+            var debFalse = new Recording { VesselName = "DebFalse", LoopPlayback = false, IsDebris = true };
+            var committed = new List<Recording> { main, debTrue, debFalse };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { 0, 1, 2 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(1, written);
+            Assert.True(main.LoopPlayback);
+            Assert.True(debTrue.LoopPlayback);
+            Assert.False(debFalse.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_SkipsNullAndOutOfRange()
+        {
+            var a = new Recording { VesselName = "A", LoopPlayback = false };
+            var committed = new List<Recording> { a, null };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, new[] { -1, 0, 1, 99 }, value: true, applyAutoRange: false);
+
+            Assert.Equal(1, written);
+            Assert.True(a.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_NullIndices_HeaderPath_WritesAllNonDebris()
+        {
+            // The header path passes indices:null so the helper walks committed
+            // directly. Mirrors the no-Range-allocation header overload of
+            // ComputeLoopAggregate.
+            var a = new Recording { VesselName = "A", LoopPlayback = false };
+            var b = new Recording { VesselName = "B", LoopPlayback = false };
+            var deb = new Recording { VesselName = "Deb", LoopPlayback = false, IsDebris = true };
+            var committed = new List<Recording> { a, b, deb };
+
+            int written = RecordingsTableUI.BulkSetLoopPlayback(committed, indices: null, value: true, applyAutoRange: false);
+
+            Assert.Equal(2, written);
+            Assert.True(a.LoopPlayback);
+            Assert.True(b.LoopPlayback);
+            Assert.False(deb.LoopPlayback);
+        }
+
+        [Fact]
+        public void BulkSetLoopPlayback_NullCommitted_ReturnsZero()
+        {
+            Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, new[] { 0 }, true, false));
+            Assert.Equal(0, RecordingsTableUI.BulkSetLoopPlayback(null, indices: null, true, false));
+        }
+
+        // ── Tab switch (Recordings | Missions) ──
+
+        [Fact]
+        public void LogTabSwitch_Logs_OldAndNew()
+        {
+            // Regression: fails if the tab-switch helper stops logging the old and new
+            // tab indices, losing the Recordings/Missions tab-change diagnostic trail.
+            ParsekLog.SuppressLogging = false;
+            logLines.Clear();
+            RecordingsTableUI.LogTabSwitch(oldTab: 0, newTab: 1);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]")
+                && l.Contains("Recordings window: tab switched")
+                && l.Contains("0->1"));
+        }
+
         // ── BuildGroupTreeData ──
 
         [Fact]
@@ -2162,6 +2527,64 @@ namespace Parsek.Tests
                     Assert.Equal(RecordingStore.GloopsGroupName, rootItems[0].GroupName);
                 }
             }
+        }
+
+        [Fact]
+        public void TreeConnector_LastSibling_IsCornerBranch()
+        {
+            // Last sibling => U+2514 (corner) + U+2500 (horizontal) + space.
+            string last = RecordingsTableUI.TreeConnector(true);
+            Assert.Equal(3, last.Length);
+            Assert.Equal((char)0x2514, last[0]);
+            Assert.Equal((char)0x2500, last[1]);
+            Assert.Equal(' ', last[2]);
+        }
+
+        [Fact]
+        public void TreeConnector_EarlierSibling_IsTeeBranch()
+        {
+            // Non-last sibling => U+251C (tee) + U+2500 (horizontal) + space.
+            string mid = RecordingsTableUI.TreeConnector(false);
+            Assert.Equal(3, mid.Length);
+            Assert.Equal((char)0x251C, mid[0]);
+            Assert.Equal((char)0x2500, mid[1]);
+            Assert.Equal(' ', mid[2]);
+        }
+
+        [Fact]
+        public void TreeConnector_CornerAndTeeDiffer()
+        {
+            Assert.NotEqual(
+                RecordingsTableUI.TreeConnector(true),
+                RecordingsTableUI.TreeConnector(false));
+        }
+
+        // The internal TreeChildSection enum cannot appear in a public xUnit
+        // signature (CS0051), so the precedence table is asserted inline rather
+        // than via [Theory] InlineData. Order tested: virtual > child group >
+        // block, and None when nothing renders.
+        [Fact]
+        public void ResolveLastChildSection_FollowsPrecedence()
+        {
+            // Single-section cases.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.None,
+                RecordingsTableUI.ResolveLastChildSection(false, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Block,
+                RecordingsTableUI.ResolveLastChildSection(true, false, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(false, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, false, true));
+
+            // Precedence: virtual beats child group beats block.
+            Assert.Equal(RecordingsTableUI.TreeChildSection.ChildGroup,
+                RecordingsTableUI.ResolveLastChildSection(true, true, false));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, false, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(false, true, true));
+            Assert.Equal(RecordingsTableUI.TreeChildSection.Virtual,
+                RecordingsTableUI.ResolveLastChildSection(true, true, true));
         }
     }
 }

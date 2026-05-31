@@ -10,6 +10,10 @@ namespace Parsek
         public string branchPointId;
         public double ut;
         public string interactionType;
+        // Launch-unique Guid of the claimed vessel in this link's tree. Lets the walker keep
+        // chain claims for two distinct launches of the same craft (same baked pid) separate
+        // instead of pooling them into one chain. Null/empty = unknown (legacy -> pid-only pooling).
+        public string recordedVesselGuid;
 
         public override string ToString()
         {
@@ -22,6 +26,9 @@ namespace Parsek
     internal class GhostChain
     {
         public uint OriginalVesselPid;
+        // Launch-unique Guid this chain represents (the latest launch present for OriginalVesselPid).
+        // Used to keep a relaunch of the same craft from suppressing a prior launch's spawn.
+        public string LaunchGuid;
         public List<ChainLink> Links;
         public double GhostStartUT;
         public double SpawnUT;

@@ -44,6 +44,45 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region AdoptStartCrewIfEmpty (StartRecording tree-root backstop)
+
+        [Fact]
+        public void AdoptStartCrewIfEmpty_AdoptsWhenEmpty()
+        {
+            var rec = new Recording();
+            Assert.Null(rec.StartCrew);
+
+            bool adopted = rec.AdoptStartCrewIfEmpty(
+                new Dictionary<string, int> { { "Pilot", 2 }, { "Engineer", 1 } });
+
+            Assert.True(adopted);
+            Assert.Equal(2, rec.StartCrew["Pilot"]);
+            Assert.Equal(1, rec.StartCrew["Engineer"]);
+        }
+
+        [Fact]
+        public void AdoptStartCrewIfEmpty_DoesNotOverwriteExisting()
+        {
+            var rec = new Recording { StartCrew = new Dictionary<string, int> { { "Pilot", 3 } } };
+
+            bool adopted = rec.AdoptStartCrewIfEmpty(new Dictionary<string, int> { { "Engineer", 5 } });
+
+            Assert.False(adopted);
+            Assert.Single(rec.StartCrew);
+            Assert.Equal(3, rec.StartCrew["Pilot"]); // unchanged
+        }
+
+        [Fact]
+        public void AdoptStartCrewIfEmpty_NullOrEmptySource_NoOp()
+        {
+            var rec = new Recording();
+            Assert.False(rec.AdoptStartCrewIfEmpty(null));
+            Assert.False(rec.AdoptStartCrewIfEmpty(new Dictionary<string, int>()));
+            Assert.Null(rec.StartCrew);
+        }
+
+        #endregion
+
         #region T11-CREW — ExtractCrewManifest
 
         [Fact]

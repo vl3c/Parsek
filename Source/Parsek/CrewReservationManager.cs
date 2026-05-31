@@ -355,6 +355,15 @@ namespace Parsek
         /// SetReplacement runs on every commit/recalculate cycle and would pay the
         /// snapshot-walk cost on hot paths even when no orphan exists. The orphan
         /// pass only runs when the swap actually fails to place every replacement.
+        ///
+        /// Pass 2 is suppressed when the active vessel is the fresh VAB/SPH rollout
+        /// for this scene (<see cref="RecordingStore.SceneEntryFreshRolloutVesselPid"/>,
+        /// 0 outside a fresh launch). A fresh launch is never a continuation of a
+        /// prior recording, so it has no orphaned crew to reclaim, and reclaiming
+        /// would mis-seat stand-ins through KSP's craft-stable part persistentId
+        /// reuse (see <see cref="ShouldSuppressOrphanPlacementForFreshRollout"/>).
+        /// This applies to every call site (flight-ready, chain-commit, tree-commit),
+        /// since any of them can fire while the fresh-rollout vessel is still active.
         /// </summary>
         public static int SwapReservedCrewInFlight()
         {
@@ -387,9 +396,19 @@ namespace Parsek
             // [Phase 3] ERS-routed: spawned-PID set is derived from the Effective
             // Recording Set so NotCommitted / superseded / session-suppressed
             // recordings no longer claim active-vessel spawn attribution.
-            var spawnedPids = BuildSpawnedVesselPidSet(EffectiveState.ComputeERS());
+            // #976-class: an adoption-stamped recording carries SpawnedVesselPersistentId ==
+            // its craft-baked VesselPersistentId, which a relaunch of the same craft reuses.
+            // So a bare pid match would wrongly classify a fresh relaunch as "Parsek-spawned"
+            // and skip the whole swap, leaving reserved crew on the player's new ship. Require
+            // the matching adoption-stamped recording to be the SAME launch (guid) as the active
+            // vessel; real spawns use a KSP-unique pid and stay pid-only (see ActiveVesselIsParsekSpawned).
+            var ers = EffectiveState.ComputeERS();
+            var spawnedPids = BuildSpawnedVesselPidSet(ers);
             uint activePid = FlightGlobals.ActiveVessel.persistentId;
-            if (spawnedPids.Contains(activePid))
+            string activeGuid = FlightGlobals.ActiveVessel.id != Guid.Empty
+                ? FlightGlobals.ActiveVessel.id.ToString("N")
+                : null;
+            if (ActiveVesselIsParsekSpawned(ers, activePid, activeGuid))
             {
                 ParsekLog.Info("CrewReservation",
                     $"SwapReservedCrewInFlight skipped: active vessel pid={activePid} " +
@@ -449,7 +468,29 @@ namespace Parsek
             // Pass 2 — bug #277 orphan placement: reserved kerbals NOT seated in
             // the active vessel (typically EVA'd before merge). Look up where the
             // recording snapshot originally seated them and place the stand-in there.
-            int orphanPlaced = PlaceOrphanedReplacements(roster, swappedOriginals);
+            //
+            // Suppressed for a fresh-rollout active vessel (VAB/SPH launch): a ship
+            // just rolled out is not a continuation or merge of any prior recording,
+            // so it has no orphaned crew to reclaim. Running orphan placement here
+            // mis-injects stand-ins because KSP reuses craft part persistentIds across
+            // relaunches of the same .craft — a brand-new launch's command pod can
+            // share the persistentId of an old recording's pod, so the pid-tier
+            // matcher seats the stand-in into the fresh vessel the player just crewed.
+            // Pass 1 still runs, so a reserved kerbal that KSP auto-assigned onto the
+            // fresh launch is swapped for its stand-in as usual.
+            int orphanPlaced = 0;
+            uint freshRolloutPid = RecordingStore.SceneEntryFreshRolloutVesselPid;
+            if (ShouldSuppressOrphanPlacementForFreshRollout(activePid, freshRolloutPid))
+            {
+                ParsekLog.Info("CrewReservation",
+                    $"Orphan placement skipped: active vessel pid={activePid} is a fresh-rollout " +
+                    "launch (new mission has no orphaned crew to reclaim; avoids craft-pid-reuse " +
+                    "stand-in mis-injection)");
+            }
+            else
+            {
+                orphanPlaced = PlaceOrphanedReplacements(roster, swappedOriginals);
+            }
             swapCount += orphanPlaced;
 
             if (swapCount > 0)
@@ -468,6 +509,28 @@ namespace Parsek
             RemoveReservedEvaVessels(spawnedPids);
 
             return swapCount;
+        }
+
+        /// <summary>
+        /// Pure decision: suppress Pass-2 orphan crew placement when the active
+        /// vessel is the just-rolled-out fresh launch (VAB/SPH). A fresh launch is
+        /// never a continuation/merge of a prior recording, so it has no orphaned
+        /// reserved crew to reclaim — and reclaiming would mis-seat a stand-in via
+        /// KSP's craft-stable part persistentId reuse (a relaunch of the same .craft
+        /// reuses the old recording's pod persistentId, which the pid-tier matcher
+        /// then false-matches). Returns false when no fresh-rollout pid was captured
+        /// (<paramref name="freshRolloutVesselPid"/> == 0), i.e. for merge /
+        /// chain-commit / resumed-save call sites where orphan placement is intended.
+        ///
+        /// Body mirrors <c>ParsekFlight.ShouldSkipCommittedTreeRestoreForFreshLaunch</c>
+        /// (same fresh-rollout identity test); kept separate because the two are
+        /// distinct decisions that may diverge, and this one lives with the crew
+        /// manager rather than the Unity flight controller for direct unit testing.
+        /// </summary>
+        internal static bool ShouldSuppressOrphanPlacementForFreshRollout(
+            uint activeVesselPid, uint freshRolloutVesselPid)
+        {
+            return activeVesselPid != 0 && activeVesselPid == freshRolloutVesselPid;
         }
 
         /// <summary>
@@ -1416,6 +1479,39 @@ namespace Parsek
                     pids.Add(pid);
             }
             return pids;
+        }
+
+        /// <summary>
+        /// Pure decision: is the active vessel (pid + launch guid) genuinely a Parsek-spawned
+        /// vessel per the Effective Recording Set? A recording "spawned" the active vessel when its
+        /// <see cref="Recording.SpawnedVesselPersistentId"/> equals the active pid. For an
+        /// adoption-stamped recording (SpawnedVesselPersistentId == its craft-baked VesselPersistentId)
+        /// the pid is reused by every relaunch of the same craft, so that match additionally requires
+        /// the launch guids to agree (a conclusive guid mismatch means a relaunch, not the spawned
+        /// vessel). Real spawns use a KSP-unique spawn pid that cannot collide with a baked pid, so
+        /// they stay pid-only. Falls back to pid-only when the guid is unknown on either side.
+        /// </summary>
+        internal static bool ActiveVesselIsParsekSpawned(
+            IReadOnlyList<Recording> recordings, uint activePid, string activeGuid)
+        {
+            if (recordings == null || activePid == 0) return false;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                Recording r = recordings[i];
+                if (r == null || r.SpawnedVesselPersistentId == 0 || r.SpawnedVesselPersistentId != activePid)
+                    continue;
+
+                bool adoptionStamp = r.SpawnedVesselPersistentId == r.VesselPersistentId;
+                if (adoptionStamp
+                    && VesselLaunchIdentity.GuidsConclusivelyDiffer(r.RecordedVesselGuid, activeGuid))
+                {
+                    // Relaunch of the same craft reused the baked pid; this recording did not
+                    // spawn the active vessel. Keep looking for a genuine match.
+                    continue;
+                }
+                return true;
+            }
+            return false;
         }
 
         /// <summary>

@@ -499,6 +499,115 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Decouple vs breakup classification
+
+        [Fact]
+        public void AllDecoupleWindow_EmitsJointBreakWithDecoupleCause()
+        {
+            // A staging event drops a spent booster (debris) via a decoupler.
+            // Every split in the window is "DECOUPLE", so the coalescer emits a
+            // JointBreak/DECOUPLE branch point, NOT a Breakup/CRASH.
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false, splitCause: "DECOUPLE");
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal("DECOUPLE", bp.SplitCause);
+            Assert.Null(bp.BreakupCause);
+            Assert.Equal(1, bp.DebrisCount);
+        }
+
+        [Fact]
+        public void AllDecoupleWindow_MultipleChildren_EmitsSingleJointBreak()
+        {
+            // A symmetry group of decouplers fires in one frame (staging boosters).
+            // All-decouple window => one JointBreak/DECOUPLE branch point.
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: true, splitCause: "DECOUPLE");
+            coalescer.OnSplitEvent(100.0, 2001, childHasController: false, splitCause: "DECOUPLE");
+            coalescer.OnSplitEvent(100.0, 2002, childHasController: false, splitCause: "DECOUPLE");
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal("DECOUPLE", bp.SplitCause);
+            Assert.Equal(2, bp.DebrisCount);
+        }
+
+        [Fact]
+        public void DecouplerPartId_CapturedFromFirstDecoupleSplit()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 2000, childHasController: true, splitCause: "DECOUPLE",
+                decouplerPartId: 4242u);
+            coalescer.OnSplitEvent(100.0, 2001, childHasController: false, splitCause: "DECOUPLE",
+                decouplerPartId: 9999u);
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.JointBreak, bp.Type);
+            Assert.Equal(4242u, bp.DecouplerPartId); // first non-zero wins
+        }
+
+        [Fact]
+        public void MixedWindow_DecoupleThenCrash_EmitsBreakup()
+        {
+            // Conservative: a genuine crash split joining a decouple window keeps
+            // the whole event a Breakup so a real failure is never relabelled.
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false, splitCause: "DECOUPLE");
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false, splitCause: "CRASH");
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.Breakup, bp.Type);
+            Assert.Equal("CRASH", bp.BreakupCause);
+            Assert.Null(bp.SplitCause);
+        }
+
+        [Fact]
+        public void MixedWindow_CrashThenDecouple_EmitsBreakup()
+        {
+            // Order-independent: a decouple split joining a crash window stays a Breakup.
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false, splitCause: "CRASH");
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false, splitCause: "DECOUPLE");
+
+            var bp = coalescer.Tick(100.5);
+            Assert.NotNull(bp);
+            Assert.Equal(BranchPointType.Breakup, bp.Type);
+            Assert.Equal("CRASH", bp.BreakupCause);
+        }
+
+        [Fact]
+        public void Log_DecoupleEmitted_TaggedAsJointBreak()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: true, splitCause: "DECOUPLE");
+            coalescer.OnSplitEvent(100.1, 1001, childHasController: false, splitCause: "DECOUPLE");
+            coalescer.Tick(100.5);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Coalescer]") && l.Contains("DECOUPLE emitted") &&
+                l.Contains("type=JointBreak") &&
+                l.Contains("controlledChildren=1") && l.Contains("debris=1"));
+        }
+
+        [Fact]
+        public void DecoupleWindow_ToString_ShowsSplitCause()
+        {
+            var coalescer = new CrashCoalescer();
+            coalescer.OnSplitEvent(100.0, 1000, childHasController: false, splitCause: "DECOUPLE");
+            var bp = coalescer.Tick(100.5);
+
+            string str = bp.ToString();
+            Assert.Contains("JointBreak", str);
+            Assert.Contains("splitCause=DECOUPLE", str);
+        }
+
+        #endregion
+
         #region BranchPoint.ToString for Breakup
 
         [Fact]

@@ -44,6 +44,22 @@ namespace Parsek
             StartFromSettledLanded
         }
 
+        // Auto-record trigger for staging while still on the pad. The launch trigger
+        // (EvaluateAutoRecordLaunchDecision) only fires on the ACTIVE vessel's
+        // PRELAUNCH->FLYING transition, so a stage that detaches debris (e.g. SRBs
+        // that fly off the pad) before the main stage lifts off is never recorded.
+        // Triggering on the first staging action while PRELAUNCH starts the recorder
+        // before that decouple so the debris is captured as a branch of the main.
+        internal enum AutoRecordStagingDecision
+        {
+            SkipAlreadyRecording,
+            SkipTimeJumpTransient,
+            SkipNoActiveVessel,
+            SkipNotOnPad,
+            SkipDisabled,
+            StartFromPrelaunchStaging
+        }
+
         internal enum CommittedSpawnedVesselRestoreAction
         {
             None,
@@ -851,10 +867,32 @@ namespace Parsek
             return TryComputeLoopPlaybackUT(rec, currentUT,
                 out loopUT, out cycleIndex, out inPauseWindow, recIdx);
         }
+        // Mission loop-unit watch sync (Phase D2): resolve a watched member's span loopUT so
+        // watch entry syncs ghost visuals at the same clock the engine renders the member at.
+        // Returns false (loopUT = currentUT) for non-unit-member / non-looping watch.
+        internal bool TryResolveUnitMemberPlaybackUTForWatch(
+            int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
+            => engine.TryResolveUnitMemberPlaybackUT(
+                recordingIndex, currentUT, memberStartUT, memberEndUT, out loopUT);
         internal void PositionGhostAtForWatch(GameObject ghost, TrajectoryPoint point) => PositionGhostAt(ghost, point);
 
         // Cached per-frame allocations for engine path (avoid GC pressure)
         private readonly List<IPlaybackTrajectory> cachedTrajectories = new List<IPlaybackTrajectory>();
+
+        // Mission loop-unit drive cache (Phase D2). The LoopUnitSet only changes when the looping
+        // mission, its tree/selection/cadence, or the committed list changes, so the (allocating,
+        // Verbose-logging) MissionLoopUnitBuilder.Build is gated behind a cheap signature compare.
+        // SetLoopUnits still runs every frame with the cached value so the engine always sees the
+        // current set.
+        private string lastLoopUnitSignature;
+        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver (mirrors <c>ParsekTrackingStation.CurrentCachedLoopUnits</c>).
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
@@ -1068,6 +1106,7 @@ namespace Parsek
             GameEvents.onFlightReady.Add(OnFlightReady);
             GameEvents.onVesselWillDestroy.Add(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Add(OnVesselSituationChange);
+            GameEvents.onStageActivate.Add(OnStageActivate);
             GameEvents.onCrewOnEva.Add(OnCrewOnEva);
             GameEvents.onCrewBoardVessel.Add(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Add(OnVesselGoOnRails);
@@ -1893,6 +1932,17 @@ namespace Parsek
         void OnDestroy()
         {
             Instance = null;
+            // #267: clear the static restore-reentrancy guard. The restore coroutines
+            // set it true and clear it in a finally, but Unity abandons a running
+            // coroutine when the MonoBehaviour is destroyed (scene change) WITHOUT
+            // running the finally — so a mid-restore scene exit would leave the static
+            // flag stuck true, and the next scene's fresh ParsekFlight would inherit it
+            // (suppressing the OnFlightReady merge dialog and tripping
+            // ReentrancyGuard_ClearedAfterRestore). The next scene re-schedules its own
+            // restore from scratch, so clearing here is always safe.
+            if (restoringActiveTree)
+                ParsekLog.Info("Flight", "OnDestroy: clearing stale restoringActiveTree guard (coroutine aborted by destroy)");
+            restoringActiveTree = false;
             ParsekLog.Info("Flight", "OnDestroy: cleaning up ParsekFlight");
             Camera.onPreCull -= OnCameraPreCull;
             DisarmPostSwitchAutoRecord("ParsekFlight destroyed");
@@ -1992,6 +2042,7 @@ namespace Parsek
             GameEvents.onFlightReady.Remove(OnFlightReady);
             GameEvents.onVesselWillDestroy.Remove(OnVesselWillDestroy);
             GameEvents.onVesselSituationChange.Remove(OnVesselSituationChange);
+            GameEvents.onStageActivate.Remove(OnStageActivate);
             GameEvents.onCrewOnEva.Remove(OnCrewOnEva);
             GameEvents.onCrewBoardVessel.Remove(OnCrewBoardVessel);
             GameEvents.onVesselGoOnRails.Remove(OnVesselGoOnRails);
@@ -2341,6 +2392,17 @@ namespace Parsek
                 backgroundRecorder = null;
             }
             activeTree = null;
+
+            // A discarded active tree must not leave an armed switch-segment
+            // session pointing at it. Without this, the idle-on-pad scene-exit
+            // fast path (SceneExitInterceptor) tears the tree down but the
+            // session (already persisted by the pre-exit OnSave) survives
+            // into the save and resurfaces as a deferred merge dialog on the
+            // next load. ClearSwitchSegmentSession no-ops when none is armed
+            // (e.g. the Case B no-session Switch-To discard).
+            ParsekScenario.Instance?.ClearSwitchSegmentSession(
+                $"active-tree-auto-discard: {reason}");
+
             // No pending tree was stashed (we discard pre-finalize).
             // Roll back any in-flight ledger entries from the aborted
             // recording.
@@ -3497,11 +3559,15 @@ namespace Parsek
                 return false;
             }
 
+            string activeVesselGuid = activeVessel.id != Guid.Empty
+                ? activeVessel.id.ToString("N")
+                : null;
             if (!TryTakeCommittedTreeForSpawnedVesselRestore(
                     activeVesselPid,
                     out RecordingTree committedTree,
                     out string targetRecordingId,
-                    out CommittedSpawnedVesselRestoreAction action))
+                    out CommittedSpawnedVesselRestoreAction action,
+                    activeVesselGuid))
                 return false;
 
             activeTree = committedTree;
@@ -6120,8 +6186,32 @@ namespace Parsek
                             trajectoryPointSource = "destroyed-before-capture";
                         }
 
+                        // Classify decoupler-initiated (intentional staging / decoupler fire)
+                        // vs force-driven structural break. A child caught by
+                        // onPartDeCoupleNewVesselComplete (present in decoupleControllerStatus)
+                        // came off through Part.decouple(); a decouple-only trigger means the
+                        // whole split was detected via that callback. Everything else stays a
+                        // breakup so a genuine crash is never relabelled a decouple.
+                        bool childWasDecoupleCreated = decoupleControllerStatus != null
+                            && decoupleControllerStatus.ContainsKey(newPid);
+                        bool triggerWasDecoupleOnly =
+                            pendingDeferredSplitCheckTrigger == DeferredSplitCheckTrigger.DecoupleCreatedVessel;
+                        string childSplitCause = SegmentBoundaryLogic.ClassifyForegroundSplitChildCause(
+                            childWasDecoupleCreated, triggerWasDecoupleOnly);
+                        // Best-available proxy for BranchPoint.DecouplerPartId: the separated
+                        // child's root part (the part that came off through the decoupler). KSP's
+                        // decouple callback does not hand us the parent-side decoupler module, and
+                        // this field has no behavioral consumer (serialized / logged only), so the
+                        // child root PID is informative without being load-bearing. 0 when unknown,
+                        // matching the background-recorder decouple path.
+                        uint childDecouplerPartId = childWasDecoupleCreated
+                            ? (childVessel?.rootPart?.persistentId ?? 0u)
+                            : 0u;
+
                         ParsekLog.Info("Coalescer",
                             $"Feeding split to coalescer: childPid={newPid}, childHasController={hasController}" +
+                            $", cause={childSplitCause}, decoupleCreated={childWasDecoupleCreated}" +
+                            $", triggerDecoupleOnly={triggerWasDecoupleOnly}, decouplerPartId={childDecouplerPartId}" +
                             $", preSnapshot={preSnapshot != null}, preTrajectoryPoint={preTrajectoryPoint.HasValue} " +
                             $"pointSource={trajectoryPointSource} " +
                             $"branchUT={branchUT.ToString("F2", CultureInfo.InvariantCulture)}" +
@@ -6130,8 +6220,10 @@ namespace Parsek
                                 : string.Empty));
                         crashCoalescer.OnSplitEvent(
                             branchUT, newPid, hasController,
+                            splitCause: childSplitCause,
                             preSnapshot: preSnapshot,
-                            preTrajectoryPoint: preTrajectoryPoint);
+                            preTrajectoryPoint: preTrajectoryPoint,
+                            decouplerPartId: childDecouplerPartId);
                         pendingSplitRecorder?.RegisterHighFidelityProximityVessel(
                             newPid,
                             branchUT,
@@ -6261,9 +6353,9 @@ namespace Parsek
                 return;
 
             ParsekLog.Info("Coalescer",
-                $"Coalescer emitted BREAKUP: ut={breakupBp.UT:F2}, " +
-                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
-                $"duration={breakupBp.BreakupDuration:F3}s");
+                $"Coalescer emitted split branch point: ut={breakupBp.UT:F2}, " +
+                $"type={breakupBp.Type}, cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, " +
+                $"debris={breakupBp.DebrisCount}, duration={breakupBp.BreakupDuration:F3}s");
 
             ProcessBreakupEvent(breakupBp);
         }
@@ -6975,9 +7067,9 @@ namespace Parsek
             }
 
             ParsekLog.Info("Coalescer",
-                $"ProcessBreakupEvent: BREAKUP attached to tree={activeTree.Id}, " +
+                $"ProcessBreakupEvent: {breakupBp.Type} attached to tree={activeTree.Id}, " +
                 $"parentRec={activeRecId}, bpId={breakupBp.Id}, " +
-                $"cause={breakupBp.BreakupCause}, debris={breakupBp.DebrisCount}, " +
+                $"cause={breakupBp.BreakupCause ?? breakupBp.SplitCause ?? "?"}, debris={breakupBp.DebrisCount}, " +
                 $"skippedTrivial={skippedDebris}, " +
                 $"duration={breakupBp.BreakupDuration:F3}s");
         }
@@ -7407,7 +7499,9 @@ namespace Parsek
 
                 case AutoRecordLaunchDecision.SkipInactiveVessel:
                     ParsekLog.VerboseRateLimited("Flight", "sit-change-other",
-                        $"OnVesselSituationChange: ignoring non-active vessel ({data.from} → {data.to})");
+                        $"OnVesselSituationChange: ignoring non-active vessel " +
+                        $"'{data.host?.vesselName ?? "null"}' pid={data.host?.persistentId ?? 0u} " +
+                        $"({data.from} → {data.to})");
                     return;
 
                 case AutoRecordLaunchDecision.SkipBounce:
@@ -7437,6 +7531,64 @@ namespace Parsek
 
             StartRecording(suppressStartScreenMessage: true);
             Log($"Auto-record started ({data.from} → {data.to})");
+            ScreenMessage("Recording STARTED (auto)", 2f);
+        }
+
+        // First-staging-on-pad auto-record trigger. A stage activated while the active
+        // vessel is still PRELAUNCH (e.g. igniting SRBs that then decouple and fly off
+        // the pad before the main stage lifts off) must start the recorder NOW so the
+        // subsequent decouple is captured as a debris branch of the recorded vessel.
+        // Without this the recorder only starts on the main stage's PRELAUNCH->FLYING
+        // transition, by which point the separated debris is already a foreign vessel
+        // and is dropped by the decouple capture gate.
+        void OnStageActivate(int stage)
+        {
+            Vessel av = FlightGlobals.ActiveVessel;
+            if (av != null && GhostMapPresence.IsGhostMapVessel(av.persistentId)) return;
+
+            bool suppressLaunchAutoRecordForTimeJump =
+                TimeJumpManager.IsTimeJumpLaunchAutoRecordSuppressed(
+                    TimeJumpManager.IsTimeJumpLaunchAutoRecordInProgress,
+                    Time.frameCount,
+                    TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame);
+
+            var stagingDecision = EvaluateAutoRecordStagingDecision(
+                isRecording: IsRecording,
+                hasActiveVessel: av != null,
+                activeVesselIsPrelaunch: av != null && av.situation == Vessel.Situations.PRELAUNCH,
+                autoRecordOnLaunchEnabled: ParsekSettings.Current?.autoRecordOnLaunch != false,
+                suppressForTimeJumpTransient: suppressLaunchAutoRecordForTimeJump);
+
+            switch (stagingDecision)
+            {
+                case AutoRecordStagingDecision.SkipAlreadyRecording:
+                    return;
+
+                case AutoRecordStagingDecision.SkipTimeJumpTransient:
+                    ParsekLog.Info("Flight",
+                        $"OnStageActivate: suppressing time-jump transient (stage={stage}) " +
+                        $"for '{av?.vesselName ?? "null"}' frame={Time.frameCount} " +
+                        $"suppressUntilFrame={TimeJumpManager.TimeJumpLaunchAutoRecordSuppressUntilFrame}");
+                    return;
+
+                case AutoRecordStagingDecision.SkipNoActiveVessel:
+                    ParsekLog.VerboseRateLimited("Flight", "stage-no-active",
+                        $"OnStageActivate: no active vessel (stage={stage})");
+                    return;
+
+                case AutoRecordStagingDecision.SkipNotOnPad:
+                    ParsekLog.VerboseRateLimited("Flight", "stage-not-prelaunch",
+                        $"OnStageActivate: active vessel '{av?.vesselName ?? "null"}' not PRELAUNCH " +
+                        $"(stage={stage}, situation={av?.situation}): in-flight staging left to recorder/launch trigger");
+                    return;
+
+                case AutoRecordStagingDecision.SkipDisabled:
+                    ParsekLog.Verbose("Flight", "OnStageActivate: auto-record disabled in settings");
+                    return;
+            }
+
+            StartRecording(suppressStartScreenMessage: true);
+            Log($"Auto-record started (first staging on pad, stage={stage})");
             ScreenMessage("Recording STARTED (auto)", 2f);
         }
 
@@ -7750,6 +7902,39 @@ namespace Parsek
             }
 
             return AutoRecordLaunchDecision.SkipNotLaunchTransition;
+        }
+
+        // Decision for the first-staging-on-pad auto-record trigger (OnStageActivate).
+        // Mirrors EvaluateAutoRecordLaunchDecision's guard ordering: an already-running
+        // recorder short-circuits first, then the time-jump transient suppression, so a
+        // synthetic spawn vessel staging during an FF / warp-to-time window cannot
+        // spuriously start a recording. Only fires while the active vessel is PRELAUNCH
+        // (still on the pad); in-flight staging is left to the existing recorder, and the
+        // normal clamp-release launch is still covered by the PRELAUNCH->FLYING trigger
+        // (whichever fires first wins via the isRecording guard).
+        internal static AutoRecordStagingDecision EvaluateAutoRecordStagingDecision(
+            bool isRecording,
+            bool hasActiveVessel,
+            bool activeVesselIsPrelaunch,
+            bool autoRecordOnLaunchEnabled,
+            bool suppressForTimeJumpTransient)
+        {
+            if (isRecording)
+                return AutoRecordStagingDecision.SkipAlreadyRecording;
+
+            if (suppressForTimeJumpTransient)
+                return AutoRecordStagingDecision.SkipTimeJumpTransient;
+
+            if (!hasActiveVessel)
+                return AutoRecordStagingDecision.SkipNoActiveVessel;
+
+            if (!activeVesselIsPrelaunch)
+                return AutoRecordStagingDecision.SkipNotOnPad;
+
+            if (!autoRecordOnLaunchEnabled)
+                return AutoRecordStagingDecision.SkipDisabled;
+
+            return AutoRecordStagingDecision.StartFromPrelaunchStaging;
         }
 
         internal static bool ShouldQueueAutoRecordOnEva(
@@ -8392,6 +8577,20 @@ namespace Parsek
                 ? Planetarium.GetUniversalTime()
                 : marker.CapturedUT;
 
+            // On-surface targets defer to the normal auto-record trigger instead
+            // of starting a switch-fly segment the instant you fly to them. A
+            // vessel that is PRELAUNCH (on the pad), LANDED (on the ground), or
+            // SPLASHED (on the water) has not started flying yet. Without the
+            // LANDED/SPLASHED arms, flying to a vessel already sitting on the
+            // ground (a Parsek-spawned committed vessel, reported LANDED, or a
+            // saved landed craft) started a recording immediately, which was then
+            // discarded as idle-on-pad on scene exit — the "Jumping Flea on the
+            // pad" report whose PRELAUNCH-only fix missed the LANDED case.
+            bool targetIsOnSurface =
+                newVessel.situation == Vessel.Situations.PRELAUNCH
+                || newVessel.situation == Vessel.Situations.LANDED
+                || newVessel.situation == Vessel.Situations.SPLASHED;
+
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker,
                 newPid,
@@ -8399,7 +8598,8 @@ namespace Parsek
                 currentRealtime,
                 currentUT,
                 missedSwitchRecoveryActive,
-                activeSessionFocusedPid);
+                activeSessionFocusedPid,
+                targetIsOnSurface);
 
             if (outcome != StockActionIntentConsumeDecision.Outcome.Authorized
                 && outcome != StockActionIntentConsumeDecision.Outcome.NoIntent)
@@ -8542,7 +8742,9 @@ namespace Parsek
             // unchanged once we route this way.
             if (!activeIsCommittedClone && activeTree == null)
             {
-                bool committedMatchExists = TryFindCommittedTreeMatchingVessel(newPid);
+                bool committedMatchExists = TryFindCommittedTreeMatchingVessel(
+                    newPid,
+                    newVessel.id != Guid.Empty ? newVessel.id.ToString("N") : null);
                 if (committedMatchExists)
                 {
                     // L5 (PR #876 final review): only emit the
@@ -8694,6 +8896,14 @@ namespace Parsek
         /// committed-clone branch.</para>
         /// </summary>
         internal static bool TryFindCommittedTreeMatchingVessel(uint pid)
+            => TryFindCommittedTreeMatchingVessel(pid, null);
+
+        // liveGuid is the focused live vessel's Vessel.id ("N" form, null = unknown). #976-class:
+        // the VesselPersistentId branch matches the craft-baked pid, which a relaunch of the same
+        // craft reuses, so it additionally requires the same launch (guid). The SpawnedVesselPersistentId
+        // branch matches a KSP-unique spawn pid that cannot collide with a baked pid, so it stays
+        // pid-only. A null/unknown guid falls back to today's pid-only behavior.
+        internal static bool TryFindCommittedTreeMatchingVessel(uint pid, string liveGuid)
         {
             if (pid == 0u) return false;
             var trees = RecordingStore.CommittedTrees;
@@ -8705,7 +8915,8 @@ namespace Parsek
                 foreach (var rec in tree.Recordings.Values)
                 {
                     if (rec == null) continue;
-                    if (rec.VesselPersistentId == pid)
+                    if (rec.VesselPersistentId == pid
+                        && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, pid, liveGuid))
                         return true;
                     // Bug 5: also match recordings whose Parsek-spawned vessel
                     // is the focused one. SpawnedVesselPersistentId is set by
@@ -10940,6 +11151,13 @@ namespace Parsek
         // in the same scene keep resuming their recordings.
         private void CaptureFreshRolloutVesselPidIfApplicable()
         {
+            // Default to 0 every scene so a non-fresh startup (resumed save / revert)
+            // leaves the shared static cleared and the crew-swap call sites keep
+            // running orphan placement. The instance field defaults to 0 per new
+            // ParsekFlight; the static must be reset explicitly.
+            freshRolloutVesselPid = 0;
+            RecordingStore.SceneEntryFreshRolloutVesselPid = 0;
+
             FlightDriver.StartupBehaviours startup = FlightDriver.StartupBehaviour;
             if (!IsFreshLaunchStartupBehaviour(startup))
                 return;
@@ -10953,6 +11171,10 @@ namespace Parsek
                 return;
             }
             freshRolloutVesselPid = v.persistentId;
+            // Publish to the shared static so SwapReservedCrewInFlight can suppress
+            // Pass-2 orphan placement for this fresh launch from any call site
+            // (flight-ready, chain-commit, tree-commit) without a ParsekFlight handle.
+            RecordingStore.SceneEntryFreshRolloutVesselPid = freshRolloutVesselPid;
             ParsekLog.Info("Flight",
                 $"FreshRollout: captured scene-entry vessel pid={freshRolloutVesselPid} " +
                 $"('{v.vesselName}', StartupBehaviour={startup}) — committed-tree restore " +
@@ -11178,7 +11400,11 @@ namespace Parsek
             MaybeShowPendingTreeMergeDialogOnFlightReady();
 
             // Swap reserved crew out of the active vessel so the player
-            // can't record with them again (they belong to deferred-spawn vessels)
+            // can't record with them again (they belong to deferred-spawn vessels).
+            // A brand-new VAB/SPH launch suppresses Pass-2 orphan placement inside
+            // SwapReservedCrewInFlight (via RecordingStore.SceneEntryFreshRolloutVesselPid),
+            // otherwise KSP's craft-stable part persistentId reuse lets the pid
+            // matcher mis-seat stand-ins into the fresh vessel the player just crewed.
             int swapResult = CrewReservationManager.SwapReservedCrewInFlight();
             if (swapResult > 0)
                 Log($"Crew swap on flight ready: {swapResult} crew swapped out of active vessel");
@@ -13836,7 +14062,8 @@ namespace Parsek
             IReadOnlyList<RecordingTree> committedTrees,
             uint activeVesselPid,
             out RecordingTree tree,
-            out string recordingId)
+            out string recordingId,
+            string activeVesselGuid = null)
         {
             tree = null;
             recordingId = null;
@@ -13858,10 +14085,16 @@ namespace Parsek
                     bool spawnedMatch = rec.VesselSpawned
                         && rec.SpawnedVesselPersistentId != 0
                         && rec.SpawnedVesselPersistentId == activeVesselPid;
+                    // #976-class: the direct VesselPersistentId match is the craft-baked pid, which
+                    // a relaunch of the same craft reuses (notably on RESUME/quickload where the
+                    // editor-only fresh-rollout guard above is inactive). Require the same launch
+                    // (guid); a null/unknown guid falls back to today's pid-only behavior. The
+                    // spawnedMatch branch uses a KSP-unique spawn pid and stays pid-only.
                     bool directMatch = !rec.VesselSpawned
                         && rec.SpawnedVesselPersistentId == 0
                         && rec.VesselPersistentId != 0
-                        && rec.VesselPersistentId == activeVesselPid;
+                        && rec.VesselPersistentId == activeVesselPid
+                        && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, activeVesselPid, activeVesselGuid);
                     if (!spawnedMatch && !directMatch)
                         continue;
 
@@ -13890,7 +14123,8 @@ namespace Parsek
             uint activeVesselPid,
             out RecordingTree tree,
             out string recordingId,
-            out CommittedSpawnedVesselRestoreAction action)
+            out CommittedSpawnedVesselRestoreAction action,
+            string activeVesselGuid = null)
         {
             tree = null;
             recordingId = null;
@@ -13900,7 +14134,8 @@ namespace Parsek
                     RecordingStore.CommittedTrees,
                     activeVesselPid,
                     out RecordingTree committedTree,
-                    out string targetRecordingId))
+                    out string targetRecordingId,
+                    activeVesselGuid))
             {
                 return false;
             }
@@ -18888,6 +19123,22 @@ namespace Parsek
             for (int i = 0; i < committed.Count; i++)
                 cachedTrajectories.Add(committed[i]);
 
+            // === Mission loop-unit drive (Phase D2) ===
+            // Recompute the LoopUnitSet only when the inputs that shape it change. A cheap signature
+            // string over the looping mission's identity/selection/cadence plus the committed list
+            // identity gates the allocating, Verbose-logging MissionLoopUnitBuilder.Build. The cached
+            // set is pushed into the engine EVERY frame (member-index alignment is the engine's
+            // contract), but Build (and its log) only fires on an actual input change.
+            DriveMissionLoopUnits(committed);
+
+            // === Re-aim per-window transfer substitution (Phase 3c) ===
+            // For each looping mission classified as a cross-parent single-hop interplanetary transfer,
+            // replace the OWNER member's recorded trajectory with a per-window re-aimed transfer (the
+            // recorded geometry re-planned to the target's actual position at this synodic window). The
+            // resolver caches by window, so the live Lambert/PatchedConics solve runs only when the
+            // window advances. Non-re-aim units + non-owner members are untouched (faithful path).
+            SubstituteReaimTrajectories(currentUT);
+
             if (HasAnchorReFlyUnstableFlag(flags))
             {
                 reFlySettlePoseLogActiveFrame = Time.frameCount;
@@ -18948,6 +19199,110 @@ namespace Parsek
 
             // Watch-mode ghost validity check
             watchMode.ValidateWatchedGhostStillActive();
+        }
+
+        // Replaces each re-aim loop unit member's heliocentric leg in cachedTrajectories with the
+        // per-window re-aimed transfer (Phase 3c). Runs after DriveMissionLoopUnits (so cachedLoopUnits
+        // is fresh) and before engine.UpdatePlayback. Iterates ALL members of a re-aim unit: the
+        // resolver substitutes only the member(s) that actually carry a heliocentric leg (the transfer
+        // leg of the mission chain) and leaves launch / arrival / debris members faithful (their
+        // body-relative segments already follow their bodies). The resolver caches by window, so this is
+        // cheap on non-advancing frames. The map-presence / tracking-station orbit path resolves the
+        // SAME segments from the shared resolver, so the map orbit line stays in sync with the flight ghost.
+        private void SubstituteReaimTrajectories(double currentUT)
+        {
+            if (cachedLoopUnits == null || cachedLoopUnits.Count == 0)
+                return;
+
+            int substituted = 0;
+            foreach (var kv in cachedLoopUnits.UnitsByOwner)
+            {
+                GhostPlaybackLogic.LoopUnit unit = kv.Value;
+                if (!unit.IsReaim || unit.MemberIndices == null)
+                    continue;
+
+                for (int m = 0; m < unit.MemberIndices.Length; m++)
+                {
+                    int memberIdx = unit.MemberIndices[m];
+                    if (memberIdx < 0 || memberIdx >= cachedTrajectories.Count)
+                        continue;
+                    IPlaybackTrajectory inner = cachedTrajectories[memberIdx];
+                    if (inner == null)
+                        continue;
+
+                    IPlaybackTrajectory sub = Parsek.Reaim.ReaimPlaybackResolver.Shared.ResolveForFrame(
+                        inner.RecordingId, inner, unit.ReaimPlan.Value, unit.ReaimSchedule.Value,
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                        currentUT, out long windowIndex);
+
+                    if (!ReferenceEquals(sub, inner))
+                    {
+                        cachedTrajectories[memberIdx] = sub;
+                        substituted++;
+                        ParsekLog.VerboseRateLimited("Reaim", $"sub-{memberIdx}",
+                            $"re-aim member={memberIdx} id={inner.RecordingId} window={windowIndex} heliocentric leg substituted");
+                    }
+                }
+            }
+            if (substituted > 0)
+                ParsekLog.VerboseRateLimited("Reaim", "sub-summary",
+                    $"re-aim substituted {substituted} member trajectory(ies) this frame");
+        }
+
+        // Recompute the Mission LoopUnitSet only when its inputs change, then push the cached set
+        // into the engine every frame. The signature captures everything MissionLoopUnitBuilder.Build
+        // reads that can move the unit: the looping mission's identity (Id), tree (TreeId), cadence
+        // (LoopIntervalSeconds + LoopTimeUnit), phase anchor (LoopAnchorUT), and selection (both the
+        // sorted ExcludedThroughLineHeadIds and the interval-level ExcludedIntervalKeys that actually
+        // drive the members + span), plus the looping tree's topology (branch + recording counts) and
+        // the committed-list identity (count + a rolling hash of RecordingIds, since member indices
+        // are committed-list indices). No looping mission -> a constant "none:" prefix over the same
+        // committed signature, so toggling looping off still rebuilds to Empty exactly once.
+        private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
+        {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): pass the live-body seam so a supported looping
+            // mission snaps its phase anchor to the next faithful launch window. An unsupported
+            // config (cross-parent / rendezvous / no constraint) falls back to today's behavior.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            // Zero-drift A/B flag: how a looped mission's transited-body landing rotation is treated.
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+            if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
+            {
+                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                lastLoopUnitSignature = signature;
+                // The committed set / missions changed: drop every cached per-window re-aim adapter so a
+                // stale window transfer can never survive a recording edit / re-classification.
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
+                ParsekLog.Verbose("Mission",
+                    $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+            }
+            engine.SetLoopUnits(cachedLoopUnits);
+
+            // If the player is WATCHING a member of a mission loop and the new selection just
+            // dropped that member from the unit (interval trimmed out, the loop turned off, or
+            // every segment unchecked), exit watch NOW - this runs BEFORE the engine's
+            // UpdatePlayback tears the member's ghost down (and, for a Destroyed-terminal member,
+            // explodes it). Otherwise the policy starts a watch-hold on the now-dying ghost and the
+            // camera latches onto a destroyed transform, leaving FlightCamera.Target null and
+            // flooding stock KSP (FlightGlobals / Sun / CrewHatchController / AmbienceControl) with
+            // NREs. Gated on WatchedLoopCycleIndex >= 0 so only loop-cycle watches are affected (a
+            // plain non-loop watch is never a unit member and must not be disturbed).
+            if (watchMode != null
+                && watchMode.WatchedRecordingIndex >= 0
+                && watchMode.WatchedLoopCycleIndex >= 0
+                && !cachedLoopUnits.IsMember(watchMode.WatchedRecordingIndex))
+            {
+                ParsekLog.Info("CameraFollow",
+                    $"Watched mission member #{watchMode.WatchedRecordingIndex} left the loop unit " +
+                    "(interval trimmed out or loop off) - exiting watch before its ghost is torn down");
+                watchMode.ExitWatchModePreservingLineage();
+            }
         }
 
         // UpdateTimelinePlayback removed (T25 Phase 9 — engine is primary path)
@@ -20307,7 +20662,7 @@ namespace Parsek
         /// population are reused.
         /// </summary>
         /// <remarks>
-        /// Format v13 contract: this is the primary rendering surface for
+        /// Parent-anchored contract: this is the primary rendering surface for
         /// parent-anchored debris whenever the active Relative section's
         /// `bodyFixedFrames` covers the playback UT. Loop-anchored chains still
         /// try relative replay first and use this as the recorded fallback when
@@ -21086,7 +21441,62 @@ namespace Parsek
                     index * 10000 + Math.Max(0, segmentIndex),
                     traj.RecordingId,
                     traj);
+
+                // Re-aim seam/arrival diagnostic: trace the orbit-only re-aim ghost vs the live bodies so a
+                // teleport at a segment seam or an arrival where the target is NOT is visible in the log.
+                if (traj is Parsek.Reaim.ReaimedTrajectory && state.ghost != null)
+                    LogReaimGhostTrace(index, seg, segmentIndex, ut, state.ghost.transform.position);
             }
+        }
+
+        // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
+        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
+            = new Dictionary<int, (int, Vector3, double)>();
+
+        /// <summary>
+        /// Diagnostic trace of a re-aimed orbit ghost vs the live bodies. Logs (rate-limited) the ghost's
+        /// world position and its distance to the segment's own body, the launch body, and the target, so
+        /// "arrives where the target is not" is measurable. On a SEGMENT CHANGE (a trajectory seam) it logs
+        /// the world-position discontinuity between the prior frame and this one - a large jump is a
+        /// teleport (no trajectory continuity across the seam). Verbose; never throws.
+        /// </summary>
+        private void LogReaimGhostTrace(int memberIndex, OrbitSegment seg, int segmentIndex, double loopUT, Vector3 ghostPos)
+        {
+            try
+            {
+                var ic = CultureInfo.InvariantCulture;
+                double currentUT = Planetarium.GetUniversalTime();
+                CelestialBody segBody = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == seg.bodyName);
+                CelestialBody target = null, launch = null;
+                if (cachedLoopUnits != null && cachedLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit)
+                    && unit.ReaimPlan.HasValue)
+                {
+                    target = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.TargetBody);
+                    launch = FlightGlobals.Bodies?.Find(b => b != null && b.bodyName == unit.ReaimPlan.Value.LaunchBody);
+                }
+                double dSeg = segBody != null ? (ghostPos - (Vector3)segBody.position).magnitude : double.NaN;
+                double dLaunch = launch != null ? (ghostPos - (Vector3)launch.position).magnitude : double.NaN;
+                double dTarget = target != null ? (ghostPos - (Vector3)target.position).magnitude : double.NaN;
+
+                // Seam-teleport detection: if the segment changed since the last frame, log the jump.
+                if (reaimLastGhostFrame.TryGetValue(memberIndex, out var last) && last.segIdx != segmentIndex)
+                {
+                    double jump = (ghostPos - last.pos).magnitude;
+                    ParsekLog.Verbose("ReaimSeam",
+                        $"SEAM member={memberIndex} seg#{last.segIdx}->{segmentIndex} body={seg.bodyName} " +
+                        $"loopUT {last.loopUT.ToString("F0", ic)}->{loopUT.ToString("F0", ic)} " +
+                        $"jump={jump.ToString("F0", ic)}m (prevPos->thisPos discontinuity)");
+                }
+                reaimLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT);
+
+                ParsekLog.VerboseRateLimited("ReaimSeam", "trace-" + memberIndex.ToString(ic),
+                    $"member={memberIndex} seg#{segmentIndex} body={seg.bodyName} loopUT={loopUT.ToString("F0", ic)} " +
+                    $"currentUT={currentUT.ToString("F0", ic)} dist[{seg.bodyName}]={dSeg.ToString("F0", ic)}m " +
+                    $"dist[{(launch != null ? launch.bodyName : "launch")}]={dLaunch.ToString("F0", ic)}m " +
+                    $"dist[{(target != null ? target.bodyName : "target")}]={dTarget.ToString("F0", ic)}m" +
+                    (target != null ? $"(SOI={target.sphereOfInfluence.ToString("F0", ic)})" : ""), 2.0);
+            }
+            catch { /* diagnostic only */ }
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,
@@ -22942,28 +23352,30 @@ namespace Parsek
         private const bool NormalPlaybackPointHermiteEnabled = false;
 
         internal static bool TryResolvePlaybackDistanceReferencePosition(
-            bool mapViewEnabled,
+            Vector3d? cameraAnchorWorldPosition,
             Vector3d? cameraWorldPosition,
-            Vector3d? activeVesselWorldPosition,
             out Vector3d referencePosition)
         {
             referencePosition = Vector3d.zero;
 
-            if (!mapViewEnabled
-                && cameraWorldPosition.HasValue
-                && IsFiniteVector3d(cameraWorldPosition.Value))
+            // Center the ghost render-distance LOD radius on the camera ANCHOR — the
+            // real vessel in normal flight, the watched ghost in watch mode — not on the
+            // free-floating camera transform. Zooming the camera out moves the camera far
+            // from the anchored object; using camera-to-ghost distance then culls ghost FX
+            // (plume/smoke) even though the ghost is still close to the anchor, and zooming
+            // back in does not reliably restore them. Anchor-to-ghost distance is
+            // zoom-invariant, so all ghosts within the LOD radius of the followed object
+            // render regardless of camera zoom.
+            if (cameraAnchorWorldPosition.HasValue
+                && IsFiniteVector3d(cameraAnchorWorldPosition.Value))
             {
-                referencePosition = cameraWorldPosition.Value;
+                referencePosition = cameraAnchorWorldPosition.Value;
                 return true;
             }
 
-            if (activeVesselWorldPosition.HasValue
-                && IsFiniteVector3d(activeVesselWorldPosition.Value))
-            {
-                referencePosition = activeVesselWorldPosition.Value;
-                return true;
-            }
-
+            // Fallback only: the anchor is unavailable (no active vessel and not watching
+            // a resolvable ghost). The camera transform is the last resort so the distance
+            // is still finite rather than NaN.
             if (cameraWorldPosition.HasValue
                 && IsFiniteVector3d(cameraWorldPosition.Value))
             {
@@ -22988,14 +23400,10 @@ namespace Parsek
             Vector3d? cameraWorldPosition = sceneCamera != null
                 ? (Vector3d?)sceneCamera.transform.position
                 : null;
-            Vector3d? activeVesselWorldPosition = FlightGlobals.ActiveVessel != null
-                ? (Vector3d?)FlightGlobals.ActiveVessel.transform.position
-                : null;
             Vector3d referencePosition;
             if (!TryResolvePlaybackDistanceReferencePosition(
-                    MapView.MapIsEnabled,
+                    ResolveCameraAnchorWorldPosition(),
                     cameraWorldPosition,
-                    activeVesselWorldPosition,
                     out referencePosition))
             {
                 return double.NaN;
@@ -23003,6 +23411,33 @@ namespace Parsek
 
             return ResolvePlaybackDistanceFromReferencePosition(
                 index, traj, state, playbackUT, referencePosition);
+        }
+
+        /// <summary>
+        /// World position the flight camera is anchored on: the watched ghost while in watch
+        /// mode, otherwise the active (real) vessel. The ghost render-distance LOD radius is
+        /// centered here so zooming the camera in/out does not toggle ghost FX (see
+        /// <see cref="TryResolvePlaybackDistanceReferencePosition"/>). A non-finite watched-ghost
+        /// anchor falls through to the active vessel; an unavailable active vessel returns null.
+        /// The caller treats null or a non-finite result as "no anchor" and falls back to the
+        /// camera, so the active-vessel branch is intentionally not finiteness-checked here.
+        /// </summary>
+        Vector3d? ResolveCameraAnchorWorldPosition()
+        {
+            if (watchMode != null
+                && watchMode.IsWatchingGhost
+                && watchMode.TryGetWatchedGhostAnchorWorldPosition(out Vector3d watchedAnchor)
+                && IsFiniteVector3d(watchedAnchor))
+            {
+                return watchedAnchor;
+            }
+
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            Transform activeTransform = activeVessel != null ? activeVessel.transform : null;
+            if (activeTransform != null)
+                return (Vector3d)activeTransform.position;
+
+            return null;
         }
 
         double ResolvePlaybackActiveVesselDistanceForEngine(
@@ -27123,29 +27558,31 @@ namespace Parsek
 
             Recording rec = committed[recordingIndex];
             double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before departure, matching Rewind's pre-launch lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(departureUT, currentUT);
 
-            if (!TimeJumpManager.IsValidJump(currentUT, departureUT))
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
             {
                 ParsekLog.Warn("Flight",
                     string.Format(CultureInfo.InvariantCulture,
                         "WarpToDeparture: invalid jump current={0:F1} target={1:F1} — aborted",
-                        currentUT, departureUT));
+                        currentUT, targetUT));
                 return;
             }
 
             ParsekLog.Info("Flight",
                 string.Format(CultureInfo.InvariantCulture,
-                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, endUT={3:F1})",
-                    departureUT, rec.VesselName, departureUT - currentUT, rec.EndUT));
+                    "WarpToDeparture: jumping to UT={0:F1} for '{1}' (delta={2:F1}s, departUT={3:F1}, endUT={4:F1})",
+                    targetUT, rec.VesselName, targetUT - currentUT, departureUT, rec.EndUT));
 
-            TimeJumpManager.NotifyRecorder(recorder, currentUT, departureUT);
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
             // Epoch-shifted jump: preserves rendezvous geometry
-            TimeJumpManager.ExecuteJump(departureUT, null, vesselGhoster);
+            TimeJumpManager.ExecuteJump(targetUT, null, vesselGhoster);
 
             ParsekLog.ScreenMessage(
                 string.Format(CultureInfo.InvariantCulture,
                     "Warped to departure of \"{0}\" ({1:F0}s)",
-                    rec.VesselName, departureUT - currentUT), 5f);
+                    rec.VesselName, targetUT - currentUT), 5f);
         }
 
         /// <summary>
@@ -27162,8 +27599,9 @@ namespace Parsek
                 return;
             }
 
-            double targetUT = rec.StartUT;
             double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(rec.StartUT, currentUT);
 
             if (!RecordingStore.CanFastForwardAtUT(rec, currentUT, out string ffReason, IsRecording))
             {
@@ -27219,6 +27657,42 @@ namespace Parsek
                 string.Format(CultureInfo.InvariantCulture,
                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
                     rec.VesselName, targetUT - currentUT), 3f);
+        }
+
+        /// <summary>
+        /// In-place fast-forward (NO scene change) to <see cref="RecordingStore.RewindToLaunchLeadTimeSeconds"/>
+        /// before an arbitrary FUTURE event UT - the same mechanism as <see cref="FastForwardToRecording"/>
+        /// but for a target that is not a recording (e.g. a looped Mission's next faithful relaunch
+        /// window). Applies the launch lead, notifies the recorder of the jump, then advances the clock
+        /// via <see cref="TimeJumpManager.ExecuteForwardJump"/>. No-op on an invalid (past / degenerate)
+        /// jump. <paramref name="label"/> is used only for the log + screen message.
+        /// </summary>
+        internal void FastForwardToEventUT(double eventUT, string label)
+        {
+            double currentUT = Planetarium.GetUniversalTime();
+            // Land RewindToLaunchLeadTimeSeconds before the event, matching the Forward button's lead.
+            double targetUT = TimeJumpManager.ApplyJumpLead(eventUT, currentUT);
+
+            if (!TimeJumpManager.IsValidJump(currentUT, targetUT))
+            {
+                ParsekLog.Warn("Flight",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "FastForwardToEventUT: invalid jump current={0:F1} target={1:F1} ({2}) - aborted",
+                        currentUT, targetUT, label));
+                return;
+            }
+
+            ParsekLog.Info("Flight",
+                string.Format(CultureInfo.InvariantCulture,
+                    "FastForwardToEventUT: jumping to UT={0:F1} for {1} (delta={2:F1}s, eventUT={3:F1})",
+                    targetUT, label, targetUT - currentUT, eventUT));
+
+            TimeJumpManager.NotifyRecorder(recorder, currentUT, targetUT);
+            TimeJumpManager.ExecuteForwardJump(targetUT);
+
+            ParsekLog.ScreenMessage(
+                string.Format(CultureInfo.InvariantCulture,
+                    "Fast-forwarded to {0} ({1:F0}s)", label, targetUT - currentUT), 3f);
         }
 
         /// <summary>

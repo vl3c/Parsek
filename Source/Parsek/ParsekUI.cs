@@ -38,6 +38,9 @@ namespace Parsek
         // Recordings table window (extracted to RecordingsTableUI)
         private RecordingsTableUI recordingsTableUI;
 
+        // Missions window (extracted to MissionsWindowUI)
+        private MissionsWindowUI missionsUI;
+
         private const float ResizeHandleSize = 16f;
 
         // Settings window (extracted to SettingsWindowUI)
@@ -109,6 +112,7 @@ namespace Parsek
             this.flight = flight;
             this.mode = UIMode.Flight;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -125,6 +129,7 @@ namespace Parsek
             this.flight = null;
             this.mode = mode;
             this.recordingsTableUI = new RecordingsTableUI(this);
+            this.missionsUI = new MissionsWindowUI(this);
             this.spawnControlUI = new SpawnControlUI(this);
             this.gloopsUI = new GloopsRecorderUI(this);
             this.timelineUI = new TimelineWindowUI(this);
@@ -201,11 +206,10 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
             }
 
-            // [Phase 3] ERS-routed: top-level Recordings button shows the
-            // user-facing effective count (hides NotCommitted / superseded /
-            // session-suppressed).
-            int committedCount = EffectiveState.ComputeERS().Count;
-            if (GUILayout.Button($"Recordings ({committedCount})"))
+            // Top-level Recordings button. The per-state count lives inside the
+            // window; the launch-surface label stays short. The Missions view now
+            // lives as a second tab inside this same window (no separate button).
+            if (GUILayout.Button("Recordings"))
                 ToggleRecordingsWindow();
 
             // --- Logistics (v0, available in both Flight and KSC) ---
@@ -366,6 +370,10 @@ namespace Parsek
         {
             recordingsTableUI.DrawIfOpen(mainWindowRect);
         }
+
+        // The Missions view is drawn as a tab inside the Recordings window
+        // (RecordingsTableUI dispatches to it); it is no longer a standalone window.
+        internal MissionsWindowUI GetMissionsUI() => missionsUI;
 
         internal void ToggleRecordingsWindow()
         {
@@ -1022,6 +1030,10 @@ namespace Parsek
             public int ChainNonTip;
             public int PositionFailure;
             public int MissingBody;
+            // A looped-mission member whose shared span-clock has it OUTSIDE its render window this
+            // frame (inter-cycle tail / not yet / already past): the engine hides the mesh too, so
+            // the custom marker is intentionally skipped (distinct from a position failure).
+            public int LoopHidden;
 
             internal bool HasSignal =>
                 Candidates > 0
@@ -1033,13 +1045,14 @@ namespace Parsek
                 || Debris > 0
                 || ChainNonTip > 0
                 || PositionFailure > 0
-                || MissingBody > 0;
+                || MissingBody > 0
+                || LoopHidden > 0;
         }
 
         internal static string FormatMapMarkerSummary(MapMarkerSummary summary)
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10}",
+                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10} loopHidden={11}",
                 summary.IsMapView ? "map" : "flight",
                 summary.Candidates,
                 summary.PreviewDrawn,
@@ -1050,7 +1063,8 @@ namespace Parsek
                 summary.Debris,
                 summary.ChainNonTip,
                 summary.PositionFailure,
-                summary.MissingBody);
+                summary.MissingBody,
+                summary.LoopHidden);
         }
 
         private static void LogMapMarkerSummary(MapMarkerSummary summary)
@@ -1153,7 +1167,19 @@ namespace Parsek
                 if (GhostMapPresence.HasGhostVesselForRecording(kvp.Key))
                 {
                     uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key);
-                    if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                    // Skip our marker only when the native proto icon is actually
+                    // visible. It is NOT visible when the icon is suppressed
+                    // (below-atmosphere clamp) OR when the trajectory polyline owns
+                    // this recording's current non-orbital phase (GhostOrbitLinePatch
+                    // hides the proto icon then). In the polyline case our marker is
+                    // the sole position indicator, so it must draw — otherwise an
+                    // airless descent (e.g. the Mun) shows the polyline with no ghost
+                    // icon. (IsPolylineOwningGhostPhase is checked directly, not via
+                    // the icon-suppressed flag, which GhostOrbitIconClampPatch can
+                    // clear on-arc.)
+                    if (ghostPid == 0
+                        || (!GhostMapPresence.IsIconSuppressed(ghostPid)
+                            && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
                     {
                         summary.NativeIcon++;
                         continue; // native icon is active — skip our marker
@@ -1175,19 +1201,50 @@ namespace Parsek
                     }
                 }
 
-                // Resolve marker world position: use ghost mesh when active, otherwise
+                // Resolve marker world position: use ghost mesh when it is actually POSITIONED, otherwise
                 // compute from trajectory data (map view only — hidden ghosts need icons too).
+                // A meshActive ghost whose transform sits at the world origin is stale / unpositioned: in map
+                // view the engine drives a far ghost by its orbit/trajectory and leaves the hidden mesh
+                // transform at (0,0,0) (the FloatingOrigin #245/#247 artifact), so reading it would pin the
+                // labelled marker to the map centre (the "static yellow-label icon in the wrong location"
+                // seam the playtest showed via Marker pos markerPos=(0,0,0)). Treat a near-origin transform
+                // as unpositioned and fall through to the trajectory-derived position below; a genuinely
+                // positioned mesh is never at the floating-origin centre (it is a different vessel).
                 Vector3 markerPos;
-                if (meshActive)
+                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f;
+                if (meshPositioned)
                 {
                     markerPos = state.ghost.transform.position;
                 }
                 else
                 {
+                    // A looped-mission member's recorded trajectory points sit at the ORIGINAL
+                    // (past) recorded UTs, so sampling at the LIVE UT is always OutsideTimeRange and
+                    // the custom icon never draws (the engine positions the mesh at the shared
+                    // span-clock effUT instead, but the mesh is hidden here by zone distance). Map
+                    // the live UT to that same span-clock effUT - identity for a non-loop ghost or an
+                    // Empty unit set, so non-loop behavior is unchanged - and skip the frame when the
+                    // shared clock has this member outside its render window (renderHidden), matching
+                    // the engine / proto-vessel paths.
+                    double sampleUT = currentUT;
+                    if (kvp.Key < committed.Count)
+                    {
+                        Recording recForUT = committed[kvp.Key];
+                        double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                            kvp.Key, recForUT.StartUT, recForUT.EndUT, currentUT,
+                            flight.Engine.CurrentLoopUnits, out bool loopHidden);
+                        if (loopHidden)
+                        {
+                            summary.LoopHidden++;
+                            continue;
+                        }
+                        sampleUT = effUT;
+                    }
+
                     if (!TryComputeGhostWorldPosition(
                             kvp.Key,
                             committed,
-                            currentUT,
+                            sampleUT,
                             out markerPos,
                             out MapMarkerPositionFailureReason failureReason))
                     {
@@ -1208,6 +1265,32 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+
+                // Diagnostic (loiter-seam icon debugging): when the marker rides the LIVE ghost mesh
+                // (meshActive), compare the drawn mesh position against the trajectory-interpolated position
+                // at the same span-clock head UT. Both are in the current world frame, so their gap
+                // (meshVsTraj) is frame-independent: a large gap means the engine's mesh sits off the
+                // recorded path (the "non-proto icon in the wrong location / not moving correctly on the
+                // polyline" seam), while a ~0 gap means the icon is on the path and any apparent freeze is
+                // just the sub-pixel parking circle at map scale. Rate-limited per recording.
+                if (meshActive && isMapView && kvp.Key < committed.Count)
+                {
+                    var recDiag = committed[kvp.Key];
+                    double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                        kvp.Key, recDiag.StartUT, recDiag.EndUT, currentUT,
+                        flight.Engine.CurrentLoopUnits, out bool _);
+                    bool haveTraj = TryComputeGhostWorldPosition(
+                        kvp.Key, committed, headUT, out Vector3 trajPos, out _);
+                    Vector3 meshXform = state.ghost.transform.position;
+                    double meshVsTraj = haveTraj ? (meshXform - trajPos).magnitude : double.NaN;
+                    ParsekLog.VerboseRateLimited("GhostMap",
+                        "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
+                            kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
+                            meshXform.ToString("F0"), haveTraj ? trajPos.ToString("F0") : "(none)", meshVsTraj),
+                        2.0);
+                }
             }
 
             LogMapMarkerSummary(summary);

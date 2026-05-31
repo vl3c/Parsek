@@ -70,7 +70,7 @@ namespace Parsek
         /// outside coverage.
         /// </summary>
         /// <remarks>
-        /// Format v13: parent-anchored debris normally renders through this
+        /// Parent-anchored debris normally renders through this
         /// recorded-data-only surface. It is never a substitute for live anchors.
         /// </remarks>
         bool TryPositionFromBodyFixedPrimary(int index, IPlaybackTrajectory traj,

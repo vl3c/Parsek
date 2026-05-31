@@ -99,6 +99,41 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Classifies a single foreground vessel-split child as either a decoupler-initiated
+        /// separation (intentional staging / decoupler fire =&gt; <c>"DECOUPLE"</c>) or a
+        /// force-driven structural break (collision / overstress =&gt; <c>"CRASH"</c>).
+        ///
+        /// <para>The decouple signal is whether the child vessel was caught by
+        /// <c>GameEvents.onPartDeCoupleNewVesselComplete</c> during the split window
+        /// (<paramref name="childWasDecoupleCreated"/>). KSP raises that event only from
+        /// <c>Part.decouple()</c> — a <c>ModuleDecouple</c> / <c>ModuleAnchoredDecoupler</c>
+        /// firing through staging or an action group — and never from a force-driven joint
+        /// break (collision, overstress, overheat). A <paramref name="triggerWasDecoupleOnly"/>
+        /// split was detected purely through that decouple callback with no joint-break
+        /// callback reaching the recorder at all, so it is decoupler-initiated by
+        /// construction.</para>
+        ///
+        /// <para>Conservative by design: a child is only labelled <c>"DECOUPLE"</c> when there
+        /// is a positive decouple signal. Anything else stays <c>"CRASH"</c>, so a genuine
+        /// structural failure is never relabelled as an intentional decouple.</para>
+        /// </summary>
+        /// <param name="childWasDecoupleCreated">True if this child vessel's persistentId was
+        /// captured by <c>onPartDeCoupleNewVesselComplete</c> during the split window.</param>
+        /// <param name="triggerWasDecoupleOnly">True if the deferred split check was armed by a
+        /// decouple callback rather than a force joint-break callback.</param>
+        /// <returns><c>"DECOUPLE"</c> for a decoupler-initiated split child, otherwise <c>"CRASH"</c>.</returns>
+        internal static string ClassifyForegroundSplitChildCause(
+            bool childWasDecoupleCreated,
+            bool triggerWasDecoupleOnly)
+        {
+            string cause = (childWasDecoupleCreated || triggerWasDecoupleOnly) ? "DECOUPLE" : "CRASH";
+            ParsekLog.Verbose("Boundary",
+                $"ClassifyForegroundSplitChildCause: decoupleCreated={childWasDecoupleCreated} " +
+                $"triggerDecoupleOnly={triggerWasDecoupleOnly} => {cause}");
+            return cause;
+        }
+
+        /// <summary>
         /// Classifies a docking-port undock (<c>GameEvents.onVesselsUndocking</c>) against the
         /// recorded vessel. The undock fires at the end of <c>Part.Undock()</c> with
         /// <paramref name="oldVesselPid"/> = the vessel that keeps the active focus (its

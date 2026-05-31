@@ -24,7 +24,12 @@ namespace Parsek
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
         private const float ResizeHandleSize = 16f;
-        private const float MinWindowWidth = 350f;
+        // Minimum resize width = the Recordings tab's collapsed width (Info toggled off), so the
+        // window can never be dragged narrow enough to clip the Recordings table. Shared by both
+        // tabs (one window, one resize clamp in DrawIfOpen -> HandleResizeDrag), so the Missions
+        // tab also cannot shrink below it. C# resolves the forward const reference regardless of
+        // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
+        private const float MinWindowWidth = DefaultCollapsedWindowWidth;
         private const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment
@@ -110,6 +115,15 @@ namespace Parsek
         internal enum SortColumn { Index, Phase, Name, LaunchTime, Duration, Status, LaunchSite }
         private SortColumn sortColumn = SortColumn.LaunchTime;
         private bool sortAscending = true;
+
+        // Two-tab bar (Recordings | Missions). The Missions tab renders the higher mission
+        // abstraction over the same recordings (delegated to MissionsWindowUI); switching tabs
+        // swaps the content inside this one window. Transient (not persisted), matching the
+        // Kerbals / Career State tab idiom.
+        private const int TabRecordings = 0;
+        private const int TabMissions = 1;
+        private int selectedTab = TabRecordings;
+        private static readonly string[] TabLabels = new[] { "Recordings", "Missions" };
 
         // Root-level draw item for unified sorting of groups, chains, and standalone recordings
         private enum RootItemType { Group, Chain, Recording, VirtualGroup }
@@ -238,6 +252,10 @@ namespace Parsek
         // horizontal flow. Top/bottom margin preserved (4/4) so the vertical gap
         // between the header row and the body box remains intact.
         private GUIStyle colHdrCellContainerStyle;
+
+        // Tab-bar button style: the selected tab looks pressed (onNormal/onHover background
+        // copied from GUI.skin.button.active). Mirrors KerbalsWindowUI / CareerStateWindowUI.
+        private GUIStyle toggleButtonStyle;
 
         // Deferred ghost-only recording deletion (avoids mid-layout list mutation)
         private int pendingDeleteGhostOnlyIndex = -1;
@@ -535,6 +553,18 @@ namespace Parsek
             {
                 margin = new RectOffset(0, 0, 4, 4)
             };
+
+            // Tab-bar button: selected tab looks pressed via onNormal/onHover background copied
+            // from GUI.skin.button.active.background (matches KerbalsWindowUI / CareerStateWindowUI).
+            toggleButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                fontStyle = FontStyle.Bold,
+                alignment = TextAnchor.MiddleCenter
+            };
+            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
+            toggleButtonStyle.onNormal.textColor = Color.white;
+            toggleButtonStyle.onHover.textColor = Color.white;
 
             // One-shot diagnostic log of the runtime GUI skin margins — dictates
             // exactly how much space each cell leaks or collapses in the layout.
@@ -953,25 +983,21 @@ namespace Parsek
             GUILayout.Label("Group", colHdr, GUILayout.Width(ColW_Group), GUILayout.Height(ColHeaderHeight));
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrGroup");
 
-            // Select-all loop header + checkbox. colHdr supplies the dark boxed
-            // background so the whole cell reads as a header (not just the label).
-            int loopCount = 0;
-            for (int i = 0; i < committed.Count; i++)
-                if (committed[i].LoopPlayback) loopCount++;
-
-            bool allLoop = loopCount == committed.Count;
+            // Select-all loop header + checkbox. Debris recordings are excluded
+            // from both the aggregate and the bulk write; see ComputeLoopAggregate
+            // and BulkSetLoopPlayback.
+            var headerLoopAgg = ComputeLoopAggregate(committed);
             GUILayout.BeginHorizontal(colHdrCellContainerStyle, GUILayout.Width(ColW_Loop), GUILayout.Height(ColHeaderHeight));
             GUILayout.FlexibleSpace();
             GUILayout.Label("Loop", boldHeaderInnerLabel);
-            bool newAllLoop = GUILayout.Toggle(allLoop, "");
+            bool newAllLoop = GUILayout.Toggle(headerLoopAgg.AllLoop, "");
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
             if (alignmentDebugArmed && !alignmentDebugHeaderCaptured) AlignDebugLogLastRect(alignmentDebugHeaderLog, "hdrLoop");
-            if (newAllLoop != allLoop)
+            if (newAllLoop != headerLoopAgg.AllLoop)
             {
-                for (int i = 0; i < committed.Count; i++)
-                    committed[i].LoopPlayback = newAllLoop;
-                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop}");
+                int written = BulkSetLoopPlayback(committed, indices: null, value: newAllLoop, applyAutoRange: false);
+                ParsekLog.Info("UI", $"Set loop playback for all recordings: enabled={newAllLoop} ({written} recordings)");
             }
 
             GUILayout.Label(new GUIContent("Period",
@@ -1066,6 +1092,35 @@ namespace Parsek
             GUI.DragWindow();
         }
 
+        // Bottom bar for the Missions tab: just a shared Close (the recordings-specific
+        // Info / New Group buttons live only on the recordings tab) plus the same window
+        // chrome (resize handle + drag) so the merged window behaves identically on both tabs.
+        private void DrawMissionsTabBottomBar()
+        {
+            GUILayout.FlexibleSpace();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Close"))
+            {
+                showRecordingsWindow = false;
+                groupPicker.Close();
+                ParsekLog.Verbose("UI", "Recordings window closed via button (Missions tab)");
+            }
+            GUILayout.EndHorizontal();
+
+            ParsekUI.DrawResizeHandle(recordingsWindowRect, ref isResizingRecordingsWindow,
+                "Recordings window");
+
+            GUI.DragWindow();
+        }
+
+        // Pure tab-switch log helper (extracted so the log contract is unit-testable outside
+        // IMGUI; mirrors KerbalsWindowUI.SwitchTab).
+        internal static void LogTabSwitch(int oldTab, int newTab)
+        {
+            ParsekLog.Verbose("UI",
+                $"Recordings window: tab switched {oldTab}->{newTab}");
+        }
+
         private void DrawTimeRangeFilterIndicator()
         {
             var filter = parentUI.TimeRangeFilter;
@@ -1099,6 +1154,28 @@ namespace Parsek
             // Breathing room below the title bar — matches Timeline's visual spacing.
             GUILayout.Space(5);
 
+            // Ensure body + tab-bar styles exist before the tab bar draws.
+            EnsurePhaseStyles();
+
+            // Two-tab bar (Recordings | Missions), each half the window width. The Missions
+            // tab is the higher mission abstraction over the same recordings; switching tabs
+            // swaps the content inside this one window (delegated to MissionsWindowUI).
+            int newTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
+            if (newTab != selectedTab)
+            {
+                LogTabSwitch(selectedTab, newTab);
+                selectedTab = newTab;
+            }
+            GUILayout.Space(3);
+
+            if (selectedTab == TabMissions)
+            {
+                parentUI.GetMissionsUI().DrawMissionsTabContent();
+                DrawMissionsTabBottomBar();
+                return;
+            }
+
+            // ===== Recordings tab =====
             // Process deferred ghost-only recording deletion (avoids mid-layout list mutation)
             if (pendingDeleteGhostOnlyIndex >= 0)
             {
@@ -1334,7 +1411,7 @@ namespace Parsek
         /// Draws a single recording row. Returns true if the list was modified (break iteration).
         /// </summary>
         private bool DrawRecordingRow(int ri, IReadOnlyList<Recording> committed, double now, float indentPx,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null, string treeConnector = null)
         {
             var rec = committed[ri];
             if (IsInactiveForDisplay(
@@ -1379,7 +1456,7 @@ namespace Parsek
             GUILayout.Space(NameColumnLeadGap);
 
             // Name (double-click to rename, deferred to next frame)
-            DrawRecordingNameCell(ri, rec, committed, indentPx);
+            DrawRecordingNameCell(ri, rec, committed, indentPx, treeConnector);
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowName");
 
             // Phase label
@@ -1513,16 +1590,11 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowGroup");
 
-            // Loop checkbox — suppressed when this row is being drawn inside the
-            // virtual Unfinished Flights group (unfinishedFlightRowDepth > 0).
-            // The group is a re-fly TODO list; surfacing a loop toggle there
-            // is misleading because the user's next action on these rows is
-            // Fly, not playback configuration. The same recording's row in
-            // its real (mission) group still exposes the toggle, so loop
-            // remains editable for unfinished-flight recordings — just not
-            // from inside the virtual group itself. We render an empty cell
-            // of the same column width to keep the table grid aligned.
-            if (unfinishedFlightRowDepth > 0)
+            // Loop checkbox + Period cell are both gated by ShouldSuppressRowLoopUi
+            // (Unfinished Flights virtual group, or debris). Render width-stable
+            // placeholders when suppressed so the grid stays aligned.
+            bool suppressRowLoop = ShouldSuppressRowLoopUi(rec, unfinishedFlightRowDepth > 0);
+            if (suppressRowLoop)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
             }
@@ -1544,17 +1616,10 @@ namespace Parsek
             }
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowLoop");
 
-            // Period — wrapped with Space(BodyCellButtonLeftInset) on the left so
-            // val+unit start 10 px into the cell, matching the shifted-right treatment
-            // applied to single-button body cells (DrawBodyCenteredButton).
-            // Suppressed alongside the loop checkbox when this row is being
-            // drawn inside the virtual Unfinished Flights group: the period
-            // editor is editable for any recording with LoopPlayback=true,
-            // so leaving it active would re-open loop configuration on the
-            // re-fly TODO surface that the loop-checkbox hide was meant to
-            // remove. Render an empty cell of the same column width to keep
-            // the table grid aligned.
-            if (unfinishedFlightRowDepth > 0)
+            // Period: wrapped with Space(BodyCellButtonLeftInset) on the left so
+            // val+unit start 10 px into the cell, matching the shifted-right
+            // treatment applied to single-button body cells (DrawBodyCenteredButton).
+            if (suppressRowLoop)
             {
                 GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             }
@@ -1673,7 +1738,7 @@ namespace Parsek
         /// inline rename text field, double-click-to-rename, and auto-focus.
         /// </summary>
         private void DrawRecordingNameCell(int ri, Recording rec,
-            IReadOnlyList<Recording> committed, float indentPx)
+            IReadOnlyList<Recording> committed, float indentPx, string treeConnector = null)
         {
             // Uniform 2px nudge so rows (which have a "#" number in col 1) line up
             // their Name text with the group/chain header Name text above. Group/
@@ -1715,7 +1780,11 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button(name, GUI.skin.label, GUILayout.ExpandWidth(true)))
+                // Tree connector prefix (├─ / └─) for rows rendered as a subentry
+                // under an expanded group/chain caret. Mirrors the Kerbals window
+                // roster-tree style. Top-level rows pass a null connector.
+                string nameLabel = (treeConnector ?? "") + name;
+                if (GUILayout.Button(nameLabel, GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float now2 = Time.realtimeSinceStartup;
                     if (lastClickedRecIdx == ri && now2 - lastClickTime < DoubleClickThreshold)
@@ -1741,6 +1810,133 @@ namespace Parsek
 
         // --- Group tree rendering helpers ---
 
+        // Box-drawing tree-branch prefixes built from char codes so the source
+        // stays ASCII (matching the \u arrow constants in this file and the
+        // Kerbals roster tree). U+251C "├" + U+2500 "─" = tee; U+2514 "└" = corner.
+        private static readonly string TreeConnectorMid =
+            new string(new[] { (char)0x251C, (char)0x2500, ' ' });
+        private static readonly string TreeConnectorLast =
+            new string(new[] { (char)0x2514, (char)0x2500, ' ' });
+
+        /// <summary>
+        /// Tree-branch glyph prefix for a subentry rendered under an expanded
+        /// group/chain caret. <paramref name="isLast"/> picks the corner glyph;
+        /// every other sibling gets the tee glyph. Mirrors the Kerbals roster
+        /// window style (see KerbalsWindowUI.FormatRosterChainMemberText).
+        /// </summary>
+        internal static string TreeConnector(bool isLast)
+        {
+            return isLast ? TreeConnectorLast : TreeConnectorMid;
+        }
+
+        // Marginal pixel width the connector glyphs add inside a label, measured
+        // once and cached. The per-level indent step equals this width so a
+        // child's connector sits exactly under its parent's caret at every depth:
+        // the connector occupies one indent step, the parent's caret is the first
+        // glyph after the parent's own connector, and both land at the same x.
+        // The legacy fixed 15px step did not match the glyph width and drifted
+        // a few pixels per level in deeper subgroups.
+        private static float cachedConnectorWidth = -1f;
+
+        internal static float ConnectorWidth()
+        {
+            if (cachedConnectorWidth > 0f) return cachedConnectorWidth;
+            if (GUI.skin == null) return 15f; // skin only valid inside OnGUI
+            GUIStyle style = GUI.skin.label;
+            float w = style.CalcSize(new GUIContent(TreeConnectorMid)).x
+                    - style.CalcSize(GUIContent.none).x;
+            if (w <= 0f) return 15f;
+            cachedConnectorWidth = w;
+            return w;
+        }
+
+        // Blank indent before a connector item's OWN label (group / chain /
+        // virtual header). A depth-D item leaves D-1 connector-width steps blank;
+        // the connector itself fills the Dth step. Depth 0 (top level) has no
+        // connector and no indent.
+        internal static float SelfConnectorIndent(int depth)
+        {
+            return Math.Max(0, depth - 1) * ConnectorWidth();
+        }
+
+        // Blank indent to pass to a child drawn at parentDepth + 1 so the child's
+        // connector lands under the parent's caret.
+        private static float ChildConnectorIndent(int parentDepth)
+        {
+            return parentDepth * ConnectorWidth();
+        }
+
+        /// <summary>
+        /// Which of a group's three child sections owns the corner connector.
+        /// Render order is blocks then child sub-groups then the nested
+        /// Unfinished Flights group, so the last section that renders anything
+        /// owns the corner and everything before it draws tees. Pure, so the
+        /// precedence table is unit-testable independent of IMGUI.
+        /// </summary>
+        internal enum TreeChildSection { None, Block, ChildGroup, Virtual }
+
+        internal static TreeChildSection ResolveLastChildSection(
+            bool hasVisibleBlock, bool hasRenderableChildGroup, bool hasRenderableVirtual)
+        {
+            if (hasRenderableVirtual) return TreeChildSection.Virtual;
+            if (hasRenderableChildGroup) return TreeChildSection.ChildGroup;
+            if (hasVisibleBlock) return TreeChildSection.Block;
+            return TreeChildSection.None;
+        }
+
+        /// <summary>
+        /// Mirrors the two early-returns at the top of <see cref="DrawRecordingRow"/>:
+        /// a row renders only when it is neither inactive-for-display nor hidden
+        /// under an active hide filter. Used to land the corner connector on the
+        /// last *visible* sibling rather than the last by raw index.
+        /// </summary>
+        private static bool IsRowVisible(Recording rec, IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (rec == null) return false;
+            if (IsInactiveForDisplay(
+                    rec,
+                    supersedes ?? CurrentRecordingSupersedesForDisplay(),
+                    CurrentRecordingRewindRetirementsForDisplay())) return false;
+            if (rec.Hidden && GroupHierarchyStore.HideActive) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// True when a display block would render at least its header row.
+        /// Single-member blocks render iff the row is visible; multi-member
+        /// (chain/grouped) blocks render the header unless the hide filter is
+        /// active and every member is hidden, mirroring <see cref="DrawRecordingBlock"/>.
+        /// </summary>
+        private static bool DisplayBlockRendersAnything(
+            GroupDisplayBlock block,
+            IReadOnlyList<Recording> committed,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes)
+        {
+            if (block.Members == null || block.Members.Count == 0) return false;
+            if (block.Members.Count == 1)
+                return IsRowVisible(committed[block.Members[0]], supersedes);
+            if (!GroupHierarchyStore.HideActive) return true;
+            for (int m = 0; m < block.Members.Count; m++)
+                if (!committed[block.Members[m]].Hidden) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// True when a child sub-group would render anything. A visible group
+        /// always renders its header row; a hidden group (under an active hide
+        /// filter) renders only its nested Unfinished Flights escape hatch, if
+        /// any. Mirrors the hide-escape early-return in <see cref="DrawGroupTree"/>.
+        /// </summary>
+        private static bool ChildGroupRendersAnything(string childGroupName)
+        {
+            if (GroupHierarchyStore.HideActive && GroupHierarchyStore.IsGroupHidden(childGroupName))
+            {
+                var nested = CollectUnfinishedFlightsForTreeGroup(childGroupName);
+                return nested != null && nested.Count > 0;
+            }
+            return true;
+        }
+
         /// <summary>
         /// Recursively draws a group and its children. Returns true if the recording list was modified.
         /// </summary>
@@ -1749,7 +1945,8 @@ namespace Parsek
             Dictionary<string, List<int>> grpToRecs,
             Dictionary<string, List<int>> chainToRecs,
             Dictionary<string, List<string>> grpChildren,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             // Compute this tree's unfinished-flight members up front so the
             // nested virtual subgroup can be rendered even when the mission
@@ -1775,7 +1972,7 @@ namespace Parsek
             CollectDescendantRecordings(groupName, grpToRecs, grpChildren, descendants);
             int memberCount = descendants.Count;
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // -- Group header --
             GUILayout.BeginHorizontal();
@@ -1836,7 +2033,7 @@ namespace Parsek
             }
             else
             {
-                if (GUILayout.Button($"{arrow} {groupName} ({memberCount})",
+                if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
                     GUI.skin.label, GUILayout.ExpandWidth(true)))
                 {
                     float t = Time.realtimeSinceStartup;
@@ -1937,21 +2134,26 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Disband clicked for group '{groupName}'");
             }
 
-            // Loop checkbox (aggregate)
-            int loopCount = 0;
-            foreach (int idx in descendants)
-                if (committed[idx].LoopPlayback) loopCount++;
-            bool allLoop = memberCount > 0 && loopCount == memberCount;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool newLoop = GUILayout.Toggle(allLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (newLoop != allLoop)
+            // Aggregate Loop toggle. Group writes do not call ApplyAutoLoopRange
+            // (so a user-customized LoopStartUT/LoopEndUT survives off/on toggle);
+            // see BulkSetLoopPlayback.
+            var grpLoopAgg = ComputeLoopAggregate(committed, descendants);
+            if (grpLoopAgg.SuppressToggle)
             {
-                foreach (int idx in descendants)
-                    committed[idx].LoopPlayback = newLoop;
-                ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({descendants.Count} recordings)");
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool newLoop = GUILayout.Toggle(grpLoopAgg.AllLoop, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (newLoop != grpLoopAgg.AllLoop)
+                {
+                    int written = BulkSetLoopPlayback(committed, descendants, newLoop, applyAutoRange: false);
+                    ParsekLog.Info("UI", $"Group '{groupName}' loop set to {newLoop} ({written} recordings)");
+                }
             }
 
             // Period placeholder
@@ -2179,8 +2381,43 @@ namespace Parsek
             if (!expanded) return false;
 
             // -- Draw children --
+            // Children render in three sections, in order: display blocks
+            // (chain/grouped blocks + single recording rows), child sub-groups,
+            // then the nested Unfinished Flights virtual group. Exactly one
+            // section owns the corner (└─) connector; the last child in that
+            // section that actually renders gets the corner, every earlier
+            // sibling gets the tee (├─). Sections / rows that render nothing
+            // (filtered out under the hide filter, inactive-for-display, or a
+            // hidden child group with no escape hatch) are excluded from the
+            // "last visible" computation so the corner never lands on a row
+            // that draws nothing.
             List<int> directMembers;
             grpToRecs.TryGetValue(groupName, out directMembers);
+
+            List<GroupDisplayBlock> displayBlocks = null;
+            int lastVisibleBlockIdx = -1;
+            if (directMembers != null)
+            {
+                displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
+                for (int i = 0; i < displayBlocks.Count; i++)
+                    if (DisplayBlockRendersAnything(displayBlocks[i], committed, supersedes))
+                        lastVisibleBlockIdx = i;
+            }
+
+            List<string> children;
+            grpChildren.TryGetValue(groupName, out children);
+            int lastRenderableChildGroupIdx = -1;
+            if (children != null)
+            {
+                for (int c = 0; c < children.Count; c++)
+                    if (ChildGroupRendersAnything(children[c]))
+                        lastRenderableChildGroupIdx = c;
+            }
+
+            TreeChildSection cornerSection = ResolveLastChildSection(
+                hasVisibleBlock: lastVisibleBlockIdx >= 0,
+                hasRenderableChildGroup: lastRenderableChildGroupIdx >= 0,
+                hasRenderableVirtual: hasNestedUnfinished);
 
             // STASH is a mirror, not a destination: when this tree owns
             // Unfinished Flight members (rendered below as the nested
@@ -2189,34 +2426,36 @@ namespace Parsek
             // group too. The nested STASH subgroup just surfaces the
             // Fly/Seal-eligible rows so they're easy to act on without
             // hunting through the tree.
-            if (directMembers != null)
+            if (displayBlocks != null)
             {
-                var displayBlocks = BuildGroupDisplayBlocks(groupName, directMembers, committed, chainToRecs);
                 for (int i = 0; i < displayBlocks.Count; i++)
                 {
                     var block = displayBlocks[i];
                     if (block.Members == null || block.Members.Count == 0)
                         continue;
 
+                    string connector = TreeConnector(
+                        cornerSection == TreeChildSection.Block && i == lastVisibleBlockIdx);
                     if (block.Members.Count > 1)
                     {
                         if (DrawGroupedRecordingBlock(block.Key, block.DisplayName,
-                            block.Members, depth + 1, committed, now, supersedes))
+                            block.Members, depth + 1, committed, now, supersedes, connector))
                             return true;
                     }
-                    else if (DrawRecordingRow(block.Members[0], committed, now, (depth + 1) * 15f, supersedes))
+                    else if (DrawRecordingRow(block.Members[0], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }
 
             // Draw child groups
-            List<string> children;
-            if (grpChildren.TryGetValue(groupName, out children))
+            if (children != null)
             {
                 for (int c = 0; c < children.Count; c++)
                 {
+                    string connector = TreeConnector(
+                        cornerSection == TreeChildSection.ChildGroup && c == lastRenderableChildGroupIdx);
                     if (DrawGroupTree(children[c], depth + 1, committed, now,
-                        grpToRecs, chainToRecs, grpChildren, supersedes))
+                        grpToRecs, chainToRecs, grpChildren, supersedes, connector))
                         return true;
                 }
             }
@@ -2229,7 +2468,8 @@ namespace Parsek
             // `nestedUnfinished` was already computed at the top of
             // DrawGroupTree so the hide-escape path can use it too.
             if (hasNestedUnfinished
-                && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished))
+                && DrawVirtualUnfinishedFlightsGroup(committed, now, supersedes, depth + 1, nestedUnfinished,
+                    TreeConnector(cornerSection == TreeChildSection.Virtual)))
                 return true;
 
             return false;
@@ -2304,14 +2544,15 @@ namespace Parsek
             IReadOnlyList<Recording> committed, double now,
             IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
             int depth = 0,
-            IReadOnlyList<Recording> filteredMembers = null)
+            IReadOnlyList<Recording> filteredMembers = null,
+            string treeConnector = null)
         {
             var members = filteredMembers ?? UnfinishedFlightsGroup.ComputeMembers();
             if (members == null || members.Count == 0)
                 return false;
 
             string groupName = UnfinishedFlightsGroup.GroupName;
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             // Build descendants set (committed-list indices) so the shared
             // group helpers (status / earliest / duration) can work unchanged.
@@ -2361,7 +2602,7 @@ namespace Parsek
             bool expanded = expandedGroups.Contains(groupName);
             string arrow = expanded ? "\u25bc" : "\u25b6";
             var ufGroupContent = new GUIContent(
-                $"{arrow} {groupName} ({memberCount})",
+                $"{treeConnector ?? ""}{arrow} {groupName} ({memberCount})",
                 UnfinishedFlightsGroup.Tooltip);
             if (GUILayout.Button(ufGroupContent, GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
@@ -2492,10 +2733,15 @@ namespace Parsek
             unfinishedFlightRowDepth++;
             try
             {
-                float memberIndent = (depth + 1) * 15f;
+                float memberIndent = ChildConnectorIndent(depth);
+                int lastVisibleMember = -1;
+                for (int i = 0; i < sortedMembers.Count; i++)
+                    if (IsRowVisible(committed[sortedMembers[i]], supersedes))
+                        lastVisibleMember = i;
                 for (int i = 0; i < sortedMembers.Count; i++)
                 {
-                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent, supersedes))
+                    string connector = TreeConnector(i == lastVisibleMember);
+                    if (DrawRecordingRow(sortedMembers[i], committed, now, memberIndent, supersedes, connector))
                         return true;
                 }
             }
@@ -2507,7 +2753,9 @@ namespace Parsek
             return false;
         }
 
-        private void DrawLegacyRewindForwardCell(
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact R/FF cell for a
+        // mission's root (launch) recording. Passing rec == null draws a blank ColW_Rewind cell.
+        internal void DrawLegacyRewindForwardCell(
             Recording rec, int ri, double now, ParsekFlight flight)
         {
             if (rec == null)
@@ -2609,7 +2857,61 @@ namespace Parsek
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Rewind));
         }
 
-        private void DrawReFlyColumnCell(Recording rec, int ri, double now)
+        // Missions-tab header-bar variant of the legacy rewind/forward control: a plain fixed-width
+        // button labelled "Rewind" / "Forward" (so it matches the mission header's other buttons),
+        // over the mission's root (launch) recording. Reuses the SAME rewind/forward decision
+        // (ShouldShow* + RecordingStore.CanRewind/CanFastForward) and confirmation dialogs as the
+        // recordings-tab R/FF cell; only the rendering (plain button, full-word labels, caller-set
+        // width) differs. rec == null draws a blank cell of the given width.
+        internal void DrawMissionRewindForwardButton(
+            Recording rec, int ri, double now, ParsekFlight flight, float width)
+        {
+            if (rec == null)
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+                return;
+            }
+
+            bool isRecording = parentUI.InFlightMode && flight != null && flight.IsRecording;
+
+            if (ShouldShowForwardButton(rec, now))
+            {
+                bool canFF = RecordingStore.CanFastForward(rec, out string ffReason, isRecording: isRecording);
+                GUI.enabled = canFF;
+                if (GUILayout.Button(
+                        new GUIContent("Forward", canFF ? "Fast-forward to this launch" : ffReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Forward button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowFastForwardConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            if (ShouldShowLegacyRewindButton(rec, now))
+            {
+                bool canRewind = RecordingStore.CanRewind(rec, out string rewindReason, isRecording: isRecording);
+                ClearLegacyRewindSuppressionForOwnerRow(rec, ri);
+                GUI.enabled = canRewind;
+                if (GUILayout.Button(
+                        new GUIContent("Rewind", canRewind ? "Rewind to this launch" : rewindReason),
+                        GUILayout.Width(width)))
+                {
+                    ParsekLog.Info("UI", $"Mission Rewind button clicked: #{ri} \"{rec.VesselName}\"");
+                    ShowRewindConfirmation(rec);
+                }
+                GUI.enabled = true;
+                return;
+            }
+
+            GUILayout.Label("", bodyCellLabel, GUILayout.Width(width));
+        }
+
+        // internal so the Missions tab (MissionsWindowUI) can reuse the exact Re-Fly (Fly / Seal)
+        // cell for a vessel row's recording. Shows Fly / Seal only for unfinished-flight recordings;
+        // otherwise a blank ColW_ReFly cell.
+        internal void DrawReFlyColumnCell(Recording rec, int ri, double now)
         {
             ReFlyColumnAction action = ResolveReFlyColumnAction(rec);
             SetStashSealInReFlyColumnState(rec, ri, action == ReFlyColumnAction.StashSeal);
@@ -3238,24 +3540,27 @@ namespace Parsek
         /// </summary>
         private bool DrawChainBlock(string chainId, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             string chainName = members.Count > 0 ? committed[members[0]].VesselName : null;
             return DrawRecordingBlock(chainId, chainName, members, depth,
-                committed, now, chainId, "Chain", supersedes);
+                committed, now, chainId, "Chain", supersedes, treeConnector);
         }
 
         private bool DrawGroupedRecordingBlock(string blockKey, string blockName, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             return DrawRecordingBlock(blockKey, blockName, members, depth,
-                committed, now, null, "Block", supersedes);
+                committed, now, null, "Block", supersedes, treeConnector);
         }
 
         private bool DrawRecordingBlock(string blockId, string blockName, List<int> members, int depth,
             IReadOnlyList<Recording> committed, double now, string chainIdForPopup, string logKind,
-            IReadOnlyList<RecordingSupersedeRelation> supersedes = null)
+            IReadOnlyList<RecordingSupersedeRelation> supersedes = null,
+            string treeConnector = null)
         {
             if (members == null || members.Count == 0)
                 return false;
@@ -3268,7 +3573,7 @@ namespace Parsek
                 if (!anyVisible) return false;
             }
 
-            float indent = depth * 15f;
+            float indent = SelfConnectorIndent(depth);
 
             GUILayout.BeginHorizontal();
 
@@ -3307,7 +3612,7 @@ namespace Parsek
                 if (mr.EndUT > blockEnd) blockEnd = mr.EndUT;
             }
 
-            if (GUILayout.Button($"{arrow} {blockName} ({members.Count})",
+            if (GUILayout.Button($"{treeConnector ?? ""}{arrow} {blockName} ({members.Count})",
                 GUI.skin.label, GUILayout.ExpandWidth(true)))
             {
                 if (expanded) expandedChains.Remove(blockId);
@@ -3356,23 +3661,26 @@ namespace Parsek
                 ParsekLog.Verbose("UI", $"Group popup opened for {logKind.ToLowerInvariant()} '{blockName}'");
             }
 
-            int blockLoopCount = 0;
-            for (int m = 0; m < members.Count; m++)
-                if (committed[members[m]].LoopPlayback) blockLoopCount++;
-            bool blockAllLoop = members.Count > 0 && blockLoopCount == members.Count;
-            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
-            GUILayout.FlexibleSpace();
-            bool blockNewLoop = GUILayout.Toggle(blockAllLoop, "");
-            GUILayout.FlexibleSpace();
-            GUILayout.EndHorizontal();
-            if (blockNewLoop != blockAllLoop)
+            // Aggregate Loop toggle. Chain/block writes call ApplyAutoLoopRange
+            // (auto-narrow on enable, clear on disable), matching the per-row
+            // toggle; see BulkSetLoopPlayback.
+            var blockLoopAgg = ComputeLoopAggregate(committed, members);
+            if (blockLoopAgg.SuppressToggle)
             {
-                for (int m = 0; m < members.Count; m++)
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Loop));
+            }
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Width(ColW_Loop));
+                GUILayout.FlexibleSpace();
+                bool blockNewLoop = GUILayout.Toggle(blockLoopAgg.AllLoop, "");
+                GUILayout.FlexibleSpace();
+                GUILayout.EndHorizontal();
+                if (blockNewLoop != blockLoopAgg.AllLoop)
                 {
-                    committed[members[m]].LoopPlayback = blockNewLoop;
-                    ApplyAutoLoopRange(committed[members[m]], blockNewLoop);
+                    int blockWritten = BulkSetLoopPlayback(committed, members, blockNewLoop, applyAutoRange: true);
+                    ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({blockWritten} recordings)");
                 }
-                ParsekLog.Info("UI", $"{logKind} '{logId}' loop set to {blockNewLoop} ({members.Count} recordings)");
             }
             GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Period));
             if (parentUI.InFlightMode) GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Watch));
@@ -3428,9 +3736,14 @@ namespace Parsek
 
             if (expanded)
             {
+                int lastVisibleMember = -1;
+                for (int m = 0; m < members.Count; m++)
+                    if (IsRowVisible(committed[members[m]], supersedes))
+                        lastVisibleMember = m;
                 for (int m = 0; m < members.Count; m++)
                 {
-                    if (DrawRecordingRow(members[m], committed, now, (depth + 1) * 15f, supersedes))
+                    string connector = TreeConnector(m == lastVisibleMember);
+                    if (DrawRecordingRow(members[m], committed, now, ChildConnectorIndent(depth), supersedes, connector))
                         return true;
                 }
             }
@@ -3491,7 +3804,28 @@ namespace Parsek
                 return;
             }
 
-            // Apply rename in recordings and hierarchy
+            // A tree's root group is the same abstraction as its main mission in the Missions
+            // window. Rename both together (and the auto "/ Debris" / "/ Crew" subgroups), atomically.
+            RecordingTree missionTree = MissionGroupLink.FindTreeByRootGroup(oldName);
+            if (missionTree != null)
+            {
+                if (!MissionGroupLink.RenameMissionGroup(missionTree, newName, out string reason))
+                {
+                    ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' ({reason})");
+                    return;
+                }
+                // Remap UI expansion / known-empty state for the root and any cascaded subgroups.
+                RemapGroupUIState(oldName, newName);
+                RemapGroupUIState(oldName + RecordingGroupStore.DebrisSubgroupSuffix,
+                    newName + RecordingGroupStore.DebrisSubgroupSuffix);
+                RemapGroupUIState(oldName + RecordingGroupStore.CrewSubgroupSuffix,
+                    newName + RecordingGroupStore.CrewSubgroupSuffix);
+                ParsekLog.Info("UI",
+                    $"Group '{oldName}' renamed to '{newName}' (linked to main mission + subgroups)");
+                return;
+            }
+
+            // Plain group (user group, a subgroup renamed directly, or a chain block): no mission link.
             if (!RecordingStore.RenameGroup(oldName, newName))
             {
                 ParsekLog.Warn("UI", $"Group rename rejected: '{newName}' already exists");
@@ -3499,16 +3833,21 @@ namespace Parsek
             }
 
             GroupHierarchyStore.RenameGroupInHierarchy(oldName, newName);
-
-            // Update expansion state
-            if (expandedGroups.Remove(oldName))
-                expandedGroups.Add(newName);
-
-            // Update KnownEmptyGroups
-            int emptyIdx = KnownEmptyGroups.IndexOf(oldName);
-            if (emptyIdx >= 0) KnownEmptyGroups[emptyIdx] = newName;
+            RemapGroupUIState(oldName, newName);
 
             ParsekLog.Info("UI", $"Group '{oldName}' renamed to '{newName}'");
+        }
+
+        // Carries a group's UI-only view state (expansion + known-empty bookkeeping) across a
+        // rename so the renamed folder keeps its expanded/known state.
+        private void RemapGroupUIState(string oldName, string newName)
+        {
+            if (string.IsNullOrEmpty(oldName) || string.IsNullOrEmpty(newName) || oldName == newName)
+                return;
+            if (expandedGroups.Remove(oldName))
+                expandedGroups.Add(newName);
+            int emptyIdx = KnownEmptyGroups.IndexOf(oldName);
+            if (emptyIdx >= 0) KnownEmptyGroups[emptyIdx] = newName;
         }
 
         private string GenerateUniqueGroupName()
@@ -3624,10 +3963,12 @@ namespace Parsek
         {
             var ic = System.Globalization.CultureInfo.InvariantCulture;
             double now = Planetarium.GetUniversalTime();
-            double delta = rec.StartUT - now;
+            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+            double leadTarget = TimeJumpManager.ApplyJumpLead(rec.StartUT, now);
+            double delta = leadTarget - now;
             string launchDate = KSPUtil.PrintDateCompact(rec.StartUT, true);
             string message = string.Format(ic,
-                "Fast-forward to \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
+                "Fast-forward to just before \"{0}\" launch at {1}?\n\nTime will advance by {2:F0} seconds.",
                 rec.VesselName, launchDate, delta);
 
             var flight = parentUI.Flight;
@@ -3666,12 +4007,14 @@ namespace Parsek
                                     $"id={capturedRec.RecordingId ?? "<none>"}: {ffReason}");
                                 return;
                             }
-                            double jumpDelta = capturedRec.StartUT - preJumpUT;
+                            // Land RewindToLaunchLeadTimeSeconds before launch, matching Rewind's pre-launch lead.
+                            double ffTarget = TimeJumpManager.ApplyJumpLead(capturedRec.StartUT, preJumpUT);
+                            double jumpDelta = ffTarget - preJumpUT;
                             ParsekLog.Info("FastForward",
                                 string.Format(ic,
-                                    "Non-flight FF to UT={0:F1} for '{1}' (delta={2:F1}s)",
-                                    capturedRec.StartUT, capturedRec.VesselName, jumpDelta));
-                            TimeJumpManager.ExecuteForwardJump(capturedRec.StartUT);
+                                    "Non-flight FF to UT={0:F1} for '{1}' (delta={2:F1}s, launchUT={3:F1})",
+                                    ffTarget, capturedRec.VesselName, jumpDelta, capturedRec.StartUT));
+                            TimeJumpManager.ExecuteForwardJump(ffTarget);
                             ParsekLog.ScreenMessage(
                                 string.Format(ic,
                                     "Fast-forwarded to \"{0}\" ({1:F0}s)",
@@ -4613,6 +4956,124 @@ namespace Parsek
         }
 
         // --- Loop helpers exclusive to recordings table ---
+
+        /// <summary>
+        /// Returns true when the per-row loop checkbox and period cell should
+        /// be hidden for a recording. Cases: (1) the row is inside the virtual
+        /// Unfinished Flights group (a re-fly TODO surface where playback
+        /// configuration is misleading); (2) the recording is debris, whose
+        /// playback rides its parent's loop clock via
+        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c> so its own
+        /// LoopPlayback flag has no effect.
+        /// </summary>
+        internal static bool ShouldSuppressRowLoopUi(Recording rec, bool insideUnfinishedFlightsGroup)
+            => insideUnfinishedFlightsGroup || (rec != null && rec.IsDebris);
+
+        /// <summary>
+        /// Loop-aggregate UI state for a group/chain/header row. Debris members
+        /// are excluded from both the count and the bulk write because they
+        /// have no per-row loop toggle (see <see cref="ShouldSuppressRowLoopUi"/>).
+        /// When <see cref="SuppressToggle"/> is true the caller renders an
+        /// empty cell (e.g. the auto-generated "X / Debris" subgroup).
+        /// <see cref="AllLoop"/> and <see cref="SuppressToggle"/> are read-only
+        /// properties derived from the two count inputs so a constructed state
+        /// cannot drift from its counts.
+        /// </summary>
+        internal struct LoopAggregateState
+        {
+            public int NonDebrisCount;
+            public int LoopCount;
+            public bool AllLoop => NonDebrisCount > 0 && LoopCount == NonDebrisCount;
+            public bool SuppressToggle => NonDebrisCount == 0;
+        }
+
+        /// <summary>
+        /// Header overload: aggregate loop state across every committed
+        /// recording without forcing the caller to materialise an index
+        /// collection. The previous form passed <c>Enumerable.Range(0, Count)</c>
+        /// which allocates an iterator object on every OnGUI invocation
+        /// (Unity calls OnGUI once per event: Layout + Repaint at minimum,
+        /// plus one per input event).
+        /// </summary>
+        internal static LoopAggregateState ComputeLoopAggregate(IReadOnlyList<Recording> committed)
+        {
+            int total = 0;
+            int loops = 0;
+            if (committed != null)
+            {
+                int n = committed.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    var rec = committed[i];
+                    if (rec == null || rec.IsDebris) continue;
+                    total++;
+                    if (rec.LoopPlayback) loops++;
+                }
+            }
+            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
+        }
+
+        internal static LoopAggregateState ComputeLoopAggregate(
+            IReadOnlyList<Recording> committed, IEnumerable<int> indices)
+        {
+            int total = 0;
+            int loops = 0;
+            if (committed != null && indices != null)
+            {
+                foreach (int idx in indices)
+                {
+                    if (idx < 0 || idx >= committed.Count) continue;
+                    var rec = committed[idx];
+                    if (rec == null || rec.IsDebris) continue;
+                    total++;
+                    if (rec.LoopPlayback) loops++;
+                }
+            }
+            return new LoopAggregateState { NonDebrisCount = total, LoopCount = loops };
+        }
+
+        /// <summary>
+        /// Shared bulk-write for header / group / chain / block aggregate Loop
+        /// toggles. Sets <c>LoopPlayback = value</c> on every non-null,
+        /// non-debris recording at the given indices (or all of committed when
+        /// indices is null, for the header path). When applyAutoRange is true,
+        /// also calls <see cref="ApplyAutoLoopRange"/> on each written row
+        /// (auto-narrow on enable, clear on disable): this preserves the
+        /// pre-refactor behavior where chain / grouped-block bulk writes and
+        /// per-row toggles narrowed the loop window, while the header and
+        /// group bulk writes left a user-customized LoopStartUT/LoopEndUT
+        /// untouched. Returns the count actually written (for log lines).
+        /// </summary>
+        internal static int BulkSetLoopPlayback(
+            IReadOnlyList<Recording> committed, IEnumerable<int> indices,
+            bool value, bool applyAutoRange)
+        {
+            if (committed == null) return 0;
+            int written = 0;
+            if (indices == null)
+            {
+                int n = committed.Count;
+                for (int i = 0; i < n; i++)
+                {
+                    var r = committed[i];
+                    if (r == null || r.IsDebris) continue;
+                    r.LoopPlayback = value;
+                    if (applyAutoRange) ApplyAutoLoopRange(r, value);
+                    written++;
+                }
+                return written;
+            }
+            foreach (int idx in indices)
+            {
+                if (idx < 0 || idx >= committed.Count) continue;
+                var r = committed[idx];
+                if (r == null || r.IsDebris) continue;
+                r.LoopPlayback = value;
+                if (applyAutoRange) ApplyAutoLoopRange(r, value);
+                written++;
+            }
+            return written;
+        }
 
         internal static string UnitSuffix(LoopTimeUnit unit)
             => unit == LoopTimeUnit.Min ? "m"

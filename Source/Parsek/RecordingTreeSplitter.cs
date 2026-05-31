@@ -639,7 +639,7 @@ namespace Parsek
                 Recording tip = RecordingOptimizer.SplitAtUT(origin, rewindUT);
                 if (tip == null)
                 {
-                    // SplitAtUT's remaining guards (v13 debris contract
+                    // SplitAtUT's remaining guards (debris contract
                     // minimum bodyFixedFrames sample count, precondition
                     // violations such as origin not strictly spanning
                     // splitUT or NaN splitUT) all return null without
@@ -672,6 +672,7 @@ namespace Parsek
                 tip.TreeId = origin.TreeId;
                 tip.VesselName = origin.VesselName;
                 tip.VesselPersistentId = origin.VesselPersistentId;
+                tip.RecordedVesselGuid = origin.RecordedVesselGuid; // HEAD/TIP are the same launch
                 tip.PreLaunchFunds = origin.PreLaunchFunds;
                 tip.PreLaunchScience = origin.PreLaunchScience;
                 tip.PreLaunchReputation = origin.PreLaunchReputation;

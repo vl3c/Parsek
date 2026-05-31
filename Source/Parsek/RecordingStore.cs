@@ -195,6 +195,16 @@ namespace Parsek
         // a previously-spawned endpoint. Static so it survives Recording object recreation.
         internal static uint SceneEntryActiveVesselPid;
 
+        // PID of the vessel that rolled out fresh from the VAB/SPH this scene
+        // (set only for NEW_FROM_FILE / NEW_FROM_CRAFT_NODE startups; 0 otherwise).
+        // Read by CrewReservationManager.SwapReservedCrewInFlight to suppress Pass-2
+        // orphan crew placement when the active vessel is this fresh launch — a new
+        // mission has no orphaned reserved crew to reclaim, and reclaiming would
+        // mis-seat stand-ins via KSP's craft-stable part persistentId reuse. Static
+        // so the chain-commit / merge call sites (which have no ParsekFlight handle)
+        // can consult it, mirroring SceneEntryActiveVesselPid.
+        internal static uint SceneEntryFreshRolloutVesselPid;
+
         // During launch-point rewind, scope the #226 duplicate-source bypass to the
         // recording whose rewind was actually requested. Other scene-entry vessels may
         // also match committed recordings, but they are not the replay target.
@@ -1529,7 +1539,19 @@ namespace Parsek
             if (prior.EndUT > continued.EndUT + 1e-3)
                 return false;
 
-            if (prior.SpawnedVesselPersistentId == continued.VesselPersistentId)
+            // #976-class: an adoption-stamped prior carries SpawnedVesselPersistentId == its
+            // craft-baked VesselPersistentId, which a relaunch of the same craft reuses as its own
+            // VesselPersistentId, so a bare pid match would mark an unrelated later launch as
+            // superseding this prior's terminal spawn. Guid-disambiguate only the adoption-stamp
+            // case (real spawns use a KSP-unique spawn pid that cannot collide). A relaunch then
+            // falls through to the name+UT-contiguity branch below, which rejects it (the relaunch's
+            // tree starts after prior ends). Null/unknown guid keeps today's pid-only behavior.
+            bool spawnedPidMatch = prior.SpawnedVesselPersistentId == continued.VesselPersistentId;
+            bool adoptionRelaunchCollision = spawnedPidMatch
+                && prior.SpawnedVesselPersistentId == prior.VesselPersistentId
+                && VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                    prior.RecordedVesselGuid, continued.RecordedVesselGuid);
+            if (spawnedPidMatch && !adoptionRelaunchCollision)
             {
                 reason = "spawned-pid-match";
                 return true;
@@ -4582,6 +4604,7 @@ namespace Parsek
             second.TreeId = original.TreeId;
             second.VesselName = original.VesselName;
             second.VesselPersistentId = original.VesselPersistentId;
+            second.RecordedVesselGuid = original.RecordedVesselGuid; // same launch as the split source
             second.PreLaunchFunds = original.PreLaunchFunds;
             second.PreLaunchScience = original.PreLaunchScience;
             second.PreLaunchReputation = original.PreLaunchReputation;
@@ -5154,6 +5177,40 @@ namespace Parsek
             => ResetForTestingInternal(allowWipingLiveSaveData: false);
 
         /// <summary>
+        /// Clears stale <c>LoopPlayback=true</c> on every <c>IsDebris=true</c>
+        /// recording in <see cref="committedRecordings"/>. Parent-anchored
+        /// debris rides its parent's loop clock (see
+        /// <c>GhostPlaybackEngine.TryUpdateLoopSyncedDebris</c>) so its own
+        /// <c>LoopPlayback</c> flag has no effect at the engine boundary.
+        /// Pre-PR #966 saves may carry a stale <c>true</c> here from before
+        /// the per-row toggle was hidden; clearing at load time keeps the
+        /// Timeline-tab <c>L</c> button consistent with the Recordings-tab
+        /// hide. Returns the count cleared (zero on subsequent loads once
+        /// the sweep has run, so this is idempotent).
+        /// </summary>
+        internal static int SanitizeDebrisLoopPlayback()
+        {
+            int cleared = 0;
+            for (int i = 0; i < committedRecordings.Count; i++)
+            {
+                var rec = committedRecordings[i];
+                if (rec == null) continue;
+                if (rec.IsDebris && rec.LoopPlayback)
+                {
+                    rec.LoopPlayback = false;
+                    cleared++;
+                }
+            }
+            if (cleared > 0)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"SanitizeDebrisLoopPlayback: cleared LoopPlayback on {cleared} debris recording(s) " +
+                    "(stale flag from pre-PR #966 save; debris rides parent loop clock)");
+            }
+            return cleared;
+        }
+
+        /// <summary>
         /// Wipe-and-reset variant for the in-game test runner's batch FLIGHT
         /// baseline restore flow. The next operation after this call is a
         /// <c>QuickloadResumeHelpers.TriggerQuickload</c> from the baseline
@@ -5229,6 +5286,7 @@ namespace Parsek
             WriteReadableSidecarMirrorsOverrideForTesting = null;
             CurrentUniversalTimeForRewindRetirementOverrideForTesting = null;
             SceneEntryActiveVesselPid = 0;
+            SceneEntryFreshRolloutVesselPid = 0;
             ClearRewindReplayTargetScope();
             RewindContext.ResetForTesting();
             RewindUTAdjustmentPending = false;
@@ -6430,6 +6488,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resets the game to its career-start snapshot (UT 0): reloads the pristine
+        /// snapshot captured at career creation, restoring initial resources/facilities/clock
+        /// while KEEPING the in-memory recordings as future ghosts (the OnLoad rewind branch
+        /// skips the .sfs recording reload). Used by "Warp to time" for targets at/before the
+        /// first launch so Year 1 / Day 1 is a true reset rather than landing at the earliest
+        /// launch. Mirrors <see cref="InitiateRewind"/> minus the strip / lead-time windback
+        /// (the snapshot is pristine) and minus owner-specific budget / replay scope.
+        ///
+        /// <para>Refuses when re-fly supersede relations exist: a UT-0 reset would otherwise
+        /// leave superseded originals hidden. The caller selects the earliest-launch rewind
+        /// path instead in that case (its owner-keyed supersede drop is the tested route).</para>
+        /// </summary>
+        internal static bool InitiateRewindToCareerStart(string saveFileName)
+        {
+            if (string.IsNullOrEmpty(saveFileName))
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind", "InitiateRewindToCareerStart: null/empty save name");
+                return false;
+            }
+
+            var scenario = ParsekScenario.Instance;
+            if (scenario?.ActiveMergeJournal != null
+                && scenario.ActiveMergeJournal.Phase != MergeJournal.Phases.Complete)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind",
+                        $"Cannot warp to game start during an active re-fly merge " +
+                        $"(journalPhase={scenario.ActiveMergeJournal.Phase})");
+                ParsekLog.ScreenMessage("Cannot warp to game start during an active re-fly merge", 3f);
+                return false;
+            }
+
+            int supersedeCount = scenario?.RecordingSupersedes?.Count ?? 0;
+            if (supersedeCount > 0)
+            {
+                if (!SuppressLogging)
+                    ParsekLog.Warn("Rewind",
+                        $"InitiateRewindToCareerStart refused: {supersedeCount} supersede relation(s) present " +
+                        "(UT-0 reset would hide superseded originals); caller should use earliest-launch rewind");
+                return false;
+            }
+
+            // UT-0 reset: no owner, no reserved budget, no baseline. ApplyRewindResourceAdjustment
+            // recalcs the ledger at the adjusted UT (~0), which restores pristine career resources.
+            RewindContext.BeginRewind(0.0, default(BudgetSummary), 0, 0, 0f);
+            RewindContext.SetQuicksaveVesselPids(null);   // no PreProcessRewindSave -> no whitelist
+            ClearRewindReplayTargetScope();               // no specific owner to replay-scope
+            if (!SuppressLogging)
+                ParsekLog.Info("Rewind",
+                    $"Warp-to-game-start initiated to UT 0 (snapshot: {saveFileName}). Keeps in-memory " +
+                    "recordings as future ghosts; NOT a Re-Fly.");
+
+            string tempCopyName = null;
+            try
+            {
+                string savesDir = Path.Combine(
+                    KSPUtil.ApplicationRootPath ?? "", "saves", HighLogic.SaveFolder ?? "");
+                string sourcePath = Path.Combine(savesDir,
+                    RecordingPaths.BuildRewindSaveRelativePath(saveFileName));
+                tempCopyName = saveFileName;
+                string tempPath = Path.Combine(savesDir, tempCopyName + ".sfs");
+
+                // Copy from Parsek/Saves/ to the root saves dir so LoadGame can find it.
+                File.Copy(sourcePath, tempPath, true);
+
+                // No PreProcessRewindSave: the snapshot is pristine (no future vessels to
+                // strip) and must NOT be wound back below UT 0.
+                Game game = GamePersistence.LoadGame(tempCopyName, HighLogic.SaveFolder, true, false);
+                TryDeleteFileQuietly(tempPath);
+
+                if (game == null)
+                {
+                    ResetRewindFlags();
+                    if (!SuppressLogging)
+                        ParsekLog.Error("Rewind",
+                            $"Warp-to-game-start failed: LoadGame returned null for snapshot '{saveFileName}'");
+                    return false;
+                }
+
+                RewindContext.SetAdjustedUT(game.flightState.universalTime);
+                if (!SuppressLogging)
+                    ParsekLog.Info("Rewind", $"Warp-to-game-start: adjustedUT={RewindAdjustedUT:F1}");
+
+                HighLogic.CurrentGame = game;
+                HighLogic.LoadScene(GameScenes.SPACECENTER);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ResetRewindFlags();
+                DeleteTemporaryRewindSaveCopy(tempCopyName);
+                if (!SuppressLogging)
+                    ParsekLog.Error("Rewind", $"Warp-to-game-start failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Looks up a committed recording by id. Returns null when the id is null/empty
         /// or no committed recording matches. O(N); used by post-LoadScene rewind
         /// hooks where the owner reference doesn't survive but its id does
@@ -7474,6 +7631,11 @@ namespace Parsek
         internal static int AppendPointsFromTrackSections(List<TrackSection> tracks, List<TrajectoryPoint> points)
         {
             return TrajectoryTextSidecarCodec.AppendPointsFromTrackSections(tracks, points);
+        }
+
+        internal static int DropNonMonotonicTrajectoryPoints(List<TrajectoryPoint> points)
+        {
+            return TrajectoryTextSidecarCodec.DropNonMonotonicTrajectoryPoints(points);
         }
 
         internal static bool ContainsRelativeTrackSections(List<TrackSection> tracks)

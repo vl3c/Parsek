@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Parsek.Tests
@@ -482,6 +484,70 @@ namespace Parsek.Tests
             bool result = SceneExitInterceptor.TryAutoDiscardIdleActiveTree(
                 GameScenes.SPACECENTER, flight: null);
             Assert.False(result);
+        }
+
+        // ---------- Bug: deferred merge dialog after idle-on-pad exit -----
+        //
+        // The idle-on-pad scene-exit fast path silently discards the live
+        // tree. Before this fix it left an armed switch-segment session
+        // persisted in the save (the pre-exit OnSave wrote it before this
+        // prefix tore the tree down), so on the next load the orphaned
+        // session resurfaced as a deferred merge dialog. The two gates below
+        // pin the fix: (a) the shared auto-discard teardown clears the
+        // session in-memory; (b) the idle-on-pad prefix branch re-saves so the
+        // cleared state is what survives. Neither path can be driven from
+        // xUnit (live ParsekFlight + FlightGlobals), so these are source-text
+        // gates over the production files.
+
+        private static string ReadProjectSource(params string[] relativeParts)
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            var parts = new List<string> { projectRoot, "Source", "Parsek" };
+            parts.AddRange(relativeParts);
+            string path = Path.Combine(parts.ToArray());
+            Assert.True(File.Exists(path), $"source not found at {path}");
+            return File.ReadAllText(path);
+        }
+
+        // Fails if: AutoDiscardActiveTreeCore stops clearing the armed
+        // switch-segment session when it tears down the active tree, letting
+        // an orphaned session leak into the save again.
+        [Fact]
+        public void AutoDiscardActiveTreeCore_ClearsSwitchSegmentSession()
+        {
+            string source = ReadProjectSource("ParsekFlight.cs");
+
+            int coreStart = source.IndexOf("private void AutoDiscardActiveTreeCore(");
+            Assert.True(coreStart > 0, "AutoDiscardActiveTreeCore not found");
+            int coreEnd = source.IndexOf("\n        private ", coreStart + 1);
+            if (coreEnd < 0)
+                coreEnd = Math.Min(coreStart + 6000, source.Length);
+            string body = source.Substring(coreStart, coreEnd - coreStart);
+
+            Assert.Matches(new Regex(
+                @"ParsekScenario\.Instance\?\.ClearSwitchSegmentSession\(",
+                RegexOptions.Multiline),
+                body);
+        }
+
+        // Fails if: the idle-on-pad prefix branch stops re-saving after the
+        // discard. Without the re-save the pre-exit OnSave's persisted session
+        // survives and the deferred merge dialog fires on next load.
+        [Fact]
+        public void LoadScenePrefix_IdleOnPadBranch_ReSavesAfterDiscard()
+        {
+            string source = ReadProjectSource("SceneExitInterceptor.cs");
+
+            // The idle-on-pad branch calls SafeWritePersistent after a true
+            // return from TryAutoDiscardIdleActiveTree, and hard-blocks
+            // (return false) when that save fails (MAINMENU contract).
+            Assert.Matches(new Regex(
+                @"TryAutoDiscardIdleActiveTree\(scene, flight\)\)\s*\{[\s\S]{0,1200}?" +
+                @"if \(!SceneExitInterceptor\.SafeWritePersistent\(scene\)\)\s*return false;[\s\S]{0,200}?return true;",
+                RegexOptions.Multiline),
+                source);
         }
 
         // ---------- BackfillMaxDistanceAbsoluteOnly --------------------

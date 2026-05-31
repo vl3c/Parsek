@@ -57,15 +57,6 @@ namespace Parsek
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;
 
-        /// <summary>
-        /// #388 — when false, Parsek ghost ProtoVessels and atmospheric ghost markers
-        /// are hidden from the tracking station (both the vessel list and the map view).
-        /// Toggles are picked up live via force-tick in <c>ParsekTrackingStation.Update</c>.
-        /// </summary>
-        [GameParameters.CustomParameterUI("Show ghosts in Tracking Station",
-            toolTip = "When off, Parsek ghosts are hidden from the tracking station vessel list and map view")]
-        public bool showGhostsInTrackingStation = true;
-
         [GameParameters.CustomParameterUI("Show committed-future overlays in stock UI",
             toolTip = "When on, stock R&D, Astronaut Complex, and Mission Control screens show actions already committed on the timeline")]
         public bool showCommittedFutureOverlays = true;
@@ -173,6 +164,10 @@ namespace Parsek
             }
         }
         private bool _useAnchorTaxonomy = true;
+
+        // The map-view non-orbital ghost trajectory polyline is always on (no
+        // setting). It renders unconditionally in the DDOL Driver; there is no
+        // useGhostTrajectoryPolyline field, CustomParameterUI, or persistence.
 
         /// <summary>
         /// Phase 8 of the ghost trajectory rendering pipeline (design doc
@@ -282,6 +277,32 @@ namespace Parsek
         /// </summary>
         public float autoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds;
         public int autoLoopTimeUnit = 0; // 0=Sec, 1=Min, 2=Hour
+
+        // Zero-drift A/B flag: how a looped mission that LANDS on a TRANSITED body (e.g. the Mun)
+        // treats that body's landing rotation when scheduling faithful relaunch windows. The launch
+        // pad always stays tight; this only governs the landed-on body. Stored as an int index for
+        // persistence (the TransitedBodyRotationMode enum is internal):
+        //   0=Drop  (shortest cadence ~15 Kerbin days for the stock Mun; handoff seam up to the SOI),
+        //   1=Loose (~1-2 Kerbin months; small handoff seam, a few km),
+        //   2=Tight (~1.65 Kerbin years; pixel-perfect handoff = the original behavior).
+        // Default Loose. See docs/dev/plans/zero-drift-reschedule.md.
+        public int transitedBodyRotationModeIndex = (int)TransitedBodyRotationMode.Loose;
+
+        /// <summary>Typed accessor for <see cref="transitedBodyRotationModeIndex"/>, clamped to a
+        /// valid mode (defaults to Loose on an out-of-range index).</summary>
+        internal TransitedBodyRotationMode TransitedBodyRotationMode
+        {
+            get
+            {
+                int i = transitedBodyRotationModeIndex;
+                if (i == (int)Parsek.TransitedBodyRotationMode.Drop
+                    || i == (int)Parsek.TransitedBodyRotationMode.Loose
+                    || i == (int)Parsek.TransitedBodyRotationMode.Tight)
+                    return (TransitedBodyRotationMode)i;
+                return Parsek.TransitedBodyRotationMode.Loose;
+            }
+            set => transitedBodyRotationModeIndex = (int)value;
+        }
 
         [GameParameters.CustomFloatParameterUI("Ghost audio volume", minValue = 0f, maxValue = 1f,
             stepCount = 20, displayFormat = "P0",

@@ -1084,6 +1084,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TryFindCommittedTreeForSpawnedVessel_DirectPidMatchGuidMismatch_DoesNotMatchRelaunch()
+        {
+            // #976-class: a relaunch of the same craft reuses the baked pid but carries a
+            // different launch guid, so the direct-pid restore must NOT adopt the new flight
+            // into the prior mission's tree (the RESUME/quickload hole the fresh-rollout guard misses).
+            var tree = MakeTree("rec_orbiting");
+            tree.Recordings["rec_orbiting"].VesselPersistentId = 2708531065u;
+            tree.Recordings["rec_orbiting"].VesselSpawned = false;
+            tree.Recordings["rec_orbiting"].SpawnedVesselPersistentId = 0u;
+            tree.Recordings["rec_orbiting"].TerminalStateValue = TerminalState.Orbiting;
+            tree.Recordings["rec_orbiting"].RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+
+            bool foundRelaunch = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree _,
+                out string _,
+                activeVesselGuid: "a424011b746440baae6030e225c9de31"); // different launch
+            Assert.False(foundRelaunch, "A relaunch (different launch guid) must not match the prior tree.");
+
+            bool foundSameLaunch = ParsekFlight.TryFindCommittedTreeForSpawnedVessel(
+                new List<RecordingTree> { tree },
+                activeVesselPid: 2708531065u,
+                out RecordingTree matchedTree,
+                out string matchedRecordingId,
+                activeVesselGuid: "2b6e6a60d2c947489753371317fa067e"); // same launch
+            Assert.True(foundSameLaunch, "The same launch (matching guid) must still match.");
+            Assert.Same(tree, matchedTree);
+            Assert.Equal("rec_orbiting", matchedRecordingId);
+        }
+
+        [Fact]
         public void TryFindCommittedTreeForSpawnedVessel_DoesNotMatchNonActiveDestroyedFreshLaunchRecording()
         {
             // A direct-VesselPersistentId-match recording is still gated by

@@ -220,12 +220,58 @@ namespace Parsek.Tests
             Assert.False(alreadyMaterialized);
         }
 
+        // --- RealVesselExistsForRecording - F5b guid-aware TS materialization check ---
+
         [Fact]
-        public void TryRunTrackingStationSpawnHandoffs_ShowGhostsDisabled_MatchingSceneEntryPidStillMarksRecordingMaterialized()
+        public void RealVesselExistsForRecording_GuidMatch_True()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => "2b6e6a60d2c947489753371317fa067e");
+
+            Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_GuidMismatch_False_Relaunch()
+        {
+            // A relaunch of the same craft (same pid, different launch guid) must NOT make the
+            // prior recording look materialized; otherwise its TS ghost is wrongly suppressed.
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => "a424011b746440baae6030e225c9de31");
+
+            Assert.False(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_GuidUnknown_FallsBackToPid()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
+            GhostPlaybackLogic.SetVesselGuidResolverOverrideForTesting(pid => null); // live guid unknown
+
+            Assert.True(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void RealVesselExistsForRecording_NoRealVessel_False()
+        {
+            var rec = MakeEligibleTrackingStationRecording(pid: 777);
+            rec.RecordedVesselGuid = "2b6e6a60d2c947489753371317fa067e";
+            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(_ => false);
+
+            Assert.False(GhostPlaybackLogic.RealVesselExistsForRecording(rec));
+        }
+
+        [Fact]
+        public void TryRunTrackingStationSpawnHandoffs_MatchingSceneEntryPidMarksRecordingMaterialized()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
             RecordingStore.SceneEntryActiveVesselPid = 777;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
 
             GhostMapPresence.TryRunTrackingStationSpawnHandoffs(
@@ -665,21 +711,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CreateGhostVesselsFromCommittedRecordings_ShowGhostsDisabled_SkipsGhostCreation()
-        {
-            var rec = MakeEligibleTrackingStationRecording();
-            RecordingStore.AddCommittedInternal(rec);
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(false);
-
-            int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
-
-            Assert.Equal(0, created);
-            Assert.False(GhostMapPresence.HasGhostVesselForRecording(0));
-            Assert.False(rec.VesselSpawned);
-            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
-        }
-
-        [Fact]
         public void CreateGhostVesselsFromCommittedRecordings_RealVesselAlreadyMaterialized_SkipsGhostCreation()
         {
             var rec = MakeEligibleTrackingStationRecording(pid: 777);
@@ -688,7 +719,6 @@ namespace Parsek.Tests
                 new OrbitSegment { startUT = 1000, endUT = 2000, bodyName = "Mun", semiMajorAxis = 250000 }
             };
             RecordingStore.AddCommittedInternal(rec);
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
             GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => pid == 777);
             GhostMapPresence.CurrentUTNow = () => 1500;
 

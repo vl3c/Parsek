@@ -19,6 +19,8 @@ namespace Parsek
             if (rec.TreeOrder >= 0)
                 recNode.AddValue("treeOrder", rec.TreeOrder.ToString(ic));
             recNode.AddValue("vesselPersistentId", rec.VesselPersistentId.ToString(ic));
+            if (!string.IsNullOrEmpty(rec.RecordedVesselGuid))
+                recNode.AddValue("recordedVesselGuid", rec.RecordedVesselGuid);
 
             if (!double.IsNaN(rec.ExplicitStartUT))
                 recNode.AddValue("explicitStartUT", rec.ExplicitStartUT.ToString("R", ic));
@@ -492,6 +494,10 @@ namespace Parsek
             uint vesselPid;
             if (uint.TryParse(recNode.GetValue("vesselPersistentId"), NumberStyles.Integer, ic, out vesselPid))
                 rec.VesselPersistentId = vesselPid;
+
+            // Launch-unique identity (absent on recordings captured before this field existed;
+            // backfilled from the snapshot on load by RecordingStore).
+            rec.RecordedVesselGuid = recNode.GetValue("recordedVesselGuid");
 
             string explicitStartStr = recNode.GetValue("explicitStartUT");
             if (explicitStartStr != null)

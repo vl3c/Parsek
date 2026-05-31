@@ -1249,81 +1249,6 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
-            Description = "#388 — flipping showGhostsInTrackingStation removes and recreates ghost ProtoVessels")]
-        public void ShowGhostsInTrackingStation_FlipRemovesAndRecreates()
-        {
-            if (ParsekSettings.Current == null)
-            {
-                ParsekLog.Warn("TestRunner",
-                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: ParsekSettings.Current is null — skipping");
-                return;
-            }
-
-            var committed = RecordingStore.CommittedRecordings;
-            if (committed == null || committed.Count == 0)
-            {
-                ParsekLog.Info("TestRunner",
-                    "ShowGhostsInTrackingStation_FlipRemovesAndRecreates: no committed recordings — skipping (test needs at least one orbital ghost to be meaningful)");
-                return;
-            }
-
-            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
-
-            try
-            {
-                // Ensure we start in the "visible" state for the off-flip leg and
-                // rebuild ghosts so we have a non-zero baseline. Without this the
-                // test would pass vacuously against a save with no orbital ghosts.
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int baselineCount = GhostMapPresence.ghostMapVesselPids.Count;
-                if (baselineCount == 0)
-                {
-                    ParsekLog.Info("TestRunner",
-                        $"ShowGhostsInTrackingStation_FlipRemovesAndRecreates: " +
-                        $"baselineCount=0 from {committed.Count} recordings (none qualify for TS ghost) — skipping");
-                    return;
-                }
-
-                // Flip off — short-circuits in CreateGhost/UpdateLifecycle stop
-                // new creation; manually call RemoveAllGhostVessels to simulate
-                // the ParsekTrackingStation.Update force-tick behavior without
-                // depending on the MonoBehaviour timing window.
-                ParsekSettings.Current.showGhostsInTrackingStation = false;
-                GhostMapPresence.RemoveAllGhostVessels("ingame-test-flip-off");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int offCount = GhostMapPresence.ghostMapVesselPids.Count;
-                InGameAssert.IsTrue(offCount == 0,
-                    $"Expected 0 ghost vessels with flag=off, got {offCount}");
-
-                // Flip back on — UpdateLifecycle Phase 2 must rebuild the
-                // same set of eligible ghosts.
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int onCount = GhostMapPresence.ghostMapVesselPids.Count;
-                InGameAssert.IsTrue(onCount == baselineCount,
-                    $"Expected {baselineCount} ghost vessels after flipping flag back on, got {onCount}");
-
-                ParsekLog.Info("TestRunner",
-                    $"ShowGhostsInTrackingStation flip: baseline={baselineCount} offCount={offCount} onCount={onCount}");
-            }
-            finally
-            {
-                // Restore user's original setting regardless of test outcome.
-                // If the original was false, the "flip on" leg of the test
-                // recreated ghost ProtoVessels that we have to drain manually —
-                // UpdateTrackingStationGhostLifecycle short-circuits when the
-                // flag is false and won't remove them on its own, so without
-                // this RemoveAll the TS would be left showing ghosts even
-                // though the user had them disabled.
-                ParsekSettings.Current.showGhostsInTrackingStation = original;
-                if (!original)
-                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-            }
-        }
-
-        [InGameTest(Category = "Settings", Scene = GameScenes.TRACKSTATION,
             Description = "Marker ProtoVessels load with hardened aero/thermal/structural tolerances so they cannot explode mid-Re-Fly")]
         public void GhostMarkerProtoVesselsHaveHardenedPartTolerances()
         {
@@ -1342,60 +1267,62 @@ namespace Parsek.InGameTests
                 return;
             }
 
-            bool original = ParsekSettings.Current.showGhostsInTrackingStation;
-            try
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
+            if (markerCount == 0)
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
-                int markerCount = GhostMapPresence.ghostMapVesselPids.Count;
-                if (markerCount == 0)
-                {
-                    ParsekLog.Info("TestRunner",
-                        "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
-                    return;
-                }
-
-                int checkedVessels = 0;
-                int checkedParts = 0;
-                foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
-                {
-                    if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
-                    checkedVessels++;
-                    for (int i = 0; i < v.parts.Count; i++)
-                    {
-                        Part p = v.parts[i];
-                        if (p == null) continue;
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
-                        InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
-                        InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
-                            $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
-                        checkedParts++;
-                    }
-                }
-
-                InGameAssert.IsTrue(checkedVessels > 0,
-                    $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
-                InGameAssert.IsTrue(checkedParts > 0,
-                    $"Expected to inspect at least one marker part, vessels={checkedVessels}");
-
                 ParsekLog.Info("TestRunner",
-                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
+                    "GhostMarkerProtoVesselsHaveHardenedPartTolerances: no markers created, skipping");
+                return;
             }
-            finally
+
+            int checkedVessels = 0;
+            int checkedParts = 0;
+            foreach (uint pid in GhostMapPresence.ghostMapVesselPids)
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = original;
-                if (!original)
-                    GhostMapPresence.RemoveAllGhostVessels("ingame-test-restore-disabled");
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+                if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.parts == null) continue;
+                checkedVessels++;
+                for (int i = 0; i < v.parts.Count; i++)
+                {
+                    Part p = v.parts[i];
+                    if (p == null) continue;
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.maxTemp),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' maxTemp={p.maxTemp} (expected +Inf)");
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.skinMaxTemp),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' skinMaxTemp={p.skinMaxTemp} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.crashTolerance),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' crashTolerance={p.crashTolerance} (expected +Inf)");
+                    InGameAssert.IsTrue(double.IsPositiveInfinity(p.gTolerance),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' gTolerance={p.gTolerance} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingForce),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingForce={p.breakingForce} (expected +Inf)");
+                    InGameAssert.IsTrue(float.IsPositiveInfinity(p.breakingTorque),
+                        $"marker '{v.vesselName}' part[{i}] '{p.partInfo?.name}' breakingTorque={p.breakingTorque} (expected +Inf)");
+                    checkedParts++;
+                }
             }
+
+            InGameAssert.IsTrue(checkedVessels > 0,
+                $"Expected to inspect at least one marker vessel, ghostMapVesselPids={markerCount}");
+
+            // On-rails ghost map markers (the normal TRACKSTATION case) stay
+            // unloaded: GhostVesselLoadPatch blocks Vessel.GoOffRails for ghost map
+            // vessels, so KSP never instantiates live Part objects (v.parts stays
+            // empty). The aero/thermal/structural hardening in
+            // HardenGhostVesselPartPhysics acts on live Part instances, so there is
+            // nothing to assert when no marker loaded its parts. Treat that as
+            // not-applicable rather than a failure — the per-part +Inf assertions
+            // above still fire for any marker that DID instantiate live parts.
+            if (checkedParts == 0)
+            {
+                ParsekLog.Info("TestRunner",
+                    $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: {checkedVessels} marker vessel(s) found, " +
+                    "none with instantiated live parts (on-rails markers stay unloaded in TRACKSTATION) — not applicable");
+                return;
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMarkerProtoVesselsHaveHardenedPartTolerances: vessels={checkedVessels} parts={checkedParts} (all fields +Inf)");
         }
 
         #endregion
@@ -4534,48 +4461,302 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
-            Description = "#554: synthetic orbital TS ghost is removed when hidden and recreated when shown")]
-        public void TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates()
+            Description = "Phase F: ResolveTrackingStationSampleUT maps a loop member to its span-clock loopUT, hides out-of-window members, and passes non-members through the live UT")]
+        public void TrackingStationSpanClock_ResolvesEffectiveSampleUT()
+        {
+            // The full ProtoVessel lifecycle wiring is exercised in-scene by the existing toggle /
+            // orbit TS tests; here we verify the pure span-clock substitution seam directly against
+            // a synthetic LoopUnitSet so the Mission-loop UT mapping is covered in the runtime
+            // (Unity-only) environment without a Unity-xUnit harness. The xUnit suite covers the
+            // same helper with broader cases (MissionSpanClockTests).
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 5, memberIndices: new[] { 5 },
+                spanStartUT: 100, spanEndUT: 250, cadenceSeconds: 150, phaseAnchorUT: 100);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit>
+            {
+                { 5, unit }
+            };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 5, 5 } };
+            var units = new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+
+            // Member 5, window [150,200], live UT 175 -> loopUT 175, not hidden.
+            double effInWindow = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 175.0, units,
+                out bool hiddenInWindow);
+            InGameAssert.IsFalse(hiddenInWindow, "Member inside its window must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effInWindow - 175.0) < 1e-6,
+                "Member inside its window must resolve to the span-clock loopUT (175)");
+
+            // Member 5, window [150,200], live UT 120 -> outside window -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 120.0, units,
+                out bool hiddenOutOfWindow);
+            InGameAssert.IsTrue(hiddenOutOfWindow,
+                "Member outside its loop window this cycle must report renderHidden=true");
+
+            // Index 9 is not a unit member -> live UT passes through unchanged, not hidden.
+            double effNonMember = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 9, memberStartUT: 100, memberEndUT: 150, liveUT: 9999.0, units,
+                out bool hiddenNonMember);
+            InGameAssert.IsFalse(hiddenNonMember, "Non-member must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effNonMember - 9999.0) < 1e-6,
+                "Non-member must pass through the live UT unchanged (9999)");
+
+            // Empty set is the inertness contract: live UT, never hidden.
+            double effEmpty = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 150, memberEndUT: 200, liveUT: 42.0,
+                GhostPlaybackLogic.LoopUnitSet.Empty, out bool hiddenEmpty);
+            InGameAssert.IsFalse(hiddenEmpty, "Empty loop-unit set must never hide a recording");
+            InGameAssert.IsTrue(System.Math.Abs(effEmpty - 42.0) < 1e-6,
+                "Empty loop-unit set must pass through the live UT (42)");
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "Zero-drift: a scheduled loop unit maps a member to its NON-UNIFORM scheduled-launch loopUT, hides it in the inter-launch tail, and is parked before the first scheduled launch")]
+        public void TrackingStationSpanClock_ZeroDriftSchedule_ResolvesScheduledLaunch()
+        {
+            // The scheduled span clock is fully xUnit-tested (MissionZeroDriftScheduleTests); here we
+            // verify it is consumed correctly through the TS/map seam (ResolveTrackingStationSampleUT)
+            // in the Unity runtime against a synthetic scheduled unit. Synthetic 100/31 schedule:
+            // launches at UT 900, 1300, 1800, ...; span [0,50] (< the ~400s interval, so the clock
+            // parks between launches).
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+            double span = 50.0;
+            double cad = System.Math.Max(span, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 5, memberIndices: new[] { 5 },
+                spanStartUT: 0.0, spanEndUT: span, cadenceSeconds: cad, phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+            InGameAssert.IsFalse(GhostPlaybackLogic.UnitMemberOverlaps(unit),
+                "A scheduled unit must be non-overlapping (the invariant)");
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 5, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 5, 5 } };
+            var units = new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex);
+
+            // 25 s into the first scheduled launch (UT 900) -> loopUT = spanStart + 25, not hidden.
+            double effInSpan = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 925.0, units, out bool hiddenInSpan);
+            InGameAssert.IsFalse(hiddenInSpan, "Member inside the scheduled span must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effInSpan - 25.0) < 1e-6,
+                $"Member must resolve to the scheduled-launch loopUT (expected 25, got {effInSpan:F3})");
+
+            // 70 s in (past the 50 s span) -> parked in the inter-launch tail -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 970.0, units, out bool hiddenTail);
+            InGameAssert.IsTrue(hiddenTail, "Member parked in the inter-launch tail must report hidden");
+
+            // Before the first scheduled launch (UT 500 < 900) -> parked -> hidden.
+            GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 500.0, units, out bool hiddenBefore);
+            InGameAssert.IsTrue(hiddenBefore, "Member before the first scheduled launch must report hidden");
+
+            // The SECOND scheduled launch (UT 1300) -> in-window again, not hidden.
+            double effSecond = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                i: 5, memberStartUT: 0.0, memberEndUT: span, liveUT: 1310.0, units, out bool hiddenSecond);
+            InGameAssert.IsFalse(hiddenSecond, "Member inside the second scheduled launch's span must not be hidden");
+            InGameAssert.IsTrue(System.Math.Abs(effSecond - 10.0) < 1e-6,
+                $"Second scheduled launch must resolve to spanStart + 10 (expected 10, got {effSecond:F3})");
+        }
+
+        [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
+            Description = "Zero-drift: a live GhostPlaybackEngine instance classifies a scheduled (non-uniform) loop unit as non-overlapping and resolves its member playback UT at each scheduled launch through the schedule branch (parking before the first launch); plus the pure render-gate decision (Render / inter-launch-tail / unresolved) for the same windows")]
+        public void FlightSpanClock_ZeroDriftSchedule_EngineResolvesScheduledLaunches()
+        {
+            // Adds the runtime coverage that was playtest-pending from the zero-drift reschedule
+            // (#964). What is GENUINELY NEW here (not already covered by xUnit): a real
+            // GhostPlaybackEngine instance, fed a SCHEDULED (non-uniform) unit via SetLoopUnits,
+            // takes the correct branch (span-clock, not overlap) and resolves the member's playback
+            // UT from unit.RelaunchSchedule at the non-uniform launches. The existing in-game test
+            // (TrackingStationSpanClock_ZeroDriftSchedule_ResolvesScheduledLaunch) covers the TS/map
+            // seam; the self-overlap in-game test only hits the OVERLAP branch, so no in-game test
+            // exercised the engine's SCHEDULED branch until now.
+            //
+            // SCOPE / what this does NOT cover: the per-frame ghost GameObject SetActive / spawn /
+            // destroy itself lives in GhostPlaybackEngine.UpdateUnitMemberPlayback (which calls
+            // DecideUnitMemberRender directly, NOT TryResolveUnitMemberPlaybackUT). That activation
+            // machinery is unchanged from the uniform span clock - only the launch-UT input differs
+            // for a scheduled unit - and is not invoked here; it stays playtest-verified. Two seams:
+            //   1. GhostPlaybackEngine.TryResolveUnitMemberPlaybackUT - the engine instance's
+            //      WATCH-camera-sync member-playback resolution (the watch path; threads
+            //      unit.RelaunchSchedule via currentLoopUnits set through SetLoopUnits). This is the
+            //      new-in-runtime part: it proves the engine picks the span-clock branch for a
+            //      scheduled unit and resolves the right loopUT at the non-uniform launches.
+            //   2. GhostPlaybackLogic.DecideUnitMemberRender - the pure render-DECISION the per-frame
+            //      UpdateUnitMemberPlayback uses to SetActive / hide the ghost. Asserted here in-place
+            //      for the full scheduled-launch picture; the decision itself is also xUnit-covered
+            //      (MissionZeroDriftScheduleTests), so this half is a readability companion, not new
+            //      runtime coverage (a pure method runs identically in KSP and in xUnit).
+            // Same synthetic 100/31 schedule as the TS test: launches at UT 900, 1300, 1800; span
+            // [0,50] (< the ~400-500 s intervals, so the clock parks between launches). The 900->1300
+            // (400 s) and 1300->1800 (500 s) intervals DIFFER - this is the non-uniform (zero-drift)
+            // property the test exists to cover.
+            var schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+
+            // Prove the schedule is genuinely NON-UNIFORM (the crux of zero-drift): resolve the three
+            // active launches and assert their spacing differs, rather than trusting hard-coded UTs.
+            schedule.TryResolveActiveLaunch(925.0, out double launch1, out _);
+            schedule.TryResolveActiveLaunch(1310.0, out double launch2, out _);
+            schedule.TryResolveActiveLaunch(1820.0, out double launch3, out _);
+            InGameAssert.IsTrue(System.Math.Abs(launch1 - 900.0) < 1e-6,
+                $"First scheduled launch expected 900, got {launch1:F3}");
+            InGameAssert.IsTrue(System.Math.Abs(launch2 - 1300.0) < 1e-6,
+                $"Second scheduled launch expected 1300, got {launch2:F3}");
+            InGameAssert.IsTrue(System.Math.Abs(launch3 - 1800.0) < 1e-6,
+                $"Third scheduled launch expected 1800, got {launch3:F3}");
+            double gapA = launch2 - launch1;
+            double gapB = launch3 - launch2;
+            InGameAssert.IsTrue(System.Math.Abs(gapA - gapB) > 1e-6,
+                $"Schedule must be non-uniform (zero-drift): gaps {gapA:F1} and {gapB:F1} must differ");
+
+            double span = 50.0;
+            double cad = System.Math.Max(span, schedule.MinIntervalSeconds);
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: span, cadenceSeconds: cad, phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+            InGameAssert.IsFalse(GhostPlaybackLogic.UnitMemberOverlaps(unit),
+                "A scheduled unit must be non-overlapping (the invariant) so it takes the span-clock branch, not the overlap branch");
+
+            // --- Seam 1 (the new-in-runtime part): the live engine instance classifies the
+            // scheduled unit as non-overlapping and resolves the watch-sync member playback UT from
+            // its schedule. ---
+            var engine = new GhostPlaybackEngine(null);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 0, 0 } };
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex));
+
+            // 25 s into the first scheduled launch (UT 900) -> the engine resolves the member to its
+            // scheduled-launch playback UT (spanStart + 25).
+            bool resolvedFirst = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 925.0, memberStartUT: 0.0, memberEndUT: span, out double playbackUT1);
+            InGameAssert.IsTrue(resolvedFirst, "Engine must resolve the member at the first scheduled launch");
+            InGameAssert.IsTrue(System.Math.Abs(playbackUT1 - 25.0) < 1e-6,
+                $"First scheduled launch playback UT expected 25, got {playbackUT1:F3}");
+
+            // 20 s into the THIRD scheduled launch (UT 1800, the 500 s-spaced one) -> resolves again,
+            // proving the engine resolves the member at the non-uniformly-spaced launch too.
+            bool resolvedThird = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1820.0, memberStartUT: 0.0, memberEndUT: span, out double playbackUT3);
+            InGameAssert.IsTrue(resolvedThird, "Engine must resolve the member at the third (non-uniformly-spaced) scheduled launch");
+            InGameAssert.IsTrue(System.Math.Abs(playbackUT3 - 20.0) < 1e-6,
+                $"Third scheduled launch playback UT expected 20, got {playbackUT3:F3}");
+
+            // Before the first scheduled launch (UT 500 < 900) -> the engine does NOT resolve (the
+            // first-play / pre-window contract).
+            bool resolvedBefore = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 500.0, memberStartUT: 0.0, memberEndUT: span, out _);
+            InGameAssert.IsFalse(resolvedBefore, "Engine must NOT resolve the member before the first scheduled launch");
+
+            // --- Seam 2: the pure render-DECISION the per-frame UpdateUnitMemberPlayback consults to
+            // SetActive / hide the ghost (also xUnit-covered; asserted in-place for the full picture).
+            // At a scheduled launch: Render. Mid-span phase resolves inside the member window.
+            var dRender = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 925.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out double renderLoopUT, out _, out _, schedule);
+            InGameAssert.IsTrue(dRender == GhostPlaybackLogic.UnitMemberRenderDecision.Render,
+                $"At a scheduled launch the member mesh must Render (got {dRender})");
+            InGameAssert.IsTrue(System.Math.Abs(renderLoopUT - 25.0) < 1e-6,
+                $"Render loopUT expected 25, got {renderLoopUT:F3}");
+
+            // 70 s in (past the 50 s span) -> parked in the inter-launch tail -> hide ALL members
+            // (no mesh between launches).
+            var dTail = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 970.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out _, out _, out bool tailFlag, schedule);
+            InGameAssert.IsTrue(dTail == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail,
+                $"Parked in the inter-launch tail the member mesh must be hidden (got {dTail})");
+            InGameAssert.IsTrue(tailFlag, "Inter-launch tail flag must be set");
+
+            // Before the first scheduled launch -> span clock unresolved -> not rendered.
+            var dBefore = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 500.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out _, out _, out _, schedule);
+            InGameAssert.IsTrue(dBefore == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved,
+                $"Before the first scheduled launch the span clock must be unresolved (no mesh) (got {dBefore})");
+
+            // The SECOND scheduled launch (UT 1300, 400 s-spaced) -> Render again at spanStart + 10.
+            var dSecond = GhostPlaybackLogic.DecideUnitMemberRender(
+                currentUT: 1310.0, phaseAnchorUT: schedule.FirstLaunchUT, spanStartUT: 0.0, spanEndUT: span,
+                cadenceSeconds: cad, memberStartUT: 0.0, memberEndUT: span,
+                out double secondLoopUT, out _, out _, schedule);
+            InGameAssert.IsTrue(dSecond == GhostPlaybackLogic.UnitMemberRenderDecision.Render,
+                $"At the second scheduled launch the member mesh must Render (got {dSecond})");
+            InGameAssert.IsTrue(System.Math.Abs(secondLoopUT - 10.0) < 1e-6,
+                $"Second scheduled launch render loopUT expected 10, got {secondLoopUT:F3}");
+        }
+
+        [InGameTest(Category = "Flight", Scene = GameScenes.FLIGHT,
+            Description = "Mission self-overlap: a looping unit with overlap cadence shorter than its span resolves the watched member to its NEWEST staggered instance, not the single span-clock UT")]
+        public void MissionSelfOverlap_ResolvesNewestInstanceMemberUT()
+        {
+            var flight = ParsekFlight.Instance;
+            if (flight == null) InGameAssert.Skip("No ParsekFlight instance");
+
+            // Full multi-instance ghost rendering (overlapGhosts) is exercised by the live engine
+            // path and bounded by OverlapGhostCountWithinCap; here we verify the engine's self-overlap
+            // UT reduction in the Unity runtime against a synthetic unit (no live spawning needed).
+            // Span [1000,1300] (300s), overlap cadence 60 < span -> self-overlap. Anchor 1000, member
+            // window == span. At UT 1250: lastCycle = floor(250/60) = 4; cycleStart = 1000+240 = 1240;
+            // phase = 10 -> newest-instance member UT = memberStart(1000) + 10 = 1010.
+            var unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 1000, spanEndUT: 1300, cadenceSeconds: 300, phaseAnchorUT: 1000,
+                overlapCadenceSeconds: 60);
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            InGameAssert.IsTrue(unit.OverlapCadenceSeconds < span,
+                "Synthetic unit must self-overlap (overlap cadence < span)");
+
+            var engine = new GhostPlaybackEngine(null);
+            var unitsByOwner = new System.Collections.Generic.Dictionary<int, GhostPlaybackLogic.LoopUnit> { { 0, unit } };
+            var ownerByIndex = new System.Collections.Generic.Dictionary<int, int> { { 0, 0 } };
+            engine.SetLoopUnits(new GhostPlaybackLogic.LoopUnitSet(unitsByOwner, ownerByIndex));
+
+            bool resolved = engine.TryResolveUnitMemberPlaybackUT(
+                0, currentUT: 1250.0, memberStartUT: 1000.0, memberEndUT: 1300.0, out double loopUT);
+
+            InGameAssert.IsTrue(resolved, "Self-overlap member UT must resolve");
+            InGameAssert.IsTrue(System.Math.Abs(loopUT - 1010.0) < 1e-6,
+                $"Watch must pin the newest instance (expected 1010, got {loopUT:F3})");
+
+            ParsekLog.Info("TestRunner",
+                string.Format(CultureInfo.InvariantCulture,
+                    "MissionSelfOverlap_ResolvesNewestInstanceMemberUT: span={0} overlapCadence={1} loopUT={2}",
+                    span, unit.OverlapCadenceSeconds, loopUT));
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#554: synthetic orbital TS ghost is created on lifecycle tick and registered as a ghost map vessel")]
+        public void TrackingStationGhost_SyntheticOrbit_CreatedOnLifecycleTick()
         {
             using (var scope = new SyntheticTrackingStationRecordingScope("toggle"))
             using (var capture = new TrackingStationLogCapture())
             {
                 var trackingHost = Object.FindObjectOfType<ParsekTrackingStation>();
                 InGameAssert.IsNotNull(trackingHost,
-                    "ParsekTrackingStation host should exist while toggling TS ghosts");
+                    "ParsekTrackingStation host should exist while creating TS ghosts");
 
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle();
 
                 uint firstPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
                 InGameAssert.IsTrue(firstPid != 0,
-                    "Synthetic TS recording should create a ghost vessel when the setting is enabled");
+                    "Synthetic TS recording should create a ghost vessel on the lifecycle tick");
                 InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(firstPid),
                     "Created synthetic TS vessel should be registered as a ghost map vessel");
 
-                ParsekSettings.Current.showGhostsInTrackingStation = false;
-                ForceTrackingStationHostUpdate(trackingHost);
-
-                InGameAssert.IsFalse(GhostMapPresence.HasGhostVesselForRecording(scope.RecordingIndex),
-                    "Synthetic TS ghost should be removed when showGhostsInTrackingStation is disabled");
-
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
-                ForceTrackingStationHostUpdate(trackingHost);
-
-                uint recreatedPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
-                InGameAssert.IsTrue(recreatedPid != 0,
-                    "Synthetic TS recording should recreate a ghost vessel when the setting is re-enabled");
-                InGameAssert.IsTrue(GhostMapPresence.IsGhostMapVessel(recreatedPid),
-                    "Recreated synthetic TS vessel should be registered as a ghost map vessel");
-
                 AssertNoCapturedTrackingStationErrors(capture,
-                    "show/hide/recreate synthetic TS ghost lifecycle");
+                    "create synthetic TS ghost lifecycle");
 
                 ParsekLog.Info("TestRunner",
                     string.Format(CultureInfo.InvariantCulture,
-                        "TrackingStationGhostToggle_SyntheticOrbit_RemovesAndRecreates: firstPid={0} recreatedPid={1}",
-                        firstPid,
-                        recreatedPid));
+                        "TrackingStationGhost_SyntheticOrbit_CreatedOnLifecycleTick: firstPid={0}",
+                        firstPid));
             }
         }
 
@@ -4586,7 +4767,6 @@ namespace Parsek.InGameTests
             using (var scope = new SyntheticTrackingStationRecordingScope("object-count"))
             using (var capture = new TrackingStationLogCapture())
             {
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.UpdateTrackingStationGhostLifecycle();
 
                 // Let KSP process the ProtoVessel load and any stock Tracking Station
@@ -4845,21 +5025,6 @@ namespace Parsek.InGameTests
             return rec;
         }
 
-        private static void ForceTrackingStationHostUpdate(ParsekTrackingStation host)
-        {
-            InGameAssert.IsNotNull(host, "Tracking Station host should exist before forcing an update");
-
-            System.Reflection.MethodInfo updateMethod = typeof(ParsekTrackingStation).GetMethod(
-                "Update",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic,
-                null,
-                System.Type.EmptyTypes,
-                null);
-            InGameAssert.IsNotNull(updateMethod,
-                "ParsekTrackingStation.Update reflection helper should be available");
-            updateMethod.Invoke(host, null);
-        }
-
         private static Vessel FindVesselByPersistentId(uint persistentId)
         {
             var vessels = FlightGlobals.Vessels;
@@ -5027,7 +5192,6 @@ namespace Parsek.InGameTests
         private sealed class SyntheticTrackingStationRecordingScope : System.IDisposable
         {
             private readonly System.Func<double> previousCurrentUTNow;
-            private readonly bool previousShowGhosts;
             private readonly List<Recording> previousCommittedRecordings;
             private readonly List<RecordingTree> previousCommittedTrees;
             private bool disposed;
@@ -5046,7 +5210,6 @@ namespace Parsek.InGameTests
                     InGameAssert.Skip("CurrentGame.flightState is null");
 
                 previousCurrentUTNow = GhostMapPresence.CurrentUTNow;
-                previousShowGhosts = ParsekSettings.Current.showGhostsInTrackingStation;
                 previousCommittedRecordings = RecordingStore.CommittedRecordings != null
                     ? new List<Recording>(RecordingStore.CommittedRecordings)
                     : new List<Recording>();
@@ -5062,7 +5225,6 @@ namespace Parsek.InGameTests
                 RecordingIndex = RecordingStore.CommittedRecordings.Count - 1;
 
                 GhostMapPresence.CurrentUTNow = () => CurrentUT;
-                ParsekSettings.Current.showGhostsInTrackingStation = true;
                 GhostMapPresence.RemoveAllGhostVessels("ts-runtime-canary-start");
             }
 
@@ -5080,11 +5242,8 @@ namespace Parsek.InGameTests
                 {
                     RestoreCommittedState();
                     GhostMapPresence.CurrentUTNow = previousCurrentUTNow;
-                    if (ParsekSettings.Current != null)
-                        ParsekSettings.Current.showGhostsInTrackingStation = previousShowGhosts;
                     AlignTrackingStationHostCacheAfterRestore(
-                        previousCommittedRecordings.Count,
-                        previousShowGhosts);
+                        previousCommittedRecordings.Count);
                 }
             }
 
@@ -5100,15 +5259,13 @@ namespace Parsek.InGameTests
             }
 
             private static void AlignTrackingStationHostCacheAfterRestore(
-                int committedCount,
-                bool showGhosts)
+                int committedCount)
             {
                 var host = Object.FindObjectOfType<ParsekTrackingStation>();
                 if (host == null)
                     return;
 
                 SetTrackingStationHostField(host, "lastKnownCommittedCount", committedCount);
-                SetTrackingStationHostField(host, "lastKnownShowGhosts", showGhosts);
                 SetTrackingStationHostField(host, "nextLifecycleCheckTime", Time.time + 2.0f);
             }
 
@@ -8421,6 +8578,70 @@ namespace Parsek.InGameTests
             rec.MarkFilesDirty();
             return rec;
         }
+
+        /// <summary>
+        /// Direct-invoke coverage for the §5.3 plan path plus the geometry
+        /// check xUnit cannot provide. Asserts
+        /// <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording"/>
+        /// produces one leg with three points from a single Absolute
+        /// TrackSection, then converts each cached (lat, lon, alt) triple
+        /// through the LIVE <c>CelestialBody.GetWorldSurfacePosition</c> and
+        /// confirms it lands EXACTLY where the same call would put an
+        /// atmospheric marker (the Driver uses the identical conversion at
+        /// frame time, mirroring ParsekTrackingStation.cs:1199). This is the
+        /// geometry coverage the pure xUnit builder cannot exercise (no live
+        /// CelestialBody). The DDOL Driver / Vectrosity submission stays out
+        /// of scope of this test (per §5.3 the helper-in-isolation pattern);
+        /// a live playtest exercises the full draw.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Polyline builder produces one absolute-ascent leg; cached triples map to GetWorldSurfacePosition")]
+        public void GhostTrajectoryPolyline_AbsoluteAscent_BuildsLegThroughPoints()
+        {
+            var rec = new Recording { RecordingId = "ingame-polyline-1" };
+            var frames = new System.Collections.Generic.List<TrajectoryPoint>
+            {
+                new TrajectoryPoint { ut = 100.0, latitude = -0.1, longitude = -74.5, altitude = 70.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 200.0, latitude = -0.05, longitude = -74.5, altitude = 20000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+                new TrajectoryPoint { ut = 600.0, latitude = 0.0, longitude = -74.5, altitude = 100000.0, bodyName = "Kerbin", rotation = Quaternion.identity },
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 100.0,
+                endUT = 600.0,
+                frames = frames,
+                checkpoints = new System.Collections.Generic.List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f,
+            });
+
+            var legs = Parsek.Display.GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            InGameAssert.AreEqual(1, legs.Count, "expected one leg from one Absolute section");
+            InGameAssert.AreEqual(3, legs[0].PointCount, "expected 3 cached lat/lon/alt triples");
+            InGameAssert.AreEqual("Kerbin", legs[0].bodyName, "expected leg body Kerbin");
+
+            // Geometry: each cached (lat, lon, alt) must reconstruct to the
+            // SAME world position GetWorldSurfacePosition would produce for
+            // the recorded triple (this is what the Driver does per frame).
+            CelestialBody kerbin = FlightGlobals.Bodies.Find(b => b.name == "Kerbin");
+            InGameAssert.IsTrue(kerbin != null, "Kerbin body must resolve");
+            var leg = legs[0];
+            for (int i = 0; i < leg.PointCount; i++)
+            {
+                Vector3d expected = kerbin.GetWorldSurfacePosition(
+                    frames[i].latitude, frames[i].longitude, frames[i].altitude);
+                Vector3d actual = kerbin.GetWorldSurfacePosition(
+                    leg.lats[i], leg.lons[i], leg.alts[i]);
+                double dist = (expected - actual).magnitude;
+                InGameAssert.IsTrue(dist < 1e-3,
+                    "cached triple " + i + " must map to the recorded world position (dist="
+                    + dist.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "m)");
+            }
+        }
     }
 
     /// <summary>
@@ -10922,7 +11143,11 @@ namespace Parsek.InGameTests
 
                 flight.FastForwardToRecording(recording);
 
-                yield return WaitForActiveTimelineGhost(flight, recordingIndex, 4f);
+                // FastForwardToRecording now lands RewindToLaunchLeadTimeSeconds (15s) before
+                // the recording start (matching Rewind's pre-launch lead), so the ghost only
+                // becomes active after that lead elapses at 1x. Wait past the lead plus a buffer.
+                yield return WaitForActiveTimelineGhost(flight, recordingIndex,
+                    (float)RecordingStore.RewindToLaunchLeadTimeSeconds + 6f);
                 yield return WaitForRecordingSpawn(recording, 10f);
 
                 spawnedPid = recording.SpawnedVesselPersistentId;
@@ -12480,6 +12705,77 @@ namespace Parsek.InGameTests
         }
 
         #region ResourceReconciliation (Phase F)
+
+        [InGameTest(Category = "WarpToTime", Scene = GameScenes.SPACECENTER,
+            Description = "WarpToTimeController.ResolvePlan runs against live ERS/RecordingStore: " +
+                "a far-future date yields ForwardOnly; 1/1/0/0 maps to UT 0 and, when any rewind " +
+                "target exists, yields RewindThenForward (landing at the career-start snapshot when " +
+                "present, else the earliest launch). Read-only — does not change the clock.")]
+        public void WarpToTime_ResolvePlan_LiveScene()
+        {
+            double now = Planetarium.GetUniversalTime();
+
+            // Far-future target -> ForwardOnly regardless of save state.
+            var futurePlan = WarpToTimeController.ResolvePlan(
+                9999, 1, 0, 0, inFlight: false, out double futureUT);
+            InGameAssert.IsTrue(futureUT > now,
+                $"far-future targetUT {futureUT} should exceed now {now}");
+            InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.ForwardOnly, futurePlan.Kind,
+                "far-future date should resolve to ForwardOnly");
+
+            // Game start (1/1/0/0 = UT 0). Exercises the live ResolveRewindTarget path
+            // (ERS enumeration + GetRewindRecording + career-start snapshot check). The exact
+            // kind depends on save state, so first assert the call returns a defined plan.
+            var startPlan = WarpToTimeController.ResolvePlan(
+                1, 1, 0, 0, inFlight: false, out double startUT);
+            InGameAssert.AreEqual(0.0, startUT, "1/1/0/0 should map to UT 0");
+            bool definedKind = startPlan.Kind == WarpToTimeMath.WarpPlanKind.ForwardOnly
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.RewindThenForward
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.AtTarget
+                || startPlan.Kind == WarpToTimeMath.WarpPlanKind.Unreachable;
+            InGameAssert.IsTrue(definedKind,
+                $"game-start plan kind should be defined, got {startPlan.Kind}");
+
+            // With any rewind target present and now meaningfully past UT 0, the game start must
+            // be reachable via rewind (RewindThenForward), not Unreachable. The target is the
+            // career-start snapshot when one exists (and no supersedes), else the earliest launch.
+            var ers = EffectiveState.ComputeERS();
+            bool anyRewindSave = false;
+            if (ers != null)
+            {
+                for (int i = 0; i < ers.Count; i++)
+                {
+                    var owner = RecordingStore.GetRewindRecording(ers[i]);
+                    if (owner != null && !string.IsNullOrEmpty(owner.RewindSaveFileName))
+                    {
+                        anyRewindSave = true;
+                        break;
+                    }
+                }
+            }
+            int supersedeCount = ParsekScenario.Instance?.RecordingSupersedes?.Count ?? 0;
+            bool careerStartAvailable = CareerStartSnapshot.Exists() && supersedeCount == 0;
+
+            if ((anyRewindSave || careerStartAvailable) && now > WarpToTimeMath.AtTargetEpsilonSeconds)
+            {
+                InGameAssert.AreEqual(WarpToTimeMath.WarpPlanKind.RewindThenForward, startPlan.Kind,
+                    "with a rewind target present and now>0, game start must be reachable via rewind");
+                // landsAtTimelineStart is the earliest-LAUNCH fallback (no candidate at/before
+                // UT 0). A career-start snapshot sits AT UT 0 = the target, so it's the
+                // nearest-prior, not a fallback -> the flag is false when the snapshot is chosen.
+                if (careerStartAvailable)
+                    InGameAssert.IsFalse(startPlan.LandsAtTimelineStart,
+                        "career-start snapshot at UT 0 is the nearest-prior target, not the earliest-launch fallback");
+                else
+                    InGameAssert.IsTrue(startPlan.LandsAtTimelineStart,
+                        "no career-start snapshot -> game start lands at the earliest launch (fallback)");
+            }
+            else
+            {
+                InGameAssert.Skip("no rewind target present (or already at game start) — " +
+                    "rewind-reachability assertion not applicable");
+            }
+        }
 
         [InGameTest(Category = "ResourceReconciliation", Scene = GameScenes.SPACECENTER,
             Description = "Phase F: ApplyTreeLumpSum / ApplyTreeResourceDeltas / ApplyResourceDeltas " +

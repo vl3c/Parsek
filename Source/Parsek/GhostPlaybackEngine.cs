@@ -64,6 +64,23 @@ namespace Parsek
             autoLoopLaunchSchedules = new Dictionary<int, GhostPlaybackLogic.AutoLoopLaunchSchedule>();
         private readonly List<AutoLoopQueueCandidate> autoLoopQueueScratch = new List<AutoLoopQueueCandidate>();
 
+        // Chain-loop unit descriptors for THIS frame (host-detected, opaque to the engine).
+        // Pushed once per frame via SetLoopUnits before UpdatePlayback, exactly the lifetime of
+        // autoLoopLaunchSchedules. Empty (LoopUnitSet.Empty) means no consecutive auto-loop chain
+        // members exist, which keeps the whole chain-loop-unit feature dormant. The engine never
+        // reads Recording / ChainId — it consumes the index-keyed descriptors as opaque sets.
+        private GhostPlaybackLogic.LoopUnitSet currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+
+        // Last (cycleIndex, liveMemberIdx, watchedRendering) the shared mission clock resolved for
+        // each unit owner. Under the concurrent model every member renders independently when the
+        // clock is in its own window (no shared mutable state per design D3); this is purely for the
+        // cycle-wrap / camera-handoff diagnostic + watch retarget: the FIRST member of a unit to run
+        // this frame observes the transition and acts once. liveMemberIdx = the in-window member with
+        // the highest StartUT (the camera-follow target, newest segment); -1 = nothing live (tail /
+        // before span). Keyed by owner index; self-heals each frame since only members write it.
+        private readonly Dictionary<int, (long cycle, int liveMemberIdx, bool watchedRendering)> lastUnitSelection
+            = new Dictionary<int, (long, int, bool)>();
+
         // Constants live in ParsekConfig.cs — see GhostPlayback.* for the
         // concurrency caps, per-frame throttles, hold windows, and prewarm
         // buffers used below.
@@ -99,6 +116,9 @@ namespace Parsek
         private int frameSkipAnchorReFlyUnstable;
         private int frameSkipChainShadowed;
         private int frameSkipChainBridgeHeld;
+        // Chain-loop unit follower: per-frame count of unit members hidden because the shared span
+        // clock selected a different member (or a gap, or the clock failed). See UpdateUnitMemberPlayback.
+        private int frameSkipMissionLoopUnitInactive;
         // Bug #460: per-frame counter of overlap-ghost iterations. Incremented once per
         // iteration of the inner `for` loop in `UpdateExpireAndPositionOverlaps` (before any
         // continue / remove), so it reflects total overlap dispatch work regardless of whether
@@ -220,6 +240,140 @@ namespace Parsek
         /// behaviour falls back to the pre-handoff destroy-and-respawn shape.
         /// </summary>
         internal System.Func<int, int> ResolveChainNextIndex;
+
+        /// <summary>
+        /// Pushes the host-detected chain-loop unit descriptors for the upcoming frame. Mirrors
+        /// the <see cref="ResolveChainNextIndex"/> / <see cref="IsGhostHeld"/> host-injection
+        /// pattern, but as a per-frame snapshot (not a recompute-on-demand delegate) so detection
+        /// runs exactly once per frame and both schedulers (flight engine + tracking station)
+        /// consume an identical frozen view (design D1). Called by the host once per frame, right
+        /// before <see cref="UpdatePlayback"/>, alongside building the trajectory list. A null
+        /// argument is normalized to <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> so the
+        /// feature stays dormant when the host has no units.
+        /// </summary>
+        internal void SetLoopUnits(GhostPlaybackLogic.LoopUnitSet units)
+        {
+            currentLoopUnits = units ?? GhostPlaybackLogic.LoopUnitSet.Empty;
+        }
+
+        /// <summary>
+        /// The current per-frame Mission loop unit set (never null; <see
+        /// cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when no Mission loops). Exposed so the
+        /// flight-scene map-presence driver (<see cref="ParsekPlaybackPolicy.CheckPendingMapVessels"/>)
+        /// can remap the live UT through the shared span clock exactly like the Tracking Station
+        /// and KSC drivers do, instead of sampling orbit lines / icons at the raw live UT (which is
+        /// far outside a looped member's recorded UT range).
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentLoopUnits => currentLoopUnits;
+
+        /// <summary>
+        /// True when the committed recording index is currently a member of some Mission loop
+        /// unit. The watch controller uses this to detect when a loop-cycle-watched recording has
+        /// been dropped from its mission (interval trim toggle, or the loop turned off) so it can
+        /// exit watch instead of clinging to a dying ghost.
+        /// </summary>
+        internal bool IsLoopUnitMember(int recordingIndex)
+        {
+            return currentLoopUnits.IsMember(recordingIndex);
+        }
+
+        /// <summary>
+        /// Resolves the through-line ROOT of the Mission loop unit containing
+        /// <paramref name="memberIndex"/>: the unit's earliest member (<c>OwnerIndex</c>, the
+        /// mission's first-rendered stage at the trimmed start). The watch controller uses this to
+        /// RESTART the camera at the start of a fresh mission instance after the watched
+        /// through-line's terminal explosion hold, instead of clinging to the just-exploded member's
+        /// own primary cycle (the upper stage mid-flight, which can also be relative-anchor-retired
+        /// at an invalid position). Returns false (rootIndex = memberIndex) when the index is not a
+        /// unit member, so single-recording overlap watch keeps its existing primary retarget.
+        /// </summary>
+        internal bool TryGetUnitThroughLineRoot(int memberIndex, out int rootIndex)
+        {
+            if (currentLoopUnits.TryGetUnitForMember(memberIndex, out GhostPlaybackLogic.LoopUnit unit))
+            {
+                rootIndex = unit.OwnerIndex;
+                return true;
+            }
+            rootIndex = memberIndex;
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves the Mission span-clock loopUT for a committed recording index that is a
+        /// member of a Mission loop unit. Watch entry must synchronize a watched member's ghost
+        /// visuals at the SAME span loopUT the per-frame scheduler renders that member at in
+        /// <see cref="UpdateUnitMemberPlayback"/>, NOT the raw Planetarium UT: a unit member does
+        /// not carry its own per-recording LoopPlayback flag, so the watch path's
+        /// ShouldLoopPlaybackForWatch fallback would otherwise feed the raw UT into
+        /// ApplyPartEvents (monotonic), replaying every staging / decouple event past the member's
+        /// window end and leaving only the never-jettisoned parts visible.
+        ///
+        /// Returns true and the shared span loopUT when <paramref name="recordingIndex"/> is a
+        /// unit member; otherwise returns false with <paramref name="loopUT"/> set to
+        /// <paramref name="currentUT"/> (no behavior change for non-members / non-looping watch).
+        /// The span clock failing to resolve (before span start / degenerate span) also returns
+        /// false with the raw UT, so the caller keeps its existing fallback path.
+        /// </summary>
+        internal bool TryResolveUnitMemberPlaybackUT(
+            int recordingIndex, double currentUT, double memberStartUT, double memberEndUT, out double loopUT)
+        {
+            loopUT = currentUT;
+            if (!currentLoopUnits.TryGetUnitForMember(recordingIndex, out GhostPlaybackLogic.LoopUnit unit))
+                return false;
+
+            // Interval-level start/end trim: track this member's trimmed render window (falls back
+            // to the passed recording bounds when untrimmed), so the watch camera follows the same
+            // trimmed playback the engine renders.
+            memberStartUT = unit.MemberStartUT(recordingIndex, memberStartUT);
+            memberEndUT = unit.MemberEndUT(recordingIndex, memberEndUT);
+
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+
+            // Self-overlap: the mission relaunches every OverlapCadenceSeconds, so watch must pin the
+            // NEWEST instance of this member (the primary ghost UpdateOverlapPlayback keeps pointed at
+            // lastCycle). Resolve the member's playback UT in its newest overlap cycle via the SAME
+            // per-recording overlap math the engine renders the member with: scheduleStartUT =
+            // PhaseAnchorUT + (memberStart - spanStart), playbackStartUT = memberStart, duration =
+            // memberEnd - memberStart, intervalSeconds = the mission overlap cadence. See
+            // UpdateUnitMemberPlayback for the matching render-side reduction.
+            if (span > 0 && unit.OverlapCadenceSeconds < span)
+            {
+                double memberScheduleStartUT = unit.PhaseAnchorUT + (memberStartUT - unit.SpanStartUT);
+                double memberDuration = memberEndUT - memberStartUT;
+                if (memberDuration > 0
+                    && GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                        currentUT,
+                        unit.OverlapCadenceSeconds,
+                        memberDuration,
+                        memberStartUT,
+                        memberScheduleStartUT,
+                        out double overlapMemberUT,
+                        out _))
+                {
+                    loopUT = overlapMemberUT;
+                    return true;
+                }
+                return false;
+            }
+
+            if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT,
+                    unit.PhaseAnchorUT,
+                    unit.SpanStartUT,
+                    unit.SpanEndUT,
+                    unit.CadenceSeconds,
+                    out double spanLoopUT,
+                    out _,
+                    out _,
+                    unit.RelaunchSchedule,
+                    unit.LoiterCuts))
+            {
+                return false;
+            }
+
+            loopUT = spanLoopUT;
+            return true;
+        }
 
         /// <summary>
         /// Per-slot bookkeeping for the chain-bridge hold: the playback UT at
@@ -555,6 +709,9 @@ namespace Parsek
                 case GhostPlaybackSkipReason.ChainBridgeHeld:
                     frameSkipChainBridgeHeld++;
                     break;
+                case GhostPlaybackSkipReason.MissionLoopUnitInactive:
+                    frameSkipMissionLoopUnitInactive++;
+                    break;
             }
         }
 
@@ -579,7 +736,8 @@ namespace Parsek
                 || counters.anchorRotationUnreliable > 0
                 || counters.anchorReFlyUnstable > 0
                 || counters.chainShadowed > 0
-                || counters.chainBridgeHeld > 0;
+                || counters.chainBridgeHeld > 0
+                || counters.missionLoopUnitInactive > 0;
         }
 
         internal static string BuildFrameSummaryMessage(GhostPlaybackFrameCounters counters)
@@ -591,8 +749,9 @@ namespace Parsek
                 "noRenderableData={9} playbackDisabled={10} externalVesselSuppressed={11} " +
                 "sessionSuppressed={12} supersededByRelation={13} rewindRetired={14} " +
                 "spawnSuppressedDeadOnArrival={15} anchorRotationUnreliable={16} " +
-                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19}] " +
-                "active={20}",
+                "anchorReFlyUnstable={17} chainShadowed={18} chainBridgeHeld={19} " +
+                "missionLoopUnitInactive={20}] " +
+                "active={21}",
                 counters.spawned,
                 counters.destroyed,
                 counters.deferred,
@@ -613,6 +772,7 @@ namespace Parsek
                 counters.anchorReFlyUnstable,
                 counters.chainShadowed,
                 counters.chainBridgeHeld,
+                counters.missionLoopUnitInactive,
                 counters.active);
         }
 
@@ -640,6 +800,7 @@ namespace Parsek
                 anchorReFlyUnstable = frameSkipAnchorReFlyUnstable,
                 chainShadowed = frameSkipChainShadowed,
                 chainBridgeHeld = frameSkipChainBridgeHeld,
+                missionLoopUnitInactive = frameSkipMissionLoopUnitInactive,
                 active = ghostStates.Count
             };
         }
@@ -941,6 +1102,24 @@ namespace Parsek
                 bool pastEnd = ctx.currentUT > traj.EndUT;
                 bool pastEffectiveEnd = ctx.currentUT > f.chainEndUT;
 
+                // === Mission loop unit interception (Phase D2) ===
+                // If this index is a member of a Mission loop unit, it is driven by the unit's
+                // shared span clock, NOT its own per-recording loop clock. Mission members do not
+                // carry their own per-recording LoopPlayback flag, so ShouldLoopPlayback(traj) is
+                // false for them - the interception must sit ABOVE the loop-dispatch gate (this
+                // deviates from the chain-auto-loop branch, where the equivalent interception lives
+                // inside the gate). Route it through UpdateUnitMemberPlayback (which re-checks anchor
+                // gating + warp suppression per-member). Gated entirely on unit membership, which is
+                // empty until a Mission loops, so non-members fall straight through below.
+                if (currentLoopUnits.TryGetUnitForMember(i, out GhostPlaybackLogic.LoopUnit unit))
+                {
+                    UpdateUnitMemberPlayback(
+                        i, traj, f, ctx, trajectories, unit, suppressGhosts, suppressVisualFx,
+                        hasPointData, hasInterpolatedPoints,
+                        hasSurfaceData, hasOrbitData, ref state, ref ghostActive);
+                    continue;
+                }
+
                 // === Loop dispatch (before main rendering) ===
                 if (ShouldLoopPlayback(traj))
                 {
@@ -971,19 +1150,28 @@ namespace Parsek
                     continue;
                 }
 
-                // Clean up overlap ghosts if recording switched from looping to non-looping
-                if (overlapGhosts.ContainsKey(i))
-                {
-                    DestroyAllOverlapGhosts(i);
-                    overlapGhosts.Remove(i);
-                }
-
                 // === Loop-synced debris: use parent's loop clock ===
+                // Runs BEFORE the loop->non-loop overlap cleanup below. A ride-along debris whose
+                // parent loops renders through the OVERLAP path (UpdateOverlapPlayback owns
+                // overlapGhosts[i] and expires its own staggered instances). The cleanup below must
+                // NOT wipe that list every frame: doing so destroys each demoted background instance
+                // (the older debris pieces still coasting to their crash) the very next frame, so
+                // only the freshest instance survives and it resets every cadence - the debris
+                // "disappears" long before its recorded flight ends. Non-debris recordings and a
+                // debris whose parent is NOT looping return false here and fall through to the
+                // cleanup, which is correct for them.
                 if (TryUpdateLoopSyncedDebris(
                         i, traj, f, ctx, trajectories, suppressGhosts, suppressVisualFx,
                         activationStartUT, hasPointData, hasInterpolatedPoints,
                         hasSurfaceData, hasOrbitData, ref state, ref ghostActive))
                     continue;
+
+                // Clean up overlap ghosts if recording switched from looping to non-looping.
+                if (overlapGhosts.ContainsKey(i))
+                {
+                    DestroyAllOverlapGhosts(i);
+                    overlapGhosts.Remove(i);
+                }
 
                 // === Warp suppression: hide moving ghosts during high warp ===
                 if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
@@ -1403,6 +1591,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
+            frameSkipMissionLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #460: reset overlap-iteration counter so the mainLoop breakdown's
             // `meanPerDispatch` denominator reflects only this frame's overlap dispatch work.
@@ -1497,16 +1686,166 @@ namespace Parsek
             double activationStartUT, bool hasPointData, bool hasInterpolatedPoints,
             bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
         {
+            // Widen the seam (Phase D2): reach the parent-loop path when the parent is a Mission
+            // loop unit member even if it is not per-recording looping (unit members carry no own
+            // LoopPlayback flag, so ShouldLoopPlayback(parent) is false for them).
             if (traj.LoopSyncParentIdx >= 0 && traj.LoopSyncParentIdx < trajectories.Count)
             {
                 var parent = trajectories[traj.LoopSyncParentIdx];
-                if (ShouldLoopPlayback(parent))
+                if (ShouldLoopPlayback(parent) || currentLoopUnits.OwnerByIndex.ContainsKey(traj.LoopSyncParentIdx))
                 {
+                    int parentIdx = traj.LoopSyncParentIdx;
                     double parentLoopUT;
                     long parentCycle;
                     bool parentPaused;
-                    if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
-                            out parentLoopUT, out parentCycle, out parentPaused, traj.LoopSyncParentIdx))
+
+                    // Edge 9: when the loop-sync parent is itself a Mission loop unit member, its timing
+                    // is governed by the unit's SHARED span clock, not its own per-recording loop
+                    // clock. Sourcing TryComputeLoopPlaybackUT here would resolve the parent's
+                    // standalone phase (wrong: a unit member's loop clock never sweeps past its own
+                    // EndUT into a sibling's window). Instead source the span clock for the parent's
+                    // owner so the debris rides the same clock the live parent member does. The span
+                    // clock has no inter-cycle pause (cadence == span), so parentPaused is always
+                    // false on this branch. The rest of the block (cycle-change rebuild, debrisInRange
+                    // test, RenderInRangeGhost) is unchanged - it keys off parentLoopUT / parentCycle.
+                    if (GhostPlaybackLogic.ShouldSourceDebrisFromUnitSpan(
+                            parentIdx, currentLoopUnits, out GhostPlaybackLogic.LoopUnit parentUnit))
+                    {
+                        // Interval-level trim: a ride-along debris belongs to the slice of its
+                        // parent's flight when it was jettisoned. If the parent member is start/end-
+                        // trimmed (a composition interval unchecked) and this debris was jettisoned
+                        // OUTSIDE the parent's trimmed render window, it is debris of a trimmed-out
+                        // segment - suppress it, so watching only a late segment (e.g. the pod after
+                        // the decouple) shows only that segment's own child debris, not the earlier
+                        // launch-stage jettisons. Untrimmed parents keep their full [StartUT,EndUT]
+                        // window (MemberStartUT/EndUT fall back to it), so this is a no-op for an
+                        // untrimmed mission.
+                        double parentMemberStart = parentUnit.MemberStartUT(parentIdx, parent.StartUT);
+                        double parentMemberEnd = parentUnit.MemberEndUT(parentIdx, parent.EndUT);
+                        if (traj.StartUT < parentMemberStart - LoopTiming.BoundaryEpsilon
+                            || traj.StartUT > parentMemberEnd + LoopTiming.BoundaryEpsilon)
+                        {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "debris-outside-parent-trim-window");
+                            if (ghostActive)
+                            {
+                                DestroyGhost(i, traj, f,
+                                    reason: "debris jettisoned outside parent member's trimmed window");
+                                DestroyAllOverlapGhosts(i);
+                            }
+                            CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                            return true;
+                        }
+
+                        // MISSION SELF-OVERLAP: when the parent's unit overlaps (overlap cadence
+                        // shorter than the span), the debris must overlap on the SAME cadence so its
+                        // instances ride alongside the parent member's instances. The debris is NOT a
+                        // unit member, but its absolute window [debrisStart, debrisEnd] sits inside the
+                        // span, so the SAME anchor-offset reduction the member path uses applies with
+                        // the debris's own window:
+                        //   scheduleStartUT = PhaseAnchorUT + (debrisStart - spanStart)
+                        //   playbackStartUT = debrisStart
+                        //   duration        = debrisEnd - debrisStart
+                        //   intervalSeconds = OverlapCadenceSeconds
+                        // Route it through UpdateOverlapPlayback (its own overlapGhosts[i] slot) so the
+                        // debris gets the same staggered instances as its parent. When the unit does
+                        // NOT overlap, fall through to the single span-clock instance below (unchanged).
+                        double parentUnitSpan = parentUnit.SpanEndUT - parentUnit.SpanStartUT;
+                        if (parentUnitSpan > 0 && parentUnit.OverlapCadenceSeconds < parentUnitSpan)
+                        {
+                            double debrisDuration = traj.EndUT - traj.StartUT;
+                            if (debrisDuration <= 0)
+                            {
+                                GhostRenderTrace.EmitGuardSkip(
+                                    traj, i, ctx.currentUT, "debris-unit-overlap-zero-duration");
+                                if (ghostActive)
+                                    DestroyGhost(i, traj, f, reason: "debris unit overlap zero duration");
+                                CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                                return true;
+                            }
+
+                            double debrisScheduleStartUT =
+                                parentUnit.PhaseAnchorUT + (traj.StartUT - parentUnit.SpanStartUT);
+                            double debrisPlaybackStartUT = traj.StartUT;
+
+                            bool suppressDebrisOverlapGhosts = false;
+                            if (suppressGhosts)
+                            {
+                                if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                                        ctx.currentUT, parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                        debrisPlaybackStartUT, debrisScheduleStartUT,
+                                        out double debrisNewestUT, out _)
+                                    || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                                        ctx.warpRate, traj, debrisNewestUT))
+                                {
+                                    GhostRenderTrace.EmitGuardSkip(
+                                        traj, i, ctx.currentUT, "debris-unit-overlap-warp-hidden");
+                                    if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                                    {
+                                        state.ghost.SetActive(false);
+                                        ResetGhostAppearanceTracking(state);
+                                    }
+                                    DestroyAllOverlapGhosts(i);
+                                    CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                                    return true;
+                                }
+                                suppressDebrisOverlapGhosts = true;
+                            }
+
+                            ParsekLog.VerboseRateLimited(
+                                "Engine", "debris-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
+                                "Mission self-overlap debris #" + i.ToString(CultureInfo.InvariantCulture)
+                                    + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
+                                    + " owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                                    + " overlapCadence=" + parentUnit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                                    + " debrisDur=" + debrisDuration.ToString("F2", CultureInfo.InvariantCulture),
+                                5.0);
+
+                            UpdateOverlapPlayback(
+                                i, traj, f, ctx, state,
+                                parentUnit.OverlapCadenceSeconds, debrisDuration,
+                                debrisPlaybackStartUT, debrisScheduleStartUT,
+                                suppressVisualFx, suppressDebrisOverlapGhosts);
+                            LogLoopSyncedDebrisOverlapVisibility(
+                                i, traj, ctx.currentUT, parentUnit.OverlapCadenceSeconds,
+                                debrisDuration, debrisPlaybackStartUT, debrisScheduleStartUT);
+                            return true;
+                        }
+
+                        // Pass parentUnit.RelaunchSchedule so ride-along debris rides its scheduled
+                        // parent's non-uniform launches (NOT the debris's own); null for a non-scheduled
+                        // parent keeps the uniform path. With a scheduled parent (or any unit whose
+                        // CadenceSeconds > span) the parked inter-cycle tail DOES engage between
+                        // launches, so we MUST consume isInInterCycleTail and hide the debris during the
+                        // gap (otherwise debris whose own end is at/after the parent's spanEnd would
+                        // stay "in range" at the clamped spanEnd frame and render a frozen stale ghost
+                        // between launches). Route it through parentPaused so it reuses the existing
+                        // hide-and-skip path, exactly as the parent member is hidden by HiddenInterCycleTail.
+                        if (!GhostPlaybackLogic.TryComputeSpanLoopUT(
+                                ctx.currentUT, parentUnit.PhaseAnchorUT, parentUnit.SpanStartUT,
+                                parentUnit.SpanEndUT, parentUnit.CadenceSeconds, out parentLoopUT,
+                                out parentCycle, out bool parentInInterCycleTail, parentUnit.RelaunchSchedule,
+                                parentUnit.LoiterCuts))
+                        {
+                            GhostRenderTrace.EmitGuardSkip(
+                                traj, i, ctx.currentUT, "parent-unit-span-clock-unresolved");
+                            if (ghostActive)
+                                DestroyGhost(i, traj, f, reason: "parent unit span clock unresolved");
+                            CountFrameSkip(GhostPlaybackSkipReason.LoopSyncFailed);
+                            return true;
+                        }
+                        parentPaused = parentInInterCycleTail; // parked between launches -> hide debris
+                        ParsekLog.VerboseOnChange(
+                            "Engine",
+                            "loop-sync-debris-unit-" + i.ToString(CultureInfo.InvariantCulture),
+                            parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture),
+                            "loop-sync debris #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " parent #" + parentIdx.ToString(CultureInfo.InvariantCulture)
+                                + " is unit member (owner=" + parentUnit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                                + ") - sourcing span clock");
+                    }
+                    else if (!TryComputeLoopPlaybackUT(parent, ctx.currentUT, ctx.autoLoopIntervalSeconds,
+                            out parentLoopUT, out parentCycle, out parentPaused, parentIdx))
                     {
                         GhostRenderTrace.EmitGuardSkip(
                             traj, i, ctx.currentUT, "parent-loop-sync-failed");
@@ -1566,6 +1905,63 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Non-gated per-frame visibility diagnostic for a ride-along debris rendered through the
+        /// mission self-overlap path. Unlike <see cref="GhostRenderTrace"/> (which only logs an
+        /// ~4 s window after each spawn, then goes silent in steady state), this reports the
+        /// debris's ACTUAL rendered-instance count every frame (rate-limited 2 s), so a playtest
+        /// log shows how long the debris is really visible across overlap cycles and whether the
+        /// staggered background instances (which should collectively cover its whole flight) render
+        /// at all. <c>totalVisible</c> dropping to 0 between cycles, or <c>overlapActive</c> staying
+        /// 0 while the primary resets every cadence, is the "debris disappears too quickly" signal.
+        /// </summary>
+        private void LogLoopSyncedDebrisOverlapVisibility(
+            int index, IPlaybackTrajectory traj, double currentUT,
+            double cadenceSeconds, double duration, double playbackStartUT, double scheduleStartUT)
+        {
+            int primaryActive = 0;
+            long primaryCycle = -1;
+            if (ghostStates.TryGetValue(index, out GhostPlaybackState primary) && primary != null)
+            {
+                primaryCycle = primary.loopCycleIndex;
+                if (primary.ghost != null && primary.ghost.activeSelf)
+                    primaryActive = 1;
+            }
+
+            int overlapActive = 0;
+            int overlapTotal = 0;
+            if (overlapGhosts.TryGetValue(index, out List<GhostPlaybackState> overlaps) && overlaps != null)
+            {
+                overlapTotal = overlaps.Count;
+                for (int k = 0; k < overlaps.Count; k++)
+                {
+                    if (overlaps[k]?.ghost != null && overlaps[k].ghost.activeSelf)
+                        overlapActive++;
+                }
+            }
+
+            GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                currentUT, cadenceSeconds, duration, playbackStartUT, scheduleStartUT,
+                out double newestLoopUT, out long newestCycle);
+
+            ParsekLog.VerboseRateLimited(
+                "Engine", "debris-vis-" + index.ToString(CultureInfo.InvariantCulture),
+                "Loop-synced debris #" + index.ToString(CultureInfo.InvariantCulture)
+                    + " \"" + (traj?.VesselName ?? "?") + "\" visibility:"
+                    + " totalVisible=" + (primaryActive + overlapActive).ToString(CultureInfo.InvariantCulture)
+                    + " (primaryActive=" + primaryActive.ToString(CultureInfo.InvariantCulture)
+                    + " cycle=" + primaryCycle.ToString(CultureInfo.InvariantCulture)
+                    + ", overlapActive=" + overlapActive.ToString(CultureInfo.InvariantCulture)
+                    + "/" + overlapTotal.ToString(CultureInfo.InvariantCulture) + ")"
+                    + " newestCycle=" + newestCycle.ToString(CultureInfo.InvariantCulture)
+                    + " newestLoopUT=" + newestLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + " cadence=" + cadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                    + " window=[" + playbackStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                    + "," + (playbackStartUT + duration).ToString("F2", CultureInfo.InvariantCulture) + "]"
+                    + " at UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                2.0);
         }
 
         /// <summary>
@@ -1648,6 +2044,580 @@ namespace Parsek
             }
 
             return FirstSpawnOutcome.Proceed;
+        }
+
+        /// <summary>
+        /// Loop unit follower dispatch. Routes a unit member onto the unit's SHARED mission clock
+        /// instead of its own per-recording loop clock. Each member runs this independently per
+        /// frame (no shared mutable cache, design D3): it computes the shared spanLoopUT and renders
+        /// THIS member at that loopUT IFF the clock is inside THIS member's own [StartUT, EndUT]
+        /// window; otherwise it hides / destroys its ghost. There is NO cross-member selection -
+        /// multiple members render concurrently (debris alongside their parent), exactly like a
+        /// rewind. During the inter-cycle tail-wait (cadence greater than span) every member hides.
+        ///
+        /// Re-checks anchor gating (edge 17) and warp suppression (edge 12) per-member so the unit
+        /// only supplies the clock; the member still resolves its own anchor / surface at loopUT.
+        /// On a unit cycle change the ghost is rebuilt for a clean per-cycle visual.
+        /// <paramref name="state"/> / <paramref name="ghostActive"/> are by ref because the
+        /// cycle-change path nulls state and the inner RenderInRangeGhost reassigns both.
+        /// </summary>
+        private void UpdateUnitMemberPlayback(
+            int i, IPlaybackTrajectory traj, TrajectoryPlaybackFlags f, FrameContext ctx,
+            IReadOnlyList<IPlaybackTrajectory> trajectories, GhostPlaybackLogic.LoopUnit unit,
+            bool suppressGhosts, bool suppressVisualFx,
+            bool hasPointData, bool hasInterpolatedPoints,
+            bool hasSurfaceData, bool hasOrbitData, ref GhostPlaybackState state, ref bool ghostActive)
+        {
+            string unitKey = "unit-" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture);
+
+            // (1) Per-member anchor gating (edge 17): the unit only supplies the clock; each member
+            // still short-circuits if its own anchor is configured but unloaded.
+            if (traj.LoopAnchorVesselId != 0 && !loadedAnchorVessels.Contains(traj.LoopAnchorVesselId))
+            {
+                GhostRenderTrace.EmitGuardSkip(
+                    traj, i, ctx.currentUT,
+                    "unit-member-anchor-unloaded pid=" + traj.LoopAnchorVesselId.ToString(CultureInfo.InvariantCulture));
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: $"unit member anchor {traj.LoopAnchorVesselId} unloaded");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.AnchorMissing);
+                return;
+            }
+
+            // (1b) MISSION SELF-OVERLAP: when the mission's overlap cadence is SHORTER than the span,
+            // the whole mission relaunches every OverlapCadenceSeconds, so several staggered instances
+            // play concurrently. For THIS member that is EXACTLY a per-recording overlap loop:
+            //   scheduleStartUT = PhaseAnchorUT + (memberStart - spanStart)  (when this instance launches)
+            //   playbackStartUT = memberStart                                (where in the member to start)
+            //   duration        = memberEnd - memberStart                    (the member's own length)
+            //   intervalSeconds = OverlapCadenceSeconds                      (the mission launch cadence)
+            // Route the member through the existing UpdateOverlapPlayback so overlapGhosts[i] holds the
+            // staggered instances (the primary = newest instance, the camera-followed one). Do NOT clear
+            // overlapGhosts[i] in this branch. The span-clock window/inter-cycle-tail decision below is
+            // NOT used here (overlap has its own per-instance scheduling); the member-specific warp gate
+            // is handled inside UpdateOverlapPlayback. When OverlapCadenceSeconds >= span we fall through
+            // to the EXACT single-instance span-clock behavior (including the overlapGhosts[i] clear).
+            double unitSpan = unit.SpanEndUT - unit.SpanStartUT;
+
+            // Interval-level start/end trim: this member's effective render window (its own range,
+            // unless the mission trimmed it - e.g. a pod shown only after the decouple). Both the
+            // overlap and the span-clock branches use these instead of the raw recording bounds, so
+            // an untrimmed mission keeps its full range (no behavior change).
+            double memberStartUT = unit.MemberStartUT(i, traj.StartUT);
+            double memberEndUT = unit.MemberEndUT(i, traj.EndUT);
+
+            if (GhostPlaybackLogic.UnitMemberOverlaps(unit))
+            {
+                double memberDuration = memberEndUT - memberStartUT;
+                if (memberDuration <= 0)
+                {
+                    GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-overlap-member-zero-duration");
+                    if (ghostActive)
+                    {
+                        DestroyGhost(i, traj, f, reason: "unit overlap member zero duration");
+                        DestroyAllOverlapGhosts(i);
+                    }
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+
+                double memberScheduleStartUT = GhostPlaybackLogic.ComputeMemberOverlapScheduleStartUT(
+                    unit.PhaseAnchorUT, unit.SpanStartUT, memberStartUT);
+                double memberPlaybackStartUT = memberStartUT;
+
+                // Warp suppression mirrors the standalone overlap dispatch (~2659): hide the moving
+                // overlap meshes at high warp but keep the stationary newest primary visible.
+                bool suppressOverlapGhosts = false;
+                if (suppressGhosts)
+                {
+                    if (!GhostPlaybackLogic.TryComputeNewestOverlapPlaybackUT(
+                            ctx.currentUT, unit.OverlapCadenceSeconds, memberDuration,
+                            memberPlaybackStartUT, memberScheduleStartUT,
+                            out double newestOverlapUT, out _)
+                        || GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                            ctx.warpRate, traj, newestOverlapUT))
+                    {
+                        GhostRenderTrace.EmitGuardSkip(
+                            traj, i, ctx.currentUT, "unit-overlap-warp-hidden");
+                        if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                        {
+                            state.ghost.SetActive(false);
+                            ResetGhostAppearanceTracking(state);
+                        }
+                        DestroyAllOverlapGhosts(i);
+                        CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                        return;
+                    }
+                    suppressOverlapGhosts = true;
+                }
+
+                // Member handoff for the camera. By default the camera follows the NEWEST mission
+                // instance (its span-progress loopUT picks the live member to hand off to). BUT when
+                // the player is WATCHING an instance of THIS unit and that instance is still in
+                // flight, drive the handoff off the WATCHED instance's clock instead, so watching an
+                // overlapping mission tracks one launch all the way through its stages rather than
+                // jumping to each new launch. When the watched instance ENDS (or before it launches)
+                // we fall back to the newest instance, and the watch's own cycle-lost fallback then
+                // snaps the camera onto the newest in-flight launch. isInInterCycleTail is false
+                // (overlap relaunches with no gap). Computed deterministically per member (only the
+                // first to run this frame acts, via the lastUnitSelection dedup).
+                double handoffLoopUT;
+                long handoffCycle;
+                double watchedInstLoopUT = 0;
+                bool watchingThisUnitInstance =
+                    ctx.protectedLoopCycleIndex >= 0
+                    && System.Array.IndexOf(unit.MemberIndices, ctx.protectedIndex) >= 0;
+                bool watchPinnedToInstance = watchingThisUnitInstance
+                    && GhostPlaybackLogic.TryComputeMissionInstanceSpanLoopUT(
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
+                        ctx.currentUT, ctx.protectedLoopCycleIndex, out watchedInstLoopUT);
+                // When the watched instance has ENDED (it IS a member of this unit, but its own span
+                // clock is past the span end), the through-line the player was following is done.
+                // Suppress the handoff retarget so it does NOT fall back to the newest instance and
+                // yank the camera onto a fresh launch's same-named member: that cross-instance jump
+                // would preempt the watched member's own terminal explosion hold (which fires later
+                // this frame in UpdateOverlapPlayback and only applies while watchedRecordingIndex
+                // still equals the ending member). The post-hold retarget then restarts the camera
+                // on the through-line root. Diagnostics below still use the newest clock.
+                bool watchedInstanceEnded = watchingThisUnitInstance && !watchPinnedToInstance;
+                if (watchPinnedToInstance)
+                {
+                    handoffLoopUT = watchedInstLoopUT;
+                    handoffCycle = ctx.protectedLoopCycleIndex;
+                }
+                else
+                {
+                    GhostPlaybackLogic.ComputeNewestMissionInstanceSpanLoopUT(
+                        unit.PhaseAnchorUT, unit.SpanStartUT, unitSpan, unit.OverlapCadenceSeconds,
+                        ctx.currentUT, out handoffLoopUT, out handoffCycle);
+                }
+                LogUnitTransitionIfChanged(
+                    unit, unitKey, trajectories, handoffLoopUT, handoffCycle, ctx.currentUT,
+                    isInInterCycleTail: false, watchedIndex: ctx.protectedIndex,
+                    suppressWatchRetarget: watchedInstanceEnded);
+
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-self-overlap-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Mission self-overlap unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " overlapCadence=" + unit.OverlapCadenceSeconds.ToString("F2", CultureInfo.InvariantCulture)
+                        + " span=" + unitSpan.ToString("F2", CultureInfo.InvariantCulture)
+                        + " memberDur=" + memberDuration.ToString("F2", CultureInfo.InvariantCulture)
+                        + " schedStart=" + memberScheduleStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " handoffLoopUT=" + handoffLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " handoffCycle=" + handoffCycle.ToString(CultureInfo.InvariantCulture)
+                        + (watchPinnedToInstance ? " (watched-instance pin)" : " (newest)"),
+                    5.0);
+
+                UpdateOverlapPlayback(
+                    i, traj, f, ctx, state,
+                    unit.OverlapCadenceSeconds, memberDuration,
+                    memberPlaybackStartUT, memberScheduleStartUT,
+                    suppressVisualFx, suppressOverlapGhosts);
+                return;
+            }
+
+            // (2) Shared mission clock + THIS member's own-window check, via the pure (xUnit-tested)
+            // decision helper. No cross-member selection: the decision keys ONLY on whether the
+            // shared spanLoopUT is in THIS member's [StartUT, EndUT].
+            var decision = GhostPlaybackLogic.DecideUnitMemberRender(
+                ctx.currentUT, unit.PhaseAnchorUT, unit.SpanStartUT, unit.SpanEndUT, unit.CadenceSeconds,
+                memberStartUT, memberEndUT, out double spanLoopUT, out long unitCycle,
+                out bool isInInterCycleTail, unit.RelaunchSchedule, unit.LoiterCuts);
+
+            // Cycle-wrap / camera-handoff diagnostics + watch retarget: the first member of the unit
+            // to run this frame observes the unit-wide transition and acts once (rate-limited per
+            // unit). It computes the unit's live camera member (the in-window member with the highest
+            // StartUT) by scanning all members against spanLoopUT.
+            LogUnitTransitionIfChanged(
+                unit, unitKey, trajectories, spanLoopUT, unitCycle, ctx.currentUT,
+                isInInterCycleTail, ctx.protectedIndex, suppressWatchRetarget: false);
+
+            if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.SpanClockUnresolved)
+            {
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-span-clock-unresolved");
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "unit span clock unresolved");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                return;
+            }
+
+            // (3) Not in THIS member's window (the shared clock is outside [StartUT, EndUT]), or in
+            // the inter-cycle tail-wait (cadence greater than span): hide / destroy THIS member's ghost.
+            if (decision != GhostPlaybackLogic.UnitMemberRenderDecision.Render)
+            {
+                if (decision == GhostPlaybackLogic.UnitMemberRenderDecision.HiddenInterCycleTail)
+                {
+                    // The wait between cycles (cadence greater than span): render nothing this frame.
+                    ParsekLog.VerboseRateLimited(
+                        "Engine", unitKey + "-tail",
+                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " in inter-cycle wait at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " - all members hidden",
+                        5.0);
+                }
+                else
+                {
+                    ParsekLog.VerboseRateLimited(
+                        "Engine", unitKey + "-hide-" + i.ToString(CultureInfo.InvariantCulture),
+                        "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                            + " hidden: loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + " outside its window [" + memberStartUT.ToString("F2", CultureInfo.InvariantCulture)
+                            + "," + memberEndUT.ToString("F2", CultureInfo.InvariantCulture) + "]",
+                        5.0);
+                }
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "mission-loop-unit-inactive");
+                // Keep-watched-owner-alive fallback (design D5): if this hidden member is the one the
+                // camera is watching, hide its ghost WITHOUT destroying it so the camera never ends
+                // up parented to a deactivated/destroyed ghost even if the UnitHandoffRetarget to the
+                // new live member is dropped or deferred a frame. Treats the watched member like the
+                // IsGhostHeld case (hide, do not destroy).
+                if (ghostActive && i == ctx.protectedIndex)
+                {
+                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        ParsekLog.VerboseRateLimited(
+                            "CameraFollow", unitKey + "-keep-owner-alive-" + i.ToString(CultureInfo.InvariantCulture),
+                            "unit watch fallback: holding watched member #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " ghost alive (hidden) until camera transfers to the live member",
+                            5.0);
+                    }
+                    DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "chain-loop unit member outside its window");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                return;
+            }
+
+            // (4a) Payload-activation gate (Fix 1): the member window uses raw StartUT/EndUT, but
+            // RenderInRangeGhost positions/interpolates against the playable payload, which can begin
+            // AFTER StartUT when ExplicitStartUT widened the semantic boundary below the first payload
+            // sample. Mirror the loop-synced-debris gate: if the shared clock is in THIS member's
+            // window but below its own payload start, hide it rather than render a stale pre-payload
+            // pose. Contiguous members (StartUT == activationStartUT) are unaffected.
+            double memberActivationStartUT = ResolveGhostActivationStartUT(traj);
+            if (spanLoopUT < memberActivationStartUT)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + i.ToString(CultureInfo.InvariantCulture)
+                        + " hidden: spanLoopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " below member activation UT=" + memberActivationStartUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-before-activation");
+                // Keep-watched-owner-alive guard (edge 10, design D5): mirror every other hide path
+                // in this method. If the pre-activation member is the one the camera is watching,
+                // hide its ghost WITHOUT destroying it so ValidateWatchedGhostStillActive never drops
+                // watch and the camera stays anchored until the unit-handoff retarget lands. Without
+                // this, an ExplicitStartUT-widened watched member would be destroyed here (the only
+                // remaining unconditional DestroyGhost in the unit path), breaking the never-destroy-
+                // the-watched-ghost invariant. Edge-of-an-edge: ExplicitStartUT widened StartUT below
+                // the first payload sample AND that member is watched. Runtime coverage is the
+                // existing in-game watch-retarget test; behavior for non-watched members is unchanged.
+                if (ghostActive && i == ctx.protectedIndex)
+                {
+                    if (state != null && state.ghost != null && state.ghost.activeSelf)
+                    {
+                        state.ghost.SetActive(false);
+                        ResetGhostAppearanceTracking(state);
+                        ParsekLog.VerboseRateLimited(
+                            "CameraFollow", unitKey + "-keep-owner-alive-pre-activation-" + i.ToString(CultureInfo.InvariantCulture),
+                            "unit watch fallback: holding watched member #" + i.ToString(CultureInfo.InvariantCulture)
+                                + " ghost alive (hidden) below activation UT until camera transfers to the live member",
+                            5.0);
+                    }
+                    DestroyAllOverlapGhosts(i);
+                    CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                    return;
+                }
+                if (ghostActive)
+                {
+                    DestroyGhost(i, traj, f, reason: "chain-loop unit member before activation UT");
+                    DestroyAllOverlapGhosts(i);
+                }
+                CountFrameSkip(GhostPlaybackSkipReason.MissionLoopUnitInactive);
+                return;
+            }
+
+            // (4b) This member renders. Warp suppression on the live member (edge 12): the unit
+            // uses the same per-frame render path, so the same warp gate applies at spanLoopUT.
+            if (suppressGhosts && GhostPlaybackLogic.ShouldSuppressGhostMeshAtWarp(
+                    ctx.warpRate, traj, spanLoopUT))
+            {
+                GhostRenderTrace.EmitGuardSkip(traj, i, ctx.currentUT, "unit-member-warp-hidden");
+                if (ghostActive && state != null && state.ghost != null && state.ghost.activeSelf)
+                {
+                    state.ghost.SetActive(false);
+                    ResetGhostAppearanceTracking(state);
+                }
+                DestroyAllOverlapGhosts(i);
+                CountFrameSkip(GhostPlaybackSkipReason.WarpHidden);
+                return;
+            }
+
+            // The shared clock never produces overlap cycles (one cycle live), so a unit member
+            // should never carry overlap ghosts. Clear any stale ones left over from a prior
+            // standalone overlap-loop life (e.g. the member was just toggled into the unit
+            // mid-flight). Mirror the standalone path (~1031): Remove(i) after destroying so the
+            // (now empty) dict entry does not keep ContainsKey(i) true and rerun this every frame.
+            if (overlapGhosts.ContainsKey(i))
+            {
+                DestroyAllOverlapGhosts(i);
+                overlapGhosts.Remove(i);
+            }
+
+            // (5) Cycle change: rebuild the ghost for a clean per-cycle visual (same shape the
+            // loop-synced-debris path uses) and clear the completed-event dedup so it can replay.
+            if (state != null && state.loopCycleIndex != unitCycle)
+            {
+                DestroyGhost(i, traj, f, reason: "chain-loop unit cycle change");
+                ghostActive = false;
+                state = null;
+                completedEventFired.Remove(i);
+            }
+
+            // (6) Render THIS member at the shared loopUT via the normal in-range path. Override the
+            // frame UT for positioning (same technique as TryUpdateLoopSyncedDebris).
+            var syncCtx = ctx;
+            syncCtx.currentUT = spanLoopUT;
+            if (RenderInRangeGhost(i, traj, f, syncCtx, suppressVisualFx,
+                    hasPointData, hasInterpolatedPoints, hasSurfaceData, hasOrbitData,
+                    allowEarlyDestroyedDebrisCompletion: false,
+                    ref state, ref ghostActive))
+            {
+                if (state != null)
+                    state.loopCycleIndex = unitCycle;
+            }
+        }
+
+        /// <summary>
+        /// Logs the unit's cycle wrap and camera-handoff once per transition (rate-limited per unit
+        /// owner) and fires the watch retarget. Called by every member of the unit; only the first
+        /// member to run this frame sees a CHANGE versus the last recorded state and acts. Computes
+        /// the unit's live CAMERA member = the in-window member with the highest StartUT (the newest
+        /// segment) by scanning all members against <paramref name="spanLoopUT"/>; -1 = nothing live
+        /// (inter-cycle wait / before span). Records the new state so siblings later in the same
+        /// frame see no change.
+        /// </summary>
+        private void LogUnitTransitionIfChanged(
+            GhostPlaybackLogic.LoopUnit unit, string unitKey,
+            IReadOnlyList<IPlaybackTrajectory> trajectories,
+            double spanLoopUT, long cycle, double currentUT, bool isInInterCycleTail, int watchedIndex,
+            bool suppressWatchRetarget)
+        {
+            // Live camera member = the in-window member to point the watch camera at. -1 in the
+            // inter-cycle wait or before the span. Selection is two-tier so a structural fork
+            // (e.g. a crew EVA peeling off at the same UT the parent vessel continues) does not
+            // steal the camera from the through-line the player is watching:
+            //   tier 1 - a member whose VesselName matches the WATCHED member's VesselName always
+            //            beats a non-match (keeps the camera on the continuing craft L->cont, not
+            //            L->EVA-kerbal which shares the same StartUT);
+            //   tier 2 - within the same tier, the newest segment (highest StartUT) wins.
+            // watchedVesselName is null when nothing is watched, so unwatched playback keeps the
+            // pure highest-StartUT behavior.
+            string watchedVesselName = null;
+            if (watchedIndex >= 0 && watchedIndex < trajectories.Count
+                && trajectories[watchedIndex] != null)
+                watchedVesselName = trajectories[watchedIndex].VesselName;
+
+            int liveMemberIdx = -1;
+            double liveStartUT = double.NegativeInfinity;
+            bool liveMatchesWatched = false;
+            if (!isInInterCycleTail)
+            {
+                int[] members = unit.MemberIndices;
+                if (members != null)
+                {
+                    for (int m = 0; m < members.Length; m++)
+                    {
+                        int idx = members[m];
+                        if (idx < 0 || idx >= trajectories.Count || trajectories[idx] == null)
+                            continue;
+                        var member = trajectories[idx];
+                        // Use the unit's TRIMMED member window (interval start/end trim), matching
+                        // DecideUnitMemberRender. The raw [StartUT,EndUT] would treat a start/end-
+                        // trimmed member as live while the engine is hiding it, so the watch camera
+                        // could hand off to (or stay on) a member that is not actually rendered.
+                        double mStart = unit.MemberStartUT(idx, member.StartUT);
+                        double mEnd = unit.MemberEndUT(idx, member.EndUT);
+                        if (!GhostPlaybackLogic.IsLoopUTInMemberWindow(spanLoopUT, mStart, mEnd))
+                            continue;
+
+                        bool matchesWatched = watchedVesselName != null
+                            && string.Equals(member.VesselName, watchedVesselName,
+                                StringComparison.Ordinal);
+
+                        if (GhostPlaybackLogic.IsBetterUnitCameraLiveMember(
+                                matchesWatched, mStart, liveMatchesWatched, liveStartUT))
+                        {
+                            liveStartUT = mStart;
+                            liveMemberIdx = idx;
+                            liveMatchesWatched = matchesWatched;
+                        }
+                    }
+                }
+            }
+
+            // Is the watched member rendering this frame (for the retarget transition)? Use the
+            // TRIMMED member window so this matches the actual render decision (a trimmed watched
+            // member is "not rendering" once the shared clock leaves its trimmed window, even if it
+            // is still inside the raw recording range).
+            bool watchedIsRendering = false;
+            if (watchedIndex >= 0 && watchedIndex < trajectories.Count
+                && trajectories[watchedIndex] != null && !isInInterCycleTail)
+            {
+                var w = trajectories[watchedIndex];
+                watchedIsRendering = GhostPlaybackLogic.IsLoopUTInMemberWindow(
+                    spanLoopUT,
+                    unit.MemberStartUT(watchedIndex, w.StartUT),
+                    unit.MemberEndUT(watchedIndex, w.EndUT));
+            }
+
+            if (!lastUnitSelection.TryGetValue(unit.OwnerIndex, out var prev))
+            {
+                lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, watchedIsRendering);
+                return;
+            }
+            bool watchedWasRendering = prev.watchedRendering;
+            if (prev.cycle == cycle && prev.liveMemberIdx == liveMemberIdx
+                && watchedWasRendering == watchedIsRendering)
+                return;
+
+            if (cycle != prev.cycle)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-wrap",
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " wrapped cycle " + prev.cycle.ToString(CultureInfo.InvariantCulture)
+                        + "->" + cycle.ToString(CultureInfo.InvariantCulture)
+                        + " at UT=" + currentUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+            else if (liveMemberIdx != prev.liveMemberIdx && liveMemberIdx >= 0 && prev.liveMemberIdx >= 0)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Engine", unitKey + "-handoff",
+                    "Chain-loop unit owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " camera-live member #" + prev.liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + "->#" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            }
+
+            // Watch retarget: when the watched member stops rendering (its window ended) and a
+            // different live member exists, transfer the camera to it. The pure decision
+            // (ShouldRetargetWatchOnUnitHandoff) gates on the watched index belonging to this unit
+            // and the render-state transition; firing here keys off the SAME single per-frame
+            // transition detector, so the event fires once per boundary, not every frame.
+            //
+            // Re-fire while pending: the host transfer can DEFER when the target member's ghost is
+            // not spawned yet (unit-member respawns are time-sliced over several frames). A
+            // fire-and-forget single shot would leave the camera stuck on the old (now hidden)
+            // member because the steady-state early-return above suppresses any re-fire once the
+            // state advances. To make the retarget self-healing we DO NOT advance the
+            // watchedRendering edge of lastUnitSelection until the watch camera has actually
+            // landed on liveMemberIdx (the engine reads the live watched index as `watchedIndex`,
+            // i.e. ctx.protectedIndex == WatchModeController.WatchedRecordingIndex). While the
+            // transfer is pending we keep watchedRendering=true, so next frame the gate sees the
+            // same wasRendering=true -> isRendering=false transition and re-fires the event. Once
+            // the transfer lands (watchedIndex == liveMemberIdx) we store the real watchedIsRendering
+            // value and re-firing stops. cycle / liveMemberIdx always advance as-is so we never emit
+            // duplicate "wrapped cycle" diagnostics.
+            // Only hand the watch camera off to a SAME-VESSEL continuation of the through-line the
+            // player is watching (liveMatchesWatched). When the watched member ends and the only
+            // in-window member is a different-named sibling (e.g. a kerbal who went EVA, or any
+            // peeled-off piece), DO NOT retarget: leaving the camera on the ending member lets its
+            // own terminal end take over (a terminal=Destroyed member fires ExplosionHoldStart from
+            // UpdateOverlapPlayback later in the SAME frame, which HandleOverlapCameraAction applies
+            // only while watchedRecordingIndex still equals that member). Retargeting to the sibling
+            // first moves watchedRecordingIndex off the member, so HandleOverlapCameraAction's
+            // `watchedRecordingIndex != evt.Index` guard silently drops the explosion hold and the
+            // camera jumps to the sibling at the moment of impact instead of holding the explosion.
+            // watchedVesselName is null when nothing is watched, so liveMatchesWatched is false and
+            // retargetMemberIdx is -1; the retarget already cannot fire unwatched, so this is inert
+            // there.
+            // The watched through-line's END suppresses the handoff in two ways: (a) the watched
+            // INSTANCE has ended (suppressWatchRetarget) - the whole instance is done, so the camera
+            // must NOT jump to a fresh launch's same-named member (cross-instance); (b) within a live
+            // instance, the only remaining in-window member is a DIFFERENT vessel (a peeled EVA kerbal
+            // / booster) - ResolveUnitHandoffRetargetMember returns -1. Either way the camera holds on
+            // the ending member so its terminal explosion hold applies and the post-hold retarget
+            // restarts on the through-line root.
+            int retargetMemberIdx = suppressWatchRetarget
+                ? -1
+                : GhostPlaybackLogic.ResolveUnitHandoffRetargetMember(liveMemberIdx, liveMatchesWatched);
+            if (suppressWatchRetarget && watchedIndex >= 0)
+                ParsekLog.VerboseRateLimited(
+                    "CameraFollow", unitKey + "-handoff-instance-ended",
+                    "unit watch handoff suppressed owner="
+                        + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " watched #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                        + " instance ended - holding for its own terminal end / post-hold restart"
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+            else if (retargetMemberIdx < 0 && watchedIndex >= 0 && watchedWasRendering
+                && !watchedIsRendering && liveMemberIdx >= 0)
+                ParsekLog.VerboseRateLimited(
+                    "CameraFollow", unitKey + "-handoff-noncontinuation",
+                    "unit watch handoff suppressed owner="
+                        + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " watched #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                        + " ended; only live member #" + liveMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + " is a different vessel - holding for the watched member's own end"
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture),
+                    5.0);
+
+            bool retargetFired = GhostPlaybackLogic.ShouldRetargetWatchOnUnitHandoff(
+                watchedIndex, watchedWasRendering, watchedIsRendering, retargetMemberIdx, unit);
+            if (retargetFired)
+            {
+                ParsekLog.Info("CameraFollow",
+                    "unit watch retarget owner=" + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                        + " member #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                        + "->#" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
+                        + " at loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                OnLoopCameraAction?.Invoke(new CameraActionEvent
+                {
+                    Index = retargetMemberIdx,
+                    Action = CameraActionType.UnitHandoffRetarget,
+                });
+                // If the watch camera did not transfer this frame (still on the old member because
+                // the target ghost is mid-build), the pure helper preserves the rendering edge so the
+                // event re-fires next frame; this rate-limited line records that pending state.
+                if (watchedIndex != retargetMemberIdx)
+                    ParsekLog.VerboseRateLimited(
+                        "CameraFollow", "unit-handoff-retry",
+                        "unit watch retarget pending owner="
+                            + unit.OwnerIndex.ToString(CultureInfo.InvariantCulture)
+                            + " target #" + retargetMemberIdx.ToString(CultureInfo.InvariantCulture)
+                            + " (watch still #" + watchedIndex.ToString(CultureInfo.InvariantCulture)
+                            + ") - re-firing until ghost spawns",
+                        5.0);
+            }
+
+            // Self-healing edge: while the retarget is pending (target ghost not yet spawned) keep
+            // the rendering edge true so the steady-state early-return does not suppress the re-fire.
+            // Once the transfer lands (watchedIndex == retargetMemberIdx) the real value is stored and
+            // re-firing stops. cycle / liveMemberIdx always advance as-is (no duplicate wrap logs).
+            bool storedWatchedRendering = GhostPlaybackLogic.ResolveUnitHandoffStoredRenderingEdge(
+                retargetFired, watchedIndex, retargetMemberIdx, watchedIsRendering);
+
+            lastUnitSelection[unit.OwnerIndex] = (cycle, liveMemberIdx, storedWatchedRendering);
         }
 
         /// <summary>
@@ -1761,7 +2731,7 @@ namespace Parsek
             state.anchorRetiredThisFrame = false;
             bool usedBodyFixedPrimary = false;
 
-            // Position the ghost. Parent-anchored v13 debris is only valid
+            // Position the ghost. Parent-anchored debris is only valid
             // while a recorded Relative section covers the playback UT; outside
             // that coverage, hide instead of falling through to flat points,
             // surface, or orbit-tail playback. The ShadowPositioned route has
@@ -2099,8 +3069,23 @@ namespace Parsek
                 // Flag events are applied earlier in RenderInRangeGhost, before zone check (#249).
             }
 
+            bool priorVisualFxSuppressed = state.visualFxSuppressed;
+            state.visualFxSuppressed = suppressVisualFx;
+
             if (suppressVisualFx)
             {
+                // Diagnostic (anchor-distance tracer): log the ghost-to-anchor-vehicle distance
+                // on the on->off FX transition so a "FX vanished too early" report can be checked
+                // against the actual anchor distance (not camera distance). ghostPos/anchorPos
+                // expose a phantom-distance seam (positions look close but the metric is huge).
+                if (!priorVisualFxSuppressed)
+                    ParsekLog.VerboseRateLimited("Zone", $"fx-teardown-{index}",
+                        $"FX suppressed: ghost #{index} \"{state.vesselName}\" cycle="
+                        + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                        + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                        + " renderDist=" + FormatPlaybackDistanceForLog(state.lastRenderDistance)
+                        + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                        + " anchorPos=" + FormatActiveVesselWorldPosForLog());
                 GhostPlaybackLogic.StopAllEngineFx(state);
                 GhostPlaybackLogic.StopAllRcsFx(state);
                 GhostPlaybackLogic.StopAllRcsEmissions(state);
@@ -2112,6 +3097,19 @@ namespace Parsek
                 UpdateReentryFx(index, state, traj.VesselName, warpRate);
                 GhostPlaybackLogic.RestoreAllRcsEmissions(state);
                 GhostPlaybackLogic.UnmuteAllAudio(state);
+
+                // Engine FX are event-driven and StopAllEngineFx left them dark; nothing
+                // re-applies them per frame. On the suppressed -> unsuppressed transition,
+                // restart them from the last recorded throttle so a ghost re-entering FX
+                // range (canonical case: a looping aircraft that repeatedly crosses the
+                // anchor distance) keeps its plume. ApplyPartEvents ran above and caught the
+                // throttle cursor up to this UT, so a throttle-down during the suppressed
+                // window has already cleared currentPower and is not re-ignited here. When the
+                // transition also coincides with a ghost re-activation, RestoreDeferredRuntimeFxState
+                // (in ApplyNonRetiredPostPosition) re-applies the same engines this frame too;
+                // both route through SetEngineEmission and are idempotent.
+                if (ShouldRestartEngineFxAfterSuppression(suppressVisualFx, priorVisualFxSuppressed))
+                    GhostPlaybackLogic.RestoreActiveEngineFx(state);
             }
 
             // Per-frame atmosphere attenuation — smoothly fade audio as ghost ascends/descends.
@@ -3300,8 +4298,7 @@ namespace Parsek
             // their parent. Post-window Absolute sections bypass this method entirely
             // through TryGetRelativeSectionAtUT returning false for non-Relative
             // sections (see plan section 7).
-            bool parentAnchored = traj != null
-                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
+            bool parentAnchored = IsParentAnchoredBodyFixedPrimaryCandidate(traj);
             bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, playbackUT);
             DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic diagnostic = default;
@@ -3351,16 +4348,19 @@ namespace Parsek
 
             positioner.InterpolateAndPositionRelative(
                 index, traj, state, playbackUT, suppressFx, target);
-            if (parentAnchored
-                && loopAnchoredDebrisChain
-                && state != null
+            // Body-fixed fallback when the relative anchor could not resolve (see the matching block
+            // in PositionLoopAtPlaybackUT). Fires for parent-anchored loop-chain debris AND for a
+            // top-level vessel whose active section is Relative against a sibling that ended early
+            // (e.g. an upper stage recorded relative to a probe that crashed). TryPositionBodyFixedPrimary
+            // is self-gating (Relative section + covering body-fixed frames), so it is inert otherwise.
+            if (state != null
                 && state.anchorRetiredThisFrame
                 && TryPositionBodyFixedPrimary(
                     index,
                     traj,
                     state,
                     playbackUT,
-                    "relative-section-loop-chain-fallback"))
+                    "relative-section-anchor-retired-fallback"))
             {
                 usedBodyFixedPrimary = true;
             }
@@ -3427,6 +4427,22 @@ namespace Parsek
 
             return true;
         }
+
+        /// <summary>
+        /// Gate for the body-fixed-primary playback route: a recording is a parent-anchored
+        /// body-fixed-primary candidate when it carries a <c>ParentAnchorRecordingId</c>, REGARDLESS
+        /// of <c>IsDebris</c>. Both genuine debris (IsDebris=true) and controlled-decoupled children
+        /// (IsDebris=false: probes, landers, a continuing upper stage of a staged rocket) render
+        /// through their own <c>bodyFixedFrames</c> first. Shared by the non-loop
+        /// (<see cref="TryPositionRelativeSectionAtPlaybackUT"/>) and loop/overlap
+        /// (<see cref="PositionLoopAtPlaybackUT"/>) paths so the two never diverge: the loop path
+        /// used to additionally require IsDebris, which silently dropped controlled children to the
+        /// plain relative resolver and retired them to a stale / garbage position whenever their
+        /// transient sibling anchor (e.g. a probe that decoupled and crashed) ended before the
+        /// child's own window did. Pure; unit-tested.
+        /// </summary>
+        internal static bool IsParentAnchoredBodyFixedPrimaryCandidate(IPlaybackTrajectory traj)
+            => traj != null && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
 
         // KEEP debris-only: the `IsDebris` conjunct here is semantic. Loop-anchored
         // chains are debris-of-a-looped-vessel; controlled-decoupled children do
@@ -3757,10 +4773,14 @@ namespace Parsek
             bool suppressFx,
             string callsite)
         {
-            bool parentAnchoredDebris = traj != null
-                && traj.IsDebris
-                && !string.IsNullOrWhiteSpace(traj.ParentAnchorRecordingId);
-            bool loopAnchoredDebrisChain = parentAnchoredDebris
+            // Parent-anchored gate is ParentAnchorRecordingId != null ALONE (shared with the
+            // non-loop path via IsParentAnchoredBodyFixedPrimaryCandidate). Both genuine debris and
+            // controlled-decoupled children (the continuing upper stage of a staged rocket, etc.)
+            // render through their own bodyFixedFrames first. ShouldUseLoopAnchoredDebrisChain still
+            // requires IsDebris, so a controlled child is NOT a loop-anchored chain: it takes the
+            // body-fixed-primary-first branch below, exactly like the non-loop path.
+            bool parentAnchored = IsParentAnchoredBodyFixedPrimaryCandidate(traj);
+            bool loopAnchoredDebrisChain = parentAnchored
                 && ShouldUseLoopAnchoredDebrisChain(traj, loopUT);
             if (!loopAnchoredDebrisChain
                 && TryRetireParentAnchoredDebrisOutsideRecordedRelativeCoverage(
@@ -3769,13 +4789,25 @@ namespace Parsek
                 return false;
             }
 
-            if (parentAnchoredDebris
+            // The body-fixed-primary route only applies while the ACTIVE section at loopUT is
+            // Relative (its bodyFixedFrames are the recorded fallback for the relative anchor). A
+            // parent-anchored controlled-decoupled child (probe, lander, separated stage) also
+            // records ABSOLUTE tail sections after it leaves its parent's bubble; those have no
+            // bodyFixedFrames and must play through the normal absolute loop path below. Without this
+            // gate such a child whose CURRENT section is Absolute (e.g. a probe that decoupled and
+            // flew off on its own) is forced into TryPositionBodyFixedPrimary, which fails for a
+            // non-Relative section, and is retired every frame -> never visible / not watchable. The
+            // non-loop path already bails out the same way via TryGetRelativeSectionAtUT.
+            bool activeSectionIsRelative =
+                TryGetRelativeSectionAtUT(traj, loopUT, out RelativeSectionPlaybackTarget _);
+            if (parentAnchored
                 && !loopAnchoredDebrisChain
+                && activeSectionIsRelative
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite))
             {
                 return true;
             }
-            if (parentAnchoredDebris && !loopAnchoredDebrisChain)
+            if (parentAnchored && !loopAnchoredDebrisChain && activeSectionIsRelative)
             {
                 var diagnostic =
                     DebrisRelativePlaybackPolicy.ParentAnchoredDebrisCoverageDiagnostic.Create(
@@ -3827,9 +4859,17 @@ namespace Parsek
             {
                 positioner.PositionLoop(index, traj, state, loopUT, suppressFx);
             }
-            if (parentAnchoredDebris
-                && loopAnchoredDebrisChain
-                && state != null
+            // Body-fixed fallback when the relative anchor could not resolve this frame
+            // (anchorRetiredThisFrame). This covers BOTH parent-anchored loop-chain debris AND a
+            // top-level vessel whose ACTIVE section is Relative against a SIBLING that ended early:
+            // e.g. the continuing upper stage ("Kerbal X") recorded a stretch relative to the probe
+            // that decoupled and crashed ~0.1 s later, so its recorded section anchor runs out long
+            // before the section does and PositionLoop retires it. TryPositionBodyFixedPrimary is
+            // self-gating (it only succeeds when the active section is Relative AND its
+            // bodyFixedFrames cover the UT), so this never fires for absolute sections or sections
+            // without a body-fixed surface, and the ghost plays its own recorded body-fixed track
+            // instead of vanishing for most of its window.
+            if (state != null
                 && state.anchorRetiredThisFrame
                 && TryPositionBodyFixedPrimary(index, traj, state, loopUT, callsite + ".fallback"))
             {
@@ -4017,6 +5057,23 @@ namespace Parsek
                 var traj = trajectories[i];
                 if (!GhostPlaybackLogic.ShouldUseGlobalAutoLaunchQueue(traj))
                     continue;
+
+                // Mission loop unit members are scheduled by their unit's span clock, not the flat
+                // global stagger, so they must never receive a staggered global slot. Excluding
+                // them here is the single global-queue exclusion point; the span-clock render
+                // dispatch (Phase D2) takes over their playback. Keyed on unit membership,
+                // independent of the LoopPlayback flag.
+                if (currentLoopUnits.OwnerByIndex.TryGetValue(i, out int unitOwner))
+                {
+                    ParsekLog.VerboseOnChange(
+                        "Loop",
+                        "unit-loop-exclude-" + i.ToString(CultureInfo.InvariantCulture),
+                        unitOwner.ToString(CultureInfo.InvariantCulture),
+                        "unit-loop member recIdx=" + i.ToString(CultureInfo.InvariantCulture)
+                            + " excluded from global auto queue (unit owner="
+                            + unitOwner.ToString(CultureInfo.InvariantCulture) + ")");
+                    continue;
+                }
 
                 autoLoopQueueScratch.Add(new AutoLoopQueueCandidate(
                     i,
@@ -4226,6 +5283,24 @@ namespace Parsek
         internal static string FormatPlaybackDistanceForLog(double distanceMeters)
         {
             return RenderingZoneManager.FormatDistanceForLog(distanceMeters);
+        }
+
+        // Diagnostic helpers for the anchor-distance teardown tracer. Compact world-position
+        // strings so a teardown log can be cross-checked for a phantom-distance seam (ghost and
+        // anchor look close but the distance metric reads huge).
+        private static string FormatGhostWorldPosForLog(GhostPlaybackState state)
+        {
+            return state != null && state.ghost != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(state.ghost.transform.position)
+                : "(none)";
+        }
+
+        private static string FormatActiveVesselWorldPosForLog()
+        {
+            Vessel activeVessel = FlightGlobals.ActiveVessel;
+            return activeVessel != null && activeVessel.transform != null
+                ? GhostPlaybackLogic.FormatVector3Invariant(activeVessel.transform.position)
+                : "(none)";
         }
 
         /// <summary>Whether any time warp is active (reads KSP globals directly — host convenience wrapper).</summary>
@@ -5349,6 +6424,7 @@ namespace Parsek
             frameSkipAnchorReFlyUnstable = 0;
             frameSkipChainShadowed = 0;
             frameSkipChainBridgeHeld = 0;
+            frameSkipMissionLoopUnitInactive = 0;
             frameMaxSpawnTicks = 0;
             // Bug #450: mirror the production per-frame reset at UpdatePlayback's head so
             // test seams see a clean heaviest-spawn latch.
@@ -5686,6 +6762,20 @@ namespace Parsek
 
             if (HasLoadedGhostVisuals(state))
             {
+                // Diagnostic (anchor-distance tracer): the ghost mesh is about to be torn down.
+                // Log the ghost-to-anchor-vehicle distance (state.lastDistance), the render
+                // distance that drove the hide, and both world positions so a "ghost vanished
+                // too early / when a duplicate launched" report can be checked against the real
+                // anchor distance and against a phantom-distance seam.
+                ParsekLog.VerboseRateLimited("Zone", $"mesh-teardown-{index}",
+                    $"Mesh torn down: ghost #{index} \"{state.vesselName}\" "
+                    + (overlapGhost ? "overlap" : "primary")
+                    + " cycle=" + state.loopCycleIndex.ToString(CultureInfo.InvariantCulture)
+                    + " anchorDist=" + FormatPlaybackDistanceForLog(state.lastDistance)
+                    + " renderDist=" + FormatPlaybackDistanceForLog(ghostDistance)
+                    + " ghostPos=" + FormatGhostWorldPosForLog(state)
+                    + " anchorPos=" + FormatActiveVesselWorldPosForLog()
+                    + " reason=" + hiddenReason);
                 if (overlapGhost)
                     UnloadOverlapGhostVisuals(index, state, hiddenReason);
                 else
@@ -6084,6 +7174,22 @@ namespace Parsek
             return activatedDeferredState && !suppressVisualFx;
         }
 
+        /// <summary>
+        /// Whether engine plume FX must be explicitly restarted this frame. True only on the
+        /// suppressed -> unsuppressed transition: engine FX are event-driven and
+        /// <see cref="GhostPlaybackLogic.StopAllEngineFx"/> left them dark, so they need a
+        /// one-shot restart from the last recorded throttle when suppression lifts. (RCS and
+        /// audio restore themselves on every unsuppressed frame, so they need no transition
+        /// gate.) Distinct from <see cref="ShouldRestoreDeferredRuntimeFxState"/>, which only
+        /// fires on ghost re-activation and so misses an FX-suppress lift while the ghost
+        /// stayed active in the reduced-fidelity Visual tier.
+        /// </summary>
+        internal static bool ShouldRestartEngineFxAfterSuppression(
+            bool suppressVisualFx, bool wasVisualFxSuppressed)
+        {
+            return !suppressVisualFx && wasVisualFxSuppressed;
+        }
+
         private static void ResetGhostAppearanceTracking(GhostPlaybackState state)
         {
             if (state == null)
@@ -6106,7 +7212,7 @@ namespace Parsek
             if (!state.deferVisibilityUntilPlaybackSync || state.appearanceCount != 0)
                 return playbackUT;
 
-            // v13 carve-out (matches the hide-gate carve-out): parent-anchored
+            // Body-fixed-primary carve-out (matches the hide-gate carve-out): parent-anchored
             // debris with body-fixed primary covering the activation UT does
             // NOT get clamped to activationStartUT for one frame either.
             // Without this, the clamp produces a one-frame seed render that
@@ -6172,7 +7278,7 @@ namespace Parsek
                 return false;
             }
 
-            // v13 carve-out: parent-anchored debris that has a body-fixed primary
+            // Body-fixed-primary carve-out: parent-anchored debris that has a body-fixed primary
             // surface covering the activation UT does not need the generic
             // relative-start hide. The body-fixed primary path resolves the
             // recorded world pose directly from the section's bodyFixedFrames
@@ -6197,7 +7303,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Shared predicate for the v13 parent-anchored debris activation-hide
+        /// Shared predicate for the parent-anchored debris activation-hide
         /// carve-outs: returns true when the trajectory is parent-anchored
         /// debris AND the section covering the activation UT is Relative AND
         /// body-fixed primary coverage exists at the activation UT. Both the
@@ -6430,7 +7536,7 @@ namespace Parsek
                 || withinRelativeWindow
                 || withinAbsoluteBridge
                 || withinAbsoluteToRelativePrimer;
-            // v13 carve-out: parent-anchored debris that has body-fixed primary
+            // Body-fixed-primary carve-out: parent-anchored debris that has body-fixed primary
             // covering the activation UT does not need ANY initial-hide path --
             // not the UT-window gates above, and not the activation-settle
             // time-warp guard below. Body-fixed primary playback resolves the
@@ -7492,6 +8598,11 @@ namespace Parsek
             completedEventFired.Clear();
             earlyDestroyedDebrisCompleted.Clear();
             chainBridgeOpenedUT.Clear();
+            // Chain-loop unit state is per-frame (rebuilt from host detection on the next
+            // SetLoopUnits), but drop the cached transition log state so a re-spawned unit logs
+            // its first handoff fresh rather than against a stale prior-session selection.
+            currentLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+            lastUnitSelection.Clear();
 
             // Drop cached structural-event UT lists and per-ghost trace
             // cursors so a re-spawned ghost computes its first delta
@@ -7509,6 +8620,9 @@ namespace Parsek
         {
             autoLoopLaunchSchedules.Clear();
             autoLoopQueueScratch.Clear();
+            // Owner indices shift on delete; the unit set + transition log are rebuilt next frame
+            // from host detection, so clear the stale transition-log keys here.
+            lastUnitSelection.Clear();
             ReindexDict(ghostStates, removedIndex);
             ReindexDict(overlapGhosts, removedIndex);
             ReindexDict(loopPhaseOffsets, removedIndex);

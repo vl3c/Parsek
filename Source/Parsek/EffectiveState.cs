@@ -1520,14 +1520,15 @@ namespace Parsek
                         currentRec, recById, queue, result, marker, ref pidPeersAdded);
 
                     // Debris-children expansion (v12 `Recording.ParentAnchorRecordingId`):
-                    // Breakup BPs do not register a back-pointer through
+                    // foreground split BPs do not register a back-pointer through
                     // `Recording.ChildBranchPointId` on the parent (that field
-                    // is single-slot and a destroyed parent commonly has many
-                    // breakup BPs), and even when it is set the same-PID gate
-                    // below would cull every debris row because debris is born
-                    // as a fresh KSP-assigned VesselPersistentId. Use the v12
-                    // direct ownership link to admit debris children whose
-                    // ParentBranchPointId resolves to a Breakup BP that this
+                    // is single-slot and a multi-staging / destroyed parent
+                    // commonly has many split BPs), and even when it is set the
+                    // same-PID gate below would cull every debris row because
+                    // debris is born as a fresh KSP-assigned VesselPersistentId.
+                    // Use the v12 direct ownership link to admit debris children
+                    // whose ParentBranchPointId resolves to a Breakup BP (crash)
+                    // OR a JointBreak BP (intentional decouple) that this
                     // recording owns — the topology side of the dual-purpose
                     // ParentAnchorRecordingId field. Anchor-only matches
                     // (background splits where the field is re-pointed to the
@@ -1834,12 +1835,17 @@ namespace Parsek
         // the closure when the parent continuation is re-flown, defeating the
         // same-PID side-off gate added in `fix-refly-suppress-side-off`.
         // Require the candidate's `ParentBranchPointId` to resolve to a
-        // `Breakup` BP whose parents include the dequeued recording: the
-        // breakup case satisfies it (`ParentBranchPointId == breakupBp.Id`,
-        // `breakupBp.ParentRecordingIds[0] == parentRec.RecordingId`); the
+        // `Breakup` (crash) or `JointBreak` (intentional decouple) BP whose
+        // parents include the dequeued recording: the focused-vessel case
+        // satisfies it (`ParentBranchPointId == splitBp.Id`,
+        // `splitBp.ParentRecordingIds[0] == parentRec.RecordingId`) for both BP
+        // types, since `CreateBreakupChildRecording` wires crash and decouple
+        // debris identically and only the coalescer's BP type differs; the
         // background-split anchor case fails it because the split BP's parent
-        // is the pre-split recording, not the continuation, and the BP type
-        // is typically Decouple rather than Breakup.
+        // is the pre-split recording, not the continuation the debris is
+        // anchored to. The BP-type half of the gate is the secondary fence;
+        // the parents-contains-dequeued-recording check is what actually
+        // excludes the background anchor double-duty.
         private static void EnqueueDebrisChildren(
             Recording rec,
             Dictionary<string, Recording> recById,
@@ -1879,7 +1885,19 @@ namespace Parsek
                     continue;
                 }
                 BranchPoint bp = LookupBranchPoint(cand.TreeId, cand.ParentBranchPointId);
-                if (bp == null || bp.Type != BranchPointType.Breakup)
+                // Focused-vessel split debris is admitted for both the Breakup
+                // (crash / overstress) and JointBreak (intentional decouple) cases:
+                // ParsekFlight.CreateBreakupChildRecording wires both kinds through the
+                // same coalescer path, setting the debris' ParentAnchorRecordingId and
+                // ParentBranchPointId to the breakup parent + BP. The two now differ only
+                // in BP type (a foreground decouple records JointBreak/DECOUPLE), so the
+                // type gate must accept both or multi-staging debris would silently drop
+                // out of the supersede closure. The background-split anchor case is still
+                // fenced out by the topology check below (its BP's parent is the pre-split
+                // recording, not the continuation the debris is anchored to), so the
+                // anchor double-duty noted on this method's contract stays excluded.
+                if (bp == null
+                    || (bp.Type != BranchPointType.Breakup && bp.Type != BranchPointType.JointBreak))
                 {
                     debrisAnchorOnlySkips++;
                     continue;

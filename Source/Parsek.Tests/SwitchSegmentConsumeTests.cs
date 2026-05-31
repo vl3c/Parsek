@@ -75,7 +75,8 @@ namespace Parsek.Tests
                 currentRealtime: 0f,
                 currentUT: 0.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.NoIntent, outcome);
             Assert.Equal(SwitchSegmentEntryRoute.NoIntent,
                 StockActionIntentConsumeDecision.RouteForRefusal(outcome));
@@ -94,7 +95,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun, outcome);
             Assert.Equal("stale-cross-run",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -115,7 +117,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
             Assert.Equal("stale-intent-ttl",
@@ -135,7 +138,8 @@ namespace Parsek.Tests
                 capturedRealtime: 100f, capturedUT: 1000.0);
             // Elapsed = 105 - 100 = 5s, MapSwitchTo TTL = 2s → expired.
             var outcome = StockActionIntentConsumeDecision.Evaluate(
-                marker, 99u, procId, 105f, 1000.0, false, 0u);
+                marker, 99u, procId, 105f, 1000.0, false, 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
             Assert.Equal(SwitchSegmentEntryRoute.Refused_StaleIntent,
@@ -155,7 +159,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 101f, 950.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentUtRegressed,
                 outcome);
             Assert.Equal("stale-intent-ut-regressed",
@@ -178,7 +183,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
             Assert.Equal("stale-target-mismatch",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -200,7 +206,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 77u);
+                activeSessionFocusedPid: 77u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.DuplicateSameTarget, outcome);
             Assert.Equal("duplicate-intent-same-target",
                 StockActionIntentConsumeDecision.ClearReasonFor(outcome));
@@ -224,7 +231,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 100u);
+                activeSessionFocusedPid: 100u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
         }
 
@@ -243,7 +251,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, consumeProcess, 100f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleCrossRun,
                 outcome);
             Assert.Equal("stale-cross-run",
@@ -265,7 +274,8 @@ namespace Parsek.Tests
             var outcome = StockActionIntentConsumeDecision.Evaluate(
                 marker, 99u, procId, 200f, 1000.0,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.StaleIntentTtlExpired,
                 outcome);
         }
@@ -284,7 +294,8 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 100.1f, currentUT: 1000.1,
                 missedSwitchRecoveryInProgress: true,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.MissedSwitchRecovery,
                 outcome);
             Assert.Equal("stale-cross-run",
@@ -307,9 +318,124 @@ namespace Parsek.Tests
                 currentProcessSessionId: procId,
                 currentRealtime: 101f, currentUT: 1001.0,
                 missedSwitchRecoveryInProgress: false,
-                activeSessionFocusedPid: 0u);
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
             Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
             Assert.Null(StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+        }
+
+        // Fails if: a fresh, target-matching marker for a vessel sitting on the
+        // surface (PRELAUNCH on the pad, LANDED on the ground, or SPLASHED on the
+        // water) starts a switch-fly segment immediately instead of deferring to
+        // the normal auto-record trigger. This is the Jumping-Flea-on-the-pad
+        // bug: a KSC marker Fly / TS Fly / Map Switch-To to an idle on-surface
+        // vessel must follow the same deferral rules as any other idle vessel.
+        // Evaluate sees a single targetIsOnSurface bool; the call site ORs the
+        // three situations together (pinned by the source gate below).
+        [Fact]
+        public void Evaluate_OnSurfaceTarget_Defers()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.KscMarkerFly,
+                targetPid: 99u, processSessionId: procId,
+                capturedRealtime: 100f, capturedUT: 1000.0);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 99u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: true);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.OnSurfaceDeferToTrigger,
+                outcome);
+            Assert.Equal("on-surface-defer-to-trigger",
+                StockActionIntentConsumeDecision.ClearReasonFor(outcome));
+            Assert.Equal(SwitchSegmentEntryRoute.Refused_OnSurfaceTarget,
+                StockActionIntentConsumeDecision.RouteForRefusal(outcome));
+        }
+
+        // Fails if: the on-surface defer ever shadows a diagnostic-relevant
+        // refusal. A stale / mis-targeted / duplicate marker must keep its own
+        // classification even when the focused vessel happens to be on the
+        // surface, because those refusals carry debugging signal the routine
+        // defer does not. Mirrors the in-code ordering (defer is the last gate
+        // before Authorized).
+        [Fact]
+        public void Evaluate_OnSurfaceTarget_DoesNotShadowTargetMismatch()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.MapSwitchTo,
+                targetPid: 100u, processSessionId: procId);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 200u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: true);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.TargetMismatch, outcome);
+        }
+
+        // Fails if: a fresh marker for a vessel that is already flying (not on
+        // the surface) is mistakenly deferred. The companion to
+        // Evaluate_OnSurfaceTarget_Defers: switching to an airborne / orbiting
+        // vessel keeps the immediate-start behavior.
+        [Fact]
+        public void Evaluate_FlyingTarget_StillAuthorizes()
+        {
+            Guid procId = Guid.NewGuid();
+            var marker = BuildMarker(StockActionType.TrackingStationFly,
+                targetPid: 99u, processSessionId: procId,
+                capturedRealtime: 100f, capturedUT: 1000.0);
+            var outcome = StockActionIntentConsumeDecision.Evaluate(
+                marker, newVesselPersistentId: 99u,
+                currentProcessSessionId: procId,
+                currentRealtime: 101f, currentUT: 1001.0,
+                missedSwitchRecoveryInProgress: false,
+                activeSessionFocusedPid: 0u,
+                targetIsOnSurface: false);
+            Assert.Equal(StockActionIntentConsumeDecision.Outcome.Authorized, outcome);
+        }
+
+        // Source-text gate: TryConsumeStockActionIntent must feed the focused
+        // vessel's on-surface situation into the decision predicate, covering
+        // PRELAUNCH, LANDED, and SPLASHED. The pure Evaluate tests above prove
+        // the defer branch from a single bool, but the live wiring
+        // (newVessel.situation -> targetIsOnSurface) can't be driven from xUnit
+        // (Vessel + FlightGlobals are unguarded). This gate fails if a refactor
+        // drops a situation arm and silently reverts to immediate-start for an
+        // idle on-surface vessel (the LANDED committed-spawned-vessel regression
+        // the PRELAUNCH-only guard missed).
+        [Fact]
+        public void TryConsumeStockActionIntent_PassesOnSurfaceSituationToEvaluate()
+        {
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", ".."));
+            string flightPath = Path.Combine(projectRoot,
+                "Source", "Parsek", "ParsekFlight.cs");
+            Assert.True(File.Exists(flightPath));
+            string source = File.ReadAllText(flightPath);
+
+            // The on-surface situations are captured into a local that is then
+            // threaded into the Evaluate call as targetIsOnSurface. Isolate the
+            // assignment expression (up to its terminating ';') and require all
+            // three situation arms inside it, order-independent so a benign
+            // reorder or an inline comment does not false-fail this gate while a
+            // genuinely dropped LANDED / SPLASHED arm still does.
+            var assignMatch = Regex.Match(source,
+                @"bool\s+targetIsOnSurface\s*=\s*(?<expr>[\s\S]*?);",
+                RegexOptions.Multiline);
+            Assert.True(assignMatch.Success,
+                "targetIsOnSurface assignment not found in ParsekFlight.cs");
+            string expr = assignMatch.Groups["expr"].Value;
+            Assert.Contains("Vessel.Situations.PRELAUNCH", expr);
+            Assert.Contains("Vessel.Situations.LANDED", expr);
+            Assert.Contains("Vessel.Situations.SPLASHED", expr);
+            Assert.Matches(new Regex(
+                @"ConsumeDecision\.Evaluate\([\s\S]{0,600}?targetIsOnSurface\);",
+                RegexOptions.Multiline),
+                source);
         }
 
         // -----------------------------------------------------------------

@@ -952,6 +952,17 @@ namespace Parsek
         private const float MapOrbitUpdateIntervalSec = 0.5f;
         private float nextMapOrbitUpdateTime;
 
+        /// <summary>
+        /// Pure gate for the rate-limited map-orbit reseed pass (warp-aware). Proceeds when the real-time
+        /// timer has elapsed (the steady-state path) OR, only while time-warping, when a tracked ghost's
+        /// playback head has left its applied segment (so the reseed keeps up with the fast head through
+        /// short segments and the orbit line stops blinking). At 1x (<paramref name="warpRate"/> &lt;= 1)
+        /// this is exactly the old timer-only gate, so non-warp behavior is byte-identical.
+        /// </summary>
+        internal static bool ShouldRunMapOrbitReseed(
+            bool timerElapsed, float warpRate, bool anyGhostHeadLeftSegment)
+            => timerElapsed || (warpRate > 1.0f && anyGhostHeadLeftSegment);
+
         private readonly Dictionary<int, (string body, double sma, double ecc)> lastMapOrbitByIndex =
             new Dictionary<int, (string body, double sma, double ecc)>();
 
@@ -1042,6 +1053,12 @@ namespace Parsek
             int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(evt.Index, out int cached)
                 ? cached
                 : -1;
+            // Initial-create-on-first-loop-entry: pass acceptTerminalOrbitForLoopSynthesis:
+            // false. This path runs at startUT with no loopUnits / effUT / shift in scope, so
+            // the relaxed terminal-orbit source would seed at the raw recorded UT (wrong
+            // position). The proto-vessel is created later on a loop-aware tick once the
+            // pending queue and per-frame ResolveMapPresenceSampleUT compute effUT and the
+            // accompanying loop epoch shift. Same reasoning as the TS-startup wrapper. Plan section 1.4.
             TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                 evt.Trajectory,
                 false,
@@ -1053,7 +1070,8 @@ namespace Parsek
                 out OrbitSegment segment,
                 out TrajectoryPoint stateVectorPoint,
                 out _,
-                recordingIndex: evt.Index);
+                recordingIndex: evt.Index,
+                acceptTerminalOrbitForLoopSynthesis: false);
             stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
 
             if (source != TrackingStationGhostSource.None)
@@ -1278,6 +1296,28 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolve the Mission-loop sample UT for a flight-scene map ghost and the matching
+        /// live-frame epoch shift. Thin wrapper over
+        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/> (the same seam the
+        /// Tracking Station and KSC map drivers use): returns the loop-mapped <c>effUT</c> for a
+        /// looping member (and <paramref name="renderHidden"/>=true when it is outside its loop
+        /// window this cycle), or the unchanged <paramref name="currentUT"/> with shift 0 for a
+        /// non-member / when no Mission loops. <paramref name="loopEpochShiftSeconds"/> is
+        /// <c>currentUT - effUT</c>: the amount the seeded orbit epoch + stored arc bounds must be
+        /// pushed forward so the icon, drawn at the live clock, lands on the replayed position.
+        /// </summary>
+        private double ResolveMapPresenceSampleUT(
+            int idx, double memberStartUT, double memberEndUT, double currentUT,
+            GhostPlaybackLogic.LoopUnitSet loopUnits,
+            out bool renderHidden, out double loopEpochShiftSeconds)
+        {
+            double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                idx, memberStartUT, memberEndUT, currentUT, loopUnits, out renderHidden);
+            loopEpochShiftSeconds = currentUT - effUT;
+            return effUT;
+        }
+
+        /// <summary>
         /// Per-frame check for ghost map ProtoVessels. Handles three responsibilities:
         /// 1. Creates deferred ProtoVessels when ghosts enter their first orbital segment
         /// 2. Creates state-vector orbit ProtoVessels for physics-only suborbital recordings
@@ -1285,17 +1325,66 @@ namespace Parsek
         /// </summary>
         internal void CheckPendingMapVessels(double currentUT)
         {
+            // Mission-loop span clock: the same per-frame LoopUnitSet the flight engine drives the
+            // ghost MESHES with (engine.CurrentLoopUnits). The Tracking Station and KSC map drivers
+            // already remap the live UT through this clock; this is the flight-scene equivalent so
+            // a looped Mission's map orbit lines + icons sample the recording at the loop-mapped
+            // effUT instead of the raw live UT (which is far outside a looped member's recorded UT
+            // range). Empty (the common case) makes every ResolveMapPresenceSampleUT below return
+            // the unchanged live UT with shift 0, so non-looping behavior is byte-identical.
+            GhostPlaybackLogic.LoopUnitSet loopUnits = engine.CurrentLoopUnits;
+
             // 1. Create deferred ProtoVessels for ghosts that just entered an orbital segment
             //    OR for physics-only recordings that crossed the state-vector threshold.
             if (pendingMapVessels.Count > 0)
             {
-                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point, string expectedBody)> toCreate = null;
+                List<(int idx, TrackingStationGhostSource source, OrbitSegment segment, TrajectoryPoint point, string expectedBody, double effUT)> toCreate = null;
 
                 foreach (var kvp in pendingMapVessels)
                 {
                     int idx = kvp.Key;
                     PendingMapVessel pending = kvp.Value;
                     IPlaybackTrajectory traj = pending.Trajectory;
+
+                    // Loop-mapped sample UT for this member (effUT == currentUT off the loop path).
+                    // renderHidden => this member is outside its loop window this cycle: skip the
+                    // create, exactly like the Tracking Station create pass skips it.
+                    double effUT = ResolveMapPresenceSampleUT(
+                        idx, traj.StartUT, traj.EndUT, currentUT, loopUnits,
+                        out bool renderHidden, out double pendingLoopShift);
+                    if (renderHidden)
+                        continue;
+
+                    // A non-zero loop epoch shift means this is a Mission-loop member replaying
+                    // inside its window this cycle (effUT != live currentUT). Two consequences:
+                    //  - it unlocks the no-segment terminal-orbit synthesis (plan section 1.4); and
+                    //  - it lets the map ghost draw even when the recording already materialized a
+                    //    persisted real terminal vessel (loopMemberInWindow). Without the latter, a
+                    //    looped leg whose mission left a real craft parked at its terminal (e.g. the
+                    //    Mun-return leg) gets no trajectory following the ghost, because the static
+                    //    real vessel claims the materialization. Both flags default false off the loop
+                    //    path, so neither the terminal-orbit synthesis nor the materialization bypass
+                    //    affects non-loop members. (The EndpointTail entry in the acceptance check below
+                    //    is a SEPARATE, intentional consistency fix -- it materializes a non-loop
+                    //    member that resolves to EndpointTail, which the create path previously left
+                    //    pending -- and is NOT gated by these flags.)
+                    bool isLoopMemberInWindow = pendingLoopShift != 0.0;
+                    bool acceptTerminalOrbitForLoopSynthesis =
+                        isLoopMemberInWindow
+                        && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
+                    if (acceptTerminalOrbitForLoopSynthesis)
+                    {
+                        ParsekLog.VerboseRateLimited("Policy",
+                            string.Format(CultureInfo.InvariantCulture,
+                                "pending-map-accept-terminal-{0}", idx),
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Pending map-create accepting terminal-orbit synthesis for loop member " +
+                                "rec=#{0} vessel=\"{1}\" pendingLoopShift={2:F1}",
+                                idx,
+                                traj.VesselName ?? "(null)",
+                                pendingLoopShift),
+                            5.0);
+                    }
 
                     int cachedStateVectorIndex = stateVectorCachedIndices.TryGetValue(idx, out int cached)
                         ? cached
@@ -1304,7 +1393,7 @@ namespace Parsek
                         traj,
                         false,
                         IsMaterializedForMapPresence(traj),
-                        currentUT,
+                        effUT,
                         true,
                         "map-presence-pending-create",
                         ref cachedStateVectorIndex,
@@ -1313,16 +1402,32 @@ namespace Parsek
                         out _,
                         recordingIndex: idx,
                         allowSoiGapStateVectorFallback: pending.AllowSoiGapStateVectorFallback,
-                        expectedSoiGapBody: pending.ExpectedSoiGapBody);
+                        expectedSoiGapBody: pending.ExpectedSoiGapBody,
+                        acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                        loopMemberInWindow: isLoopMemberInWindow);
                     stateVectorCachedIndices[idx] = cachedStateVectorIndex;
+
+                    // Re-aim: swap the recorded covering segment for the re-aimed one at create time so
+                    // the orbit line is aimed at the target's CURRENT position from the first frame the
+                    // ghost re-enters its window. A re-aim owner in a TRIM GAP (between a recorded
+                    // body-relative leg and the trimmed interplanetary transfer) has no covering re-aimed
+                    // segment: skip the create entirely (keep the member pending / hidden) rather than
+                    // fall back to a recorded sub-segment, which re-created the ghost at a random orbit
+                    // position every frame while the refresh removed it (the SOI-boundary icon flicker).
+                    if (source == TrackingStationGhostSource.Segment
+                        && !GhostMapPresence.TryResolveReaimedCoveringSegment(
+                            idx, traj.RecordingId, traj.OrbitSegments, currentUT, effUT, loopUnits,
+                            segment, out segment))
+                        continue;
 
                     if (source == TrackingStationGhostSource.Segment
                         || GhostMapPresence.IsStateVectorGhostSource(source)
-                        || source == TrackingStationGhostSource.TerminalOrbit)
+                        || source == TrackingStationGhostSource.TerminalOrbit
+                        || source == TrackingStationGhostSource.EndpointTail)
                     {
                         if (toCreate == null)
-                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string)>();
-                        toCreate.Add((idx, source, segment, point, pending.ExpectedSoiGapBody));
+                            toCreate = new List<(int, TrackingStationGhostSource, OrbitSegment, TrajectoryPoint, string, double)>();
+                        toCreate.Add((idx, source, segment, point, pending.ExpectedSoiGapBody, effUT));
                     }
                 }
 
@@ -1336,14 +1441,25 @@ namespace Parsek
                             IPlaybackTrajectory traj = pending.Trajectory;
                             // Per-chain dedup before deferred creation
                             RemovePreviousChainMapVessel(idx);
+                            // Create at the loop-mapped effUT so the source/segment/point match the
+                            // looped phase (effUT == currentUT off the loop path). Pass the live-frame
+                            // epoch shift through so the orbit + body-frame cache are shifted at
+                            // create-time too. Without this the body-frame cache holds raw recorded
+                            // UTs on the first frame, and the orbit-line patch sees currentUT past
+                            // those bounds and blanks the line until the next rate-limited update
+                            // pass refreshes it (up to ~0.5s in flight, ~2s in TS) -- visible as a
+                            // brief orbit-line blackout at first appearance and at every window
+                            // re-entry.
+                            double pendingLoopEpochShift = currentUT - toCreate[i].effUT;
                             Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                                 idx,
                                 traj,
                                 toCreate[i].source,
                                 toCreate[i].segment,
                                 toCreate[i].point,
-                                currentUT,
-                                out bool retryLater);
+                                toCreate[i].effUT,
+                                out bool retryLater,
+                                loopEpochShiftSeconds: pendingLoopEpochShift);
                             // PR #574 review P2 (retry-later semantics): keep
                             // the pending entry alive when the active-Re-Fly
                             // suppression gate fires — otherwise a parent
@@ -1394,8 +1510,20 @@ namespace Parsek
                 }
             }
 
-            // 2. Rate-limited orbit updates for existing ProtoVessels.
-            if (UnityEngine.Time.time < nextMapOrbitUpdateTime) return;
+            // 2. Map-orbit reseed for existing ProtoVessels. Rate-limited to the real-time timer, BUT
+            // warp-aware: under time warp the playback head sprints through short segments (e.g. the many
+            // short Duna-capture conics) faster than the 0.5 s timer reseeds, so the applied orbit goes
+            // stale and GhostOrbitLinePatch's stale-segment guard blanks the line every frame (the ~1-min
+            // warped-approach blink). Also reseed the moment a ghost's head leaves its applied segment so
+            // the orbit stays current and the stale-segment guard (which still suppresses the genuine
+            // pre-burn arc on a propulsive->orbital handoff) stops firing on reseed lag alone. The head-left
+            // scan is computed only while warping + before the timer (so 1x is byte-identical + cost-free).
+            bool mapReseedTimerElapsed = UnityEngine.Time.time >= nextMapOrbitUpdateTime;
+            bool mapReseedHeadLeftSegment = !mapReseedTimerElapsed
+                && TimeWarp.CurrentRate > 1.0f
+                && GhostMapPresence.AnyGhostHeadLeftAppliedSegment(currentUT);
+            if (!ShouldRunMapOrbitReseed(mapReseedTimerElapsed, TimeWarp.CurrentRate, mapReseedHeadLeftSegment))
+                return;
             nextMapOrbitUpdateTime = UnityEngine.Time.time + MapOrbitUpdateIntervalSec;
 
             var committed = RecordingStore.CommittedRecordings;
@@ -1415,7 +1543,44 @@ namespace Parsek
                 var rec = committed[idx];
                 if (!rec.HasOrbitSegments) continue;
 
-                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentForMapDisplay(rec.OrbitSegments, currentUT);
+                // Loop-mapped sample UT + live-frame epoch shift (effUT == currentUT, shift 0 off
+                // the loop path). renderHidden => the member left its loop window this cycle: tear
+                // the orbit ghost down, mirroring the Tracking Station refresh pass.
+                double effUT = ResolveMapPresenceSampleUT(
+                    idx, rec.StartUT, rec.EndUT, currentUT, loopUnits,
+                    out bool renderHidden, out double loopEpochShiftSeconds);
+                if (renderHidden)
+                {
+                    GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                    if (toRemoveFromMap == null) toRemoveFromMap = new List<int>();
+                    toRemoveFromMap.Add(idx);
+                    // Re-queue to pendingMapVessels so the create pass re-materializes the orbit
+                    // ghost when the span clock sweeps back into this member's window next cycle.
+                    // Unlike the Tracking Station (which scans all committed indices every frame),
+                    // the flight driver only creates from the pending queue, and the ProtoVessel
+                    // was just removed, so 2a alone could never bring it back.
+                    if (toRequeue == null) toRequeue = new List<(int, string)>();
+                    toRequeue.Add((idx, null));
+                    continue;
+                }
+
+                // Re-aim: for a re-aim loop owner, the flight map orbit line must follow the per-window
+                // RE-AIMED transfer (aimed at the target's CURRENT position), not the recorded geometry
+                // (which points at the target's RECORDED position - the "wrong place in the target's
+                // orbit" the playtest showed). Resolved ONCE here from the LIVE currentUT (same window
+                // the flight engine + tracking station use) and threaded through every effUT-based read
+                // below; reference-identical to rec.OrbitSegments for every non-re-aim member.
+                List<OrbitSegment> effectiveSegments = GhostMapPresence.ResolveEffectiveMapOrbitSegments(
+                    idx, rec.RecordingId, rec.OrbitSegments, currentUT, loopUnits);
+
+                // Same-body carry: while the playback head is inside a body frame, briefly
+                // dropping the ghost between two non-orbit-equivalent segments (e.g., capture
+                // burn between two Mun orbits) would tear down and recreate the ProtoVessel,
+                // producing the visible flicker the user reported near Mun SOI. We only want
+                // to drop the ghost when the body actually changes (SOI / frame change) or
+                // when the recording is truly past its last segment. Body-frame carry keeps
+                // the previous segment's orbit active until UT enters the next segment.
+                OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
@@ -1427,7 +1592,8 @@ namespace Parsek
                     if (TryResolveTerminalFallbackMapOrbitUpdate(
                         rec,
                         idx,
-                        currentUT,
+                        effUT,
+                        loopEpochShiftSeconds,
                         kvp.Value,
                         IsMaterializedForMapPresence(rec),
                         ref cachedStateVectorIndex,
@@ -1438,7 +1604,9 @@ namespace Parsek
                         stateVectorCachedIndices[idx] = cachedStateVectorIndex;
                         if (fallbackChanged)
                         {
-                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, fallbackSegment);
+                            GhostMapPresence.UpdateGhostOrbitForRecording(
+                                idx, fallbackSegment,
+                                loopEpochShiftSeconds: loopEpochShiftSeconds);
                             if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
                             orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(idx, fallbackKey));
                         }
@@ -1448,10 +1616,10 @@ namespace Parsek
 
                     bool hasFutureSegment = false;
                     string futureSegmentBody = null;
-                    var segs = rec.OrbitSegments;
+                    var segs = effectiveSegments;
                     for (int s = 0; s < segs.Count; s++)
                     {
-                        if (segs[s].startUT > currentUT)
+                        if (segs[s].startUT > effUT)
                         {
                             hasFutureSegment = true;
                             futureSegmentBody = segs[s].bodyName;
@@ -1500,12 +1668,21 @@ namespace Parsek
                     continue;
                 }
 
-                if (seg.Value.bodyName == kvp.Value.body
+                // Skip re-applying an unchanged orbit — EXCEPT for loop members, whose stored key
+                // (body/sma/ecc) does not capture the per-cycle epoch + bounds shift, so a cycle
+                // wrap onto the same-shape segment would otherwise leave a stale shift and mis-clip
+                // the arc. Loop members re-apply every tick (cheap; the shift is constant within a
+                // cycle so this is idempotent until the wrap).
+                if (loopEpochShiftSeconds == 0.0
+                    && seg.Value.bodyName == kvp.Value.body
                     && seg.Value.semiMajorAxis == kvp.Value.sma
                     && seg.Value.eccentricity == kvp.Value.ecc)
                     continue;
 
-                GhostMapPresence.UpdateGhostOrbitForRecording(idx, seg.Value);
+                GhostMapPresence.UpdateGhostOrbitForRecording(
+                    idx, seg.Value,
+                    loopEpochShiftSeconds: loopEpochShiftSeconds,
+                    effectiveOrbitSegments: effectiveSegments);
                 if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
                 orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
                     idx, (seg.Value.bodyName, seg.Value.semiMajorAxis, seg.Value.eccentricity)));
@@ -1558,13 +1735,32 @@ namespace Parsek
                         stateVectorCachedIndices[idx] = -1;
                     int cached = stateVectorCachedIndices[idx];
 
+                    // Loop-mapped sample UT + live-frame epoch shift (effUT == currentUT, shift 0
+                    // off the loop path). renderHidden => the member is outside its loop window
+                    // this cycle: tear the ghost down and re-defer so the create pass re-materializes
+                    // it when the span clock sweeps back into its window.
+                    double effUT = ResolveMapPresenceSampleUT(
+                        idx, traj.StartUT, traj.EndUT, currentUT, loopUnits,
+                        out bool renderHidden, out double loopEpochShiftSeconds);
+                    if (renderHidden)
+                    {
+                        GhostMapPresence.RemoveGhostVesselForRecording(idx, "mission-loop-out-of-window");
+                        if (toReDefer == null) toReDefer = new List<int>();
+                        toReDefer.Add(idx);
+                        continue;
+                    }
+
                     if (soiGapStateVectorExpectedBodies.TryGetValue(idx, out string expectedSoiGapBody))
                     {
+                        // Loop-aware caller (state-vector orbit update pass): plan section 1.4.
+                        bool acceptTerminalOrbitForLoopSynthesis =
+                            loopEpochShiftSeconds != 0.0
+                            && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(traj);
                         TrackingStationGhostSource source = GhostMapPresence.ResolveMapPresenceGhostSource(
                             traj,
                             false,
                             IsMaterializedForMapPresence(traj),
-                            currentUT,
+                            effUT,
                             true,
                             "map-presence-soi-gap-state-vector-update",
                             ref cached,
@@ -1573,7 +1769,11 @@ namespace Parsek
                             out _,
                             recordingIndex: idx,
                             allowSoiGapStateVectorFallback: true,
-                            expectedSoiGapBody: expectedSoiGapBody);
+                            expectedSoiGapBody: expectedSoiGapBody,
+                            acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                            // Keep updating a loop member's ghost alongside any persisted real
+                            // terminal vessel (mirrors the create-path bypass).
+                            loopMemberInWindow: loopEpochShiftSeconds != 0.0);
                         stateVectorCachedIndices[idx] = cached;
 
                         if (source == TrackingStationGhostSource.StateVectorSoiGap)
@@ -1582,9 +1782,10 @@ namespace Parsek
                                 idx,
                                 traj,
                                 soiGapPoint,
-                                currentUT,
+                                effUT,
                                 allowOrbitalCheckpointStateVector: true,
-                                stateVectorUpdateReason: "soi-gap-state-vector-fallback"))
+                                stateVectorUpdateReason: "soi-gap-state-vector-fallback",
+                                loopEpochShiftSeconds: loopEpochShiftSeconds))
                             {
                                 GhostMapPresence.RemoveGhostVesselForRecording(
                                     idx,
@@ -1596,9 +1797,18 @@ namespace Parsek
                         }
 
                         if (source == TrackingStationGhostSource.Segment
-                            || source == TrackingStationGhostSource.TerminalOrbit)
+                            || source == TrackingStationGhostSource.TerminalOrbit
+                            || source == TrackingStationGhostSource.EndpointTail)
                         {
-                            GhostMapPresence.UpdateGhostOrbitForRecording(idx, segment);
+                            // EndpointTail populates a valid `segment` out-param exactly
+                            // like TerminalOrbit (the loop-synthesis no-segment fallback),
+                            // so consume it here too; otherwise a terminal-region loop
+                            // member resolving to EndpointTail would fall through to the
+                            // flat BracketPointAtUT path below. Matches the pending-create
+                            // (line ~1387) and orbit-update (line ~1922) callers.
+                            GhostMapPresence.UpdateGhostOrbitForRecording(
+                                idx, segment,
+                                loopEpochShiftSeconds: loopEpochShiftSeconds);
                             if (TryGetMapOrbitKey(source, segment, out var segmentKey))
                             {
                                 if (stateVectorSegmentUpdates == null)
@@ -1612,7 +1822,7 @@ namespace Parsek
                         }
                     }
 
-                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, currentUT, ref cached);
+                    TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(traj.Points, effUT, ref cached);
                     stateVectorCachedIndices[idx] = cached;
 
                     if (!pt.HasValue) continue;
@@ -1629,7 +1839,7 @@ namespace Parsek
                     // `UpdateGhostOrbitFromStateVectors` already dispatches on
                     // `referenceFrame` and resolves the world position via
                     // anchor + offset for that branch.
-                    bool inRelativeFrame = GhostMapPresence.IsInRelativeFrame(traj, currentUT);
+                    bool inRelativeFrame = GhostMapPresence.IsInRelativeFrame(traj, effUT);
                     if (!inRelativeFrame)
                     {
                         double atmosRemove = GetAtmosphereDepth(pt.Value.bodyName);
@@ -1645,7 +1855,8 @@ namespace Parsek
                         }
                     }
 
-                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, currentUT))
+                    if (GhostMapPresence.UpdateGhostOrbitFromStateVectors(idx, traj, pt.Value, effUT,
+                        loopEpochShiftSeconds: loopEpochShiftSeconds))
                     {
                         GhostMapPresence.RemoveGhostVesselForRecording(
                             idx,
@@ -1756,6 +1967,7 @@ namespace Parsek
             Recording rec,
             int idx,
             double currentUT,
+            double loopEpochShiftSeconds,
             (string body, double sma, double ecc) currentKey,
             bool alreadyMaterialized,
             ref int cachedStateVectorIndex,
@@ -1766,6 +1978,15 @@ namespace Parsek
             fallbackSegment = default(OrbitSegment);
             fallbackKey = default((string, double, double));
             changed = false;
+
+            // Loop-aware caller: a non-zero shift on a same-body terminal recording
+            // unlocks the no-segment terminal-orbit synthesis (plan section 1.6). The flag is
+            // computed from the new loopEpochShiftSeconds parameter so the line 1495 call
+            // site can pass the shift in unconditionally; non-loop calls (shift == 0)
+            // produce false and the helper stays byte-identical for non-loop members.
+            bool acceptTerminalOrbitForLoopSynthesis =
+                loopEpochShiftSeconds != 0.0
+                && GhostMapPresence.IsTerminalOrbitSynthesisSafeForLoopMember(rec);
 
             TrackingStationGhostSource fallbackSource = GhostMapPresence.ResolveMapPresenceGhostSource(
                 rec,
@@ -1778,8 +1999,13 @@ namespace Parsek
                 out fallbackSegment,
                 out _,
                 out _,
-                recordingIndex: idx);
-            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit)
+                recordingIndex: idx,
+                acceptTerminalOrbitForLoopSynthesis: acceptTerminalOrbitForLoopSynthesis,
+                // A loop member at its terminal (no covering segment) keeps its synthesized
+                // terminal-orbit fallback even when a persisted real terminal vessel exists.
+                loopMemberInWindow: loopEpochShiftSeconds != 0.0);
+            if (fallbackSource != TrackingStationGhostSource.TerminalOrbit
+                && fallbackSource != TrackingStationGhostSource.EndpointTail)
                 return false;
 
             fallbackKey = (
@@ -1802,7 +2028,9 @@ namespace Parsek
                 fields.RecordingId = rec?.RecordingId;
                 fields.RecordingIndex = idx;
                 fields.VesselName = rec?.VesselName;
-                fields.Source = "TerminalOrbit";
+                // Report the actual resolved source; this fallback accepts both
+                // TerminalOrbit and EndpointTail (see the acceptance check above).
+                fields.Source = fallbackSource.ToString();
                 fields.Branch = "(n/a)";
                 fields.Body = fallbackSegment.bodyName;
                 fields.Segment = fallbackSegment;

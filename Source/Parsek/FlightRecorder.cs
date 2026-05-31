@@ -1052,6 +1052,8 @@ namespace Parsek
         private Dictionary<string, InventoryItem> pendingStartInventory;
         private int pendingStartInventorySlots;
         private Dictionary<string, int> pendingStartCrew;
+        // Launch-unique vessel identity (Vessel.id Guid, "N" form) captured at record-start.
+        private string pendingRecordedVesselGuid;
         // Captured once at recording-start time. Forwarded to CaptureAtStop verbatim;
         // never re-captured from the stop/remnant vessel, so a destructive breakup
         // that leaves a 1-part decoupler cannot overwrite the recorded controllable
@@ -6518,6 +6520,14 @@ namespace Parsek
             pendingStartControllers = ControllerInfo.CaptureFromVessel(v);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartControllers?.Count ?? 0} start controller part(s)");
             CaptureStartRouteOriginProofIfDocked(v);
+
+            // Launch-unique identity: capture the live Vessel.id Guid (assigned fresh per launch,
+            // unlike the craft-baked persistentId). Falls back to the snapshot's `pid` value when
+            // the live vessel is unavailable. Disambiguates relaunches of the same craft.
+            pendingRecordedVesselGuid = (v != null && v.id != Guid.Empty)
+                ? v.id.ToString("N")
+                : VesselLaunchIdentity.TryReadVesselGuid(lastGoodVesselSnapshot);
+            ParsekLog.Verbose("Recorder", $"StartRecording: captured launch guid={pendingRecordedVesselGuid ?? "(none)"}");
             // Backstop: forward the just-captured identity onto the active tree
             // recording if it doesn't already carry it. Covers the always-tree-root
             // path (created with whatever vessel was active at the time of root
@@ -6527,14 +6537,39 @@ namespace Parsek
             if (ActiveTree != null
                 && !string.IsNullOrEmpty(ActiveTree.ActiveRecordingId)
                 && ActiveTree.Recordings != null
-                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecForControllers)
-                && treeRecForControllers != null
-                && treeRecForControllers.AdoptControllersIfEmpty(pendingStartControllers))
+                && ActiveTree.Recordings.TryGetValue(ActiveTree.ActiveRecordingId, out var treeRecBackstop)
+                && treeRecBackstop != null)
             {
-                treeRecForControllers.MarkFilesDirty();
-                ParsekLog.Verbose("Recorder",
-                    $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
-                    $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                bool backstopChanged = false;
+                if (treeRecBackstop.AdoptControllersIfEmpty(pendingStartControllers))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded {pendingStartControllers.Count} controller part(s) " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                // Forward the start-crew manifest too (same always-tree-root gap as controllers):
+                // the root recording is created before the crew snapshot exists, so without this it
+                // never carries StartCrew even though its vessel snapshot has the crew.
+                if (treeRecBackstop.AdoptStartCrewIfEmpty(pendingStartCrew))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded {pendingStartCrew.Count} start crew trait(s) " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                // Forward the launch guid too (same always-tree-root gap): the root recording is
+                // created before the vessel snapshot exists, so without this it never carries the
+                // launch-unique identity even though its snapshot's `pid` has it.
+                if (treeRecBackstop.AdoptRecordedVesselGuidIfEmpty(pendingRecordedVesselGuid))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded launch guid {pendingRecordedVesselGuid} " +
+                        $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
+                if (backstopChanged)
+                    treeRecBackstop.MarkFilesDirty();
             }
             initialGhostVisualSnapshot = lastGoodVesselSnapshot != null
                 ? lastGoodVesselSnapshot.CreateCopy()
@@ -6972,6 +7007,12 @@ namespace Parsek
             capture.StartCrew = pendingStartCrew;
             capture.EndCrew = VesselSpawner.ExtractCrewManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndCrew?.Count ?? 0} end crew trait(s)");
+            // Launch-unique identity: prefer the value captured at record-start; otherwise backfill
+            // from this capture's own snapshot `pid` (a capture that did not go through a guid-aware
+            // StartRecording still carries its launch guid in the snapshot).
+            capture.RecordedVesselGuid = !string.IsNullOrEmpty(pendingRecordedVesselGuid)
+                ? pendingRecordedVesselGuid
+                : VesselLaunchIdentity.TryReadVesselGuid(capture.VesselSnapshot);
             // Forward the start-time controller identity. Never re-derive from the live
             // stop/remnant vessel here: a destructive breakup leaves a 1-part decoupler
             // with no command authority, and re-capturing would clobber the recorded
@@ -8835,12 +8876,12 @@ namespace Parsek
         }
 
         /// <summary>
-        /// v13 follow-up: apply v9 surface clearance to the body-fixed shadow
+        /// Apply v9 surface clearance to the body-fixed shadow
         /// copy that gets stored in <c>TrackSection.bodyFixedFrames</c>
         /// alongside a RELATIVE section. The in-frames primary <c>point</c>
         /// stays NaN-clearance because anchor-local metres-in-lat/lon/alt are
         /// not body-fixed coordinates, but the shadow carries genuine
-        /// body-fixed lat/lon/alt and v13 playback applies terrain correction
+        /// body-fixed lat/lon/alt and playback applies terrain correction
         /// via <c>recordedGroundClearance</c>. Without this, parent-anchored
         /// surface debris recorded inside a parent-relative section would
         /// replay at raw recorded altitude and bury / pop on terrain.
@@ -8885,9 +8926,21 @@ namespace Parsek
             // Callers (this method + SamplePosition) reset lastRecordedUT to point.ut
             // immediately after the trim returns, so the stale value inside
             // TrimRecordingToUT's log line is fine — it reflects the pre-trim state.
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            // A sub-threshold backwards step is a #419-class stale-UT seam artifact:
+            // reject it so the flat Points list and dual-written TrackSection frames
+            // stay monotonic (the BG path rejects all backwards appends outright; this
+            // is the foreground analog, keeping the large-regression revert trim).
+            var timeOrder = ClassifyForegroundCommitTimeOrder(Recording.Count, point.ut, lastRecordedUT);
+            if (timeOrder == ForegroundCommitTimeOrder.TrimThenAppend)
             {
                 TrimRecordingToUT(point.ut);
+            }
+            else if (timeOrder == ForegroundCommitTimeOrder.RejectNonMonotonic)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "foreground-nonmonotonic-reject",
+                    $"rejected non-monotonic foreground point: ut={point.ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"lastRecordedUT={lastRecordedUT.ToString("R", CultureInfo.InvariantCulture)} (#419-class)");
+                return;
             }
 
             // Phase 7 (design doc §13, §18 Phase 7): for surface sections,
@@ -8931,9 +8984,9 @@ namespace Parsek
                 if (currentTrackSection.referenceFrame == ReferenceFrame.Relative
                     && bodyFixedPrimaryPoint.HasValue)
                 {
-                    // v13 follow-up: apply surface clearance to the body-fixed
+                    // Apply surface clearance to the body-fixed
                     // shadow before appending it to bodyFixedFrames. The shadow
-                    // carries body-fixed lat/lon/alt that v13 playback applies
+                    // carries body-fixed lat/lon/alt that playback applies
                     // terrain correction against.
                     TrajectoryPoint shadow = bodyFixedPrimaryPoint.Value;
                     ApplySurfaceClearanceToBodyFixedShadow(v, ref shadow);
@@ -8983,9 +9036,18 @@ namespace Parsek
             if (ShouldSuppressReFlyPostLoadTrajectoryWrite(point.ut, "commit-recorded-point-without-vessel"))
                 return;
 
-            if (Recording.Count > 0 && point.ut < lastRecordedUT - TimeRegressionThresholdSeconds)
+            // Same #419-class foreground monotonicity guard as CommitRecordedPointWithVessel.
+            var timeOrder = ClassifyForegroundCommitTimeOrder(Recording.Count, point.ut, lastRecordedUT);
+            if (timeOrder == ForegroundCommitTimeOrder.TrimThenAppend)
             {
                 TrimRecordingToUT(point.ut);
+            }
+            else if (timeOrder == ForegroundCommitTimeOrder.RejectNonMonotonic)
+            {
+                ParsekLog.VerboseRateLimited("Recorder", "foreground-nonmonotonic-reject",
+                    $"rejected non-monotonic foreground point: ut={point.ut.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"lastRecordedUT={lastRecordedUT.ToString("R", CultureInfo.InvariantCulture)} (#419-class, no-vessel)");
+                return;
             }
 
             Recording.Add(point);
@@ -9044,6 +9106,43 @@ namespace Parsek
         /// seconds or more).
         /// </summary>
         internal const double TimeRegressionThresholdSeconds = 1.0;
+
+        /// <summary>
+        /// How a foreground <c>CommitRecordedPoint*</c> append should be handled
+        /// relative to the last recorded UT.
+        /// </summary>
+        internal enum ForegroundCommitTimeOrder
+        {
+            /// <summary>UT is monotonic (>= last) or the buffer is empty — append normally.</summary>
+            Append,
+            /// <summary>Large backwards jump (>= <see cref="TimeRegressionThresholdSeconds"/>) — quickload/revert; trim the invalid future tail, then append.</summary>
+            TrimThenAppend,
+            /// <summary>Sub-threshold backwards step — a stale-UT seam/boundary artifact; reject the append to preserve monotonicity.</summary>
+            RejectNonMonotonic,
+        }
+
+        /// <summary>
+        /// Bug #419 foreground analog of the background-recorder
+        /// <c>ApplyTrajectoryPointToRecording</c> guard. The background path rejects
+        /// any non-monotonic append outright; the foreground commit path historically
+        /// only trimmed on a *large* (&gt;= <see cref="TimeRegressionThresholdSeconds"/>)
+        /// regression (quickload/revert), so a small backwards step — a seam / boundary
+        /// point built with a stale UT, or a duplicate boundary sample — slipped through
+        /// and corrupted both the flat <c>Recording.Points</c> list and the dual-written
+        /// <c>TrackSection.frames</c>. This classifier restores the invariant that
+        /// <c>CommittedRecordingsHaveValidData</c> checks (points[i].ut &gt;= points[i-1].ut):
+        /// equal UTs are accepted (boundary seeds), a large regression trims, and a
+        /// sub-threshold regression is rejected.
+        /// </summary>
+        internal static ForegroundCommitTimeOrder ClassifyForegroundCommitTimeOrder(
+            int recordedCount, double pointUT, double lastRecordedUT)
+        {
+            if (recordedCount <= 0 || pointUT >= lastRecordedUT)
+                return ForegroundCommitTimeOrder.Append;
+            if (pointUT < lastRecordedUT - TimeRegressionThresholdSeconds)
+                return ForegroundCommitTimeOrder.TrimThenAppend;
+            return ForegroundCommitTimeOrder.RejectNonMonotonic;
+        }
 
         /// <summary>
         /// Trims the recording buffer back to before the given UT.
@@ -9498,7 +9597,11 @@ namespace Parsek
 
             ActivateHighFidelitySampling(eventUT, $"structural-event-{eventType ?? "unknown"}");
 
-            int snapshotsAppended = 0;
+            // Counts vessels that matched RecordingVesselId (i.e. a snapshot was
+            // attempted), NOT how many points actually landed — CommitRecordedPoint
+            // may reject a non-monotonic point. The == 0 guard below only needs the
+            // "did any vessel match" signal, so the match count is the right basis.
+            int matchedVessels = 0;
             int vesselsConsidered = 0;
             foreach (Vessel v in involved)
             {
@@ -9518,7 +9621,7 @@ namespace Parsek
                 bool relativeApplied = ApplyRelativeOffset(ref point, v);
 
                 CommitRecordedPoint(point, v, relativeApplied ? (TrajectoryPoint?)absolutePoint : null);
-                snapshotsAppended++;
+                matchedVessels++;
 
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,
@@ -9534,7 +9637,7 @@ namespace Parsek
                         relativeApplied ? "true" : "false"));
             }
 
-            if (vesselsConsidered > 0 && snapshotsAppended == 0)
+            if (vesselsConsidered > 0 && matchedVessels == 0)
             {
                 ParsekLog.Verbose("Pipeline-Smoothing",
                     string.Format(CultureInfo.InvariantCulture,

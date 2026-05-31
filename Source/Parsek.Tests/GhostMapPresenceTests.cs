@@ -1506,7 +1506,6 @@ namespace Parsek.Tests
         public void CreateGhostVesselsFromCommittedRecordings_SummarySeparatesFutureTipSkipBuckets()
         {
             GhostMapPresence.CurrentUTNow = () => 500.0;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
 
             try
             {
@@ -1565,7 +1564,6 @@ namespace Parsek.Tests
         public void CreateGhostVesselsFromCommittedRecordings_AggregatesRepeatedSkipReasons()
         {
             GhostMapPresence.CurrentUTNow = () => 500.0;
-            ParsekSettingsPersistence.SetStoredShowGhostsInTrackingStationForTesting(true);
 
             try
             {
@@ -1620,6 +1618,155 @@ namespace Parsek.Tests
                 RecordingStore.ClearCommittedInternal();
                 RecordingStore.CommittedTrees.Clear();
                 ParsekSettingsPersistence.ResetForTesting();
+            }
+        }
+
+        // ─── TS startup-create loop awareness (deferred item C / ~313ms wrong-position flash) ───
+        //
+        // The startup create path samples each member at the loop-mapped effUT instead of the raw
+        // live UT, so a looped cross-body terminal member is no longer misclassified as "at its
+        // terminal" and seeded with the historical (unshifted) terminal orbit for ~one tick before
+        // the first lifecycle pass corrects it. These cover the new BuildStartupTrackingStationLoopUnits
+        // helper plus the end-to-end contrast (raw-UT terminal vs loop-mapped before-terminal-orbit).
+
+        /// <summary>
+        /// Builds a single-recording committed tree whose only member terminates Orbiting the Mun
+        /// (cross-body), with no OrbitSegments so it resolves the terminal-orbit fallback once the
+        /// live UT passes its recorded end. Adds it to the committed store + CommittedTrees and
+        /// returns the recording.
+        /// </summary>
+        private static Recording AddCrossBodyTerminalTree(string treeId, string recId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recId,
+                VesselName = "Kerbal X",
+                ChainId = "C",
+                ChainIndex = 0,
+                TerminalOrbitBody = "Mun",
+                TerminalOrbitSemiMajorAxis = 226628,
+                TerminalStateValue = TerminalState.Orbiting,
+                Points = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 1000, bodyName = "Mun" }
+                }
+            };
+            var tree = new RecordingTree { Id = treeId, RootRecordingId = recId };
+            tree.Recordings[recId] = rec;
+            RecordingStore.AddCommittedInternal(rec);
+            RecordingStore.CommittedTrees.Add(tree);
+            return rec;
+        }
+
+        /// <summary>
+        /// No missions => the startup loop-unit helper short-circuits to Empty (byte-identical to the
+        /// pre-loop-aware startup create), without touching settings / the live-body seam.
+        /// </summary>
+        [Fact]
+        public void BuildStartupTrackingStationLoopUnits_NoMissions_ReturnsEmpty()
+        {
+            try
+            {
+                MissionStore.ResetForTesting();
+                AddCrossBodyTerminalTree("t-kx", "kx-mun");
+
+                var set = GhostMapPresence.BuildStartupTrackingStationLoopUnits(
+                    RecordingStore.CommittedRecordings);
+
+                Assert.Same(GhostPlaybackLogic.LoopUnitSet.Empty, set);
+                Assert.Equal(0, set.Count);
+            }
+            finally
+            {
+                MissionStore.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// A looping Mission over a committed tree => the startup helper builds a non-empty unit set
+        /// that maps the committed member, proving it reads MissionStore / CommittedTrees / settings
+        /// the same way the per-frame DriveMissionLoopUnits does (the plumbing the startup path lacked).
+        /// </summary>
+        [Fact]
+        public void BuildStartupTrackingStationLoopUnits_LoopingMission_MapsMember()
+        {
+            try
+            {
+                MissionStore.ResetForTesting();
+                AddCrossBodyTerminalTree("t-kx", "kx-mun");
+                MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+                Mission mission = MissionStore.FindOriginalMission("t-kx");
+                Assert.NotNull(mission);
+                MissionStore.SetLoopEnabled(mission, true, 100.0);
+
+                var set = GhostMapPresence.BuildStartupTrackingStationLoopUnits(
+                    RecordingStore.CommittedRecordings);
+
+                Assert.True(set.Count >= 1);
+                Assert.True(set.TryGetUnitForMember(0, out _));
+            }
+            finally
+            {
+                MissionStore.ResetForTesting();
+            }
+        }
+
+        /// <summary>
+        /// End-to-end: the same cross-body Mun terminal member, with the live UT well past its recorded
+        /// window. WITHOUT a loop it resolves the terminal-orbit fallback at the raw UT (the seed that
+        /// flashed off-position). WITH a looping Mission the startup create samples the loop-mapped effUT
+        /// (folded back inside the recorded window), so it resolves before-terminal-orbit and contributes
+        /// 0 to both the terminalOrbit and endpointTail startup buckets — no wrong-position terminal seed.
+        /// </summary>
+        [Fact]
+        public void CreateGhostVesselsFromCommittedRecordings_LoopMember_NoTerminalSeedAtRawUT()
+        {
+            try
+            {
+                MissionStore.ResetForTesting();
+
+                // Baseline (no loop, raw UT past the recorded end): the pure resolver picks the
+                // terminal-orbit fallback — this is the seed the unshifted startup create flashed.
+                var baselineRec = AddCrossBodyTerminalTree("t-baseline", "kx-baseline");
+                GhostMapPresence.TrackingStationGhostSource baseline =
+                    GhostMapPresence.ResolveTrackingStationGhostSource(
+                        baselineRec, false, 1200, out _, out string baselineReason);
+                Assert.Equal(GhostMapPresence.TrackingStationGhostSource.TerminalOrbit, baseline);
+                Assert.Null(baselineReason);
+
+                // Now make it a looping mission and run the actual startup create at the same raw UT.
+                MissionStore.EnsureDefaultsForTrees(RecordingStore.CommittedTrees);
+                Mission mission = MissionStore.FindOriginalMission("t-baseline");
+                Assert.NotNull(mission);
+                MissionStore.SetLoopEnabled(mission, true, 100.0);
+
+                // liveUT 1200 is past the recorded end (1000). Span [100,1000], Auto cadence 900.
+                // The builder's first-play floor clamps the phase anchor to max(LoopAnchorUT,
+                // spanEnd) = 1000, so the fold is (1200 - 1000) = 200 into cycle 0 -> loopUT
+                // 100 + 200 = 300, inside the window [100,1000]. (Same result as an anchor of 100
+                // here only because 1100 mod 900 == 200.)
+                GhostMapPresence.CurrentUTNow = () => 1200.0;
+
+                int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
+
+                Assert.Equal(0, created); // before-terminal-orbit resolves None, so nothing is seeded
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GhostMap]") &&
+                    l.Contains("CreateGhostVesselsFromCommittedRecordings: created=0 from 1 recordings") &&
+                    l.Contains("terminalOrbit=0") &&
+                    l.Contains("endpointTail=0") &&
+                    l.Contains("beforeTerminalOrbit=1"));
+                // The member's startup source decision was taken at the loop-mapped effUT, not the raw UT.
+                Assert.Contains(logLines, l =>
+                    l.Contains("Tracking-station orbit source") &&
+                    l.Contains("context=tracking-station-startup") &&
+                    l.Contains("source=None") &&
+                    l.Contains("before-terminal-orbit"));
+            }
+            finally
+            {
+                MissionStore.ResetForTesting();
             }
         }
 
@@ -1823,6 +1970,58 @@ namespace Parsek.Tests
                 currentUT: 320);
 
             Assert.Equal("tracking-station-spawned-real-vessel", reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_MaterializedLoopMemberInWindow_KeepsGhost()
+        {
+            // A Mission-loop member replaying inside its window keeps its map ghost even
+            // when a persisted real terminal vessel exists, so the looped leg's trajectory
+            // follows the ghost (the "no trajectory after the Mun takeoff" fix). Without the
+            // loopMemberInWindow bypass this same input returns "tracking-station-spawned-real-vessel".
+            var rec = new Recording
+            {
+                RecordingId = "loop-member-real-vessel",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: false,
+                alreadyMaterialized: true,
+                hasOrbitBounds: false,
+                isStateVector: false,
+                currentUT: 320,
+                loopMemberInWindow: true);
+
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void GetTrackingStationGhostRemovalReason_SuppressedLoopMemberInWindow_StillRemoves()
+        {
+            // The loopMemberInWindow bypass only relaxes the materialized gate; an active
+            // child / re-fly suppression (isSuppressed) still removes the ghost.
+            var rec = new Recording
+            {
+                RecordingId = "loop-member-suppressed",
+                TerminalOrbitBody = "Kerbin",
+                TerminalOrbitSemiMajorAxis = 700000,
+                TerminalStateValue = TerminalState.Orbiting
+            };
+
+            string reason = GhostMapPresence.GetTrackingStationGhostRemovalReason(
+                rec,
+                isSuppressed: true,
+                alreadyMaterialized: true,
+                hasOrbitBounds: false,
+                isStateVector: false,
+                currentUT: 320,
+                loopMemberInWindow: true);
+
+            Assert.Equal("tracking-station-child-started", reason);
         }
 
         [Fact]
@@ -3220,6 +3419,7 @@ namespace Parsek.Tests
                 rec,
                 0,
                 50,
+                0.0,
                 ("Kerbin", 900000, 0.09),
                 false,
                 ref cachedStateVectorIndex,

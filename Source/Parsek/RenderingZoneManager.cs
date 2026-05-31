@@ -4,15 +4,19 @@ namespace Parsek
 {
     public enum RenderingZone
     {
-        Physics = 0,   // 0 - 2.3 km: full mesh + part events
-        Visual = 1,    // 2.3 - 120 km: mesh rendered, orbital propagation, no part events
+        // NOTE: "Physics" here is the rendering full-fidelity tier, NOT KSP's
+        // physics-load bubble. Its boundary is GhostFlight.FullFidelityRangeMeters
+        // (5 km), deliberately larger than DistanceThresholds.PhysicsBubbleMeters
+        // (2.3 km) so engine plumes / smoke stay visible past the physics bubble.
+        Physics = 0,   // 0 - 5 km: full mesh + part events + engine/RCS/reentry FX
+        Visual = 1,    // 5 - 120 km: coarse mesh silhouette, no FX, no part events
         Beyond = 2     // 120 km+: no mesh, position tracked for map view only
     }
 
     internal static class RenderingZoneManager
     {
         // Zone boundary distances (km converted to meters for consistency)
-        internal const double PhysicsBubbleRadius = DistanceThresholds.PhysicsBubbleMeters;
+        internal const double FullFidelityRadius = DistanceThresholds.GhostFlight.FullFidelityRangeMeters;
         internal const double VisualRangeRadius = DistanceThresholds.GhostVisualRangeMeters;
 
         // Looped ghost spawn thresholds (tighter than full-timeline)
@@ -26,14 +30,14 @@ namespace Parsek
         /// </summary>
         internal static RenderingZone ClassifyDistance(double distanceMeters)
         {
-            if (distanceMeters < PhysicsBubbleRadius) return RenderingZone.Physics;
+            if (distanceMeters < FullFidelityRadius) return RenderingZone.Physics;
             if (distanceMeters < VisualRangeRadius) return RenderingZone.Visual;
             return RenderingZone.Beyond;
         }
 
         /// <summary>
         /// Classifies distance with a narrow Physics/Visual hysteresis band.
-        /// The outward transition still happens at the physics bubble boundary,
+        /// The outward transition still happens at the full-fidelity boundary,
         /// but a ghost already in Visual must move clearly back inside before
         /// full-fidelity renderers are restored.
         /// </summary>
@@ -42,7 +46,7 @@ namespace Parsek
             RenderingZone statelessZone = ClassifyDistance(distanceMeters);
             if (previousZone == RenderingZone.Visual
                 && statelessZone == RenderingZone.Physics
-                && distanceMeters >= DistanceThresholds.GhostFlight.PhysicsFidelityRestoreMeters)
+                && distanceMeters >= DistanceThresholds.GhostFlight.FullFidelityRestoreMeters)
             {
                 return RenderingZone.Visual;
             }
@@ -67,11 +71,11 @@ namespace Parsek
 
         /// <summary>
         /// Determines whether a full-timeline ghost should render part events
-        /// at the given distance. Part events only fire in the physics bubble.
+        /// at the given distance. Part events only fire inside the full-fidelity range.
         /// </summary>
         internal static bool ShouldRenderPartEvents(double distanceMeters)
         {
-            return distanceMeters < PhysicsBubbleRadius;
+            return distanceMeters < FullFidelityRadius;
         }
 
         /// <summary>

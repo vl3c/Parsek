@@ -1,10 +1,8 @@
 using System.Collections.Generic;
 using System.Globalization;
-using ClickThroughFix;
 using KSP.UI.Screens;
 using KSP.UI.Screens.Mapview;
 using Parsek.Patches;
-using ToolbarControl_NS;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -29,15 +27,21 @@ namespace Parsek
     public class ParsekTrackingStation : MonoBehaviour
     {
         private const string Tag = "TrackingStation";
-        private const float LifecycleCheckIntervalSec = 2.0f;
+        // Cadence of the TS ghost create/remove + orbit-refresh pass. Kept short so the
+        // map stays responsive: a looped mission hands off between members (each one's
+        // proto-vessel orbit line) every cycle, and at the old 2 s cadence the OUTGOING
+        // member's orbit line was gone for up to ~2 s before the INCOMING member's was
+        // created -- a visible handoff blackout (during a member's orbital phase the
+        // orbit line is the ONLY thing on screen). A short interval makes that handoff
+        // prompt, and also makes ordinary (non-loop) recordings refresh promptly. This is
+        // cheap to run often: a no-mutation tick only re-scans sources and reseeds a few
+        // already-tracked ghost orbits; the expensive create/destroy + stock vessel-list
+        // rebuild fire only at actual boundaries regardless of cadence.
+        private const float LifecycleCheckIntervalSec = 0.25f;
         private const float GhostPopupWidth = 180f;
         private const float MaterializedFocusRetryDurationSec = 20.0f;
         private const float MaterializedFocusRetryIntervalSec = 0.1f;
         private float nextLifecycleCheckTime;
-        private ToolbarControl toolbarControl;
-        private ParsekUI ui;
-        private bool showUI;
-        private Rect windowRect = new Rect(20, 100, 250, 10);
         private PopupDialog currentGhostPopup;
         private string currentGhostPopupKey;
         private int ghostPopupOpenFrame;
@@ -64,21 +68,27 @@ namespace Parsek
         /// <summary>Tracks the last known committed recording count for live-update detection.</summary>
         private int lastKnownCommittedCount;
 
-        /// <summary>
-        /// Tracks the last-known value of <c>ParsekSettings.Current.showGhostsInTrackingStation</c>.
-        /// When the flag flips we force a lifecycle tick so ghosts appear/disappear
-        /// immediately without waiting for the 2-second interval.
-        /// </summary>
-        private bool lastKnownShowGhosts = true;
+        // Mission loop-unit descriptors for THIS frame (Phase F: TS span-clock parity). Built from
+        // the SAME MissionLoopUnitBuilder.Build the flight engine and KSC consume, so a looped
+        // Mission renders in the tracking station identically. Empty (LoopUnitSet.Empty) means no
+        // Mission loops, which keeps the feature dormant and TS behavior byte-identical to before.
+        // Rebuilt only when the cheap signature changes (cachedLoopUnits + lastLoopUnitSignature),
+        // then read by BOTH the ProtoVessel lifecycle pass (passed into
+        // GhostMapPresence.UpdateTrackingStationGhostLifecycle once per Update tick) and the OnGUI
+        // atmospheric-marker pass (DrawAtmosphericMarkers reads cachedLoopUnits directly), so the
+        // (allocating, Verbose-logging) Build never runs per OnGUI frame.
+        private GhostPlaybackLogic.LoopUnitSet cachedLoopUnits = GhostPlaybackLogic.LoopUnitSet.Empty;
+        private string lastLoopUnitSignature;
 
-        internal struct TrackingStationControlSurfaceState
-        {
-            internal int CommittedRecordings;
-            internal int VisibleGhostVessels;
-            internal int SuppressedRecordings;
-            internal int MaterializedRecordings;
-            internal bool ShowGhosts;
-        }
+        /// <summary>
+        /// Read-only accessor on the current frame's cached loop unit set.
+        /// Exposed for <see cref="Parsek.Display.GhostTrajectoryPolylineRenderer"/>'s
+        /// DDOL Driver: it has no direct handle to the per-scene controller's
+        /// private <c>cachedLoopUnits</c>, so it looks the controller up
+        /// via FindObjectOfType and reads through this accessor. The field
+        /// itself stays private.
+        /// </summary>
+        internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
 
         internal enum AtmosphericMarkerSkipReason
         {
@@ -98,7 +108,6 @@ namespace Parsek
             public int Candidates;
             public int Drawn;
             public int CameraUnavailable;
-            public int HiddenBySetting;
             public int NoCommittedRecordings;
             public int NativeIconActive;
             public int NullRecording;
@@ -109,12 +118,12 @@ namespace Parsek
             public int OrbitSegmentActive;
             public int BracketMiss;
             public int MissingBody;
+            public int LoopMemberHidden; // Phase F: member outside its loop window this cycle
 
             internal bool HasSignal =>
                 Candidates > 0
                 || Drawn > 0
                 || CameraUnavailable > 0
-                || HiddenBySetting > 0
                 || NoCommittedRecordings > 0
                 || NativeIconActive > 0
                 || NullRecording > 0
@@ -124,19 +133,19 @@ namespace Parsek
                 || SuppressedByChainFilter > 0
                 || OrbitSegmentActive > 0
                 || BracketMiss > 0
-                || MissingBody > 0;
+                || MissingBody > 0
+                || LoopMemberHidden > 0;
         }
 
         internal static string FormatAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} hiddenBySetting={4} noCommitted={5} nativeIcon={6} nullRecording={7} debris={8} noPoints={9} outsideTimeRange={10} chainSuppressed={11} orbitSegment={12} bracketMiss={13} missingBody={14}",
+                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} noCommitted={4} nativeIcon={5} nullRecording={6} debris={7} noPoints={8} outsideTimeRange={9} chainSuppressed={10} orbitSegment={11} bracketMiss={12} missingBody={13} loopMemberHidden={14}",
                 string.IsNullOrEmpty(summary.EventTypeName) ? "(unknown)" : summary.EventTypeName,
                 summary.Candidates,
                 summary.Drawn,
                 summary.CameraUnavailable,
-                summary.HiddenBySetting,
                 summary.NoCommittedRecordings,
                 summary.NativeIconActive,
                 summary.NullRecording,
@@ -146,7 +155,8 @@ namespace Parsek
                 summary.SuppressedByChainFilter,
                 summary.OrbitSegmentActive,
                 summary.BracketMiss,
-                summary.MissingBody);
+                summary.MissingBody,
+                summary.LoopMemberHidden);
         }
 
         private static void LogAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
@@ -192,13 +202,6 @@ namespace Parsek
 
         void Start()
         {
-            ui = new ParsekUI(UIMode.TrackingStation);
-            InstallToolbar();
-
-            // Read through the persistence store so the startup tick uses the
-            // recorded user preference even when ParsekSettings.Current isn't
-            // resolved yet (early-scene-load case, see ParsekScenario.cs:546).
-            lastKnownShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
             int created = GhostMapPresence.CreateGhostVesselsFromCommittedRecordings();
             int renderersFixed = GhostMapPresence.EnsureGhostOrbitRenderers();
             int suppressedForGhosts = GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0;
@@ -213,36 +216,15 @@ namespace Parsek
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
                 $"fixed {renderersFixed} orbit renderer(s), " +
-                $"showGhostsInTrackingStation={lastKnownShowGhosts}, " +
                 $"trackingStationSuppressed={suppressedForGhosts}, " +
                 "orbitSourceDiagnostics=aggregated");
-        }
-
-        private void InstallToolbar()
-        {
-            toolbarControl = gameObject.AddComponent<ToolbarControl>();
-            toolbarControl.AddToAllToolbars(
-                () => { showUI = true; ParsekLog.Verbose(Tag, "Toolbar button ON"); },
-                () => { showUI = false; ParsekLog.Verbose(Tag, "Toolbar button OFF"); },
-                ApplicationLauncher.AppScenes.TRACKSTATION,
-                ParsekFlight.MODID, "parsekTrackingStationButton",
-                "Parsek/Textures/parsek_64",
-                "Parsek/Textures/parsek_32",
-                ParsekFlight.MODNAME
-            );
-
-            ui.CloseMainWindow = () =>
-            {
-                showUI = false;
-                if (toolbarControl != null) toolbarControl.SetFalse();
-            };
         }
 
         void Update()
         {
             // Detect live recording commits (merge dialog, approval dialog) and force
             // an immediate lifecycle tick so proto-vessel ghosts appear without waiting
-            // for the normal 2-second interval.
+            // for the next LifecycleCheckIntervalSec tick.
             // NOTE: count-based detection has a blind spot if a recording is removed and
             // another added in the same frame (net zero change). This can't happen in TS
             // today — removals only occur via clear-all which resets the entire session.
@@ -256,47 +238,67 @@ namespace Parsek
                 nextLifecycleCheckTime = 0f; // force tick this frame
             }
 
-            // #388: detect the ghost visibility flag flipping and react immediately.
-            // On off-flip, remove every ghost ProtoVessel so the vessel list empties
-            // without waiting for a committed-count change. On on-flip, force a tick
-            // so the Phase-2 loop in UpdateTrackingStationGhostLifecycle recreates
-            // ghosts for every eligible recording.
-            bool currentShowGhosts = ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation();
-            if (currentShowGhosts != lastKnownShowGhosts)
-            {
-                ParsekLog.Info(Tag,
-                    $"showGhostsInTrackingStation flipped {lastKnownShowGhosts} → {currentShowGhosts} " +
-                    "— forcing immediate lifecycle tick");
-                lastKnownShowGhosts = currentShowGhosts;
-                if (!currentShowGhosts)
-                    HideTrackingStationGhostsNow("ghost-filter-disabled");
-                nextLifecycleCheckTime = 0f;
-            }
-
             if (GhostTrackingStationSelection.HasSelectedGhost)
                 RefreshGhostActionCache();
             UpdatePendingMaterializedFocus();
             UpdateSelectedGhostPopup();
             UpdateAtmosphericFocusTarget();
 
+            // Phase F: refresh the Mission loop-unit set once per Update tick (change-detected),
+            // before both the lifecycle pass below and the OnGUI atmospheric-marker pass that reads
+            // the cached field. The OnGUI pass never rebuilds.
+            DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
+
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
 
-            GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+            GhostMapPresence.UpdateTrackingStationGhostLifecycle(cachedLoopUnits);
+        }
+
+        /// <summary>
+        /// Recompute the Mission LoopUnitSet only when its inputs change (cheap signature compare),
+        /// caching it on the addon. Mirrors <c>ParsekKSC.DriveMissionLoopUnits</c> /
+        /// <c>ParsekFlight.DriveMissionLoopUnits</c>: the SAME committed list passed to
+        /// <see cref="MissionLoopUnitBuilder.BuildSignature"/> and
+        /// <see cref="MissionLoopUnitBuilder.Build"/> is what the per-recording lifecycle and
+        /// atmospheric passes iterate, so member indices align. Build (and its Verbose log) only
+        /// fires on an actual input change; the cached set is read every frame by both passes.
+        /// </summary>
+        private void DriveMissionLoopUnits(IReadOnlyList<Recording> committed)
+        {
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+            // Phase-lock (mission periodicity): the same live-body seam the flight engine + KSC use,
+            // so all three scenes phase-lock identically.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
+            string signature = MissionLoopUnitBuilder.BuildSignature(
+                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+            if (!string.Equals(signature, lastLoopUnitSignature, System.StringComparison.Ordinal))
+            {
+                cachedLoopUnits = MissionLoopUnitBuilder.Build(
+                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                lastLoopUnitSignature = signature;
+                // Drop cached per-window re-aim adapters so a stale window transfer can't survive a
+                // recording / mission edit made from the Tracking Station (mirrors ParsekFlight).
+                Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
+                ParsekLog.Verbose("Mission",
+                    $"TS Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+            }
         }
 
         void OnGUI()
         {
             // The Esc / pause overlay lives on KSP's Canvas and sorts above
-            // our IMGUI layer, so without this gate the ghost icons, ghost
-            // action panel, and control surface visually punch through the
-            // pause menu. Both the Layout pass AND the Repaint draw are
-            // skipped so width-clamped layouts can't flicker between events.
+            // our IMGUI layer, so without this gate the ghost icons and ghost
+            // action panel visually punch through the pause menu. Both the
+            // Layout pass AND the Repaint draw are skipped so width-clamped
+            // layouts can't flicker between events.
             if (PauseMenuGate.IsPauseMenuOpen())
                 return;
 
             DrawAtmosphericMarkers();
-            DrawControlSurface();
         }
 
         private void DrawAtmosphericMarkers()
@@ -328,22 +330,13 @@ namespace Parsek
                 return;
             }
 
-            if (!ShouldProcessAtmosphericMarkerEvent(
-                    etype,
-                    IsPointerOverParsekWindow(currentEvent.mousePosition)))
+            // No Parsek window is hosted in the Tracking Station scene, so a
+            // marker click can never land on a Parsek window here.
+            if (!ShouldProcessAtmosphericMarkerEvent(etype, pointerOverParsekWindow: false))
                 return;
             if (PlanetariumCamera.Camera == null)
             {
                 summary.CameraUnavailable++;
-                LogAtmosphericMarkerSummary(summary);
-                return;
-            }
-
-            // #388: skip the whole atmospheric-marker pass when the user has
-            // hidden ghosts in the tracking station.
-            if (!ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation())
-            {
-                summary.HiddenBySetting++;
                 LogAtmosphericMarkerSummary(summary);
                 return;
             }
@@ -359,13 +352,30 @@ namespace Parsek
             double currentUT = Planetarium.GetUniversalTime();
 
             var suppressed = GhostMapPresence.CachedTrackingStationSuppressedIds;
+            // Phase F: the per-frame cached Mission loop-unit set (built by DriveMissionLoopUnits in
+            // Update, never rebuilt here). Empty => the substitution below is inert.
+            var loopUnits = cachedLoopUnits;
 
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
                 summary.Candidates++;
+
+                // Phase F: substitute the shared Mission span-clock loopUT for the live UT when this
+                // committed index is a loop-unit member. A member outside its loop window this cycle
+                // is skipped (no marker). Inert (effUT == currentUT, renderHidden false) for
+                // non-members and when loopUnits is Empty.
+                double effUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
+                    i, rec != null ? rec.StartUT : currentUT, rec != null ? rec.EndUT : currentUT,
+                    currentUT, loopUnits, out bool renderHidden);
+                if (renderHidden)
+                {
+                    summary.LoopMemberHidden++;
+                    continue;
+                }
+
                 AtmosphericMarkerSkipReason skipReason =
-                    ClassifyAtmosphericMarkerSkip(rec, i, currentUT, suppressed);
+                    ClassifyAtmosphericMarkerSkip(rec, i, effUT, suppressed);
                 if (skipReason != AtmosphericMarkerSkipReason.None)
                 {
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
@@ -377,7 +387,7 @@ namespace Parsek
                 int cached = atmosCachedIndices[i];
                 if (!TryResolveRecordingWorldPosition(
                         rec,
-                        currentUT,
+                        effUT,
                         ref cached,
                         out Vector3d worldPos,
                         out _,
@@ -414,12 +424,6 @@ namespace Parsek
             LogAtmosphericMarkerSummary(summary);
         }
 
-        internal bool IsPointerOverParsekWindow(Vector2 mousePosition)
-        {
-            return ParsekUI.IsPointerOverOpenWindow(showUI, windowRect, mousePosition)
-                || (ui != null && ui.IsMouseOverOpenAuxiliaryWindows(mousePosition));
-        }
-
         internal static bool ShouldProcessAtmosphericMarkerEvent(
             EventType eventType,
             bool pointerOverParsekWindow)
@@ -448,183 +452,6 @@ namespace Parsek
         {
             return pointerOverGhostPopup
                 && IsAtmosphericMarkerClickEvent(eventType);
-        }
-
-        private void DrawControlSurface()
-        {
-            if (!showUI || ui == null) return;
-
-            windowRect.height = 0f;
-            var opaqueWindowStyle = ui.GetOpaqueWindowStyle();
-            if (opaqueWindowStyle == null)
-                return;
-
-            ParsekUI.ResetWindowGuiColors(
-                out Color prevColor,
-                out Color prevBackgroundColor,
-                out Color prevContentColor);
-            try
-            {
-                windowRect = ClickThruBlocker.GUILayoutWindow(
-                    GetInstanceID(),
-                    windowRect,
-                    DrawControlSurfaceWindow,
-                    "Parsek",
-                    opaqueWindowStyle,
-                    GUILayout.Width(250));
-            }
-            finally
-            {
-                ParsekUI.RestoreWindowGuiColors(prevColor, prevBackgroundColor, prevContentColor);
-            }
-
-            ui.LogMainWindowPosition(windowRect);
-            ui.DrawRecordingsWindowIfOpen(windowRect);
-            ui.DrawSettingsWindowIfOpen(windowRect);
-            ui.DrawTestRunnerWindowIfOpen(windowRect, this);
-        }
-
-        private void DrawControlSurfaceWindow(int windowID)
-        {
-            TrackingStationControlSurfaceState state = BuildControlSurfaceState(
-                RecordingStore.CommittedRecordings,
-                GhostMapPresence.ghostMapVesselPids.Count,
-                GhostMapPresence.CachedTrackingStationSuppressedIds?.Count ?? 0,
-                ParsekSettingsPersistence.EffectiveShowGhostsInTrackingStation());
-
-            GUILayout.BeginVertical();
-
-            GUILayout.Label("Tracking Station", GUI.skin.box);
-            GUILayout.Label(state.ShowGhosts ? "Ghosts: visible" : "Ghosts: hidden");
-            GUILayout.Label(FormatControlSurfaceCountsLine(state));
-            GUILayout.Label(FormatControlSurfaceLifecycleLine(state));
-
-            GUILayout.Space(10f);
-
-            bool showGhosts = GUILayout.Toggle(
-                state.ShowGhosts,
-                new GUIContent(
-                    " Show ghosts in Tracking Station",
-                    "Show or hide Parsek ghost vessels and markers in the Tracking Station"));
-            if (showGhosts != state.ShowGhosts)
-                SetShowGhostsFromControlSurface(showGhosts);
-
-            GUILayout.Space(10f);
-
-            if (GUILayout.Button(string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Recordings ({0})",
-                    state.CommittedRecordings)))
-            {
-                ui.ToggleRecordingsWindow();
-            }
-
-            if (GUILayout.Button("Settings"))
-                ui.ToggleSettingsWindow();
-
-            GUILayout.Space(10f);
-            if (GUILayout.Button("Close"))
-            {
-                showUI = false;
-                if (toolbarControl != null) toolbarControl.SetFalse();
-                ParsekLog.Verbose(Tag, "Control surface closed via button");
-            }
-
-            GUILayout.EndVertical();
-            GUI.DragWindow();
-        }
-
-        private void SetShowGhostsFromControlSurface(bool showGhosts)
-        {
-            bool liveSettingsUpdated = TryApplyGhostVisibilitySetting(
-                ParsekSettings.Current,
-                showGhosts);
-            ParsekSettingsPersistence.RecordShowGhostsInTrackingStation(showGhosts);
-            lastKnownShowGhosts = showGhosts;
-
-            if (!showGhosts)
-                HideTrackingStationGhostsNow("tracking-station-ui-toggle");
-
-            nextLifecycleCheckTime = 0f;
-            ParsekLog.Info(Tag,
-                $"Control surface set showGhostsInTrackingStation={showGhosts} " +
-                $"liveSettingsUpdated={liveSettingsUpdated}");
-        }
-
-        private void HideTrackingStationGhostsNow(string reason)
-        {
-            string safeReason = string.IsNullOrEmpty(reason)
-                ? "tracking-station-ghosts-hidden"
-                : reason;
-            DismissCurrentGhostPopup(safeReason, clearSelection: true);
-            DestroyAtmosphericFocusTarget(safeReason);
-            atmosCachedIndices.Clear();
-            ghostActionCacheFrame = -1;
-            ghostActionChains.Clear();
-            GhostMapPresence.RemoveAllGhostVessels(safeReason);
-            GhostMapPresence.TryRefreshLiveTrackingStationVesselList(safeReason);
-        }
-
-        internal static bool TryApplyGhostVisibilitySetting(ParsekSettings settings, bool showGhosts)
-        {
-            if (settings == null)
-                return false;
-
-            settings.showGhostsInTrackingStation = showGhosts;
-            return true;
-        }
-
-        internal static TrackingStationControlSurfaceState BuildControlSurfaceState(
-            IReadOnlyList<Recording> committed,
-            int visibleGhostVessels,
-            int suppressedRecordings,
-            bool showGhosts)
-        {
-            int committedCount = committed?.Count ?? 0;
-            int materialized = 0;
-            if (committed != null)
-            {
-                for (int i = 0; i < committed.Count; i++)
-                {
-                    Recording rec = committed[i];
-                    if (rec != null && (rec.VesselSpawned || rec.SpawnedVesselPersistentId != 0))
-                        materialized++;
-                }
-            }
-
-            return new TrackingStationControlSurfaceState
-            {
-                CommittedRecordings = ClampNonNegative(committedCount),
-                VisibleGhostVessels = ClampNonNegative(visibleGhostVessels),
-                SuppressedRecordings = ClampNonNegative(suppressedRecordings),
-                MaterializedRecordings = ClampNonNegative(materialized),
-                ShowGhosts = showGhosts
-            };
-        }
-
-        internal static string FormatControlSurfaceCountsLine(
-            TrackingStationControlSurfaceState state)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Recordings: {0} | Map ghosts: {1}",
-                state.CommittedRecordings,
-                state.VisibleGhostVessels);
-        }
-
-        internal static string FormatControlSurfaceLifecycleLine(
-            TrackingStationControlSurfaceState state)
-        {
-            return string.Format(
-                CultureInfo.InvariantCulture,
-                "Suppressed: {0} | Spawned: {1}",
-                state.SuppressedRecordings,
-                state.MaterializedRecordings);
-        }
-
-        private static int ClampNonNegative(int value)
-        {
-            return value < 0 ? 0 : value;
         }
 
         /// <summary>
@@ -677,7 +504,14 @@ namespace Parsek
             if (GhostMapPresence.HasGhostVesselForRecording(recordingIndex))
             {
                 uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(recordingIndex);
-                if (ghostPid == 0 || !GhostMapPresence.IsIconSuppressed(ghostPid))
+                // The native proto icon is NOT visible when the icon is suppressed OR
+                // when the trajectory polyline owns this recording's non-orbital phase
+                // (GhostOrbitLinePatch hides the proto icon then), so the atmospheric
+                // marker must still draw as the sole position indicator (otherwise an
+                // airless descent shows the polyline with no ghost icon).
+                if (ghostPid == 0
+                    || (!GhostMapPresence.IsIconSuppressed(ghostPid)
+                        && !GhostMapPresence.IsPolylineOwningGhostPhase(ghostPid)))
                     return AtmosphericMarkerSkipReason.NativeIconActive;
             }
             if (rec == null) return AtmosphericMarkerSkipReason.NullRecording;
@@ -704,14 +538,6 @@ namespace Parsek
             // Flight scene's own OnSceneChangeRequested hook runs too, but this
             // addon is the only always-present TS listener — keep it defensive.
             MapMarkerRenderer.ResetForSceneChange();
-            ui?.Cleanup();
-            ui = null;
-            if (toolbarControl != null)
-            {
-                toolbarControl.OnDestroy();
-                Destroy(toolbarControl);
-                toolbarControl = null;
-            }
             ParsekLog.Info(Tag, "ParsekTrackingStation destroyed");
         }
 
@@ -960,23 +786,63 @@ namespace Parsek
                 GhostTrackingStationSelection.ClearSelectedGhost(reason);
         }
 
+        // Frames to ignore after the popup opens before an outside press can
+        // dismiss it. The opening click's press fires the frame before the
+        // popup exists, so this is belt-and-suspenders against event-order
+        // edge cases.
+        private const int GhostPopupOutsideClickArmFrames = 5;
+
         private void CheckGhostPopupOutsideClick()
         {
             if (currentGhostPopup == null)
                 return;
-            if (Time.frameCount - ghostPopupOpenFrame < 5)
-                return;
-            if (!Input.GetMouseButtonUp(0) && !Input.GetMouseButtonUp(1))
-                return;
 
-            if (IsMouseOverCurrentGhostPopup())
+            // Dismiss on a fresh outside PRESS, not a release. Releasing the
+            // very click that opened the popup used to close it: the popup
+            // anchors just below the cursor, so the cursor sits at/above its
+            // top edge (outside the rect), and the opening click's release was
+            // treated as an outside click. That is why the menu only stayed
+            // visible while the button was held down. A press starts a new
+            // interaction, so the opening click no longer closes the menu it
+            // just opened.
+            int framesSinceOpen = Time.frameCount - ghostPopupOpenFrame;
+            bool freshClick = Input.GetMouseButtonDown(0) || Input.GetMouseButtonDown(1);
+            bool mouseOverPopup = IsMouseOverCurrentGhostPopup();
+
+            if (framesSinceOpen >= GhostPopupOutsideClickArmFrames
+                && freshClick
+                && mouseOverPopup)
             {
                 ParsekLog.Verbose(Tag,
                     "Tracking Station ghost popup click ignored: inside-popup");
                 return;
             }
 
+            if (!ShouldDismissGhostPopupOnOutsideClick(
+                    framesSinceOpen, freshClick, mouseOverPopup))
+                return;
+
             DismissCurrentGhostPopup("outside-click", clearSelection: true);
+        }
+
+        /// <summary>
+        /// Pure: should an open ghost popup be dismissed this frame? Dismiss
+        /// only on a fresh outside press once the arm window has elapsed, so
+        /// neither the press nor the release of the click that opened the popup
+        /// can close it. Extracted so the decision is unit-testable without a
+        /// Unity Input context — callers pass the frame delta, whether a mouse
+        /// button went down this frame, and whether the cursor is over the popup.
+        /// </summary>
+        internal static bool ShouldDismissGhostPopupOnOutsideClick(
+            int framesSinceOpen, bool freshClickThisFrame, bool mouseOverPopup)
+        {
+            if (framesSinceOpen < GhostPopupOutsideClickArmFrames)
+                return false;
+            if (!freshClickThisFrame)
+                return false;
+            if (mouseOverPopup)
+                return false;
+            return true;
         }
 
         private bool IsMouseOverCurrentGhostPopup()
@@ -1444,7 +1310,7 @@ namespace Parsek
             if (section.referenceFrame == ReferenceFrame.Relative)
             {
                 // TryResolveRecordingWorldPosition consumes the selected list as
-                // body-fixed lat/lon/alt. v13 Relative frames are anchor-local
+                // body-fixed lat/lon/alt. Relative frames are anchor-local
                 // metre offsets, so Tracking Station focus/icon positioning must
                 // use the body-fixed primary surface unless this path grows a
                 // real relative world-pose resolver.
@@ -1642,7 +1508,8 @@ namespace Parsek
                         CultureInfo.InvariantCulture,
                         "Warp to Spawn handoff forcing immediate Tracking Station lifecycle tick: recId={0}",
                         selection.RecordingId ?? "(none)"));
-                GhostMapPresence.UpdateTrackingStationGhostLifecycle(refreshStockList: false);
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle(
+                    cachedLoopUnits, refreshStockList: false);
                 nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
                 GhostMapPresence.TryRefreshLiveTrackingStationVesselList("tracking-station-spawn-handoff");
 

@@ -799,6 +799,33 @@ namespace Parsek
 
         internal void HandleLoopCameraAction(CameraActionEvent evt)
         {
+            // Edge 10 (chain-loop unit watch transfer): a unit-internal segment boundary / span wrap
+            // moves the visible ghost to a DIFFERENT (sibling) member index. The engine fires this
+            // only when the camera is already watching a member of the unit, so evt.Index is the NEW
+            // live member, which is != watchedRecordingIndex (the OLD member). This branch MUST run
+            // BEFORE the watched-index early-return below — that guard is precisely the
+            // evt.Index != watchedRecordingIndex case, so it would otherwise drop the handoff.
+            // Reuses the proven cross-index TransferWatchToNextSegment (camera-state preserving). If
+            // the new live ghost is not spawned yet, the transfer defers (returns false); the
+            // keep-watched-owner-alive fallback (KeepWatchedUnitGhostAlive on the engine) holds the
+            // currently-watched member's ghost so the camera never targets a deactivated ghost even
+            // if this single event is dropped. The engine re-fires this event every frame while the
+            // transfer is pending (it does not advance its handoff edge until WatchedRecordingIndex
+            // actually lands on the live member), so a deferred transfer here is retried next frame
+            // rather than lost; we log the deferred outcome and let the engine drive the retry.
+            if (evt.Action == CameraActionType.UnitHandoffRetarget)
+            {
+                if (watchedRecordingIndex < 0) return; // not watching anything
+                if (watchedRecordingIndex == evt.Index) return; // already on the live member
+                bool transferred = TransferWatchToNextSegment(evt.Index);
+                if (!transferred)
+                    ParsekLog.VerboseRateLimited(
+                        "CameraFollow", "unit-handoff-defer",
+                        $"Unit handoff retarget to #{evt.Index} deferred (target ghost not ready) "
+                            + "- engine will re-fire next frame");
+                return;
+            }
+
             if (watchedRecordingIndex != evt.Index) return; // not watching this recording
 
             switch (evt.Action)
@@ -1832,7 +1859,7 @@ namespace Parsek
             }
             else
             {
-                watchLoadUT = ResolveWatchPlaybackUT(rec, currentState, watchLoadUT);
+                watchLoadUT = ResolveWatchPlaybackUT(rec, currentState, watchLoadUT, index);
             }
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, rec, watchLoadUT,
@@ -3302,6 +3329,22 @@ namespace Parsek
             GhostPlaybackState state = null;
             if (watchedOverlapCycleIndex >= 0)
             {
+                // A loop-cycle watch whose recording has LEFT its mission loop unit (the player
+                // trimmed it out via the composition checkboxes, or turned the loop off) has no
+                // live loop ghost to follow. Falling back to a stale/dying primary below would
+                // point the camera at a destroyed transform (null FlightCamera.Target), which
+                // floods stock KSP with NREs. Return null so the per-frame no-target safety net
+                // exits watch cleanly and restores the active-vessel camera.
+                if (!host.Engine.IsLoopUnitMember(watchedRecordingIndex))
+                {
+                    ParsekLog.VerboseRateLimited("CameraFollow",
+                        "watch-member-dropped:" + watchedRecordingIndex.ToString(CultureInfo.InvariantCulture),
+                        $"Watched recording #{watchedRecordingIndex} \"{watchedRecordingId}\" left its mission " +
+                        "loop unit (interval trimmed out or loop off); releasing watch target (the " +
+                        "no-target safety net will exit watch)",
+                        5.0);
+                    return null;
+                }
                 // Look for the watched cycle in the overlap list
                 List<GhostPlaybackState> overlaps;
                 if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps))
@@ -3361,6 +3404,58 @@ namespace Parsek
             return state;
         }
 
+        /// <summary>
+        /// Read-only resolve of the watched ghost's camera-anchor world position, used to
+        /// center the ghost render-distance LOD radius on the watched ghost (what the camera
+        /// is actually following) instead of the active vessel while in watch mode.
+        ///
+        /// Deliberately side-effect free, unlike <see cref="FindWatchedGhostState"/>: it does
+        /// NOT retarget the camera, log, load visuals, or mutate <c>watchedOverlapCycleIndex</c>,
+        /// so it is safe to call from the per-frame, per-ghost LOD distance path. Returns false
+        /// when not watching or the watched ghost has no live transform this frame; the caller
+        /// then falls back to the active vessel.
+        /// </summary>
+        internal bool TryGetWatchedGhostAnchorWorldPosition(out Vector3d worldPosition)
+        {
+            worldPosition = Vector3d.zero;
+            if (watchedRecordingIndex < 0 || host == null || host.Engine == null)
+                return false;
+
+            GhostPlaybackState state = null;
+            var ghostStates = host.Engine.ghostStates;
+            var overlapGhosts = host.Engine.overlapGhosts;
+
+            if (watchedOverlapCycleIndex >= 0 && overlapGhosts != null)
+            {
+                List<GhostPlaybackState> overlaps;
+                if (overlapGhosts.TryGetValue(watchedRecordingIndex, out overlaps) && overlaps != null)
+                {
+                    for (int i = 0; i < overlaps.Count; i++)
+                    {
+                        if (overlaps[i] != null && overlaps[i].loopCycleIndex == watchedOverlapCycleIndex)
+                        {
+                            state = overlaps[i];
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (state == null && ghostStates != null)
+                ghostStates.TryGetValue(watchedRecordingIndex, out state);
+
+            Transform anchor = null;
+            if (state != null)
+                anchor = state.cameraPivot != null
+                    ? state.cameraPivot
+                    : (state.ghost != null ? state.ghost.transform : null);
+            if (anchor == null)
+                return false;
+
+            worldPosition = (Vector3d)anchor.position;
+            return true;
+        }
+
         private bool TryResolveOverlapRetarget()
         {
             if (watchedOverlapCycleIndex != -2 || overlapRetargetAfterUT <= 0)
@@ -3373,6 +3468,32 @@ namespace Parsek
                 // Destroy temp camera anchor
                 DestroyOverlapCameraAnchor();
                 overlapRetargetAfterUT = -1;
+
+                // Mission through-line restart: when the held recording is a Mission loop-unit
+                // member (its terminal stage just exploded), restart the camera on the unit's
+                // THROUGH-LINE ROOT (the first stage of a fresh mission instance, at the trimmed
+                // start) rather than the exploded member's own primary cycle. That cycle is the
+                // upper stage mid-flight, and for a relative-anchored member it can be retired at an
+                // invalid position the very frame the hold ends (the "jump to an invalid spot" the
+                // player saw). The root's newest cycle is a fresh launch near the mission start, so
+                // the watch loops cleanly: launch -> stages -> explosion -> hold -> launch again.
+                if (host.Engine.TryGetUnitThroughLineRoot(watchedRecordingIndex, out int rootIndex)
+                    && rootIndex != watchedRecordingIndex)
+                {
+                    if (TransferWatchToNextSegment(rootIndex))
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, restarted mission watch on through-line root #{rootIndex}");
+                    else
+                    {
+                        // Root not spawned yet -- wait for the next spawn rather than falling back to
+                        // the exploded member's (possibly invalid) primary.
+                        watchedOverlapCycleIndex = -1;
+                        watchNoTargetFrames = 0;
+                        ParsekLog.Info("CameraFollow",
+                            $"Overlap: hold ended, mission through-line root #{rootIndex} not spawned yet — waiting for next spawn");
+                    }
+                    return false;
+                }
 
                 // Immediately target the current primary ghost so FlightCamera
                 // doesn't reference the destroyed anchor
@@ -3635,8 +3756,26 @@ namespace Parsek
         }
 
         private double ResolveWatchPlaybackUT(
-            Recording rec, GhostPlaybackState currentState, double fallbackUT)
+            Recording rec, GhostPlaybackState currentState, double fallbackUT, int recordingIndex)
         {
+            // Mission loop-unit members do NOT carry a per-recording LoopPlayback flag, so the
+            // ShouldLoopPlaybackForWatch fallback below would feed the RAW Planetarium UT into the
+            // watch-sync path (ApplyPartEvents is monotonic, replaying every staging / decouple
+            // event past the member's window end and leaving only the never-jettisoned parts).
+            // Resolve such a member through the unit's shared span clock instead, matching the UT
+            // the engine renders the member at in UpdateUnitMemberPlayback. Non-members /
+            // non-looping watch return false here and fall through to the unchanged path below.
+            if (recordingIndex >= 0 && rec != null
+                && host.TryResolveUnitMemberPlaybackUTForWatch(
+                    recordingIndex, fallbackUT, rec.StartUT, rec.EndUT, out double spanLoopUT))
+            {
+                ParsekLog.Verbose("CameraFollow",
+                    $"Watch UT resolved via Mission span clock: rec #{recordingIndex} rawUT="
+                        + fallbackUT.ToString("F2", CultureInfo.InvariantCulture)
+                        + " loopUT=" + spanLoopUT.ToString("F2", CultureInfo.InvariantCulture));
+                return spanLoopUT;
+            }
+
             if (rec == null || !host.ShouldLoopPlaybackForWatch(rec))
                 return fallbackUT;
 
@@ -3703,7 +3842,7 @@ namespace Parsek
                 return false;
 
             double currentUT = Planetarium.GetUniversalTime();
-            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState, currentUT);
+            double playbackUT = ResolveWatchPlaybackUT(committed[index], currentState, currentUT, index);
 
             if (!host.Engine.EnsureGhostVisualsLoadedForWatch(index, traj, playbackUT,
                     currentUT: currentUT))

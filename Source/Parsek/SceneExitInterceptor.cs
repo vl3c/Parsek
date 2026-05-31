@@ -327,8 +327,10 @@ namespace Parsek
         /// Idle-on-pad fast path. Detects via
         /// <see cref="ParsekFlight.IsActiveTreeIdleOnPad"/> and, if idle,
         /// tears down the live recorder / activeTree via
-        /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/>. After
-        /// return-true, stock LoadScene proceeds with no active tree;
+        /// <see cref="ParsekFlight.AutoDiscardIdleActiveTree"/> (which also
+        /// clears any armed <see cref="SwitchSegmentSession"/>). On return-true
+        /// the caller re-saves persistent.sfs so the torn-down state survives;
+        /// stock LoadScene then proceeds with no active tree;
         /// OnSceneChangeRequested no-ops; destination scene loads with no
         /// pending tree, so the OnLoad idle-on-pad branch
         /// (<c>ParsekScenario.cs:1682-1689</c>) does not fire.
@@ -651,10 +653,22 @@ namespace Parsek
 
             // (5) idle-on-pad auto-discard fast path. Both detects AND
             //     mutates: tears down activeTree / recorder /
-            //     backgroundRecorder so OnSceneChangeRequested sees
-            //     nothing to finalize.
+            //     backgroundRecorder (and clears any armed switch-segment
+            //     session) so OnSceneChangeRequested sees nothing to finalize.
             if (SceneExitInterceptor.TryAutoDiscardIdleActiveTree(scene, flight))
+            {
+                // The pre-exit OnSave (stock saveAndExit, which runs before
+                // this prefix) already persisted the now-discarded active tree
+                // plus any armed switch-segment session into persistent.sfs.
+                // Re-save so the torn-down state is what survives; otherwise a
+                // dangling session resurfaces as a deferred merge dialog on the
+                // next load. Mirrors BuildPostChoice's post-Discard
+                // SafeWritePersistent (the dialog path already re-saves here;
+                // the idle fast path historically skipped it).
+                if (!SceneExitInterceptor.SafeWritePersistent(scene))
+                    return false;   // MAINMENU save failed: hard-block
                 return true;
+            }
 
             // (6) show dialog on the live activeTree. ShowTreeDialog's
             //     button-handler wrapper runs preCommitFinalize ->

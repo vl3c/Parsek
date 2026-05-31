@@ -60,6 +60,7 @@ namespace Parsek
         public bool explosionFired;
         public bool pauseHidden;
         public bool rcsSuppressed;
+        public bool visualFxSuppressed;  // true when ApplyFrameVisuals stopped engine FX via suppressVisualFx; drives the symmetric engine-FX restart on un-suppress
         public bool fidelityReduced;     // true when ReduceFidelity soft cap disabled some renderers
         public bool distanceLodReduced;  // true when distance-based LOD applied ReduceFidelity
         public List<Renderer> fidelityDisabledRenderers; // renderers disabled by ReduceFidelity (for precise restore)
@@ -133,6 +134,7 @@ namespace Parsek
             reentryMpb = null;
             pauseHidden = false;
             rcsSuppressed = false;
+            visualFxSuppressed = false;
             fidelityReduced = false;
             distanceLodReduced = false;
             fidelityDisabledRenderers = null;

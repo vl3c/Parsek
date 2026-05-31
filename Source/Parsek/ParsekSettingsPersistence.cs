@@ -40,7 +40,6 @@ namespace Parsek
         private const string RootNodeName = "PARSEK_SETTINGS";
         private const string GhostCameraCutoffKey = "ghostCameraCutoffKm";
         private const string ReadableSidecarMirrorsKey = "writeReadableSidecarMirrors";
-        private const string ShowGhostsInTrackingStationKey = "showGhostsInTrackingStation";
         private const string ShowCommittedFutureOverlaysKey = "showCommittedFutureOverlays";
         private const string BlockCommittedActionsKey = "blockCommittedActions";
         private const string GhostRenderTracingKey = "ghostRenderTracing";
@@ -48,11 +47,14 @@ namespace Parsek
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
         private const string UseOutlierRejectionKey = "useOutlierRejection";
+        private const string WarpYearKey = "warpYear";
+        private const string WarpDayKey = "warpDay";
+        private const string WarpHourKey = "warpHour";
+        private const string WarpMinuteKey = "warpMinute";
 
         // Null = no stored value (use defaults / whatever GameParameters loaded).
         // Non-null = user-set override, applied over GameParameters on load.
         private static bool? storedReadableSidecarMirrors;
-        private static bool? storedShowGhostsInTrackingStation;
         private static bool? storedShowCommittedFutureOverlays;
         private static bool? storedBlockCommittedActions;
         private static bool? storedGhostRenderTracing;
@@ -60,15 +62,20 @@ namespace Parsek
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
         private static bool? storedUseOutlierRejection;
+        // Warp-to-time draft inputs (Timeline window). Pure UI state persisted across
+        // sessions so the user need not re-type a frequently-used target date.
+        private static int? storedWarpYear;
+        private static int? storedWarpDay;
+        private static int? storedWarpHour;
+        private static int? storedWarpMinute;
         private static bool loaded;
 
         /// <summary>
         /// True once <see cref="ApplyTo"/> has reconciled the store into a live
         /// <see cref="ParsekSettings"/> instance. Until then, <c>ParsekSettings.Current</c>
         /// may still hold whatever KSP restored from the .sfs (or the compiled
-        /// default for a fresh game) — trusting it would let
-        /// <see cref="EffectiveShowGhostsInTrackingStation"/> overwrite a correct
-        /// stored preference with a stale save value. Reset only via
+        /// default for a fresh game) - trusting it would let a stale save value
+        /// overwrite a correct stored preference. Reset only via
         /// <see cref="ResetForTesting"/>.
         /// </summary>
         private static bool reconciledWithLiveSettings;
@@ -132,17 +139,6 @@ namespace Parsek
                 else
                 {
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ReadableSidecarMirrorsKey} — using default");
-                }
-
-                string showGhostsStr = root.GetValue(ShowGhostsInTrackingStationKey);
-                if (!string.IsNullOrEmpty(showGhostsStr)
-                    && bool.TryParse(showGhostsStr, out bool showGhosts))
-                {
-                    storedShowGhostsInTrackingStation = showGhosts;
-                }
-                else
-                {
-                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {ShowGhostsInTrackingStationKey} — using default");
                 }
 
                 string showOverlaysStr = root.GetValue(ShowCommittedFutureOverlaysKey);
@@ -222,10 +218,14 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {UseOutlierRejectionKey} — using default");
                 }
 
+                storedWarpYear = ParseStoredInt(root, WarpYearKey);
+                storedWarpDay = ParseStoredInt(root, WarpDayKey);
+                storedWarpHour = ParseStoredInt(root, WarpHourKey);
+                storedWarpMinute = ParseStoredInt(root, WarpMinuteKey);
+
                 ParsekLog.Info(Tag,
                     $"Loaded settings from '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<default>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<default>")}" +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
@@ -237,6 +237,42 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Warn(Tag, $"Failed to load settings file '{path}': {ex.Message}");
+            }
+        }
+
+        private static int? ParseStoredInt(ConfigNode root, string key)
+        {
+            string raw = root.GetValue(key);
+            if (!string.IsNullOrEmpty(raw)
+                && int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out int v))
+                return v;
+            return null;
+        }
+
+        /// <summary>
+        /// Records the Timeline warp-to-time draft inputs and writes them to disk. Called
+        /// when the Timeline window closes. Guards against the xUnit / non-Unity context
+        /// where KSPUtil.ApplicationRootPath throws (the in-memory store is still updated).
+        /// </summary>
+        internal static void RecordWarpDate(int year, int day, int hour, int minute)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordWarpDate: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            storedWarpYear = year;
+            storedWarpDay = day;
+            storedWarpHour = hour;
+            storedWarpMinute = minute;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordWarpDate: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
 
@@ -257,15 +293,6 @@ namespace Parsek
                 settings.writeReadableSidecarMirrors = storedReadableSidecarMirrors.Value;
                 ParsekLog.Info(Tag,
                     $"Restored writeReadableSidecarMirrors {prev} -> {storedReadableSidecarMirrors.Value} from persistent store");
-            }
-
-            if (storedShowGhostsInTrackingStation.HasValue
-                && storedShowGhostsInTrackingStation.Value != settings.showGhostsInTrackingStation)
-            {
-                bool prev = settings.showGhostsInTrackingStation;
-                settings.showGhostsInTrackingStation = storedShowGhostsInTrackingStation.Value;
-                ParsekLog.Info(Tag,
-                    $"Restored showGhostsInTrackingStation {prev} -> {storedShowGhostsInTrackingStation.Value} from persistent store");
             }
 
             if (storedShowCommittedFutureOverlays.HasValue
@@ -336,11 +363,10 @@ namespace Parsek
                     $"Restored useOutlierRejection {prev} -> {storedUseOutlierRejection.Value} from persistent store");
             }
 
-            // #388 + PR #328 P2-A: mark reconciled AFTER writes complete. Only
-            // now is ParsekSettings.Current authoritative enough for
-            // EffectiveShowGhostsInTrackingStation to trust it and resync the
-            // store from it. Before this flag flips, any early call must treat
-            // the store as the source of truth.
+            // PR #328 P2-A: mark reconciled AFTER writes complete. Only now is
+            // ParsekSettings.Current authoritative enough for the persisting
+            // property setters to trust it. Before this flag flips, any early
+            // call must treat the store as the source of truth.
             reconciledWithLiveSettings = true;
         }
 
@@ -352,13 +378,6 @@ namespace Parsek
         {
             LoadIfNeeded();
             storedReadableSidecarMirrors = value;
-            Save();
-        }
-
-        internal static void RecordShowGhostsInTrackingStation(bool value)
-        {
-            LoadIfNeeded();
-            storedShowGhostsInTrackingStation = value;
             Save();
         }
 
@@ -398,8 +417,8 @@ namespace Parsek
 
         internal static void RecordUseSmoothingSplines(bool value)
         {
-            // SecurityException guard mirrors EffectiveShowGhostsInTrackingStation:
-            // under xUnit, KSPUtil.ApplicationRootPath throws SecurityException.
+            // SecurityException guard: under xUnit, KSPUtil.ApplicationRootPath
+            // throws SecurityException.
             // The in-memory store is still updated below — that's what the tests
             // (and the in-process value precedence) actually depend on.
             try { LoadIfNeeded(); }
@@ -486,89 +505,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Resolve the effective <c>showGhostsInTrackingStation</c> value. Precedence:
-        /// <list type="number">
-        ///   <item>Live <c>ParsekSettings.Current</c> — but only AFTER
-        ///     <see cref="ApplyTo"/> has reconciled the store into it
-        ///     (<c>reconciledWithLiveSettings</c> flag). Until then, <c>Current</c>
-        ///     may still hold the value KSP restored from the .sfs — trusting it
-        ///     would overwrite the user's persisted preference with a stale save
-        ///     value (PR #328 P2-A).</item>
-        ///   <item>Persisted store (settings.cfg) — authoritative before
-        ///     reconciliation AND the fallback for the early-scene-load window
-        ///     where <c>ParsekSettings.Current</c> is null (see
-        ///     <c>ParsekScenario.cs:546</c> comment).</item>
-        ///   <item>Default <c>true</c> (pre-#388 behavior).</item>
-        /// </list>
-        /// Post-reconciliation, a live value that disagrees with the store is
-        /// resynced back to disk so a flip from KSP's stock Game Parameters UI
-        /// (which mutates the field directly, bypassing
-        /// <see cref="RecordShowGhostsInTrackingStation"/>) survives cold-start.
-        /// </summary>
-        internal static bool EffectiveShowGhostsInTrackingStation()
-        {
-            // Swallow ONLY the "called outside Unity runtime" case —
-            // KSPUtil.ApplicationRootPath throws SecurityException/ECall under
-            // xUnit. Real disk-read failures are handled inside LoadIfNeeded
-            // itself and logged at Warn level, so we deliberately don't mask
-            // those here: a genuine settings.cfg corruption bug has to remain
-            // loud or the user's stored preference would silently revert to
-            // the pre-#388 default — the exact symptom this helper is
-            // supposed to prevent.
-            try { LoadIfNeeded(); }
-            catch (SecurityException ex)
-            {
-                ParsekLog.Verbose(Tag,
-                    $"EffectiveShowGhostsInTrackingStation: LoadIfNeeded threw SecurityException " +
-                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
-            }
-
-            // Post-reconciliation: live Current wins. The stock Game Parameters UI
-            // writes directly to this field (bypassing
-            // RecordShowGhostsInTrackingStation), so reading from the store first
-            // would mask that flip for the rest of the session. When live and
-            // stored disagree, persist the live value so the next cold-start reads
-            // the user's current intent.
-            var current = ParsekSettings.Current;
-            if (reconciledWithLiveSettings && current != null)
-            {
-                if (!storedShowGhostsInTrackingStation.HasValue
-                    || storedShowGhostsInTrackingStation.Value != current.showGhostsInTrackingStation)
-                {
-                    ParsekLog.Info(Tag,
-                        $"Live showGhostsInTrackingStation={current.showGhostsInTrackingStation}" +
-                        $" differs from stored={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
-                        " — resyncing store (likely a flip from KSP Game Parameters UI)");
-                    storedShowGhostsInTrackingStation = current.showGhostsInTrackingStation;
-                    // Same xUnit guard as LoadIfNeeded above — KSPUtil.ApplicationRootPath
-                    // inside Save → GetFilePath throws SecurityException under xUnit.
-                    // In-memory store is still updated, which is what the tests assert.
-                    try { Save(); }
-                    catch (SecurityException ex)
-                    {
-                        ParsekLog.Verbose(Tag,
-                            $"EffectiveShowGhostsInTrackingStation: Save threw SecurityException " +
-                            $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
-                    }
-                }
-                return current.showGhostsInTrackingStation;
-            }
-
-            // Pre-reconciliation (or Current unavailable): store is the source of
-            // truth. This is the SpaceTracking.Awake pre-OnLoad window #388
-            // originally targeted, plus the new P2-A fix — a non-null-but-stale
-            // Current must not clobber the persisted preference before
-            // ParsekScenario.OnLoad had a chance to reconcile.
-            if (storedShowGhostsInTrackingStation.HasValue)
-                return storedShowGhostsInTrackingStation.Value;
-
-            // Neither reconciled Current nor stored value available — fall back
-            // to pre-reconciliation Current if present (first-run, no settings.cfg
-            // yet), else the compiled default.
-            return current?.showGhostsInTrackingStation ?? true;
-        }
-
-        /// <summary>
         /// Writes the current store to disk via the shared safe-write helper.
         /// </summary>
         private static void Save()
@@ -579,8 +515,6 @@ namespace Parsek
                 var root = new ConfigNode(RootNodeName);
                 if (storedReadableSidecarMirrors.HasValue)
                     root.AddValue(ReadableSidecarMirrorsKey, storedReadableSidecarMirrors.Value.ToString());
-                if (storedShowGhostsInTrackingStation.HasValue)
-                    root.AddValue(ShowGhostsInTrackingStationKey, storedShowGhostsInTrackingStation.Value.ToString());
                 if (storedShowCommittedFutureOverlays.HasValue)
                     root.AddValue(ShowCommittedFutureOverlaysKey, storedShowCommittedFutureOverlays.Value.ToString());
                 if (storedBlockCommittedActions.HasValue)
@@ -595,11 +529,18 @@ namespace Parsek
                     root.AddValue(UseAnchorTaxonomyKey, storedUseAnchorTaxonomy.Value.ToString());
                 if (storedUseOutlierRejection.HasValue)
                     root.AddValue(UseOutlierRejectionKey, storedUseOutlierRejection.Value.ToString());
+                if (storedWarpYear.HasValue)
+                    root.AddValue(WarpYearKey, storedWarpYear.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpDay.HasValue)
+                    root.AddValue(WarpDayKey, storedWarpDay.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpHour.HasValue)
+                    root.AddValue(WarpHourKey, storedWarpHour.Value.ToString(CultureInfo.InvariantCulture));
+                if (storedWarpMinute.HasValue)
+                    root.AddValue(WarpMinuteKey, storedWarpMinute.Value.ToString(CultureInfo.InvariantCulture));
                 FileIOUtils.SafeWriteConfigNode(root, path, Tag);
                 ParsekLog.Verbose(Tag,
                     $"Saved settings to '{path}': writeReadableSidecarMirrors=" +
                     (storedReadableSidecarMirrors.HasValue ? storedReadableSidecarMirrors.Value.ToString() : "<null>") +
-                    $" showGhostsInTrackingStation={(storedShowGhostsInTrackingStation.HasValue ? storedShowGhostsInTrackingStation.Value.ToString() : "<null>")}" +
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
@@ -623,7 +564,6 @@ namespace Parsek
         internal static void ResetForTesting()
         {
             storedReadableSidecarMirrors = null;
-            storedShowGhostsInTrackingStation = null;
             storedShowCommittedFutureOverlays = null;
             storedBlockCommittedActions = null;
             storedGhostRenderTracing = null;
@@ -631,6 +571,10 @@ namespace Parsek
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
             storedUseOutlierRejection = null;
+            storedWarpYear = null;
+            storedWarpDay = null;
+            storedWarpHour = null;
+            storedWarpMinute = null;
             loaded = false;
             reconciledWithLiveSettings = false;
         }
@@ -684,8 +628,6 @@ namespace Parsek
         /// </summary>
         internal static bool? GetStoredReadableSidecarMirrors() => storedReadableSidecarMirrors;
 
-        internal static bool? GetStoredShowGhostsInTrackingStation() => storedShowGhostsInTrackingStation;
-
         internal static bool? GetStoredShowCommittedFutureOverlays() => storedShowCommittedFutureOverlays;
 
         internal static bool? GetStoredBlockCommittedActions() => storedBlockCommittedActions;
@@ -700,6 +642,21 @@ namespace Parsek
 
         internal static bool? GetStoredUseOutlierRejection() => storedUseOutlierRejection;
 
+        internal static int? GetStoredWarpYear() => storedWarpYear;
+        internal static int? GetStoredWarpDay() => storedWarpDay;
+        internal static int? GetStoredWarpHour() => storedWarpHour;
+        internal static int? GetStoredWarpMinute() => storedWarpMinute;
+
+        /// <summary>Test-only: directly sets the stored warp inputs without disk I/O.</summary>
+        internal static void SetStoredWarpDateForTesting(int? year, int? day, int? hour, int? minute)
+        {
+            storedWarpYear = year;
+            storedWarpDay = day;
+            storedWarpHour = hour;
+            storedWarpMinute = minute;
+            loaded = true;
+        }
+
         /// <summary>
         /// Test-only: directly sets the stored readable-mirror value without disk I/O.
         /// Marks the store as loaded so LoadIfNeeded doesn't clobber it.
@@ -707,12 +664,6 @@ namespace Parsek
         internal static void SetStoredReadableSidecarMirrorsForTesting(bool? value)
         {
             storedReadableSidecarMirrors = value;
-            loaded = true;
-        }
-
-        internal static void SetStoredShowGhostsInTrackingStationForTesting(bool? value)
-        {
-            storedShowGhostsInTrackingStation = value;
             loaded = true;
         }
 
