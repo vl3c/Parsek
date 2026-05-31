@@ -196,7 +196,11 @@ namespace Parsek.Reaim
             double faithfulTof = double.NaN, chosenTof = double.NaN;
             double[] chosenVInf = null;
             double bestMismatch = double.PositiveInfinity;
-            CelestialBody encounterBody = null;
+            // Capture the encounter body PER pick (faithful vs chosen) rather than a single rolling field:
+            // the log below names the encounter of the transfer ACTUALLY used, not the last candidate
+            // evaluated (the rolling field held the last successful candidate's encounter, not the accepted
+            // one).
+            CelestialBody faithfulEnc = null, chosenEnc = null;
             int candidatesEvaluated = 0, candidatesScored = 0;
             string failReason = null;
 
@@ -219,13 +223,16 @@ namespace Parsek.Reaim
                     faithfulOrbit = cand;
                     faithfulSoiUT = candSoiUT;
                     faithfulTof = tof;
+                    faithfulEnc = candEnc;
                 }
-                encounterBody = candEnc;
                 double[] candVInf = ReaimArrivalVInf.CandidateArrivalVInf(cand, targetBody, candSoiUT);
                 double mismatch = ReaimArrivalGeometry.VInfMismatch(candVInf, vInfRec);
                 if (!double.IsNaN(mismatch) && !double.IsInfinity(mismatch))
                 {
                     candidatesScored++;
+                    // Strict < so an exact tie keeps the EARLIER-evaluated candidate; the sweep evaluates the
+                    // recorded tof first (step 0), so a tie biases toward the recorded tof - the desirable
+                    // bias (stay closest to the recorded mission when timing makes no difference).
                     if (mismatch < bestMismatch)
                     {
                         bestMismatch = mismatch;
@@ -233,6 +240,7 @@ namespace Parsek.Reaim
                         chosenSoiUT = candSoiUT;
                         chosenTof = tof;
                         chosenVInf = candVInf;
+                        chosenEnc = candEnc;
                     }
                 }
                 return true;
@@ -299,6 +307,7 @@ namespace Parsek.Reaim
             Orbit transferOrbit = accepted ? chosenOrbit : faithfulOrbit;
             double soiEntryUT = accepted ? chosenSoiUT : faithfulSoiUT;
             double usedTofSeconds = accepted ? chosenTof : faithfulTof;
+            CelestialBody encounterBody = accepted ? chosenEnc : faithfulEnc;
 
             double shift = plan.RecordedDepartureUT - departureUT;
 
