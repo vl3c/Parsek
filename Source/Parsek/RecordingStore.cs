@@ -1854,6 +1854,15 @@ namespace Parsek
             }
 
             // Spawn-state cluster (#264).
+            // Each field is preserved only when incoming is at its default for it
+            // (the pending tree lost the field) and existing carries a value to
+            // propagate. Computed once so the stale-stamp guard's log and the
+            // copies below share one source of truth.
+            bool copyVesselSpawned = !incoming.VesselSpawned && existing.VesselSpawned;
+            bool copySpawnedPid =
+                incoming.SpawnedVesselPersistentId == 0u
+                && existing.SpawnedVesselPersistentId != 0u;
+
             // Stale-spawn-stamp guard: when a live-PID set is supplied and the
             // existing recording's spawned PID no longer names any live or
             // save-shape vessel, do NOT re-install the spawn claim. The
@@ -1866,14 +1875,10 @@ namespace Parsek
                 && !liveVesselPids.Contains(existing.SpawnedVesselPersistentId);
             if (existingSpawnPidIsStale)
             {
-                // Log only when the suppression actually prevented a copy. If the
-                // incoming recording already carries its own spawn claim, the
-                // else-branch guards below would have copied nothing either, so a
-                // "dropped" line would be a false alarm.
-                bool wouldHaveCopiedSpawnClaim =
-                    incoming.SpawnedVesselPersistentId == 0u
-                    || (!incoming.VesselSpawned && existing.VesselSpawned);
-                if (wouldHaveCopiedSpawnClaim)
+                // Log only when the suppression actually prevented a copy, so a
+                // recording that already carries its own spawn claim does not
+                // produce a false-alarm "dropped" line.
+                if (copyVesselSpawned || copySpawnedPid)
                     ParsekLog.Info("RecordingStore",
                         $"PreserveLiveRuntimeFieldsOnReplace: dropped stale spawn stamp " +
                         $"pid={existing.SpawnedVesselPersistentId} for recording " +
@@ -1884,13 +1889,12 @@ namespace Parsek
             }
             else
             {
-                if (!incoming.VesselSpawned && existing.VesselSpawned)
+                if (copyVesselSpawned)
                 {
                     incoming.VesselSpawned = true;
                     otherPreserved++;
                 }
-                if (incoming.SpawnedVesselPersistentId == 0u
-                    && existing.SpawnedVesselPersistentId != 0u)
+                if (copySpawnedPid)
                 {
                     incoming.SpawnedVesselPersistentId = existing.SpawnedVesselPersistentId;
                     otherPreserved++;
