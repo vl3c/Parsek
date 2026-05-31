@@ -340,6 +340,14 @@ namespace Parsek
                     return;
                 }
 
+                // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
+                // manually looped recording/mission. Clear any pre-existing manual loop
+                // (mission + per-recording) on the new route's source tree(s) so the single
+                // loop owner is never contended. Route looping wins.
+                RouteTreeGuard.ForceClearManualLoopForRoute(
+                    outcome.Route,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0);
+
                 ParsekLog.Info(Tag,
                     $"OnConfirm: route created id={outcome.Route.Id} name='{outcome.Route.Name ?? "<none>"}' " +
                     $"interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}");

@@ -27,6 +27,7 @@ All notable changes to Parsek are documented here.
 - Eligible Supply Runs now surface as derived "Candidates" in the Logistics window instead of a commit-time popup. A candidate is a fully-sealed recording tree with one complete dock-deliver-undock window that is not already promoted; candidates are recomputed from committed trees and never stored until you click Create Route. The old "Create Supply Route?" dialog (and its cross-scene retry) is gone, so route creation no longer interrupts gameplay.
 - A dispatch scheduler now evaluates committed supply routes about once per game second and emits `RouteDispatched` + `RouteCargoDebited` intent rows through the ledger.
 - Supply routes now apply deliveries at the transit boundary: destination resource tanks are filled (respecting flow-state and NO_FLOW), inventory containers receive the recorded cargo, Career-mode KSC-origin routes debit funds, and the ledger records a `RouteCargoDelivered` row per cycle.
+- A tree is now either a supply route or a manually looped mission, not both. Creating a route turns off and greys out the manual Loop toggle (Missions tab and Recordings tab per-recording, group, chain, and select-all controls) for every recording on that route's tree; the loop re-enables when the route is removed.
 
 ### UI
 

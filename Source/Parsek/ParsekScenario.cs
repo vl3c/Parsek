@@ -2800,6 +2800,28 @@ namespace Parsek
                 RouteStore.LoadRoutesFrom(node);
                 RouteStore.RevalidateSources("OnLoad");
 
+                // Mutual-exclusion reconcile (design §0.6): a tree is EITHER a supply route
+                // OR a manually looped recording/mission, never both. Runs AFTER MissionStore
+                // load/normalize (above) and AFTER RouteStore load + RevalidateSources (so
+                // route statuses (and thus BindsTree decisions) are final). For every
+                // route-bound tree, clear both the mission loop and any per-recording loop a
+                // hand-edited or legacy save might carry on that tree. Route looping wins.
+                loadPhase = "route-loop-reconcile";
+                {
+                    double reconcileUtForLoops = Planetarium.fetch != null
+                        ? Planetarium.GetUniversalTime() : 0.0;
+                    var boundTreeIds = RouteTreeGuard.BoundTreeIds();
+                    int reconciledTreeCount = 0;
+                    for (int bi = 0; bi < boundTreeIds.Count; bi++)
+                    {
+                        RouteTreeGuard.ForceClearManualLoopForRouteTree(
+                            boundTreeIds[bi], reconcileUtForLoops);
+                        reconciledTreeCount++;
+                    }
+                    ParsekLog.Info("RouteGuard",
+                        $"OnLoad route-loop reconcile: cleared manual loops on {reconciledTreeCount} route-bound tree(s)");
+                }
+
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
                 // may exist but have not loaded their save data yet (KSP loads scenarios in
                 // parallel). The deferred coroutine waits for singletons to be ready, then

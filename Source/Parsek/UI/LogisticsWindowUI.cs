@@ -481,6 +481,11 @@ namespace Parsek
             if (outcome.Route != null)
             {
                 RouteStore.AddRoute(outcome.Route);
+                // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
+                // manually looped recording/mission. Activating a route turns OFF any
+                // pre-existing manual loop (mission + per-recording) on its tree so the
+                // single loop owner is never contended. Route looping wins.
+                RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval=30s)");
             }
