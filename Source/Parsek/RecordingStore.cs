@@ -1605,6 +1605,12 @@ namespace Parsek
             int replacedFromTree = 0;
             int preservedRewindSaves = 0;
             int preservedRuntimeFields = 0;
+            // Live-vessel PID set for the stale-spawn-stamp guard in
+            // PreserveLiveRuntimeFieldsOnReplace. Built once per commit (the set
+            // is the same for every recording in the tree). null when no
+            // populated vessel set is available, in which case the guard stays
+            // inert and preserves spawn state as before (drop only on evidence).
+            ICollection<uint> liveVesselPids = CollectLiveVesselPidsForReplaceGate();
             foreach (var rec in tree.Recordings.Values)
             {
                 rec.FilesDirty = true;
@@ -1617,7 +1623,8 @@ namespace Parsek
                         bool savePreserved;
                         int otherPreserved;
                         PreserveLiveRuntimeFieldsOnReplace(
-                            existing, rec, out savePreserved, out otherPreserved);
+                            existing, rec, out savePreserved, out otherPreserved,
+                            liveVesselPids);
                         if (savePreserved) preservedRewindSaves++;
                         preservedRuntimeFields += otherPreserved;
                         committedRecordings[existingIndex] = rec;
@@ -1705,6 +1712,65 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Builds the live-vessel PID set the stale-spawn-stamp guard in
+        /// <see cref="PreserveLiveRuntimeFieldsOnReplace"/> consults: the union
+        /// of live loaded vessels (<c>FlightGlobals.Vessels</c>) and the
+        /// save-shape mirror (<c>HighLogic.CurrentGame.flightState.protoVessels</c>).
+        /// The union avoids false "vessel gone" verdicts for both loaded
+        /// in-flight vessels (which may not yet be mirrored into
+        /// <c>protoVessels</c>) and unloaded background vessels (absent from
+        /// <c>FlightGlobals.Vessels</c>).
+        ///
+        /// <para>Returns <c>null</c> when no populated vessel set is available
+        /// (no game / scene without vessels / collection failure). The guard
+        /// treats <c>null</c> as "liveness unknown" and preserves spawn state
+        /// exactly as before: a stale stamp is dropped only on positive
+        /// evidence the vessel is gone, never on missing context. An empty
+        /// collected set is normalized to <c>null</c> for the same reason (an
+        /// empty set during a transition window must not reset every spawned
+        /// recording).</para>
+        /// </summary>
+        private static HashSet<uint> CollectLiveVesselPidsForReplaceGate()
+        {
+            HashSet<uint> pids = null;
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    pids = new HashSet<uint>();
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        var v = vessels[i];
+                        if (v != null && v.persistentId != 0u)
+                            pids.Add(v.persistentId);
+                    }
+                }
+
+                var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
+                if (protoVessels != null)
+                {
+                    if (pids == null) pids = new HashSet<uint>();
+                    for (int i = 0; i < protoVessels.Count; i++)
+                    {
+                        var pv = protoVessels[i];
+                        if (pv != null && pv.persistentId != 0u)
+                            pids.Add(pv.persistentId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("RecordingStore",
+                    $"CollectLiveVesselPidsForReplaceGate: failed to collect live PIDs " +
+                    $"({ex.GetType().Name}); spawn-stamp guard inert for this commit");
+                return null;
+            }
+
+            return (pids != null && pids.Count > 0) ? pids : null;
+        }
+
+        /// <summary>
         /// Topology-update commits replace <c>committedRecordings[i]</c> wholesale
         /// with the pending tree's instance. The pending-tree path during a
         /// Re-Fly merge does not propagate runtime / spawn-state fields the
@@ -1729,10 +1795,25 @@ namespace Parsek
         /// default (null/empty/0/-1/NaN/false), so legitimate updates from the
         /// pending tree (e.g. a spawn flag the merge produced) win over the
         /// stale prior value.
+        ///
+        /// <para><paramref name="liveVesselPids"/> is the stale-spawn-stamp
+        /// guard. When supplied (non-null) and <paramref name="existing"/>'s
+        /// <c>SpawnedVesselPersistentId</c> names no vessel in the set, the
+        /// spawn claim (<c>VesselSpawned</c> + <c>SpawnedVesselPersistentId</c>)
+        /// is NOT re-installed onto the replacement, which keeps a Re-Fly merge
+        /// from re-stamping a stripped vessel's PID. A stale stamp would
+        /// otherwise poison the pid-keyed committed-tree matcher
+        /// (<c>ParsekFlight.TryFindCommittedTreeForSpawnedVessel</c>'s
+        /// <c>spawnedMatch</c> branch) when a later relaunch of the same craft
+        /// recycles the craft-baked PID. Mirrors
+        /// <c>ParsekScenario.ReconcileSpawnStateAfterStrip</c>. <c>null</c>
+        /// disables the guard (preserve as before) for contexts that cannot
+        /// determine liveness.</para>
         /// </summary>
         internal static void PreserveLiveRuntimeFieldsOnReplace(
             Recording existing, Recording incoming,
-            out bool savePreserved, out int otherPreserved)
+            out bool savePreserved, out int otherPreserved,
+            ICollection<uint> liveVesselPids = null)
         {
             savePreserved = false;
             otherPreserved = 0;
@@ -1773,16 +1854,47 @@ namespace Parsek
             }
 
             // Spawn-state cluster (#264).
-            if (!incoming.VesselSpawned && existing.VesselSpawned)
+            // Stale-spawn-stamp guard: when a live-PID set is supplied and the
+            // existing recording's spawned PID no longer names any live or
+            // save-shape vessel, do NOT re-install the spawn claim. The
+            // replacement keeps its default spawn state (VesselSpawned=false,
+            // SpawnedVesselPersistentId=0) so the pid-keyed committed-tree
+            // matcher cannot mistake a recycled craft pid for this recording.
+            bool existingSpawnPidIsStale =
+                liveVesselPids != null
+                && existing.SpawnedVesselPersistentId != 0u
+                && !liveVesselPids.Contains(existing.SpawnedVesselPersistentId);
+            if (existingSpawnPidIsStale)
             {
-                incoming.VesselSpawned = true;
-                otherPreserved++;
+                // Log only when the suppression actually prevented a copy. If the
+                // incoming recording already carries its own spawn claim, the
+                // else-branch guards below would have copied nothing either, so a
+                // "dropped" line would be a false alarm.
+                bool wouldHaveCopiedSpawnClaim =
+                    incoming.SpawnedVesselPersistentId == 0u
+                    || (!incoming.VesselSpawned && existing.VesselSpawned);
+                if (wouldHaveCopiedSpawnClaim)
+                    ParsekLog.Info("RecordingStore",
+                        $"PreserveLiveRuntimeFieldsOnReplace: dropped stale spawn stamp " +
+                        $"pid={existing.SpawnedVesselPersistentId} for recording " +
+                        $"\"{incoming.VesselName}\" id={incoming.RecordingId ?? "<none>"} " +
+                        $"(vessel no longer live): not re-installed on replacement " +
+                        $"(incoming VesselSpawned={incoming.VesselSpawned} " +
+                        $"spawnedPid={incoming.SpawnedVesselPersistentId})");
             }
-            if (incoming.SpawnedVesselPersistentId == 0u
-                && existing.SpawnedVesselPersistentId != 0u)
+            else
             {
-                incoming.SpawnedVesselPersistentId = existing.SpawnedVesselPersistentId;
-                otherPreserved++;
+                if (!incoming.VesselSpawned && existing.VesselSpawned)
+                {
+                    incoming.VesselSpawned = true;
+                    otherPreserved++;
+                }
+                if (incoming.SpawnedVesselPersistentId == 0u
+                    && existing.SpawnedVesselPersistentId != 0u)
+                {
+                    incoming.SpawnedVesselPersistentId = existing.SpawnedVesselPersistentId;
+                    otherPreserved++;
+                }
             }
             if (string.IsNullOrEmpty(incoming.TerminalSpawnSupersededByRecordingId)
                 && !string.IsNullOrEmpty(existing.TerminalSpawnSupersededByRecordingId))
