@@ -164,6 +164,17 @@ namespace Parsek.Logistics
                 }
             }
 
+            // (Phase 6) Cadence model: the player-facing dispatch cadence is N x the
+            // run's natural period, which for a v0 SAME-BODY route IS the span. Derive
+            // N from the resolved interval (rounded to the nearest whole multiple of
+            // the span, floored at 1 = the minimum loop time) and RE-DERIVE the
+            // interval from N x span so DispatchInterval and CadenceMultiplier stay in
+            // lock-step (the UI later recomputes the same way). The clamp above already
+            // guarantees dispatchInterval >= span, so N >= 1 holds.
+            int cadenceMultiplier =
+                Route.ClampCadenceMultiplier((int)System.Math.Round(dispatchInterval / transitDuration));
+            dispatchInterval = cadenceMultiplier * transitDuration;
+
             // (must-fix #3) Widen the source set to EVERY [root..undock] member
             // recording so RevalidateSources tracks the whole rendered path, not
             // just the leaf. The member set is the KEPT-intervals' recording ids
@@ -345,6 +356,7 @@ namespace Parsek.Logistics
                 Stops = new List<RouteStop> { stop },
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
+                CadenceMultiplier = cadenceMultiplier,
                 DispatchWindowEpochUT = rootLaunchUT,
                 DispatchWindowPeriod = 0.0,
                 // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
@@ -382,6 +394,7 @@ namespace Parsek.Logistics
                 $"dockUT={recordedDockUT.ToString("R", ic)} " +
                 $"span={transitDuration.ToString("R", ic)} " +
                 $"interval={dispatchInterval.ToString("R", ic)} " +
+                $"cadenceN={cadenceMultiplier.ToString(ic)} " +
                 $"members={recordingIds.Count.ToString(ic)} " +
                 $"excluded={excludedIntervalKeys.Count.ToString(ic)} " +
                 $"stop-resources={stopResources.ToString(ic)} " +

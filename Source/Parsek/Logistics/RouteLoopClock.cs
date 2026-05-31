@@ -11,11 +11,22 @@ namespace Parsek.Logistics
     /// </summary>
     /// <remarks>
     /// <para>
-    /// v0 always passes <c>schedule:null, loiterCuts:null</c> into
-    /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> (no re-aim, no loiter
-    /// compression), so the span is UNCOMPRESSED: the recorded dock UT maps
-    /// directly into <c>[spanStart, spanEnd]</c> and the loopUT it reports is a
-    /// genuine recorded UT. Phase 5's <c>RouteBuilder</c> clamps
+    /// The clock passes the backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>'s
+    /// OWN relaunch schedule (<see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/>)
+    /// and loiter cuts (<see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/>) straight
+    /// through into <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> (Phase 6
+    /// hardening). For a v0 SAME-BODY route both fields are <c>null</c> (the backing
+    /// Mission is built faithful, <c>bodyInfo=null</c>, no re-aim), so this is a
+    /// NO-OP: the span is UNCOMPRESSED, the recorded dock UT maps directly into
+    /// <c>[spanStart, spanEnd]</c>, and the loopUT it reports is a genuine recorded
+    /// UT. The passthrough is the inter-body SEAM: when an inter-body route is later
+    /// enabled, the backing Mission's loop unit carries a synodic / re-aimed
+    /// <see cref="MissionRelaunchSchedule"/> (built by the locked Missions layer), and
+    /// delivery then fires on the SAME re-aimed launch UTs the ghost renders on,
+    /// inheriting the synodic schedule for free. v0 does NOT enable inter-body
+    /// routes; it only stops hardcoding <c>null</c> so the seam is in place.
+    /// Both fields are consumed READ-ONLY (no Missions/engine file is edited).
+    /// Phase 5's <c>RouteBuilder</c> clamps
     /// <c>DispatchInterval &gt;= backingMissionSpan</c> so the unit's
     /// <see cref="GhostPlaybackLogic.LoopUnit.CadenceSeconds"/> equals the dispatch
     /// interval, which makes ONE span-clock crossing equal ONE dispatch cycle.
@@ -45,12 +56,17 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Resolves the route's loop-clock state at <paramref name="currentUT"/>
-        /// from its backing-mission <paramref name="unit"/>. Pure pass-through to
-        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> with
-        /// <c>schedule:null, loiterCuts:null</c> (v0 uncompressed span). Returns
+        /// from its backing-mission <paramref name="unit"/>. Pass-through to
+        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> threading the
+        /// unit's OWN <see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/> +
+        /// <see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/> (Phase 6 hardening;
+        /// both null for a v0 same-body route -> the uncompressed-span behavior is
+        /// byte-identical, and a future inter-body route's synodic schedule fires
+        /// delivery on the same re-aimed launches the ghost renders on). Returns
         /// false on the same early-return conditions as the inner clock
-        /// (degenerate span, or <paramref name="currentUT"/> before the phase
-        /// anchor) with <paramref name="cycleIndex"/> = 0 and
+        /// (degenerate span, <paramref name="currentUT"/> before the phase anchor,
+        /// or — with a non-null schedule — before the first scheduled launch) with
+        /// <paramref name="cycleIndex"/> = 0 and
         /// <paramref name="isInInterCycleTail"/> = false.
         /// </summary>
         /// <param name="unit">The route's backing-mission loop unit (read-only).</param>
@@ -70,6 +86,12 @@ namespace Parsek.Logistics
             out long cycleIndex,
             out bool isInInterCycleTail)
         {
+            // Phase 6 hardening: thread the unit's OWN relaunch schedule + loiter
+            // cuts (NOT hardcoded null). For a v0 same-body route the backing
+            // Mission is faithful (bodyInfo=null), so both are null and this stays
+            // the uncompressed-span path. For a future inter-body route they carry
+            // the Missions-layer synodic / re-aim schedule, so delivery fires on the
+            // same re-aimed launches the render uses. Consumed read-only.
             return GhostPlaybackLogic.TryComputeSpanLoopUT(
                 currentUT,
                 unit.PhaseAnchorUT,
@@ -79,8 +101,8 @@ namespace Parsek.Logistics
                 out loopUT,
                 out cycleIndex,
                 out isInInterCycleTail,
-                schedule: null,
-                loiterCuts: null);
+                schedule: unit.RelaunchSchedule,
+                loiterCuts: unit.LoiterCuts);
         }
 
         /// <summary>

@@ -20,6 +20,7 @@ namespace Parsek.Tests.Generators
         private double kscDispatchFundsCost;
         private double transitDuration;
         private double dispatchInterval;
+        private int cadenceMultiplier = 1;
         private double dispatchWindowEpochUT;
         private double dispatchWindowPeriod;
         private double nextDispatchUT;
@@ -75,6 +76,12 @@ namespace Parsek.Tests.Generators
         {
             transitDuration = transitDurationSeconds;
             dispatchInterval = dispatchIntervalSeconds;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithCadenceMultiplier(int multiplier)
+        {
+            cadenceMultiplier = multiplier;
             return this;
         }
 
@@ -204,6 +211,7 @@ namespace Parsek.Tests.Generators
                 KscDispatchFundsCost = kscDispatchFundsCost,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
+                CadenceMultiplier = cadenceMultiplier,
                 DispatchWindowEpochUT = dispatchWindowEpochUT,
                 DispatchWindowPeriod = dispatchWindowPeriod,
                 NextDispatchUT = nextDispatchUT,

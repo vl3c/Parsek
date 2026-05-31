@@ -768,5 +768,77 @@ namespace Parsek.Tests.Logistics
                 "TryShowDeferredIfPending should re-spawn via TryShow → hook when tree is still committed");
             Assert.Null(RouteCreationDialog.PendingTreeIdForTesting);
         }
+
+        // -----------------------------------------------------------------
+        // Phase 6 should-fix: default interval = full [root..undock] span
+        // -----------------------------------------------------------------
+
+        // catches: the dialog defaulting to the LEAF dock-child span
+        // (source.EndUT - source.StartUT) instead of the full rendered
+        // [root..undock] span. On a multi-recording flight the leaf span is
+        // SMALLER than the rendered span, so a leaf-span default would trip
+        // RouteBuilder's interval-below-transit reject.
+        [Fact]
+        public void ComputeRootToUndockSpan_MultiLegTree_UsesRootLaunchToUndock_NotLeafSpan()
+        {
+            // Root launch at 1000; mid-flight dock child spans [2000, 3000] with
+            // undock at 2800. Leaf span = 1000; rendered span = 2800 - 1000 = 1800.
+            var root = new Recording
+            {
+                RecordingId = "launch-root",
+                TreeId = "tree-multi",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Runway",
+                ExplicitStartUT = 1000.0,
+                ExplicitEndUT = 2000.0
+            };
+            var child = new Recording
+            {
+                RecordingId = "dock-child",
+                TreeId = "tree-multi",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                ExplicitStartUT = 2000.0,
+                ExplicitEndUT = 3000.0,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow { WindowId = "w", DockUT = 2400.0, UndockUT = 2800.0 }
+                }
+            };
+            var tree = new RecordingTree { Id = "tree-multi", RootRecordingId = "launch-root" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(child);
+
+            var analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = child,
+                ConnectionWindow = child.RouteConnectionWindows[0]
+            };
+
+            double span = RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree);
+
+            // Rendered span (root launch -> undock), NOT the leaf span (1000).
+            Assert.Equal(1800.0, span);
+        }
+
+        // catches: a single-recording tree (rootRec == source) not falling back to
+        // the leaf span correctly when root == source.
+        [Fact]
+        public void ComputeRootToUndockSpan_SingleLegTree_RootEqualsSource()
+        {
+            RecordingTree tree = BuildEligibleTree(out Recording source);
+            var analysis = new RouteAnalysisResult
+            {
+                Status = RouteAnalysisStatus.Eligible,
+                SourceRecording = source,
+                ConnectionWindow = source.RouteConnectionWindows[0]
+            };
+
+            double span = RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree);
+
+            // Window undock 160 - root launch 0 = 160.
+            Assert.Equal(160.0, span);
+        }
     }
 }

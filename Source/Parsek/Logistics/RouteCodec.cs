@@ -74,6 +74,10 @@ namespace Parsek.Logistics
             // --- Scheduling scalars ---
             node.AddValue("transitDuration", route.TransitDuration.ToString("R", ic));
             node.AddValue("dispatchInterval", route.DispatchInterval.ToString("R", ic));
+            // Sparse cadence multiplier: 1 (the floor / default) writes nothing.
+            if (route.CadenceMultiplier != 1)
+                node.AddValue("cadenceMultiplier",
+                    Route.ClampCadenceMultiplier(route.CadenceMultiplier).ToString(ic));
             node.AddValue("dispatchWindowEpochUT", route.DispatchWindowEpochUT.ToString("R", ic));
             node.AddValue("dispatchWindowPeriod", route.DispatchWindowPeriod.ToString("R", ic));
             node.AddValue("nextDispatchUT", route.NextDispatchUT.ToString("R", ic));
@@ -194,6 +198,10 @@ namespace Parsek.Logistics
 
             TryParseDouble(node.GetValue("transitDuration"), inv, ic, out route.TransitDuration);
             TryParseDouble(node.GetValue("dispatchInterval"), inv, ic, out route.DispatchInterval);
+            // Sparse cadence multiplier: absent -> the floor (1). Clamp on read so a
+            // hand-edited 0 / negative save never lands a sub-floor cadence.
+            TryParseInt(node.GetValue("cadenceMultiplier"), ic, 1, out int cadenceN);
+            route.CadenceMultiplier = Route.ClampCadenceMultiplier(cadenceN);
             TryParseDouble(node.GetValue("dispatchWindowEpochUT"), inv, ic, out route.DispatchWindowEpochUT);
             TryParseDouble(node.GetValue("dispatchWindowPeriod"), inv, ic, out route.DispatchWindowPeriod);
             TryParseDouble(node.GetValue("nextDispatchUT"), inv, ic, out route.NextDispatchUT);

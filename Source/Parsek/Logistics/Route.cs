@@ -84,6 +84,24 @@ namespace Parsek.Logistics
         /// <summary>Seconds between cycle starts.</summary>
         public double DispatchInterval;
 
+        /// <summary>
+        /// Player-facing dispatch cadence multiplier (Phase 6). Integer
+        /// <c>&gt;= 1</c>; default 1 = the MINIMUM loop time = the floor (the
+        /// route dispatches as often as the run allows; it cannot go faster). The
+        /// player raises <c>N</c> to launch LESS often. For a v0 SAME-BODY route
+        /// the run's natural period IS the span (<see cref="TransitDuration"/>), so
+        /// <see cref="DispatchInterval"/> is DERIVED as
+        /// <c>CadenceMultiplier * TransitDuration</c> (set in <c>RouteBuilder</c> at
+        /// creation and recomputed by the cadence UI when <c>N</c> changes). The loop
+        /// clock still reads <see cref="DispatchInterval"/> directly (Phase 4
+        /// unchanged); <see cref="CadenceMultiplier"/> is only the UI/derivation
+        /// handle. Always clamp <c>&gt;= 1</c> on every write (UI, builder, codec).
+        /// Post-v0 inter-body: <c>N</c> becomes a modulo on the scheduled-launch index
+        /// rather than a multiplier on a fixed interval (the
+        /// <c>RouteLoopClock</c> schedule passthrough is the seam).
+        /// </summary>
+        public int CadenceMultiplier = 1;
+
         /// <summary>Original flight start UT; anchors inter-body synodic phase.</summary>
         public double DispatchWindowEpochUT;
 
@@ -206,6 +224,17 @@ namespace Parsek.Logistics
         /// diagnostics and a possible future Send-Once mode.
         /// </summary>
         public bool IsLoopRoute => !string.IsNullOrEmpty(BackingMissionTreeId);
+
+        /// <summary>
+        /// Clamps a cadence multiplier to the floor (<c>&gt;= 1</c>). The single
+        /// place the <c>N &gt;= 1</c> invariant is enforced; every writer (UI,
+        /// <c>RouteBuilder</c>, codec) routes through this so 0 / negative inputs
+        /// can never land a sub-floor cadence. Default 1 is the MINIMUM loop time.
+        /// </summary>
+        internal static int ClampCadenceMultiplier(int n)
+        {
+            return n < 1 ? 1 : n;
+        }
 
         /// <summary>
         /// Canonical save shape — writes every Route field into <paramref name="node"/>

@@ -36,9 +36,102 @@ namespace Parsek.Tests.Logistics
                 phaseAnchorUT: phaseAnchorUT);
         }
 
+        // span [0,50] driven by a non-uniform zero-drift schedule (launches at
+        // ~900, 1300, 1800...). The synthetic 100/31 schedule is the same one the
+        // Missions zero-drift tests use; the clock parks between launches because
+        // the ~400-500s interval exceeds the 50s span.
+        private static GhostPlaybackLogic.LoopUnit BuildScheduledUnit(out MissionRelaunchSchedule schedule)
+        {
+            schedule = new MissionRelaunchSchedule(
+                0.0, 100.0, new double[] { 31.0 }, new double[] { 2.0 }, floorUT: 0.0,
+                lookaheadMultiples: 100);
+            double span = 50.0;
+            double cad = System.Math.Max(span, schedule.MinIntervalSeconds);
+            return new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0, memberIndices: new[] { 0 },
+                spanStartUT: 0.0, spanEndUT: span, cadenceSeconds: cad,
+                phaseAnchorUT: schedule.FirstLaunchUT,
+                overlapCadenceSeconds: cad, memberWindows: null, relaunchSchedule: schedule);
+        }
+
         // ==================================================================
         // TryGetRouteLoopState — span-clock pass-through
         // ==================================================================
+
+        // ==================================================================
+        // Phase 6: schedule passthrough (the inter-body seam)
+        // ==================================================================
+
+        // catches: RouteLoopClock hardcoding schedule:null instead of threading the
+        // unit's own RelaunchSchedule. A scheduled (inter-body / synodic) unit must
+        // crossing-fire on its NON-UNIFORM scheduled-launch UTs, not on a fixed
+        // cadence. v0 same-body routes carry a null schedule so this is a no-op for
+        // them, but the seam must consume a non-null schedule when present.
+        [Fact]
+        public void TryGetRouteLoopState_ConsumesUnitSchedule_FiresOnScheduledLaunches()
+        {
+            var unit = BuildScheduledUnit(out MissionRelaunchSchedule schedule);
+
+            // Resolve the first three scheduled launch UTs directly from the
+            // schedule so the test pins the SAME non-uniform UTs the clock uses.
+            Assert.True(schedule.TryResolveActiveLaunch(1_000_000.0, out _, out _));
+            double launch0 = schedule.FirstLaunchUT;
+            Assert.True(schedule.TryResolveActiveLaunch(launch0 + 1.0, out _, out long idx0));
+            Assert.Equal(0, idx0);
+
+            // 25s into the FIRST scheduled launch -> cycle index 0, loopUT inside the
+            // span (spanStart + 25), NOT parked in the tail.
+            Assert.True(RouteLoopClock.TryGetRouteLoopState(unit, launch0 + 25.0,
+                out double loopUT0, out long cyc0, out bool tail0));
+            Assert.Equal(0, cyc0);
+            Assert.False(tail0);
+            Assert.Equal(25.0, loopUT0, 6);
+
+            // Past the 50s span but before the next launch -> parked in the
+            // inter-launch tail (schedule interval >> span), still cycle 0.
+            Assert.True(RouteLoopClock.TryGetRouteLoopState(unit, launch0 + 70.0,
+                out _, out long cycTail, out bool tailParked));
+            Assert.Equal(0, cycTail);
+            Assert.True(tailParked);
+
+            // Discover the SECOND scheduled launch (index 1) directly from the
+            // schedule by scanning forward (the intervals are non-uniform, so the
+            // index is not a fixed function of elapsed time). Then assert the clock
+            // ticks the cycle index to 1 at that launch — proving it tracks the
+            // schedule's launch index, not a fixed cadence.
+            double launch1 = double.NaN;
+            for (double probe = launch0 + 1.0; probe <= launch0 + 5000.0; probe += 1.0)
+            {
+                if (schedule.TryResolveActiveLaunch(probe, out double resolvedLaunch, out long resolvedIdx)
+                    && resolvedIdx == 1)
+                {
+                    launch1 = resolvedLaunch;
+                    break;
+                }
+            }
+            Assert.False(double.IsNaN(launch1), "schedule must produce a second launch (index 1)");
+            Assert.True(launch1 > launch0);
+
+            Assert.True(RouteLoopClock.TryGetRouteLoopState(unit, launch1 + 10.0,
+                out double loopUT1, out long cyc1, out bool tail1));
+            Assert.Equal(1, cyc1);
+            Assert.False(tail1);
+            Assert.Equal(10.0, loopUT1, 6);
+        }
+
+        // catches: a scheduled unit being treated as "live" before its first
+        // scheduled launch. The schedule path returns false (parked) before
+        // FirstLaunchUT, so the clock must report not-resolved there.
+        [Fact]
+        public void TryGetRouteLoopState_ScheduledUnit_BeforeFirstLaunch_ReturnsFalse()
+        {
+            var unit = BuildScheduledUnit(out MissionRelaunchSchedule schedule);
+            double before = schedule.FirstLaunchUT - 100.0;
+            Assert.False(RouteLoopClock.TryGetRouteLoopState(unit, before,
+                out _, out long idx, out bool tail));
+            Assert.Equal(0, idx);
+            Assert.False(tail);
+        }
 
         // catches: clock not advancing the cycle index once per period when
         // cadence == interval. Mid-span at anchor+100 is cycle 0; one full

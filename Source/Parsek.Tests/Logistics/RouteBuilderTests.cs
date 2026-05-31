@@ -619,6 +619,74 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // Phase 6: cadence multiplier
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Build_DefaultCadence_IsOne_IntervalEqualsSpan()
+        {
+            // (Phase 6) An interval equal to the rendered span -> N=1 (the floor),
+            // and DispatchInterval == TransitDuration. Default cadence is the
+            // minimum loop time. Span = undock(1400) - launch(1000) = 400.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 400.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(1, outcome.Route.CadenceMultiplier);
+            Assert.Equal(400.0, outcome.Route.TransitDuration);
+            Assert.Equal(400.0, outcome.Route.DispatchInterval);
+        }
+
+        [Fact]
+        public void Build_IntervalAtNxSpan_DerivesCadenceN_AndReDerivesInterval()
+        {
+            // (Phase 6) An interval of N x span derives CadenceMultiplier=N and the
+            // interval is re-derived as N x span so the two stay in lock-step. Span =
+            // undock(1400) - launch(1000) = 400; entered interval 1200 = 3 x 400.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 1200.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(3, outcome.Route.CadenceMultiplier);
+            Assert.Equal(1200.0, outcome.Route.DispatchInterval);
+            // DispatchInterval == N x TransitDuration exactly.
+            Assert.Equal(outcome.Route.CadenceMultiplier * outcome.Route.TransitDuration,
+                outcome.Route.DispatchInterval);
+            // The "Built route" log carries the cadence multiplier for greppability.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("Built route") && l.Contains("cadenceN=3"));
+        }
+
+        [Fact]
+        public void Build_ClampedUpInterval_DerivesCadenceOne()
+        {
+            // (Phase 6 + must-fix #2) When an interval below the span is clamped up,
+            // the resulting cadence is N=1 (the clamp lands exactly at the span).
+            // Span = undock(900) - launch(0) = 900.
+            Recording source = MakeKscSource(
+                startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(interval: 30.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(1, outcome.Route.CadenceMultiplier);
+            Assert.Equal(900.0, outcome.Route.DispatchInterval);
+        }
+
+        // -----------------------------------------------------------------
         // Phase 5: backing-mission-unresolvable reject
         // -----------------------------------------------------------------
 
