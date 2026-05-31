@@ -1137,7 +1137,7 @@ The engine stays Recording-agnostic: the chain-next lookup callback is injected 
 
 ---
 
-## Open - v0.9.3 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
+## Done (superseded) - v0.9.3 Debris RELATIVE anchor goes unresolved when the watch transfers off its parent recording
 
 **Evidence:** Same `logs/2026-05-18_2012_watch-debris-separation/KSP.log`. Before the watch transfer (frame 36484 / real-time 20:06:49.066), the six radial booster debris pieces render cleanly anchored to rec #10 ("Kerbal X", `parentRecId=847b9b53...`):
 
@@ -1174,7 +1174,17 @@ The recorded anchor-local distance (~345 m) is by itself plausible ballistic sep
 - No `parentGhostFound=False parentGhostWorld=<unresolved>` for a debris whose recorded `anchorRecordingId` has a live chain continuation primary.
 - Unit test on the resolver with a two-segment chain fixture, parent ghost destroyed at boundary, asserts the resolver redirects to the continuation's primary.
 
-**Status:** OPEN. Same playtest as the two entries above.
+**Resolution (superseded):** The bug's premise (the debris anchor resolves against the parent's live ghost, which is destroyed at the watch transfer) no longer exists. The parent-anchored architecture that landed after this report removed the live-ghost dependency entirely:
+
+- The old live-ghost trace this entry quotes (`[PositionDebris]` / `parentGhostFound` / `recordedBodyFixedDist`) is gone from the playback code.
+- Body-fixed primary is the first playback surface for any parent-anchored recording (`GhostPlaybackEngine.IsParentAnchoredBodyFixedPrimaryCandidate` -> `IGhostPositioner.TryPositionFromBodyFixedPrimary`): debris replays from its own recorded `TrackSection.bodyFixedFrames` world coordinates and needs no anchor, live or recorded.
+- When body-fixed primary does not cover the UT, the recorded-relative fallback resolves the anchor against the parent's recorded trajectory (`RecordedRelativeAnchorPoseResolver` -> `RelativeAnchorResolver.TryResolveAnchorPose`), not a live ghost.
+- That resolver walks chain continuations (`RelativeAnchorResolver.TryResolveSameChainContinuationPose` / `TryFindSameChainContinuationRecording`): when the literal `anchorRecordingId`'s sections do not cover the playback UT, it redirects to the same-chain successor (next ChainIndex, same ChainId/ChainBranch) that does. This is the resolver-side fix candidate above, and the exact rec #10 -> rec #18 redirect this entry describes.
+- If every surface genuinely fails, playback fail-closes (retires the debris) instead of falling through to bracket-LLA interpolation.
+
+The acceptance test exists: `RelativeAnchorResolverTests.TryResolveAnchorPose_AnchorPastOptimizerSplit_UsesSameChainSuccessor` resolves a RELATIVE child anchored to chain segment 0 at a UT past that segment's range and asserts it redirects to segment 1's trajectory (logging "Anchor recording continued through same-chain successor", with no `anchor-out-of-recorded-range`). Three sibling tests cover pending-tree override, first-chronological selection, and cycle safety. The clean-slate schema reset (`CurrentRecordingSchemaGeneration`) also means the original 2026-05-18 save can no longer be loaded to reproduce.
+
+**Status:** CLOSED 2026-05-31 (superseded). No standalone PR: closed during follow-up investigation; the behavior was fixed incrementally by the v13 debris frame contract, the recorded-trajectory anchor resolution, and the chain-continuation resolver walk.
 
 ---
 
