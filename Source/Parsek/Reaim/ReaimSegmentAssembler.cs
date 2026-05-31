@@ -44,6 +44,61 @@ namespace Parsek.Reaim
 
 
         /// <summary>
+        /// The arrival-seam time-shift (docs/dev/plans/reaim-arrival-seam-restitch.md 4.4): the amount the
+        /// rotated arrival sub-chain must move so its SOI-crossing instant aligns, in recorded-span time,
+        /// with where the re-aimed transfer actually hands off. The recorded-span image of the re-aimed
+        /// SOI-crossing instant is <paramref name="soiEntryUT"/> + <paramref name="shift"/> (the recorded-
+        /// span shift the transfer leg already uses); the recorded arrival sub-chain begins at
+        /// <paramref name="recordedArrivalUT"/>. So timeShift = (soiEntryUT + shift) - recordedArrivalUT.
+        /// In the nominal case (window tof == recorded tof) this is ~0. Pure.
+        /// </summary>
+        internal static double ComputeArrivalTimeShift(double soiEntryUT, double shift, double recordedArrivalUT)
+        {
+            return (soiEntryUT + shift) - recordedArrivalUT;
+        }
+
+        /// <summary>
+        /// Whether the 4.4 arrival time-shift should be applied. Apply ONLY when |timeShift| exceeds
+        /// <paramref name="thresholdSeconds"/>: a sub-threshold (nominally zero) value is a no-op, and
+        /// applying a spurious small value would shift the rotated target-body sub-chain off
+        /// recordedArrivalUT while the un-shifted Sun transfer still ends there, opening a contiguity gap.
+        /// Returns false for a NaN / non-finite shift. Pure.
+        /// </summary>
+        internal static bool ShouldApplyArrivalTimeShift(double timeShift, double thresholdSeconds)
+        {
+            return !double.IsNaN(timeShift) && !double.IsInfinity(timeShift)
+                && System.Math.Abs(timeShift) > thresholdSeconds;
+        }
+
+        /// <summary>
+        /// Applies <see cref="ShiftInTime"/> by <paramref name="timeShift"/> to every non-predicted
+        /// segment in <paramref name="segments"/> bodied as <paramref name="targetBodyName"/> at or after
+        /// <paramref name="recordedArrivalUT"/> - 1s (the rotated arrival sub-chain), in place, then re-sorts
+        /// by startUT. Returns the count shifted. Caller gates on <see cref="ShouldApplyArrivalTimeShift"/>;
+        /// this is the pure mutation. The Sun transfer + launch + pre-arrival legs are left untouched.
+        /// </summary>
+        internal static int ApplyArrivalTimeShift(
+            List<OrbitSegment> segments, string targetBodyName, double recordedArrivalUT, double timeShift)
+        {
+            if (segments == null || string.IsNullOrEmpty(targetBodyName))
+                return 0;
+            int shifted = 0;
+            for (int i = 0; i < segments.Count; i++)
+            {
+                OrbitSegment s = segments[i];
+                if (!s.isPredicted && s.bodyName == targetBodyName
+                    && s.startUT >= recordedArrivalUT - 1.0)
+                {
+                    segments[i] = ShiftInTime(s, timeShift);
+                    shifted++;
+                }
+            }
+            if (shifted > 0)
+                segments.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            return shifted;
+        }
+
+        /// <summary>
         /// True when <paramref name="memberSegments"/> contains at least one non-predicted
         /// <paramref name="commonAncestor"/>-bodied (heliocentric) OrbitSegment overlapping the recorded
         /// transfer window [<paramref name="recordedDepartureUT"/>, <paramref name="recordedArrivalUT"/>].

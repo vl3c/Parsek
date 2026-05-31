@@ -34,11 +34,27 @@ namespace Parsek.Reaim
         // Keyed by the member recording id (stable across frames; the committed index can shuffle).
         private readonly Dictionary<string, CacheEntry> cacheByMember = new Dictionary<string, CacheEntry>();
 
+        // Last arrival-seam rotation angle (degrees) applied per member, for the per-frame seam diagnostic
+        // in ParsekFlight.LogReaimGhostTrace (NaN = no rotation applied this window / faithful). Diagnostic
+        // only; not part of the playback contract.
+        private readonly Dictionary<string, double> lastArrivalSeamRAngleDeg = new Dictionary<string, double>();
+
         /// <summary>Drops all cached window adapters (call when the committed set / missions change so a
         /// stale window adapter cannot survive a recording edit).</summary>
         internal void Clear()
         {
             cacheByMember.Clear();
+            lastArrivalSeamRAngleDeg.Clear();
+        }
+
+        /// <summary>The last arrival-seam rotation angle (degrees) applied for <paramref name="memberId"/>,
+        /// or NaN when none was applied / the member is unknown. Diagnostic read (ParsekFlight seam log).</summary>
+        internal double GetLastArrivalSeamRAngleDeg(string memberId)
+        {
+            if (!string.IsNullOrEmpty(memberId)
+                && lastArrivalSeamRAngleDeg.TryGetValue(memberId, out double deg))
+                return deg;
+            return double.NaN;
         }
 
         /// <summary>
@@ -123,9 +139,11 @@ namespace Parsek.Reaim
                 {
                     Window = cycleIndex,
                     Resolved = true,
-                    Segments = BuildWindowSegments(memberId, memberSegments, plan, schedule, cycleIndex)
+                    Segments = BuildWindowSegments(memberId, memberSegments, plan, schedule, cycleIndex,
+                        out double appliedRAngleDeg)
                 };
                 cacheByMember[memberId] = entry;
+                lastArrivalSeamRAngleDeg[memberId] = appliedRAngleDeg;
             }
 
             if (entry.Segments == null)
@@ -138,8 +156,10 @@ namespace Parsek.Reaim
         // (=> faithful) on any synthesis/replacement failure. One-shot per window (cached), so logs at Verbose.
         private static List<OrbitSegment> BuildWindowSegments(
             string memberId, IReadOnlyList<OrbitSegment> memberSegments, ReaimMissionPlan plan,
-            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex)
+            ReaimWindowPlanner.ReaimWindowSchedule schedule, long windowIndex,
+            out double appliedRAngleDeg)
         {
+            appliedRAngleDeg = double.NaN; // set when the arrival seam is actually rotated this window
             var ic = CultureInfo.InvariantCulture;
             double nominalDepartureUT = schedule.DepartureUTForWindow(windowIndex);
 
@@ -241,12 +261,110 @@ namespace Parsek.Reaim
                 return null;
             }
 
+            // ARRIVAL-SEAM RESTITCH (S4, docs/dev/plans/reaim-arrival-seam-restitch.md). The recorded
+            // target-body legs (approach hyperbola + capture + descent) keep their ORIGINAL recorded
+            // approach orientation, so the re-aimed transfer reaches the target's SOI from the re-planned
+            // direction and the recorded arrival is spliced on from a different bearing -> the ~1.37 Gm
+            // jump-back-out. Rotate the recorded arrival sub-chain by a rigid Zup rotation R that maps the
+            // recorded incoming frame (s_rec, h_rec) onto the re-aimed approach frame (s_re, h_re). Fail to
+            // faithful (no rotation) on any degeneracy or a handedness flip - never rotate into a retrograde
+            // join. Runs once per window (cached), so logs at Verbose.
+            appliedRAngleDeg = RotateArrivalSeam(
+                memberId, windowIndex, assembled, plan, targetBody, transferOrbit, soiEntryUT, shift);
+
             ParsekLog.Verbose("ReaimPlayback",
                 $"member={memberId} window={windowIndex} re-aimed transfer ready: departUT={departureUT.ToString("R", ic)} (nominal D_k) " +
                 $"tof={usedTofSeconds.ToString("R", ic)} (recorded={schedule.TofSeconds.ToString("R", ic)}) soiEntryUT={soiEntryUT.ToString("R", ic)} " +
                 $"encounter={(encounterBody != null ? encounterBody.bodyName : "<none>")} segs={assembled.Count} " +
                 $"renderSpan=full-recorded=[{plan.RecordedDepartureUT.ToString("R", ic)},{plan.RecordedArrivalUT.ToString("R", ic)}]");
             return assembled;
+        }
+
+        // Rotates the recorded arrival sub-chain (target-body approach + capture + descent segments) in the
+        // assembled list so its incoming approach FRAME lines up with the re-aimed transfer's, closing the
+        // gross arrival seam (docs/dev/plans/reaim-arrival-seam-restitch.md). Mutates `assembled` in place.
+        // Fails to faithful (leaves the list untouched) on any degenerate geometry or a handedness flip.
+        // After rotating, applies the 4.4 time-shift only when it is meaningfully non-zero (it is ~0 in the
+        // nominal tof == recorded-tof case; see the in-method note). One-shot per window (cached), Verbose.
+        // Returns the applied rotation angle in DEGREES (NaN when the arrival was left faithful), for the
+        // per-frame seam log in ParsekFlight.LogReaimGhostTrace.
+        private static double RotateArrivalSeam(
+            string memberId, long windowIndex, List<OrbitSegment> assembled, ReaimMissionPlan plan,
+            CelestialBody targetBody, Orbit transferOrbit, double soiEntryUT, double shift)
+        {
+            var ic = CultureInfo.InvariantCulture;
+
+            // Recorded-side incoming frame from the recorded ArrivalLeg (hyperbolic approach about the
+            // target). If the recorded arrival is already captured (ecc <= 1, no incoming asymptote) there
+            // is no asymptote to match -> keep faithful.
+            if (!ReaimElementRotation.TryRecordedArrivalFrame(
+                    plan.ArrivalLeg, targetBody, out double[] sRec, out double[] hRec, out double recEcc))
+            {
+                ParsekLog.Verbose("ReaimSeam",
+                    $"member={memberId} window={windowIndex} no recorded incoming asymptote " +
+                    $"(arrival ecc={recEcc.ToString("F4", ic)} <= 1 or degenerate) - arrival NOT rotated (faithful)");
+                return double.NaN;
+            }
+
+            // Re-aimed-side incoming frame from the synthesized transfer at the target-SOI entry.
+            if (!ReaimElementRotation.TryReaimedArrivalFrame(
+                    transferOrbit, targetBody, soiEntryUT, out double[] sRe, out double[] hRe, out double reEcc))
+            {
+                ParsekLog.Verbose("ReaimSeam",
+                    $"member={memberId} window={windowIndex} no re-aimed incoming asymptote " +
+                    $"(reaimed ecc={reEcc.ToString("F4", ic)} <= 1 or degenerate) - arrival NOT rotated (faithful)");
+                return double.NaN;
+            }
+
+            // HANDEDNESS GUARD (plan 4.2): rotate only when the recorded capture and the re-aimed approach
+            // share the prograde-normal sense. A negative dot means opposite handedness; rotating would flip
+            // the orbit's travel direction (a retrograde join). Fall back to faithful (no rotation).
+            double handednessDot = ReaimRotation.Dot(hRec, hRe);
+            if (handednessDot <= 0.0)
+            {
+                ParsekLog.Verbose("ReaimSeam",
+                    $"member={memberId} window={windowIndex} handedness dot={handednessDot.ToString("F4", ic)} <= 0 " +
+                    "(recorded vs re-aimed plane normals opposed) - arrival NOT rotated (faithful, avoids retrograde join)");
+                return double.NaN;
+            }
+
+            double[,] r = ReaimRotation.RotationFrameToFrame(sRec, hRec, sRe, hRe);
+            if (r == null)
+            {
+                ParsekLog.Verbose("ReaimSeam",
+                    $"member={memberId} window={windowIndex} rotation-frame build returned null (degenerate frame) - arrival NOT rotated (faithful)");
+                return double.NaN;
+            }
+
+            int rotated = ReaimElementRotation.RotateBodyRelativeSegments(
+                assembled, targetBody, plan.RecordedArrivalUT, r, out int skippedNonTarget);
+
+            // TIME-SHIFT (plan 4.4). The recorded-span image of the re-aimed handoff instant is
+            // soiEntryUT + shift; the recorded arrival sub-chain begins at RecordedArrivalUT. When the
+            // window's tof equals the recorded tof these coincide and timeShift == 0 (the nominal case),
+            // so applying it is a no-op. We apply it ONLY when |timeShift| is meaningfully non-zero (> 1s)
+            // to avoid introducing a contiguity gap from a spurious sub-second value: shifting the rotated
+            // target-body sub-chain off RecordedArrivalUT while the un-shifted Sun transfer still ends there
+            // would open a seam. The shift moves startUT/endUT/epoch together (phase preserved).
+            const double TimeShiftThresholdSeconds = 1.0;
+            double timeShift = ReaimSegmentAssembler.ComputeArrivalTimeShift(
+                soiEntryUT, shift, plan.RecordedArrivalUT);
+            int timeShifted = 0;
+            if (rotated > 0 && ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(timeShift, TimeShiftThresholdSeconds))
+            {
+                timeShifted = ReaimSegmentAssembler.ApplyArrivalTimeShift(
+                    assembled, targetBody.bodyName, plan.RecordedArrivalUT, timeShift);
+            }
+
+            double rAngleDeg = ReaimRotation.RotationAngleRadians(r) * 180.0 / System.Math.PI;
+            ParsekLog.Verbose("ReaimSeam",
+                $"member={memberId} window={windowIndex} arrival rotated: R-angle={rAngleDeg.ToString("F2", ic)}deg " +
+                $"handednessDot={handednessDot.ToString("F4", ic)} recEcc={recEcc.ToString("F4", ic)} reEcc={reEcc.ToString("F4", ic)} " +
+                $"segsRotated={rotated} skippedNonTarget={skippedNonTarget} " +
+                $"timeShift={timeShift.ToString("F2", ic)}s (applied={(timeShifted > 0 ? timeShifted.ToString(ic) : "0/no-op")})");
+            // R angle reported to the per-frame seam diagnostic only when at least one segment was actually
+            // rotated (otherwise the rotation was a no-op for this member's geometry).
+            return rotated > 0 ? rAngleDeg : double.NaN;
         }
 
         // The recorded heliocentric (common-ancestor) leg's inclination within the transfer window, or NaN

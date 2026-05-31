@@ -20716,8 +20716,8 @@ namespace Parsek
         }
 
         // Per-member last re-aim ghost frame, for seam-teleport detection (segment change -> log the jump).
-        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT)> reaimLastGhostFrame
-            = new Dictionary<int, (int, Vector3, double)>();
+        private readonly Dictionary<int, (int segIdx, Vector3 pos, double loopUT, string bodyName)> reaimLastGhostFrame
+            = new Dictionary<int, (int, Vector3, double, string)>();
 
         /// <summary>
         /// Diagnostic trace of a re-aimed orbit ghost vs the live bodies. Logs (rate-limited) the ghost's
@@ -20744,16 +20744,34 @@ namespace Parsek
                 double dLaunch = launch != null ? (ghostPos - (Vector3)launch.position).magnitude : double.NaN;
                 double dTarget = target != null ? (ghostPos - (Vector3)target.position).magnitude : double.NaN;
 
-                // Seam-teleport detection: if the segment changed since the last frame, log the jump.
+                // Seam-teleport detection: if the segment changed since the last frame, log the jump. At the
+                // Sun->target-body seam (the arrival seam the S4 restitch closes) also log both endpoints'
+                // target-relative position (the residual the rotation must drive below ~1 SOI radius) and the
+                // arrival-seam rotation R angle for this member's window, so the restitch is measurable in a
+                // playtest.
                 if (reaimLastGhostFrame.TryGetValue(memberIndex, out var last) && last.segIdx != segmentIndex)
                 {
                     double jump = (ghostPos - last.pos).magnitude;
+                    bool sunToTargetSeam = target != null && seg.bodyName == target.bodyName
+                        && !string.IsNullOrEmpty(last.bodyName) && last.bodyName != target.bodyName;
+                    string seamExtra = "";
+                    if (sunToTargetSeam)
+                    {
+                        Vector3 targetPos = (Vector3)target.position;
+                        double prevTargetRel = (last.pos - targetPos).magnitude;   // pre-seam endpoint vs target
+                        double thisTargetRel = (ghostPos - targetPos).magnitude;   // post-seam endpoint vs target
+                        double rAngleDeg = ResolveArrivalSeamRAngleDeg(memberIndex);
+                        seamExtra =
+                            $" | ARRIVAL-SEAM Sun->{target.bodyName}: target-rel pre={prevTargetRel.ToString("F0", ic)}m " +
+                            $"post={thisTargetRel.ToString("F0", ic)}m (SOI={target.sphereOfInfluence.ToString("F0", ic)}) " +
+                            $"R-angle={(double.IsNaN(rAngleDeg) ? "n/a" : rAngleDeg.ToString("F2", ic) + "deg")}";
+                    }
                     ParsekLog.Verbose("ReaimSeam",
                         $"SEAM member={memberIndex} seg#{last.segIdx}->{segmentIndex} body={seg.bodyName} " +
                         $"loopUT {last.loopUT.ToString("F0", ic)}->{loopUT.ToString("F0", ic)} " +
-                        $"jump={jump.ToString("F0", ic)}m (prevPos->thisPos discontinuity)");
+                        $"jump={jump.ToString("F0", ic)}m (prevPos->thisPos discontinuity)" + seamExtra);
                 }
-                reaimLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT);
+                reaimLastGhostFrame[memberIndex] = (segmentIndex, ghostPos, loopUT, seg.bodyName);
 
                 ParsekLog.VerboseRateLimited("ReaimSeam", "trace-" + memberIndex.ToString(ic),
                     $"member={memberIndex} seg#{segmentIndex} body={seg.bodyName} loopUT={loopUT.ToString("F0", ic)} " +
@@ -20763,6 +20781,20 @@ namespace Parsek
                     (target != null ? $"(SOI={target.sphereOfInfluence.ToString("F0", ic)})" : ""), 2.0);
             }
             catch { /* diagnostic only */ }
+        }
+
+        // Resolves the arrival-seam rotation angle (degrees) the resolver applied for this member's current
+        // window, via the member's recording id (the key the resolver caches under). NaN when the member id
+        // is unknown or the arrival was left faithful. Diagnostic only.
+        private double ResolveArrivalSeamRAngleDeg(int memberIndex)
+        {
+            if (cachedTrajectories == null || memberIndex < 0 || memberIndex >= cachedTrajectories.Count)
+                return double.NaN;
+            IPlaybackTrajectory member = cachedTrajectories[memberIndex];
+            string memberId = member?.RecordingId;
+            if (string.IsNullOrEmpty(memberId))
+                return double.NaN;
+            return Parsek.Reaim.ReaimPlaybackResolver.Shared.GetLastArrivalSeamRAngleDeg(memberId);
         }
 
         void IGhostPositioner.PositionLoop(int index, IPlaybackTrajectory traj,

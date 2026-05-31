@@ -164,6 +164,90 @@ namespace Parsek.Tests
             Assert.False(ReaimSegmentAssembler.HasHeliocentricLegInWindow(arrivalMember, "Sun", 600.0, 2600.0));
         }
 
+        // ---- Arrival-seam time-shift (S4, docs/dev/plans/reaim-arrival-seam-restitch.md 4.4) ----
+
+        [Fact]
+        public void ComputeArrivalTimeShift_TofEqualsRecordedTof_IsZero()
+        {
+            // In the nominal case the window tof equals the recorded tof, so the recorded-span image of the
+            // re-aimed SOI crossing lands exactly on the recorded arrival -> timeShift == 0.
+            // soiEntryUT (absolute) + shift (recorded - absolute departure) == recorded SOI crossing.
+            double recordedDepartureUT = 1000.0, departureUT = 4000.0;
+            double recordedArrivalUT = 3000.0; // recorded SOI crossing
+            double recordedTof = recordedArrivalUT - recordedDepartureUT; // 2000
+            double soiEntryUT = departureUT + recordedTof;                // absolute SOI crossing, same tof
+            double shift = recordedDepartureUT - departureUT;             // recorded-span shift
+            double ts = ReaimSegmentAssembler.ComputeArrivalTimeShift(soiEntryUT, shift, recordedArrivalUT);
+            Assert.Equal(0.0, ts, 6);
+        }
+
+        [Fact]
+        public void ComputeArrivalTimeShift_ShorterTof_IsNegative()
+        {
+            // A window tof shorter than the recorded tof crosses the SOI earlier (in recorded-span time),
+            // so the rotated arrival must move EARLIER -> negative shift.
+            double recordedDepartureUT = 1000.0, departureUT = 4000.0;
+            double recordedArrivalUT = 3000.0;
+            double shorterTof = 1800.0; // 200s shorter than the recorded 2000
+            double soiEntryUT = departureUT + shorterTof;
+            double shift = recordedDepartureUT - departureUT;
+            double ts = ReaimSegmentAssembler.ComputeArrivalTimeShift(soiEntryUT, shift, recordedArrivalUT);
+            Assert.Equal(-200.0, ts, 6);
+        }
+
+        [Fact]
+        public void ShouldApplyArrivalTimeShift_OnlyAboveThreshold()
+        {
+            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(0.0, 1.0));
+            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(0.5, 1.0));
+            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(-0.9, 1.0));
+            Assert.True(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(2.0, 1.0));
+            Assert.True(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(-50.0, 1.0));
+            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(double.NaN, 1.0));
+            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(double.PositiveInfinity, 1.0));
+        }
+
+        [Fact]
+        public void ApplyArrivalTimeShift_ShiftsOnlyTargetPostArrivalLegs()
+        {
+            // Kerbin parking -> Sun transfer -> Duna approach + capture. Only the Duna (target) legs at or
+            // after the recorded arrival move; the Kerbin + Sun legs stay put. Shapes are unchanged.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 600, 300),
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 4000, 3000),  // approach
+                Seg("Duna", 4000, 5000, 4200),  // capture
+            };
+            int shifted = ReaimSegmentAssembler.ApplyArrivalTimeShift(segs, "Duna", recordedArrivalUT: 2600.0, timeShift: -150.0);
+            Assert.Equal(2, shifted);
+            // Kerbin + Sun untouched.
+            Assert.Equal(100.0, segs[0].startUT, 3);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+            Assert.Equal(2600.0, segs[1].endUT, 3);
+            // Duna legs moved by -150 (start/end/epoch together).
+            OrbitSegment approach = segs.Find(s => s.bodyName == "Duna" && s.startUT < 3900);
+            Assert.Equal(2450.0, approach.startUT, 3);
+            Assert.Equal(3850.0, approach.endUT, 3);
+            Assert.Equal(2850.0, approach.epoch, 3);
+        }
+
+        [Fact]
+        public void ApplyArrivalTimeShift_ZeroShiftSegmentsListLeftAtRecordedUTs()
+        {
+            // The nominal-case guard: when the caller passes a timeShift of 0 the UTs are unchanged (the
+            // method still runs but moves everything by 0). Mirrors the resolver no-op path.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+                Seg("Duna", 2600, 5000, 3000),
+            };
+            ReaimSegmentAssembler.ApplyArrivalTimeShift(segs, "Duna", recordedArrivalUT: 2600.0, timeShift: 0.0);
+            Assert.Equal(2600.0, segs[1].startUT, 3);
+            Assert.Equal(5000.0, segs[1].endUT, 3);
+            Assert.Equal(3000.0, segs[1].epoch, 3);
+        }
+
         [Fact]
         public void HasHeliocentricLegInWindow_PredictedOrOutOfWindow_False()
         {
