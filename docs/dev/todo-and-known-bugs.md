@@ -1422,13 +1422,13 @@ Caveat for the record: the recent logs exercise solo re-fly (which stays Absolut
 
 ---
 
-## Open - v0.9.2 Watch button greyed out for short crashed recordings whose playback window has closed
+## Done - v0.9.2 Watch button greyed out for short crashed recordings whose playback window has closed
 
 **Evidence:** Same 2026-05-16 user repro. After the split fix above lands, Kerbal X (2)'s HEAD row stays in the recordings table but its Watch button remains greyed out when the player returns to KSC well after the recording's `EndUT`. The ghost playback engine treats a recording as visible only inside its `[StartUT, EndUT]` range — once `currentUT > EndUT`, `hasGhost = false` and `IsWatchButtonEnabled` returns false. This is a separate root cause from the supersede-identity bug.
 
-**Fix:** Needs design discussion about whether the right model is looping past `EndUT`, scrubbing to an arbitrary UT, or a dedicated "watchable past recordings" affordance. Listed here so it doesn't get conflated with the split-at-rewind-UT fix.
+**Resolution (2026-05-31): working as intended, not a defect.** Watch mode is a camera-follow on a ghost that is currently replaying in the scene. A recording whose playback window has fully closed (`currentUT > EndUT`, not looping) has no ghost in the world for the camera to follow, so greying the Watch button is the correct state rather than a bug. The button re-enables on its own whenever the recording is actually replaying (a ghost exists, on the same body, within the fixed 300 km watch range), and `ShouldEnableWatchButton(canWatch, isWatching)` keeps the toggle live while a recording is already being watched so the user can still exit. Looping past `EndUT`, scrubbing to an arbitrary UT, or a dedicated "replay a past recording" affordance are separate feature requests, not corrections to this button; they get their own item if pursued.
 
-**Status:** OPEN.
+**Status:** CLOSED 2026-05-31 (working as intended).
 
 ---
 
