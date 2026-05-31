@@ -848,6 +848,40 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldUseOrbitTailPlayback_GapExactlyAtBridgeCap_BridgesButNotJustBeyond()
+        {
+            // Pin the cap boundary: a gap equal to PredictedOrbitTailBridgeMaxGapSeconds
+            // bridges (the loop check is gap > cap + 1e-6), a gap just beyond does not.
+            const double lastPointUT = 100.0;
+            double cap = GhostPlaybackEngine.PredictedOrbitTailBridgeMaxGapSeconds;
+            double playbackUT = lastPointUT + cap - 1.0; // inside the gap, before startUT
+
+            var atCap = new MockTrajectory().WithTimeRange(70.0, lastPointUT);
+            atCap.EndUTOverride = 1100.0;
+            atCap.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = lastPointUT + cap,   // gap == cap
+                endUT = 1100.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(atCap, playbackUT));
+
+            var beyondCap = new MockTrajectory().WithTimeRange(70.0, lastPointUT);
+            beyondCap.EndUTOverride = 1100.0;
+            beyondCap.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = lastPointUT + cap + 0.5,   // gap just beyond cap
+                endUT = 1100.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(beyondCap, playbackUT));
+        }
+
+        [Fact]
         public void ShouldPrimeSinglePointGhostFromOrbit_UsesOrbitTailGate()
         {
             var traj = new MockTrajectory
