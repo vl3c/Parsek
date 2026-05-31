@@ -25,6 +25,16 @@ namespace Parsek.Logistics
         public bool IsEligible => Status == RouteAnalysisStatus.Eligible;
     }
 
+    /// <summary>
+    /// Proof verification for Supply Runs: which committed recording carries a
+    /// complete dock-deliver-undock <see cref="RouteConnectionWindow"/>, and what
+    /// its delivery manifest is. This pass verifies PROOF only — it does NOT scan
+    /// trajectory geometry. The backing-mission render geometry (the
+    /// <c>[launch .. undock]</c> interval selection + member-recording set) is
+    /// owned by <see cref="RouteBackingMission"/>, derived from the window's
+    /// <c>UndockUT</c> + the tree root launch. (design §0: "geometry no longer
+    /// scanned bespoke; proof verification unchanged".)
+    /// </summary>
     internal static class RouteAnalysisEngine
     {
         private const double ResourceEpsilon = 1e-9;
@@ -151,6 +161,17 @@ namespace Parsek.Logistics
                     ConnectionWindow = window
                 };
             }
+
+            // Backing-mission render geometry (RouteBackingMission) keys its
+            // [launch..undock] trim on window.UndockUT. A non-finite UndockUT would
+            // make the window unrenderable downstream (RouteBuilder rejects it with
+            // backing-mission-unresolvable), so surface it at analysis time as a
+            // diagnostic — eligibility itself is unchanged.
+            if (double.IsNaN(window.UndockUT) || double.IsInfinity(window.UndockUT))
+                ParsekLog.Warn("Route",
+                    $"RouteAnalysis: eligible window carries non-finite UndockUT source={source?.RecordingId ?? "<none>"} " +
+                    $"window={window.WindowId ?? "<none>"} undockUT={window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    "(RouteBackingMission cannot derive the [launch..undock] trim; RouteBuilder will reject)");
 
             ParsekLog.Info("Route",
                 $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +

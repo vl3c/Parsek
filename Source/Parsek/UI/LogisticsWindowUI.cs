@@ -57,6 +57,11 @@ namespace Parsek
         private Route pendingSendOnce;
         private string pendingDeleteRouteId;
         private RouteCandidate pendingCreate;
+        // Deferred cadence edit: the stepper records (route, new N) during the draw
+        // loop; ApplyPendingActions recomputes DispatchInterval = N x span after the
+        // scroll view (same deferred-mutation discipline as the action buttons).
+        private Route pendingCadenceRoute;
+        private int pendingCadenceMultiplier;
 
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles).
         private GUIStyle statusStyleGreen;   // Active / InTransit
@@ -195,6 +200,8 @@ namespace Parsek
             pendingSendOnce = null;
             pendingDeleteRouteId = null;
             pendingCreate = null;
+            pendingCadenceRoute = null;
+            pendingCadenceMultiplier = 0;
 
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
@@ -282,7 +289,12 @@ namespace Parsek
 
             GUILayout.Label(FormatOrigin(route), GUILayout.Width(ColW_Origin));
             GUILayout.Label(FormatDestination(route), GUILayout.Width(ColW_Destination));
-            GUILayout.Label(FormatDuration(route.DispatchInterval), GUILayout.Width(ColW_Interval));
+            // Interval cell shows BOTH the cadence multiplier and the resulting human
+            // cadence (e.g. "1x (~14m)"); the full stepper lives in the detail panel.
+            GUILayout.Label(
+                new GUIContent(FormatCadence(route),
+                    "Dispatch cadence = N x run duration. 1x is the floor (fastest the run allows); raise N in the detail panel to launch less often."),
+                GUILayout.Width(ColW_Interval));
             GUILayout.Label(FormatDuration(route.TransitDuration), GUILayout.Width(ColW_Transit));
             GUILayout.Label(route.CompletedCycles.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Cycles));
 
@@ -372,8 +384,49 @@ namespace Parsek
                     : "Next dispatch due");
             }
             DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
+            DrawCadenceStepper(route);
             DetailLine($"Source recordings: {FormatSourceRecordingIds(route)}");
             GUILayout.EndVertical();
+        }
+
+        // Cadence stepper (Phase 6): "- N x (~human) +" where N is the dispatch
+        // cadence multiplier (>= 1) and the human duration is N x the run span.
+        // 1x is the floor (the route cannot dispatch faster). Records the edit into
+        // the deferred-mutation fields; ApplyPendingActions recomputes the interval.
+        private void DrawCadenceStepper(Route route)
+        {
+            int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(
+                new GUIContent("Cadence:",
+                    "How often the route dispatches, as a multiple of the run duration. 1x is the floor (the fastest the run allows); raise it to launch less often."),
+                detailStyle, GUILayout.Width(70f));
+
+            // "-" decrements (no-op + greyed at the 1x floor).
+            bool atFloor = n <= 1;
+            GUI.enabled = !atFloor;
+            if (GUILayout.Button(new GUIContent("-",
+                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch less often"),
+                    GUILayout.Width(24f)))
+            {
+                pendingCadenceRoute = route;
+                pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, -1);
+            }
+            GUI.enabled = true;
+
+            // Current N x + the resulting human cadence.
+            GUILayout.Label(FormatCadence(route), detailStyle, GUILayout.Width(110f));
+
+            if (GUILayout.Button(new GUIContent("+", "Dispatch less often"), GUILayout.Width(24f)))
+            {
+                pendingCadenceRoute = route;
+                pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, +1);
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.EndHorizontal();
         }
 
         private void DrawCandidateDetail(RouteCandidate candidate)
@@ -442,12 +495,21 @@ namespace Parsek
                 // Force a candidate recompute next frame so the promoted run leaves the list.
                 lastCandidateComputeRealtime = -1f;
             }
+            if (pendingCadenceRoute != null)
+            {
+                bool changed = RouteCadence.ApplyMultiplier(pendingCadenceRoute, pendingCadenceMultiplier);
+                ParsekLog.Info("UI",
+                    $"Logistics: Cadence route={ShortId(pendingCadenceRoute.Id)} N={pendingCadenceMultiplier} " +
+                    $"result={(changed ? "applied" : "unchanged")}");
+            }
 
             pendingPause = null;
             pendingActivate = null;
             pendingSendOnce = null;
             pendingDeleteRouteId = null;
             pendingCreate = null;
+            pendingCadenceRoute = null;
+            pendingCadenceMultiplier = 0;
         }
 
         private void CreateRouteFromCandidate(RouteCandidate candidate)
@@ -481,6 +543,11 @@ namespace Parsek
             if (outcome.Route != null)
             {
                 RouteStore.AddRoute(outcome.Route);
+                // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
+                // manually looped recording/mission. Activating a route turns OFF any
+                // pre-existing manual loop (mission + per-recording) on its tree so the
+                // single loop owner is never contended. Route looping wins.
+                RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval=30s)");
             }
@@ -571,6 +638,16 @@ namespace Parsek
             return string.Format(CultureInfo.InvariantCulture,
                 "{0} ({1}) {2:F2},{3:F2}",
                 ep.BodyName, sit, ep.Latitude, ep.Longitude);
+        }
+
+        // "Nx (~human)" — the cadence multiplier plus the resulting dispatch
+        // interval as a human duration (Phase 6). When the span is unknown the
+        // duration falls back to a dash from FormatDuration.
+        internal static string FormatCadence(Route route)
+        {
+            int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
+            string human = FormatDuration(route.DispatchInterval);
+            return string.Format(CultureInfo.InvariantCulture, "{0}x (~{1})", n, human);
         }
 
         internal static string FormatDuration(double seconds)

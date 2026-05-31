@@ -170,6 +170,47 @@ namespace Parsek
             TryShow(tree);
         }
 
+        /// <summary>
+        /// The rendered <c>[root..undock]</c> span (<c>undockUT - rootLaunchUT</c>,
+        /// i.e. the <c>N=1</c> dispatch cadence floor) used as the default interval
+        /// for the v0 production dialog (Phase 6 should-fix). The root launch UT
+        /// comes from the tree ROOT recording's <c>StartUT</c> (the launch), NOT
+        /// <c>source.StartUT</c> (the mid-flight dock child) — mirrors
+        /// <see cref="RouteBuilder.BuildRoute"/>'s geometry so the dialog default
+        /// can never trip the builder's <c>interval-below-transit</c> reject. Falls
+        /// back to the leaf span (then 1.0) when the root / undock UT cannot be
+        /// resolved; floored at 1.0.
+        /// </summary>
+        internal static double ComputeRootToUndockSpan(RouteAnalysisResult result, RecordingTree tree)
+        {
+            Recording source = result?.SourceRecording;
+            double leafSpan = source != null
+                ? Math.Max(1.0, source.EndUT - source.StartUT)
+                : 1.0;
+
+            double undockUT = result?.ConnectionWindow != null
+                ? result.ConnectionWindow.UndockUT
+                : double.NaN;
+            if (double.IsNaN(undockUT) || double.IsInfinity(undockUT))
+                return leafSpan;
+
+            // Root launch UT from the tree ROOT (the launch site), falling back to
+            // the source recording's StartUT when the tree has no resolvable root.
+            double rootLaunchUT = source != null ? source.StartUT : double.NaN;
+            if (tree?.Recordings != null
+                && !string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.TryGetValue(tree.RootRecordingId, out Recording rootRec)
+                && rootRec != null)
+            {
+                rootLaunchUT = rootRec.StartUT;
+            }
+            if (double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT))
+                return leafSpan;
+
+            double span = undockUT - rootLaunchUT;
+            return span > 0.0 ? span : leafSpan;
+        }
+
         private static RecordingTree FindCommittedTreeById(string treeId)
         {
             if (string.IsNullOrEmpty(treeId)) return null;
@@ -231,15 +272,20 @@ namespace Parsek
             // v0 production dialog: summary-only with a Create / Cancel pair.
             // The in-dialog interval/name input wiring is Phase 3 work; for
             // v0 we surface the summary block and use a default interval
-            // equal to the recording's transit duration so the route is
-            // safe to dispatch immediately. The plan accepts this fallback.
+            // equal to the rendered [root..undock] span (N=1, the floor) so
+            // the route is safe to dispatch immediately. The plan accepts this
+            // fallback.
             Game.Modes mode = HighLogic.CurrentGame != null
                 ? HighLogic.CurrentGame.Mode
                 : Game.Modes.SANDBOX;
             string body = RouteCreationFormatters.BuildSummaryBlock(result, mode);
-            double defaultInterval = result.SourceRecording != null
-                ? Math.Max(1.0, result.SourceRecording.EndUT - result.SourceRecording.StartUT)
-                : 1.0;
+            // (Phase 6 should-fix) The default interval is the FULL [root..undock]
+            // span (undockUT - rootLaunchUT), i.e. N=1, NOT the leaf dock-child span
+            // (source.EndUT - source.StartUT). On a multi-recording flight the leaf
+            // span is smaller than the rendered span, so a leaf-span default would
+            // trip RouteBuilder's interval-below-transit reject. rootLaunchUT comes
+            // from the tree ROOT (the launch), not the mid-flight dock child.
+            double defaultInterval = ComputeRootToUndockSpan(result, tree);
             string defaultName = RouteCreationFormatters.GenerateDefaultRouteName(result);
 
             PopupDialog.SpawnPopupDialog(
@@ -321,9 +367,14 @@ namespace Parsek
                     fresh, cachedTree, builderInputs, mode);
                 if (outcome.Route == null)
                 {
+                    // Surface the specific reject reason (including the Phase 5
+                    // backing-mission-unresolvable reason when the [launch..undock]
+                    // window cannot be derived) in both the log and the dismiss
+                    // reason so the post-mortem checker can attribute the dismissal.
+                    string rejectReason = outcome.RejectReason ?? "<none>";
                     ParsekLog.Info(Tag,
-                        $"OnConfirm: BuildRoute rejected reason={outcome.RejectReason ?? "<none>"}");
-                    DismissIfOpen("build-rejected");
+                        $"OnConfirm: BuildRoute rejected reason={rejectReason}");
+                    DismissIfOpen("build-rejected:" + rejectReason);
                     return;
                 }
 
@@ -339,6 +390,14 @@ namespace Parsek
                     DismissIfOpen("not-stored");
                     return;
                 }
+
+                // Mutual exclusion (design §0.6): a tree is EITHER a supply route OR a
+                // manually looped recording/mission. Clear any pre-existing manual loop
+                // (mission + per-recording) on the new route's source tree(s) so the single
+                // loop owner is never contended. Route looping wins.
+                RouteTreeGuard.ForceClearManualLoopForRoute(
+                    outcome.Route,
+                    Planetarium.fetch != null ? Planetarium.GetUniversalTime() : 0.0);
 
                 ParsekLog.Info(Tag,
                     $"OnConfirm: route created id={outcome.Route.Id} name='{outcome.Route.Name ?? "<none>"}' " +

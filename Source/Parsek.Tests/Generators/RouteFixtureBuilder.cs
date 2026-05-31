@@ -20,6 +20,7 @@ namespace Parsek.Tests.Generators
         private double kscDispatchFundsCost;
         private double transitDuration;
         private double dispatchInterval;
+        private int cadenceMultiplier = 1;
         private double dispatchWindowEpochUT;
         private double dispatchWindowPeriod;
         private double nextDispatchUT;
@@ -39,6 +40,12 @@ namespace Parsek.Tests.Generators
         private readonly List<RouteStop> stops = new List<RouteStop>();
         private Dictionary<string, double> costManifest;
         private List<InventoryPayloadItem> inventoryCostManifest;
+        private string backingMissionTreeId;
+        private readonly HashSet<string> excludedIntervalKeys = new HashSet<string>();
+        private double recordedDockUT = -1.0;
+        private string dockMemberRecordingId;
+        private double loopAnchorUT = -1.0;
+        private long lastObservedLoopCycleIndex = -1;
 
         public RouteFixtureBuilder WithId(string newId)
         {
@@ -69,6 +76,12 @@ namespace Parsek.Tests.Generators
         {
             transitDuration = transitDurationSeconds;
             dispatchInterval = dispatchIntervalSeconds;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithCadenceMultiplier(int multiplier)
+        {
+            cadenceMultiplier = multiplier;
             return this;
         }
 
@@ -156,6 +169,37 @@ namespace Parsek.Tests.Generators
             return this;
         }
 
+        public RouteFixtureBuilder WithBackingMissionTreeId(string treeId)
+        {
+            backingMissionTreeId = treeId;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithExcludedIntervalKey(string key)
+        {
+            excludedIntervalKeys.Add(key);
+            return this;
+        }
+
+        public RouteFixtureBuilder WithDockBinding(double recordedDockUtValue, string dockMemberRecId)
+        {
+            recordedDockUT = recordedDockUtValue;
+            dockMemberRecordingId = dockMemberRecId;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithLoopAnchorUT(double anchorUT)
+        {
+            loopAnchorUT = anchorUT;
+            return this;
+        }
+
+        public RouteFixtureBuilder WithLastObservedLoopCycleIndex(long index)
+        {
+            lastObservedLoopCycleIndex = index;
+            return this;
+        }
+
         public Route Build()
         {
             var route = new Route
@@ -167,6 +211,7 @@ namespace Parsek.Tests.Generators
                 KscDispatchFundsCost = kscDispatchFundsCost,
                 TransitDuration = transitDuration,
                 DispatchInterval = dispatchInterval,
+                CadenceMultiplier = cadenceMultiplier,
                 DispatchWindowEpochUT = dispatchWindowEpochUT,
                 DispatchWindowPeriod = dispatchWindowPeriod,
                 NextDispatchUT = nextDispatchUT,
@@ -180,8 +225,16 @@ namespace Parsek.Tests.Generators
                 CompletedCycles = completedCycles,
                 SkippedCycles = skippedCycles,
                 CostManifest = costManifest,
-                InventoryCostManifest = inventoryCostManifest
+                InventoryCostManifest = inventoryCostManifest,
+                BackingMissionTreeId = backingMissionTreeId,
+                RecordedDockUT = recordedDockUT,
+                DockMemberRecordingId = dockMemberRecordingId,
+                LoopAnchorUT = loopAnchorUT,
+                LastObservedLoopCycleIndex = lastObservedLoopCycleIndex
             };
+
+            foreach (string key in excludedIntervalKeys)
+                route.ExcludedIntervalKeys.Add(key);
 
             if (originSet)
                 route.Origin = origin;

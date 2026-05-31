@@ -267,3 +267,20 @@ Source/Parsek/ReFlyAutoSealPreview.cs
 # SupersedeCommit.cs above. Documented at the call site with an inline
 # [ERS-exempt] comment.
 Source/Parsek/RecordingTreeSplitter.cs
+
+# --- Logistics supply routes (routes-on-Missions, plan Phase 4) ---
+# RouteOrchestrator.ResolveLoopUnit builds the route's backing-mission
+# GhostPlaybackLogic.LoopUnit by running MissionLoopUnitBuilder.Build over the
+# RAW RecordingStore.CommittedRecordings / CommittedTrees snapshot. The builder
+# returns member indices keyed to that raw committed list (the engine's
+# alignment contract); the host push seams (ParsekFlight / ParsekKSC /
+# ParsekTrackingStation DriveMissionLoopUnits, all already allowlisted) build
+# the RENDERED LoopUnitSet off the same raw list, so the orchestrator's clock
+# unit must source the identical snapshot or its dock-UT crossing detector would
+# silently index the wrong recording (plan "Highest Residual Risks" #2). A
+# supersede-aware ERS filter would re-index the list and break that alignment.
+# The orchestrator's only ELS interaction (IsDeliveryAlreadyInLedger) already
+# routes through EffectiveState.ComputeELS — this exemption is for the raw
+# CommittedRecordings/CommittedTrees read only. Documented at the call site with
+# an inline [ERS-exempt] comment.
+Source/Parsek/Logistics/RouteOrchestrator.cs

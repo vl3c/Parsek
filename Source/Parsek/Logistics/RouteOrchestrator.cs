@@ -157,9 +157,32 @@ namespace Parsek.Logistics
             route.NextEligibilityCheckUT = null;
             if (route.NextDispatchUT < currentUT)
                 route.NextDispatchUT = currentUT;
+
+            // Loop-clock reset discipline (plan Phase 4 task 5). Activating a
+            // loop-route restarts cycle observation: -1 means "no cycle observed
+            // yet", so the FIRST post-activate crossing fires. The field persists
+            // through the codec so a save/reload mid-cycle does NOT double-fire
+            // (ELS is the backstop). LoopAnchorUT capture-on-activate (plan Phase 5
+            // task 1: "set route.LoopAnchorUT on activate") is set here for the
+            // Paused->Activate path; RouteBuilder seeds it for create-Active. The
+            // value is diagnostic only: the loop builder floors the anchor to
+            // spanEnd, so the route does NOT own render phase (the crossing detector
+            // + LastObservedLoopCycleIndex do).
+            long prevObserved = route.LastObservedLoopCycleIndex;
+            double prevAnchor = route.LoopAnchorUT;
+            if (route.IsLoopRoute)
+            {
+                route.LastObservedLoopCycleIndex = -1;
+                route.LoopAnchorUT = currentUT;
+            }
+
             route.TransitionTo(RouteStatus.Active, "player-activate");
             ParsekLog.Info(Tag,
-                $"TryActivate: route={ShortIdForLog(route)} now Active nextDispatchUT={route.NextDispatchUT.ToString("R", IC)}");
+                $"TryActivate: route={ShortIdForLog(route)} now Active " +
+                $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)} " +
+                $"loopRoute={(route.IsLoopRoute ? "1" : "0")} " +
+                $"lastObservedLoopCycleIndex {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                $"loopAnchorUT {prevAnchor.ToString("R", IC)}->{route.LoopAnchorUT.ToString("R", IC)}");
             return true;
         }
 
@@ -291,6 +314,22 @@ namespace Parsek.Logistics
             Route route, double currentUT, IRouteRuntimeEnvironment env,
             ref int dispatched, ref int transitioned, ref int skipped)
         {
+            // ============================================================
+            // Loop-route branch (plan Phase 4). Every v0 route is a loop-route
+            // (IsLoopRoute true whenever a backing-mission tree is set). The
+            // loop-clock crossing detector owns the dispatch phase, so a
+            // loop-route NEVER reaches the legacy Dispatch / InTransit /
+            // InTransitComplete state machine or the PendingDeliveryUT fire gate
+            // below. A confirmed crossing emits the FULL per-cycle transaction
+            // (origin/funds debit + delivery) under one cycleId via EmitLoopCycle.
+            // ============================================================
+            if (route.IsLoopRoute)
+            {
+                ProcessLoopRoute(route, currentUT, env,
+                    ref dispatched, ref transitioned, ref skipped);
+                return;
+            }
+
             // Pre-evaluator delivery hook (item 6 Phase B). When a pending
             // delivery boundary has come due, apply the delivery FIRST and then
             // fall through so the dispatch evaluator can fire the next cycle in
@@ -372,6 +411,314 @@ namespace Parsek.Logistics
         }
 
         // ==================================================================
+        // Loop-route path (plan Phase 4)
+        // ==================================================================
+
+        /// <summary>
+        /// Test seam for the route's backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>.
+        /// Production leaves this null and <see cref="ProcessLoopRoute"/> builds
+        /// the unit from live KSP state (<see cref="RecordingStore"/> +
+        /// <see cref="RouteGhostDriverSelector"/> + the LOCKED
+        /// <c>MissionLoopUnitBuilder.Build</c>); xUnit assigns a fake that returns
+        /// a directly-constructed <see cref="GhostPlaybackLogic.LoopUnit"/> so the
+        /// crossing/fire logic is exercised without Planetarium / RecordingStore.
+        /// A null return means the route has no resolvable loop unit this tick
+        /// (no committed members, or the build collapsed), and the loop path
+        /// skips it.
+        /// </summary>
+        internal static System.Func<Route, double, GhostPlaybackLogic.LoopUnit?> LoopUnitResolverForTesting;
+
+        /// <summary>
+        /// Per-tick loop-route processing (plan Phase 4). Builds (or resolves)
+        /// the route's backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>,
+        /// asks <see cref="RouteLoopClock"/> for the span-clock state, detects a
+        /// crossing (cycleIndex advanced past the last observed, NOT parked in the
+        /// inter-cycle tail, and the recorded dock UT falls inside the span), and
+        /// on a confirmed crossing runs eligibility then either emits the FULL
+        /// cycle (<see cref="EmitLoopCycle"/>) or skips it. In all crossing cases
+        /// it SNAPS <c>LastObservedLoopCycleIndex = cycleIndex</c> so a blocked or
+        /// warp-jumped cycle never re-fires every tick.
+        ///
+        /// <para>The legacy Dispatch / InTransit / InTransitComplete state machine
+        /// and the <c>PendingDeliveryUT</c> fire gate are NEVER reached for a
+        /// loop-route — the crossing detector + <c>LastObservedLoopCycleIndex</c>
+        /// own the dispatch phase (design §0.5 decision b).</para>
+        /// </summary>
+        private static void ProcessLoopRoute(
+            Route route, double currentUT, IRouteRuntimeEnvironment env,
+            ref int dispatched, ref int transitioned, ref int skipped)
+        {
+            // Status gate: only ghost-driving routes run the loop clock. Paused /
+            // EndpointLost / MissingSourceRecording / SourceChanged render no
+            // ghost and dispatch nothing (RouteStatusPolicy.GhostDriving false).
+            if (!RouteStatusPolicy.GhostDriving(route.Status))
+            {
+                skipped++;
+                ParsekLog.VerboseRateLimited(Tag, "loop-skip-status-" + route.Id,
+                    $"LoopRoute: route {ShortIdForLog(route)} status={route.Status} " +
+                    "not ghost-driving — skipped", 5.0);
+                return;
+            }
+
+            // Resolve the backing-mission loop unit (test seam or live build).
+            GhostPlaybackLogic.LoopUnit? unitOpt = ResolveLoopUnit(route, currentUT);
+            if (!unitOpt.HasValue)
+            {
+                skipped++;
+                ParsekLog.VerboseRateLimited(Tag, "loop-skip-nounit-" + route.Id,
+                    $"LoopRoute: route {ShortIdForLog(route)} no resolvable loop unit — skipped", 5.0);
+                return;
+            }
+            GhostPlaybackLogic.LoopUnit unit = unitOpt.Value;
+
+            // Span-clock state.
+            bool ok = RouteLoopClock.TryGetRouteLoopState(
+                unit, currentUT, out double loopUT, out long cycleIndex, out bool isInInterCycleTail);
+            if (!ok)
+            {
+                // Before the phase anchor, or a degenerate span — no cycle yet.
+                skipped++;
+                ParsekLog.VerboseRateLimited(Tag, "loop-clock-early-" + route.Id,
+                    $"LoopRoute: route {ShortIdForLog(route)} clock pre-anchor/degenerate — skipped " +
+                    RouteLoopClock.DescribeState(unit, currentUT, loopUT, cycleIndex,
+                        isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex),
+                    5.0);
+                return;
+            }
+
+            // Crossing detection.
+            bool crossing = RouteLoopClock.IsCrossing(
+                unit, cycleIndex, isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex);
+            if (!crossing)
+            {
+                skipped++;
+                ParsekLog.VerboseRateLimited(Tag, "loop-noncross-" + route.Id,
+                    $"LoopRoute: route {ShortIdForLog(route)} no crossing — " +
+                    RouteLoopClock.DescribeState(unit, currentUT, loopUT, cycleIndex,
+                        isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex),
+                    5.0);
+                return;
+            }
+
+            // Warp: cycleIndex may jump N>1 since the last tick (~1 Hz orchestrator
+            // vs fast warp). We fire ONCE per tick and snap LastObservedLoopCycleIndex
+            // forward to cycleIndex (do NOT replay each skipped cycle). ELS
+            // (routeId, cycleId) idempotency is the backstop if a save/reload or a
+            // double-tick re-fires the same cycleId.
+            long jump = cycleIndex - route.LastObservedLoopCycleIndex;
+            if (jump > 1)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"LoopRoute: route {ShortIdForLog(route)} warp jump={jump.ToString(IC)} " +
+                    $"(lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} -> " +
+                    $"cycleIndex={cycleIndex.ToString(IC)}); firing ONCE and snapping forward");
+            }
+
+            // cycleId pins the dispatch+debit+delivered triple under one id
+            // (cycle-{Completed+Skipped}, the existing formula). On the PASS path
+            // CompletedCycles increments (via ApplyDelivery); on the SKIP path
+            // SkippedCycles increments — either way the next cycleId advances so
+            // the sequence stays strictly-unique.
+            string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
+
+            // Eligibility WITHOUT EvaluateRoute (must-fix #3): the loop path uses
+            // the extracted CheckEligibility helper, never EvaluateRoute (which
+            // would drive Dispatch->InTransit + the PendingDeliveryUT self-timer).
+            RouteDispatchEvaluator.EligibilityResult elig =
+                RouteDispatchEvaluator.CheckEligibility(route, currentUT, env);
+
+            if (!elig.Eligible)
+            {
+                // Blocked cycle: emit NOTHING (no debit, no delivery; the ghost
+                // still renders — "world looks busy, transfers nothing"). Bump
+                // SkippedCycles and STILL snap the cycle index forward so the
+                // blocked cycle does not re-fire every tick.
+                route.SkippedCycles += 1;
+                route.LastObservedLoopCycleIndex = cycleIndex;
+                skipped++;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
+                    $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing, " +
+                    $"snapped lastObserved={cycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
+                return;
+            }
+
+            // Confirmed crossing + eligible: emit the FULL cycle (must-fix #1).
+            // Returns false on the ELS-replay backstop (nothing emitted) so the
+            // log line below distinguishes a real fire from a replay no-op.
+            bool emitted = EmitLoopCycle(route, currentUT, env, cycleId);
+
+            // Snap forward in BOTH cases (ELS idempotency is the backstop;
+            // CompletedCycles was bumped inside EmitLoopCycle -> ApplyDelivery on
+            // the fire path, or by the replay branch on the backstop path).
+            route.LastObservedLoopCycleIndex = cycleIndex;
+            if (emitted)
+            {
+                dispatched++;
+                transitioned++;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} FIRED full cycle " +
+                    $"(dispatch+debit+delivered) at ut={currentUT.ToString("R", IC)}; " +
+                    $"snapped lastObserved={cycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
+            }
+            else
+            {
+                skipped++;
+                ParsekLog.Info(Tag,
+                    $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} replay backstop " +
+                    "(already in ledger) — emitted nothing; " +
+                    $"snapped lastObserved={cycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
+            }
+        }
+
+        /// <summary>
+        /// Resolves the route's backing-mission loop unit for this tick. Routes
+        /// through the <see cref="LoopUnitResolverForTesting"/> seam when set;
+        /// otherwise builds it from live KSP state via the same selector / Build
+        /// path the host push seams use (<see cref="RouteGhostDriverSelector"/> +
+        /// the LOCKED <c>MissionLoopUnitBuilder.Build</c>) over the SAME
+        /// <c>RecordingStore.CommittedRecordings</c> / <c>CommittedTrees</c>
+        /// snapshot, so member indices align. v0 passes <c>bodyInfo:null</c> (no
+        /// re-aim). Returns null when no unit owns the route's members this tick.
+        /// </summary>
+        private static GhostPlaybackLogic.LoopUnit? ResolveLoopUnit(Route route, double currentUT)
+        {
+            var resolver = LoopUnitResolverForTesting;
+            if (resolver != null)
+                return resolver(route, currentUT);
+
+            // Live build. Construct the route's backing Mission, run it through the
+            // unchanged builder over the committed snapshot, and extract the single
+            // unit. The build gates on Mission.LoopPlayback (set by BuildMission),
+            // so a one-element list yields at most one unit.
+            Mission mission = RouteBackingMission.BuildMission(route, currentUT);
+            if (mission == null)
+                return null;
+
+            // [ERS-exempt] member-index alignment with the engine. MissionLoopUnitBuilder
+            // returns LoopUnit member indices keyed to the RAW
+            // RecordingStore.CommittedRecordings list (the engine's alignment
+            // contract). The host push seams (ParsekFlight / ParsekKSC /
+            // ParsekTrackingStation DriveMissionLoopUnits — all already allowlisted)
+            // build the rendered LoopUnitSet off this SAME raw list; the orchestrator
+            // MUST source the identical committed snapshot so its clock-unit member
+            // indices match the rendered ones (plan "Highest Residual Risks" #2). A
+            // supersede-aware ERS filter would re-index the list and silently point
+            // the loop clock at the wrong recording. No ledger read here.
+            var committed = RecordingStore.CommittedRecordings;
+            var trees = RecordingStore.CommittedTrees;
+            double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
+                                             ?? LoopTiming.DefaultLoopIntervalSeconds;
+
+            GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
+                new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo: null);
+
+            if (set == null || set.Count == 0)
+                return null;
+
+            // Single unit — return the first (and only) one.
+            foreach (var kv in set.UnitsByOwner)
+                return kv.Value;
+            return null;
+        }
+
+        /// <summary>
+        /// Emits the FULL per-cycle transaction for a loop-route crossing under
+        /// ONE <paramref name="cycleId"/> (plan Phase 4 must-fix #1): the
+        /// EXTRACTED dispatch-debit half (<see cref="EmitDispatchDebit"/> — origin
+        /// debit + KSC funds + <c>RouteDispatched</c> + <c>RouteCargoDebited</c> +
+        /// sets <c>KscDispatchFundsCost</c>) FOLLOWED BY the delivery half
+        /// (<see cref="ApplyDelivery"/> — <c>RouteCargoDelivered</c>), with NO
+        /// InTransit state. The ledger row UTs are game-time
+        /// <paramref name="currentUT"/>.
+        ///
+        /// <para><b>Why both halves.</b> Calling <see cref="ApplyDelivery"/> alone
+        /// would never debit origin / charge funds and would trip
+        /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
+        /// (DispatchedCycles == 0 -> Warn + return). The dispatch-debit half emits
+        /// <c>RouteDispatched</c> FIRST (Sequence 0) so the ledger walker sees the
+        /// dispatch before the delivery at the same UT.</para>
+        ///
+        /// <para><b>cycleId alignment.</b> <see cref="EmitDispatchDebit"/> uses the
+        /// passed <paramref name="cycleId"/> verbatim; <see cref="ApplyDelivery"/>
+        /// recomputes <c>cycle-{Completed+Skipped}</c> internally, which equals
+        /// <paramref name="cycleId"/> because neither half increments those
+        /// counters before delivery runs. ApplyDelivery's idempotency guard
+        /// (<see cref="IsDeliveryAlreadyInLedger"/>) and its CompletedCycles bump
+        /// are reused VERBATIM.</para>
+        ///
+        /// <para><b>PendingStopIndex.</b> v0 routes are single-stop; ApplyDelivery
+        /// reads <c>PendingStopIndex</c> (falling back to 0 when &lt; 0). The loop
+        /// path leaves it -1 so ApplyDelivery uses stop 0, then clears it back to
+        /// -1 — no InTransit hand-off state is involved.</para>
+        ///
+        /// <para>Returns <c>true</c> when the full cycle was emitted, <c>false</c>
+        /// on the ELS-replay backstop (nothing emitted) so the caller's log line
+        /// stays accurate.</para>
+        /// </summary>
+        internal static bool EmitLoopCycle(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
+            // ELS idempotency backstop (must-fix #4). LastObservedLoopCycleIndex
+            // (persisted via the Phase 1 codec) is the PRIMARY re-fire guard, but a
+            // save/reload mid-cycle, a Rewind, or a double-tick can re-present the
+            // SAME cycleId. EmitDispatchDebit has no idempotency guard of its own,
+            // so without this check a replayed cycle would emit ORPHAN
+            // RouteDispatched/RouteCargoDebited rows (ApplyDelivery would then skip
+            // the delivery, leaving a partial double-charge). Check (routeId,
+            // cycleId) in ELS up front and emit NOTHING on a replay — the caller
+            // still snaps LastObservedLoopCycleIndex forward.
+            if (IsDeliveryAlreadyInLedger(route.Id, cycleId))
+            {
+                // Mirror ApplyDelivery's replay branch: bump CompletedCycles so the
+                // NEXT cycle's id (cycle-{Completed+Skipped}) advances past this
+                // already-delivered one. Without it, the next crossing would
+                // recompute the same already-in-ledger cycleId and replay-skip
+                // forever (the route would render but never deliver again).
+                route.CompletedCycles += 1;
+                ParsekLog.Verbose(Tag,
+                    $"EmitLoopCycle: route {ShortIdForLog(route)} cycle={cycleId} " +
+                    $"already in ledger (replay) — emitting nothing, bumped " +
+                    $"completedCycles={route.CompletedCycles.ToString(IC)}");
+                return false;
+            }
+
+            // Dispatch + debit half (RouteDispatched Sequence 0, RouteCargoDebited
+            // Sequence 1, origin/funds debit, sets KscDispatchFundsCost).
+            EmitDispatchDebit(route, currentUT, env, cycleId);
+
+            // Delivery half. ApplyDelivery resolves the live destination vessel,
+            // plans + applies the fill, debits Career funds, emits
+            // RouteCargoDelivered, and bumps CompletedCycles. It recomputes the
+            // SAME cycleId internally (Completed+Skipped unchanged between the two
+            // halves). For a ghost-driving loop-route the status is Active, so
+            // ApplyDelivery's terminal TransitionTo(Active) is a self-transition
+            // (no InTransit involved). Routed through the DeliveryApplierForTesting
+            // seam so xUnit can verify the full three-row fire without a live
+            // Vessel (production leaves the seam null -> calls ApplyDelivery
+            // VERBATIM).
+            var deliveryApplier = DeliveryApplierForTesting;
+            if (deliveryApplier != null)
+                deliveryApplier(route, currentUT, env);
+            else
+                ApplyDelivery(route, currentUT, env);
+            return true;
+        }
+
+        /// <summary>
+        /// Test seam for the delivery half of <see cref="EmitLoopCycle"/> (and the
+        /// legacy <see cref="ApplyDelivery"/> path is unaffected — only the loop
+        /// path consults this). Production leaves it null so
+        /// <see cref="EmitLoopCycle"/> calls <see cref="ApplyDelivery"/> verbatim
+        /// (which needs a live <c>Vessel</c>). xUnit assigns a fake that emits a
+        /// <see cref="GameActionType.RouteCargoDelivered"/> row + bumps
+        /// <c>CompletedCycles</c> so the three-row full-cycle fire is verifiable
+        /// without Planetarium / Vessel / Funding statics.
+        /// </summary>
+        internal static System.Action<Route, double, IRouteRuntimeEnvironment> DeliveryApplierForTesting;
+
+        // ==================================================================
         // Outcome appliers
         // ==================================================================
 
@@ -396,6 +743,46 @@ namespace Parsek.Logistics
             // (both counters start at 0).
             string cycleId = "cycle-" + (route.CompletedCycles + route.SkippedCycles).ToString(IC);
 
+            // Emit the dispatch + debit pair + the origin/funds debit (shared
+            // with the loop-clock path via EmitDispatchDebit).
+            EmitDispatchDebit(route, currentUT, env, cycleId);
+
+            // State transition: Active/Wait* → InTransit, advance the next-due
+            // UT by one DispatchInterval, clear the retry timer. (Loop-routes do
+            // NOT reach this method — their EmitLoopCycle path skips the InTransit
+            // self-timer entirely; see ProcessLoopRoute.)
+            route.TransitionTo(RouteStatus.InTransit, "dispatched");
+            route.CurrentCycleStartUT = currentUT;
+            route.NextDispatchUT = currentUT + route.DispatchInterval;
+            route.NextEligibilityCheckUT = null;
+
+            ParsekLog.Info(Tag,
+                $"Dispatch: route {ShortIdForLog(route)} cycle={cycleId} " +
+                $"ut={currentUT.ToString("R", IC)} " +
+                $"careerKsc={(env.IsCareer && route.IsKscOrigin ? "1" : "0")} " +
+                $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)}");
+        }
+
+        /// <summary>
+        /// EXTRACTED dispatch-debit body shared by the legacy self-timer path
+        /// (<see cref="ApplyDispatch"/>) and the loop-clock path
+        /// (<see cref="EmitLoopCycle"/>, plan Phase 4 must-fix #1). Computes the
+        /// KSC funds cost (Career + KSC only), writes <c>route.KscDispatchFundsCost</c>,
+        /// and emits the <see cref="GameActionType.RouteDispatched"/> +
+        /// <see cref="GameActionType.RouteCargoDebited"/> ledger pair under the
+        /// SAME <paramref name="cycleId"/>. Does NOT mutate route status,
+        /// scheduling, or counters — the caller owns those (the legacy path
+        /// transitions to InTransit + advances NextDispatchUT; the loop path runs
+        /// delivery in the same tick and snaps the cycle index). This is the
+        /// origin/funds-debit half that <see cref="ApplyDelivery"/> alone would
+        /// SKIP, so the loop path must call BOTH (must-fix #1): calling delivery
+        /// alone never debits origin / charges funds and trips
+        /// <c>RouteModule.ProcessCargoDelivered</c>'s out-of-order guard
+        /// (DispatchedCycles == 0).
+        /// </summary>
+        internal static void EmitDispatchDebit(
+            Route route, double currentUT, IRouteRuntimeEnvironment env, string cycleId)
+        {
             // Funds cost: only meaningful for Career + KSC origin. We compute it
             // unconditionally so the persisted KscDispatchFundsCost stays in sync
             // with what the evaluator's funds gate saw, but the emitted action
@@ -445,19 +832,11 @@ namespace Parsek.Logistics
 
             Ledger.AddActions(new[] { dispatchedAction, debitedAction });
 
-            // State transition: Active/Wait* → InTransit, advance the next-due
-            // UT by one DispatchInterval, clear the retry timer.
-            route.TransitionTo(RouteStatus.InTransit, "dispatched");
-            route.CurrentCycleStartUT = currentUT;
-            route.NextDispatchUT = currentUT + route.DispatchInterval;
-            route.NextEligibilityCheckUT = null;
-
             ParsekLog.Info(Tag,
-                $"Dispatch: route {ShortIdForLog(route)} cycle={cycleId} " +
+                $"DispatchDebit: route {ShortIdForLog(route)} cycle={cycleId} " +
                 $"ut={currentUT.ToString("R", IC)} " +
                 $"cost={computedCost.ToString("R", IC)} " +
-                $"careerKsc={(isCareerKsc ? "1" : "0")} " +
-                $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)}");
+                $"careerKsc={(isCareerKsc ? "1" : "0")}");
         }
 
         /// <summary>

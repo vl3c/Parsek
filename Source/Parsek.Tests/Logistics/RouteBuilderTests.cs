@@ -76,13 +76,19 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        private static RouteConnectionWindow MakeCompleteWindow()
+        // The window dock/undock UTs sit INSIDE the source recording span so the
+        // backing-mission [launch..undock] span (undockUT - rootLaunchUT) is
+        // positive. For the single-recording fixtures rootLaunchUT == source.StartUT
+        // (no committedTree passed), so a window whose dock/undock fall after the
+        // recording start keeps the span valid.
+        private static RouteConnectionWindow MakeCompleteWindow(
+            double dockUT = 1100.0, double undockUT = 1200.0)
         {
             return new RouteConnectionWindow
             {
                 WindowId = "w",
-                DockUT = 100.0,
-                UndockUT = 160.0,
+                DockUT = dockUT,
+                UndockUT = undockUT,
                 TransferTargetVesselPid = 9001,
                 TransferKind = RouteConnectionKind.DockingPort,
                 EndpointAtDock = MakeMunEndpoint(),
@@ -90,11 +96,14 @@ namespace Parsek.Tests.Logistics
             };
         }
 
-        // KSC-origin source recording with completed transfer.
+        // KSC-origin source recording with completed transfer. The window's
+        // dock/undock default to 1100/1200, inside the default 1000..1300 span.
         private static Recording MakeKscSource(
             double startUT = 1000.0,
             double endUT = 1300.0,
-            string recordingId = "src-ksc")
+            string recordingId = "src-ksc",
+            double dockUT = 1100.0,
+            double undockUT = 1200.0)
         {
             return new Recording
             {
@@ -103,7 +112,8 @@ namespace Parsek.Tests.Logistics
                 TreeOrder = 3,
                 StartBodyName = "Kerbin",
                 LaunchSiteName = "LaunchPad",
-                RouteConnectionWindows = new List<RouteConnectionWindow> { MakeCompleteWindow() },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT, undockUT) },
                 RouteOriginProof = null
             }.WithUtSpan(startUT, endUT);
         }
@@ -122,7 +132,8 @@ namespace Parsek.Tests.Logistics
                 TreeOrder = 1,
                 StartBodyName = "Mun",
                 LaunchSiteName = null,
-                RouteConnectionWindows = new List<RouteConnectionWindow> { MakeCompleteWindow() },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 5100.0, undockUT: 5200.0) },
                 RouteOriginProof = new RouteOriginProof { StartDockedOriginVesselPid = originPid }
             }.WithUtSpan(startUT, endUT);
         }
@@ -141,7 +152,8 @@ namespace Parsek.Tests.Logistics
                 TreeOrder = 0,
                 StartBodyName = "Mun",
                 LaunchSiteName = null,
-                RouteConnectionWindows = new List<RouteConnectionWindow> { MakeCompleteWindow() },
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 5100.0, undockUT: 5200.0) },
                 RouteOriginProof = null
             }.WithUtSpan(startUT, endUT);
         }
@@ -285,34 +297,39 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void Build_TransitDurationMatchesSourcePathSpan()
+        public void Build_TransitDurationIsRenderedSpan_UndockMinusRootLaunch()
         {
-            // catches: TransitDuration being derived from the wrong UT pair
-            // (e.g. the connection-window dock/undock instead of the source
-            // recording start/end). A wrong transit value would let the
-            // scheduler dispatch faster than the route actually traverses.
-            Recording source = MakeKscSource(startUT: 2000.0, endUT: 2900.0);
+            // (must-fix #3) TransitDuration is the RENDERED span (undockUT -
+            // rootLaunchUT), NOT the leaf-only source.EndUT - source.StartUT.
+            // With no committedTree, rootLaunchUT == source.StartUT. Span here is
+            // undock(2700) - launch(2000) = 700, which differs from the recording
+            // span (2900 - 2000 = 900) so the test pins the new contract.
+            Recording source = MakeKscSource(
+                startUT: 2000.0, endUT: 2900.0, dockUT: 2500.0, undockUT: 2700.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
                 RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 900.0), Game.Modes.SANDBOX);
 
-            Assert.Equal(900.0, outcome.Route.TransitDuration);
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(700.0, outcome.Route.TransitDuration);
         }
 
         [Fact]
-        public void Build_PopulatesDispatchWindowEpochUTFromFirstStartUT()
+        public void Build_PopulatesDispatchWindowEpochUTFromRootLaunchUT()
         {
             // catches: a regression where the dispatch-window epoch drifts off
-            // the source recording's StartUT. The scheduler anchors the
-            // dispatch cadence on this epoch — losing it would phase the
-            // cycle off the player's original launch.
-            Recording source = MakeKscSource(startUT: 17_000.0, endUT: 17_500.0);
+            // the tree-root launch UT. With no committedTree the root launch is
+            // source.StartUT. The scheduler anchors the dispatch cadence on this
+            // epoch — losing it would phase the cycle off the player's launch.
+            Recording source = MakeKscSource(
+                startUT: 17_000.0, endUT: 17_500.0, dockUT: 17_200.0, undockUT: 17_400.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
                 RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
 
+            Assert.NotNull(outcome.Route);
             Assert.Equal(17_000.0, outcome.Route.DispatchWindowEpochUT);
         }
 
@@ -323,10 +340,13 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Build_DispatchIntervalBelowTransit_Rejected()
         {
-            // catches: accepting a dispatch interval shorter than the transit
-            // duration. That would let the scheduler dispatch cycle N+1 before
-            // cycle N finishes its delivery, double-spending the source craft.
-            Recording source = MakeKscSource(startUT: 0.0, endUT: 1000.0);
+            // catches: accepting a dispatch interval shorter than the rendered span
+            // (undockUT - rootLaunchUT). That would let the loop clock tick on
+            // max(interval, span) != interval, so a crossing would NOT equal a
+            // dispatch cycle. Span here is undock(900) - launch(0) = 900; interval
+            // 500 < 900 -> reject (when clamp not allowed).
+            Recording source = MakeKscSource(
+                startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
@@ -334,6 +354,34 @@ namespace Parsek.Tests.Logistics
 
             Assert.Null(outcome.Route);
             Assert.Equal("interval-below-transit", outcome.RejectReason);
+        }
+
+        [Fact]
+        public void Build_DispatchIntervalBelowSpan_ClampsUpWhenAllowed()
+        {
+            // (must-fix #2) When allowIntervalBelowTransit is set (the debug /
+            // candidate Create Route path), an interval below the rendered span is
+            // CLAMPED UP to the span (not rejected) so cadence == interval == span
+            // and one crossing == one dispatch cycle. Span = undock(900)-launch(0).
+            Recording source = MakeKscSource(
+                startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(interval: 30.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            // Interval clamped UP to the span.
+            Assert.Equal(900.0, outcome.Route.DispatchInterval);
+            Assert.Equal(900.0, outcome.Route.TransitDuration);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("interval below span")
+                && l.Contains("clamped up"));
         }
 
         [Fact]
@@ -436,6 +484,271 @@ namespace Parsek.Tests.Logistics
             Assert.True(outcome.Route.IsKscOrigin);
             Assert.Equal("Kerbin", outcome.Route.Origin.BodyName);
             Assert.Equal(RouteStatus.Paused, outcome.Route.Status);
+        }
+
+        // -----------------------------------------------------------------
+        // Phase 5: backing-mission definition + dock/undock capture
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Build_PopulatesBackingMissionDefinition_FromSource()
+        {
+            // catches: the backing-mission DEFINITION (tree id, dock binding, loop
+            // anchor) not being captured at creation. Without it the route is not a
+            // loop-route (IsLoopRoute false) and never renders / fires the loop clock.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Route route = outcome.Route;
+            // BackingMissionTreeId == the source tree id (guard/selector key match).
+            Assert.Equal(source.TreeId, route.BackingMissionTreeId);
+            Assert.True(route.IsLoopRoute);
+            // Dock binding lifted from the connection window.
+            Assert.Equal(1200.0, route.RecordedDockUT);
+            Assert.Equal(source.RecordingId, route.DockMemberRecordingId);
+            // Created Active -> LoopAnchorUT seeded to the root launch UT.
+            Assert.Equal(1000.0, route.LoopAnchorUT);
+            // Fresh loop-clock cursor.
+            Assert.Equal(-1, route.LastObservedLoopCycleIndex);
+            // BackingMissionTreeId == SourceRefs[].TreeId (the design guarantee).
+            foreach (RouteSourceRef sref in route.SourceRefs)
+                Assert.Equal(route.BackingMissionTreeId, sref.TreeId);
+        }
+
+        [Fact]
+        public void Build_PausedRoute_LeavesLoopAnchorUnset()
+        {
+            // catches: a Paused-created route (candidate path) wrongly seeding
+            // LoopAnchorUT. The anchor is set on ACTIVATE (TryActivate), not at
+            // create-Paused; a stale anchor would mis-seed the diagnostic field.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(-1.0, outcome.Route.LoopAnchorUT);
+        }
+
+        [Fact]
+        public void Build_MemberSet_WidensToRootLaunchPath_OnMultiLegTree()
+        {
+            // (must-fix #3) On a multi-recording flight the route's RecordingIds /
+            // SourceRefs cover EVERY [root..undock] member, not just the dock-child
+            // leaf, so RevalidateSources tracks the whole rendered path. The leaf
+            // (window-carrying child) stays the delivery-binding carrier.
+            var windowChild = new Recording
+            {
+                RecordingId = "docked-child",
+                TreeId = "tree-multi",
+                TreeOrder = 1,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 2000.0, undockUT: 3000.0) },
+                RouteOriginProof = null
+            }.WithUtSpan(2000.0, 3000.0);
+            var root = new Recording
+            {
+                RecordingId = "launch-root",
+                TreeId = "tree-multi",
+                TreeOrder = 0,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Runway",
+                RouteOriginProof = null
+            }.WithUtSpan(1000.0, 2000.0);
+            var survivor = new Recording
+            {
+                RecordingId = "survivor",
+                TreeId = "tree-multi",
+                TreeOrder = 2,
+                StartBodyName = "Kerbin",
+                RouteOriginProof = null
+            }.WithUtSpan(3000.0, 4000.0);
+            var tree = new RecordingTree { Id = "tree-multi", RootRecordingId = "launch-root" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(windowChild);
+            tree.AddOrReplaceRecording(survivor);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dock-bp",
+                Type = BranchPointType.Dock,
+                UT = 2000.0,
+                ParentRecordingIds = new List<string> { "launch-root" },
+                ChildRecordingIds = new List<string> { "docked-child" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "undock-bp",
+                Type = BranchPointType.Undock,
+                UT = 3000.0,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { "docked-child" },
+                ChildRecordingIds = new List<string> { "survivor" }
+            });
+
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 3000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused);
+
+            Assert.NotNull(outcome.Route);
+            Route route = outcome.Route;
+            // Span = undock(3000) - rootLaunch(1000) = 2000.
+            Assert.Equal(2000.0, route.TransitDuration);
+            // Member set covers the kept [root..undock] recordings: the launch root
+            // and the dock child. The post-undock survivor is NOT a member.
+            Assert.Contains("launch-root", route.RecordingIds);
+            Assert.Contains("docked-child", route.RecordingIds);
+            Assert.DoesNotContain("survivor", route.RecordingIds);
+            // One SourceRef per member, all on the same tree.
+            Assert.Equal(route.RecordingIds.Count, route.SourceRefs.Count);
+            // The leaf (dock child) stays the delivery-binding carrier.
+            Assert.Equal("docked-child", route.DockMemberRecordingId);
+        }
+
+        // -----------------------------------------------------------------
+        // Phase 6: cadence multiplier
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Build_DefaultCadence_IsOne_IntervalEqualsSpan()
+        {
+            // (Phase 6) An interval equal to the rendered span -> N=1 (the floor),
+            // and DispatchInterval == TransitDuration. Default cadence is the
+            // minimum loop time. Span = undock(1400) - launch(1000) = 400.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 400.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(1, outcome.Route.CadenceMultiplier);
+            Assert.Equal(400.0, outcome.Route.TransitDuration);
+            Assert.Equal(400.0, outcome.Route.DispatchInterval);
+        }
+
+        [Fact]
+        public void Build_IntervalAtNxSpan_DerivesCadenceN_AndReDerivesInterval()
+        {
+            // (Phase 6) An interval of N x span derives CadenceMultiplier=N and the
+            // interval is re-derived as N x span so the two stay in lock-step. Span =
+            // undock(1400) - launch(1000) = 400; entered interval 1200 = 3 x 400.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 1200.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(3, outcome.Route.CadenceMultiplier);
+            Assert.Equal(1200.0, outcome.Route.DispatchInterval);
+            // DispatchInterval == N x TransitDuration exactly.
+            Assert.Equal(outcome.Route.CadenceMultiplier * outcome.Route.TransitDuration,
+                outcome.Route.DispatchInterval);
+            // The "Built route" log carries the cadence multiplier for greppability.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("Built route") && l.Contains("cadenceN=3"));
+        }
+
+        [Fact]
+        public void Build_ClampedUpInterval_DerivesCadenceOne()
+        {
+            // (Phase 6 + must-fix #2) When an interval below the span is clamped up,
+            // the resulting cadence is N=1 (the clamp lands exactly at the span).
+            // Span = undock(900) - launch(0) = 900.
+            Recording source = MakeKscSource(
+                startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, null, Inputs(interval: 30.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(1, outcome.Route.CadenceMultiplier);
+            Assert.Equal(900.0, outcome.Route.DispatchInterval);
+        }
+
+        // -----------------------------------------------------------------
+        // Phase 5: backing-mission-unresolvable reject
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Build_NonFiniteUndockUT_Rejected_BackingMissionUnresolvable()
+        {
+            // catches: a window with a non-finite UndockUT slipping through. The
+            // [launch..undock] render geometry cannot be derived, so the route
+            // would render nothing / never fire the loop clock. Must reject.
+            Recording source = MakeKscSource(startUT: 1000.0, endUT: 1500.0);
+            source.RouteConnectionWindows[0].UndockUT = double.NaN;
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("backing-mission-unresolvable", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("backing-mission-unresolvable"));
+        }
+
+        [Fact]
+        public void Build_UndockBeforeRootLaunch_Rejected_BackingMissionUnresolvable()
+        {
+            // catches: an empty / inverted [launch..undock] window (undock at or
+            // before the root launch) producing a non-positive span. Must reject
+            // rather than build a zero/negative-span loop.
+            var windowChild = new Recording
+            {
+                RecordingId = "child",
+                TreeId = "tree-inv",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                // undock (900) is BEFORE the root launch (1000).
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 850.0, undockUT: 900.0) },
+                RouteOriginProof = null
+            }.WithUtSpan(800.0, 950.0);
+            var root = new Recording
+            {
+                RecordingId = "root",
+                TreeId = "tree-inv",
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Runway",
+                RouteOriginProof = null
+            }.WithUtSpan(1000.0, 1100.0);
+            var tree = new RecordingTree { Id = "tree-inv", RootRecordingId = "root" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(windowChild);
+
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 600.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("backing-mission-unresolvable", outcome.RejectReason);
         }
 
         [Fact]
