@@ -464,5 +464,142 @@ namespace Parsek.Tests
             Assert.Equal(capsulePid, capsule.SpawnedVesselPersistentId);
             Assert.True(capsule.VesselSpawned);
         }
+
+        // --- RewindInvoker.ReconcilePostStripSpawnState wrapper tests ---
+        // Direct coverage for the Re-Fly post-load reconcile glue extracted from
+        // RewindInvoker.RunStripActivateMarker: it subtracts the strip's removed PIDs
+        // from the surviving save's protoVessel PIDs, logs the one-line summary at the
+        // [Rewind] subsystem, and resets spawn state on any committed recording whose
+        // spawned vessel is no longer present. The Unity-only protoVessel-PID collection
+        // stays at the call site; this method takes the pre-collected lists, so the glue
+        // is testable without a live KSP flightState.
+
+        [Fact]
+        public void ReconcilePostStrip_ProductionShape_ResetsStrippedSiblings_AndLogsCounts()
+        {
+            const uint activeProbePid = 3215646968u;
+            const uint capsulePid = 2708531065u;
+            const uint boosterPid = 1234567890u;
+
+            var capsule = new Recording
+            {
+                VesselName = "Kerbal X",
+                SpawnedVesselPersistentId = capsulePid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var booster = new Recording
+            {
+                VesselName = "Kerbal X Booster",
+                SpawnedVesselPersistentId = boosterPid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var probe = new Recording
+            {
+                VesselName = "Kerbal X Probe",
+                SpawnedVesselPersistentId = activeProbePid,
+                VesselSpawned = true,
+                SpawnAttempts = 1
+            };
+            var committed = new List<Recording> { capsule, booster, probe };
+
+            // protoVessels still carries all three PIDs (Vessel.Die() does not sync the
+            // flightState mirror); the strip removed the capsule + booster.
+            var protoVesselPids = new List<uint> { activeProbePid, capsulePid, boosterPid };
+            var strippedPids = new List<uint> { capsulePid, boosterPid };
+
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                protoVesselPids, strippedPids, committed);
+
+            Assert.Equal(2, reconciled);
+            Assert.Equal(0u, capsule.SpawnedVesselPersistentId);
+            Assert.False(capsule.VesselSpawned);
+            Assert.Equal(0, capsule.SpawnAttempts);
+            Assert.Equal(0u, booster.SpawnedVesselPersistentId);
+            Assert.False(booster.VesselSpawned);
+            Assert.Equal(0, booster.SpawnAttempts);
+            Assert.Equal(activeProbePid, probe.SpawnedVesselPersistentId);
+            Assert.True(probe.VesselSpawned);
+            Assert.Equal(1, probe.SpawnAttempts);
+
+            // The wrapper's own summary log at [Rewind] with the exact counts.
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Post-strip reconcile:")
+                && l.Contains("strippedPids=2")
+                && l.Contains("protoVesselsRemaining=3")
+                && l.Contains("survivorPidCount=1"));
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_NullCommitted_ReturnsZero_NoSummaryLog()
+        {
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                new List<uint> { 100 }, new List<uint> { 100 }, null);
+
+            Assert.Equal(0, reconciled);
+            Assert.DoesNotContain(logLines, l => l.Contains("Post-strip reconcile:"));
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_EmptyCommitted_ReturnsZero_NoSummaryLog()
+        {
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                new List<uint> { 100 }, new List<uint>(), new List<Recording>());
+
+            Assert.Equal(0, reconciled);
+            Assert.DoesNotContain(logLines, l => l.Contains("Post-strip reconcile:"));
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_NullProtoVesselPids_TreatsAllSpawnedAsStripped()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Vessel",
+                SpawnedVesselPersistentId = 777,
+                VesselSpawned = true
+            };
+            var committed = new List<Recording> { rec };
+
+            // protoVessels null -> empty survivor set -> every non-zero spawn PID reset.
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                null, new List<uint>(), committed);
+
+            Assert.Equal(1, reconciled);
+            Assert.Equal(0u, rec.SpawnedVesselPersistentId);
+            Assert.False(rec.VesselSpawned);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Post-strip reconcile:")
+                && l.Contains("protoVesselsRemaining=0")
+                && l.Contains("survivorPidCount=0"));
+        }
+
+        [Fact]
+        public void ReconcilePostStrip_NullStrippedPids_AllProtoSurvive_NoReset()
+        {
+            var rec = new Recording
+            {
+                VesselName = "Vessel",
+                SpawnedVesselPersistentId = 100,
+                VesselSpawned = true
+            };
+            var committed = new List<Recording> { rec };
+
+            // strippedPids null -> survivors = all proto PIDs -> spawn state preserved.
+            int reconciled = RewindInvoker.ReconcilePostStripSpawnState(
+                new List<uint> { 100 }, null, committed);
+
+            Assert.Equal(0, reconciled);
+            Assert.Equal(100u, rec.SpawnedVesselPersistentId);
+            Assert.True(rec.VesselSpawned);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Rewind]")
+                && l.Contains("Post-strip reconcile:")
+                && l.Contains("strippedPids=0")
+                && l.Contains("survivorPidCount=1"));
+        }
     }
 }

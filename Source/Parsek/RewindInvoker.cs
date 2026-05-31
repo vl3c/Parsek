@@ -837,26 +837,19 @@ namespace Parsek
                         if (committed != null && committed.Count > 0)
                         {
                             var protoVesselPids = new List<uint>();
-                            int protoCount = 0;
                             if (fsReconcile.protoVessels != null)
                             {
-                                protoCount = fsReconcile.protoVessels.Count;
-                                for (int i = 0; i < protoCount; i++)
+                                for (int i = 0; i < fsReconcile.protoVessels.Count; i++)
                                     protoVesselPids.Add(fsReconcile.protoVessels[i].persistentId);
                             }
 
-                            int strippedCount = stripResult.StrippedPids != null
-                                ? stripResult.StrippedPids.Count
-                                : 0;
-
-                            var survivors = ParsekScenario.ComputeSurvivorsFromProtoVesselPids(
-                                protoVesselPids, stripResult.StrippedPids);
-
-                            ParsekLog.Info(InvokeTag,
-                                $"Post-strip reconcile: strippedPids={strippedCount} " +
-                                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count}");
-
-                            ParsekScenario.ReconcileSpawnStateAfterStrip(survivors, committed);
+                            // The survivor-set + log + reconcile glue is extracted
+                            // into ReconcilePostStripSpawnState so it is directly
+                            // xUnit-testable. The Unity-only protoVessel-PID collection
+                            // above stays here because ProtoVessel cannot be built in
+                            // xUnit.
+                            ReconcilePostStripSpawnState(
+                                protoVesselPids, stripResult.StrippedPids, committed);
                         }
                     }
                 }
@@ -968,6 +961,38 @@ namespace Parsek
                 TryDeleteTemp(tempPath);
                 RewindInvokeContext.Clear();
             }
+        }
+
+        /// <summary>
+        /// Post-strip spawn-state reconcile glue (coverage-gap follow-up for the Re-Fly
+        /// load path). Extracted from <see cref="RunStripActivateMarker"/> so the
+        /// "protoVessel PIDs minus stripped PIDs -> survivor set -> summary log ->
+        /// reconcile" wiring is directly unit-testable. The Unity-only step (enumerating
+        /// <c>HighLogic.CurrentGame.flightState.protoVessels</c> for their PIDs) stays at
+        /// the call site because <c>ProtoVessel</c> cannot be constructed in xUnit; this
+        /// method takes the pre-collected PID lists. Behavior matches the prior inline
+        /// block exactly; the returned count is additive for test assertions.
+        /// </summary>
+        /// <returns>The number of committed recordings whose spawn state was reset.</returns>
+        internal static int ReconcilePostStripSpawnState(
+            IReadOnlyList<uint> protoVesselPids,
+            IReadOnlyList<uint> strippedPids,
+            IReadOnlyList<Recording> committed)
+        {
+            if (committed == null || committed.Count == 0)
+                return 0;
+
+            int protoCount = protoVesselPids != null ? protoVesselPids.Count : 0;
+            int strippedCount = strippedPids != null ? strippedPids.Count : 0;
+
+            var survivors = ParsekScenario.ComputeSurvivorsFromProtoVesselPids(
+                protoVesselPids, strippedPids);
+
+            ParsekLog.Info(InvokeTag,
+                $"Post-strip reconcile: strippedPids={strippedCount} " +
+                $"protoVesselsRemaining={protoCount} survivorPidCount={survivors.Count}");
+
+            return ParsekScenario.ReconcileSpawnStateAfterStrip(survivors, committed);
         }
 
         private static bool IsFlightReady()
