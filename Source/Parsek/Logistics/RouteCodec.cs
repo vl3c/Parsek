@@ -13,6 +13,15 @@ namespace Parsek.Logistics
     /// <c>INVENTORY_COST_MANIFEST</c>. Optional UT fields are omitted when
     /// null so saves stay lean.
     ///
+    /// Backing-mission definition (Phase 1): <c>backingMissionTreeId</c>,
+    /// <c>dockMemberRecordingId</c>, <c>recordedDockUT</c>, <c>loopAnchorUT</c>,
+    /// a sparse <c>lastObservedLoopCycleIndex</c> (omitted when -1), and an
+    /// <c>EXCLUDED_INTERVALS</c> child node carrying repeated
+    /// <c>excludedInterval</c> values (no node written for an empty set). A
+    /// missing backing-mission definition does NOT reject the route — only the
+    /// existing zero-STOP / malformed-SOURCE rejects stand. Pre-1.0: graceful
+    /// default, no migration.
+    ///
     /// Load rejects the whole route on (a) zero <c>STOP</c> children or
     /// (b) a malformed <c>SOURCE</c> entry — returning <c>null</c> with a
     /// warn log so partially-loaded routes never look valid downstream.
@@ -38,6 +47,8 @@ namespace Parsek.Logistics
         internal const string StoredPartNode = "STOREDPART";
         internal const string StoredResourcesNode = "STORED_RESOURCES";
         internal const string ResourceChildNode = "RESOURCE";
+        internal const string ExcludedIntervalsNode = "EXCLUDED_INTERVALS";
+        internal const string ExcludedIntervalValue = "excludedInterval";
 
         // -----------------------------------------------------------------
         // Serialize
@@ -89,6 +100,30 @@ namespace Parsek.Logistics
             node.AddValue("pauseAfterCurrentCycle", route.PauseAfterCurrentCycle.ToString());
             node.AddValue("completedCycles", route.CompletedCycles.ToString(ic));
             node.AddValue("skippedCycles", route.SkippedCycles.ToString(ic));
+
+            // --- Backing-mission definition (Phase 1) ---
+            if (!string.IsNullOrEmpty(route.BackingMissionTreeId))
+                node.AddValue("backingMissionTreeId", route.BackingMissionTreeId);
+            if (!string.IsNullOrEmpty(route.DockMemberRecordingId))
+                node.AddValue("dockMemberRecordingId", route.DockMemberRecordingId);
+            node.AddValue("recordedDockUT", route.RecordedDockUT.ToString("R", ic));
+            node.AddValue("loopAnchorUT", route.LoopAnchorUT.ToString("R", ic));
+            // Sparse: -1 (no cycle observed) is the default, so omit it.
+            if (route.LastObservedLoopCycleIndex != -1)
+                node.AddValue("lastObservedLoopCycleIndex",
+                    route.LastObservedLoopCycleIndex.ToString(ic));
+
+            // EXCLUDED_INTERVALS: one child node carrying repeated excludedInterval
+            // values. Empty set writes NO node (keeps the empty-definition save lean).
+            if (route.ExcludedIntervalKeys != null && route.ExcludedIntervalKeys.Count > 0)
+            {
+                ConfigNode excludedNode = node.AddNode(ExcludedIntervalsNode);
+                foreach (string key in route.ExcludedIntervalKeys)
+                {
+                    if (!string.IsNullOrEmpty(key))
+                        excludedNode.AddValue(ExcludedIntervalValue, key);
+                }
+            }
 
             // --- RECORDING_IDS ---
             if (route.RecordingIds != null && route.RecordingIds.Count > 0)
@@ -180,6 +215,35 @@ namespace Parsek.Logistics
             TryParseBool(node.GetValue("pauseAfterCurrentCycle"), out route.PauseAfterCurrentCycle);
             TryParseInt(node.GetValue("completedCycles"), ic, 0, out route.CompletedCycles);
             TryParseInt(node.GetValue("skippedCycles"), ic, 0, out route.SkippedCycles);
+
+            // --- Backing-mission definition (Phase 1) ---
+            // A missing backing-mission definition does NOT reject the route —
+            // graceful default (pre-1.0, no migration). Missing scalar -> default,
+            // missing node -> empty set, absent cycle index -> -1.
+            route.BackingMissionTreeId = node.GetValue("backingMissionTreeId");
+            if (string.IsNullOrEmpty(route.BackingMissionTreeId))
+                route.BackingMissionTreeId = null;
+            route.DockMemberRecordingId = node.GetValue("dockMemberRecordingId");
+            if (string.IsNullOrEmpty(route.DockMemberRecordingId))
+                route.DockMemberRecordingId = null;
+            // Missing -> field default (-1), so seed the out-default to -1.
+            TryParseDoubleWithDefault(node.GetValue("recordedDockUT"), inv, ic, -1.0, out route.RecordedDockUT);
+            TryParseDoubleWithDefault(node.GetValue("loopAnchorUT"), inv, ic, -1.0, out route.LoopAnchorUT);
+            TryParseLong(node.GetValue("lastObservedLoopCycleIndex"), ic, -1L, out route.LastObservedLoopCycleIndex);
+
+            ConfigNode excludedNode = node.GetNode(ExcludedIntervalsNode);
+            if (excludedNode != null)
+            {
+                string[] excluded = excludedNode.GetValues(ExcludedIntervalValue);
+                if (excluded != null)
+                {
+                    for (int i = 0; i < excluded.Length; i++)
+                    {
+                        if (!string.IsNullOrEmpty(excluded[i]))
+                            route.ExcludedIntervalKeys.Add(excluded[i]);
+                    }
+                }
+            }
 
             // --- RECORDING_IDS ---
             ConfigNode ridsNode = node.GetNode(RecordingIdsNode);
@@ -612,6 +676,26 @@ namespace Parsek.Logistics
                 value = parsed;
             else
                 value = 0.0;
+        }
+
+        // Like TryParseDouble but falls back to a caller-supplied default (not 0.0)
+        // when the value is missing or malformed — used for fields whose unset
+        // sentinel is -1, so an absent value reads back as the field default.
+        private static void TryParseDoubleWithDefault(
+            string raw, NumberStyles inv, CultureInfo ic, double defaultValue, out double value)
+        {
+            if (raw != null && double.TryParse(raw, inv, ic, out double parsed))
+                value = parsed;
+            else
+                value = defaultValue;
+        }
+
+        private static void TryParseLong(string raw, CultureInfo ic, long defaultValue, out long value)
+        {
+            if (raw != null && long.TryParse(raw, NumberStyles.Integer, ic, out long parsed))
+                value = parsed;
+            else
+                value = defaultValue;
         }
 
         private static double? TryParseOptionalDouble(string raw, NumberStyles inv, CultureInfo ic)

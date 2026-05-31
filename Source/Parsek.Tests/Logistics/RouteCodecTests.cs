@@ -152,6 +152,13 @@ namespace Parsek.Tests.Logistics
                 {
                     BuildPayloadItem()
                 })
+                .WithBackingMissionTreeId("tree-1")
+                .WithExcludedIntervalKey("leg-post-undock-survivor")
+                .WithExcludedIntervalKey("leg-post-undock-survivor/seg1")
+                .WithExcludedIntervalKey("leg-offshoot")
+                .WithDockBinding(255600.0, "rec-2")
+                .WithLoopAnchorUT(255000.0)
+                .WithLastObservedLoopCycleIndex(7)
                 .Build();
         }
 
@@ -215,6 +222,143 @@ namespace Parsek.Tests.Logistics
             // Cost manifests
             AssertResourceManifestEqual(original.CostManifest, roundTripped.CostManifest);
             AssertInventoryListEqual(original.InventoryCostManifest, roundTripped.InventoryCostManifest);
+
+            // Backing-mission definition (Phase 1)
+            Assert.Equal(original.BackingMissionTreeId, roundTripped.BackingMissionTreeId);
+            Assert.Equal(original.RecordedDockUT, roundTripped.RecordedDockUT);
+            Assert.Equal(original.DockMemberRecordingId, roundTripped.DockMemberRecordingId);
+            Assert.Equal(original.LoopAnchorUT, roundTripped.LoopAnchorUT);
+            Assert.Equal(original.LastObservedLoopCycleIndex, roundTripped.LastObservedLoopCycleIndex);
+            Assert.True(original.IsLoopRoute);
+            Assert.True(roundTripped.IsLoopRoute);
+            Assert.Equal(
+                new SortedSet<string>(original.ExcludedIntervalKeys),
+                new SortedSet<string>(roundTripped.ExcludedIntervalKeys));
+        }
+
+        // catches: EXCLUDED_INTERVALS node written for an empty set (save bloat)
+        // AND an empty-definition route mistakenly rejected on load.
+        [Fact]
+        public void RoundTrip_EmptyBackingMissionDefinition_NoNodeAndNoReject()
+        {
+            // A route with NO backing-mission definition (all defaults).
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("no-backing-route")
+                .WithName("No Backing")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+
+            // Sanity: nothing populated the backing-mission fields.
+            Assert.Empty(route.ExcludedIntervalKeys);
+            Assert.False(route.IsLoopRoute);
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+
+            // Empty set writes NO EXCLUDED_INTERVALS node.
+            Assert.False(node.HasNode(RouteCodec.ExcludedIntervalsNode),
+                "EXCLUDED_INTERVALS must be omitted when the set is empty");
+            // No backing-mission scalars that are themselves optional / sparse.
+            Assert.False(node.HasValue("backingMissionTreeId"),
+                "backingMissionTreeId must be omitted when null");
+            Assert.False(node.HasValue("dockMemberRecordingId"),
+                "dockMemberRecordingId must be omitted when null");
+            Assert.False(node.HasValue("lastObservedLoopCycleIndex"),
+                "lastObservedLoopCycleIndex must be omitted when -1");
+
+            // The empty definition does NOT reject the route, and loads an empty set.
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Empty(roundTripped.ExcludedIntervalKeys);
+            Assert.Null(roundTripped.BackingMissionTreeId);
+            Assert.Null(roundTripped.DockMemberRecordingId);
+            Assert.Equal(-1.0, roundTripped.RecordedDockUT);
+            Assert.Equal(-1.0, roundTripped.LoopAnchorUT);
+            Assert.Equal(-1L, roundTripped.LastObservedLoopCycleIndex);
+            Assert.False(roundTripped.IsLoopRoute);
+        }
+
+        // catches: a sparse -1 cycle index written to the wire / read as non-default.
+        [Fact]
+        public void RoundTrip_SparseCycleIndex_DefaultMinusOne()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+            var route = new RouteFixtureBuilder()
+                .WithId("sparse-cycle-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .WithBackingMissionTreeId("tree-7")
+                .WithLastObservedLoopCycleIndex(-1)
+                .Build();
+
+            var node = new ConfigNode("ROUTE");
+            route.SerializeInto(node);
+            Assert.False(node.HasValue("lastObservedLoopCycleIndex"),
+                "lastObservedLoopCycleIndex must be omitted when -1");
+
+            Route roundTripped = Route.DeserializeFrom(node);
+            Assert.NotNull(roundTripped);
+            Assert.Equal(-1L, roundTripped.LastObservedLoopCycleIndex);
+            // A populated tree id still round-trips and flips IsLoopRoute.
+            Assert.Equal("tree-7", roundTripped.BackingMissionTreeId);
+            Assert.True(roundTripped.IsLoopRoute);
+        }
+
+        // catches: an old-save node with no backing-mission keys failing to load
+        // or loading non-default backing-mission state.
+        [Fact]
+        public void Load_OldSaveWithoutBackingMission_GracefulDefault()
+        {
+            // Hand-author a pre-backing-mission ROUTE node (valid origin + stop,
+            // no backing-mission keys at all).
+            var node = new ConfigNode("ROUTE");
+            node.AddValue("id", "old-save-route");
+            node.AddValue("status", "Active");
+            ConfigNode origin = node.AddNode(RouteCodec.OriginNode);
+            origin.AddValue("bodyName", "Kerbin");
+            origin.AddValue("latitude", "0");
+            origin.AddValue("longitude", "0");
+            origin.AddValue("altitude", "0");
+            origin.AddValue("vesselPersistentId", "0");
+            origin.AddValue("isSurface", "True");
+            ConfigNode stop = node.AddNode(RouteCodec.StopNode);
+            ConfigNode endpoint = stop.AddNode(RouteCodec.EndpointNode);
+            endpoint.AddValue("bodyName", "Mun");
+            endpoint.AddValue("latitude", "0");
+            endpoint.AddValue("longitude", "0");
+            endpoint.AddValue("altitude", "0");
+            endpoint.AddValue("vesselPersistentId", "12345");
+            endpoint.AddValue("isSurface", "True");
+            stop.AddValue("connectionKind", "DockingPort");
+            stop.AddValue("segmentIndexBefore", "0");
+            stop.AddValue("deliveryOffsetSeconds", "0");
+
+            Route route = Route.DeserializeFrom(node);
+
+            Assert.NotNull(route);
+            Assert.Null(route.BackingMissionTreeId);
+            Assert.Empty(route.ExcludedIntervalKeys);
+            Assert.Null(route.DockMemberRecordingId);
+            Assert.Equal(-1.0, route.RecordedDockUT);
+            Assert.Equal(-1.0, route.LoopAnchorUT);
+            Assert.Equal(-1L, route.LastObservedLoopCycleIndex);
+            Assert.False(route.IsLoopRoute);
         }
 
         // catches: codec writing noisy empties that bloat saves.
