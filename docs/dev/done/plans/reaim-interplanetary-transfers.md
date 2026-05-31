@@ -48,7 +48,7 @@ Revision history:
     targetBody=null). (m2, m3)
 
 References (read before implementing):
-- `docs/dev/plans/mission-periodicity-phases.md`, `docs/dev/plans/zero-drift-reschedule.md`,
+- `docs/dev/plans/mission-periodicity-phases.md`, `docs/dev/done/plans/zero-drift-reschedule.md`,
   `docs/dev/plans/cross-parent-bodies.md` (the faithful-replay arc this replaces for cross-parent).
 - `docs/dev/design-mission-periodicity.md` (the locked decisions, several of which this DOC
   deliberately RE-OPENS, see section 1).

@@ -1,7 +1,7 @@
 # Re-aim loiter compression (launch-window alignment for interplanetary supply routes)
 
 Status: DESIGN (pre-implementation, revision 2 after Opus review). Extends
-`docs/dev/plans/reaim-interplanetary-transfers.md`; supersedes that doc's loop-timeline model for the
+`docs/dev/done/plans/reaim-interplanetary-transfers.md`; supersedes that doc's loop-timeline model for the
 re-aim path.
 
 ## 1. Problem

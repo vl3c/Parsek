@@ -1,6 +1,6 @@
 # PR 708 playtest follow-up plan
 
-**Status:** PR 708 closeout record. Final accepted playtest bundle is `logs/2026-05-03_2007_pr708-final-watch-good`; branch closeout is `ghost-anchor-recording-chain-v11` at `5da3fd00` or later. Remaining work moves to D.0 / Phase D in `docs/dev/plans/ghost-anchor-recording-chain-plan.md` after PR 708 merges.
+**Status:** PR 708 closeout record. Final accepted playtest bundle is `logs/2026-05-03_2007_pr708-final-watch-good`; branch closeout is `ghost-anchor-recording-chain-v11` at `5da3fd00` or later. Remaining work moves to D.0 / Phase D in `docs/dev/done/plans/ghost-anchor-recording-chain-plan.md` after PR 708 merges.
 **Review baseline:** GPT-5.5 xhigh reviewed PR 708 through `abb598b7` (`Freeze Re-Fly display alignment per recording`) and found no P0/P1 blockers. The follow-up fixes keep distance checks projection-only, cover one-frame Absolute anchor sections over their section interval, cache pre-Re-Fly synthetic anchor recordings, clear frozen alignment on marker-scope/body changes, and warn on suspiciously large initial offsets. A later PR pass hardened the same-tree DAG fence for missing `TreeOrder`, sectionless v6+ resolver fallback, v11 boundary chain-miss shadow fallback, continuation tie-break documentation, and GuardSkip trace allocation.
 **Branch:** `ghost-anchor-recording-chain-v11`.
 **Scope:** historical playtest follow-up record for Phases A-C of `ghost-anchor-recording-chain-plan.md`, plus the stabilization fixes needed before merging PR 708.
@@ -39,7 +39,7 @@ Post-merge continuation:
 
 - Do not add more PR708 stabilization work unless new evidence is a merge blocker.
 - Capture the explicit D.0 product-behaviour decision before Phase D deletion work.
-- If D.0 approves recorded-coordinate Re-Fly behaviour, continue from `docs/dev/plans/ghost-anchor-recording-chain-plan.md` and the active todo item `PR708 post-merge Phase D continuation`.
+- If D.0 approves recorded-coordinate Re-Fly behaviour, continue from `docs/dev/done/plans/ghost-anchor-recording-chain-plan.md` and the active todo item `PR708 post-merge Phase D continuation`.
 
 ---
 

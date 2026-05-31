@@ -203,7 +203,7 @@ Acknowledged limit per external reviewer P1: the constant-bump shape does NOT st
 
 ## Out of Scope
 
-- Recorder-side change to give controlled-vessel children a Relative-anchor section against their parent (deeper architectural change explicitly deferred by `docs/dev/plans/ghost-anchor-recording-chain-plan.md` §106 / §151's "still-being-appended active provisional recordings are not valid anchor targets in v1").
+- Recorder-side change to give controlled-vessel children a Relative-anchor section against their parent (deeper architectural change explicitly deferred by `docs/dev/done/plans/ghost-anchor-recording-chain-plan.md` §106 / §151's "still-being-appended active provisional recordings are not valid anchor targets in v1").
 - Re-Fly settle stability (PR #792). Watch playback does not trigger `anchorReFlyUnstable`.
 - Debris-specific paths (PR #776, #770, #803). The Phase 3 candidate fix applies to all activation-settle ghosts, but debris flows through their own gates first (`debris-seed-bridge`, `relative-start`) and don't reach activation-settle.
 - Stateful "un-clamped pose stabilized" tracking. Held as escalation if Phase 3 chosen fix is insufficient.

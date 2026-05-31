@@ -311,7 +311,7 @@ The implementation PR should update docs in the same behavior-changing commit:
 - Do not remove PR #811's playback retirement guard.
 - Do not mutate existing user saves on load.
 - Do not synthesize duplicated endpoint samples at later UTs.
-- Do not solve the separate wide-debris-bracket optimization from the always-shadow follow-up (`docs/dev/plans/debris-always-shadow.md`) unless the same helper naturally exposes a low-risk cleanup.
+- Do not solve the separate wide-debris-bracket optimization from the always-shadow follow-up (`docs/dev/done/plans/debris-always-shadow.md`) unless the same helper naturally exposes a low-risk cleanup.
 
 ## Risk Notes
 

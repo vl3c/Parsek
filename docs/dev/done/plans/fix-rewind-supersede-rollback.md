@@ -45,7 +45,7 @@ the probe supersede row restored original probe branch `#8` while Re-Fly
 continuation `#11` remained active, so watch mode rendered both.
 
 The follow-up plan and implementation live in
-`docs/dev/plans/fix-watch-double-probe-ghost-after-rewind.md`. The relation drop
+`docs/dev/done/plans/fix-watch-double-probe-ghost-after-rewind.md`. The relation drop
 now pairs with `RecordingRewindRetirement`: the old source becomes active again,
 and the rewound-out fork is persisted as inactive timeline state with
 `rewind-retired` playback/log reason.
