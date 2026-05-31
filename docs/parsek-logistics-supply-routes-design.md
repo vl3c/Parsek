@@ -4,9 +4,62 @@
 
 *Parsek is a KSP1 mod for time-rewind mission recording. Players fly missions, commit recordings to a timeline, rewind to earlier points, and see previously recorded missions play back as ghost vessels alongside new ones. This document specifies how committed recording chains can be confirmed as Supply Runs, then turned into Supply Routes that repeat the stock resource and inventory transfers the player already performed.*
 
-**Version:** 0.5 (review pass: fixed route timeline, source-version, scheduler, and revert contracts)
+**Version:** 0.6 (Missions-foundation rebase: a route is a looped Mission segment + a delivery binding; supersedes the bespoke chain-sequential playback of 0.5 — see section 0)
 **Prerequisite:** Phase 10 (Location Context) is complete and Phase 11 provides the base vessel-level resource/inventory manifests. Logistics v1 also requires the connection-scoped capture extensions listed in section 4.9, plus the actual-code alignment tasks in section 4.10, before route creation can be enabled.
 **Out of scope:** Ghost playback engine behavior, broad recording/chain semantics, and game-actions recalculation architecture. Logistics does add route-proof recording metadata as an additive prerequisite; see `parsek-flight-recorder-design.md` and `parsek-game-actions-and-resources-recorder-design.md` for the underlying systems.
+
+---
+
+## 0. Architecture update (v0.10.0): Supply routes on the Missions foundation
+
+*This section is authoritative and supersedes the playback assumptions in the rest of this document. Sections 1-11 below describe the original v0.5 model in which a route owned a bespoke "chain-sequential" replay; that replay is replaced by the Missions subsystem (landed on main, v0.10.0). The route's data model, resource/funds/ledger, endpoint resolution, and proof capture are unchanged.*
+
+### 0.1 Why this changed
+
+When this document was first written, no abstraction existed above raw recordings, so a route had to define its own ordered "source chain" and drive a bespoke replay. The Missions subsystem now provides exactly that layer: a Mission is a persisted, named selection over a recording tree (`Mission`, `MissionStore`); a segment of it is an interval selection (`MissionIntervalSelection`); and a Mission loops as one unit over a shared span clock in flight, the Space Center, and the Tracking Station (`MissionLoopUnitBuilder` -> `GhostPlaybackLogic.LoopUnitSet` -> the engine). A looped Mission is, by design, the precursor of a supply route (`design-mission-abstractions.md` section 6). So a route no longer invents replay; it reuses Missions.
+
+### 0.2 Locked constraint: consume Missions, never modify it
+
+The Missions subsystem (`Mission`, `MissionStore`, `MissionLoopUnitBuilder`, `MissionIntervalSelection`, `MissionStructure` / `MissionThroughLine` / `MissionComposition`, and the engine's `LoopUnit` / `LoopUnitSet` / `SetLoopUnits` machinery) is LOCKED. Logistics consumes its public components and must not change its types, its one-loop-per-tree rule, or the engine's single-owner index model. Every integration below is a new logistics-side consumer wired at the host seam, not an edit to a Missions file.
+
+### 0.3 The route, restated in the Missions model
+
+A Supply Route v0 is three things bound together:
+
+1. **A backing Mission segment** — the run from launch (A) to the cargo delivery at the dock (B), ending at the undock. Expressed as a Mission over the source tree with an interval selection of `[launch .. undock]` (drop the post-undock peel intervals: `MissionIntervalSelection` end-trims a vessel by excluding its trailing interval keys). This is "a loopable mission in the backend."
+2. **A delivery binding** — the dock / transfer / undock cargo proof (`RouteConnectionWindow`) that says WHAT moves and the dock UT at which it moves. Logistics-only; Missions carries no resource deltas. Unchanged from sections 4.9 / 5.2.
+3. **A route lifecycle** — status, dispatch schedule, funds, endpoint resolution, ledger. Owned by the route (decision b, section 0.5). The durable core from sections 6-7 is kept.
+
+Creation / verification is unchanged in spirit (section 5): a route is offered when a committed tree proves launch -> dock -> cargo delta -> undock. What changes is that the proven run is expressed as a Mission segment rather than a bespoke chain, and it then "appears in the supply routes list as a loopable run."
+
+### 0.4 Rendering: a route reuses the loop engine as a consumer
+
+A route does NOT render anything itself (no bespoke replay; the discarded `logistics-route-replay` `OffsetReplay` is fully superseded). When a route is in a ghost-driving state, logistics builds a `LoopUnit` for its backing Mission segment through the EXISTING `MissionLoopUnitBuilder.Build`, and contributes it to the per-frame `LoopUnitSet` that the host already pushes to the engine (the `ParsekFlight.DriveMissionLoopUnits` seam, mirrored in `ParsekKSC` / `ParsekTrackingStation`). All consuming locked components:
+
+- The route owns its backing Mission DEFINITION (tree id + `[launch..undock]` interval selection), held by logistics (in the route entity / `RouteStore`), NOT inserted into `MissionStore` — the store would prune / normalize it by tree and surface it as a player mission. The Mission object is constructed by logistics and handed to `MissionLoopUnitBuilder.Build` as a one-element list (the builder gates on `Mission.LoopPlayback`, so the route sets that on its own object).
+- At the host push seam, the route's unit(s) are unioned into the same `LoopUnitSet` the player missions produce, before the single `SetLoopUnits` call. Union is on disjoint committed indices only (`LoopUnitSet.OwnerByIndex` is single-valued — one owner per recording index).
+- Delivery fires when that loop clock crosses the recorded dock UT each cycle, reusing the existing delivery / funds / ledger path (sections 6.3-6.5). The dock UT is a phase within the backing Mission's span.
+
+### 0.5 Two clocks: route lifecycle is separate from manual mission looping (decision b)
+
+"Looping a mission" (the Missions-window checkbox — a visual repeat, no delivery, no cost, player-controlled) and "running a supply route" (delivery + funds + dispatch + status) are SEPARATE features. The route owns its own dispatch clock and lifecycle; it does not toggle, or depend on, the player's manual mission-loop checkbox. The route parameterizes its backing Mission's loop (period = dispatch interval, phase anchor = dispatch epoch) from its own schedule, and the loop renders those parameters. So there are two conceptual clocks — the route's dispatch schedule driving the backing Mission's loop — with the route as the driver.
+
+### 0.6 Render parallelism: what works, what is deferred
+
+- **Across different trees (the common case):** a route on tree X and a manual mission loop on tree Y both render at once. Their committed indices are disjoint, so their units never collide. Fully supported.
+- **Same tree, same recordings:** the engine keys each committed recording index to exactly ONE loop owner (`LoopUnitSet.OwnerByIndex` is single-valued) and `MissionStore` enforces one loop per tree. A route loop and a manual loop on the SAME tree therefore cannot both render as two independent ghosts. v0 resolves this with route precedence (the route's unit claims the indices; the manual loop yields). This is also correct semantically — one looping ghost of a run is right; two identical overlapping ghosts are not.
+- **True parallel rendering of one recording on two independent clocks is DEFERRED.** It would require a multi-owner engine redesign, which is forbidden here. This matches the deferral already recorded in `design-mission-abstractions.md` open question 7 ("True multi-Mission looping of the SAME recording ... deferred to logistics").
+
+### 0.7 What this supersedes, keeps, discards
+
+- **Supersedes (replaced by Missions):** the bespoke "chain-sequential ghost playback" of sections 1.2 and 3 (Terminology: "Supply Route ... Uses chain-sequential ghost playback (not the per-recording loop system)") and any route-owned visual replay. The route's visual is now a Mission loop.
+- **Keeps (durable core, unchanged):** the data model and serialization (section 4); route-proof recording metadata + capture (4.9, 5.2); delivery execution, per-resource independent fill, and the NO_FLOW / flow-state gate (6.3-6.5); endpoint resolution for the live DELIVERY target (section 7 — distinct from rendering; Missions does not resolve delivery targets); funds; the ledger Route module; and the dispatch-eligibility checks (6.1).
+- **Discards:** the separate `logistics-route-replay` branch (`OffsetReplayUnit` / `RouteReplayPlanner`) — fully superseded by `MissionLoopUnitBuilder` + the two-cadence `LoopUnit`.
+
+### 0.8 v0 scope (keep it simple)
+
+- v0 supply routes are **launch -> undock only** (one outbound run ending at the undock; the post-undock return tail is not part of the route segment). "Undock -> undock" (a shuttle already in orbit cycling between stations) and isolating the docked stretch on its own are deferred — the latter is a known Missions interval-boundary gap (dock is not yet an interval boundary; see `design-mission-abstractions.md` "Docking & undocking (v1)" gap 1).
+- **Same-body routes only for v0** (rover-to-base, tanker-to-LKO-station). Interplanetary re-aim / synodic windows exist in `MissionLoopUnitBuilder` (the `bodyInfo` seam) and can be adopted later; v0 builds the backing Mission with the faithful (non-re-aimed) loop.
 
 ---
 
