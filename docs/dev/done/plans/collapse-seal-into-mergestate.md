@@ -495,8 +495,8 @@ deleted (stage 3). Stage 1-2 keep passing them.
 
 Archived docs that mention `slot.Sealed` descriptively and do NOT need editing:
 `docs/dev/done/*`, `docs/dev/research/extending-rewind-to-stable-leaves.md`,
-`docs/dev/plans/fix-suborbital-not-stable-terminal.md`,
-`docs/dev/plans/fix-tree-rewind-supersede-old-side.md`.
+`docs/dev/done/plans/fix-suborbital-not-stable-terminal.md`,
+`docs/dev/done/plans/fix-tree-rewind-supersede-old-side.md`.
 
 ## 11. Risks
 

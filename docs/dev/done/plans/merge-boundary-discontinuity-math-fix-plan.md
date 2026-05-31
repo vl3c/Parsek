@@ -32,11 +32,11 @@ whether any further work is needed. Phase 3 is gated on Phase 2 evidence.
 
 References to the same finding already in tree:
 
-- `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md:43` —
+- `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md:43` —
   "The megametre merger discontinuities are a **separate, independent bug**".
-- `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md:526` — same
+- `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md:526` — same
   carve-out, in §"What this does NOT do".
-- `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md:657-661` —
+- `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md:657-661` —
   Known follow-up #1, the formal placeholder for this plan.
 - `docs/dev/todo-and-known-bugs.md:157` item (5) — the original "quarantine"
   framing this plan supersedes.
@@ -626,7 +626,7 @@ Phase 1b:
 - `CHANGELOG.md` — single-line entry under the current version.
 - `docs/dev/todo-and-known-bugs.md` — strike item (5) at line 157 with
   pointer to this plan.
-- `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md` —
+- `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md` —
   mark Known follow-up #1 at lines 657-661 as in-progress / done.
 
 ## Phase 2 — re-collect data and re-evaluate
@@ -1156,13 +1156,13 @@ Phase 1a commit must include:
   > Relative seam healing until a dual-list seam can be implemented safely.
 - `docs/dev/todo-and-known-bugs.md`: strike item (5) of the work
   queue at line 157 with `~~ ... ~~` and append `(superseded by
-  docs/dev/plans/merge-boundary-discontinuity-math-fix-plan.md;
+  docs/dev/done/plans/merge-boundary-discontinuity-math-fix-plan.md;
   Phase 1a fixes the measurement bug, Phase 3 — gated on Phase 2 data
   collection — replaces the original quarantine framing)`.
-- `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md`:
+- `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md`:
   amend Known follow-up #1 at lines 657-661 with a
   `**Status:** Phase 1a in progress — see
-  docs/dev/plans/merge-boundary-discontinuity-math-fix-plan.md` line.
+  docs/dev/done/plans/merge-boundary-discontinuity-math-fix-plan.md` line.
 
 Phase 1b commit must add/update the same docs with the projection sibling
 status, e.g.:

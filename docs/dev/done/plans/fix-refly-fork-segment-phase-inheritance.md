@@ -469,4 +469,4 @@ field, so dropping two of them does not change the line.
   test (`Category = "Rewind"`).
 - `CHANGELOG.md` — entry.
 - `docs/dev/todo-and-known-bugs.md` — entry.
-- `docs/dev/plans/fix-refly-fork-segment-phase-inheritance.md` — this file.
+- `docs/dev/done/plans/fix-refly-fork-segment-phase-inheritance.md` — this file.

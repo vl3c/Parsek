@@ -212,20 +212,20 @@ to be recovered.
   archive).
 - `docs/roadmap.md`: leave the surviving mention if it's purely
   historical, drop any "Phase 5" referenced as in-flight.
-- `docs/dev/plans/bubble-entry-exit-anchor.md`,
-  `docs/dev/plans/debris-frame-contract-v13.md`,
-  `docs/dev/plans/extend-parent-anchored-contract-to-controlled-children.md`,
-  `docs/dev/plans/fix-debris-relative-tail-retirement.md`,
+- `docs/dev/done/plans/bubble-entry-exit-anchor.md`,
+  `docs/dev/done/plans/debris-frame-contract-v13.md`,
+  `docs/dev/done/plans/extend-parent-anchored-contract-to-controlled-children.md`,
+  `docs/dev/done/plans/fix-debris-relative-tail-retirement.md`,
   `docs/dev/plans/force-absolute-refly-provisional.md`,
-  `docs/dev/plans/ghost-anchor-recording-chain-plan.md`,
-  `docs/dev/plans/merge-boundary-discontinuity-math-fix-plan.md`,
-  `docs/dev/plans/phase6-anchor-taxonomy.md`,
-  `docs/dev/plans/phase8-outlier-rejection.md`,
-  `docs/dev/plans/pr708-playtest-followup-plan.md`,
-  `docs/dev/plans/recording-and-ghost-policies-refactor-plan.md`,
-  `docs/dev/plans/recording-rendering-v0-reset-checklist.md`,
+  `docs/dev/done/plans/ghost-anchor-recording-chain-plan.md`,
+  `docs/dev/done/plans/merge-boundary-discontinuity-math-fix-plan.md`,
+  `docs/dev/done/plans/phase6-anchor-taxonomy.md`,
+  `docs/dev/done/plans/phase8-outlier-rejection.md`,
+  `docs/dev/done/plans/pr708-playtest-followup-plan.md`,
+  `docs/dev/done/plans/recording-and-ghost-policies-refactor-plan.md`,
+  `docs/dev/done/plans/recording-rendering-v0-reset-checklist.md`,
   `docs/dev/plans/refly-cleanup-and-v0-reset.md`,
-  `docs/dev/plans/tumbling-parent-rot-interp-fix-plan.md`,
+  `docs/dev/done/plans/tumbling-parent-rot-interp-fix-plan.md`,
   `docs/dev/manual-testing/extend-parent-anchored-contract-to-controlled-children.md`:
   these are historical / done plan docs that reference co-bubble
   passingly. Leave them as-is. Git log + the in-repo CHANGELOG is the

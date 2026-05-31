@@ -458,5 +458,5 @@ No RSW, spawn-queue, or crew-reservation work required — the existing gate and
 - `ParsekPlaybackPolicy.cs:140-270` — deferred spawn queue (not affected by this plan).
 - `TerminalState.cs` — enum values.
 - `docs/dev/development-workflow.md` — design-doc + plan/build/review workflow this document follows.
-- `docs/dev/plans/rsw-departure-aware-spawn-warp.md` — prior plan on spawn-time state divergence; similar structure.
+- `docs/dev/done/plans/rsw-departure-aware-spawn-warp.md` — prior plan on spawn-time state divergence; similar structure.
 - KSP API: `PatchedConicSolver`, `Orbit.nextPatch`, `Orbit.patchEndTransition`, `Vessel.Situations`, `CelestialBody.TerrainAltitude`, `CelestialBody.pqsController`.
