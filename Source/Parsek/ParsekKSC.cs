@@ -1027,17 +1027,32 @@ namespace Parsek
             IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+
+            // === Supply-route render union (Phase 3) ===
+            // Same append shape as ParsekFlight: each ghost-driving route's route-owned backing
+            // Mission is appended to a NEW unioned list (MissionStore.Missions is IReadOnlyList and
+            // cannot be appended in place) that is the single argument to the unchanged
+            // BuildSignature / Build, so route missions fold into the existing signature + collision
+            // logging automatically.
+            double routeSelectUT = Planetarium.GetUniversalTime();
+            IReadOnlyList<Mission> routeMissions =
+                Parsek.Logistics.RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                    Parsek.Logistics.RouteStore.CommittedRoutes, routeSelectUT);
+            List<Mission> unioned = new List<Mission>(MissionStore.Missions);
+            unioned.AddRange(routeMissions);
+
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
                 // Drop cached per-window re-aim adapters (mirrors ParsekFlight / Tracking Station).
                 Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 ParsekLog.Verbose("Mission",
-                    $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+                    $"KSC Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0} " +
+                    $"routeMissions={routeMissions.Count}");
             }
             currentLoopUnits = cachedLoopUnits;
         }

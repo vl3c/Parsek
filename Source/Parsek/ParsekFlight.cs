@@ -19209,6 +19209,15 @@ namespace Parsek
         // body-relative segments already follow their bodies). The resolver caches by window, so this is
         // cheap on non-advancing frames. The map-presence / tracking-station orbit path resolves the
         // SAME segments from the shared resolver, so the map orbit line stays in sync with the flight ghost.
+        //
+        // SUPPLY-ROUTE RE-AIM AUDIT (Phase 3): the unioned cachedLoopUnits now also carries route
+        // backing-mission units. This re-aim reader (and the LogReaimGhostTrace diagnostic) are
+        // re-aim-IRRELEVANT for v0 route members: route units are built with bodyInfo passed but never
+        // carry a ReaimPlan (v0 is same-body, no re-aim / synodic windows - design §0.8), so unit.IsReaim
+        // is false for every route unit and the `if (!unit.IsReaim ...) continue;` guard below skips them
+        // entirely. Neither reader gates member TEARDOWN (teardown is the engine's job; the member-loss
+        // watch-exit gate is IsMember in DriveMissionLoopUnits, which already reads the unioned set), so
+        // no further wiring is needed here - route members simply never appear in the re-aim substitution.
         private void SubstituteReaimTrajectories(double currentUT)
         {
             if (cachedLoopUnits == null || cachedLoopUnits.Count == 0)
@@ -19269,18 +19278,34 @@ namespace Parsek
             // Zero-drift A/B flag: how a looped mission's transited-body landing rotation is treated.
             TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
                                                 ?? TransitedBodyRotationMode.Loose;
+
+            // === Supply-route render union (Phase 3) ===
+            // Append each ghost-driving route's route-owned backing Mission to a NEW unioned list
+            // (MissionStore.Missions is IReadOnlyList<Mission> and cannot be appended in place). The
+            // unioned list is the SINGLE argument to the unchanged MissionLoopUnitBuilder.Build /
+            // BuildSignature, so route missions fold into the existing signature + owner/member
+            // collision logging automatically (Phase 2's mutual exclusion prevents a same-tree
+            // route+manual collision upstream; Build's owner-collision drop stays purely defensive).
+            double routeSelectUT = Planetarium.GetUniversalTime();
+            IReadOnlyList<Mission> routeMissions =
+                Parsek.Logistics.RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                    Parsek.Logistics.RouteStore.CommittedRoutes, routeSelectUT);
+            List<Mission> unioned = new List<Mission>(MissionStore.Missions);
+            unioned.AddRange(routeMissions);
+
             string signature = MissionLoopUnitBuilder.BuildSignature(
-                MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
             if (!string.Equals(signature, lastLoopUnitSignature, StringComparison.Ordinal))
             {
                 cachedLoopUnits = MissionLoopUnitBuilder.Build(
-                    MissionStore.Missions, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
+                    unioned, RecordingStore.CommittedTrees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
                 lastLoopUnitSignature = signature;
                 // The committed set / missions changed: drop every cached per-window re-aim adapter so a
                 // stale window transfer can never survive a recording edit / re-classification.
                 Parsek.Reaim.ReaimPlaybackResolver.Shared.Clear();
                 ParsekLog.Verbose("Mission",
-                    $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0}");
+                    $"Mission loop units rebuilt (signature changed): committed={committed?.Count ?? 0} " +
+                    $"routeMissions={routeMissions.Count}");
             }
             engine.SetLoopUnits(cachedLoopUnits);
 
