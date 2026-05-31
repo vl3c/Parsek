@@ -1,94 +1,94 @@
 # Re-aim Arrival Seam via SOI-entry Timing - Design + Plan
 
-Status: PLAN (pre-implementation). Branch `reaim-arrival-timing` off `main` (after #982).
-Supersedes the closed PR #983 (the ROTATE-ALL approach), which was wrong: it closed the seam by rotating the recorded arrival, which MOVES the destination. The hard requirement below forbids that.
+Status: PLAN (pre-implementation, revised after a clean-Opus design review that corrected the search method and the residual budget). Branch `reaim-arrival-timing` off `main` (after #982).
+Supersedes the closed PR #983 (ROTATE-ALL), which moved the destination and was rejected.
 
 ## 0. The hard requirement (from the owner)
 
-The system renders the EXACT recorded maneuvers to the EXACT destination. A looped supply-route ghost must visibly arrive at the exact base / station / landing site where the resource transfer happens, because the recorded arrival + descent (or rendezvous + dock) is recorded RELATIVE to that exact destination. The recorded destination leg must NOT be deformed, rotated, or relocated.
+The system renders the EXACT recorded maneuvers to the EXACT destination. A looped supply-route ghost must visibly arrive at the exact base / station / landing site where the resource transfer happens, because the recorded arrival + descent (or rendezvous + dock) is recorded RELATIVE to that exact destination. The recorded destination leg must NOT be deformed, rotated, or relocated. Alignment from re-aiming may only be spent on (a) SOI-entry timing and (b) extending recorded loiter orbits before descent (where they exist). Direct-approach-then-land recordings have no loiter buffer (edge case).
 
-Alignment from re-aiming may only be spent where there is genuine slack:
-- PRIMARY: the SOI-entry seam. Wait for an accurate entry timing (the Mun/Minmus phase-lock philosophy) so the transfer hands off into the recorded approach exactly.
-- SECONDARY: recorded loiter orbits before descent (extend them where the recording has them). Direct-approach-then-land recordings have no loiter buffer (edge case), so SOI-entry timing must carry those alone.
+## 1. What is broken (and what is NOT) - confirmed by code review
 
-## 1. What is actually broken (and what is NOT)
+NOT broken: the re-aim already LANDS at the exact recorded spot. `ReaimSegmentAssembler.ReplaceHeliocentricLeg` replaces ONLY the Sun-bodied (heliocentric) segments; every body-relative segment (the recorded arrival hyperbola, capture, loiter, and the body-fixed descent) passes through UNTOUCHED and is reconstructed relative to the LIVE destination body, so it follows the body and lands exactly where recorded. The destination requirement is already met.
 
-NOT broken: the re-aim already on `main` LANDS at the exact recorded spot. The descent is body-fixed (lat/lon/alt on the destination body), so it already touches down exactly where the player landed; the re-aim never touches it. So the exact-destination requirement is already met for the touchdown itself.
+Broken (cosmetic, but real): the APPROACH seam. The synthesized transfer arrives at the destination SOI with an arrival velocity that DIFFERS from the recorded approach, so the recorded arrival hyperbola (which expects the recorded v_inf) is spliced on at a different bearing/speed and the ghost visibly jumps at the SOI boundary (~1.37 Gm in the Duna case) and re-approaches. We minimize this WITHOUT touching the recorded destination leg.
 
-Broken (cosmetic, but real): the APPROACH seam. The synthesized heliocentric transfer arrives at the destination SOI with a v_inf that DIFFERS from the recorded approach, so the recorded arrival hyperbola (which expects the recorded v_inf) is spliced on at a different bearing. The ghost reaches the SOI, jumps (~1.37 Gm in the Duna case), and re-approaches along the recorded direction. We must remove this jump WITHOUT touching the recorded arrival + descent.
+Root cause (confirmed): `ReaimTransferSynthesizer.TrySynthesizeTransfer` aims the Lambert at the body CENTER (`r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy`), ecliptic-projects it (`r2 = ProjectOntoPlane(r2, launchPlaneNormal)`), and DISCARDS the arrival velocity (`UvLambert.Solve(..., out v1, out _)`). Nothing constrains the arrival velocity to match the recording.
 
-Why the transfer arrives wrong (root cause, code): `ReaimTransferSynthesizer.TrySynthesizeTransfer` aims the Lambert solve at the target body's CENTER with an ecliptic projection (`r2 = targetBody.orbit.getRelativePositionAtUT(arrivalUT).xzy` then `ProjectOntoPlane(r2, launchPlaneNormal)`), and the per-window search minimizes the arrival POSITION miss. Nothing constrains the arrival VELOCITY (the v_inf) to match the recording, and the ecliptic projection distorts the out-of-plane component. So the arrival v_inf is whatever the position-targeted Lambert yields, generally not the recorded one.
+## 2. The approach: best-match the recorded arrival v_inf by timing (shrinks the seam to a floor, does not zero it)
 
-## 2. The approach: target the recorded arrival STATE, aligned by timing
+HONEST framing (review CRITICAL-1/2): timing can only REDUCE the seam, not close it, for an eccentric target. The re-aim windows are `RecordedDepartureUT + k*synodic`, and the synodic period is MEAN-anomaly-only. After k periods the bodies return to the same MEAN configuration, but an eccentric target (Duna e~0.05) sits at a different point in its eccentric orbit, so its heliocentric velocity differs and the achievable arrival v_inf at the quantized window differs from the recorded one by a residual (potentially a few degrees and up to a couple hundred m/s vs a recorded |v_inf| ~731 m/s for the Duna case) that timing alone cannot remove. Departure is also pinned (pad-aligned to a whole sidereal day so the recorded ascent connects), so effectively only the tof is free: a 1-D search that converges to a NONZERO floor.
 
-Keep the recorded arrival + capture + descent EXACTLY as recorded. Change only WHERE/HOW the transfer arrives, so it hands off into the recorded approach with no jump.
+So v1 changes the transfer's OBJECTIVE to best-match the recorded arrival v_inf, shrinking the seam toward that floor, and MEASURES the floor so a playtest tells us if it is visually acceptable. It never deforms the destination, and it declines to faithful when it cannot get close.
 
-Core idea: the synthesized transfer must arrive at the destination SOI at the RECORDED body-relative SOI-entry STATE (the recorded incoming v_inf direction + magnitude, and the recorded entry point), placed at the LIVE destination body. Then the recorded arrival hyperbola continues seamlessly, and the descent lands on the exact site, untouched.
+The recorded arrival v_inf relative to the destination body is fixed and known:
+- direction = the analytic inbound hyperbolic asymptote from the recorded arrival conic's (e, h) (REUSE the #983 `InboundAsymptoteDir`).
+- magnitude = `sqrt(mu_body / (-sma_rec))` from the recorded hyperbola's sma (NEW code, not in the #983 salvage).
+- entry point `r_soi_rec` = where the recorded hyperbola crosses the SOI sphere inbound (NEW code).
 
-The recorded arrival state relative to the destination body is fixed and known from the recording:
-- `v_inf_rec` = the recorded incoming hyperbolic v_inf (direction + magnitude) relative to the destination body, from the recorded arrival hyperbola (`ReaimMissionPlan.ArrivalLeg`). The direction is the analytic inbound asymptote from the recorded conic's (e, h); the magnitude is `sqrt(mu/(-a))` for the recorded hyperbola.
-- `r_soi_rec` = the recorded SOI-entry point relative to the destination body (where the recorded hyperbola crosses the SOI sphere on the inbound side).
+Search method (review-chosen framing B; framing A rejected):
+- Keep the per-window Lambert. CAPTURE the arrival velocity `v2` the solve already returns and currently discards (`out _` -> `out Vector3d v2`).
+- Change the per-window search OBJECTIVE from "minimize arrival POSITION miss to the body center" to "minimize the arrival v_inf mismatch `|(v2 - V_body) - v_inf_rec|`" (a direction-weighted norm), searching the tof (1-D) around the window (reuse the existing +-6% / 12-step sweep, add a parabolic/golden-section refine). Optionally aim at the recorded entry point `bodyPos + r_soi_rec` rather than the body center to also shrink the position component (minor; the v_inf objective is the main lever).
+- KEEP the ecliptic projection (review MAJOR-1): it stabilizes the Lambert plane at the ~180-degree single-rev window (the singularity `UvLambert` hard-bails on). Aiming at the SOI-offset entry point does NOT dodge that singularity (the offset is ~0.1 degree), so do not drop the projection; it only flattens the target endpoint to stabilize the plane and does not have to corrupt the v_inf objective (which is evaluated against the recorded v_inf, not the projected geometry). For the low-inclination v1 (Duna) the out-of-plane distortion is small (design-doc bound: Duna 0.06 deg -> ~2.4e7 m, inside the SOI). A plane-aware solve for inclined targets stays deferred.
+- Framing A (construct the transfer from the full recorded arrival STATE and back-propagate to the launch body) is REJECTED: fixing 6 arrival DOF leaves nothing to satisfy "departs from the launch body", so it over-constrains and would decline almost every window.
 
-Two equivalent framings of the construction (the implementation picks the robust one):
-- (A) State-targeted: place `v_inf_rec` / `r_soi_rec` at the live destination body to get the required HELIOCENTRIC arrival state (`V_arr = V_body(t_arr) + v_inf_rec`, position = `bodyPos(t_arr) + r_soi_rec`). The transfer orbit through that state is determined; propagate it back to the launch body's orbit to find the departure, and check the launch body's phase alignment there.
-- (B) Search-objective: keep the per-window Lambert but change the search objective from "minimize arrival POSITION miss to the body center" to "minimize the arrival V_INF mismatch `|(V_arr - V_body) - v_inf_rec|` (direction-weighted)", searching departure + tof around the synodic window, and aim at the recorded entry point `bodyPos + r_soi_rec` rather than the body center (drop / revisit the ecliptic projection, which only existed to dodge the 180-degree single-rev Lambert singularity; the entry-point target + the timing search avoid that singularity differently).
+REFUTED shortcut (review MINOR-4): rigidly rotating the recorded heliocentric leg into the live synodic frame does NOT work and is #983 in disguise. A rigid rotation assumes both bodies advanced by the SAME inertial angle over k*synodic; they advance by `k*synodic/P_launch*360` and `k*synodic/P_target*360`, which DIFFER (that differential is the definition of the synodic period). No single rotation maps the recorded departure->arrival vector onto the live one; applying one moves the arrival off the live body (the #983 landing-site move). So a fresh Lambert is required.
 
-Why timing makes this solvable: the re-aim windows are already synodic recurrences (`RecordedDepartureUT + k*synodic`), where the launch-body / destination-body RELATIVE configuration repeats. At that recurrence the recorded transfer's relative geometry recurs, so a transfer arriving with `v_inf_rec` EXISTS and also departs the launch body with the recorded escape geometry (both the departure and arrival seams close together at the true recurrence). The residual (the recurrence is not perfectly exact for eccentric orbits) is small and is what the SOI-entry timing search + the minimal recorded loiter absorb. This is exactly "wait for accurate SOI-entry timing", just like Mun/Minmus.
+## 3. The residual budget (two DIFFERENT residuals; do not conflate)
 
-What replays verbatim (never touched): the recorded arrival hyperbola, the recorded capture orbit, any recorded loiter orbits, and the body-fixed descent. The descent already lands exactly; this change only makes the transfer feed into it cleanly.
+- v_inf residual (direction + magnitude): ONLY the SOI-entry timing search shrinks it, to the eccentric-orbit floor. LOITER CANNOT touch it (loiter shifts time/phase, not approach velocity/bearing). If the floor is too large for a window, DECLINE TO FAITHFUL (keep the current cosmetic seam for that window). Never deform the destination.
+- arrival-UT / phase residual: where the recording has a capture/parking/loiter orbit before descent, the existing `ReaimLoiterCompressor` (whole-period extension) can absorb a small arrival-UT residual so the descent still lands on the exact site. This is a SEPARATE, follow-up step, GATED on the measured v_inf residual being acceptable (review MINOR-3). It is NOT in the v1 PR.
+- direct-approach-land (no recorded loiter): no loiter buffer, so the v_inf floor is the whole budget. These will COMMONLY decline-to-faithful for eccentric targets (set expectation; it is the common outcome, not a rare edge). Fail-closed, never wrong.
 
-## 3. Residual handling (the slack budget)
+Decline tolerance (numeric, review MINOR-2): accept the timed transfer for a window only when the post-fix SOI-edge seam magnitude is BOTH (i) smaller than the faithful (position-targeted) seam AND (ii) below a defined SOI fraction (start at < 0.25 * SOI radius, tune from the logged playtest number). Log both the faithful seam and the post-fix seam so the playtest tunes the threshold. Until tuned, prefer accepting when strictly better than faithful (so v1 can never regress and we collect the numbers).
 
-After the timing search the arrival will match the recorded v_inf to a small residual (direction + magnitude + entry-point + arrival-UT). Spend it ONLY in the allowed places:
-- SOI-entry timing: the search picks the departure/tof that minimizes the residual. A small leftover v_inf direction residual is an acceptable momentary SOI-edge seam, far smaller than the 1.37 Gm gross seam and the same class the design already accepts for the departure seam.
-- Minimal recorded loiter: where the recording has a capture/parking orbit before descent, the existing loiter compression/extension can absorb an arrival-UT / phase residual so the descent still lands on the exact site (the system already does minimal optimized loitering). NO new loiter is invented; we only extend recorded loiter within the existing mechanism.
-- Direct-approach-land edge case (no recorded loiter): there is no loiter buffer, so the SOI-entry timing residual is the whole budget. The search must hit a tight v_inf tolerance for these; if it cannot for a given window, that window declines to faithful (keeps the current cosmetic seam) rather than deform the descent. Fail-safe, never wrong.
+## 4. v1 scope + implementation
 
-NEVER spend the residual by rotating/moving the recorded arrival or descent (the #983 mistake).
+v1 = the objective change + the residual measurement + decline-to-faithful. NO loiter integration (gated follow-up). NO touching the recorded destination leg.
 
-## 4. Implementation sketch (to be sharpened by the plan review)
+- `Source/Parsek/Reaim/UvLambert.cs`: already returns `v2`; just stop discarding it upstream.
+- `Source/Parsek/Reaim/ReaimTransferSynthesizer.cs`: capture `v2` (line ~144 `out _` -> `out Vector3d v2`); keep `r2` center-aim + the ecliptic projection as the plane stabilizer; expose the arrival velocity (and optionally accept the recorded entry-point target) so the resolver can score the v_inf mismatch.
+- `Source/Parsek/Reaim/ReaimPlaybackResolver.cs` (`BuildWindowSegments`, the tof loop ~168-204): change the per-window selection objective from position-miss to the arrival-v_inf mismatch `|(v2 - V_body) - v_inf_rec|`; keep departure pinned at the pad-aligned D_k; add a refine step; compute and log the achieved v_inf residual (direction-deg + magnitude) AND the resulting SOI-edge seam magnitude vs the faithful seam; apply the decline-to-faithful gate (fall back to the current position-targeted transfer for that window if not strictly better / over tolerance).
+- Recorded arrival v_inf extraction: direction via the salvaged `InboundAsymptoteDir`; magnitude via `sqrt(mu/(-sma_rec))`; entry point `r_soi_rec` (NEW). Build the recorded arrival Orbit from `plan.ArrivalLeg`.
+- The recorded arrival + capture + loiter + descent segments: UNTOUCHED. No rotation, no shift of those segments (contrast #983). A regression test pins them byte-identical between the timed path and the faithful path.
+- Diagnostics: `ParsekFlight.LogReaimGhostTrace` logs the v_inf residual + the pre/post seam magnitude at the SOI seam.
 
-- `ReaimTransferSynthesizer`: add an arrival-STATE-targeted path. Inputs: the destination body, the arrival UT, and the recorded `v_inf_rec` (direction + magnitude) + `r_soi_rec` relative to the body. Output: a transfer whose arrival v_inf matches `v_inf_rec` (framing A or B above). Keep the existing position-targeted path as the fallback when the state-targeted solve fails (faithful, current behavior).
-- The per-window search (`ReaimPlaybackResolver.BuildWindowSegments`): change the objective to the arrival-v_inf mismatch and search departure + tof around the synodic window (the existing tof search becomes a v_inf-match search; the departure may also need a small search rather than being pinned to D_k, TBD by the review). Log the achieved v_inf residual (direction-deg + magnitude + entry-point miss) so a playtest can read the slack spent.
-- Recorded arrival-state extraction: build the recorded arrival Orbit from `ArrivalLeg`, read its (e, h) and SOI-crossing to get `v_inf_rec` + `r_soi_rec` (relative to the body). REUSE the #983 salvage (the pure inbound-asymptote + vector math + the recorded v_inf extraction).
-- The recorded arrival + capture + descent legs: UNCHANGED. No rotation, no shift of those segments. (Contrast #983, which rotated them.)
-- Loiter: reuse the existing `ReaimLoiterCompressor` / minimal-loiter mechanism for the arrival-UT/phase residual; do NOT add a new loiter system.
-- Diagnostics: `ParsekFlight.LogReaimGhostTrace` logs the arrival v_inf residual + the post-fix seam magnitude at the SOI seam.
+## 5. Reuse from #983 (cherry-pick the MEASUREMENT math only)
 
-## 5. Reuse from #983 (cherry-pick)
-
-Branch `reaim-arrival-seam` is kept. Port these pure / measurement pieces (they MEASURE the geometry; they do not rotate anything):
-- `ReaimRotation.InboundAsymptoteDir` + the vector ops (Cross/Dot/Normalize): compute the inbound v_inf direction from a conic's (e, h).
-- The recorded-arrival-frame extraction (`TryRecordedArrivalFrame` logic) and the candidate-transfer arrival-frame extraction (`TryReaimedArrivalFrame` logic): used to compute `v_inf_rec` and to score a candidate window's arrival v_inf against it.
-- The seam diagnostic logging.
-DROP: `RotationFrameToFrame`, `RotateVector`, `RotateSegmentOrientation`, `RotateBodyRelativeSegments`, the handedness guard, the whole rotation-and-apply path, and the canary's "rotated v_inf matches" assertion (replace with "the timing-searched transfer's arrival v_inf matches the recorded v_inf, and the recorded arrival/descent segments are byte-identical to faithful").
+Branch `reaim-arrival-seam` is kept. Port (they measure geometry, they do not move anything):
+- `ReaimRotation.InboundAsymptoteDir` + the vector ops (Cross/Dot/Normalize): inbound v_inf DIRECTION from a conic's (e, h).
+- The recorded-arrival-frame extraction logic (to get the recorded (e, h)).
+NEW code (NOT in the salvage, which is direction-only): the recorded |v_inf| = `sqrt(mu/(-sma_rec))` and the recorded SOI-crossing point `r_soi_rec`.
+DROP: `RotationFrameToFrame`, `RotateVector`, `RotateSegmentOrientation`, `RotateBodyRelativeSegments`, the handedness guard, the entire rotation-and-apply path, and the #983 "rotated v_inf matches" canary assertion.
 
 ## 6. Tests
 
 Pure (xUnit):
-- Recorded `v_inf_rec` (direction + magnitude) extraction from a known recorded hyperbola.
-- The arrival-v_inf-mismatch objective: scoring is correct and minimized at the recurrence; a worse window scores worse.
-- The state-targeted transfer construction (framing A or B): given a target arrival state, the produced transfer arrives at that v_inf within tolerance; declines (faithful) when no solution.
-- The recorded arrival + descent segments are byte-identical between the timing-fixed path and the faithful path (the destination leg is never touched) - the key regression guard for the hard requirement.
-In-game canary: the timing-searched transfer's arrival v_inf matches the recorded v_inf within tolerance, and the post-fix SOI seam magnitude is below an SOI fraction (was ~1.37 Gm).
+- Recorded v_inf direction (asymptote) + magnitude (`sqrt(mu/(-a))`) extraction from a known recorded hyperbola.
+- The arrival-v_inf-mismatch objective: scored correctly; a better-aligned tof scores lower; a worse one higher.
+- The decline gate: accepts only when strictly-better-than-faithful AND under tolerance; declines otherwise (returns the faithful transfer).
+- Destination-leg byte-identical regression: the recorded arrival/capture/loiter/descent segments are byte-identical between the timed path and the faithful path (the load-bearing guard for the hard requirement; note it passes trivially today since the assembler does not touch them, so it is the NON-regression guard, not the correctness guard).
+In-game canary: the timed transfer's arrival v_inf matches the recorded v_inf better than the faithful transfer, and the post-fix SOI-edge seam magnitude + the achieved v_inf residual are LOGGED across windows (the go/no-go number for the loiter follow-up).
 
-## 7. Risks / open questions (for the plan review + owner)
+## 7. Risks / open questions
 
-- The exact search method (framing A vs B; whether the departure must be searched off D_k or stays pinned; how wide the search). The review should pick the robust, convergent method.
-- The ecliptic projection: it was a Lambert-singularity workaround. Dropping it for the entry-point target must not reintroduce the 180-degree single-rev degeneracy; confirm the entry-point + timing search avoids it (or keep a guarded projection only as a fallback).
-- The departure seam: targeting the arrival exactly may grow the departure (launch-escape) seam in non-recurrence windows. At the true synodic recurrence both close. Quantify and confirm the residual stays in the accepted small class; decline to faithful if a window can satisfy neither.
-- Magnitude residual: matching v_inf DIRECTION still leaves a |v_inf| residual if the window is off-recurrence; the recorded hyperbola shape is fixed, so a |v_inf| mismatch slightly changes the SOI-crossing. Bound it; absorb via loiter/timing or decline.
-- Direct-approach-land recordings (no loiter): tight tolerance or decline-to-faithful; never deform.
-- Cannot be playtested during this build run; the pure math + the byte-identical-destination regression test de-risk it, the seam-closing is playtest-gated.
+- The achievable v_inf residual floor is the make-or-break; it CANNOT be asserted small up front (review CRITICAL-1). v1 measures it; the loiter follow-up and any tolerance tuning are gated on the measured number from a playtest.
+- Departure and arrival seams are coupled through the single departure DOF (pad-aligned). v1 closes the departure seam (pad-align, unchanged) and only MINIMIZES the arrival seam to the floor; they do not both close at the recurrence (review MAJOR-2).
+- |v_inf| magnitude residual: a speed mismatch makes the transfer hand off into the recorded hyperbola at a slightly wrong speed (a velocity kink at the SOI edge); loiter cannot fix it; it is part of the floor.
+- Keep the ecliptic projection (review MAJOR-1); dropping it reintroduces the 180-degree Lambert singularity at exactly these windows.
+- Direct-approach-land eccentric-target missions will COMMONLY decline-to-faithful (review MAJOR-3). Fail-closed, expected.
+- Not playtestable during this build run; the pure math + the byte-identical-destination regression de-risk correctness; the seam-shrink magnitude is playtest-measured.
 
-## 8. Phases
+## 8. Phases (v1 PR)
 
-1. Cherry-pick the #983 measurement math into this branch (asymptote + v_inf extraction); strip the rotation.
-2. Recorded arrival-state extraction (`v_inf_rec`, `r_soi_rec`) + the arrival-v_inf-mismatch objective, pure + tested.
-3. State-targeted / objective-changed transfer synthesis + window search; the recorded arrival/descent untouched; the byte-identical-destination regression test.
-4. Diagnostics + canary + docs (CHANGELOG / todo / the re-aim design doc).
-5. Clean Opus plan review BEFORE coding step 3 in earnest (the search method is the risk); then implement, review, build/deploy-verify/test, open PR (ready-for-playtest).
+1. Cherry-pick the #983 measurement math (asymptote + vector ops) into this branch; strip all rotation.
+2. Recorded v_inf extraction (direction + magnitude + entry point) + the arrival-v_inf-mismatch objective, pure + xUnit-tested.
+3. Capture `v2`; change the resolver's per-window objective to the v_inf mismatch (departure stays pad-aligned); decline-to-faithful gate; residual + seam-magnitude diagnostics. Destination leg untouched + the byte-identical regression test.
+4. Canary that LOGS the achieved v_inf residual + seam magnitude across windows (the go/no-go for loiter) + docs (CHANGELOG / todo / re-aim design doc).
+5. Clean Opus review -> fix -> build/deploy-verify/test green -> open PR (ready-for-playtest; the residual floor + the gated loiter follow-up + the decline-to-faithful fail-safe flagged).
+
+Loiter integration for the arrival-UT residual is a SEPARATE follow-up, gated on the v1 playtest residual being acceptable.
 
 ## 9. The contract, restated
 
-The destination leg (arrival hyperbola + capture + recorded loiter + descent / rendezvous + dock) is SACRED and replays verbatim relative to the exact destination. Re-aim alignment is spent ONLY on transfer timing (SOI-entry) and minimal recorded loiter. If a window cannot align within tolerance, it declines to faithful (the current cosmetic seam) rather than move the destination. There is no path in this design that relocates the landing/destination.
+The destination leg (arrival hyperbola + capture + recorded loiter + descent / rendezvous + dock) is SACRED and replays verbatim relative to the exact destination, byte-identical to faithful. Re-aim alignment is spent ONLY on transfer timing (the arrival-v_inf objective) and, in a gated follow-up, minimal recorded loiter. If a window cannot align within tolerance, it declines to faithful (the current cosmetic seam) rather than move the destination. No code path in this design relocates the landing/destination.
