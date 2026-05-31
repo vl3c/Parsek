@@ -1230,7 +1230,7 @@ The rotation channel also jumps across the transition (`(0.673,-0.199,-0.233,-0.
 
 ---
 
-## Open - v0.9.3 PR #889 supersede-target anchor can be out-of-range, cascading thousands of force-transitions to Absolute
+## Done - v0.9.3 PR #889 supersede-target anchor can be out-of-range, cascading thousands of force-transitions to Absolute
 
 **Evidence:** Surfaced in two PR #889-build playtest logs (`logs/2026-05-18_1904_pr889-validate-rotation-slerp/KSP.log` with 4115 `WARN][Anchor] anchor-out-of-recorded-range` lines, and `logs/2026-05-18_1953_pr889-rotation-trace/KSP.log` with 108 of the same). In both runs the cascade fired on the most-recent re-fly fork's supersede-target anchor (e.g. anchor `a54896f5...` and `3d059f9c...`), with one warning per physics tick over multi-second windows:
 
@@ -1260,7 +1260,16 @@ Each frame logs three lines through the same code path. 1300 warnings per playte
 
 **Premise note (PR #909 / PR #914):** PR #889's specific mechanism, pinning the re-fly provisional's Relative anchor to `marker.SupersedeTargetId` via `ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor`, was superseded by the PR #909 narrowed-gate filter and the dead bypass code was then deleted in PR #914. The recorder now authors Absolute by default (the PR #909 narrowed-gate filter `FilterCandidatesForReFlyProvisional` drops same-tree candidates) and only authors Relative against a real out-of-tree anchor. The supersede-target out-of-range cascade described above can no longer originate from the removed bypass. A residual log-cascade could still arise if the recorder authors Relative against a real anchor whose recorded range later fails to cover the playback UT, so this is not auto-closed; the premise has changed and the cascade should be re-validated against a current narrowed-gate build before deciding the fix.
 
-**Status:** OPEN (premise changed by the PR #909 narrowed-gate filter; bypass deleted in PR #914; see Premise note; re-validate before closing).
+**Resolution (re-validated 2026-05-31, no code change needed):** The cascade is no longer reproducible. The premise change in the note above is correct, and three independent lines of validation against the current narrowed-gate build agree:
+
+- **Mechanism gone (verified at HEAD).** The supersede-target-pinning bypass (`ReFlyAnchorSelection.TryResolveReFlyProvisionalAnchor`, the two `ApplyReFlyProvisionalAnchor*` helpers, the `forceAbsoluteForReFlyProvisional` toggle, the `AnchorCandidateSource.ReFlyProvisionalSupersede` enum value) is absent from production source; the only remaining textual references are the `ReFlyAnchorBypassWiringTests` source-text gates that ASSERT its absence. No anchor-selection code reads `marker.SupersedeTargetId` anymore (its only callers are merge / marker-validation / load-time-sweep / EffectiveState).
+- **Supersede target can no longer be selected as an anchor.** `ReFlyAnchorSelection.FilterCandidatesForReFlyProvisional` is wired at both recorder sites (`FlightRecorder.UpdateAnchorDetection` and `BackgroundRecorder.UpdateBackgroundAnchorDetection`) BEFORE the nearest-search (pinned by `ReFlyAnchorBypassWiringTests`). It drops every same-tree candidate, and the supersede target is same-tree by construction, so it never reaches `FindNearestRecordingAnchor`.
+- **The surviving anchor-selection paths cannot produce a per-frame cascade.** A ghost anchor candidate is only added to the list after `BuildGhostRecordingAnchorCandidatesForRecorder` resolves its pose at the current UT (an out-of-range ghost is skipped, so it drops out of the list and the recorder takes the clean single-line `RELATIVE exit` branch, not a per-frame WARN loop). A live anchor candidate resolves its pose from the live `Vessel.transform`, which is never "out of recorded range." `UpdateAnchorDetection` runs before `SamplePosition`/`ApplyRelativeOffset` each frame, so when an anchor goes out of range the candidate has already dropped out by the next tick: worst case is a single force-exit WARN, never a cascade.
+- **Empirical:** across 16 post-PR #914 playtest logs (2026-05-27 -> 2026-05-31), many with heavy re-fly activity (`refly` hit-counts up to 940), there are ZERO `forcing transition to ABSOLUTE` lines and ZERO supersede-target cascades; the recorder stayed Absolute through re-fly (zero RELATIVE-mode enters) exactly as the narrowed-gate design intends. The only residual `anchor-out-of-recorded-range` is 2 lines total in two logs, from an unrelated, already-handled path (`BgRecorder.InitializeLoadedState` debris-seed falling back to the live parent pose) - a one-shot graceful fallback, well under the "<20 warnings" acceptance bar.
+
+Caveat for the record: the recent logs exercise solo re-fly (which stays Absolute); the "re-fly Relative-against-a-real-out-of-tree-anchor" path was validated by code analysis (structurally non-cascading per the third bullet) rather than a fresh near-anchor playtest. If a future near-anchor re-fly log ever shows a multi-tick `anchor-out-of-recorded-range` loop, reopen here.
+
+**Status:** CLOSED 2026-05-31 (re-validated; resolved by the PR #909 narrowed-gate filter + PR #914 bypass deletion; no further code change required).
 
 ---
 
