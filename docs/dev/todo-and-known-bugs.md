@@ -388,11 +388,13 @@ Four distinct in-game test failures from the 2026-05-28 batch run, root-caused a
 
 ---
 
-## Open - v0.10.0 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
+## Done - v0.10.0 Warp-to-time: InitiateRewindToCareerStart duplicates InitiateRewind load boilerplate
 
 - `RecordingStore.InitiateRewindToCareerStart` (PR #947) repeats ~25 lines of the load sequence from `InitiateRewind` (copy temp save to root -> `GamePersistence.LoadGame` -> temp delete -> `SetAdjustedUT` -> `HighLogic.CurrentGame = game` -> `LoadScene(SPACECENTER)`, plus the try/catch + `ResetRewindFlags` + `DeleteTemporaryRewindSaveCopy` failure path). The behavior-critical parts (RewindContext setup, `HandleRewindOnLoad`, ledger recalc) are already shared; only this mechanical wrapper is duplicated.
-- **Fix (deferred):** extract a shared private helper parameterized by whether to run `PreProcessRewindSave` (strip + lead-time windback) and whether to drop supersedes for an owner, so both entries call it. Deferred from PR #947 because it edits the proven `InitiateRewind` path, which xUnit cannot cover end-to-end (needs the Unity `LoadGame` round-trip) — land it as a separately-reviewed change with a fresh Rewind-to-Launch playtest, not bundled with the warp feature.
-- **Status:** OPEN — low-priority cleanup.
+- **Fix:** extracted `RecordingStore.ExecuteRewindSaveLoad(saveFileName, preProcessOwner, dropSupersedeOwner, messageLabel)`. `preProcessOwner != null` runs `PreProcessRewindSave` (strip + lead-time windback) for that owner; `dropSupersedeOwner != null` drops supersedes rewound out of existence for that owner's tree; `messageLabel` is the log message-text prefix ("Rewind" vs "Warp-to-game-start", subsystem tag stays "Rewind"). `InitiateRewind` calls it with the owner for both (behavior + log wording byte-identical to before); `InitiateRewindToCareerStart` calls it with both null. The callers keep their own precondition gates (merge-journal / supersede-count refusal) and `RewindContext` setup.
+- **Note:** the career-start path now shares the proven path's richer logging (its `adjustedUT` line gains `rewindUT` + flags, it gains a post-`LoadScene` "loading save into SpaceCenter" line, and its failure logs gain the `Flags reset:` suffix). No gameplay behavior change on either path.
+- **Tests:** no new unit tests (the helper is Unity-only file I/O + `LoadGame` + `LoadScene`, which xUnit cannot cover end-to-end). Full suite green (13043).
+- **Status:** FIX LANDED 2026-05-31. Behavior-preserving refactor; the prescribed fresh Rewind-to-Launch playtest is still recommended before final close.
 
 ---
 
