@@ -162,19 +162,27 @@ namespace Parsek.Logistics
             // loop-route restarts cycle observation: -1 means "no cycle observed
             // yet", so the FIRST post-activate crossing fires. The field persists
             // through the codec so a save/reload mid-cycle does NOT double-fire
-            // (ELS is the backstop). NOTE: LoopAnchorUT capture-on-activate (which
-            // re-phases the span clock) is owned by Phase 5 RouteBuilder; here we
-            // only reset the cycle-observation cursor.
+            // (ELS is the backstop). LoopAnchorUT capture-on-activate (plan Phase 5
+            // task 1: "set route.LoopAnchorUT on activate") is set here for the
+            // Paused->Activate path; RouteBuilder seeds it for create-Active. The
+            // value is diagnostic only: the loop builder floors the anchor to
+            // spanEnd, so the route does NOT own render phase (the crossing detector
+            // + LastObservedLoopCycleIndex do).
             long prevObserved = route.LastObservedLoopCycleIndex;
+            double prevAnchor = route.LoopAnchorUT;
             if (route.IsLoopRoute)
+            {
                 route.LastObservedLoopCycleIndex = -1;
+                route.LoopAnchorUT = currentUT;
+            }
 
             route.TransitionTo(RouteStatus.Active, "player-activate");
             ParsekLog.Info(Tag,
                 $"TryActivate: route={ShortIdForLog(route)} now Active " +
                 $"nextDispatchUT={route.NextDispatchUT.ToString("R", IC)} " +
                 $"loopRoute={(route.IsLoopRoute ? "1" : "0")} " +
-                $"lastObservedLoopCycleIndex {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)}");
+                $"lastObservedLoopCycleIndex {prevObserved.ToString(IC)}->{route.LastObservedLoopCycleIndex.ToString(IC)} " +
+                $"loopAnchorUT {prevAnchor.ToString("R", IC)}->{route.LoopAnchorUT.ToString("R", IC)}");
             return true;
         }
 

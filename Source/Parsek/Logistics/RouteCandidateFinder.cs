@@ -25,6 +25,12 @@ namespace Parsek.Logistics
     /// promoted route.
     /// </summary>
     /// <remarks>
+    /// The candidate's sealed / eligible / dedup gates are PROOF gates, unchanged
+    /// by the Missions-foundation rebase (design §0). The route's render geometry
+    /// (the looped <c>[launch .. undock]</c> Mission segment) is derived separately
+    /// by <see cref="RouteBackingMission"/> at creation time from the eligible
+    /// window's <c>UndockUT</c>; this finder does not scan trajectory geometry.
+    ///
     /// The "fully sealed" gate is deliberate and load-bearing: an open
     /// <see cref="MergeState.CommittedProvisional"/> (re-flyable Unfinished
     /// Flight) or <see cref="MergeState.NotCommitted"/> recording can still be

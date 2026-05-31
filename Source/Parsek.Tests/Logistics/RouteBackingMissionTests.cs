@@ -232,6 +232,106 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // ComputeMemberRecordingIds (must-fix #3)
+        // -----------------------------------------------------------------
+
+        // catches: the member set not covering the kept [root..undock] path, or
+        // the post-undock survivor / payload leaking into the member set. NOTE: the
+        // transport's launch+docked legs are ONE composition through-line owned by
+        // the root "launch" leg (the dock-continuation folds into the launch
+        // through-line; its structural intervals key as "launch" / "launch/segN",
+        // both stripping to "launch"), so the transport surfaces as the single
+        // member "launch". The dock-child leaf id is added separately by
+        // RouteBuilder (the delivery-binding carrier), not by this helper.
+        [Fact]
+        public void ComputeMembers_MultiLegTree_CoversTransportThroughLine_ExcludesPostUndock()
+        {
+            RecordingTree tree = BuildLaunchDockUndockTree();
+
+            HashSet<string> members =
+                RouteBackingMission.ComputeMemberRecordingIds(tree, UndockUT, RootLaunchUT);
+
+            // The transport through-line (launch + docked) renders up to the undock
+            // and surfaces as the root-owned "launch" member.
+            Assert.Contains("launch", members);
+            // The post-undock survivor and the peeled payload are NOT members.
+            Assert.DoesNotContain("survivor", members);
+            Assert.DoesNotContain("payload", members);
+        }
+
+        // catches: a malformed window not falling back to the whole-segment member
+        // set (or NaN inputs throwing).
+        [Theory]
+        [InlineData(double.NaN, 1000.0)]
+        [InlineData(3000.0, double.NaN)]
+        [InlineData(1000.0, 1000.0)]
+        public void ComputeMembers_BadWindow_FallsBackToWholeSegment(double undockUT, double launchUT)
+        {
+            RecordingTree tree = BuildLaunchDockUndockTree();
+
+            HashSet<string> members =
+                RouteBackingMission.ComputeMemberRecordingIds(tree, undockUT, launchUT);
+
+            // Whole-segment fallback: at minimum the launch root is a member.
+            Assert.NotEmpty(members);
+            Assert.Contains("launch", members);
+        }
+
+        // catches: a null tree throwing instead of returning empty.
+        [Fact]
+        public void ComputeMembers_NullTree_Empty()
+        {
+            HashSet<string> members =
+                RouteBackingMission.ComputeMemberRecordingIds(null, 3000.0, 1000.0);
+            Assert.Empty(members);
+        }
+
+        // catches: an earlier in-flight undock (before the route's dock cycle)
+        // wrongly trimming the survivor that continues on to the dock. The
+        // terminal-undock scoping must key the trim on the undock AT/nearest
+        // undockUT only.
+        [Fact]
+        public void ComputeMembers_EarlierUndock_DoesNotTrimContinuingSurvivor()
+        {
+            // launch C0/0 [1000..1500]
+            // (an EARLY undock at 1500 peels a probe; the transport continues)
+            // mid    C0/1 [1500..2500]  (transport continues past the early undock)
+            // probe  C1/0 [1500..1800]  (peeled at the early undock; unrelated)
+            // docked C0/2 [2500..3000]  (Dock BP@2500 merges; this is pre-route-undock)
+            // (route undock at 3000 peels payload)
+            // survivor C0/3 [3000..3500]
+            // payload  C2/0 [3000..3300]
+            var tree = Tree("tree-early", new[]
+                {
+                    Leg("launch", "C0", 0, 1000, 1500, vessel: "Transport"),
+                    Leg("mid", "C0", 1, 1500, 2500, vessel: "Transport"),
+                    Leg("probe", "C1", 0, 1500, 1800, vessel: "Probe"),
+                    Leg("docked", "C0", 2, 2500, 3000, vessel: "Transport"),
+                    Leg("survivor", "C0", 3, 3000, 3500, vessel: "Transport"),
+                    Leg("payload", "C2", 0, 3000, 3300, vessel: "Payload")
+                },
+                new[]
+                {
+                    BP("early-undock", BranchPointType.Undock,
+                        new[] { "launch" }, new[] { "mid", "probe" }, ut: 1500),
+                    BP("dock-bp", BranchPointType.Dock,
+                        new[] { "mid" }, new[] { "docked" }, ut: 2500),
+                    BP("route-undock", BranchPointType.Undock,
+                        new[] { "docked" }, new[] { "survivor", "payload" }, ut: 3000)
+                });
+
+            HashSet<string> members =
+                RouteBackingMission.ComputeMemberRecordingIds(tree, undockUT: 3000.0, launchUT: 1000.0);
+
+            // The transport's full pre-route-undock through-line is kept; the early
+            // undock at 1500 does NOT trim the continuing transport.
+            Assert.Contains("launch", members);
+            // The post-route-undock survivor / payload are excluded.
+            Assert.DoesNotContain("survivor", members);
+            Assert.DoesNotContain("payload", members);
+        }
+
+        // -----------------------------------------------------------------
         // BuildMission
         // -----------------------------------------------------------------
 

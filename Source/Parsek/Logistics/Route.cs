@@ -126,7 +126,17 @@ namespace Parsek.Logistics
         /// <summary>Total successful cycle completions.</summary>
         public int CompletedCycles;
 
-        /// <summary>Reserved diagnostic counter for explicit skip policies; v1 wait states do not increment it.</summary>
+        /// <summary>
+        /// Count of loop-route cycles that crossed but were blocked by eligibility
+        /// (destination full, origin empty, funds short, endpoint lost, etc.). The
+        /// loop-clock path (Phase 4) increments this on a blocked cycle: the ghost
+        /// still flies (the world looks busy) but nothing is debited or delivered,
+        /// and the crossing index is snapped forward. The increment is load-bearing
+        /// for cycleId uniqueness — the per-delivery cycleId is
+        /// <c>cycle-{CompletedCycles + SkippedCycles}</c>, so bumping SkippedCycles
+        /// on a blocked cycle advances the next cycleId and keeps the
+        /// dispatch/deliver pairing unique (no double-charge after a skip).
+        /// </summary>
         public int SkippedCycles;
 
         // --- Backing-mission definition (design §0; Phase 1) ---

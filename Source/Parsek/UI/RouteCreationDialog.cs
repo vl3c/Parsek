@@ -321,9 +321,14 @@ namespace Parsek
                     fresh, cachedTree, builderInputs, mode);
                 if (outcome.Route == null)
                 {
+                    // Surface the specific reject reason (including the Phase 5
+                    // backing-mission-unresolvable reason when the [launch..undock]
+                    // window cannot be derived) in both the log and the dismiss
+                    // reason so the post-mortem checker can attribute the dismissal.
+                    string rejectReason = outcome.RejectReason ?? "<none>";
                     ParsekLog.Info(Tag,
-                        $"OnConfirm: BuildRoute rejected reason={outcome.RejectReason ?? "<none>"}");
-                    DismissIfOpen("build-rejected");
+                        $"OnConfirm: BuildRoute rejected reason={rejectReason}");
+                    DismissIfOpen("build-rejected:" + rejectReason);
                     return;
                 }
 

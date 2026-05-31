@@ -24,9 +24,17 @@ namespace Parsek.Logistics
     /// Consumes the Missions structure / composition pipeline READ-ONLY:
     /// <c>MissionStructureBuilder.Build(tree)</c> →
     /// <c>MissionCompositionBuilder.Build(structure)</c>. The window START derives
-    /// from the tree ROOT launch (<paramref name="launchUT"/>, the root
-    /// recording's StartUT), NOT from the mid-flight merged dock child. The END is
-    /// the undock UT.
+    /// from the tree ROOT launch (<c>launchUT</c>, the root recording's StartUT),
+    /// NOT from the mid-flight merged dock child. The END is the undock UT.
+    /// </para>
+    /// <para>
+    /// This helper intentionally SKIPS <c>MissionThroughLineBuilder.Build</c>:
+    /// verified safe because <c>MissionCompositionBuilder.Build</c> consumes only
+    /// the <c>MissionStructure</c> (through-line construction is pure /
+    /// non-mutating, so omitting it does not alter the composition the loop
+    /// builder later derives from the same structure). The composition walk gives
+    /// us everything the route derivation needs (selectable interval keys + their
+    /// underlying recording ids).
     /// </para>
     /// <para>
     /// Phase 0 clock-ownership pin: the route's dispatch PHASE is owned by the
@@ -104,14 +112,23 @@ namespace Parsek.Logistics
                 return excluded;
             }
 
-            // Collect the recording ids that separated at an Undock branch point.
-            // Keying the trim on these (rather than a pure StartUT scan) is robust
-            // against structural-peel edge clamping: MissionComposition clamps a
-            // peel UT into [runStart, runEnd], so a leg's StartUT can drift; the
+            // Collect the recording ids that separated at the route's TERMINAL
+            // Undock branch point (the one at/nearest undockUT). Keying the trim on
+            // these (rather than a pure StartUT scan) is robust against
+            // structural-peel edge clamping: MissionComposition clamps a peel UT
+            // into [runStart, runEnd], so a leg's StartUT can drift; the
             // branch-point child ids are authoritative for "this leg came off at
             // undock". A leg's interval is post-undock if it (or its synthetic seg
             // children, keyed as "<headLegId>/segN") roots at such a leg.
-            var undockChildLegIds = CollectUndockChildLegIds(tree);
+            //
+            // Scoped to the terminal undock (Phase 1 review carry-forward): an
+            // earlier in-flight undock (a mid-mission separation BEFORE the route's
+            // dock cycle) must NOT trim the survivor that continues on to the dock.
+            // We pick the Undock branch point whose UT is closest to undockUT, and
+            // additionally AND the branch-child test with the StartUT>=boundary
+            // guard in WalkAndClassify so a child that legitimately starts before
+            // the boundary is never dropped on branch-id alone.
+            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, undockUT);
 
             // --- Walk every selectable interval; exclude post-undock ones. ---
             int scanned = 0;
@@ -130,6 +147,148 @@ namespace Parsek.Logistics
                 $"scanned={scanned.ToString(ic)} excluded={excludedCount.ToString(ic)} " +
                 $"kept={keptCount.ToString(ic)} undockChildren={undockChildLegIds.Count.ToString(ic)}");
             return excluded;
+        }
+
+        /// <summary>
+        /// (must-fix #3) Derives the set of underlying recording ids in the route's
+        /// rendered <c>[launchUT .. undockUT]</c> member window — every recording
+        /// that backs a KEPT (non-excluded) selectable composition interval. On a
+        /// multi-recording flight this is MORE than the single dock-child leaf, so
+        /// the route widens <c>RecordingIds</c> / <c>SourceRefs</c> to cover the
+        /// whole rendered path (one <c>RouteSourceRef</c> per member) and
+        /// <c>RouteStore.RevalidateSources</c> tracks the whole path, not just the
+        /// leaf. Pure; uses the SAME composition walk as
+        /// <see cref="ComputeExcludedIntervalKeys"/>.
+        /// </summary>
+        /// <param name="tree">Source recording tree (read-only).</param>
+        /// <param name="undockUT">End of the route segment (the undock instant).</param>
+        /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
+        /// <returns>
+        /// Member recording ids for the kept intervals. On any guard failure (the
+        /// same guards as <see cref="ComputeExcludedIntervalKeys"/>) returns the
+        /// tree root recording id alone (honest minimal fallback) when resolvable,
+        /// else an empty set — the caller falls back to the leaf in that case.
+        /// </returns>
+        internal static HashSet<string> ComputeMemberRecordingIds(
+            RecordingTree tree, double undockUT, double launchUT)
+        {
+            var members = new HashSet<string>();
+            var ic = CultureInfo.InvariantCulture;
+
+            if (tree == null)
+            {
+                ParsekLog.Verbose(Tag,
+                    "ComputeMemberRecordingIds: tree=<null> -> empty");
+                return members;
+            }
+
+            // Mirror the guards in ComputeExcludedIntervalKeys: a malformed window
+            // renders the whole segment, so the member set is "every recording id".
+            bool malformed = double.IsNaN(undockUT) || double.IsNaN(launchUT)
+                || undockUT <= launchUT;
+
+            MissionStructure structure = MissionStructureBuilder.Build(tree);
+            List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
+            if (roots == null || roots.Count == 0)
+            {
+                // No composition (single-leg / unstructured tree). Fall back to the
+                // root recording id, or every recording id when even that is unset.
+                AddRootOrAllRecordingIds(tree, members);
+                ParsekLog.Verbose(Tag,
+                    $"ComputeMemberRecordingIds: no composition roots tree={tree.Id ?? "<null>"} " +
+                    $"-> members={members.Count.ToString(ic)} (fallback)");
+                return members;
+            }
+
+            if (malformed)
+            {
+                // Whole-segment render: every selectable interval's recording id.
+                int allCount = 0;
+                for (int i = 0; i < roots.Count; i++)
+                    CollectMemberRecordingIds(roots[i], collectAll: true,
+                        undockChildLegIds: null, boundary: 0.0, members: members, ref allCount);
+                if (members.Count == 0)
+                    AddRootOrAllRecordingIds(tree, members);
+                ParsekLog.Verbose(Tag,
+                    $"ComputeMemberRecordingIds: malformed window tree={tree.Id ?? "<null>"} " +
+                    $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                    $"-> members={members.Count.ToString(ic)} (whole segment)");
+                return members;
+            }
+
+            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, undockUT);
+            double boundary = undockUT - BoundaryEpsilonSeconds;
+            int kept = 0;
+            for (int i = 0; i < roots.Count; i++)
+                CollectMemberRecordingIds(roots[i], collectAll: false,
+                    undockChildLegIds: undockChildLegIds, boundary: boundary,
+                    members: members, ref kept);
+
+            if (members.Count == 0)
+                AddRootOrAllRecordingIds(tree, members);
+
+            ParsekLog.Verbose(Tag,
+                $"ComputeMemberRecordingIds: tree={tree.Id ?? "<null>"} " +
+                $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                $"keptIntervals={kept.ToString(ic)} members={members.Count.ToString(ic)}");
+            return members;
+        }
+
+        // Recursively collects the underlying recording id of each KEPT selectable
+        // node (or every selectable node when collectAll). The HeadLegId resolves
+        // to a real recording id via the "/seg" prefix strip.
+        private static void CollectMemberRecordingIds(
+            MissionCompositionNode node, bool collectAll, HashSet<string> undockChildLegIds,
+            double boundary, HashSet<string> members, ref int counter)
+        {
+            if (node == null)
+                return;
+
+            if (node.IsSelectable && !string.IsNullOrEmpty(node.HeadLegId)
+                && !string.IsNullOrEmpty(node.OwnerHeadId))
+            {
+                bool postUndock = !collectAll &&
+                    (node.StartUT >= boundary
+                     || RootsAtUndockChild(node.HeadLegId, undockChildLegIds));
+                if (collectAll || !postUndock)
+                {
+                    string recId = StripSegMarker(node.HeadLegId);
+                    if (!string.IsNullOrEmpty(recId) && members.Add(recId))
+                        counter++;
+                }
+            }
+
+            for (int i = 0; i < node.Children.Count; i++)
+                CollectMemberRecordingIds(node.Children[i], collectAll, undockChildLegIds,
+                    boundary, members, ref counter);
+        }
+
+        // The bare recording id behind a composition HeadLegId: strip the synthetic
+        // "<realLegId>/segN" suffix MissionCompositionBuilder mints for the 2nd+
+        // structural interval of one vessel.
+        private static string StripSegMarker(string headLegId)
+        {
+            if (string.IsNullOrEmpty(headLegId))
+                return headLegId;
+            int segMarker = headLegId.IndexOf("/seg", StringComparison.Ordinal);
+            return segMarker > 0 ? headLegId.Substring(0, segMarker) : headLegId;
+        }
+
+        // Fallback member set: the root recording id when resolvable, else every
+        // recording id in the tree (honest "we cannot trim, render everything").
+        private static void AddRootOrAllRecordingIds(RecordingTree tree, HashSet<string> members)
+        {
+            if (tree?.Recordings == null)
+                return;
+            if (!string.IsNullOrEmpty(tree.RootRecordingId)
+                && tree.Recordings.ContainsKey(tree.RootRecordingId))
+            {
+                members.Add(tree.RootRecordingId);
+                return;
+            }
+            foreach (string id in tree.Recordings.Keys)
+                if (!string.IsNullOrEmpty(id))
+                    members.Add(id);
         }
 
         // Recursively classifies each selectable composition node. An interval is
@@ -185,25 +344,51 @@ namespace Parsek.Logistics
             return false;
         }
 
-        // Every child recording id of every Undock branch point. These are the legs
-        // that separated at an undock — both the survivor continuation and the
-        // undocked offshoot list here, so both end up post-undock-excluded.
-        private static HashSet<string> CollectUndockChildLegIds(RecordingTree tree)
+        // The child recording ids of the route's TERMINAL Undock branch point: the
+        // Undock branch point whose UT is at/nearest <paramref name="undockUT"/>.
+        // These are the legs that separated at the route's undock — both the
+        // survivor continuation and the undocked offshoot — so both end up
+        // post-undock-excluded.
+        //
+        // Scoping to the single terminal undock (Phase 1 review carry-forward)
+        // prevents an EARLIER in-flight undock (a mid-mission separation before the
+        // route's dock cycle) from wrongly trimming a survivor that continues on to
+        // the dock. The terminal undock's children start at/after undockUT by
+        // construction, so the StartUT>=boundary OR in WalkAndClassify still catches
+        // them even when MissionComposition clamps a child's StartUT slightly below
+        // the boundary.
+        private static HashSet<string> CollectTerminalUndockChildLegIds(
+            RecordingTree tree, double undockUT)
         {
             var ids = new HashSet<string>();
             if (tree.BranchPoints == null)
                 return ids;
+
+            // Pick the Undock branch point closest to undockUT. Ties (exact-UT
+            // duplicates, which a well-formed tree should not have) keep the first.
+            BranchPoint terminal = null;
+            double bestDelta = double.PositiveInfinity;
             for (int i = 0; i < tree.BranchPoints.Count; i++)
             {
                 BranchPoint bp = tree.BranchPoints[i];
                 if (bp == null || bp.Type != BranchPointType.Undock || bp.ChildRecordingIds == null)
                     continue;
-                for (int c = 0; c < bp.ChildRecordingIds.Count; c++)
+                double delta = Math.Abs(bp.UT - undockUT);
+                if (delta < bestDelta)
                 {
-                    string cid = bp.ChildRecordingIds[c];
-                    if (!string.IsNullOrEmpty(cid))
-                        ids.Add(cid);
+                    bestDelta = delta;
+                    terminal = bp;
                 }
+            }
+
+            if (terminal == null)
+                return ids;
+
+            for (int c = 0; c < terminal.ChildRecordingIds.Count; c++)
+            {
+                string cid = terminal.ChildRecordingIds[c];
+                if (!string.IsNullOrEmpty(cid))
+                    ids.Add(cid);
             }
             return ids;
         }

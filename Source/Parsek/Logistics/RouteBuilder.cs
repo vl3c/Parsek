@@ -89,49 +89,149 @@ namespace Parsek.Logistics
             // launch site). Resolve the root recording for origin discovery; fall
             // back to the source recording when the tree has no resolvable root.
             Recording originRec = source;
+            Recording rootRec = null;
             if (committedTree?.Recordings != null
                 && !string.IsNullOrEmpty(committedTree.RootRecordingId)
-                && committedTree.Recordings.TryGetValue(committedTree.RootRecordingId, out Recording rootRec)
+                && committedTree.Recordings.TryGetValue(committedTree.RootRecordingId, out rootRec)
                 && rootRec != null)
             {
                 originRec = rootRec;
             }
 
-            // v0 single-recording transit duration: leaf EndUT - root StartUT.
-            // The analysis surface only carries one source recording; future
-            // multi-recording paths will walk committedTree's active path here.
-            double transitDuration = source.EndUT - source.StartUT;
+            var ic = CultureInfo.InvariantCulture;
+
+            // --- Backing-mission geometry (design §0; Phase 5). ---------------
+            // The route renders as a looped Mission segment over the source tree's
+            // [root.StartUT .. undockUT] path, NOT the leaf-only dock-child span.
+            // Resolve the ROOT launch UT (NOT source.StartUT, which is the
+            // mid-flight dock child) and the UNDOCK UT (from the connection
+            // window). RouteBackingMission owns the interval-key + member-set
+            // derivation (the geometry seam over the locked Missions composition).
+            double rootLaunchUT = rootRec != null ? rootRec.StartUT : source.StartUT;
+            double undockUT = analysis.ConnectionWindow != null
+                ? analysis.ConnectionWindow.UndockUT
+                : double.NaN;
+
+            // (must-fix #3) Transit duration is the RENDERED span (undock - root
+            // launch), not the leaf-only source.EndUT - source.StartUT. Also the
+            // clamp reference for the DispatchInterval >= span pin below.
+            double transitDuration = undockUT - rootLaunchUT;
+
+            // Backing-mission-unresolvable reject: the [launch..undock] window must
+            // be finite and non-empty for the loop render + clock to work.
+            if (double.IsNaN(undockUT) || double.IsInfinity(undockUT)
+                || double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT)
+                || transitDuration <= 0.0)
+            {
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: backing-mission-unresolvable source={source.RecordingId ?? "<none>"} " +
+                    $"tree={(committedTree != null ? committedTree.Id ?? "<none>" : "<null>")} " +
+                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} undockUT={undockUT.ToString("R", ic)} " +
+                    $"span={transitDuration.ToString("R", ic)}");
+                return new RouteBuildOutcome { RejectReason = "backing-mission-unresolvable" };
+            }
 
             if (inputs.DispatchIntervalSeconds <= 0.0)
             {
                 ParsekLog.Info(Tag,
-                    $"BuildRoute rejected: interval-invalid interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)}");
+                    $"BuildRoute rejected: interval-invalid interval={inputs.DispatchIntervalSeconds.ToString("R", ic)}");
                 return new RouteBuildOutcome { RejectReason = "interval-invalid" };
             }
-            if (!allowIntervalBelowTransit && inputs.DispatchIntervalSeconds < transitDuration)
+
+            // (must-fix #2) Clamp/require DispatchInterval >= backing-mission span so
+            // the loop-clock CadenceSeconds == max(LoopIntervalSeconds, span) ==
+            // DispatchInterval, and one crossing == one dispatch cycle (design 1.4
+            // "minimum interval = chain duration"). When the player-entered interval
+            // is below the span we CLAMP UP and Info-log (the legacy
+            // allowIntervalBelowTransit flag, used by the debug/placeholder Create
+            // Route path, now means "clamp instead of reject").
+            double dispatchInterval = inputs.DispatchIntervalSeconds;
+            if (dispatchInterval < transitDuration)
             {
-                ParsekLog.Info(Tag,
-                    $"BuildRoute rejected: interval-below-transit interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
-                    $"transit={transitDuration.ToString("R", CultureInfo.InvariantCulture)}");
-                return new RouteBuildOutcome { RejectReason = "interval-below-transit" };
+                if (allowIntervalBelowTransit)
+                {
+                    ParsekLog.Info(Tag,
+                        $"BuildRoute: interval below span -> clamped up entered={dispatchInterval.ToString("R", ic)} " +
+                        $"span={transitDuration.ToString("R", ic)} (cadence pinned to span so one crossing == one cycle)");
+                    dispatchInterval = transitDuration;
+                }
+                else
+                {
+                    ParsekLog.Info(Tag,
+                        $"BuildRoute rejected: interval-below-transit interval={dispatchInterval.ToString("R", ic)} " +
+                        $"transit={transitDuration.ToString("R", ic)}");
+                    return new RouteBuildOutcome { RejectReason = "interval-below-transit" };
+                }
             }
 
-            // Source ref capture — v0 has exactly one source recording.
-            var sourceRefs = new List<RouteSourceRef>
+            // (must-fix #3) Widen the source set to EVERY [root..undock] member
+            // recording so RevalidateSources tracks the whole rendered path, not
+            // just the leaf. The member set is the KEPT-intervals' recording ids
+            // from the same composition walk RouteBackingMission uses. The leaf
+            // (dock child) always stays in the set (it carries the delivery
+            // binding); fall back to the leaf alone when the walk yields nothing.
+            HashSet<string> memberRecordingIds = committedTree != null
+                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, undockUT, rootLaunchUT)
+                : new HashSet<string>();
+            // The leaf (dock child) is ALWAYS a member: it carries the delivery
+            // binding even when the composition walk surfaced the transport via its
+            // root through-line head instead of the leaf id.
+            if (!string.IsNullOrEmpty(source.RecordingId))
+                memberRecordingIds.Add(source.RecordingId);
+
+            // One RouteSourceRef per member recording. Resolve each id to its
+            // recording (the leaf falls back to the analysis source), order
+            // deterministically by TreeOrder then recording id so save round-trips
+            // are stable, and compute each member's proof hash from its own
+            // recording.
+            var sourceRefs = new List<RouteSourceRef>();
+            var recordingIds = new List<string>();
+            var memberRecs = new List<Recording>();
+            var seenMembers = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string mid in memberRecordingIds)
             {
-                new RouteSourceRef
+                Recording memberRec = null;
+                if (committedTree?.Recordings != null)
+                    committedTree.Recordings.TryGetValue(mid, out memberRec);
+                if (memberRec == null && string.Equals(mid, source.RecordingId, StringComparison.Ordinal))
+                    memberRec = source;
+                if (memberRec != null && !string.IsNullOrEmpty(memberRec.RecordingId)
+                    && seenMembers.Add(memberRec.RecordingId))
+                    memberRecs.Add(memberRec);
+            }
+            // Safety net: the leaf source must always carry a ref even if it was
+            // absent from both the member set and the tree (e.g. null tree path).
+            if (!string.IsNullOrEmpty(source.RecordingId) && seenMembers.Add(source.RecordingId))
+                memberRecs.Add(source);
+            memberRecs.Sort((a, b) =>
+            {
+                int byOrder = a.TreeOrder.CompareTo(b.TreeOrder);
+                return byOrder != 0
+                    ? byOrder
+                    : string.Compare(a.RecordingId, b.RecordingId, StringComparison.Ordinal);
+            });
+            for (int i = 0; i < memberRecs.Count; i++)
+            {
+                Recording memberRec = memberRecs[i];
+                sourceRefs.Add(new RouteSourceRef
                 {
-                    RecordingId = source.RecordingId,
-                    TreeId = source.TreeId,
-                    TreeOrder = source.TreeOrder,
-                    RecordingFormatVersion = source.RecordingFormatVersion,
-                    RecordingSchemaGeneration = source.RecordingSchemaGeneration,
-                    SidecarEpoch = source.SidecarEpoch,
-                    StartUT = source.StartUT,
-                    EndUT = source.EndUT,
-                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(source)
-                }
-            };
+                    RecordingId = memberRec.RecordingId,
+                    TreeId = memberRec.TreeId,
+                    TreeOrder = memberRec.TreeOrder,
+                    RecordingFormatVersion = memberRec.RecordingFormatVersion,
+                    RecordingSchemaGeneration = memberRec.RecordingSchemaGeneration,
+                    SidecarEpoch = memberRec.SidecarEpoch,
+                    StartUT = memberRec.StartUT,
+                    EndUT = memberRec.EndUT,
+                    RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(memberRec)
+                });
+                recordingIds.Add(memberRec.RecordingId);
+            }
+
+            // Excluded interval keys for the backing-mission render trim.
+            HashSet<string> excludedIntervalKeys = committedTree != null
+                ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, undockUT, rootLaunchUT)
+                : new HashSet<string>();
 
             // Origin discovery. KSC-origin if recording carries a launch site
             // name AND was launched from Kerbin. Otherwise non-KSC origin
@@ -222,22 +322,33 @@ namespace Parsek.Logistics
                 ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
                 : new List<InventoryPayloadItem>();
 
+            // Loop-clock dock binding: the leaf (dock child) source carries the
+            // recorded dock UT the loop clock crosses each cycle to fire delivery
+            // (Phase 4). LoopAnchorUT is set here only when the route is created
+            // ACTIVE (the dialog path); the Paused->Activate path sets it in
+            // RouteOrchestrator.TryActivate. The builder floors nothing — the loop
+            // builder floors the anchor to spanEnd, so this value is diagnostic.
+            double recordedDockUT = analysis.ConnectionWindow != null
+                ? analysis.ConnectionWindow.DockUT
+                : double.NaN;
+            double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
+
             var route = new Route
             {
                 Id = routeId,
                 Name = routeName,
                 Status = initialStatus,
-                RecordingIds = new List<string> { source.RecordingId },
+                RecordingIds = recordingIds,
                 SourceRefs = sourceRefs,
                 Origin = origin,
                 IsKscOrigin = isKscOrigin,
                 Stops = new List<RouteStop> { stop },
                 TransitDuration = transitDuration,
-                DispatchInterval = inputs.DispatchIntervalSeconds,
-                DispatchWindowEpochUT = source.StartUT,
+                DispatchInterval = dispatchInterval,
+                DispatchWindowEpochUT = rootLaunchUT,
                 DispatchWindowPeriod = 0.0,
                 // Placeholder until scheduler (Phase 6+) computes from epoch + interval.
-                NextDispatchUT = source.StartUT + inputs.DispatchIntervalSeconds,
+                NextDispatchUT = rootLaunchUT + dispatchInterval,
                 KscDispatchFundsCost = 0.0,
                 CostManifest = costManifest,
                 InventoryCostManifest = inventoryCostManifest,
@@ -246,7 +357,14 @@ namespace Parsek.Logistics
                 SkippedCycles = 0,
                 LinkedRouteId = null,
                 CurrentSegmentIndex = -1,
-                PendingStopIndex = -1
+                PendingStopIndex = -1,
+                // Backing-mission definition (design §0; Phase 5 capture).
+                BackingMissionTreeId = source.TreeId,
+                ExcludedIntervalKeys = excludedIntervalKeys,
+                RecordedDockUT = recordedDockUT,
+                DockMemberRecordingId = source.RecordingId,
+                LoopAnchorUT = loopAnchorUT,
+                LastObservedLoopCycleIndex = -1
             };
 
             string shortId = !string.IsNullOrEmpty(routeId) && routeId.Length > 8
@@ -258,10 +376,16 @@ namespace Parsek.Logistics
                 : 0;
             ParsekLog.Info(Tag,
                 $"Built route id={shortId} origin={originLabel} " +
-                $"stop-resources={stopResources.ToString(CultureInfo.InvariantCulture)} " +
-                $"stop-inventory={stopInventory.ToString(CultureInfo.InvariantCulture)} " +
-                $"transit={transitDuration.ToString("R", CultureInfo.InvariantCulture)} " +
-                $"interval={inputs.DispatchIntervalSeconds.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"tree={source.TreeId ?? "<none>"} " +
+                $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
+                $"undockUT={undockUT.ToString("R", ic)} " +
+                $"dockUT={recordedDockUT.ToString("R", ic)} " +
+                $"span={transitDuration.ToString("R", ic)} " +
+                $"interval={dispatchInterval.ToString("R", ic)} " +
+                $"members={recordingIds.Count.ToString(ic)} " +
+                $"excluded={excludedIntervalKeys.Count.ToString(ic)} " +
+                $"stop-resources={stopResources.ToString(ic)} " +
+                $"stop-inventory={stopInventory.ToString(ic)} " +
                 $"mode={mode}");
 
             return new RouteBuildOutcome { Route = route };
