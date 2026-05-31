@@ -263,7 +263,8 @@ namespace Parsek.Tests.Logistics
         // ==================================================================
 
         // catches: re-firing the SAME cycle on a second tick within the same
-        // cycle index (would double-charge).
+        // cycle index (would double-charge). DEL-2: the FIRST fire is at the dock
+        // phase (ut 1150 == dock), NOT at span start.
         [Fact]
         public void SameCycle_TwoTicks_FiresOnce()
         {
@@ -273,23 +274,53 @@ namespace Parsek.Tests.Logistics
             InstallFakeDeliveryApplier();
             var env = new EligibleEnv();
 
-            RouteOrchestrator.Tick(1100.0, env); // cycle 0 crossing -> fires
+            RouteOrchestrator.Tick(1150.0, env); // cycle 0 dock crossing -> fires
             int afterFirst = Ledger.Actions.Count;
             Assert.Equal(3, afterFirst); // dispatched + debited + delivered
 
-            RouteOrchestrator.Tick(1200.0, env); // still cycle 0 -> no new fire
+            RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no new fire
             Assert.Equal(afterFirst, Ledger.Actions.Count);
             Assert.Equal(1, route.CompletedCycles);
         }
 
+        // catches DEL-2: the delivery firing at SPAN START (ghost just launching,
+        // loopUT < dock) instead of waiting for the dock phase. A pre-dock tick
+        // must emit NOTHING; the next tick once loopUT >= dock fires the cycle.
+        [Fact]
+        public void PreDockTick_DoesNotFire_ThenFiresAtDockPhase()
+        {
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit()); // span [1000,1300], dock 1150
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            // ut 1050 -> cycle 0, loopUT 1050 < dock 1150 -> NOT yet at the dock phase.
+            RouteOrchestrator.Tick(1050.0, env);
+            Assert.Empty(Ledger.Actions);
+            Assert.Equal(0, route.CompletedCycles);
+            Assert.Equal(-1, route.LastObservedLoopCycleIndex); // not consumed
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("no dock crossing"));
+
+            // ut 1200 -> cycle 0, loopUT 1200 >= dock 1150 -> NOW fires.
+            RouteOrchestrator.Tick(1200.0, env);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(1, route.CompletedCycles);
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("DOCK CROSSING confirmed"));
+        }
+
         // catches: a multi-cycle warp jump replaying each skipped cycle instead
-        // of firing once and snapping forward.
+        // of firing once and snapping forward. DEL-2: the tick lands in cycle 5
+        // BEFORE that cycle's dock (loopUT 1100 < dock 1150), so the highest cycle
+        // whose dock instant HAS passed is cycle 4. The route fires once for cycle
+        // 4 and snaps to 4 (cycle 5's delivery fires once its own dock is reached).
         [Fact]
         public void WarpJump_FiresOnce_SnapsForward()
         {
             // lastObserved = 0; next tick lands in cycle 5 (fast warp). The clock
             // built from anchor 1000 cadence 300 at ut = 1000 + 5*300 + 100 = 2600
-            // is cycle 5.
+            // is cycle 5 with loopUT 1100 (phase 100, still before dock 1150).
             var route = BuildLoopRoute(lastObservedLoopCycleIndex: 0);
             route.CompletedCycles = 1; // one already done
             RouteStore.AddRoute(route);
@@ -299,31 +330,62 @@ namespace Parsek.Tests.Logistics
 
             RouteOrchestrator.Tick(2600.0, env);
 
-            // Fired exactly ONCE (3 rows), snapped to cycle 5 (no replay of 1-4).
+            // Fired exactly ONCE (3 rows), snapped to the highest passed-dock cycle
+            // (4), NOT the raw span-clock cycle 5 whose dock is still ahead.
             Assert.Equal(3, Ledger.Actions.Count);
-            Assert.Equal(5, route.LastObservedLoopCycleIndex);
+            Assert.Equal(4, route.LastObservedLoopCycleIndex);
             Assert.Equal(2, route.CompletedCycles); // 1 + this one
             Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
         }
 
-        // catches: the cadence>span parked-tail sample firing a delivery (vessel
-        // already delivered, nothing in transit).
+        // catches DEL-2 warp: a single warp frame that jumps PAST the recorded
+        // dock of the landing cycle fires once for THAT cycle (loopUT >= dock).
         [Fact]
-        public void ParkedTail_DoesNotFire()
+        public void WarpJump_PastDock_FiresLandingCycleOnce()
+        {
+            // lastObserved 0; tick at ut = 1000 + 5*300 + 200 = 2700 -> cycle 5,
+            // phase 200, loopUT 1200 (>= dock 1150) -> dock of cycle 5 has passed.
+            var route = BuildLoopRoute(lastObservedLoopCycleIndex: 0);
+            route.CompletedCycles = 1;
+            RouteStore.AddRoute(route);
+            InstallUnitResolver(BuildUnit());
+            InstallFakeDeliveryApplier();
+            var env = new EligibleEnv();
+
+            RouteOrchestrator.Tick(2700.0, env);
+
+            Assert.Equal(3, Ledger.Actions.Count); // fired ONCE
+            Assert.Equal(5, route.LastObservedLoopCycleIndex); // snapped to the landing cycle
+            Assert.Equal(2, route.CompletedCycles);
+            Assert.Contains(logLines, l => l.Contains("[Route]") && l.Contains("warp jump"));
+        }
+
+        // catches DEL-2: a cold start parked in the cadence>span tail whose cycle
+        // was NEVER delivered must still fire that cycle's delivery once (its dock
+        // was passed), then NOT re-fire while still parked. The pre-DEL-2 behavior
+        // (parked tail = never fire) silently dropped an owed delivery.
+        [Fact]
+        public void ParkedTail_ColdStart_FiresOnce_ThenIdempotent()
         {
             var route = BuildLoopRoute(lastObservedLoopCycleIndex: -1);
             RouteStore.AddRoute(route);
-            // cadence 600 > span 300 -> at ut 1450 the clock is parked at spanEnd.
+            // cadence 600 > span 300 -> at ut 1450 the clock is parked at spanEnd
+            // (loopUT 1300 >= dock 1150, so cycle 0's dock has been passed).
             InstallUnitResolver(BuildUnit(cadenceSeconds: 600.0));
             InstallFakeDeliveryApplier();
             var env = new EligibleEnv();
 
             RouteOrchestrator.Tick(1450.0, env);
 
-            // Parked in the inter-cycle tail -> no crossing -> nothing emitted.
-            Assert.Empty(Ledger.Actions);
-            Assert.Equal(-1, route.LastObservedLoopCycleIndex);
-            Assert.Equal(0, route.CompletedCycles);
+            // Dock of cycle 0 already passed -> fire once.
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(0, route.LastObservedLoopCycleIndex);
+            Assert.Equal(1, route.CompletedCycles);
+
+            // Still parked in cycle 0's tail -> no re-fire.
+            RouteOrchestrator.Tick(1500.0, env);
+            Assert.Equal(3, Ledger.Actions.Count);
+            Assert.Equal(1, route.CompletedCycles);
         }
 
         // ==================================================================
@@ -386,8 +448,8 @@ namespace Parsek.Tests.Logistics
             InstallFakeDeliveryApplier();
             var env = new BlockedEnv { OriginHasCargoResult = false };
 
-            RouteOrchestrator.Tick(1100.0, env); // cycle 0 blocked -> snap
-            RouteOrchestrator.Tick(1200.0, env); // still cycle 0 -> no re-fire
+            RouteOrchestrator.Tick(1150.0, env); // cycle 0 dock crossing, blocked -> snap
+            RouteOrchestrator.Tick(1200.0, env); // still cycle 0, dock already crossed -> no re-fire
 
             Assert.Empty(Ledger.Actions);
             Assert.Equal(1, route.SkippedCycles); // bumped exactly once
@@ -403,10 +465,11 @@ namespace Parsek.Tests.Logistics
             RouteStore.AddRoute(route);
             InstallFakeDeliveryApplier();
 
-            // Cycle 0: blocked (skip).
+            // Cycle 0: blocked (skip). DEL-2: the crossing is detected at the dock
+            // phase (ut 1150 == dock), not at span start.
             RouteOrchestrator.LoopUnitResolverForTesting = (r, ut) => BuildUnit();
             var blockedEnv = new BlockedEnv { OriginHasCargoResult = false };
-            RouteOrchestrator.Tick(1100.0, blockedEnv); // cycle 0 blocked -> SkippedCycles=1, snap to 0
+            RouteOrchestrator.Tick(1150.0, blockedEnv); // cycle 0 dock crossing, blocked -> SkippedCycles=1, snap to 0
             Assert.Equal(1, route.SkippedCycles);
             Assert.Equal(0, route.LastObservedLoopCycleIndex);
             Assert.Empty(Ledger.Actions);

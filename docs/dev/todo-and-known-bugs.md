@@ -38,6 +38,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Supply routes post-implementation audit + fixes (route-on-Missions)
+
+- Ran a multi-agent audit of the shipped route-on-Missions v0 against the goal "fuel delivered launch -> destination on the loopable Missions system." Verdict: works end-to-end with no blockers; the suborbital same-body case was already correct. 12 of 14 findings confirmed; the two boundary findings (non-KSC origin stub, `RouteModule` revert skeleton) were intentional v0 scope, not bugs.
+- **DEL-1 (major, fixed):** the delivery clock built its backing-mission `LoopUnit` with `bodyInfo:null` while all render seams use `FlightGlobalsBodyInfo.Instance`, so for an ORBITAL same-body route (tanker -> LKO station) delivery fired at the raw span (~minutes) while the ghost relaunched on the launch-pad rotation window (~hours), over-delivering. `RouteOrchestrator.ResolveLoopUnit` now passes the same `bodyInfo` + `tbrMode` the render uses, so both clocks phase-lock to one cadence.
+- **DEL-2 (fixed):** delivery fired at cycle start (loopUT ~ spanStart) instead of when the loop clock reached the recorded dock phase. `RouteLoopClock` now gates on a dock-phase cycle index (`ComputeDockCycleIndex` / `IsDockCrossing`), firing once per cycle when `loopUT >= RecordedDockUT`, snapping `LastObservedLoopCycleIndex` to the dock cycle (handles warp-skip and the parked cadence>span tail; skipped-cycle accounting preserved).
+- **LST-1 (fixed):** the Timeline window per-recording "L" loop toggle was a fifth manual-loop surface bypassing the route mutual-exclusion guard; it now greys + commit-blocks via `RouteTreeGuard` like the Recordings-tab sites.
+- **LST-2 (fixed):** a Paused route that lost and regained its source via an ERS flicker silently came back Active; `RouteStore` now remembers the pre-missing status (new sparse `Route.PreMissingStatus`, codec round-tripped) and restores it. SourceChanged stays excluded from auto-recovery.
+- **LST-3 (fixed):** changing cadence mid-session left `LastObservedLoopCycleIndex` stale (next dispatch could stall or snap); `RouteCadence.ApplyMultiplier` now rebases it when N changes.
+- **REN-1 (fixed):** `GhostMapPresence.BuildStartupTrackingStationLoopUnits` omitted the route render union, flashing a route ghost at its terminal state for one tick on Tracking Station entry; it now unions `RouteGhostDriverSelector` like the per-frame seam.
+- **CRE-2 / CRE-4 / CRE-5 (fixed):** candidate/dialog transit now shows the full `[root..undock]` span (not the leaf dock-child span, via the shared `ComputeRootToUndockSpan`); `RouteBuilder` rejects an unresolvable root or a dock UT outside the span instead of building a never-delivering route. **LST-4:** added an end-to-end in-game test driving a real loop crossing -> `EmitLoopCycle` -> live LiquidFuel tank fill.
+- **Deferred:** CRE-1 (the dead `RouteCreationDialog` show-path) left in place because the class still carries a live `DismissIfOpen` call plus the `ComputeRootToUndockSpan` helper; a dedicated cleanup later. Build clean, full suite green (13553). In-game validation of the orbital-cadence alignment still owned by playtest (grep `KSP.log` for `DOCK CROSSING confirmed`).
+
+---
+
 ## In progress - v0.10.0 Missions window: vessel composition over time (first cut, playtesting)
 
 - Goal (from 2026-05-25 design chat): show each vessel's COMPOSITION (controllers + crew) broken into intervals of compositional stability, as a nested tree. A node = a stable composition labeled with counts ("pod x1, probe x1, crew x3"); it branches at composition-change events; a stable composition that ends as a whole is a terminal leaf.

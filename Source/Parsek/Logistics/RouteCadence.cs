@@ -67,10 +67,24 @@ namespace Parsek.Logistics
             route.CadenceMultiplier = clamped;
             route.DispatchInterval = DeriveDispatchInterval(clamped, route.TransitDuration);
 
+            // LST-3: rebase the loop clock when N actually changes. CadenceSeconds
+            // derives from DispatchInterval, so the same UT now resolves to a
+            // DIFFERENT span-clock cycleIndex (TryComputeSpanLoopUT). Leaving
+            // LastObservedLoopCycleIndex stale would either stall the next crossing
+            // (N raised -> smaller cycleIndex never exceeds the stale value) or snap
+            // it forward (N lowered -> larger cycleIndex jumps past several). Reset to
+            // -1 (mirrors RouteOrchestrator.TryActivate) so the clock re-anchors
+            // cleanly: the next crossing inside the span fires exactly once, no
+            // double-fire. We only reach here when N genuinely changed (the no-op
+            // same-N path returned false above), so the reset is never spurious.
+            long prevObserved = route.LastObservedLoopCycleIndex;
+            route.LastObservedLoopCycleIndex = -1;
+
             ParsekLog.Info("Route",
                 $"RouteCadence: route {ShortId(route.Id)} cadence {oldN}x->{clamped}x " +
                 $"interval {FormatR(oldInterval)}->{FormatR(route.DispatchInterval)} " +
-                $"span={FormatR(route.TransitDuration)}");
+                $"span={FormatR(route.TransitDuration)} " +
+                $"lastObservedLoopCycleIndex {prevObserved.ToString(System.Globalization.CultureInfo.InvariantCulture)}->-1 (rebase)");
             return true;
         }
 

@@ -138,6 +138,20 @@ namespace Parsek.Logistics
         /// <summary>Lifecycle state. Always mutate through <see cref="TransitionTo"/>.</summary>
         public RouteStatus Status = RouteStatus.Active;
 
+        /// <summary>
+        /// The status the route held immediately BEFORE
+        /// <see cref="RouteStore.RevalidateSources"/> flipped it to
+        /// <see cref="RouteStatus.MissingSourceRecording"/>. Captured on the
+        /// into-missing edge so a deliberate <see cref="RouteStatus.Paused"/> (or
+        /// any other non-source status) is restored faithfully when the missing
+        /// sources flicker back into ERS, instead of silently un-pausing to
+        /// <see cref="RouteStatus.Active"/>. Cleared (back to the
+        /// <see cref="RouteStatus.Active"/> sentinel default) on recovery. Sparse
+        /// in the codec: only written when it is NOT the default
+        /// <see cref="RouteStatus.Active"/>, so it never bloats a healthy save.
+        /// </summary>
+        public RouteStatus PreMissingStatus = RouteStatus.Active;
+
         /// <summary>Pause requested while InTransit; transition to Paused after completion.</summary>
         public bool PauseAfterCurrentCycle;
 

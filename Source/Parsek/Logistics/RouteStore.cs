@@ -240,8 +240,11 @@ namespace Parsek.Logistics
         ///     (covers deletion AND supersede / rewind-retirement, since those are filtered out of ERS).</item>
         ///   <item><c>SourceChanged</c> if every source-ref recording is in ERS but at least
         ///     one fingerprint field has drifted.</item>
-        ///   <item><c>Active</c> recovery only from <c>MissingSourceRecording</c>: if the route
-        ///     was MissingSourceRecording and every source-ref now resolves AND fingerprints match.</item>
+        ///   <item>Recovery only from <c>MissingSourceRecording</c>: if the route
+        ///     was MissingSourceRecording and every source-ref now resolves AND fingerprints match,
+        ///     it returns to its captured <see cref="Route.PreMissingStatus"/> (a deliberately
+        ///     Paused route comes back Paused, an Active route comes back Active), defaulting to
+        ///     <c>Active</c> when no baseline was captured.</item>
         /// </list>
         /// Routes in <see cref="RouteStatus.SourceChanged"/> do NOT auto-recover even when
         /// fingerprints match — design §7.4 requires explicit recreation. Routes with other
@@ -363,6 +366,26 @@ namespace Parsek.Logistics
                 {
                     next = RouteStatus.MissingSourceRecording;
                     cause = $"MissingSourceRecording/source-not-in-ers id={ShortId(firstMissingId)}";
+
+                    // Capture the pre-missing status on the INTO-missing edge only,
+                    // so a deliberate Paused (or any other non-source status) can be
+                    // restored faithfully on recovery instead of silently un-pausing
+                    // to Active. Guard against overwriting a previously-captured value
+                    // when the route is already MissingSourceRecording (a repeated
+                    // pass must not clobber the remembered status with the missing
+                    // status itself). Source-problem statuses are never captured as a
+                    // pre-missing baseline (they are not a state worth restoring to).
+                    if (prev != RouteStatus.MissingSourceRecording
+                        && prev != RouteStatus.SourceChanged)
+                    {
+                        if (route.PreMissingStatus != prev)
+                        {
+                            ParsekLog.Verbose(Tag,
+                                $"RevalidateSources: route {ShortId(route.Id)} capturing preMissingStatus={prev} " +
+                                $"(reason={reasonOrNone})");
+                        }
+                        route.PreMissingStatus = prev;
+                    }
                 }
                 else if (anyDrift)
                 {
@@ -376,8 +399,28 @@ namespace Parsek.Logistics
                     // recreation to leave SourceChanged.
                     if (prev == RouteStatus.MissingSourceRecording)
                     {
-                        next = RouteStatus.Active;
-                        cause = "Active/source-restored";
+                        // Restore the remembered pre-missing status so a Paused route
+                        // comes back Paused and an Active route comes back Active.
+                        // The default sentinel (Active) covers a route that was
+                        // already MissingSourceRecording on load with no captured
+                        // baseline. The production capture path never records a
+                        // source-problem status as the baseline; guard against a
+                        // hand-edited / corrupt save seeding SourceChanged or
+                        // MissingSourceRecording (a route must never auto-recover INTO
+                        // SourceChanged per design §7.4, nor loop back to Missing) by
+                        // falling back to Active in those cases.
+                        RouteStatus baseline = route.PreMissingStatus;
+                        if (baseline == RouteStatus.SourceChanged
+                            || baseline == RouteStatus.MissingSourceRecording)
+                        {
+                            ParsekLog.Warn(Tag,
+                                $"RevalidateSources: route {ShortId(route.Id)} has an invalid " +
+                                $"preMissingStatus={baseline}; falling back to Active on recovery " +
+                                $"(reason={reasonOrNone})");
+                            baseline = RouteStatus.Active;
+                        }
+                        next = baseline;
+                        cause = $"{next}/source-restored preMissing={route.PreMissingStatus}";
                     }
                     else
                     {
@@ -391,6 +434,20 @@ namespace Parsek.Logistics
                 {
                     route.TransitionTo(next, $"{reasonOrNone}/{cause}");
                     transitioned++;
+
+                    // Clear the remembered baseline once we have left the missing
+                    // state, so a future into-missing edge re-captures fresh and a
+                    // healthy route never carries a stale pre-missing status. Reset
+                    // to the Active sentinel default (the codec then omits it).
+                    if (prev == RouteStatus.MissingSourceRecording
+                        && next != RouteStatus.MissingSourceRecording
+                        && route.PreMissingStatus != RouteStatus.Active)
+                    {
+                        ParsekLog.Verbose(Tag,
+                            $"RevalidateSources: route {ShortId(route.Id)} clearing preMissingStatus " +
+                            $"(was {route.PreMissingStatus}) after recovery to {next}");
+                        route.PreMissingStatus = RouteStatus.Active;
+                    }
                 }
             }
 

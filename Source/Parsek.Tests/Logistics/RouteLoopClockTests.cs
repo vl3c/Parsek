@@ -231,63 +231,126 @@ namespace Parsek.Tests.Logistics
         }
 
         // ==================================================================
-        // IsCrossing predicate
+        // ComputeDockCycleIndex (DEL-2 dock-phase index)
         // ==================================================================
 
-        // catches: a fresh cycle index past the last observed, actively playing,
-        // dock-in-span NOT being recognized as a crossing.
+        // catches: the dock-phase index not advancing to the current cycle once
+        // loopUT reaches/passes the recorded dock UT (and staying on the PRIOR
+        // cycle while the ghost is still pre-dock).
         [Fact]
-        public void IsCrossing_NewCycle_NotTail_DockInSpan_True()
+        public void ComputeDockCycleIndex_BeforeAndAfterDockPhase()
+        {
+            // Pre-dock (loopUT < dock): the most recently DOCKED cycle is the prior one.
+            Assert.Equal(-1, RouteLoopClock.ComputeDockCycleIndex(loopUT: 1100.0, cycleIndex: 0, recordedDockUT: 1150.0));
+            Assert.Equal(2, RouteLoopClock.ComputeDockCycleIndex(loopUT: 1100.0, cycleIndex: 3, recordedDockUT: 1150.0));
+            // At/after the dock phase (loopUT >= dock): this cycle's dock has passed.
+            Assert.Equal(0, RouteLoopClock.ComputeDockCycleIndex(loopUT: 1150.0, cycleIndex: 0, recordedDockUT: 1150.0));
+            Assert.Equal(3, RouteLoopClock.ComputeDockCycleIndex(loopUT: 1300.0, cycleIndex: 3, recordedDockUT: 1150.0));
+        }
+
+        // ==================================================================
+        // IsDockCrossing predicate (DEL-2 dock-phase gate)
+        // ==================================================================
+
+        // catches DEL-2: a fresh cycle firing at SPAN START (loopUT == spanStart,
+        // ghost just launching) before the dock phase. The dock-phase gate must
+        // NOT fire here even though the cycle index is new.
+        [Fact]
+        public void IsDockCrossing_AtSpanStart_BeforeDockPhase_False()
         {
             var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0);
-            Assert.True(RouteLoopClock.IsCrossing(
-                unit, cycleIndex: 0, isInInterCycleTail: false,
-                recordedDockUT: 1150.0, lastObservedLoopCycleIndex: -1));
+            // loopUT 1000 (spanStart) < dock 1150 -> not yet at the dock phase.
+            Assert.False(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1000.0, cycleIndex: 0, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: -1, out long dockIdx));
+            Assert.Equal(-1, dockIdx); // prior cycle; no new dock crossed
         }
 
-        // catches: re-firing the same cycle (cycleIndex == lastObserved).
+        // catches DEL-2: the crossing firing once loopUT reaches/passes the dock.
         [Fact]
-        public void IsCrossing_SameCycleAsLastObserved_False()
+        public void IsDockCrossing_AtDockPhase_NewCycle_True()
         {
-            var unit = BuildUnit();
-            Assert.False(RouteLoopClock.IsCrossing(
-                unit, cycleIndex: 3, isInInterCycleTail: false,
-                recordedDockUT: 1150.0, lastObservedLoopCycleIndex: 3));
+            var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0);
+            // loopUT 1150 == dock -> the cycle-0 dock instant has been reached.
+            Assert.True(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1150.0, cycleIndex: 0, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: -1, out long dockIdx));
+            Assert.Equal(0, dockIdx);
         }
 
-        // catches: a crossing firing while the clock is parked in the idle tail
-        // (vessel already delivered, nothing in transit).
+        // catches: re-firing the same cycle once its dock has already been
+        // delivered (dockCycleIndex == lastObserved).
         [Fact]
-        public void IsCrossing_InTail_False()
+        public void IsDockCrossing_SameDockCycleAsLastObserved_False()
         {
             var unit = BuildUnit();
-            Assert.False(RouteLoopClock.IsCrossing(
-                unit, cycleIndex: 1, isInInterCycleTail: true,
-                recordedDockUT: 1150.0, lastObservedLoopCycleIndex: 0));
+            // loopUT past dock -> dockCycleIndex == cycleIndex == 3, already observed.
+            Assert.False(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1300.0, cycleIndex: 3, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: 3, out long dockIdx));
+            Assert.Equal(3, dockIdx);
+        }
+
+        // catches DEL-2 (parked tail): a cold-start sample parked in the
+        // cadence > span tail (loopUT == spanEnd >= dock) whose cycle was NEVER
+        // delivered must still recognize the dock crossing for that cycle. The
+        // dock happened (we are past it); the LastObservedLoopCycleIndex snap is
+        // the sole re-fire guard, not a tail flag.
+        [Fact]
+        public void IsDockCrossing_ParkedTail_DockPassed_NotYetDelivered_True()
+        {
+            // cadence 600 > span 300 -> at loopUT == spanEnd the clock is parked.
+            var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0, cadenceSeconds: 600.0);
+            Assert.True(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1300.0, cycleIndex: 0, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: -1, out long dockIdx));
+            Assert.Equal(0, dockIdx);
+            // Once delivered (lastObserved == 0), the parked tail does NOT re-fire.
+            Assert.False(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1300.0, cycleIndex: 0, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: 0, out long dockIdx2));
+            Assert.Equal(0, dockIdx2);
         }
 
         // catches: a crossing firing when the dock UT is outside the span (no
-        // delivery binding inside the rendered [launch..undock] window).
+        // delivery binding inside the rendered [launch..undock] window). Without
+        // the span guard the pre-dock dockCycleIndex (cycleIndex-1) would
+        // eventually fire a stale prior cycle.
         [Fact]
-        public void IsCrossing_DockOutsideSpan_False()
+        public void IsDockCrossing_DockOutsideSpan_False()
         {
             var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0);
-            Assert.False(RouteLoopClock.IsCrossing(
-                unit, cycleIndex: 0, isInInterCycleTail: false,
-                recordedDockUT: 5000.0, lastObservedLoopCycleIndex: -1));
+            // dock 5000 outside span; loopUT can never reach it -> never fire.
+            Assert.False(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1300.0, cycleIndex: 0, recordedDockUT: 5000.0,
+                lastObservedLoopCycleIndex: -1, out _));
         }
 
-        // catches: a multi-cycle warp jump being mishandled by the predicate —
-        // it must still recognize the crossing (the orchestrator snaps forward
-        // and fires ONCE, but IsCrossing itself only checks "advanced past last").
+        // catches DEL-2 warp: a single tick that jumps several cycles AND lands
+        // PAST the dock of the new cycle fires once for that cycle's dock.
         [Fact]
-        public void IsCrossing_WarpJump_StillTrue()
+        public void IsDockCrossing_WarpJump_PastDock_FiresHighestPassedCycle()
         {
             var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0);
-            // lastObserved = 0, current cycle jumped to 5 (fast warp).
-            Assert.True(RouteLoopClock.IsCrossing(
-                unit, cycleIndex: 5, isInInterCycleTail: false,
-                recordedDockUT: 1150.0, lastObservedLoopCycleIndex: 0));
+            // lastObserved 0; warp lands in cycle 5 with loopUT 1200 (>= dock 1150).
+            Assert.True(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1200.0, cycleIndex: 5, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: 0, out long dockIdx));
+            Assert.Equal(5, dockIdx); // cycle 5's dock passed -> fire cycle 5
+        }
+
+        // catches DEL-2 warp: a single tick that jumps several cycles but lands
+        // BEFORE the dock of the new cycle fires once for the PRIOR cycle's dock
+        // (which was passed), NOT the new cycle (whose dock is still ahead).
+        [Fact]
+        public void IsDockCrossing_WarpJump_BeforeNewDock_FiresPriorCycle()
+        {
+            var unit = BuildUnit(spanStartUT: 1000.0, spanEndUT: 1300.0);
+            // lastObserved 0; warp lands in cycle 5 with loopUT 1100 (< dock 1150).
+            Assert.True(RouteLoopClock.IsDockCrossing(
+                unit, loopUT: 1100.0, cycleIndex: 5, recordedDockUT: 1150.0,
+                lastObservedLoopCycleIndex: 0, out long dockIdx));
+            Assert.Equal(4, dockIdx); // cycle 4 dock passed; cycle 5 dock still ahead
         }
     }
 }

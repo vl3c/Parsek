@@ -100,6 +100,28 @@ namespace Parsek.Logistics
 
             var ic = CultureInfo.InvariantCulture;
 
+            // (CRE-4) Root-unresolvable reject. The route span is [root.StartUT ..
+            // undockUT] and the loop clock's anchor / epoch is rootLaunchUT. When a
+            // committed TREE is supplied but its RootRecordingId does NOT resolve to a
+            // recording, we MUST NOT fall back to source.StartUT: source is the
+            // window-carrying leaf, which started mid-flight at the DOCK, so
+            // source.StartUT is the dock UT. Falling back would build a [dock..undock]
+            // segment instead of [launch..undock] (a wrong-span route that mis-renders
+            // and mis-clocks). Fail fast instead.
+            //
+            // The committedTree == null path is the legacy single-recording case: the
+            // source recording IS the whole flight (its own root), so source.StartUT
+            // genuinely IS the launch UT. That path stays valid (rootLaunchUT below
+            // resolves to source.StartUT). Production always passes a non-null tree.
+            if (committedTree != null && rootRec == null)
+            {
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: root-recording-unresolvable source={source.RecordingId ?? "<none>"} " +
+                    $"tree={committedTree.Id ?? "<none>"} " +
+                    $"rootId={committedTree.RootRecordingId ?? "<none>"}");
+                return new RouteBuildOutcome { RejectReason = "root-recording-unresolvable" };
+            }
+
             // --- Backing-mission geometry (design §0; Phase 5). ---------------
             // The route renders as a looped Mission segment over the source tree's
             // [root.StartUT .. undockUT] path, NOT the leaf-only dock-child span.
@@ -107,6 +129,8 @@ namespace Parsek.Logistics
             // mid-flight dock child) and the UNDOCK UT (from the connection
             // window). RouteBackingMission owns the interval-key + member-set
             // derivation (the geometry seam over the locked Missions composition).
+            // When no tree was supplied (legacy single-recording path), the source IS
+            // the root, so rootLaunchUT == source.StartUT.
             double rootLaunchUT = rootRec != null ? rootRec.StartUT : source.StartUT;
             double undockUT = analysis.ConnectionWindow != null
                 ? analysis.ConnectionWindow.UndockUT
@@ -164,15 +188,26 @@ namespace Parsek.Logistics
                 }
             }
 
-            // (Phase 6) Cadence model: the player-facing dispatch cadence is N x the
-            // run's natural period, which for a v0 SAME-BODY route IS the span. Derive
-            // N from the resolved interval (rounded to the nearest whole multiple of
-            // the span, floored at 1 = the minimum loop time) and RE-DERIVE the
-            // interval from N x span so DispatchInterval and CadenceMultiplier stay in
-            // lock-step (the UI later recomputes the same way). The clamp above already
-            // guarantees dispatchInterval >= span, so N >= 1 holds.
+            // (Phase 6 / CRE-3) Cadence model: the player-facing dispatch cadence is
+            // N x the run's natural period, which for a v0 SAME-BODY route IS the
+            // span. Derive N by rounding the resolved interval to the nearest whole
+            // multiple of the span, then RE-DERIVE interval = N x span so
+            // DispatchInterval and CadenceMultiplier stay in LOCK-STEP (the UI later
+            // recomputes the same way; one crossing == one cycle).
+            //
+            // LOCK-STEP INTENT (CRE-3): this round-then-rederive deliberately SNAPS
+            // any player-entered interval to the nearest whole-span multiple. A
+            // sub-2x interval (e.g. 1.4 x span) rounds to N=1 and is rewritten back
+            // DOWN to exactly span. That is correct, not a bug: the v0 contract is
+            // whole-span cadence only, and N=1 == span is the minimum loop time. It
+            // can NEVER shrink below span because the clamp above already guarantees
+            // dispatchInterval >= span (so Round(>=1.0) >= 1) AND
+            // Route.ClampCadenceMultiplier floors N at 1 explicitly. Both guards
+            // preserve the one-crossing-per-cycle invariant.
             int cadenceMultiplier =
                 Route.ClampCadenceMultiplier((int)System.Math.Round(dispatchInterval / transitDuration));
+            // N >= 1 is guaranteed (ClampCadenceMultiplier floor), so the rederived
+            // interval is always >= span: it never undercuts the rendered span.
             dispatchInterval = cadenceMultiplier * transitDuration;
 
             // (must-fix #3) Widen the source set to EVERY [root..undock] member
@@ -342,6 +377,23 @@ namespace Parsek.Logistics
             double recordedDockUT = analysis.ConnectionWindow != null
                 ? analysis.ConnectionWindow.DockUT
                 : double.NaN;
+
+            // (CRE-5) Validate the recorded dock UT lies strictly inside the
+            // rendered [rootLaunchUT .. undockUT] span. The dock is a mid-flight
+            // event: it must come after launch and before undock. A malformed
+            // window (NaN dock, dock <= launch, or dock >= undock) would build a
+            // route whose loop clock can never fire a crossing
+            // (RouteLoopClock.IsDockUTInSpan false forever -> a route that never
+            // delivers). Fail fast instead of persisting a dead route.
+            if (!IsDockUTWithinSpan(recordedDockUT, rootLaunchUT, undockUT))
+            {
+                ParsekLog.Info(Tag,
+                    $"BuildRoute rejected: dock-ut-out-of-span source={source.RecordingId ?? "<none>"} " +
+                    $"dockUT={recordedDockUT.ToString("R", ic)} rootLaunchUT={rootLaunchUT.ToString("R", ic)} " +
+                    $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
+                return new RouteBuildOutcome { RejectReason = "dock-ut-out-of-span" };
+            }
+
             double loopAnchorUT = initialStatus == RouteStatus.Active ? rootLaunchUT : -1.0;
 
             var route = new Route
@@ -402,6 +454,27 @@ namespace Parsek.Logistics
                 $"mode={mode}");
 
             return new RouteBuildOutcome { Route = route };
+        }
+
+        /// <summary>
+        /// (CRE-5) True when the recorded dock UT lies STRICTLY inside the rendered
+        /// <c>[rootLaunchUT .. undockUT]</c> span (dock after launch, before undock).
+        /// Strict on both ends because the dock is a mid-flight event: a dock at the
+        /// exact launch or undock instant is a degenerate window the loop clock
+        /// cannot deliver from. Any NaN / infinity input is rejected. This is a
+        /// fail-fast subset of <c>RouteLoopClock.IsDockUTInSpan</c>'s inclusive
+        /// <c>[SpanStartUT, SpanEndUT]</c> check, so every dock this accepts the
+        /// clock also accepts.
+        /// </summary>
+        internal static bool IsDockUTWithinSpan(double dockUT, double rootLaunchUT, double undockUT)
+        {
+            if (double.IsNaN(dockUT) || double.IsInfinity(dockUT)
+                || double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT)
+                || double.IsNaN(undockUT) || double.IsInfinity(undockUT))
+            {
+                return false;
+            }
+            return dockUT > rootLaunchUT && dockUT < undockUT;
         }
 
         private static string DefaultIdFactory()

@@ -278,7 +278,7 @@ namespace Parsek
             Game.Modes mode = HighLogic.CurrentGame != null
                 ? HighLogic.CurrentGame.Mode
                 : Game.Modes.SANDBOX;
-            string body = RouteCreationFormatters.BuildSummaryBlock(result, mode);
+            string body = RouteCreationFormatters.BuildSummaryBlock(result, mode, tree);
             // (Phase 6 should-fix) The default interval is the FULL [root..undock]
             // span (undockUT - rootLaunchUT), i.e. N=1, NOT the leaf dock-child span
             // (source.EndUT - source.StartUT). On a multi-recording flight the leaf

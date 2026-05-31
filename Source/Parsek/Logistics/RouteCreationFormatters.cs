@@ -99,7 +99,18 @@ namespace Parsek.Logistics
         /// Inventory / Transit lines, plus a "Dispatch cost: TBD" line in
         /// Career mode only.
         /// </summary>
-        internal static string BuildSummaryBlock(RouteAnalysisResult analysis, Game.Modes mode)
+        /// <remarks>
+        /// CRE-2: the Transit line is the FULL rendered <c>[root..undock]</c> span
+        /// the builder actually uses (see <c>RouteCreationDialog.ComputeRootToUndockSpan</c>),
+        /// NOT the leaf dock-child span (<c>source.EndUT - source.StartUT</c>). On a
+        /// multi-recording flight the leaf span is smaller, so showing it here would
+        /// understate the player-facing transit relative to the created route's
+        /// <c>TransitDuration</c>. Pass the source <paramref name="tree"/> so the
+        /// span helper can resolve the tree ROOT launch UT; when it is null the
+        /// helper falls back to the leaf span (no worse than the old behaviour).
+        /// </remarks>
+        internal static string BuildSummaryBlock(
+            RouteAnalysisResult analysis, Game.Modes mode, RecordingTree tree = null)
         {
             var sb = new StringBuilder();
             if (analysis == null || !analysis.IsEligible)
@@ -170,7 +181,13 @@ namespace Parsek.Logistics
                 sb.Append("  (none)\n");
             }
 
-            double transit = source != null ? (source.EndUT - source.StartUT) : 0.0;
+            // CRE-2: full [root..undock] span (matches the created route's
+            // TransitDuration), reusing the single span helper so display and
+            // creation never diverge. Falls back to the leaf span when the tree /
+            // root cannot be resolved.
+            double transit = source != null
+                ? RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree)
+                : 0.0;
             sb.Append("Transit: ").Append(FormatTransitTime(transit)).Append('\n');
 
             if (mode == Game.Modes.CAREER)

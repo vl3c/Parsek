@@ -159,5 +159,110 @@ namespace Parsek.Tests.Logistics
         {
             Assert.False(RouteCadence.ApplyMultiplier(null, 3));
         }
+
+        // ==================================================================
+        // LST-3: loop-clock rebase on a cadence change
+        // ==================================================================
+
+        // catches (LST-3): a cadence change recomputing DispatchInterval but leaving
+        // LastObservedLoopCycleIndex stale. CadenceSeconds derives from
+        // DispatchInterval, so the same UT resolves to a DIFFERENT span-clock
+        // cycleIndex after the change; a stale lastObserved then stalls (N raised) or
+        // snaps (N lowered) the next crossing. The fix resets it to -1 so the clock
+        // re-anchors cleanly (mirrors RouteOrchestrator.TryActivate).
+        [Fact]
+        public void ApplyMultiplier_NChanges_RebasesLastObservedLoopCycleIndex()
+        {
+            Route route = RouteWithSpan(span: 300.0, multiplier: 1);
+            route.LastObservedLoopCycleIndex = 7;
+
+            bool changed = RouteCadence.ApplyMultiplier(route, 2);
+
+            Assert.True(changed);
+            Assert.Equal(2, route.CadenceMultiplier);
+            Assert.Equal(600.0, route.DispatchInterval);
+            Assert.Equal(-1L, route.LastObservedLoopCycleIndex);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]")
+                && l.Contains("RouteCadence")
+                && l.Contains("lastObservedLoopCycleIndex 7->-1")
+                && l.Contains("rebase"));
+        }
+
+        // catches: the no-op same-N path gratuitously resetting the clock. A same-N
+        // apply returns false and must NOT touch LastObservedLoopCycleIndex (no
+        // change == no rebase, so no spurious re-fire from a clean reset).
+        [Fact]
+        public void ApplyMultiplier_SameN_DoesNotRebase()
+        {
+            Route route = RouteWithSpan(span: 300.0, multiplier: 2);
+            route.LastObservedLoopCycleIndex = 5;
+
+            bool changed = RouteCadence.ApplyMultiplier(route, 2);
+
+            Assert.False(changed);
+            Assert.Equal(5L, route.LastObservedLoopCycleIndex);
+        }
+
+        // catches (LST-3 end-to-end): after a cadence change the next in-span dock
+        // crossing fires EXACTLY once. Without the -1 rebase a stale lastObserved
+        // (here 3) would never be exceeded by the post-change cycleIndex (smaller
+        // because the cadence grew), stalling delivery indefinitely. With the rebase,
+        // the next crossing fires once and a same-cycle re-tick does not re-fire.
+        [Fact]
+        public void CadenceChangeThenNextCrossing_FiresExactlyOnce()
+        {
+            // span [1000,1300] (300s), dock at the span midpoint (1150).
+            const double spanStart = 1000.0;
+            const double spanEnd = 1300.0;
+            const double dockUT = 1150.0;
+
+            Route route = RouteWithSpan(span: 300.0, multiplier: 1);
+            // Simulate a clock that has already delivered cycle 3 under the OLD
+            // (N=1, cadence=300) cadence.
+            route.LastObservedLoopCycleIndex = 3;
+
+            // Raise cadence to 2x: DispatchInterval 300 -> 600, lastObserved -> -1.
+            Assert.True(RouteCadence.ApplyMultiplier(route, 2));
+            Assert.Equal(600.0, route.DispatchInterval);
+            Assert.Equal(-1L, route.LastObservedLoopCycleIndex);
+
+            // Build the post-change loop unit: cadence == DispatchInterval (600s),
+            // anchored at the new cadence epoch. Pick a UT in the FIRST post-rebase
+            // cycle, past the dock phase so the dock crossing is reachable.
+            double cadence = route.DispatchInterval;
+            double anchor = spanStart;
+            GhostPlaybackLogic.LoopUnit unit = new GhostPlaybackLogic.LoopUnit(
+                ownerIndex: 0,
+                memberIndices: new[] { 0 },
+                spanStartUT: spanStart,
+                spanEndUT: spanEnd,
+                cadenceSeconds: cadence,
+                phaseAnchorUT: anchor);
+
+            // 200s into cycle 0 -> loopUT = 1200 (>= dock 1150), cycleIndex 0.
+            double sampleUT = anchor + 200.0;
+            Assert.True(RouteLoopClock.TryGetRouteLoopState(
+                unit, sampleUT, out double loopUT, out long cycleIndex, out bool tail));
+            Assert.False(tail);
+            Assert.Equal(0L, cycleIndex);
+            Assert.True(loopUT >= dockUT, "sample must be past the dock phase");
+
+            // First tick: with lastObserved == -1 the fresh cycle 0 dock fires once.
+            bool firstFire = RouteLoopClock.IsDockCrossing(
+                unit, loopUT, cycleIndex, dockUT, route.LastObservedLoopCycleIndex,
+                out long dockCycleIndex);
+            Assert.True(firstFire);
+            Assert.Equal(0L, dockCycleIndex);
+
+            // Orchestrator snaps lastObserved forward to the dock cycle.
+            route.LastObservedLoopCycleIndex = dockCycleIndex;
+
+            // Second tick in the SAME cycle does NOT re-fire (no double-fire).
+            bool reFire = RouteLoopClock.IsDockCrossing(
+                unit, loopUT, cycleIndex, dockUT, route.LastObservedLoopCycleIndex,
+                out _);
+            Assert.False(reFire);
+        }
     }
 }

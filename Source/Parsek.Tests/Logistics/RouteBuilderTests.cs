@@ -781,6 +781,364 @@ namespace Parsek.Tests.Logistics
                 && l.Contains("BuildRoute rejected")
                 && l.Contains("source-no-longer-eligible"));
         }
+
+        // -----------------------------------------------------------------
+        // CRE-2: player-shown transit equals the created route's span
+        // -----------------------------------------------------------------
+
+        // Build the multi-leg fixture shared by the CRE-2 / CRE-4 tests: a tree
+        // with a launch ROOT (1000..2000), a dock CHILD leaf carrying the window
+        // (2000..3000, dock 2000 -> undock 3000), and a post-undock survivor. The
+        // rendered span is [root.StartUT(1000) .. undockUT(3000)] = 2000, while the
+        // leaf-only span (child.EndUT - child.StartUT = 1000) is HALF that.
+        private static RecordingTree MakeMultiLegTree(out Recording windowChild)
+        {
+            windowChild = new Recording
+            {
+                RecordingId = "docked-child",
+                TreeId = "tree-multi",
+                TreeOrder = 1,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 2500.0, undockUT: 3000.0) },
+                RouteOriginProof = null
+            }.WithUtSpan(2000.0, 3000.0);
+            var root = new Recording
+            {
+                RecordingId = "launch-root",
+                TreeId = "tree-multi",
+                TreeOrder = 0,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = "Runway",
+                RouteOriginProof = null
+            }.WithUtSpan(1000.0, 2000.0);
+            var survivor = new Recording
+            {
+                RecordingId = "survivor",
+                TreeId = "tree-multi",
+                TreeOrder = 2,
+                StartBodyName = "Kerbin",
+                RouteOriginProof = null
+            }.WithUtSpan(3000.0, 4000.0);
+            var tree = new RecordingTree { Id = "tree-multi", RootRecordingId = "launch-root" };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(windowChild);
+            tree.AddOrReplaceRecording(survivor);
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "dock-bp",
+                Type = BranchPointType.Dock,
+                UT = 2000.0,
+                ParentRecordingIds = new List<string> { "launch-root" },
+                ChildRecordingIds = new List<string> { "docked-child" }
+            });
+            tree.BranchPoints.Add(new BranchPoint
+            {
+                Id = "undock-bp",
+                Type = BranchPointType.Undock,
+                UT = 3000.0,
+                SplitCause = "UNDOCK",
+                ParentRecordingIds = new List<string> { "docked-child" },
+                ChildRecordingIds = new List<string> { "survivor" }
+            });
+            return tree;
+        }
+
+        [Fact]
+        public void Cre2_CandidateTransitSpanHelper_EqualsCreatedRouteTransitDuration_OnMultiLegTree()
+        {
+            // (CRE-2) The player-shown transit (LogisticsWindowUI.CandidateTransit and
+            // the dialog summary) both route through ComputeRootToUndockSpan. That
+            // span MUST equal the created route's TransitDuration; otherwise the table
+            // / summary under-reports the leaf span while the route flies the full
+            // [root..undock] span. On this fixture the leaf span (1000) is HALF the
+            // rendered span (2000), so a leaf-span display would be visibly wrong.
+            RecordingTree tree = MakeMultiLegTree(out Recording windowChild);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            // The exact helper both display sites reuse.
+            double shownSpan = RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(2000.0, outcome.Route.TransitDuration);
+            // Display span == created route span (the whole point of CRE-2).
+            Assert.Equal(outcome.Route.TransitDuration, shownSpan);
+            // And it is NOT the leaf-only dock-child span (which would be 1000).
+            Assert.NotEqual(windowChild.EndUT - windowChild.StartUT, shownSpan);
+        }
+
+        [Fact]
+        public void Cre2_BuildSummaryBlock_TransitLine_UsesFullRootToUndockSpan_NotLeafSpan()
+        {
+            // (CRE-2) The dialog summary "Transit:" line must render the full
+            // [root..undock] span, not the leaf dock-child span. Span here = 700s
+            // (under one hour, so FormatDuration never reads GameSettings -> no Unity
+            // dependency); leaf span would be 900s, which formats differently. Pin the
+            // override anyway so the format is deterministic.
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            try
+            {
+                var windowChild = new Recording
+                {
+                    RecordingId = "child",
+                    TreeId = "tree-s",
+                    TreeOrder = 1,
+                    StartBodyName = "Kerbin",
+                    LaunchSiteName = null,
+                    RouteConnectionWindows = new List<RouteConnectionWindow>
+                        { MakeCompleteWindow(dockUT: 2500.0, undockUT: 2700.0) },
+                    RouteOriginProof = null
+                }.WithUtSpan(2000.0, 2900.0); // leaf span = 900
+                var root = new Recording
+                {
+                    RecordingId = "root-s",
+                    TreeId = "tree-s",
+                    TreeOrder = 0,
+                    StartBodyName = "Kerbin",
+                    LaunchSiteName = "Runway",
+                    RouteOriginProof = null
+                }.WithUtSpan(2000.0, 2500.0);
+                var tree = new RecordingTree { Id = "tree-s", RootRecordingId = "root-s" };
+                tree.AddOrReplaceRecording(root);
+                tree.AddOrReplaceRecording(windowChild);
+
+                RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+                // root.StartUT(2000) .. undock(2700) -> 700s -> "11m 40s".
+                string block = RouteCreationFormatters.BuildSummaryBlock(
+                    analysis, Game.Modes.SANDBOX, tree);
+
+                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(700.0), block);
+                // The leaf span (900s = "15m 0s") must NOT appear on the Transit line.
+                Assert.DoesNotContain("Transit: " + ParsekTimeFormat.FormatDuration(900.0), block);
+            }
+            finally
+            {
+                ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
+            }
+        }
+
+        [Fact]
+        public void Cre2_BuildSummaryBlock_NullTree_FallsBackToLeafSpan_StillCompiles()
+        {
+            // (CRE-2) With no tree the span helper falls back to the leaf span (no
+            // worse than the old behaviour), and the 2-arg call site keeps compiling
+            // via the optional tree parameter. Source span 0..600 -> 600s -> "10m 0s".
+            ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
+            try
+            {
+                Recording source = MakeKscSource(
+                    startUT: 0.0, endUT: 600.0, dockUT: 200.0, undockUT: 500.0);
+                RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+                // 2-arg call (the read-only dialog's current call site shape).
+                string block = RouteCreationFormatters.BuildSummaryBlock(
+                    analysis, Game.Modes.SANDBOX);
+
+                // No tree -> root falls back to source.StartUT(0); span = undock(500) - 0 = 500.
+                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(500.0), block);
+            }
+            finally
+            {
+                ParsekTimeFormat.KerbinTimeOverrideForTesting = null;
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // CRE-4: root-recording-unresolvable reject
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Cre4_TreeWithMissingRootRecording_Rejected_RootUnresolvable()
+        {
+            // (CRE-4) A committed tree whose RootRecordingId does NOT resolve to a
+            // recording must REJECT, not silently fall back to source.StartUT (the
+            // dock-child leaf's mid-flight DOCK UT). Falling back would build a
+            // [dock..undock] segment instead of [launch..undock]. Here the tree
+            // points RootRecordingId at "ghost-root" which is absent from Recordings.
+            var windowChild = new Recording
+            {
+                RecordingId = "docked-child",
+                TreeId = "tree-noroot",
+                TreeOrder = 1,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 2500.0, undockUT: 3000.0) },
+                RouteOriginProof = null
+            }.WithUtSpan(2000.0, 3000.0);
+            var tree = new RecordingTree { Id = "tree-noroot", RootRecordingId = "ghost-root" };
+            tree.AddOrReplaceRecording(windowChild); // root id never added
+
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("root-recording-unresolvable", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[Route]")
+                && l.Contains("BuildRoute rejected")
+                && l.Contains("root-recording-unresolvable"));
+        }
+
+        [Fact]
+        public void Cre4_TreeWithEmptyRootRecordingId_Rejected_RootUnresolvable()
+        {
+            // (CRE-4) An empty/null RootRecordingId is equally unresolvable: there is
+            // no launch recording to anchor [launch..undock], so reject rather than
+            // build a wrong-span route off the dock-child leaf.
+            var windowChild = new Recording
+            {
+                RecordingId = "docked-child",
+                TreeId = "tree-emptyroot",
+                TreeOrder = 1,
+                StartBodyName = "Kerbin",
+                LaunchSiteName = null,
+                RouteConnectionWindows = new List<RouteConnectionWindow>
+                    { MakeCompleteWindow(dockUT: 2500.0, undockUT: 3000.0) },
+                RouteOriginProof = null
+            }.WithUtSpan(2000.0, 3000.0);
+            var tree = new RecordingTree { Id = "tree-emptyroot", RootRecordingId = "" };
+            tree.AddOrReplaceRecording(windowChild);
+
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused,
+                allowIntervalBelowTransit: true);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("root-recording-unresolvable", outcome.RejectReason);
+        }
+
+        [Fact]
+        public void Cre4_NullTree_SingleRecording_NotRejected_SourceIsRoot()
+        {
+            // (CRE-4) The legacy single-recording path (committedTree == null) must
+            // still build: the source recording IS the whole flight (its own root), so
+            // source.StartUT genuinely IS the launch UT. Guards the narrow reject from
+            // catching the legitimate standalone case.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 400.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Null(outcome.RejectReason);
+            // rootLaunchUT == source.StartUT, span = undock(1400) - 1000 = 400.
+            Assert.Equal(400.0, outcome.Route.TransitDuration);
+        }
+
+        // -----------------------------------------------------------------
+        // CRE-5: dock-UT-out-of-span reject
+        // -----------------------------------------------------------------
+
+        [Theory]
+        [InlineData(false, 1100.0, 1000.0, 1200.0, true)]  // dock strictly inside -> valid
+        [InlineData(false, 1000.0, 1000.0, 1200.0, false)] // dock == launch -> invalid
+        [InlineData(false, 1200.0, 1000.0, 1200.0, false)] // dock == undock -> invalid
+        [InlineData(false, 999.0, 1000.0, 1200.0, false)]  // dock before launch -> invalid
+        [InlineData(false, 1300.0, 1000.0, 1200.0, false)] // dock after undock -> invalid
+        [InlineData(true, 1100.0, 1000.0, 1200.0, false)]  // NaN dock -> invalid
+        public void Cre5_IsDockUTWithinSpan_StrictBounds_RejectsDegenerate(
+            bool dockIsNaN, double dockUT, double rootLaunchUT, double undockUT, bool expected)
+        {
+            // (CRE-5) The pure predicate: dock UT must be STRICTLY between launch and
+            // undock (a mid-flight event). Boundary and out-of-range inputs (and any
+            // NaN) reject. This is the fail-fast subset of RouteLoopClock.IsDockUTInSpan.
+            double dock = dockIsNaN ? double.NaN : dockUT;
+            Assert.Equal(expected, RouteBuilder.IsDockUTWithinSpan(dock, rootLaunchUT, undockUT));
+        }
+
+        [Fact]
+        public void Cre5_DockUTOutsideSpan_Rejected_DockUtOutOfSpan()
+        {
+            // (CRE-5) A malformed window whose dock UT falls OUTSIDE the rendered
+            // [rootLaunch..undock] span must reject at build time. Otherwise the loop
+            // clock's IsDockUTInSpan is false forever and the route never delivers
+            // (a dead route persisted to the save). Here the window's dock UT (3500)
+            // is AFTER the undock UT (3000) on the multi-leg tree.
+            RecordingTree tree = MakeMultiLegTree(out Recording windowChild);
+            // Corrupt the window: dock now lands past undock.
+            windowChild.RouteConnectionWindows[0].DockUT = 3500.0;
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("dock-ut-out-of-span", outcome.RejectReason);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[Route]")
+                && l.Contains("BuildRoute rejected")
+                && l.Contains("dock-ut-out-of-span"));
+        }
+
+        [Fact]
+        public void Cre5_DockUTAtSpanBoundary_Rejected_DockUtOutOfSpan()
+        {
+            // (CRE-5) A dock UT exactly AT the undock instant is a degenerate window
+            // (zero delivery slack) the loop clock cannot cross meaningfully; the
+            // strict bound rejects it. Window dock == undock == 3000 on the multi-leg
+            // tree (rootLaunch 1000, undock 3000).
+            RecordingTree tree = MakeMultiLegTree(out Recording windowChild);
+            windowChild.RouteConnectionWindows[0].DockUT = 3000.0; // == undockUT
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
+
+            RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
+                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                idFactory: null,
+                initialStatus: RouteStatus.Paused);
+
+            Assert.Null(outcome.Route);
+            Assert.Equal("dock-ut-out-of-span", outcome.RejectReason);
+        }
+
+        // -----------------------------------------------------------------
+        // CRE-3: sub-2x interval snaps to span (lock-step), never below
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Cre3_SubTwoXInterval_SnapsToSpan_NeverBelow()
+        {
+            // (CRE-3) A player-entered interval between 1x and 2x the span (1.4x here)
+            // rounds to N=1 and is rewritten back DOWN to exactly the span. That is the
+            // documented lock-step intent (whole-span cadence; one crossing == one
+            // cycle), and it can NEVER undercut the span. Span = undock(1400) -
+            // launch(1000) = 400; entered interval = 560 (1.4x) -> N=1 -> interval 400.
+            Recording source = MakeKscSource(
+                startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
+            RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
+
+            RouteBuilder.RouteBuildOutcome outcome =
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 560.0), Game.Modes.SANDBOX);
+
+            Assert.NotNull(outcome.Route);
+            Assert.Equal(1, outcome.Route.CadenceMultiplier);
+            Assert.Equal(400.0, outcome.Route.TransitDuration);
+            // Re-derived interval lands exactly at the span, never below it.
+            Assert.Equal(400.0, outcome.Route.DispatchInterval);
+            Assert.True(outcome.Route.DispatchInterval >= outcome.Route.TransitDuration);
+        }
     }
 
     /// <summary>

@@ -11,25 +11,36 @@ namespace Parsek.Logistics
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The clock passes the backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/>'s
-    /// OWN relaunch schedule (<see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/>)
+    /// The backing-mission <see cref="GhostPlaybackLogic.LoopUnit"/> is built with the
+    /// SAME <c>bodyInfo</c> the render seams use (DEL-1:
+    /// <c>FlightGlobalsBodyInfo.Instance</c>, not <c>null</c>), so the delivery clock
+    /// phase-locks exactly as the rendered ghost. The clock also passes the unit's OWN
+    /// relaunch schedule (<see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/>)
     /// and loiter cuts (<see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/>) straight
     /// through into <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> (Phase 6
-    /// hardening). For a v0 SAME-BODY route both fields are <c>null</c> (the backing
-    /// Mission is built faithful, <c>bodyInfo=null</c>, no re-aim), so this is a
-    /// NO-OP: the span is UNCOMPRESSED, the recorded dock UT maps directly into
-    /// <c>[spanStart, spanEnd]</c>, and the loopUT it reports is a genuine recorded
-    /// UT. The passthrough is the inter-body SEAM: when an inter-body route is later
-    /// enabled, the backing Mission's loop unit carries a synodic / re-aimed
-    /// <see cref="MissionRelaunchSchedule"/> (built by the locked Missions layer), and
-    /// delivery then fires on the SAME re-aimed launch UTs the ghost renders on,
-    /// inheriting the synodic schedule for free. v0 does NOT enable inter-body
-    /// routes; it only stops hardcoding <c>null</c> so the seam is in place.
-    /// Both fields are consumed READ-ONLY (no Missions/engine file is edited).
-    /// Phase 5's <c>RouteBuilder</c> clamps
-    /// <c>DispatchInterval &gt;= backingMissionSpan</c> so the unit's
-    /// <see cref="GhostPlaybackLogic.LoopUnit.CadenceSeconds"/> equals the dispatch
-    /// interval, which makes ONE span-clock crossing equal ONE dispatch cycle.
+    /// hardening). Behaviour by scenario:
+    /// <list type="bullet">
+    ///   <item><b>Same-body suborbital / atmospheric</b> (rover to base): the Missions
+    ///     layer emits no rotation constraint, so there is no phase-lock,
+    ///     <c>RelaunchSchedule</c> / <c>LoiterCuts</c> are <c>null</c>, the cadence is
+    ///     the raw <c>DispatchInterval</c>, and the span is UNCOMPRESSED (the recorded
+    ///     dock UT maps directly into <c>[spanStart, spanEnd]</c>).</item>
+    ///   <item><b>Same-body orbital</b> (tanker to LKO station): the run launches from a
+    ///     rotating body and reaches its orbit, so the Missions layer emits a launch-pad
+    ///     rotation constraint; the unit's <c>PhaseAnchorUT</c> snaps to the next
+    ///     launch-pad window and <c>CadenceSeconds</c> quantizes up to a multiple of the
+    ///     rotation period -- the SAME values the ghost renders on, so delivery fires on
+    ///     the relaunch UTs the player sees (the DEL-1 fix; before it the
+    ///     <c>bodyInfo:null</c> delivery clock over-fired at the raw interval).</item>
+    ///   <item><b>Inter-body</b> (future): the unit carries a synodic / re-aimed
+    ///     <see cref="MissionRelaunchSchedule"/> built by the locked Missions layer, and
+    ///     delivery inherits it for free through the passthrough. v0 does NOT enable
+    ///     inter-body routes; the passthrough is only the seam.</item>
+    /// </list>
+    /// All consumed fields are READ-ONLY (no Missions/engine file is edited). Phase 5's
+    /// <c>RouteBuilder</c> clamps <c>DispatchInterval &gt;= backingMissionSpan</c> and
+    /// the DEL-2 dock-phase gate fires once per cycle, so ONE dock crossing equals ONE
+    /// dispatch cycle regardless of whether the cadence was phase-locked.
     /// </para>
     /// <para>
     /// <b>cadence == span vs cadence &gt; span.</b> When the dispatch interval
@@ -118,33 +129,75 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Pure crossing-detection predicate (plan Phase 4 task 2). A crossing is
-        /// confirmed when ALL of:
+        /// The 0-based cycle whose recorded-dock PHASE has most recently been
+        /// reached/passed at the current sample (DEL-2). Within a cycle the
+        /// span clock's <paramref name="loopUT"/> climbs monotonically from
+        /// <c>spanStart</c> toward <c>spanEnd</c>; the dock instant of that cycle
+        /// is crossed once <paramref name="loopUT"/> reaches
+        /// <paramref name="recordedDockUT"/>. So:
         /// <list type="bullet">
-        ///   <item><paramref name="cycleIndex"/> &gt;
-        ///     <paramref name="lastObservedLoopCycleIndex"/> (a new span-clock
-        ///     cycle has advanced past the last one the route delivered);</item>
-        ///   <item><c>!</c><paramref name="isInInterCycleTail"/> (the clock is
-        ///     actively playing, not parked at <c>spanEnd</c> in the
-        ///     cadence &gt; span idle tail);</item>
+        ///   <item>if <paramref name="loopUT"/> &gt;= <paramref name="recordedDockUT"/>
+        ///     the CURRENT cycle's dock has been reached -&gt; its
+        ///     <paramref name="cycleIndex"/> (this also covers the parked
+        ///     cadence &gt; span tail, where <c>loopUT == spanEnd &gt;= dock</c>,
+        ///     and the cadence == span back-to-back boundary frame at
+        ///     <c>spanEnd</c>);</item>
+        ///   <item>otherwise the clock is still BEFORE this cycle's dock (early in
+        ///     the cycle, ghost just launching) -&gt; the most recently DOCKED cycle
+        ///     is the PRIOR one, <paramref name="cycleIndex"/> - 1.</item>
+        /// </list>
+        /// The span-membership of the dock is enforced separately (see
+        /// <see cref="IsDockUTInSpan"/> / <see cref="IsDockCrossing"/>); a dock UT
+        /// outside the span never produces a fire. Pure: no logging.
+        /// </summary>
+        internal static long ComputeDockCycleIndex(double loopUT, long cycleIndex, double recordedDockUT)
+        {
+            return loopUT >= recordedDockUT ? cycleIndex : cycleIndex - 1;
+        }
+
+        /// <summary>
+        /// Pure dock-phase crossing predicate (plan Phase 4 task 2, retuned for
+        /// DEL-2). A crossing is confirmed when BOTH:
+        /// <list type="bullet">
         ///   <item><see cref="IsDockUTInSpan"/> for
         ///     <paramref name="recordedDockUT"/> (the delivery binding falls inside
-        ///     the rendered span).</item>
+        ///     the rendered span; a dock outside the span never fires);</item>
+        ///   <item>the dock-PHASE cycle index
+        ///     (<see cref="ComputeDockCycleIndex"/>) is strictly greater than
+        ///     <paramref name="lastObservedLoopCycleIndex"/> -- i.e. a cycle whose
+        ///     dock instant has now been reached/passed has NOT yet been
+        ///     delivered.</item>
         /// </list>
-        /// Pure: no logging (the caller owns the per-tick rate-limited summary).
+        /// Unlike the pre-DEL-2 predicate this fires at the DOCK phase, not at
+        /// cycle start: a fresh <paramref name="cycleIndex"/> alone does not fire
+        /// while <paramref name="loopUT"/> is still before
+        /// <paramref name="recordedDockUT"/> (ghost just launching). The
+        /// cadence &gt; span parked tail no longer needs a separate gate: in the
+        /// tail <c>loopUT == spanEnd &gt;= dock</c> so the tail's own cycle is the
+        /// dock cycle, and the <paramref name="lastObservedLoopCycleIndex"/> snap
+        /// is the sole re-fire guard. A warp tick that jumps several cycles in one
+        /// frame still yields exactly one crossing for the highest cycle whose dock
+        /// instant has passed (the caller snaps forward to
+        /// <paramref name="dockCycleIndex"/> and fires once). Pure: no logging (the
+        /// caller owns the per-tick rate-limited summary).
         /// </summary>
-        internal static bool IsCrossing(
+        /// <param name="dockCycleIndex">The cycle whose dock has most recently been
+        /// reached/passed (<see cref="ComputeDockCycleIndex"/>). The caller snaps
+        /// <c>LastObservedLoopCycleIndex</c> to THIS on a fire, NOT to the raw
+        /// span-clock <paramref name="cycleIndex"/>, so a tick that lands early in a
+        /// new cycle (before its dock) does not prematurely consume that cycle.</param>
+        internal static bool IsDockCrossing(
             GhostPlaybackLogic.LoopUnit unit,
+            double loopUT,
             long cycleIndex,
-            bool isInInterCycleTail,
             double recordedDockUT,
-            long lastObservedLoopCycleIndex)
+            long lastObservedLoopCycleIndex,
+            out long dockCycleIndex)
         {
-            if (cycleIndex <= lastObservedLoopCycleIndex)
+            dockCycleIndex = ComputeDockCycleIndex(loopUT, cycleIndex, recordedDockUT);
+            if (!IsDockUTInSpan(unit, recordedDockUT))
                 return false;
-            if (isInInterCycleTail)
-                return false;
-            return IsDockUTInSpan(unit, recordedDockUT);
+            return dockCycleIndex > lastObservedLoopCycleIndex;
         }
 
         /// <summary>

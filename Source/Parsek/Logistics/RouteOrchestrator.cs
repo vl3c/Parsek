@@ -486,32 +486,54 @@ namespace Parsek.Logistics
                 return;
             }
 
-            // Crossing detection.
-            bool crossing = RouteLoopClock.IsCrossing(
-                unit, cycleIndex, isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex);
+            // Dock-phase crossing detection (DEL-2). A new span-clock cycle alone
+            // does NOT fire: the delivery is gated on the loop clock having reached
+            // the recorded dock PHASE within the cycle (loopUT >= RecordedDockUT),
+            // so one loop-clock crossing == one ghost relaunch == one delivery that
+            // fires when the ghost reaches the recorded dock. dockCycleIndex is the
+            // cycle whose dock instant has most recently passed (== cycleIndex once
+            // the dock phase is reached, cycleIndex-1 while the ghost is still
+            // pre-dock); the route snaps LastObservedLoopCycleIndex to THIS, not the
+            // raw cycleIndex, so a tick landing early in a fresh cycle does not
+            // consume that cycle before its dock.
+            bool crossing = RouteLoopClock.IsDockCrossing(
+                unit, loopUT, cycleIndex, route.RecordedDockUT,
+                route.LastObservedLoopCycleIndex, out long dockCycleIndex);
             if (!crossing)
             {
                 skipped++;
                 ParsekLog.VerboseRateLimited(Tag, "loop-noncross-" + route.Id,
-                    $"LoopRoute: route {ShortIdForLog(route)} no crossing — " +
+                    $"LoopRoute: route {ShortIdForLog(route)} no dock crossing " +
+                    $"(dockCycleIdx={dockCycleIndex.ToString(IC)}) — " +
                     RouteLoopClock.DescribeState(unit, currentUT, loopUT, cycleIndex,
                         isInInterCycleTail, route.RecordedDockUT, route.LastObservedLoopCycleIndex),
                     5.0);
                 return;
             }
 
-            // Warp: cycleIndex may jump N>1 since the last tick (~1 Hz orchestrator
-            // vs fast warp). We fire ONCE per tick and snap LastObservedLoopCycleIndex
-            // forward to cycleIndex (do NOT replay each skipped cycle). ELS
-            // (routeId, cycleId) idempotency is the backstop if a save/reload or a
-            // double-tick re-fires the same cycleId.
-            long jump = cycleIndex - route.LastObservedLoopCycleIndex;
+            // Confirmed dock crossing. Verbose-log the fire DECISION (cycleIndex,
+            // loopUT, recordedDockUT, dockCycleIndex) before the eligibility / emit
+            // branches so the dock-phase gate is auditable in the log.
+            ParsekLog.Verbose(Tag,
+                $"LoopRoute: route {ShortIdForLog(route)} DOCK CROSSING confirmed " +
+                $"dockCycleIdx={dockCycleIndex.ToString(IC)} cycleIdx={cycleIndex.ToString(IC)} " +
+                $"loopUT={loopUT.ToString("R", IC)} recordedDockUT={route.RecordedDockUT.ToString("R", IC)} " +
+                $"lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} at ut={currentUT.ToString("R", IC)}");
+
+            // Warp: dockCycleIndex may jump N>1 since the last tick (~1 Hz
+            // orchestrator vs fast warp). We fire ONCE per tick and snap
+            // LastObservedLoopCycleIndex forward to dockCycleIndex (do NOT replay
+            // each skipped cycle). A single warp frame that jumps past the recorded
+            // dock still fires exactly once for the highest cycle whose dock instant
+            // has passed. ELS (routeId, cycleId) idempotency is the backstop if a
+            // save/reload or a double-tick re-fires the same cycleId.
+            long jump = dockCycleIndex - route.LastObservedLoopCycleIndex;
             if (jump > 1)
             {
                 ParsekLog.Verbose(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} warp jump={jump.ToString(IC)} " +
                     $"(lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)} -> " +
-                    $"cycleIndex={cycleIndex.ToString(IC)}); firing ONCE and snapping forward");
+                    $"dockCycleIndex={dockCycleIndex.ToString(IC)}); firing ONCE and snapping forward");
             }
 
             // cycleId pins the dispatch+debit+delivered triple under one id
@@ -531,16 +553,17 @@ namespace Parsek.Logistics
             {
                 // Blocked cycle: emit NOTHING (no debit, no delivery; the ghost
                 // still renders — "world looks busy, transfers nothing"). Bump
-                // SkippedCycles and STILL snap the cycle index forward so the
-                // blocked cycle does not re-fire every tick.
+                // SkippedCycles and STILL snap the cycle index forward (to the
+                // dock-phase cycle, DEL-2) so the blocked cycle does not re-fire
+                // every tick.
                 route.SkippedCycles += 1;
-                route.LastObservedLoopCycleIndex = cycleIndex;
+                route.LastObservedLoopCycleIndex = dockCycleIndex;
                 skipped++;
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} " +
                     $"BLOCKED kind={elig.Kind} reason={elig.Reason ?? "<none>"} " +
                     $"shortfall={elig.Shortfall.ToString("R", IC)} — emitted nothing, " +
-                    $"snapped lastObserved={cycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
+                    $"snapped lastObserved={dockCycleIndex.ToString(IC)} skippedCycles={route.SkippedCycles.ToString(IC)}");
                 return;
             }
 
@@ -551,8 +574,11 @@ namespace Parsek.Logistics
 
             // Snap forward in BOTH cases (ELS idempotency is the backstop;
             // CompletedCycles was bumped inside EmitLoopCycle -> ApplyDelivery on
-            // the fire path, or by the replay branch on the backstop path).
-            route.LastObservedLoopCycleIndex = cycleIndex;
+            // the fire path, or by the replay branch on the backstop path). Snap to
+            // the dock-phase cycle (DEL-2), NOT the raw span-clock cycleIndex, so a
+            // tick that already advanced into a fresh cycle before its dock does not
+            // consume that next cycle's delivery.
+            route.LastObservedLoopCycleIndex = dockCycleIndex;
             if (emitted)
             {
                 dispatched++;
@@ -560,7 +586,7 @@ namespace Parsek.Logistics
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} FIRED full cycle " +
                     $"(dispatch+debit+delivered) at ut={currentUT.ToString("R", IC)}; " +
-                    $"snapped lastObserved={cycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
+                    $"snapped lastObserved={dockCycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
             }
             else
             {
@@ -568,7 +594,7 @@ namespace Parsek.Logistics
                 ParsekLog.Info(Tag,
                     $"LoopRoute: route {ShortIdForLog(route)} cycle={cycleId} replay backstop " +
                     "(already in ledger) — emitted nothing; " +
-                    $"snapped lastObserved={cycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
+                    $"snapped lastObserved={dockCycleIndex.ToString(IC)} completedCycles={route.CompletedCycles.ToString(IC)}");
             }
         }
 
@@ -579,8 +605,18 @@ namespace Parsek.Logistics
         /// path the host push seams use (<see cref="RouteGhostDriverSelector"/> +
         /// the LOCKED <c>MissionLoopUnitBuilder.Build</c>) over the SAME
         /// <c>RecordingStore.CommittedRecordings</c> / <c>CommittedTrees</c>
-        /// snapshot, so member indices align. v0 passes <c>bodyInfo:null</c> (no
-        /// re-aim). Returns null when no unit owns the route's members this tick.
+        /// snapshot, so member indices align. It also passes the IDENTICAL
+        /// phase-lock seams the render path uses
+        /// (<c>FlightGlobalsBodyInfo.Instance</c> +
+        /// <see cref="ParsekSettings.TransitedBodyRotationMode"/>) so the delivery
+        /// clock's <c>CadenceSeconds</c> / <c>PhaseAnchorUT</c> match the rendered
+        /// ghost's exactly (DEL-1): a supported looping mission snaps its phase
+        /// anchor to the next faithful launch window, and an unsupported config
+        /// (cross-parent / rendezvous / no constraint — or, in xUnit, an empty
+        /// <c>FlightGlobals</c>) degrades to no phase-lock, byte-identical to the
+        /// pre-DEL-1 <c>bodyInfo:null</c> path. For a v0 same-body route this is the
+        /// faithful (non-re-aimed) loop. Returns null when no unit owns the route's
+        /// members this tick.
         /// </summary>
         private static GhostPlaybackLogic.LoopUnit? ResolveLoopUnit(Route route, double currentUT)
         {
@@ -611,8 +647,19 @@ namespace Parsek.Logistics
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
 
+            // DEL-1: pass the SAME phase-lock seams every render seam uses
+            // (ParsekFlight / ParsekKSC / ParsekTrackingStation DriveMissionLoopUnits)
+            // so the delivery clock phase-locks to the IDENTICAL CadenceSeconds /
+            // PhaseAnchorUT the ghost renders on. FlightGlobalsBodyInfo.Instance is a
+            // non-null static singleton; in xUnit (empty FlightGlobals) it degrades to
+            // no phase-lock, byte-identical to the pre-DEL-1 bodyInfo:null path, so
+            // tests on the LoopUnitResolverForTesting seam are unaffected.
+            IBodyInfo bodyInfo = FlightGlobalsBodyInfo.Instance;
+            TransitedBodyRotationMode tbrMode = ParsekSettings.Current?.TransitedBodyRotationMode
+                                                ?? TransitedBodyRotationMode.Loose;
+
             GhostPlaybackLogic.LoopUnitSet set = MissionLoopUnitBuilder.Build(
-                new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo: null);
+                new List<Mission> { mission }, trees, committed, autoLoopIntervalSeconds, bodyInfo, tbrMode);
 
             if (set == null || set.Count == 0)
                 return null;

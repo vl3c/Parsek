@@ -101,6 +101,12 @@ namespace Parsek.Logistics
 
             // --- Status ---
             node.AddValue("status", route.Status.ToString());
+            // Sparse pre-missing baseline (LST-2): the status to restore when a
+            // MissingSourceRecording route's sources flicker back into ERS. Default
+            // Active (the sentinel) writes nothing; only a deliberately Paused (or
+            // other non-Active) baseline lands on the wire.
+            if (route.PreMissingStatus != RouteStatus.Active)
+                node.AddValue("preMissingStatus", route.PreMissingStatus.ToString());
             node.AddValue("pauseAfterCurrentCycle", route.PauseAfterCurrentCycle.ToString());
             node.AddValue("completedCycles", route.CompletedCycles.ToString(ic));
             node.AddValue("skippedCycles", route.SkippedCycles.ToString(ic));
@@ -219,6 +225,13 @@ namespace Parsek.Logistics
 
             string statusStr = node.GetValue("status");
             route.Status = ParseStatusOrWarn(statusStr, route.Id);
+
+            // Sparse pre-missing baseline (LST-2): absent -> Active (the default
+            // sentinel). An unknown value also maps to Active via ParseStatusOrWarn.
+            string preMissingStr = node.GetValue("preMissingStatus");
+            route.PreMissingStatus = string.IsNullOrEmpty(preMissingStr)
+                ? RouteStatus.Active
+                : ParseStatusOrWarn(preMissingStr, route.Id);
 
             TryParseBool(node.GetValue("pauseAfterCurrentCycle"), out route.PauseAfterCurrentCycle);
             TryParseInt(node.GetValue("completedCycles"), ic, 0, out route.CompletedCycles);

@@ -592,9 +592,12 @@ namespace Parsek
 
         private static double CandidateTransit(RouteCandidate candidate)
         {
-            Recording src = candidate?.Analysis?.SourceRecording;
-            if (src == null) return 0.0;
-            return src.EndUT - src.StartUT;
+            // CRE-2: the player-shown transit must match the route's ACTUAL span,
+            // which the builder computes as [root.StartUT .. undockUT] (the full
+            // rendered path), NOT the leaf dock-child span (src.EndUT - src.StartUT).
+            // Reuse the single span helper so display and creation never diverge.
+            if (candidate?.Analysis == null) return 0.0;
+            return RouteCreationDialog.ComputeRootToUndockSpan(candidate.Analysis, candidate.Tree);
         }
 
         private static string FormatOrigin(Route route)

@@ -443,6 +443,92 @@ namespace Parsek.Tests.Logistics
             Assert.False(route.IsLoopRoute);
         }
 
+        // catches (LST-2): the pre-missing baseline not round-tripping, OR the
+        // sparse default (Active) being written to / read off the wire as
+        // non-default. A MissingSourceRecording route that remembers a deliberate
+        // Paused baseline must keep it across a save/reload so recovery comes back
+        // Paused, not Active.
+        [Fact]
+        public void RoundTrip_PreMissingStatus_SparseAndPaused()
+        {
+            var leanStop = new RouteStop
+            {
+                Endpoint = BuildMunStopEndpoint(),
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                DeliveryManifest = new Dictionary<string, double> { { "LiquidFuel", 100.0 } },
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0
+            };
+
+            // Default (Active) pre-missing baseline writes NO value and loads Active.
+            var defaultRoute = new RouteFixtureBuilder()
+                .WithId("premissing-default-route")
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            Assert.Equal(RouteStatus.Active, defaultRoute.PreMissingStatus);
+            var defNode = new ConfigNode("ROUTE");
+            defaultRoute.SerializeInto(defNode);
+            Assert.False(defNode.HasValue("preMissingStatus"),
+                "preMissingStatus must be omitted when Active (the sentinel default)");
+            Route defLoaded = Route.DeserializeFrom(defNode);
+            Assert.NotNull(defLoaded);
+            Assert.Equal(RouteStatus.Active, defLoaded.PreMissingStatus);
+
+            // A route parked in MissingSourceRecording that remembers a deliberate
+            // Paused baseline round-trips both fields exactly.
+            var missingRoute = new RouteFixtureBuilder()
+                .WithId("premissing-paused-route")
+                .WithStatus(RouteStatus.MissingSourceRecording)
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(leanStop)
+                .Build();
+            missingRoute.PreMissingStatus = RouteStatus.Paused;
+            var missingNode = new ConfigNode("ROUTE");
+            missingRoute.SerializeInto(missingNode);
+            Assert.True(missingNode.HasValue("preMissingStatus"),
+                "preMissingStatus must be written when not Active");
+            Assert.Equal("Paused", missingNode.GetValue("preMissingStatus"));
+            Route missingLoaded = Route.DeserializeFrom(missingNode);
+            Assert.NotNull(missingLoaded);
+            Assert.Equal(RouteStatus.MissingSourceRecording, missingLoaded.Status);
+            Assert.Equal(RouteStatus.Paused, missingLoaded.PreMissingStatus);
+        }
+
+        // catches (LST-2): an old save with no preMissingStatus key loading a
+        // non-default baseline instead of the Active sentinel.
+        [Fact]
+        public void Load_OldSaveWithoutPreMissingStatus_DefaultsActive()
+        {
+            var node = new ConfigNode("ROUTE");
+            node.AddValue("id", "old-no-premissing-route");
+            node.AddValue("status", "Paused");
+            ConfigNode origin = node.AddNode(RouteCodec.OriginNode);
+            origin.AddValue("bodyName", "Kerbin");
+            origin.AddValue("latitude", "0");
+            origin.AddValue("longitude", "0");
+            origin.AddValue("altitude", "0");
+            origin.AddValue("vesselPersistentId", "0");
+            origin.AddValue("isSurface", "True");
+            ConfigNode stop = node.AddNode(RouteCodec.StopNode);
+            ConfigNode endpoint = stop.AddNode(RouteCodec.EndpointNode);
+            endpoint.AddValue("bodyName", "Mun");
+            endpoint.AddValue("latitude", "0");
+            endpoint.AddValue("longitude", "0");
+            endpoint.AddValue("altitude", "0");
+            endpoint.AddValue("vesselPersistentId", "12345");
+            endpoint.AddValue("isSurface", "True");
+            stop.AddValue("connectionKind", "DockingPort");
+            stop.AddValue("segmentIndexBefore", "0");
+            stop.AddValue("deliveryOffsetSeconds", "0");
+
+            Route route = Route.DeserializeFrom(node);
+
+            Assert.NotNull(route);
+            Assert.Equal(RouteStatus.Paused, route.Status);
+            Assert.Equal(RouteStatus.Active, route.PreMissingStatus);
+        }
+
         // catches: codec writing noisy empties that bloat saves.
         [Fact]
         public void RoundTrip_Lean_NoSpuriousNodes()
@@ -692,6 +778,326 @@ namespace Parsek.Tests.Logistics
                     Assert.Equal(a[i].StoredPartSnapshot.ToString(), b[i].StoredPartSnapshot.ToString());
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// LST-2 recovery-target tests for <see cref="RouteStore.RevalidateSources"/>.
+    /// A route flipped to <see cref="RouteStatus.MissingSourceRecording"/> must
+    /// remember the status it held BEFORE the flip and return to it (not always
+    /// Active) when its sources come back into ERS, so a deliberately Paused
+    /// route comes back Paused. Lives in this file (Fix Agent C's owned test set)
+    /// rather than RouteStoreValidationTests; mirrors that file's ERS-driving
+    /// harness (RecordingStore + installed ParsekScenario -> EffectiveState.ComputeERS).
+    /// </summary>
+    [Collection("Sequential")]
+    public class RoutePreMissingStatusRecoveryTests : System.IDisposable
+    {
+        private readonly System.Collections.Generic.List<string> logLines =
+            new System.Collections.Generic.List<string>();
+        private readonly bool priorParsekLogSuppress;
+        private readonly bool priorStoreSuppress;
+        private readonly bool? priorVerbose;
+
+        public RoutePreMissingStatusRecoveryTests()
+        {
+            priorParsekLogSuppress = ParsekLog.SuppressLogging;
+            priorStoreSuppress = RecordingStore.SuppressLogging;
+            priorVerbose = ParsekLog.VerboseOverrideForTesting;
+
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = false;
+            RecordingStore.SuppressLogging = true;
+            ParsekLog.VerboseOverrideForTesting = true;
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+
+            RecordingStore.ResetForTesting();
+            Ledger.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+            RouteStore.ResetForTesting();
+
+            logLines.Clear();
+        }
+
+        public void Dispose()
+        {
+            ParsekLog.ResetTestOverrides();
+            ParsekLog.SuppressLogging = priorParsekLogSuppress;
+            RecordingStore.SuppressLogging = priorStoreSuppress;
+            ParsekLog.VerboseOverrideForTesting = priorVerbose;
+
+            RouteStore.ResetForTesting();
+            RecordingStore.ResetForTesting();
+            Ledger.ResetForTesting();
+            EffectiveState.ResetCachesForTesting();
+            ParsekScenario.ResetInstanceForTesting();
+        }
+
+        // -----------------------------------------------------------------
+        // Fixture helpers (mirror RouteStoreValidationTests)
+        // -----------------------------------------------------------------
+
+        private static void InstallScenario()
+        {
+            var scenario = new ParsekScenario
+            {
+                RecordingSupersedes = new System.Collections.Generic.List<RecordingSupersedeRelation>(),
+                LedgerTombstones = new System.Collections.Generic.List<LedgerTombstone>(),
+                RewindPoints = new System.Collections.Generic.List<RewindPoint>(),
+                ActiveReFlySessionMarker = null
+            };
+            ParsekScenario.SetInstanceForTesting(scenario);
+            scenario.BumpSupersedeStateVersion();
+            scenario.BumpTombstoneStateVersion();
+            EffectiveState.ResetCachesForTesting();
+        }
+
+        private static Recording BuildRouteSourceRecording(string id, int sidecarEpoch = 1)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                VesselName = id,
+                MergeState = MergeState.Immutable,
+                TreeId = "tree-" + id,
+                TreeOrder = 0,
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration,
+                SidecarEpoch = sidecarEpoch,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 500.0,
+                RouteConnectionWindows = new System.Collections.Generic.List<RouteConnectionWindow>
+                {
+                    new RouteConnectionWindow
+                    {
+                        WindowId = "win-" + id,
+                        DockUT = 150.0,
+                        UndockUT = 450.0,
+                        TransferTargetVesselPid = 9999u,
+                        TransferKind = RouteConnectionKind.DockingPort,
+                        DockTransportResources = new System.Collections.Generic.Dictionary<string, ResourceAmount>
+                        {
+                            { "LiquidFuel", new ResourceAmount { amount = 1000.0, maxAmount = 1000.0 } }
+                        }
+                    }
+                },
+                RouteOriginProof = new RouteOriginProof
+                {
+                    StartDockedOriginVesselPid = 7777u
+                }
+            };
+        }
+
+        private static RouteSourceRef BuildMatchingSourceRef(Recording rec)
+        {
+            return new RouteSourceRef
+            {
+                RecordingId = rec.RecordingId,
+                TreeId = rec.TreeId,
+                TreeOrder = rec.TreeOrder,
+                RecordingFormatVersion = rec.RecordingFormatVersion,
+                RecordingSchemaGeneration = rec.RecordingSchemaGeneration,
+                SidecarEpoch = rec.SidecarEpoch,
+                StartUT = rec.StartUT,
+                EndUT = rec.EndUT,
+                RouteProofHash = RouteProofHasher.ComputeRouteProofHashFromRecording(rec)
+            };
+        }
+
+        private static RouteEndpoint BuildKscOrigin()
+        {
+            return new RouteEndpoint
+            {
+                BodyName = "Kerbin",
+                Latitude = -0.0972,
+                Longitude = -74.5577,
+                Altitude = 75.2,
+                VesselPersistentId = 0,
+                IsSurface = true
+            };
+        }
+
+        private static RouteStop BuildStop()
+        {
+            return new RouteStop
+            {
+                Endpoint = new RouteEndpoint
+                {
+                    BodyName = "Mun",
+                    Latitude = 3.2001,
+                    Longitude = -45.1234,
+                    Altitude = 612.5,
+                    VesselPersistentId = 67890,
+                    IsSurface = true
+                },
+                ConnectionKind = RouteConnectionKind.DockingPort,
+                SegmentIndexBefore = 0,
+                DeliveryOffsetSeconds = 0.0,
+                DeliveryManifest = new System.Collections.Generic.Dictionary<string, double> { { "LiquidFuel", 100.0 } }
+            };
+        }
+
+        private static Route BuildRoute(string id, RouteStatus status, RouteSourceRef sourceRef)
+        {
+            return new RouteFixtureBuilder()
+                .WithId(id)
+                .WithName(id)
+                .WithStatus(status)
+                .WithOrigin(BuildKscOrigin())
+                .WithStop(BuildStop())
+                .WithRecordingId(sourceRef.RecordingId)
+                .WithSourceRef(sourceRef)
+                .Build();
+        }
+
+        // -----------------------------------------------------------------
+        // Tests
+        // -----------------------------------------------------------------
+
+        // catches (LST-2 core): a deliberately Paused route whose sources flicker
+        // out and back must come back Paused, NOT silently un-paused to Active.
+        [Fact]
+        public void PausedThroughMissingAndBack_RecoversToPaused()
+        {
+            var rec = BuildRouteSourceRecording("rec-paused-flicker");
+            var sourceRef = BuildMatchingSourceRef(rec);
+
+            // Start the route Paused with its source recording absent from the
+            // store (flickered out). First pass: capture Paused + flip to Missing.
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-paused-flicker", RouteStatus.Paused, sourceRef));
+            logLines.Clear();
+
+            int firstPass = RouteStore.RevalidateSources("flicker-out");
+
+            Assert.Equal(1, firstPass);
+            Assert.True(RouteStore.TryGetRoute("route-paused-flicker", out Route afterMissing));
+            Assert.Equal(RouteStatus.MissingSourceRecording, afterMissing.Status);
+            Assert.Equal(RouteStatus.Paused, afterMissing.PreMissingStatus);
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]")
+                && l.Contains("[Route]")
+                && l.Contains("capturing preMissingStatus=Paused"));
+
+            // Source flickers back in. Second pass: recover -> the captured Paused.
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            RecordingStore.BumpStateVersion();
+            EffectiveState.ResetCachesForTesting();
+            logLines.Clear();
+
+            int secondPass = RouteStore.RevalidateSources("flicker-in");
+
+            Assert.Equal(1, secondPass);
+            Assert.True(RouteStore.TryGetRoute("route-paused-flicker", out Route afterRecover));
+            Assert.Equal(RouteStatus.Paused, afterRecover.Status);
+            // Baseline cleared back to the Active sentinel after recovery.
+            Assert.Equal(RouteStatus.Active, afterRecover.PreMissingStatus);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[Route]")
+                && l.Contains("MissingSourceRecording")
+                && l.Contains("Paused")
+                && l.Contains("source-restored")
+                && l.Contains("preMissing=Paused"));
+        }
+
+        // catches: an Active route over-corrected to Paused by the new baseline
+        // logic. Active in -> Missing -> Active out (the original contract).
+        [Fact]
+        public void ActiveThroughMissingAndBack_RecoversToActive()
+        {
+            var rec = BuildRouteSourceRecording("rec-active-flicker");
+            var sourceRef = BuildMatchingSourceRef(rec);
+
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-active-flicker", RouteStatus.Active, sourceRef));
+            logLines.Clear();
+
+            RouteStore.RevalidateSources("flicker-out");
+            Assert.True(RouteStore.TryGetRoute("route-active-flicker", out Route afterMissing));
+            Assert.Equal(RouteStatus.MissingSourceRecording, afterMissing.Status);
+            // Active baseline == the sentinel default, so nothing is captured.
+            Assert.Equal(RouteStatus.Active, afterMissing.PreMissingStatus);
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            RecordingStore.BumpStateVersion();
+            EffectiveState.ResetCachesForTesting();
+            logLines.Clear();
+
+            int secondPass = RouteStore.RevalidateSources("flicker-in");
+
+            Assert.Equal(1, secondPass);
+            Assert.True(RouteStore.TryGetRoute("route-active-flicker", out Route afterRecover));
+            Assert.Equal(RouteStatus.Active, afterRecover.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[INFO]")
+                && l.Contains("[Route]")
+                && l.Contains("Active")
+                && l.Contains("source-restored"));
+        }
+
+        // catches: SourceChanged being treated as a recovery target. The into-missing
+        // capture excludes source-problem statuses, and a load that hand-seeds
+        // PreMissingStatus=SourceChanged must still recover to Active (the safe
+        // sentinel), never auto-flip back into SourceChanged (design §7.4).
+        [Fact]
+        public void SourceChangedBaseline_NeverRecoversToSourceChanged()
+        {
+            var rec = BuildRouteSourceRecording("rec-sc-baseline");
+            var sourceRef = BuildMatchingSourceRef(rec);
+
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            InstallScenario();
+
+            // A route already Missing on load, with a (defensive) hand-seeded
+            // SourceChanged baseline. Recovery must land Active, not SourceChanged.
+            var route = BuildRoute("route-sc-baseline", RouteStatus.MissingSourceRecording, sourceRef);
+            route.PreMissingStatus = RouteStatus.SourceChanged;
+            RouteStore.AddRoute(route);
+            logLines.Clear();
+
+            int transitioned = RouteStore.RevalidateSources("recover");
+
+            Assert.Equal(1, transitioned);
+            Assert.True(RouteStore.TryGetRoute("route-sc-baseline", out Route resolved));
+            // The production capture path can never seed SourceChanged as a baseline;
+            // a hand-edited / corrupt save that does is guarded: recovery falls back to
+            // Active (never auto-flips INTO SourceChanged, design §7.4) and warns.
+            Assert.Equal(RouteStatus.Active, resolved.Status);
+            Assert.Contains(logLines, l =>
+                l.Contains("[WARN]")
+                && l.Contains("[Route]")
+                && l.Contains("invalid preMissingStatus=SourceChanged")
+                && l.Contains("falling back to Active"));
+        }
+
+        // catches: re-capturing / clobbering the baseline on a repeated Missing pass.
+        // A route that stays Missing across two passes must keep its FIRST captured
+        // baseline (Paused), not overwrite it with the Missing status itself.
+        [Fact]
+        public void RepeatedMissingPass_KeepsFirstBaseline()
+        {
+            var sourceRef = new RouteSourceRef
+            {
+                RecordingId = "rec-never-there",
+                RouteProofHash = "deadbeef00000000"
+            };
+
+            InstallScenario();
+            RouteStore.AddRoute(BuildRoute("route-repeat-missing", RouteStatus.Paused, sourceRef));
+
+            RouteStore.RevalidateSources("pass-1");
+            Assert.True(RouteStore.TryGetRoute("route-repeat-missing", out Route afterFirst));
+            Assert.Equal(RouteStatus.MissingSourceRecording, afterFirst.Status);
+            Assert.Equal(RouteStatus.Paused, afterFirst.PreMissingStatus);
+
+            // Second pass: still missing (recording never added). Baseline unchanged.
+            int secondPass = RouteStore.RevalidateSources("pass-2");
+            Assert.Equal(0, secondPass);
+            Assert.True(RouteStore.TryGetRoute("route-repeat-missing", out Route afterSecond));
+            Assert.Equal(RouteStatus.MissingSourceRecording, afterSecond.Status);
+            Assert.Equal(RouteStatus.Paused, afterSecond.PreMissingStatus);
         }
     }
 }
