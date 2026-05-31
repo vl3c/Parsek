@@ -617,6 +617,57 @@ namespace Parsek.Tests
         }
 
         // =====================================================================
+        // 6b. Continuation-parented redo debris is NOT reparented to TIP
+        // =====================================================================
+
+        /// <summary>
+        /// Regression for "v0.9.2 In-place Re-Fly debris attributed to pre-rewind
+        /// root recording". Post-rewind debris that the recorder correctly anchors
+        /// to the in-place continuation fork (<see cref="Recording.ParentAnchorRecordingId"/>
+        /// == the marker's <c>ActiveReFlyRecordingId</c>, NOT origin) must be left
+        /// untouched by the origin splitter. Only ORIGIN-parented post-rewind
+        /// debris (genuine original-timeline breakup debris the re-fly redid)
+        /// reparent to the superseded TIP. The splitter cannot distinguish the
+        /// two populations by UT alone — both separate after the rewind moment —
+        /// so it keys strictly on <c>ParentAnchorRecordingId == origin</c>. This
+        /// pins that a fork-parented row survives the split on the fork, so it
+        /// stays visible after the supersede commit (the
+        /// <c>SupersedeCommitTests</c> counterpart proves the visibility half).
+        /// </summary>
+        [Fact]
+        public void SplitOriginAtRewindUT_ContinuationParentedDebris_NotReparentedToTip()
+        {
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_6b", terminal: TerminalState.Destroyed);
+            var tree = InstallOriginInTree(origin, "tree_6b");
+
+            // Post-rewind debris from the ORIGINAL timeline (parent == origin):
+            // must reparent to TIP.
+            var debrisOriginPost = BuildDebrisRecording("d_origin_post", origin.RecordingId,
+                startUT: 40.0, endUT: 52.0, treeId: "tree_6b");
+            // Post-rewind redo debris the recorder anchored to the in-place
+            // continuation fork (parent == "rec_fork"): must stay on the fork.
+            var debrisForkPost = BuildDebrisRecording("d_fork_post", "rec_fork",
+                startUT: 41.0, endUT: 52.0, treeId: "tree_6b");
+            tree.AddOrReplaceRecording(debrisOriginPost);
+            tree.AddOrReplaceRecording(debrisForkPost);
+            RecordingStore.AddCommittedInternal(debrisOriginPost);
+            RecordingStore.AddCommittedInternal(debrisForkPost);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0, forkId: "rec_fork");
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.False(result.Skipped);
+            // Only the origin-parented post-rewind debris reparents.
+            Assert.Equal(1, result.DebrisReparented);
+            Assert.Equal(result.TipRecordingId, debrisOriginPost.ParentAnchorRecordingId);
+            // The fork-parented redo debris is left exactly where the recorder
+            // put it — on the continuation, which survives the merge visible.
+            Assert.Equal("rec_fork", debrisForkPost.ParentAnchorRecordingId);
+        }
+
+        // =====================================================================
         // 7. Ledger action retag by UT
         // =====================================================================
 
