@@ -82,6 +82,7 @@ All notable changes to Parsek are documented here.
 - The post-flight Merge/Discard dialog could be silently suppressed after you returned to flight from another scene while a recording restore was in progress. The restore guard that caused this is now cleared on the scene change, so the dialog appears as expected.
 - A looped interplanetary mission's orbit line no longer blinks on and off at the start of the heliocentric transfer (just after leaving the launch body's SOI) and on the approach to the destination planet. A short grace window now keeps the line steady across the rapid recorded segment changes at those phase boundaries, where the line, the trajectory polyline, and the per-frame orbit refresh were briefly disagreeing each frame.
 - A re-aimed interplanetary mission's final descent to the destination planet now draws a map trajectory again. The descent's recorded orbit segments dive below the surface, where the orbit line cannot be drawn, and the trajectory polyline was skipping those samples as orbit-covered, leaving a gap with no line at all; the polyline now picks up the descent that the orbit line abandons.
+- Parsek's internal quicksaves (rewind, re-fly, and the career-start snapshot) no longer leave stray ".loadmeta" files cluttering your save folder. Each quicksave is moved into Parsek's own subfolder, but its sidecar metadata file used to be left behind in the save root; that leftover is now cleaned up.
 
 ### Log Hygiene
 

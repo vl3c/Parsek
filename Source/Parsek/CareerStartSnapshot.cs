@@ -84,6 +84,11 @@ namespace Parsek
 
                 string destPath = Path.Combine(rewindDir, SaveFileName + ".sfs");
                 File.Move(rootPath, destPath);
+
+                // SaveGame also wrote a .loadmeta sidecar to the root; only the .sfs
+                // moves, so delete the orphan instead of leaving it to litter the save folder.
+                FileIOUtils.DeleteSaveSidecarLoadMeta(savesDir, SaveFileName, Tag);
+
                 ParsekLog.Info(Tag, $"Captured career-start snapshot: {destPath}");
                 return true;
             }

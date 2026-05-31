@@ -396,11 +396,12 @@ Four distinct in-game test failures from the 2026-05-28 batch run, root-caused a
 
 ---
 
-## Open - v0.10.0 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
+## Done - v0.10.0 Rewind / career-start quicksave capture leaves an orphan .loadmeta in the save root
 
-- `FlightRecorder.CaptureRewindSave` and `CareerStartSnapshot.Capture` (PR #947) both `GamePersistence.SaveGame` to the save root then `File.Move` only the `.sfs` into `Parsek/Saves/`, leaving the sidecar `.loadmeta` (`parsek_rw_*.loadmeta`, `parsek_career_start.loadmeta`) orphaned in the save root (observed in save `s10`). Pre-existing for the rewind saves; career-start adds one more.
-- **Fix:** delete (or move) the matching `.loadmeta` after moving the `.sfs` in both capture sites. Cosmetic — the orphan is harmless, it just litters the save folder.
-- **Status:** OPEN — cosmetic.
+- `FlightRecorder.CaptureRewindSave` and `CareerStartSnapshot.Capture` (PR #947) both `GamePersistence.SaveGame` to the save root then `File.Move` only the `.sfs` into `Parsek/Saves/`, leaving the sidecar `.loadmeta` (`parsek_rw_*.loadmeta`, `parsek_career_start.loadmeta`) orphaned in the save root (observed in save `s10`). Pre-existing for the rewind saves; career-start adds one more. Investigation found a third site with the identical orphan class: `RewindPointAuthor` moves the RP temp `.sfs` (`Parsek_TempRP_<rpId>.sfs`) into `Parsek/RewindPoints/` and leaves `Parsek_TempRP_<rpId>.loadmeta` behind (observed in s14/s15).
+- **Fix:** new shared `FileIOUtils.DeleteSaveSidecarLoadMeta(savesDir, saveBaseName, tag)` best-effort helper (guarded by `File.Exists`, swallows + warn-logs failures) deletes the orphaned root `.loadmeta` after the `.sfs` move. Called from all three capture sites (`FlightRecorder.CaptureRewindSave`, `CareerStartSnapshot.Capture`, `RewindPointAuthor.ExecuteDeferredBody`). Delete, not move: Parsek loads these saves programmatically (copies the `.sfs` back to root first), so the `.loadmeta` serves no purpose and must stay out of the stock load dialog. Stock `persistent.loadmeta` / `quicksave.loadmeta` are untouched (their base names never match a Parsek save). Cosmetic: the orphan is harmless, it just litters the save folder.
+- **Tests:** 6 `FileIOUtilsLoadMetaTests` cases (deletes orphan + leaves stock sidecars, verbose log, missing-sidecar no-op, null/empty arg no-ops, never touches the `.sfs`). Full suite green (13049).
+- **Status:** CLOSED 2026-05-31.
 
 ---
 
