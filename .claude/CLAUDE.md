@@ -42,6 +42,14 @@ python scripts/release.py    # build Release, run tests, package zip
 
 Produces `Parsek-v{version}.zip` in repo root with `GameData/Parsek/` layout (DLL + version file + toolbar textures). Validates that `Parsek.version` and `AssemblyInfo.cs` versions match before building.
 
+## Multi-Agent Workflows & Token Discipline
+
+Default to lean, targeted work. Favor the smallest set of agents that produces a correct answer. Do not fan out broadly or stack redundant verification passes unless the task genuinely needs it (large migration, repo-wide audit, multi-subsystem read). For ordinary tasks, work inline or use one or two direct agents, not a workflow.
+
+- The Workflow tool's concurrent-agent cap is `min(16, cpu cores - 2)` per workflow and is NOT configurable: there is no env var, `settings.json` key, or CLI flag, and the feature request for one was closed as not planned. Do not try to set a max.
+- To bound fan-out (for example to ~10), shape the script: process items in batches of N via `parallel()` (each batch is a barrier, so at most N agents run at once). Do not spawn an unbounded fan-out and rely on the engine cap.
+- Reserve heavy patterns (multi-vote, adversarial verify, loop-until-dry, large finder pools) for explicit "thorough"/"audit" requests. They multiply token cost; skip them on routine work.
+
 ## Investigating KSP Internals
 
 When investigating KSP API behavior, search the web and read other open-source KSP mods (Trajectories, Principia, KSPCommunityFixes, VesselMover) for patterns and prior art.
