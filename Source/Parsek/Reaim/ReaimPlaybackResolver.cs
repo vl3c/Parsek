@@ -339,29 +339,29 @@ namespace Parsek.Reaim
             int rotated = ReaimElementRotation.RotateBodyRelativeSegments(
                 assembled, targetBody, plan.RecordedArrivalUT, r, out int skippedNonTarget);
 
-            // TIME-SHIFT (plan 4.4). The recorded-span image of the re-aimed handoff instant is
-            // soiEntryUT + shift; the recorded arrival sub-chain begins at RecordedArrivalUT. When the
-            // window's tof equals the recorded tof these coincide and timeShift == 0 (the nominal case),
-            // so applying it is a no-op. We apply it ONLY when |timeShift| is meaningfully non-zero (> 1s)
-            // to avoid introducing a contiguity gap from a spurious sub-second value: shifting the rotated
-            // target-body sub-chain off RecordedArrivalUT while the un-shifted Sun transfer still ends there
-            // would open a seam. The shift moves startUT/endUT/epoch together (phase preserved).
-            const double TimeShiftThresholdSeconds = 1.0;
+            // TIME-SHIFT (plan 4.4): COMPUTED AND LOGGED, NOT APPLIED in v1. The recorded-span image of the
+            // re-aimed handoff instant is soiEntryUT + shift; the recorded arrival sub-chain begins at
+            // RecordedArrivalUT. In the validated playtest the window tof equalled the recorded tof, so
+            // timeShift was ~0. Applying a non-zero shift in v1 would re-introduce a smaller seam: the
+            // transfer leg always renders to RecordedArrivalUT (full-span), so moving the rotated arrival
+            // sub-chain off RecordedArrivalUT (a negative shift starts it BEFORE the transfer end ->
+            // overlap; a positive shift starts it after -> coverage gap) opens a discontinuity at the seam,
+            // on an unexercised path. The rotation ALONE already closes the gross seam, and because it never
+            // touched the segment UTs the arrival stays anchored at RecordedArrivalUT, contiguous with the
+            // transfer end by construction. So v1 only LOGS the shift (a playtest diagnostic: tells us
+            // whether a sub-tof window ever produces a materially non-zero value). Correct application
+            // (moving the transfer render-END and the arrival start together to soiEntryUT + shift, which
+            // requires relaxing the ReplaceHeliocentricLeg renderEnd clamp) is the fast-follow, done once a
+            // playtest shows the shift is ever materially non-zero.
             double timeShift = ReaimSegmentAssembler.ComputeArrivalTimeShift(
                 soiEntryUT, shift, plan.RecordedArrivalUT);
-            int timeShifted = 0;
-            if (rotated > 0 && ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(timeShift, TimeShiftThresholdSeconds))
-            {
-                timeShifted = ReaimSegmentAssembler.ApplyArrivalTimeShift(
-                    assembled, targetBody.bodyName, plan.RecordedArrivalUT, timeShift);
-            }
 
             double rAngleDeg = ReaimRotation.RotationAngleRadians(r) * 180.0 / System.Math.PI;
             ParsekLog.Verbose("ReaimSeam",
                 $"member={memberId} window={windowIndex} arrival rotated: R-angle={rAngleDeg.ToString("F2", ic)}deg " +
                 $"handednessDot={handednessDot.ToString("F4", ic)} recEcc={recEcc.ToString("F4", ic)} reEcc={reEcc.ToString("F4", ic)} " +
                 $"segsRotated={rotated} skippedNonTarget={skippedNonTarget} " +
-                $"timeShift={timeShift.ToString("F2", ic)}s (applied={(timeShifted > 0 ? timeShifted.ToString(ic) : "0/no-op")})");
+                $"timeShift={timeShift.ToString("F2", ic)}s (computed, not applied in v1)");
             // R angle reported to the per-frame seam diagnostic only when at least one segment was actually
             // rotated (otherwise the rotation was a no-op for this member's geometry).
             return rotated > 0 ? rAngleDeg : double.NaN;

@@ -36,9 +36,12 @@ namespace Parsek.Reaim
         /// Eccentricity, semiMajorAxis, startUT, endUT, bodyName, isPredicted, orbitalFrameRotation, and
         /// angularVelocity are copied VERBATIM from the original: the rigid rotation preserves shape +
         /// along-orbit phase, and the velocity-frame-relative fields follow the rotated velocity
-        /// automatically. R == identity yields a byte-identical segment (the no-op guard). Returns the
-        /// original unchanged when <paramref name="body"/> is null or the rotated state is non-finite (fail
-        /// closed; never emit a corrupt segment).
+        /// automatically. At R == identity this reproduces the segment TO ROUND-OFF (a rigid rotation
+        /// preserves ecc/sma/mEp; the always-on UpdateFromStateVectors round-trip re-derives the read-back
+        /// elements within floating-point round-off, not byte-identically; the pure RotateVector identity
+        /// path IS byte-identical, but the resolver never invokes this with identity because it returns
+        /// faithful before computing R). Returns the original unchanged when <paramref name="body"/> is null
+        /// or the rotated state is non-finite (fail closed; never emit a corrupt segment).
         /// </summary>
         internal static OrbitSegment RotateSegmentOrientation(OrbitSegment seg, CelestialBody body, double[,] r)
         {
@@ -94,18 +97,19 @@ namespace Parsek.Reaim
             {
                 OrbitSegment s = segments[i];
                 bool isPostArrival = s.startUT >= recordedArrivalUT - eps;
-                if (!isPostArrival)
-                    continue; // pre-arrival (launch / parking / transfer) - never rotated
-                if (s.isPredicted || s.bodyName != targetBody.bodyName)
+                bool isTargetBodied = !s.isPredicted && s.bodyName == targetBody.bodyName;
+                if (isPostArrival && isTargetBodied)
                 {
-                    // A non-target-bodied post-arrival segment (e.g. an Ike moon excursion) is NOT rotated
-                    // in v1: count it so the residual at the moon boundary is visible (plan section 7).
-                    if (!s.isPredicted && s.bodyName != targetBody.bodyName)
-                        skippedNonTarget++;
-                    continue;
+                    segments[i] = RotateSegmentOrientation(s, targetBody, r);
+                    rotated++;
                 }
-                segments[i] = RotateSegmentOrientation(s, targetBody, r);
-                rotated++;
+                else if (isPostArrival && !s.isPredicted)
+                {
+                    // A non-predicted, non-target-bodied post-arrival segment (e.g. an Ike moon excursion)
+                    // is NOT rotated in v1: count it so the residual at the moon boundary is visible in the
+                    // log (plan section 7). Pre-arrival and predicted segments pass through silently.
+                    skippedNonTarget++;
+                }
             }
             return rotated;
         }

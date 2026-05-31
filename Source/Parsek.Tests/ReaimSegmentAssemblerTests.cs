@@ -196,59 +196,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldApplyArrivalTimeShift_OnlyAboveThreshold()
-        {
-            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(0.0, 1.0));
-            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(0.5, 1.0));
-            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(-0.9, 1.0));
-            Assert.True(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(2.0, 1.0));
-            Assert.True(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(-50.0, 1.0));
-            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(double.NaN, 1.0));
-            Assert.False(ReaimSegmentAssembler.ShouldApplyArrivalTimeShift(double.PositiveInfinity, 1.0));
-        }
-
-        [Fact]
-        public void ApplyArrivalTimeShift_ShiftsOnlyTargetPostArrivalLegs()
-        {
-            // Kerbin parking -> Sun transfer -> Duna approach + capture. Only the Duna (target) legs at or
-            // after the recorded arrival move; the Kerbin + Sun legs stay put. Shapes are unchanged.
-            var segs = new List<OrbitSegment>
-            {
-                Seg("Kerbin", 100, 600, 300),
-                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
-                Seg("Duna", 2600, 4000, 3000),  // approach
-                Seg("Duna", 4000, 5000, 4200),  // capture
-            };
-            int shifted = ReaimSegmentAssembler.ApplyArrivalTimeShift(segs, "Duna", recordedArrivalUT: 2600.0, timeShift: -150.0);
-            Assert.Equal(2, shifted);
-            // Kerbin + Sun untouched.
-            Assert.Equal(100.0, segs[0].startUT, 3);
-            Assert.Equal(600.0, segs[1].startUT, 3);
-            Assert.Equal(2600.0, segs[1].endUT, 3);
-            // Duna legs moved by -150 (start/end/epoch together).
-            OrbitSegment approach = segs.Find(s => s.bodyName == "Duna" && s.startUT < 3900);
-            Assert.Equal(2450.0, approach.startUT, 3);
-            Assert.Equal(3850.0, approach.endUT, 3);
-            Assert.Equal(2850.0, approach.epoch, 3);
-        }
-
-        [Fact]
-        public void ApplyArrivalTimeShift_ZeroShiftSegmentsListLeftAtRecordedUTs()
-        {
-            // The nominal-case guard: when the caller passes a timeShift of 0 the UTs are unchanged (the
-            // method still runs but moves everything by 0). Mirrors the resolver no-op path.
-            var segs = new List<OrbitSegment>
-            {
-                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
-                Seg("Duna", 2600, 5000, 3000),
-            };
-            ReaimSegmentAssembler.ApplyArrivalTimeShift(segs, "Duna", recordedArrivalUT: 2600.0, timeShift: 0.0);
-            Assert.Equal(2600.0, segs[1].startUT, 3);
-            Assert.Equal(5000.0, segs[1].endUT, 3);
-            Assert.Equal(3000.0, segs[1].epoch, 3);
-        }
-
-        [Fact]
         public void HasHeliocentricLegInWindow_PredictedOrOutOfWindow_False()
         {
             // A predicted (ballistic-tail) Sun segment does not count; nor does a Sun segment outside the

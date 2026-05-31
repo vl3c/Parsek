@@ -18,7 +18,7 @@ Evidence (`logs/2026-05-31_0311_duna-descent-position`): `ReaimSeam seg#9->10 bo
 
 Goal: close the gross arrival seam so the re-aimed ghost's target-body approach hyperbola + capture join the re-aimed transfer continuously, eliminating the ~1.37 Gm jump-back-out, down to a small SOI-edge residual set by the |v_inf|-magnitude difference.
 
-v1 SCOPE (this PR): rotate the recorded target-body ORBIT segments (approach hyperbola + capture + low-orbit descent segments) by a rigid rotation R about the target body's center, plus a time-shift to align the SOI-crossing instant. This fixes the gross seam for the ghost MESH and the map ORBIT LINE.
+v1 SCOPE (this PR): rotate the recorded target-body ORBIT segments (approach hyperbola + capture + low-orbit descent segments) by a rigid rotation R about the target body's center. This fixes the gross seam for the ghost MESH and the map ORBIT LINE. The SOI-crossing time-shift is COMPUTED and LOGGED as a playtest diagnostic but NOT applied in v1 (applying it would re-introduce a smaller seam against the un-shifted full-span transfer end; its correct application is a fast-follow, see section 4.4).
 
 EXPLICIT v1 LIMITATION (fast-follow, NOT this PR): the descent POLYLINE draws from the RAW recorded body-fixed lat/lon/alt points (`GhostTrajectoryPolylineRenderer` reads `RecordingStore.CommittedRecordings` directly, not the re-aim resolver), so it stays at the recorded landing site while the mesh descends to the rotated (re-aimed) site. v1 leaves this descent-tail polyline-vs-mesh offset. Rotating the body-fixed descent points to follow requires reaching the renderer's per-frame `localScaled` cache with a per-window R-version invalidation (review finding M3); that is best done AFTER a playtest validates R, so it is a separate fast-follow PR. The PR description must state this limitation plainly so the owner can weigh it.
 
@@ -71,11 +71,15 @@ s = normalize( sqrt(1 - 1/ecc^2) * e_hat  +  (ecc - 1/ecc) * q_hat )   (inbound 
 - Recorded side: build the recorded arrival Orbit from `ReaimMissionPlan.ArrivalLeg` (`new Orbit(elements, targetBody)`), read its (e, h) in Zup directly via KSP `Orbit.GetEccVector()` / `Orbit.GetOrbitNormal()` (avoid a second hand-rolled derivation), derive `s_rec`, `h_rec`.
 - Re-aimed side: from the synthesized transfer's target-relative state at `soiEntryUT` in Zup: `r_rel = transfer.getRelativePositionAtUT(soiEntryUT) - targetBody.orbit.getRelativePositionAtUT(soiEntryUT)` (both Sun-relative Zup positions; their difference is the target-relative position -- NOT a literal `- 0`), `v_rel = transfer.getOrbitalVelocityAtUT(soiEntryUT) - targetBody.orbit.getOrbitalVelocityAtUT(soiEntryUT)` (Zup, no `.xzy`), then `h_re = r_rel cross v_rel`, `e_re = (v_rel cross h_re)/mu_target - r_rel_hat`, derive `s_re`, `h_re`. (`mu_target` = target body gravitational parameter.)
 
-### 4.4 Time / phase alignment (review M2)
+### 4.4 Time / phase alignment (review M2) -- v1 COMPUTES + LOGS, does NOT apply (post-review M1)
 
-Rotation fixes geometry, not the SOI-crossing instant. After rotating, `ShiftInTime` the rotated arrival sub-chain so its SOI-crossing UT coincides (in recorded-span time) with where the re-aimed transfer actually hands off (the recorded-span image of `soiEntryUT`). Use the existing pure `ReaimSegmentAssembler.ShiftInTime`. In the playtest the tof equaled the recorded tof so the shift was ~0, but the synthesizer's tof search / proximity path can move it in general, so the shift is required for correctness. The shift amount = (recorded-span image of the re-aimed SOI-crossing UT) - (recorded arrival SOI-crossing UT); both are available to the resolver (`recordedArrivalUT` and the transfer render-end mapping).
+Rotation fixes geometry, not the SOI-crossing instant. The recorded-span image of the re-aimed handoff instant is `soiEntryUT + shift`; the recorded arrival sub-chain starts at `recordedArrivalUT`. The shift amount = `(soiEntryUT + shift) - recordedArrivalUT` (pure `ReaimSegmentAssembler.ComputeArrivalTimeShift`).
 
-## 5. Implementation (v1 = orbit segments + time-shift)
+**v1 (post-review M1): COMPUTE this value and LOG it, but do NOT apply it.** In the validated playtest the window tof equalled the recorded tof so the shift was ~0. Applying a non-zero shift in v1 would re-introduce a smaller seam, on an unexercised path: the transfer leg always renders to `recordedArrivalUT` (full-span, the `ReplaceHeliocentricLeg` renderEnd clamp), so moving the rotated arrival sub-chain off `recordedArrivalUT` opens a discontinuity (a negative shift starts the arrival BEFORE the transfer end -> overlap, where `FindOrbitSegment` returns the first sort-order match; a positive shift -> coverage gap). The rotation ALONE already closes the gross ~1.37 Gm seam, and because it never touches the segment UTs the arrival stays anchored at `recordedArrivalUT`, contiguous with the transfer end by construction. v1 only logs the shift (a playtest diagnostic: tells us whether a sub-tof window ever produces a materially non-zero value).
+
+**Fast-follow:** the correct APPLICATION moves the transfer render-END and the arrival start TOGETHER to `soiEntryUT + shift` (relaxing the `ReplaceHeliocentricLeg` renderEnd clamp so both endpoints move as one), done once a playtest shows the shift is ever materially non-zero. Deferred alongside the descent-polyline rotation.
+
+## 5. Implementation (v1 = orbit-segment rotation; time-shift computed + logged, not applied -- post-review M1)
 
 ### 5.1 Rotation math: pure primitives + a KSP state-vector round-trip for the element read-back
 
@@ -97,7 +101,7 @@ The segment-list driver (live, sits beside the resolver since it needs KSP Orbit
 
 ### 5.3 Apply R in `ReaimPlaybackResolver.BuildWindowSegments`
 
-After `ReplaceHeliocentricLeg` returns the assembled list (cached per window): compute `R = RotationFrameToFrame(s_rec, h_rec, s_re, h_re)`, call `RotateBodyRelativeSegments(assembled, targetBody, recordedArrivalUT, R)`, then apply the 4.4 time-shift to the rotated arrival sub-chain. R is computed once per window. `BuildWindowSegments` already has `transferOrbit`, `soiEntryUT`, `targetBody`, `plan.ArrivalLeg`, `plan.CommonAncestor`, and the assembled list in scope (verified).
+After `ReplaceHeliocentricLeg` returns the assembled list (cached per window): compute `R = RotationFrameToFrame(s_rec, h_rec, s_re, h_re)`, call `RotateBodyRelativeSegments(assembled, targetBody, recordedArrivalUT, R)`, then COMPUTE the 4.4 time-shift and LOG it (do NOT apply it in v1 -- post-review M1). R is computed once per window. `BuildWindowSegments` already has `transferOrbit`, `soiEntryUT`, `targetBody`, `plan.ArrivalLeg`, `plan.CommonAncestor`, and the assembled list in scope (verified).
 
 ### 5.4 Diagnostics
 
@@ -114,7 +118,7 @@ Pure (xUnit, no Unity):
 - `RotationFrameToFrame`: orthonormal proper rotation; identity when frames equal; maps sFrom->sTo and hFrom->hTo exactly.
 - `RotateOrbitSegmentOrientation` round-trip (the load-bearing test): elements -> state vector -> rotate state by R -> re-derive elements MUST equal elements -> rotate basis -> elements. Cover hyperbolic (ecc>1, sma<0) and elliptic capture; degenerate node (inc ~ 0, LAN undefined) clamps as KSP does; assert ecc/sma/mEp/epoch/orbitalFrameRotation/angularVelocity unchanged.
 - `RotateBodyRelativeSegments`: only target-bodied post-arrival segments rotate; Sun/other-body/predicted/pre-arrival pass through; R = identity -> byte-identical (no-op guard).
-- Time-shift: arrival sub-chain SOI-crossing UT aligns to the target; shape unchanged.
+- Time-shift: `ComputeArrivalTimeShift` returns 0 when window tof == recorded tof and the correct sign for a shorter tof (the diagnostic quantity v1 logs; v1 does NOT apply it, so there is no apply-path test).
 
 In-game (playtest-gated, load-bearing):
 - Extend the re-aim canary in-game test to assert the post-rotation seam jump at the Sun->target-body boundary is below an SOI fraction (now meaningful with full-frame match). 
@@ -133,7 +137,7 @@ In-game (playtest-gated, load-bearing):
 
 - `Source/Parsek/Reaim/ReaimSegmentAssembler.cs` -- pure rotation helpers (asymptote, frame-to-frame R, orbit-element rotation, segment-list rotation; reuse ShiftInTime).
 - `Source/Parsek/Reaim/ReaimTransferSynthesizer.cs` -- return the re-aimed (s_re, h_re) at soiEntryUT (Zup).
-- `Source/Parsek/Reaim/ReaimPlaybackResolver.cs` -- recorded-side (s_rec, h_rec), compute R, apply rotation + time-shift to the assembled list.
+- `Source/Parsek/Reaim/ReaimPlaybackResolver.cs` -- recorded-side (s_rec, h_rec), compute R, apply rotation to the assembled list; compute + log the time-shift (not applied in v1, post-review M1).
 - `Source/Parsek/ParsekFlight.cs` (`LogReaimGhostTrace`) -- seam state-vector + post-rotation diagnostics.
 - Tests: `Source/Parsek.Tests/Reaim*Tests.cs` (pure rotation math) + the re-aim canary in-game test (seam threshold).
 - Docs: `CHANGELOG.md`, `docs/dev/todo-and-known-bugs.md` (S4 v1 = orbit-segment restitch under ROTATE-ALL; descent-points fast-follow), `docs/dev/plans/reaim-interplanetary-transfers.md` (note S4 v1 implemented).
@@ -141,11 +145,11 @@ In-game (playtest-gated, load-bearing):
 ## 9. Phases (v1 PR)
 
 1. Pure rotation math + xUnit (asymptote, frame-to-frame R, orbit-element rotation w/ round-trip test, segment-list rotation, no-op guard). No wiring.
-2. v_inf frame extraction (synthesizer out-params + recorded-arrival helper) + apply R in the resolver to the orbit segments + the 4.4 time-shift. Seam diagnostics. Build + deploy-verify.
+2. v_inf frame extraction (recorded-arrival + re-aimed-arrival helpers) + apply R in the resolver to the orbit segments + compute/log the 4.4 time-shift (not applied in v1). Seam diagnostics. Build + deploy-verify.
 3. Canary in-game seam-threshold test + docs (CHANGELOG / todo / design-doc).
-4. Clean Opus review -> fix -> build/deploy-verify/test green -> open PR (ready-for-playtest; ROTATE-ALL + the descent-tail fast-follow limitation flagged).
+4. Clean Opus review -> fix -> build/deploy-verify/test green -> open PR (ready-for-playtest; ROTATE-ALL + the descent-tail + time-shift-application fast-follow limitations flagged).
 
-(Descent-polyline rotation, section 5.5, is a SEPARATE follow-up PR after the rotation is playtest-validated.)
+(Descent-polyline rotation, section 5.5, AND the 4.4 time-shift APPLICATION are SEPARATE follow-up PRs after the rotation is playtest-validated. Post-review M1: applying a non-zero time-shift against the full-span transfer render-end re-introduces a smaller seam, so v1 only computes + logs the shift.)
 
 ## 10. Open questions for the owner (do not block v1)
 
