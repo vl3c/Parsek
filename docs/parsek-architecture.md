@@ -82,7 +82,7 @@ Each of these is the authoritative source for its area. This index doesn't dupli
 - **Game actions & career resources**: [`parsek-game-actions-and-resources-recorder-design.md`](parsek-game-actions-and-resources-recorder-design.md) — how KSP career events become `GameAction` ledger entries, resource module semantics, recalculation engine, action replay.
 - **Logistics / Supply Routes**: [`parsek-logistics-supply-routes-design.md`](parsek-logistics-supply-routes-design.md) — stock-first Supply Runs, Supply Routes, dock/transfer/undock validation, and future round-trip linking.
 - **Rewind to Separation (v0.9)**: [`parsek-rewind-to-separation-design.md`](parsek-rewind-to-separation-design.md) — re-fly unfinished sibling missions from a past multi-controllable split. Effective-state model (ERS / ELS), append-only supersede relations, session-suppressed subtree, journaled staged merge, post-load strip, broad reviewed-career tombstone scope.
-- **Career State window**: [`dev/plans/career-state-window.md`](dev/plans/career-state-window.md) — four-tab career-state view, current-vs-projected walk, slot math, companion Kerbals→Timeline scroll.
+- **Career State window**: [`dev/done/plans/career-state-window.md`](dev/done/plans/career-state-window.md) — four-tab career-state view, current-vs-projected walk, slot math, companion Kerbals→Timeline scroll.
 
 Completed design specs (now implementation-historical) live under [`dev/done/`](dev/done/). Recent ones worth knowing:
 

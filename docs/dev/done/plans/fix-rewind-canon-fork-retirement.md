@@ -530,9 +530,9 @@ Smoke (using the bug repro):
   > Parent Rewind incorrectly retired Immutable Re-Fly forks, dropping their
   > supersede relations and silently suppressing terminal spawn. Fix gates the
   > drop on `MergeState == Immutable`. See
-  > `docs/dev/plans/fix-rewind-canon-fork-retirement.md`.
+  > `docs/dev/done/plans/fix-rewind-canon-fork-retirement.md`.
 
-- `docs/dev/plans/fix-watch-double-probe-ghost-after-rewind.md` — add a
+- `docs/dev/done/plans/fix-watch-double-probe-ghost-after-rewind.md` — add a
   trailing "Follow-up" section pointing to this plan: retirement remains
   correct for non-canon forks; the present PR adds the Immutable carve-out.
 

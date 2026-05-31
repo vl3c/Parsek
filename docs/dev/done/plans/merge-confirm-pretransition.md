@@ -916,7 +916,7 @@ construction.
 
 CHANGELOG / todo doc updates are listed in the dedicated section
 near the end of this plan, not in this table (matches the convention
-in `docs/dev/plans/fix-440B-reconcile-earnings-transformed.md` and
+in `docs/dev/done/plans/fix-440B-reconcile-earnings-transformed.md` and
 peers).
 
 No `ReFlyExitDialog.cs` (removed from previous draft - existing
