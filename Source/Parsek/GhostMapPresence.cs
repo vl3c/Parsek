@@ -5877,6 +5877,45 @@ namespace Parsek
                     kind, idx, segs.Count, helioCount, firstHelioSma), 2.0);
         }
 
+        // MAP/TS TRAJECTORY DIAGNOSTIC: the covering OrbitSegment the map icon + orbit line follow for this
+        // member THIS frame, logged ON CHANGE (keyed per member+scene) so the reader sees discrete transition
+        // events rather than per-frame spam. This is the chokepoint that decides "inside Kerbin SOI" (a
+        // Kerbin-bodied segment) vs "heliocentric" (the Sun-bodied transfer). It catches: the SOI-exit blink
+        // (body flip-flops Kerbin<->Sun back and forth => rapid alternating lines), the orbit line going dark
+        // (covered -> GAP(no-segment)), and the Segment<->StateVector route flip. A reader greps tag MapTraj
+        // for one member to see the exact sequence of what the map drew. <paramref name="scene"/> = "TS" or
+        // "FLIGHT". Pairs with the icon-pos-delta (stall) and the existing "SOI change" orbit-line log.
+        internal static void LogMapCoveringSegmentChange(
+            string scene, int idx, double effUT, OrbitSegment? coveringSegment,
+            bool segmentCoversEffUT, bool isStateVector, int effectiveSegmentCount)
+        {
+            string coveringBody = coveringSegment.HasValue
+                ? (coveringSegment.Value.bodyName ?? "(null)")
+                : "GAP(no-segment)";
+            string source = isStateVector ? "StateVector" : "Segment";
+            string segSpan = coveringSegment.HasValue
+                ? string.Format(ic, "[{0:F1},{1:F1}] sma={2:F0} ecc={3:F3}",
+                    coveringSegment.Value.startUT, coveringSegment.Value.endUT,
+                    coveringSegment.Value.semiMajorAxis, coveringSegment.Value.eccentricity)
+                : "n/a";
+            // Include the covering segment's start UT (coarse, whole-second) in the on-change key so a
+            // same-body segment->segment advance (e.g. several consecutive Kerbin-frame segments, or a
+            // same-body carry stepping to the next segment) registers as a CHANGE. Without it the key
+            // body|covered|source stays constant across same-body advances and the transition - the exact
+            // thing this diagnostic exists to trace - would never log. Segment startUT is a fixed per-segment
+            // value, so F0 introduces no float-jitter churn.
+            string segKey = coveringSegment.HasValue
+                ? coveringSegment.Value.startUT.ToString("F0", ic)
+                : "none";
+            ParsekLog.VerboseOnChange("MapTraj",
+                string.Format(ic, "covering-{0}-{1}", scene, idx),
+                string.Format(ic, "{0}|{1}|{2}|{3}", coveringBody, segmentCoversEffUT, source, segKey),
+                string.Format(ic,
+                    "{0} covering-segment CHANGED: member={1} effUT={2:F1} body={3} covered={4} source={5} " +
+                    "effSegs={6} seg={7}",
+                    scene, idx, effUT, coveringBody, segmentCoversEffUT, source, effectiveSegmentCount, segSpan));
+        }
+
         private static void RefreshTrackingStationGhosts(
             IReadOnlyList<Recording> committed,
             HashSet<string> suppressed,
@@ -5974,6 +6013,8 @@ namespace Parsek
                     ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
+                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment, segmentCoversEffUT,
+                    isStateVector, effectiveSegments != null ? effectiveSegments.Count : 0);
 
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
@@ -6497,7 +6538,8 @@ namespace Parsek
             }
 
             Vector3d worldPos = vessel.GetWorldPos3D();
-            string recId = TryGetLastKnownFrame(recordingIndex, out var prev) ? prev.RecordingId : null;
+            bool hasPrev = TryGetLastKnownFrame(recordingIndex, out var prev);
+            string recId = hasPrev ? prev.RecordingId : null;
             string vesselName = prev.VesselName;
             string updateKey = string.Format(ic, "rec-orbit-update-{0}",
                 recId ?? recordingIndex.ToString(ic));
@@ -6516,6 +6558,28 @@ namespace Parsek
             done.GhostPid = vessel.persistentId;
             done.Segment = segment;
             ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
+
+            // Frozen-icon diagnostic (the "icon frozen near Kerbin" bug): the map icon's world-position delta
+            // from the PREVIOUS FRAME. This method runs every frame; the log line itself is rate-limited to 5s,
+            // so consecutive emitted lines are ~5s apart but the delta is still measured frame-to-frame against
+            // the immediately preceding frame's position (stashed unconditionally below). dPos ~= 0 on an
+            // emitted frame means the icon did not move that frame; when that persists while the loop clock
+            // advances, the icon is STALLED (frozen) at a fixed orbital anomaly and only the floating-origin
+            // frame shift moves its world position between samples. The body + segment span make it obvious
+            // WHICH segment it is stuck on (e.g. a Kerbin parking-orbit segment near the launch body).
+            // Distinguishes a real freeze from a ghost merely moving slowly at low warp (small but non-zero).
+            double dPosFromLastFrame = hasPrev ? (worldPos - prev.WorldPos).magnitude : double.NaN;
+            ParsekLog.VerboseRateLimited(Tag, "rec-icon-delta-" + (recId ?? recordingIndex.ToString(ic)),
+                string.Format(ic,
+                    "icon-pos-delta: member={0} body={1} worldPos={2} dPosFromLastFrame={3} status={4} " +
+                    "source={5} segUT={6:F1}-{7:F1} sma={8:F0} ecc={9:F3}",
+                    recordingIndex, segment.bodyName, FormatVec3d(worldPos),
+                    double.IsNaN(dPosFromLastFrame) ? "n/a" : dPosFromLastFrame.ToString("F1", ic) + "m",
+                    double.IsNaN(dPosFromLastFrame) ? "first-frame"
+                        : (dPosFromLastFrame < 1.0 ? "STALLED(frozen?)" : "moving"),
+                    sourceLabel, segment.startUT, segment.endUT,
+                    segment.semiMajorAxis, segment.eccentricity),
+                5.0);
 
             // Refresh last-known so destroy can read the current orbit shape.
             StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
@@ -7402,7 +7466,20 @@ namespace Parsek
                 ? drv.getPositionFromEccAnomaly(maxE * 0.99) : Vector3d.zero; // 0.99 to avoid singularity
             double farDist = farPos.magnitude;
 
-            ParsekLog.Verbose(Tag,
+            // This apply runs every frame the orbit is re-applied (per ghost), so an unconditional
+            // Verbose floods the log (it was ~31% of all Parsek output in a 2-minute capture). Log ON
+            // CHANGE per ghost instead, keyed on the orbit SHAPE (body + sma + ecc + renderer state):
+            // every distinct orbit applied still logs, a frozen/steady orbit logs once and then reports a
+            // suppressed=N count (which is clearer than thousands of identical lines for spotting a stuck
+            // orbit), and SOI/body changes and renderer flips register as discrete events. No debugging
+            // signal is lost; the per-frame repeat noise is. Ghost create/recreate is still logged loudly
+            // at INFO ("Created ghost vessel" / "create-segment-done"). sma:F0/ecc:F4 in the key are coarse
+            // enough to avoid float-jitter churn (these come from a fixed segment, so they are stable).
+            ParsekLog.VerboseOnChange(Tag,
+                "orbit-applied-" + vessel.persistentId.ToString(ic),
+                string.Format(ic, "{0}|{1:F0}|{2:F4}|{3}|{4}",
+                    body.name, segment.semiMajorAxis, drv.eccentricity,
+                    vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode),
                 string.Format(ic,
                     "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} " +
                     "periapsis={4:F0} semiMinor={5:F0} maxE={6:F2}rad farDist={7:F0}m " +
