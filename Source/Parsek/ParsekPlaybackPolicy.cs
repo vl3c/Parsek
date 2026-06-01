@@ -1581,6 +1581,13 @@ namespace Parsek
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
+                // Flight-map companion to the TS covering-segment log: same MapTraj on-change diagnostic so the
+                // SOI-exit blink / orbit-line GAP / body flip-flop is visible on the flight path too. The
+                // covering-segment source here is always Segment; the state-vector terminal fallback is a
+                // separate branch handled below when seg has no value.
+                GhostMapPresence.LogMapCoveringSegmentChange("FLIGHT", idx, effUT, seg, seg.HasValue,
+                    isStateVector: false,
+                    effectiveSegments != null ? effectiveSegments.Count : 0);
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
