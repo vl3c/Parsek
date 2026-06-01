@@ -1460,9 +1460,11 @@ namespace Parsek.InGameTests
         /// <c>initialRotation</c> + <c>GetRelSurfacePosition</c> + <c>Orbit.UpdateFromStateVectors</c>
         /// together (xUnit cannot run any of those). It asserts: (a) the inertial-seeded orbit's
         /// world position differs from the live-BodyFrame body-fixed projection by the rotation the
-        /// loop shift induces (the icon no longer rotates by kerbinRot(shift)); (b) the inertial seed
-        /// reconstructs the SAME world position the inertial orbit LINES would draw (a body-relative
-        /// inertial point at the recorded rotation phase), so icon and line stay co-located.
+        /// loop shift induces (the icon no longer rotates by kerbinRot(shift)); (b) the inertial-seeded
+        /// orbit's pos round-trips back to the recorded inertial point at the recorded rotation phase.
+        /// NOTE: (b) is a self-consistency check of the seed -> UpdateFromStateVectors -> orbit.pos
+        /// round-trip, NOT independent proof that the icon lands on the actual recorded OrbitSegment
+        /// line geometry; true icon-on-line co-location is a playtest concern.
         /// </summary>
         [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
             Description = "Looped gap glide seeds the recorded inertial position (icon stays on the orbit lines, no ~90 deg teleport)")]
@@ -1536,11 +1538,11 @@ namespace Parsek.InGameTests
             double bodyFixedVsLine = (bodyFixedWorld - recordedInertialWorld).magnitude;
             InGameAssert.IsGreaterThan(bodyFixedVsLine, 100000.0,
                 $"the body-fixed seed ({bodyFixedVsLine:F0} m from the inertial line point) must be far off " +
-                $"the inertial line (the ~90 deg teleport) — if this fails the loop-shift regression model is stale");
+                $"the inertial line (the ~90 deg teleport): if this fails the loop-shift regression model is stale");
 
             InGameAssert.IsTrue(iconVsLine * 5 < bodyFixedVsLine,
                 $"the inertial seed ({iconVsLine:F0} m) must be far closer to the inertial line than the " +
-                $"body-fixed seed ({bodyFixedVsLine:F0} m) — the fix removes the rotation");
+                $"body-fixed seed ({bodyFixedVsLine:F0} m): the fix removes the rotation");
 
             ParsekLog.Info("TestRunner",
                 $"GhostMapGapGlideSeedsInertialPositionUnderLoopShift: inertialLon={inertialLon:F2} " +
