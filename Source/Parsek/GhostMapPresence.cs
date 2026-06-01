@@ -2342,6 +2342,28 @@ namespace Parsek
                 reason ?? "(none)", chainPid, wasTarget);
             ParsekLog.Info(Tag, BuildGhostMapDecisionLine(destroy));
 
+            // MapRenderTrace Tier-A: structural GhostDestroyed event, keyed by the
+            // live ghost persistentId. Gated at the call site so disabled play pays
+            // no formatting cost; reads only last-known fields already snapshotted
+            // above (the vessel is dead, so world position comes from lastKnown).
+            if (MapRenderTrace.IsEnabled)
+            {
+                double destroyUT = hadLastKnown ? last.LastUT : CurrentUTNow();
+                MapRenderTrace.EmitStructural(
+                    "GhostDestroyed",
+                    MapRenderTrace.RenderSurface.ProtoIcon,
+                    ghostPid.ToString(ic),
+                    destroyUT,
+                    destroyUT,
+                    MapRenderTrace.DestroyWindowSeconds,
+                    MapRenderTrace.BuildLifecycleDetails(
+                        hadLastKnown ? last.VesselName : null,
+                        hadLastKnown ? last.Body : null,
+                        HighLogic.LoadedScene.ToString(),
+                        hadLastKnown ? (Vector3d?)last.WorldPos : null,
+                        string.Format(ic, "{0} chainPid={1}", reason ?? "(none)", chainPid)));
+            }
+
             return wasTarget;
         }
 
@@ -3613,6 +3635,27 @@ namespace Parsek
             destroy.UT = hadLastKnown ? last.LastUT : double.NaN;
             destroy.Reason = reason ?? "(none)";
             ParsekLog.Info(Tag, BuildGhostMapDecisionLine(destroy));
+
+            // MapRenderTrace Tier-A: structural GhostDestroyed event, keyed by the
+            // live ghost persistentId. Gated at the call site; reads only fields
+            // already snapshotted above (the vessel is dead by this point).
+            if (MapRenderTrace.IsEnabled)
+            {
+                double destroyUT = hadLastKnown ? last.LastUT : CurrentUTNow();
+                MapRenderTrace.EmitStructural(
+                    "GhostDestroyed",
+                    MapRenderTrace.RenderSurface.ProtoIcon,
+                    ghostPid.ToString(ic),
+                    destroyUT,
+                    destroyUT,
+                    MapRenderTrace.DestroyWindowSeconds,
+                    MapRenderTrace.BuildLifecycleDetails(
+                        hadLastKnown ? last.VesselName : null,
+                        hadLastKnown ? last.Body : null,
+                        HighLogic.LoadedScene.ToString(),
+                        hadLastKnown ? (Vector3d?)last.WorldPos : null,
+                        string.Format(ic, "{0} index={1}", reason ?? "(none)", recordingIndex)));
+            }
         }
 
         /// <summary>
@@ -9541,6 +9584,29 @@ namespace Parsek
                         driverState,
                         mapVisibilityState,
                         HighLogic.LoadedScene));
+
+                // MapRenderTrace Tier-A: structural GhostCreated event keyed by the
+                // live ghost persistentId (the map world's native key). Gated at the
+                // call site so no UT / world-position read and no string formatting
+                // happens in normal (disabled) play; EmitStructural also early-returns
+                // internally, matching the GhostRenderTrace emitter contract.
+                if (MapRenderTrace.IsEnabled)
+                {
+                    double nowUT = CurrentUTNow();
+                    MapRenderTrace.EmitStructural(
+                        "GhostCreated",
+                        MapRenderTrace.RenderSurface.ProtoIcon,
+                        v.persistentId.ToString(ic),
+                        nowUT,
+                        nowUT,
+                        MapRenderTrace.InitialWindowSeconds,
+                        MapRenderTrace.BuildLifecycleDetails(
+                            vesselName,
+                            body.name,
+                            HighLogic.LoadedScene.ToString(),
+                            v.GetWorldPos3D(),
+                            logContext));
+                }
 
                 return v;
             }

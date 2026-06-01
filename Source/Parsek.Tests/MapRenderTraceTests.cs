@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 using Xunit;
 
 namespace Parsek.Tests
@@ -275,6 +276,155 @@ namespace Parsek.Tests
             Assert.Contains("pid=100037", prefix);
             Assert.Contains("currentUT=10.000", prefix);
             Assert.Contains("effUT=9.500", prefix);
+        }
+
+        // ---- Tier-A structural events (GhostCreated / GhostDestroyed / FirstPosition) ----
+
+        [Fact]
+        public void EmitStructural_NoOpWhenDisabled()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+
+            MapRenderTrace.EmitStructural(
+                "GhostCreated",
+                MapRenderTrace.RenderSurface.ProtoIcon,
+                "100037",
+                100.0,
+                100.0,
+                MapRenderTrace.InitialWindowSeconds,
+                "vessel=Munar_Probe");
+
+            Assert.Empty(logLines);
+            Assert.False(MapRenderTrace.IsDetailedWindowOpen("100037", 101.0));
+        }
+
+        [Fact]
+        public void EmitStructural_GhostCreated_RoutesToInfoAndOpensWindow()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitStructural(
+                "GhostCreated",
+                MapRenderTrace.RenderSurface.ProtoIcon,
+                "100037",
+                1234.5,
+                1234.5,
+                MapRenderTrace.InitialWindowSeconds,
+                MapRenderTrace.BuildLifecycleDetails(
+                    "Munar Probe", "Mun", "TRACKSTATION",
+                    new Vector3d(1.0, 2.0, 3.0), "tracking-station-lifecycle"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=GhostCreated")
+                && l.Contains("surface=ProtoIcon")
+                && l.Contains("pid=100037")
+                && l.Contains("vessel=Munar_Probe")
+                && l.Contains("body=Mun")
+                && l.Contains("scene=TRACKSTATION"));
+            // The initial window opened so the surrounding frames get full detail.
+            Assert.True(MapRenderTrace.IsDetailedWindowOpen(
+                "100037", 1234.5 + MapRenderTrace.InitialWindowSeconds - 0.1));
+        }
+
+        [Fact]
+        public void EmitStructural_GhostDestroyed_OpensShortWindow()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitStructural(
+                "GhostDestroyed",
+                MapRenderTrace.RenderSurface.ProtoIcon,
+                "100037",
+                2000.0,
+                2000.0,
+                MapRenderTrace.DestroyWindowSeconds,
+                MapRenderTrace.BuildLifecycleDetails(
+                    "Munar Probe", "Mun", "FLIGHT", null, "engine-destroyed"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("phase=GhostDestroyed")
+                && l.Contains("reason=engine-destroyed"));
+            Assert.True(MapRenderTrace.IsDetailedWindowOpen("100037", 2000.0));
+            Assert.False(MapRenderTrace.IsDetailedWindowOpen(
+                "100037", 2000.0 + MapRenderTrace.DestroyWindowSeconds + 0.1));
+        }
+
+        [Fact]
+        public void BuildLifecycleDetails_OmitsWorldPosWhenNull()
+        {
+            string details = MapRenderTrace.BuildLifecycleDetails(
+                "Munar Probe", "Mun", "FLIGHT", worldPos: null, reason: "destroy");
+
+            Assert.Contains("vessel=Munar_Probe", details);
+            Assert.Contains("body=Mun", details);
+            Assert.Contains("scene=FLIGHT", details);
+            Assert.DoesNotContain("worldPos=", details);
+            Assert.Contains("reason=destroy", details);
+        }
+
+        [Fact]
+        public void BuildLifecycleDetails_IncludesWorldPosWhenPresent()
+        {
+            string details = MapRenderTrace.BuildLifecycleDetails(
+                "Probe", "Kerbin", "FLIGHT",
+                new Vector3d(10.0, 20.0, 30.0), reason: null);
+
+            Assert.Contains("worldPos=(10.00,20.00,30.00)", details);
+            // A null reason is omitted entirely (no trailing reason= token).
+            Assert.DoesNotContain("reason=", details);
+        }
+
+        [Fact]
+        public void BuildLifecycleDetails_NullVesselAndBody_RenderAsNoneToken()
+        {
+            string details = MapRenderTrace.BuildLifecycleDetails(
+                vesselName: null, bodyName: null, scene: "TRACKSTATION",
+                worldPos: null, reason: "destroy");
+
+            Assert.Contains("vessel=<none>", details);
+            Assert.Contains("body=<none>", details);
+        }
+
+        [Fact]
+        public void BuildFirstPositionDetails_CarriesWorldPosAndOrbitFields()
+        {
+            string details = MapRenderTrace.BuildFirstPositionDetails(
+                new Vector3d(100.0, 200.0, 300.0),
+                "Mun",
+                sma: 850000.0,
+                ecc: 0.0123,
+                reason: "first-truth-read");
+
+            Assert.Contains("worldPos=(100.00,200.00,300.00)", details);
+            Assert.Contains("body=Mun", details);
+            Assert.Contains("sma=850000", details);
+            Assert.Contains("ecc=0.0123", details);
+            Assert.Contains("reason=first-truth-read", details);
+        }
+
+        [Fact]
+        public void EmitStructural_FirstPosition_RoutesToInfoWithOrbitFields()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitStructural(
+                "FirstPosition",
+                MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                "100037",
+                500.0,
+                500.0,
+                MapRenderTrace.InitialWindowSeconds,
+                MapRenderTrace.BuildFirstPositionDetails(
+                    new Vector3d(1.0, 2.0, 3.0), "Mun", 850000.0, 0.01, "first-truth-read"));
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=FirstPosition")
+                && l.Contains("surface=ProtoOrbitLine")
+                && l.Contains("pid=100037")
+                && l.Contains("body=Mun")
+                && l.Contains("sma=850000"));
         }
 
         // ---- mapRenderTracing persistence round-trip ----

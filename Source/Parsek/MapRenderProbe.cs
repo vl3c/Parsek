@@ -18,6 +18,9 @@ namespace Parsek
     /// <c>VectorLine.active</c>, <see cref="OrbitDriver"/> orbit body / sma / ecc,
     /// and <see cref="Vessel.GetWorldPos3D"/>) and emits:
     /// <list type="bullet">
+    /// <item>Tier-A <c>FirstPosition</c>: the probe-derived MVP variant, emitted
+    /// once on the first end-of-frame truth read for a pid (world position + orbit
+    /// body/sma/ecc, no decision hook, no recordingId).</item>
     /// <item>Tier-B change-based truth: one <c>MapRenderTrace</c> line per field
     /// only when that field changes for a pid (so a 1-frame toggle out and back is
     /// two lines, steady state is one line then quiet).</item>
@@ -71,6 +74,12 @@ namespace Parsek
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
+        // Pids that have already had their Tier-A FirstPosition event emitted on
+        // the first end-of-frame truth read for that pid. Cleared on scene change
+        // alongside the other per-pid state, so re-entering a scene re-emits a
+        // fresh FirstPosition for the rebuilt ghost (matching the prevWorldPos
+        // reset semantics).
+        private readonly HashSet<uint> firstPositionEmittedPids = new HashSet<uint>();
 
         void Awake()
         {
@@ -112,6 +121,7 @@ namespace Parsek
             lastBodyOrbit.Clear();
             lastLineToggleFrame.Clear();
             lastJumpEmitRealtime.Clear();
+            firstPositionEmittedPids.Clear();
         }
 
         void LateUpdate()
@@ -256,8 +266,28 @@ namespace Parsek
                 lastLineToggleFrame[pid] = frame;
             }
 
-            // --- Tier-C icon-jump anomaly (per-frame, orbit-derived threshold) ---
+            // --- Tier-A FirstPosition (probe-derived MVP variant) ---
+            // The first end-of-frame truth read for a pid: emit the ghost's first
+            // world position on its orbit/trajectory plus orbit body/sma/ecc. No
+            // decision hook and no recordingId (those are second-cut). Fires once
+            // per pid per scene (the set is cleared on scene change), keyed by the
+            // map world's native persistentId.
             Vector3d worldPos = v.GetWorldPos3D();
+            if (!firstPositionEmittedPids.Contains(pid))
+            {
+                MapRenderTrace.EmitStructural(
+                    "FirstPosition",
+                    MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                    pidKey,
+                    currentUT,
+                    currentUT,
+                    MapRenderTrace.InitialWindowSeconds,
+                    MapRenderTrace.BuildFirstPositionDetails(
+                        worldPos, bodyName, sma, ecc, "first-truth-read"));
+                firstPositionEmittedPids.Add(pid);
+            }
+
+            // --- Tier-C icon-jump anomaly (per-frame, orbit-derived threshold) ---
             Vector3d prev;
             if (prevWorldPos.TryGetValue(pid, out prev))
             {

@@ -387,6 +387,81 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Tier-A structural-event emit (always emitted when enabled; routed to
+        /// <see cref="ParsekLog.Info"/> as important). Opens a detailed window of
+        /// <paramref name="windowSeconds"/> for the pid so the surrounding frames
+        /// get full per-frame detail, then emits one
+        /// <c>phase=&lt;phase&gt; surface= ... &lt;details&gt;</c> line. Early-returns
+        /// when disabled so call sites pass only values already in scope and never
+        /// pay a formatting cost in normal play (mirrors the
+        /// <see cref="GhostRenderTrace"/> emitters). <paramref name="details"/> is
+        /// pre-built by the caller (e.g. via <see cref="BuildLifecycleDetails"/>).
+        /// </summary>
+        internal static void EmitStructural(
+            string phase,
+            RenderSurface surface,
+            string pidKey,
+            double currentUT,
+            double effUT,
+            double windowSeconds,
+            string details)
+        {
+            if (!IsEnabled)
+                return;
+
+            if (windowSeconds > 0.0)
+                OpenDetailedWindow(pidKey, currentUT, windowSeconds, phase);
+
+            EmitRaw(true, phase, surface, pidKey, currentUT, effUT, details);
+        }
+
+        /// <summary>
+        /// Pure builder for the <c>vessel= body= scene=</c>[+ world position] detail
+        /// tail of a Tier-A lifecycle line (<c>GhostCreated</c> / <c>GhostDestroyed</c>).
+        /// Kept pure (no Unity reads) so the structural-event detail schema is
+        /// unit-testable. <paramref name="worldPos"/> is omitted when null (the
+        /// destroy path may have no last-known world position).
+        /// </summary>
+        internal static string BuildLifecycleDetails(
+            string vesselName,
+            string bodyName,
+            string scene,
+            Vector3d? worldPos,
+            string reason)
+        {
+            string s = "vessel=" + Token(vesselName)
+                + " body=" + Token(bodyName)
+                + " scene=" + Token(scene);
+            if (worldPos.HasValue)
+                s += " worldPos=" + FormatVector3d(worldPos.Value);
+            if (!string.IsNullOrEmpty(reason))
+                s += " reason=" + Token(reason);
+            return s;
+        }
+
+        /// <summary>
+        /// Pure builder for the <c>worldPos= body= sma= ecc=</c> detail tail of the
+        /// Tier-A <c>FirstPosition</c> line (the probe-derived MVP variant: the
+        /// ghost's first end-of-frame truth read for a pid). Kept pure so the
+        /// schema is unit-testable.
+        /// </summary>
+        internal static string BuildFirstPositionDetails(
+            Vector3d worldPos,
+            string bodyName,
+            double sma,
+            double ecc,
+            string reason)
+        {
+            string s = "worldPos=" + FormatVector3d(worldPos)
+                + " body=" + Token(bodyName)
+                + " sma=" + FormatDouble(sma, "F0")
+                + " ecc=" + FormatDouble(ecc, "F4");
+            if (!string.IsNullOrEmpty(reason))
+                s += " reason=" + Token(reason);
+            return s;
+        }
+
+        /// <summary>
         /// Tier-C anomaly emit: routes an important <c>phase=Anomaly</c> line
         /// (carrying <c>reason=</c> + caller details) to
         /// <see cref="ParsekLog.Info"/> via <see cref="EmitRaw"/> and opens an
