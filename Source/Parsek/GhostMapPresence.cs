@@ -2204,6 +2204,17 @@ namespace Parsek
             if (vessel != null)
             {
                 vesselsByChainPid[chain.OriginalVesselPid] = vessel;
+                // Complete the pid -> recordingId reverse map for chain (terminal-orbit) ghosts
+                // too, mirroring the timeline path's TrackRecordingGhostVessel write. Without this,
+                // chain-tip ghost pids had no reverse entry, so recordingId-keyed consumers
+                // (MapRenderTrace second-cut window/correlation, polyline-ownership, visibility
+                // checks) silently dropped them. Keyed by the LIVE ghost vessel.persistentId (the
+                // map world's native key), NOT chain.OriginalVesselPid. Removed in RemoveGhostVessel.
+                // No else-remove branch (unlike TrackRecordingGhostVessel) is needed: we only reach
+                // here on a fresh create (the vesselsByChainPid.ContainsKey early-return above blocks
+                // re-entry), and the live pid is a fresh KSP-unique spawn pid, so no stale entry exists.
+                if (!string.IsNullOrEmpty(traj.RecordingId))
+                    vesselPidToRecordingId[vessel.persistentId] = traj.RecordingId;
                 lifecycleCreatedThisTick++;
 
                 Vector3d worldPos = vessel.GetWorldPos3D();
@@ -2323,6 +2334,7 @@ namespace Parsek
             ghostLastAppliedOrbitBody.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             ghostOrbitEpochShift.Remove(ghostPid);
+            vesselPidToRecordingId.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;

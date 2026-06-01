@@ -393,6 +393,12 @@ namespace Parsek.Patches
             double startUT,
             double endUT)
         {
+            // Record the authoritative line/icon decision so the end-of-frame MapRenderProbe can
+            // reconcile it against the actually-rendered state on this same frame (decision-vs-truth,
+            // second cut). Guarded by IsEnabled so disabled play never pays the drawIcons.ToString().
+            if (MapRenderTrace.IsEnabled)
+                MapRenderTrace.RecordLineIntent(vesselPid, lineActive, drawIcons.ToString(), reason);
+
             ParsekLog.VerboseOnChange(Tag,
                 "pid-" + vesselPid.ToString(CultureInfo.InvariantCulture),
                 BuildGhostOrbitLineDecisionStateKey(

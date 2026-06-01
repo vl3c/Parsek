@@ -555,5 +555,172 @@ namespace Parsek.Tests
 
             Assert.True(MapRenderTrace.IsDetailedWindowOpen("100037", 102.0));
         }
+
+        // ---- Decision-vs-truth reconciliation (second cut) ----
+
+        [Fact]
+        public void ReconcileLineState_Consistent_ReturnsEmpty()
+        {
+            var intent = new MapRenderTrace.LineRenderIntent
+            { Frame = 1, LineActive = true, DrawIcons = "OBJ", Reason = "visible-body-frame" };
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcileLineState(intent, "True", "OBJ"));
+        }
+
+        [Fact]
+        public void ReconcileLineState_LineToggledAfterDecision_ReportsMismatch()
+        {
+            var intent = new MapRenderTrace.LineRenderIntent
+            { Frame = 1, LineActive = true, DrawIcons = "OBJ", Reason = "visible-body-frame" };
+            string mismatch = MapRenderTrace.ReconcileLineState(intent, "False", "OBJ");
+            Assert.Contains("line-toggled-after-decision", mismatch);
+            Assert.Contains("intended=true", mismatch);
+            Assert.Contains("actual=false", mismatch);
+        }
+
+        [Fact]
+        public void ReconcileLineState_UnknownActualLine_SkipsLineCheck()
+        {
+            // Until the OrbitLine reflection is fixed, line.active reads "(field-missing)" -> no
+            // signal, so the line check no-ops; the matching drawIcons keeps it consistent.
+            var intent = new MapRenderTrace.LineRenderIntent
+            { Frame = 1, LineActive = true, DrawIcons = "OBJ", Reason = "visible-body-frame" };
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcileLineState(intent, "(field-missing)", "OBJ"));
+        }
+
+        [Fact]
+        public void ReconcileLineState_DrawIconsChangedAfterDecision_ReportsMismatch()
+        {
+            var intent = new MapRenderTrace.LineRenderIntent
+            { Frame = 1, LineActive = false, DrawIcons = "NONE", Reason = "polyline-owns-phase" };
+            string mismatch = MapRenderTrace.ReconcileLineState(intent, "False", "OBJ");
+            Assert.Contains("drawIcons-changed-after-decision", mismatch);
+            Assert.Contains("intended=NONE", mismatch);
+            Assert.Contains("actual=OBJ", mismatch);
+        }
+
+        [Fact]
+        public void ReconcileLineState_UnknownActualDrawIcons_SkipsIconCheck()
+        {
+            var intent = new MapRenderTrace.LineRenderIntent
+            { Frame = 1, LineActive = false, DrawIcons = "NONE", Reason = "polyline-owns-phase" };
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcileLineState(intent, "False", "(no-renderer)"));
+        }
+
+        [Fact]
+        public void RecordLineIntent_Disabled_DoesNotStore()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            MapRenderTrace.RecordLineIntent(7u, true, "OBJ", "visible-body-frame");
+            Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 42, out _));
+        }
+
+        [Fact]
+        public void RecordLineIntent_Enabled_StoresFreshSameFrameIntent()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+            MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
+
+            MapRenderTrace.RecordLineIntent(7u, true, "OBJ", "visible-body-frame");
+
+            Assert.True(MapRenderTrace.TryGetFreshLineIntent("7", 100, out var intent));
+            Assert.True(intent.LineActive);
+            Assert.Equal("OBJ", intent.DrawIcons);
+            Assert.Equal("visible-body-frame", intent.Reason);
+            Assert.Equal(100, intent.Frame);
+        }
+
+        [Fact]
+        public void TryGetFreshLineIntent_StaleFrame_ReturnsFalse()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+            MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
+            MapRenderTrace.RecordLineIntent(7u, true, "OBJ", "visible-body-frame");
+
+            // A later frame exceeds IntentFreshnessFrames (0) -> dropped, not reconciled.
+            Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 102, out _));
+        }
+
+        [Fact]
+        public void TryGetFreshLineIntent_OneFrameLater_ReturnsFalse()
+        {
+            // freshness=0: intent recorded at frame 100 is reconciled only on frame 100. The next
+            // frame is stale - a grace-defer branch may have legitimately changed the rendered state
+            // without re-recording intent - so it is dropped rather than producing a false mismatch.
+            MapRenderTrace.ForceEnabledForTesting = true;
+            MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
+            MapRenderTrace.RecordLineIntent(7u, false, "NONE", "polyline-owns-phase");
+
+            Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 101, out _));
+        }
+
+        // ---- polyline-orbit-overlap anomaly ----
+
+        [Fact]
+        public void ReconcilePolylineOverlap_NotOwning_ReturnsEmpty()
+        {
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(false, "True", "OBJ"));
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithIconShown_Flags()
+        {
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(true, "False", "OBJ");
+            Assert.Contains("proto-icon-shown-while-polyline-owns", overlap);
+            Assert.Contains("drawIcons=OBJ", overlap);
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithIconNone_NoOverlap()
+        {
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(true, "False", "NONE"));
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithLineActive_Flags()
+        {
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(true, "True", "NONE");
+            Assert.Contains("orbit-line-active-while-polyline-owns", overlap);
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithUnknownLine_SkipsLineFacet()
+        {
+            // line facet dormant until the OrbitLine reflection is fixed; icon NONE => no overlap.
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(true, "(field-missing)", "NONE"));
+        }
+
+        // ---- IMGUI marker-surface emit ----
+
+        [Fact]
+        public void EmitMarker_Enabled_EmitsMarkerDrawWithSurface()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-marker-enabled", 100.0,
+                "vessel=Munar_Probe markerPos=(1.00,2.00,3.00)");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]")
+                && l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=MarkerDraw")
+                && l.Contains("surface=ImguiLabeledMarker")
+                && l.Contains("pid=rec-marker-enabled"));
+        }
+
+        [Fact]
+        public void EmitMarker_Disabled_NoOp()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.AtmosphericMarker, "rec-marker-disabled", 100.0, "vessel=X");
+            Assert.Empty(logLines);
+        }
     }
 }

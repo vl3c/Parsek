@@ -94,10 +94,12 @@ heavier reconciliation layer.
   does not own timing.
 - Not always-on. It is a forensic tool, like `ghostRenderTracing`. The warning label
   ("huge logs") carries over.
-- Does not change rendering behavior, recording format, or any decision. Pure
-  observation. The one small production change it requires is completing the
-  `vesselPidToRecordingId` reverse map for chain ghosts (see Identity key), which is a
-  latent-gap fix, not a behavior change.
+- Pure observation for the tracer itself (no recording-format or decision changes).
+  The one production change it requires is completing the `vesselPidToRecordingId`
+  reverse map for chain ghosts (see Identity key): a latent-gap fix that, as a side
+  effect, makes chain ghosts correctly participate in polyline-ownership icon hiding
+  (the same behavior timeline ghosts already get). That is a small, intended
+  rendering-behavior change for chain ghosts and must be validated in a playtest.
 
 ---
 
@@ -281,8 +283,11 @@ four different cadences - a ~0.25 s lifecycle tick (`UpdateTrackingStationGhostL
 per-physics `OrbitDriver.updateFromParameters` (icon-drive Prefix), per-render
 `OrbitRendererBase.LateUpdate` (line Postfix), and per-OnGUI (markers). Reconciliation
 compares intended-vs-actual ONLY when the stored intent was stamped on the SAME Unity
-frame as the truth read (allow +/-1 frame of slack for a physics step that straddles
-the render frame). Intent older than that is dropped, not flagged: a lifecycle-tick
+frame as the truth read (`IntentFreshnessFrames = 0`). As implemented, intent is recorded
+only from the per-render line Postfix (same LateUpdate frame as the order-10000 probe), so
+no slack is needed; allowing slack would reconcile a STALE intent against a later
+grace-defer frame that legitimately changed the rendered state without re-recording it (a
+false positive). Intent older than that is dropped, not flagged: a lifecycle-tick
 intent that is 0.24 s (many frames under warp) stale is NOT a mismatch, it is just old.
 Lifecycle-tick state changes are surfaced as Tier-A structural events, not as per-frame
 reconciliation inputs. `ReconcileMapRenderState(intended, actual)` is a pure function

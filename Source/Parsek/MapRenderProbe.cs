@@ -250,6 +250,37 @@ namespace Parsek
                     bodyName, MapRenderTrace.FormatDouble(sma, "F0"),
                     MapRenderTrace.FormatDouble(ecc, "F4"), lineActive, rendererEnabled));
 
+            // --- Tier-C decision-vs-truth reconciliation (proto orbit-line / icon) ---
+            // If GhostOrbitLinePatch recorded an authoritative line/icon decision on THIS frame,
+            // compare it against the actual end-of-frame read. A same-frame mismatch means KSP or
+            // another patch toggled line.active / drawIcons AFTER our Postfix decided it (the blink /
+            // post-decision-mutation case). Stale intent (a frame on which the Postfix did not run,
+            // e.g. KSP skipped the renderer's LateUpdate) is dropped by the freshness check, not
+            // flagged. The line.active half stays dormant while the read is "(field-missing)"; the
+            // drawIcons half is live now.
+            if (MapRenderTrace.TryGetFreshLineIntent(pidKey, frame, out var lineIntent))
+            {
+                string mismatch = MapRenderTrace.ReconcileLineState(lineIntent, lineActive, drawIcons);
+                if (!string.IsNullOrEmpty(mismatch))
+                    MapRenderTrace.EmitAnomaly(
+                        MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                        "decision-vs-truth",
+                        string.Format(ic, "{0} intentReason={1} sinceFrames={2}",
+                            mismatch, lineIntent.Reason, frame - lineIntent.Frame));
+            }
+
+            // --- Tier-C polyline-orbit-overlap anomaly ---
+            // The proto orbit line + icon must not draw while the trajectory polyline owns this
+            // recording's non-orbital leg (the double-draw seam). A higher-level invariant check
+            // independent of the patch's intent. The drawIcons facet is live now; the line facet
+            // lights up with the OrbitLine-reflection fix.
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(
+                GhostMapPresence.IsPolylineOwningGhostPhase(pid), lineActive, drawIcons);
+            if (!string.IsNullOrEmpty(overlap))
+                MapRenderTrace.EmitAnomaly(
+                    MapRenderTrace.RenderSurface.Polyline, pidKey, currentUT, currentUT,
+                    "polyline-orbit-overlap", overlap);
+
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
             // predicate fires only when the PREVIOUS toggle was within the window,

@@ -1289,6 +1289,16 @@ namespace Parsek
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
 
+                // MapRenderTrace IMGUI surface coverage (ImguiLabeledMarker). Decision-only: the
+                // labeled marker draws here in OnGUI, so the projected world position IS the truth
+                // (no end-of-frame reconciliation). Gated + rate-limited inside EmitMarker.
+                if (MapRenderTrace.IsEnabled)
+                    MapRenderTrace.EmitMarker(
+                        MapRenderTrace.RenderSurface.ImguiLabeledMarker, markerKey, currentUT,
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "vessel={0} markerPos={1} mapView={2} meshActive={3}",
+                            ghostName, MapRenderTrace.FormatVector3(markerPos), isMapView, meshActive));
+
                 // Diagnostic (loiter-seam icon debugging): when the marker rides the LIVE ghost mesh
                 // (meshActive), compare the drawn mesh position against the trajectory-interpolated position
                 // at the same span-clock head UT. Both are in the current world frame, so their gap

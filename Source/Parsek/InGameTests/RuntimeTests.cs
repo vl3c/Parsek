@@ -8845,6 +8845,72 @@ namespace Parsek.InGameTests
             }
         }
 
+        [InGameTest(Category = "MapPresence", Scene = GameScenes.FLIGHT,
+            Description = "Chain ghost create writes the pid -> recordingId reverse map; RemoveGhostVessel clears it")]
+        public IEnumerator ChainGhost_ReverseMap_WrittenOnCreate_ClearedOnRemove()
+        {
+            // Guards the second-cut reverse-map completion: CreateGhostVessel(chain) must write
+            // vesselPidToRecordingId keyed by the LIVE ghost pid (mirroring the timeline path's
+            // TrackRecordingGhostVessel), and RemoveGhostVessel must clear it. The write is a
+            // Unity-runtime path (builds a ProtoVessel), so this lives in-game rather than xUnit.
+            if (FlightGlobals.fetch == null || FlightGlobals.ActiveVessel == null)
+            {
+                InGameAssert.Skip("FlightGlobals or active vessel is unavailable");
+                yield break;
+            }
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active.mainBody == null)
+            {
+                InGameAssert.Skip("Active vessel main body is unavailable");
+                yield break;
+            }
+
+            Recording rec = BuildSyntheticFlightTargetRecording(active, Planetarium.GetUniversalTime());
+            InGameAssert.IsFalse(string.IsNullOrEmpty(rec.RecordingId),
+                "Synthetic recording should carry a non-empty RecordingId");
+
+            // Minimal chain. CreateGhostVessel only reads chain.OriginalVesselPid (the
+            // vesselsByChainPid key + re-entry guard); the ghost's own live pid (KSP-assigned,
+            // unique) is the reverse-map key. Use a high OriginalVesselPid unlikely to collide.
+            uint chainPid = 0x7F000000u + (uint)(Time.frameCount & 0xFFFF);
+            var chain = new GhostChain { OriginalVesselPid = chainPid, TipRecordingId = rec.RecordingId };
+
+            Vessel ghost = null;
+            uint ghostLivePid = 0u;
+            try
+            {
+                ghost = GhostMapPresence.CreateGhostVessel(chain, rec);
+                InGameAssert.IsNotNull(ghost,
+                    "CreateGhostVessel(chain) should build a ghost from the synthetic orbit recording");
+                ghostLivePid = ghost.persistentId;
+
+                yield return null;
+
+                InGameAssert.AreEqual(rec.RecordingId,
+                    GhostMapPresence.FindRecordingIdByVesselPid(ghostLivePid),
+                    "CreateGhostVessel(chain) must write the pid -> recordingId reverse map for chain ghosts");
+
+                GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, "chain-reverse-map-test-cleanup");
+                ghost = null;
+
+                InGameAssert.IsNull(
+                    GhostMapPresence.FindRecordingIdByVesselPid(ghostLivePid),
+                    "RemoveGhostVessel must clear the chain ghost's reverse-map entry");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ChainGhost_ReverseMap: chainPid={0} ghostLivePid={1} recId={2} OK",
+                        chainPid, ghostLivePid, rec.RecordingId));
+            }
+            finally
+            {
+                if (ghost != null)
+                    GhostMapPresence.RemoveGhostVessel(
+                        chain.OriginalVesselPid, "chain-reverse-map-test-finally-cleanup");
+            }
+        }
+
         [InGameTest(Category = "MapPresence",
             Description = "Recordings with antenna specs produce positive relay power")]
         public void AntennaSpecsProduceRelayPower()
