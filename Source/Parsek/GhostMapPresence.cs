@@ -2659,9 +2659,11 @@ namespace Parsek
             orb.closestEncounterBody = null;
             orb.closestEncounterPatch = null;
             // EndUT in the future tells KSP "this patch is still valid"; a finite past
-            // value triggers the on-rails transition. PositiveInfinity is the canonical
-            // "no end" sentinel for a final patch (matches the patchEndTransition value).
-            orb.EndUT = double.PositiveInfinity;
+            // value triggers the on-rails transition. double.MaxValue is a large finite
+            // future sentinel that satisfies every `currentUT >= EndUT` / `EndUT -
+            // currentUT` test without risking NaN from any infinity arithmetic KSP's
+            // patched-conic display code might happen to do.
+            orb.EndUT = double.MaxValue;
             // UTsoi is the predicted SOI-entry UT for the next patch; -1 is the "none"
             // sentinel KSP uses for FINAL patches.
             orb.UTsoi = -1.0;
@@ -9218,6 +9220,14 @@ namespace Parsek
                 // booster-explosion, log line 18:44:50.128).
                 HardenGhostVesselPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
+                // Neutralize KSP's on-rails patched-conic transition machinery on the
+                // freshly-loaded ghost orbit, so KSP cannot do an [OrbitDriver]: On-Rails
+                // SOI Transition before the caller's first per-tick reseed runs (which
+                // would close the one-frame gap, but Parsek lifecycle does not guarantee
+                // it on EVERY create path - some routes go create -> physics tick -> first
+                // update). With the patch-end cleared at load time every ghost is safe.
+                if (v.orbitDriver != null)
+                    NeutralizeGhostOrbitOnRailsTransition(v.orbitDriver.orbit);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
                 {
