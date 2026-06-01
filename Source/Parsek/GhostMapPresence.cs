@@ -7709,6 +7709,32 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure: loop-shift body-fixed compensation for an orbit's longitude of ascending node.
+        /// A looped recording replays at a raw recorded epoch under a live-frame shift
+        /// (<paramref name="loopEpochShiftSeconds"/>); the inertial orbit is unchanged but the body
+        /// rotates <c>shift / rotationPeriod</c> revolutions over the shift, so the orbit's body-fixed
+        /// projection at the live clock is rotated by that angle relative to the recording. Rotating
+        /// the node BACK by the body's rotation over the shift restores the recorded body-fixed
+        /// appearance (so the orbit line rejoins the surface-relative recorded points seamlessly). The
+        /// node longitude is measured about the body's spin (polar) axis, so this rotation is exactly
+        /// the body's rotation about that same axis — it shifts every point's body-fixed longitude
+        /// equally for any inclination. Returns the recorded LAN unchanged when
+        /// <paramref name="loopEpochShiftSeconds"/> is 0 (non-looped) or
+        /// <paramref name="bodyRotationPeriodSeconds"/> is non-positive. Result normalized to [0, 360).
+        /// </summary>
+        internal static double ApplyLoopShiftLanRotation(
+            double recordedLanDeg, double loopEpochShiftSeconds, double bodyRotationPeriodSeconds)
+        {
+            if (loopEpochShiftSeconds == 0.0 || bodyRotationPeriodSeconds <= 0.0)
+                return recordedLanDeg;
+            double bodyRotationDeg = (loopEpochShiftSeconds / bodyRotationPeriodSeconds) * 360.0;
+            double adjusted = recordedLanDeg - bodyRotationDeg;
+            adjusted %= 360.0;
+            if (adjusted < 0.0) adjusted += 360.0;
+            return adjusted;
+        }
+
+        /// <summary>
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
@@ -7765,12 +7791,43 @@ namespace Parsek
             // Postfix + AnyGhostHeadLeftAppliedSegment comparisons (which use the live clock) are
             // byte-identical to before; the two prefixes subtract the shift where they need the
             // recorded clock.
+            // Loop-shift body-fixed LAN compensation. A looped recording replays its orbits at a
+            // RAW recorded epoch under a live-frame shift (loopEpochShiftSeconds = liveUT - effUT).
+            // The orbit's INERTIAL orientation (LAN) is unchanged, but the reference body keeps
+            // rotating, so over the shift the body turns by (shift / rotationPeriod) revolutions and
+            // the inertial orbit's BODY-FIXED projection at the live clock is rotated by exactly that
+            // much relative to the recording. The recorded surface-relative trajectory points (the
+            // orbit-raise gap-glide / ascent) stay locked to the surface, so the orbit line and those
+            // body-fixed points desync by the body's rotation over the shift — the ~97 deg
+            // parking->loiter icon teleport (measured 96.84 deg = Kerbin's 96.62 deg rotation over an
+            // 845 Ms shift + 0.27 deg of legitimate forward motion). Rotating the node back by that
+            // rotation makes the inertial orbit project to its recorded body-fixed appearance, so it
+            // joins the body-fixed points seamlessly. Gated to looped ghosts (shift != 0) so non-loop
+            // recordings are byte-identical, and to NON-star bodies: a re-aimed interplanetary
+            // transfer leg is heliocentric (around the common-ancestor star) and is aimed at the
+            // target's LIVE inertial position, so it must NOT be body-fixed-rotated (that would
+            // mis-aim it by the Sun's rotation over the shift). Surface-relative recorded geometry
+            // only ever lives around a planet/moon, which is exactly where the desync is visible.
+            double seededLan = segment.longitudeOfAscendingNode;
+            if (loopEpochShiftSeconds != 0.0 && !body.isStar && body.rotationPeriod > 0.0)
+            {
+                seededLan = ApplyLoopShiftLanRotation(
+                    segment.longitudeOfAscendingNode, loopEpochShiftSeconds, body.rotationPeriod);
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "Loop-shift LAN rotation for {0}: body={1} shift={2:F1}s rotPeriod={3:F1}s " +
+                        "recordedLan={4:F3} -> seededLan={5:F3} (bodyRot={6:F2}deg)",
+                        logContext, body.name, loopEpochShiftSeconds, body.rotationPeriod,
+                        segment.longitudeOfAscendingNode, seededLan,
+                        ((segment.longitudeOfAscendingNode - seededLan) % 360.0 + 360.0) % 360.0));
+            }
+
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
                 segment.eccentricity,
                 segment.semiMajorAxis,
-                segment.longitudeOfAscendingNode,
+                seededLan,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
                 segment.epoch,
