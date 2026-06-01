@@ -35,6 +35,7 @@ All notable changes to Parsek are documented here.
 ### UI
 
 - New "Logistics" button (grouped with Timeline and Recordings) opens a Supply Routes window with three sections: Active Routes, Paused Routes, and Candidates (available in both Flight and Space Center). Rows expand (click the name, Recordings-window caret style) to a detail panel showing the delivery manifest, transit, interval, next-dispatch countdown, and source recordings. Active rows have Pause; Paused rows have Send Once (fire one cycle when conditions allow, then stay Paused) and Activate (turn on periodic dispatch); Candidate rows have Create Route (promotes to a Paused route). Status text is colored and names the blocking reason (green dispatching/in-transit, yellow waiting/full, red endpoint-lost/source-missing/source-changed, grey paused).
+- After Send Once, the route's action shows a greyed-out "Sending..." button until the cycle reaches its dispatch window and delivers, so the click reads as registered and the route reads as armed-and-waiting rather than idle. (Send Once does not fire instantly: dispatch waits for the looping run to reach its dock point, which can be up to a full run away.)
 
 ### Bug Fixes
 

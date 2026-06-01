@@ -12,6 +12,20 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Send Once gave no feedback (looked dead) + delivery write was not observable end-to-end
+
+- Playtest (`logs/2026-06-01_2342_supply-run-check/`, save `l2`, KSP.log ~23:38-23:39). Two supply routes (`3ff5b346` -> "rover fuel 0", `7ab0e8b6` -> "rover fuel 1") delivering LiquidFuel. The player pressed Send Once several times per route "to get it to work" and could not tell whether any fuel actually moved.
+
+- **Diagnosis (fuel DID transfer):** all 5 dispatched cycles delivered the full requested amount (`Delivery write ... written==requested`, e.g. 97.6 / 78.4 / 62.4 LF, `errored=0`, final `PostWalk totalDispatched=5 totalDelivered=5`). Nothing failed. Every Send Once press logged `result=armed` (never rejected); the multi-press was a feedback gap, not a functional failure: `TrySendOneCycleNow` arms a one-shot (un-pauses to Active + `PauseAfterCurrentCycle=true`) but dispatch is gated by the loop-clock crossing the recorded dock point, so press->fire ranged from ~0.4 s to ~23 s with no visible "armed" signal. Each press queued its own cycle, so the extra presses each delivered (route `7ab0e8b6` ran 3 cycles, `3ff5b346` ran 2).
+
+- **Fix 1 (UI feedback):** while a route carries an armed/in-flight one-shot, the Logistics-window action cell now shows a disabled, greyed-out "Sending..." button instead of a live action button. Driven by the pure predicate `LogisticsWindowUI.ShouldShowSendingButton(route)` = `PauseAfterCurrentCycle && Status in {Active, InTransit, WaitingForResources, WaitingForFunds, DestinationFull}` (false once it lands back in Paused, and for hard-broken endpoint/source states where "Sending..." would lie). Covers both Send Once and Pause-while-InTransit.
+
+- **Fix 2 (observability):** `LiveDeliveryWriters.WriteResource` now logs the destination tank pool before and after the write plus capacity (`tankBefore=.. tankAfter=.. capacity=..`), not just `requested`/`written`. New read-only `ReadResourceTotals` sums stored/capacity over the SAME deliverable-tank set the writer mutates (same loaded/unloaded branch + flow-state / NO_FLOW gate), so `tankAfter - tankBefore == written` and `written==0` is disambiguated (full = `tankBefore==capacity`, absent/NO_FLOW = `capacity==0`). Read-only, additive, no behavior change.
+
+- **Coverage:** xUnit `LogisticsWindowUISendingButtonTests` (13 cases across the status x armed matrix). The `ReadResourceTotals` helpers are KSP-state code (mirror the untested `WriteResource*` walkers) and are exercised by the live delivery path; the enriched log is self-validating (`after - before == written`). Full suite green (13,727).
+
+- **Residual / follow-up (not fixed here):** during the run `RouteAnalysis rejected: missing route proof` logged ~once/second (69x in 68 s) at INFO from the candidate detector re-analyzing a tree with no logged dock event. Harmless to the working routes, but it is per-frame INFO spam that should be rate-limited / dropped to Verbose, and it explains why an expected third candidate did not surface.
+
 ## Done - v0.10.0 Phantom rover re-spawned at KSC after a delivery docked into a landed vessel
 
 - ~~Live playtest (`logs/2026-06-01_2155_phantom-rover/`, save `logi1`, KSP.log ~21:46-21:52). The player drove rovers near the runway and an extra `rover fuel 0` appeared with no rewind and no playback. KSCSpawn materialized a real vessel (pid 1787519024) at 21:51:59 for committed Landed leaf `804f5cff` (vessel pid 2899379747).~~ Distinct from the duplicate-landed-deliveries de-overlap entry below: that was N separate launches landing on the same spot; this is a SINGLE vessel re-spawned as a duplicate of itself.

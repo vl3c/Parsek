@@ -304,7 +304,21 @@ namespace Parsek
             // Fixed-width action cell so every row's Name-expand is identical and
             // the data columns stay aligned across sections and the header.
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
-            if (section == RouteSection.Active)
+            if (ShouldShowSendingButton(route))
+            {
+                // Armed one-shot / in-flight cycle (Send Once, or Pause while
+                // InTransit): the route will dispatch one cycle at the next
+                // dispatch window, then return to Paused. Show a disabled
+                // "Sending..." button so the click reads as registered and the
+                // route reads as armed-and-waiting rather than idle.
+                bool prevEnabled = GUI.enabled;
+                GUI.enabled = false;
+                GUILayout.Button(new GUIContent("Sending...",
+                        "Armed: this route will dispatch one cycle at the next dispatch window (funds, resources, endpoint, and alignment permitting), then return to Paused."),
+                    GUILayout.Width(74));
+                GUI.enabled = prevEnabled;
+            }
+            else if (section == RouteSection.Active)
             {
                 if (GUILayout.Button("Pause", GUILayout.Width(58)))
                     pendingPause = route;
@@ -329,6 +343,38 @@ namespace Parsek
 
             if (expanded)
                 DrawRouteDetail(route, currentUT);
+        }
+
+        /// <summary>
+        /// True when a route's action cell should show the disabled "Sending..."
+        /// affordance instead of a live action button. A route carrying
+        /// <see cref="Route.PauseAfterCurrentCycle"/> has a one-shot / in-flight
+        /// cycle committed (armed by Send Once, which un-pauses the route to
+        /// Active, or by Pause-while-InTransit): it will dispatch one cycle at the
+        /// next dispatch window, then return to Paused. While it is armed and has
+        /// not yet landed back in Paused (and is not in a hard-broken
+        /// endpoint/source state that cannot send), the player should see that the
+        /// click registered and the route is waiting for its dispatch window
+        /// rather than idle. Pure for unit testing.
+        /// </summary>
+        internal static bool ShouldShowSendingButton(Route route)
+        {
+            if (route == null || !route.PauseAfterCurrentCycle)
+                return false;
+            switch (route.Status)
+            {
+                case RouteStatus.Active:
+                case RouteStatus.InTransit:
+                case RouteStatus.WaitingForResources:
+                case RouteStatus.WaitingForFunds:
+                case RouteStatus.DestinationFull:
+                    return true;
+                default:
+                    // Paused (the cycle landed / the route is idle) or a
+                    // hard-broken endpoint/source state: not actively sending,
+                    // so show the normal action buttons.
+                    return false;
+            }
         }
 
         private void DrawCandidateRow(RouteCandidate candidate, int rowNum)

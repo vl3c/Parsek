@@ -53,6 +53,14 @@ namespace Parsek.Logistics
             if (string.IsNullOrEmpty(resourceName) || amount <= 0.0)
                 return;
 
+            // Snapshot the destination tank pool BEFORE the write so the delivery
+            // log can show what the tanks held before vs after, plus capacity.
+            // Read over the SAME deliverable-tank set the writer mutates (same
+            // loaded/unloaded branch + flow-state / NO_FLOW gate), so tankAfter -
+            // tankBefore equals the written amount and the numbers are coherent.
+            double tankBefore, capacity;
+            ReadResourceTotals(resourceName, out tankBefore, out capacity);
+
             double actual = 0.0;
             try
             {
@@ -84,17 +92,94 @@ namespace Parsek.Logistics
                     actualPerResource[resourceName] = actual;
             }
 
+            // Re-read the same deliverable-tank pool AFTER the write so the log
+            // reports an independently-measured after-state (rather than just
+            // before+written), which also surfaces any divergence. Capacity does
+            // not change across a write, so reuse the before-read's value.
+            double tankAfter;
+            ReadResourceTotals(resourceName, out tankAfter, out _);
+
             // Delivery verification (playtest follow-up): the actual resource write
             // into the destination tank was previously silent (only exceptions
             // logged), so a delivery cycle could not be confirmed to have moved fuel.
-            // Log the requested-vs-written per resource. Bounded (one resource per
-            // route per cycle), so Info is appropriate. written==0 means the tank
-            // was full, NO_FLOW, or the resource is absent on the destination.
+            // Log requested-vs-written plus the tank pool before/after and its
+            // capacity. Bounded (one resource per route per cycle), so Info is
+            // appropriate. written==0 means the tank was full (tankBefore==capacity),
+            // NO_FLOW, or the resource is absent on the destination (capacity==0).
             ParsekLog.Info(Tag,
                 $"Delivery write: route={route?.Id ?? "<none>"} dest={vessel?.vesselName ?? "<none>"} " +
                 $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +
                 $"resource={resourceName} requested={amount.ToString("R", IC)} " +
-                $"written={actual.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")}");
+                $"written={actual.ToString("R", IC)} " +
+                $"tankBefore={tankBefore.ToString("R", IC)} tankAfter={tankAfter.ToString("R", IC)} " +
+                $"capacity={capacity.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")}");
+        }
+
+        /// <summary>
+        /// Sums the currently-stored amount and total capacity of
+        /// <paramref name="resourceName"/> across the destination tanks the
+        /// writer would deliver into: the same loaded/unloaded branch and the
+        /// same flow-state / NO_FLOW gate as <see cref="WriteResourceLoaded"/> /
+        /// <see cref="WriteResourceUnloaded"/>. Reading over exactly the
+        /// deliverable pool keeps the "tank before / after" delivery log coherent
+        /// (after - before equals the written amount) and read-only.
+        /// </summary>
+        private void ReadResourceTotals(string resourceName, out double stored, out double capacity)
+        {
+            stored = 0.0;
+            capacity = 0.0;
+            if (string.IsNullOrEmpty(resourceName)) return;
+            try
+            {
+                if (isLoaded)
+                    ReadResourceTotalsLoaded(resourceName, ref stored, ref capacity);
+                else
+                    ReadResourceTotalsUnloaded(resourceName, ref stored, ref capacity);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn(Tag,
+                    $"ReadResourceTotals({resourceName}) threw {ex.GetType().Name}: {ex.Message}");
+                stored = 0.0;
+                capacity = 0.0;
+            }
+        }
+
+        private void ReadResourceTotalsLoaded(string resourceName, ref double stored, ref double capacity)
+        {
+            if (vessel.parts == null) return;
+            for (int i = 0; i < vessel.parts.Count; i++)
+            {
+                Part p = vessel.parts[i];
+                if (p == null || p.Resources == null) continue;
+                PartResource pr = p.Resources.Get(resourceName);
+                if (pr == null) continue;
+                ResourceFlowMode mode = pr.info != null ? pr.info.resourceFlowMode : ResourceFlowMode.ALL_VESSEL;
+                if (!RouteOrchestrator.ShouldDeliverToResource(pr.flowState, mode)) continue;
+                stored += pr.amount;
+                capacity += pr.maxAmount;
+            }
+        }
+
+        private void ReadResourceTotalsUnloaded(string resourceName, ref double stored, ref double capacity)
+        {
+            ProtoVessel pv = vessel.protoVessel;
+            if (pv == null || pv.protoPartSnapshots == null) return;
+            ResourceFlowMode mode = RouteOrchestrator.LookupResourceFlowMode(resourceName);
+            for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+            {
+                ProtoPartSnapshot pps = pv.protoPartSnapshots[i];
+                if (pps == null || pps.resources == null) continue;
+                for (int j = 0; j < pps.resources.Count; j++)
+                {
+                    ProtoPartResourceSnapshot prs = pps.resources[j];
+                    if (prs == null) continue;
+                    if (!string.Equals(prs.resourceName, resourceName, StringComparison.Ordinal)) continue;
+                    if (!RouteOrchestrator.ShouldDeliverToResource(prs.flowState, mode)) continue;
+                    stored += prs.amount;
+                    capacity += prs.maxAmount;
+                }
+            }
         }
 
         internal double ReadActualResource(string resourceName)
