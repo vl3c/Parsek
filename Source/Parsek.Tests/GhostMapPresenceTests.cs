@@ -4098,6 +4098,39 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region GhostOrbitDominantBodyPatch
+
+        // The patch skips KSP's per-frame OrbitDriver.CheckDominantBody (which would
+        // otherwise run an on-rails SOI transition that hijacks a Parsek-owned ghost's
+        // orbit and blinks the heliocentric transfer line) ONLY for known ghost PIDs.
+
+        /// <summary>A PID that is a registered ghost map vessel: skip KSP's SOI check.</summary>
+        [Fact]
+        public void DominantBodyCheck_GhostPid_Skipped()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(123456u);
+            Assert.True(Parsek.Patches.GhostOrbitDominantBodyPatch.ShouldSkipDominantBodyCheck(123456u));
+        }
+
+        /// <summary>A PID that is NOT a ghost (a real vessel): run stock KSP SOI check.</summary>
+        [Fact]
+        public void DominantBodyCheck_RealVesselPid_NotSkipped()
+        {
+            // 999 not added to ghostMapVesselPids.
+            Assert.False(Parsek.Patches.GhostOrbitDominantBodyPatch.ShouldSkipDominantBodyCheck(999u));
+        }
+
+        /// <summary>Removing a ghost PID re-enables stock SOI handling for that PID.</summary>
+        [Fact]
+        public void DominantBodyCheck_AfterGhostRemoved_NotSkipped()
+        {
+            GhostMapPresence.ghostMapVesselPids.Add(123456u);
+            GhostMapPresence.ghostMapVesselPids.Remove(123456u);
+            Assert.False(Parsek.Patches.GhostOrbitDominantBodyPatch.ShouldSkipDominantBodyCheck(123456u));
+        }
+
+        #endregion
+
         #region GhostOrbitBodyChanged
 
         // The orbit-renderer rebuild (enable-toggle) + "SOI change" log must fire ONLY when Parsek

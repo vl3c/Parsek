@@ -2622,53 +2622,6 @@ namespace Parsek
             }
         }
 
-        /// <summary>
-        /// Neutralizes KSP's on-rails patched-conic SOI transition for a Parsek-managed
-        /// ghost vessel's Orbit. Called by both reseed paths (<see cref="ApplyOrbitToVessel"/>
-        /// and the state-vector update site) after the new elements have been applied.
-        ///
-        /// WHY: KSP's <c>OrbitDriver.UpdateOrbit</c> for an unloaded (on-rails) vessel
-        /// reads the orbit's <c>patchEndTransition</c> / <c>nextPatch</c> / <c>EndUT</c>
-        /// after every physics tick and, when those predict a transition (or the orbit's
-        /// <c>EndUT</c> is in the past), executes
-        /// <c>[OrbitDriver]: On-Rails SOI Transition from &lt;X&gt; to &lt;Y&gt;</c>:
-        /// it re-derives the orbital elements from the propagated state vector relative
-        /// to the new body, producing a degenerate state-vector orbit. For a re-aimed
-        /// interplanetary transfer this fires roughly once per second during the
-        /// heliocentric coast, ping-pongs the orbit's body Sun -> Kerbin (sma=-Mm
-        /// ecc=1.0000 conic at heliocentric distance) -> back to Sun on the next Parsek
-        /// reseed, and the map orbit line redraws on a different conic each pass
-        /// (visible blink). Captured directly in KSP.log:
-        /// <c>2026-06-01_1348_orbit-line-blink-probe</c>:
-        /// every <c>[OrbitDriver]: On-Rails SOI Transition from Sun to Kerbin</c> is
-        /// followed within ~5 ms by a <c>GhostRenderProbe</c> body=Kerbin event + a
-        /// multi-Gm icon JUMP.
-        ///
-        /// Ghost map presence DOES NOT need KSP to run patched-conic transitions: the
-        /// per-frame Parsek lifecycle (<see cref="ApplyOrbitToVessel"/> /
-        /// <see cref="ReaimPlaybackResolver"/>) handles every body/orbit change explicitly,
-        /// and the orbit line / icon position are computed from the current Keplerian
-        /// elements alone. So clearing the patch-end machinery is safe: it prevents
-        /// KSP's transition without losing any ghost rendering signal.
-        /// </summary>
-        internal static void NeutralizeGhostOrbitOnRailsTransition(Orbit orb)
-        {
-            if (orb == null) return;
-            orb.patchEndTransition = Orbit.PatchTransitionType.FINAL;
-            orb.nextPatch = null;
-            orb.closestEncounterBody = null;
-            orb.closestEncounterPatch = null;
-            // EndUT in the future tells KSP "this patch is still valid"; a finite past
-            // value triggers the on-rails transition. double.MaxValue is a large finite
-            // future sentinel that satisfies every `currentUT >= EndUT` / `EndUT -
-            // currentUT` test without risking NaN from any infinity arithmetic KSP's
-            // patched-conic display code might happen to do.
-            orb.EndUT = double.MaxValue;
-            // UTsoi is the predicted SOI-entry UT for the next patch; -1 is the "none"
-            // sentinel KSP uses for FINAL patches.
-            orb.UTsoi = -1.0;
-        }
-
         internal static string BuildGhostOrbitDriverIdentity(Vessel vessel)
         {
             if (vessel == null)
@@ -7398,7 +7351,6 @@ namespace Parsek
                 ut + loopEpochShiftSeconds);
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
-            NeutralizeGhostOrbitOnRailsTransition(vessel.orbitDriver.orbit);
 
             if (soiChanged && vessel.orbitRenderer != null)
             {
@@ -7527,7 +7479,6 @@ namespace Parsek
 
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
-            NeutralizeGhostOrbitOnRailsTransition(orb);
 
             // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch), shifted into
             // the live frame for loop replay (see the epoch note above).
@@ -9220,14 +9171,6 @@ namespace Parsek
                 // booster-explosion, log line 18:44:50.128).
                 HardenGhostVesselPartPhysics(v, logContext);
                 NormalizeGhostOrbitDriverTargetIdentity(v, logContext);
-                // Neutralize KSP's on-rails patched-conic transition machinery on the
-                // freshly-loaded ghost orbit, so KSP cannot do an [OrbitDriver]: On-Rails
-                // SOI Transition before the caller's first per-tick reseed runs (which
-                // would close the one-frame gap, but Parsek lifecycle does not guarantee
-                // it on EVERY create path - some routes go create -> physics tick -> first
-                // update). With the patch-end cleared at load time every ghost is safe.
-                if (v.orbitDriver != null)
-                    NeutralizeGhostOrbitOnRailsTransition(v.orbitDriver.orbit);
                 string driverState = "no-orbitDriver";
                 if (v.orbitDriver != null)
                 {
