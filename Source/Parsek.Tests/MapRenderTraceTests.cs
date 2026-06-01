@@ -639,19 +639,21 @@ namespace Parsek.Tests
             MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
             MapRenderTrace.RecordLineIntent(7u, true, "OBJ", "visible-body-frame");
 
-            // 2 frames later exceeds IntentFreshnessFrames (1) -> dropped, not reconciled.
+            // A later frame exceeds IntentFreshnessFrames (0) -> dropped, not reconciled.
             Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 102, out _));
         }
 
         [Fact]
-        public void TryGetFreshLineIntent_OneFrameSlack_ReturnsTrue()
+        public void TryGetFreshLineIntent_OneFrameLater_ReturnsFalse()
         {
+            // freshness=0: intent recorded at frame 100 is reconciled only on frame 100. The next
+            // frame is stale - a grace-defer branch may have legitimately changed the rendered state
+            // without re-recording intent - so it is dropped rather than producing a false mismatch.
             MapRenderTrace.ForceEnabledForTesting = true;
             MapRenderTrace.FrameCounterOverrideForTesting = () => 100;
             MapRenderTrace.RecordLineIntent(7u, false, "NONE", "polyline-owns-phase");
 
-            Assert.True(MapRenderTrace.TryGetFreshLineIntent("7", 101, out var intent));
-            Assert.Equal("NONE", intent.DrawIcons);
+            Assert.False(MapRenderTrace.TryGetFreshLineIntent("7", 101, out _));
         }
 
         // ---- polyline-orbit-overlap anomaly ----

@@ -557,8 +557,14 @@ namespace Parsek
         // "our decision log goes silent" gap the prototype could not distinguish.
 
         /// <summary>Max Unity-frame gap between a recorded decision intent and the probe's truth read
-        /// for the two to be reconciled. 1 allows a physics substep straddling the render frame.</summary>
-        internal const int IntentFreshnessFrames = 1;
+        /// for the two to be reconciled. 0 = same Unity frame only. The ONLY caller of
+        /// <see cref="RecordLineIntent"/> is GhostOrbitLinePatch's per-render-frame LateUpdate Postfix,
+        /// which runs in the SAME frame as the order-10000 probe LateUpdate (delta 0). Allowing &gt;0
+        /// would reconcile a STALE intent against a LATER frame whose decision was made by a grace-defer
+        /// branch that does NOT re-record intent (it returns without LogOrbitLineDecision), producing a
+        /// spurious drawIcons-changed-after-decision for a change the patch itself made legitimately. If
+        /// a per-physics-step decision site is ever wired into RecordLineIntent, revisit this.</summary>
+        internal const int IntentFreshnessFrames = 0;
 
         /// <summary>A decision hook's intended orbit-line / drawIcons state for a ghost, stamped with
         /// the Unity frame it was decided on.</summary>

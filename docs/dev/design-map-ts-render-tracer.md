@@ -278,8 +278,11 @@ four different cadences - a ~0.25 s lifecycle tick (`UpdateTrackingStationGhostL
 per-physics `OrbitDriver.updateFromParameters` (icon-drive Prefix), per-render
 `OrbitRendererBase.LateUpdate` (line Postfix), and per-OnGUI (markers). Reconciliation
 compares intended-vs-actual ONLY when the stored intent was stamped on the SAME Unity
-frame as the truth read (allow +/-1 frame of slack for a physics step that straddles
-the render frame). Intent older than that is dropped, not flagged: a lifecycle-tick
+frame as the truth read (`IntentFreshnessFrames = 0`). As implemented, intent is recorded
+only from the per-render line Postfix (same LateUpdate frame as the order-10000 probe), so
+no slack is needed; allowing slack would reconcile a STALE intent against a later
+grace-defer frame that legitimately changed the rendered state without re-recording it (a
+false positive). Intent older than that is dropped, not flagged: a lifecycle-tick
 intent that is 0.24 s (many frames under warp) stale is NOT a mismatch, it is just old.
 Lifecycle-tick state changes are surfaced as Tier-A structural events, not as per-frame
 reconciliation inputs. `ReconcileMapRenderState(intended, actual)` is a pure function
