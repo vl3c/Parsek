@@ -239,20 +239,54 @@ namespace Parsek.Patches
                 // origin) here, and add a zero-spam frame-to-frame JUMP detector below that fires
                 // ONLY when the body-relative position moves more than the threshold in one frame.
                 Vector3d bodyRelPos = orbit.pos; // Planetarium-frame position relative to refBody
+
+                // PR #1003 follow-up #3: separate the ORBIT-LINE position from the VESSEL-TRANSFORM
+                // (icon/marker) position. `lon` above is from v.GetWorldPos3D() = the vessel
+                // transform, which a later same-frame write (gap-glide UpdateGhostOrbitFromStateVectors
+                // / segment update-segment) can overwrite, and which can lag one frame. `orbitLon` is
+                // computed DIRECTLY from the orbit position we just set this frame (refBody.position +
+                // orbit.pos - comOffset) = the orbit LINE's body-fixed longitude, non-stale. If
+                // orbitLon stays smooth while lon jumps at the raise->loiter seam, the teleport the
+                // user sees is the vessel-transform marker diverging from the (correct) orbit line,
+                // not the orbit math. The two should agree within the tiny comOffset every frame
+                // except where another positioning method has overwritten the transform.
+                Vector3d comOff = __instance.driverTransform != null
+                    ? (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM
+                    : Vector3d.zero;
+                Vector3d orbitWorldPos = refBody.position + pos - comOff; // pos already swizzled above
+                double orbitLon = refBody.GetLongitude(orbitWorldPos);
+                double orbitLat = refBody.GetLatitude(orbitWorldPos);
+                double lonDivergence = System.Math.Abs(
+                    ((orbitLon - iconLon + 540.0) % 360.0) - 180.0); // shortest-arc |Δlon|, [0,180]
                 ParsekLog.VerboseRateLimited("GhostIconTruth",
                     "icon-truth-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Icon truth pid={0} body={1} driveUT={2:F1} mnaRad={3:F4} mnaDeg={4:F2} " +
                         "inc={5:F4} lan={6:F4} argPe={7:F4} " +
-                        "lat={8:F3} lon={9:F3} alt={10:F0} segSma={11:F0} segEcc={12:F4} " +
-                        "segMnaEpoch={13:F4} segEpoch={14:F1} bodyRelPos={15} worldPos={16} scene={17}",
+                        "transformLat={8:F3} transformLon={9:F3} orbitLat={10:F3} orbitLon={11:F3} " +
+                        "lonDiv={12:F2} alt={13:F0} segSma={14:F0} segEcc={15:F4} " +
+                        "segMnaEpoch={16:F4} segEpoch={17:F1} bodyRelPos={18} worldPos={19} scene={20}",
                         pid, refBody.bodyName, driveUT, mnaPropagatedRad, mnaNormDeg,
                         orbit.inclination, orbit.LAN, orbit.argumentOfPeriapsis,
-                        iconLat, iconLon, iconAlt,
+                        iconLat, iconLon, orbitLat, orbitLon, lonDivergence, iconAlt,
                         orbit.semiMajorAxis, orbit.eccentricity,
                         orbit.meanAnomalyAtEpoch, orbit.epoch,
                         bodyRelPos.ToString("F0"), iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
                     1.0);
+
+                // Full-rate divergence detector: fires only when the vessel-transform (icon/marker)
+                // body-fixed longitude diverges from the orbit-LINE longitude by more than the
+                // threshold. This is the user-visible "icon off the line" condition. Zero spam when
+                // they track together (the normal case).
+                if (lonDivergence > IconLineDivergenceDeg)
+                {
+                    ParsekLog.Warn("GhostIconDiverge",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Icon-vs-line divergence pid={0} body={1} driveUT={2:F1} lonDiv={3:F2} " +
+                            "transformLon={4:F3} orbitLon={5:F3} mnaDeg={6:F2} segSma={7:F0}",
+                            pid, refBody.bodyName, driveUT, lonDivergence,
+                            iconLon, orbitLon, mnaNormDeg, orbit.semiMajorAxis));
+                }
 
                 // Frame-to-frame jump detector (full rate, fires only on the anomaly). Compares the
                 // body-relative inertial position against the previous frame's for this pid. A
@@ -302,6 +336,10 @@ namespace Parsek.Patches
 
         /// <summary>One-frame body-relative step above this (metres) is logged as an icon teleport.</summary>
         private const double IconJumpThresholdMeters = 50000.0;
+
+        /// <summary>Vessel-transform vs orbit-line body-fixed longitude gap (deg) above which the
+        /// icon/marker is logged as diverged from the orbit line (the user-visible "off the line").</summary>
+        private const double IconLineDivergenceDeg = 5.0;
     }
 
     /// <summary>
