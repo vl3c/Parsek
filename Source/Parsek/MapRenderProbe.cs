@@ -54,6 +54,12 @@ namespace Parsek
         // every ~0.5 s real time at worst.
         private const double JumpAnomalyMinIntervalSeconds = 0.5;
 
+        // Soft rate-limit on the icon-off-orbit anomaly. Unlike a jump (a discrete
+        // event), an off-orbit icon is a PERSISTENT condition - it would fire every
+        // frame - so this throttles to one line per pid per second while the icon
+        // sits off its line, enough to read the angle without flooding.
+        private const double OffOrbitAnomalyMinIntervalSeconds = 1.0;
+
         // Per-pid truth state, all cleared on scene change so a stale entry never
         // fires a spurious anomaly across a TS <-> flight transition. The probe
         // tracks last-value strings locally (rather than leaning on ParsekLog's
@@ -79,6 +85,8 @@ namespace Parsek
         private readonly Dictionary<uint, int> lastLineToggleFrame = new Dictionary<uint, int>();
         // Soft rate-limit timestamps for the per-pid jump anomaly.
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
+        // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
+        private readonly Dictionary<uint, double> lastOffOrbitEmitRealtime = new Dictionary<uint, double>();
         // Pids that have already had their Tier-A FirstPosition event emitted on
         // the first end-of-frame truth read for that pid. Cleared on scene change
         // alongside the other per-pid state, so re-entering a scene re-emits a
@@ -128,6 +136,7 @@ namespace Parsek
             lastBodyOrbit.Clear();
             lastLineToggleFrame.Clear();
             lastJumpEmitRealtime.Clear();
+            lastOffOrbitEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
         }
 
@@ -388,6 +397,70 @@ namespace Parsek
                                 MapRenderTrace.FormatVector3d(bodyRelPos)));
                     }
                 }
+                // --- Tier-C icon-off-orbit anomaly (is the icon ON its own orbit line?) ---
+                // The orbit LINE and the vessel ICON both derive from OrbitDriver.orbit, so a
+                // correctly placed icon sits on the line. For a loop-shifted ghost,
+                // GhostOrbitIconDrivePatch positions the icon at effUT = liveUT - loopShift; compare
+                // the icon's body-relative position against the orbit's OWN predicted body-relative
+                // position at that same effUT. ~0 deg => icon on its line; a large angle => the icon
+                // is off its own orbit (the looped / re-aimed rotation bug), which icon-jump (no
+                // per-frame delta on a static offset) and line-blink (line stays active) cannot see.
+                // Reads are non-mutating and run at exec-order 10000 (after the renderer). Rate-
+                // limited per pid because the offset is persistent (it would fire every frame).
+                Orbit offOrbit = driver != null ? driver.orbit : null;
+                // Skip when the icon is SUPPRESSED / clamped: in those states
+                // (GhostOrbitIconDrivePatch past-window / before-window / off-arc)
+                // the OrbitDriver is parked at a clamped endpoint UT, NOT at effUT,
+                // so comparing against the orbit's effUT position would be a
+                // guaranteed false positive - and the icon is correctly OFF the
+                // visible arc by design there. ghostsWithSuppressedIcon is set/cleared
+                // this frame by the drive Prefix + the line Postfix, both before this
+                // order-10000 probe, so IsIconSuppressed is current. Only the actively
+                // driven (on-arc, line-shown) icon is checked - the genuine bug case.
+                if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
+                {
+                    double offShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+                    double offEffUT = currentUT - offShift;
+                    Vector3d orbitRelEff = OrbitRelativePositionYup(offOrbit, offEffUT);
+                    // Degenerate / unresolved orbit: a zero predicted position makes
+                    // Vector3d.Angle return 90 deg (acos of a zero dot) - a phantom
+                    // rotation. Real ghost orbits have a nonzero radius, so a near-zero
+                    // magnitude means "not resolved yet"; feed NaN so the predicate
+                    // (NaN-guarded) skips it rather than reporting a spurious 90 deg.
+                    double angleIconVsOrbitEff = orbitRelEff.sqrMagnitude > 1.0
+                        ? UnityAngleDeg(bodyRelPos, orbitRelEff)
+                        : double.NaN;
+                    if (MapRenderTrace.IsIconOffOrbit(
+                            angleIconVsOrbitEff, MapRenderTrace.IconOffOrbitMinAngleDeg)
+                        && PassesOffOrbitRateLimit(pid, realtime))
+                    {
+                        Vector3d orbitRelLive = OrbitRelativePositionYup(offOrbit, currentUT);
+                        MapRenderTrace.EmitAnomaly(
+                            MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT, offEffUT,
+                            "icon-off-orbit",
+                            string.Format(ic,
+                                "angleIconVsOrbitEff={0} angleEffVsLive={1} loopShift={2} effUT={3} | "
+                                + "lonIcon={4} lonOrbitEff={5} lonOrbitLive={6} | iconR={7} orbitEffR={8} | "
+                                + "lineActive={9} inc={10} LAN={11} argPe={12} sma={13} ecc={14} body={15}",
+                                MapRenderTrace.FormatDouble(angleIconVsOrbitEff, "F2"),
+                                MapRenderTrace.FormatDouble(UnityAngleDeg(orbitRelEff, orbitRelLive), "F2"),
+                                MapRenderTrace.FormatDouble(offShift, "F1"),
+                                MapRenderTrace.FormatDouble(offEffUT, "F1"),
+                                MapRenderTrace.FormatDouble(LongitudeDeg(bodyRelPos), "F2"),
+                                MapRenderTrace.FormatDouble(LongitudeDeg(orbitRelEff), "F2"),
+                                MapRenderTrace.FormatDouble(LongitudeDeg(orbitRelLive), "F2"),
+                                MapRenderTrace.FormatDouble(bodyRelPos.magnitude, "F0"),
+                                MapRenderTrace.FormatDouble(orbitRelEff.magnitude, "F0"),
+                                lineActive,
+                                MapRenderTrace.FormatDouble(offOrbit.inclination, "F3"),
+                                MapRenderTrace.FormatDouble(offOrbit.LAN, "F3"),
+                                MapRenderTrace.FormatDouble(offOrbit.argumentOfPeriapsis, "F3"),
+                                MapRenderTrace.FormatDouble(offOrbit.semiMajorAxis, "F0"),
+                                MapRenderTrace.FormatDouble(offOrbit.eccentricity, "F4"),
+                                bodyName));
+                    }
+                }
+
                 // Record this frame's body-relative position + body so the next
                 // frame's jump check is live (next sample has justReset == false).
                 prevBodyRelPos[pid] = bodyRelPos;
@@ -473,6 +546,40 @@ namespace Parsek
                 return false;
             lastJumpEmitRealtime[pid] = realtime;
             return true;
+        }
+
+        private bool PassesOffOrbitRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastOffOrbitEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < OffOrbitAnomalyMinIntervalSeconds)
+                return false;
+            lastOffOrbitEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        // Body-relative orbit position in Y-up WORLD axes (the same frame the icon's
+        // bodyRelPos = GetWorldPos3D - body.position lives in). orbit.getRelativePositionAtUT
+        // returns Z-up KSP-internal axes; Swizzle() converts to Y-up world. Isolated here so
+        // the pure MapRenderTrace.IsIconOffOrbit predicate stays Unity-ECall-free.
+        private static Vector3d OrbitRelativePositionYup(Orbit orbit, double ut)
+        {
+            Vector3d p = orbit.getRelativePositionAtUT(ut);
+            p.Swizzle();
+            return p;
+        }
+
+        private static double UnityAngleDeg(Vector3d a, Vector3d b)
+        {
+            return Vector3d.Angle(a, b);
+        }
+
+        // Inertial longitude proxy (degrees) of a Y-up world body-relative vector:
+        // atan2(z, x). Logged so the icon-vs-orbit gap reads as a longitude delta
+        // (directly comparable to the documented 96.8 deg measurement), not only a 3D angle.
+        private static double LongitudeDeg(Vector3d bodyRelYup)
+        {
+            return System.Math.Atan2(bodyRelYup.z, bodyRelYup.x) * (180.0 / System.Math.PI);
         }
 
         // Read the orbit line's visibility truth through the PUBLIC
