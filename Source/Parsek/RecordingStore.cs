@@ -1547,6 +1547,16 @@ namespace Parsek
         ///     absorbed vessel's live launch guid (#976-class).
         /// The VesselPersistentId route is durable: it does NOT depend on the spawn-death check
         /// having not yet zeroed SpawnedVesselPersistentId earlier in the same frame.
+        ///
+        /// Two accepted limitations:
+        ///   - When the absorbed vessel's launch guid is unknown (e.g. snapshot guid backfill
+        ///     failed) the baked-pid route falls back to pid-only, so several committed leaves
+        ///     that share the same craft-baked pid could all be superseded by one dock. This is
+        ///     benign over-suppression of historical duplicates and only arises in the abnormal
+        ///     no-guid state; with guids present the gate disambiguates to the one launch.
+        ///   - The unique-spawn-pid route is durable only while the merge runs before the same-
+        ///     frame spawn-death reset (the normal one-frame-deferred dock ordering). The
+        ///     reported bug is the adoption / baked-pid case, which is durable regardless.
         /// </summary>
         internal static int MarkTerminalSpawnSupersededByDockMerge(
             uint absorbedPid,

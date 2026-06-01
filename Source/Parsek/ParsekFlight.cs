@@ -5549,14 +5549,22 @@ namespace Parsek
             activeTree.BranchPoints.Add(bp);
             activeTree.AddOrReplaceRecording(mergedChild);
 
-            // 8b. Phantom-rover fix: when this merge absorbed a Parsek-spawned / adopted
+            // 8b. Phantom-rover fix: when this DOCK absorbed a Parsek-spawned / adopted
             // vessel that has its own committed terminal leaf (cross-tree, e.g. a landed
             // rover a logistics transport docked into), that leaf's live vessel just
             // disappeared into the merged vessel. Suppress its terminal spawn so the
             // spawn-death check + KSCSpawn don't later materialise a duplicate at the
             // runway. routeTargetVesselPid is the absorbed endpoint pid (the dock branch
             // point's TargetVesselPersistentId); skip when it survived as the merged vessel.
-            if ((branchType == BranchPointType.Dock || branchType == BranchPointType.Board)
+            //
+            // Marked at MERGE time (not commit time) and never reverted: the dock physically
+            // merges the two vessels, which a later active-tree discard does NOT undo, so the
+            // absorbed leaf must stay suppressed even if mergedChild is never committed (and
+            // commit-time-only marking would re-expose the phantom on discard). A dangling
+            // supersede id is harmless because ShouldSpawnAtRecordingEnd uses the field only as
+            // a non-empty gate. Dock-only: boarding does not absorb a separate spawned/adopted
+            // committed leaf, and Board callers pass routeTargetVesselPid=0 anyway.
+            if (branchType == BranchPointType.Dock
                 && routeTargetVesselPid != 0
                 && routeTargetVesselPid != mergedVesselPid)
             {
