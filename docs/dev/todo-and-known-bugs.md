@@ -12,6 +12,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Looping recording flashed a stale recorded-UT orbit line / icon on first flight-map appearance
+
+- Surfaced by the new map/TS draw-path logging (branch `add-map-ts-draw-logging`): a looping, re-aimed recording ("Kerbal X", rec 30) logged `Map-visible orbit window ... source=stored-bounds-fallback ... windowUT=52569494-52569925` (raw recorded UT) one tick, while the live clock was ~614212164, before the next tick computed the correct loop-shifted window.
+- **Root cause:** the flight initial map-ghost create path `ParsekPlaybackPolicy.HandleGhostCreated` resolved the orbit source at the raw recorded `startUT` and called `GhostMapPresence.CreateGhostVesselFromSource(..., startUT)` with no `loopEpochShiftSeconds` (defaulting to 0). For a looping recording that seeds `ghostOrbitBounds` / `ghostBodyFrameOrbitBounds` in recorded UT and leaves `ghostOrbitLoopShiftedPids` clear, so for one tick `TryGetVisibleOrbitBoundsForGhostVessel` misses the live-UT segment (`no-active-equivalent-segment`) and the `stored-bounds-fallback` branch returns a recorded-UT window far behind the live clock. The per-frame `CheckPendingMapVessels` then re-applied with the real shift. `TryGetStoredOrbitBoundsForGhostVessel` returns its stored bounds verbatim (the `reason`/`source` string is only a log label), so this is a write-side / flag-state issue, not a read-branch asymmetry.
+- Three sibling create sites already thread the shift (the two Tracking Station create sites in `GhostMapPresence`, and the flight pending-create in `CheckPendingMapVessels`). Only the flight initial create was missed; this is the flight twin of the `fix-ts-startup-loop-shift` change.
+- **Fix:** new pure helper `ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(loopEpochShiftSeconds, renderHidden) => renderHidden || loopEpochShiftSeconds != 0`. `HandleGhostCreated` computes the shift via the existing `ResolveMapPresenceSampleUT` and, when the helper returns true, defers the member to `pendingMapVessels` so the loop-aware per-frame `CheckPendingMapVessels` create owns it (resolving source at the loop-mapped effUT and threading the live-frame shift). Off the loop path effUT == currentUT (shift 0, not hidden), so non-loop members keep the immediate create byte-for-byte; the deferred path seeds the same `stateVectorOrbitTrajectories` / `lastMapOrbitByIndex` / `soiGapStateVectorExpectedBodies` bookkeeping.
+- **No-op risk checked (Opus review):** `engine.CurrentLoopUnits` is populated before this fires. `OnGhostCreated` is deferred during `UpdatePlayback` (the update stopwatch is running) and flushed at the Phase-C tail in the same call, after the per-frame `DriveMissionLoopUnits` -> `SetLoopUnits` ran, so the guard reads the populated set. Confirmed not a silent no-op.
+- **Tests:** 4 `ShouldDeferLoopShiftedMapPresence` truth-table cases in `RuntimePolicyTests` (shift!=0, negative shift, renderHidden, and the non-loop shift==0 case). Full suite green.
+- **Playtest verification still pending:** load a looping recording, enter the flight map, and grep `KSP.log` for `Deferred ghost map vessel ... loop-shifted member` and confirm the first `Cached body-frame bounds` for that ghost has `loopShift != 0` with no preceding recorded-UT `stored-bounds-fallback` read.
+- **Status:** CLOSED 2026-06-01 (pending playtest confirmation).
+
+---
+
 ## In progress - v0.10.0 Missions window: vessel composition over time (first cut, playtesting)
 
 - Goal (from 2026-05-25 design chat): show each vessel's COMPOSITION (controllers + crew) broken into intervals of compositional stability, as a nested tree. A node = a stable composition labeled with counts ("pod x1, probe x1, crew x3"); it branches at composition-change events; a stable composition that ends as a whole is a terminal leaf.

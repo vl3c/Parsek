@@ -6,6 +6,10 @@ All notable changes to Parsek are documented here.
 
 ## 0.10.0
 
+### Fixed
+
+- Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
+
 ### UI
 
 - The Recordings tab no longer shows a Loop checkbox or period field on debris rows, on the auto-generated "<mission> / Debris" subgroup, or on any row/group that only contains debris. Parent-anchored debris already replays in sync with its parent's loop (the booster falls back to Kerbin when the parent ship relaunches), so a separate per-debris loop toggle did nothing meaningful.

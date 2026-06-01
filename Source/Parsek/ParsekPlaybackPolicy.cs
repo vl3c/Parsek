@@ -1074,7 +1074,25 @@ namespace Parsek
                 acceptTerminalOrbitForLoopSynthesis: false);
             stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
 
-            if (source != TrackingStationGhostSource.None)
+            // Loop-shifted members must be created on a loop-aware per-frame tick
+            // (CheckPendingMapVessels): that path resolves the source at the loop-mapped
+            // effUT and threads the live-frame epoch shift into the orbit + arc-clip bounds.
+            // Creating here at the raw recorded startUT with the default shift=0 seeds
+            // recorded-UT bounds and leaves ghostOrbitLoopShiftedPids clear, so for one tick
+            // the map-orbit window resolver returns a recorded-UT fallback window (the
+            // icon-clamp / orbit-line glitch at first appearance and at every window re-entry).
+            // Defer so the per-frame path owns loop-member creation, mirroring the TS create
+            // sites and the flight pending-create path. Off the loop path effUT == currentUT
+            // (shift 0, renderHidden false), so non-loop members keep the immediate create
+            // byte-for-byte.
+            double initialNowUT = Planetarium.GetUniversalTime();
+            ResolveMapPresenceSampleUT(
+                evt.Index, evt.Trajectory.StartUT, evt.Trajectory.EndUT, initialNowUT,
+                engine.CurrentLoopUnits, out bool initialRenderHidden, out double initialLoopShift);
+            bool deferForLoopAware =
+                ShouldDeferLoopShiftedMapPresence(initialLoopShift, initialRenderHidden);
+
+            if (source != TrackingStationGhostSource.None && !deferForLoopAware)
             {
                 Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                     evt.Index,
@@ -1100,15 +1118,25 @@ namespace Parsek
             }
             else
             {
-                // Initial/pre-orbital deferrals are not SOI-gap recoveries; only the
-                // gap-between-orbit-segments requeue path opts into this fallback.
+                // Initial/pre-orbital deferrals and loop-shifted members are not SOI-gap
+                // recoveries; only the gap-between-orbit-segments requeue path opts into that
+                // fallback. The per-frame CheckPendingMapVessels pass resolves the source at
+                // the loop-mapped effUT and creates with the live-frame epoch shift.
                 pendingMapVessels[evt.Index] = new PendingMapVessel(
                     evt.Trajectory,
                     allowSoiGapStateVectorFallback: false,
                     expectedSoiGapBody: null);
                 ParsekLog.Verbose("Policy",
-                    $"Deferred ghost map vessel for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
-                    "— recording starts pre-orbital");
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Deferred ghost map vessel for #{0} \"{1}\": {2} (source={3} loopShift={4:F2} renderHidden={5})",
+                        evt.Index,
+                        evt.Trajectory.VesselName,
+                        deferForLoopAware
+                            ? "loop-shifted member, deferring to loop-aware per-frame create"
+                            : "recording starts pre-orbital",
+                        source,
+                        initialLoopShift,
+                        initialRenderHidden));
             }
         }
 
@@ -1121,6 +1149,23 @@ namespace Parsek
         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure decision: should an initial ghost-map-presence create (<see cref="HandleGhostCreated"/>)
+        /// defer to the loop-aware per-frame pass (<see cref="CheckPendingMapVessels"/>) instead of
+        /// creating immediately at the raw recorded startUT? True when the member is replaying
+        /// loop-shifted this cycle (<paramref name="loopEpochShiftSeconds"/> != 0) or is outside its
+        /// loop window this cycle (<paramref name="renderHidden"/>). False off the loop path
+        /// (shift 0, not hidden), so non-loop members keep the immediate create unchanged. The
+        /// immediate create would otherwise seed recorded-UT orbit/arc bounds and leave the
+        /// loop-shifted flag clear for a tick, so the map-orbit window resolver hands back a
+        /// recorded-UT fallback window while the live clock is far ahead.
+        /// </summary>
+        internal static bool ShouldDeferLoopShiftedMapPresence(
+            double loopEpochShiftSeconds, bool renderHidden)
+        {
+            return renderHidden || loopEpochShiftSeconds != 0.0;
         }
 
         /// <summary>
