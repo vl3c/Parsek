@@ -55,8 +55,8 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
-        private static readonly MethodInfo FlightEvaHatchIsObstructedMethod =
-            FlightEvaType?.GetMethod("HatchIsObstructed",
+        private static readonly MethodInfo FlightEvaHatchIsObstructedMoreMethod =
+            FlightEvaType?.GetMethod("HatchIsObstructedMore",
                 BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
                 null,
                 new[] { typeof(Part), typeof(Transform) },
@@ -3104,34 +3104,50 @@ namespace Parsek.InGameTests
         // before the second EVA (KSP's spawnEVA refuses a second EVA while the only hatch is blocked).
         private static void MoveVesselClearOfAnchor(Vessel mover, Vessel anchor, double metres)
         {
-            if (mover == null || anchor == null)
+            if (mover == null || anchor == null || VesselSetPositionMethod == null)
                 return;
 
+            Vector3d anchorPos = anchor.GetWorldPos3D();
             Vector3d moverPos = mover.GetWorldPos3D();
-            Vector3d up = anchor.upAxis;
-            Vector3d awayFromAnchor = moverPos - anchor.GetWorldPos3D();
+            // Derive up from body+position rather than anchor.upAxis: the anchor is backgrounded after
+            // the focus switch, so its cached upAxis can be stale.
+            Vector3d up = FlightGlobals.getUpAxis(anchor.mainBody, anchorPos);
+            Vector3d awayFromAnchor = moverPos - anchorPos;
             // Horizontal component of the anchor->mover direction (project out the local up axis).
             Vector3d horizontal = awayFromAnchor - up * Vector3d.Dot(awayFromAnchor, up);
             if (horizontal.magnitude < 0.1)
                 horizontal = (Vector3d)anchor.transform.forward; // degenerate: mover directly above anchor
             horizontal = horizontal.normalized;
 
-            mover.SetPosition(moverPos + horizontal * metres);
+            // Teleport only — velocity is intentionally left untouched; the kerbal is relocated and left
+            // to settle over the subsequent wait frames. Do not also zero velocity / nudge the rigidbody.
+            VesselSetPositionMethod.Invoke(mover, new object[] { moverPos + horizontal * metres });
         }
 
-        // Reflects FlightEVA.HatchIsObstructed(Part, Transform). Returns false when the check is
-        // unavailable so the test still proceeds (spawnEVA itself enforces the real obstruction gate).
+        // Reflects FlightEVA.HatchIsObstructedMore(Part, Transform) — the stricter check (outward ray +
+        // inward ray + overlap sphere) that spawnEVA applies to the PRIMARY hatch, so this precheck
+        // matches the gate that would actually refuse the second EVA. Returns false (treat as clear)
+        // when the check is unavailable so the test still proceeds (spawnEVA enforces the real gate);
+        // logs a breadcrumb so a later "timed out instead of skipping" investigation has a trail.
         private static bool IsHatchObstructed(Part part, Transform airlock)
         {
-            if (FlightEvaHatchIsObstructedMethod == null || part == null || airlock == null)
+            if (part == null || airlock == null)
                 return false;
+            if (FlightEvaHatchIsObstructedMoreMethod == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: FlightEVA.HatchIsObstructedMore not reflectable; treating hatch as clear");
+                return false;
+            }
 
             try
             {
-                return (bool)FlightEvaHatchIsObstructedMethod.Invoke(null, new object[] { part, airlock });
+                return (bool)FlightEvaHatchIsObstructedMoreMethod.Invoke(null, new object[] { part, airlock });
             }
             catch
             {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: HatchIsObstructedMore invoke threw; treating hatch as clear");
                 return false;
             }
         }
