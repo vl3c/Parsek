@@ -7466,7 +7466,20 @@ namespace Parsek
                 ? drv.getPositionFromEccAnomaly(maxE * 0.99) : Vector3d.zero; // 0.99 to avoid singularity
             double farDist = farPos.magnitude;
 
-            ParsekLog.Verbose(Tag,
+            // This apply runs every frame the orbit is re-applied (per ghost), so an unconditional
+            // Verbose floods the log (it was ~31% of all Parsek output in a 2-minute capture). Log ON
+            // CHANGE per ghost instead, keyed on the orbit SHAPE (body + sma + ecc + renderer state):
+            // every distinct orbit applied still logs, a frozen/steady orbit logs once and then reports a
+            // suppressed=N count (which is clearer than thousands of identical lines for spotting a stuck
+            // orbit), and SOI/body changes and renderer flips register as discrete events. No debugging
+            // signal is lost; the per-frame repeat noise is. Ghost create/recreate is still logged loudly
+            // at INFO ("Created ghost vessel" / "create-segment-done"). sma:F0/ecc:F4 in the key are coarse
+            // enough to avoid float-jitter churn (these come from a fixed segment, so they are stable).
+            ParsekLog.VerboseOnChange(Tag,
+                "orbit-applied-" + vessel.persistentId.ToString(ic),
+                string.Format(ic, "{0}|{1:F0}|{2:F4}|{3}|{4}",
+                    body.name, segment.semiMajorAxis, drv.eccentricity,
+                    vessel.orbitRenderer?.enabled, vessel.orbitRenderer?.drawMode),
                 string.Format(ic,
                     "Orbit updated for {0} body={1} sma={2:F0} ecc={3:F6} " +
                     "periapsis={4:F0} semiMinor={5:F0} maxE={6:F2}rad farDist={7:F0}m " +
