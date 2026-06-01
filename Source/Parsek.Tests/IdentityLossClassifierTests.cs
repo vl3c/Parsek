@@ -889,6 +889,171 @@ namespace Parsek.Tests
             Assert.Equal((int)Vessel.Situations.ORBITING, incoming.SceneExitSituation);
         }
 
+        // ---- Stale-spawn-stamp guard (liveVesselPids) ----
+        // A Re-Fly merge replace re-installs the existing recording's
+        // SpawnedVesselPersistentId onto the replacement. When the vessel that
+        // PID named was stripped by PostLoadStripper.Strip, re-stamping a dead
+        // PID lets the pid-keyed committed-tree matcher
+        // (ParsekFlight.TryFindCommittedTreeForSpawnedVessel spawnedMatch) wrongly
+        // attach a later relaunch that recycles the craft-baked PID. The
+        // liveVesselPids guard drops the stale stamp when supplied.
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_StaleSpawnPidNotLive_DropsStampAndDoesNotReinstall()
+        {
+            const uint deadPid = 2708531065u; // the stripped Kerbal X capsule pid
+            var existing = new Recording
+            {
+                RecordingId = "rec-stale-existing",
+                VesselName = "Kerbal X",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = deadPid
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-stale-incoming",
+                VesselName = "Kerbal X"
+                // default spawn state: VesselSpawned=false, SpawnedVesselPersistentId=0
+            };
+
+            // Live set contains some OTHER vessel, not the dead capsule pid.
+            var liveVesselPids = new HashSet<uint> { 3215646968u };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _, liveVesselPids);
+
+            // Stale stamp must NOT be re-installed.
+            Assert.False(incoming.VesselSpawned);
+            Assert.Equal(0u, incoming.SpawnedVesselPersistentId);
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("dropped stale spawn stamp")
+                && l.Contains(deadPid.ToString()));
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_SpawnPidStillLive_PreservesStamp()
+        {
+            const uint livePid = 3215646968u;
+            var existing = new Recording
+            {
+                RecordingId = "rec-live-existing",
+                VesselName = "Probe",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = livePid
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-live-incoming",
+                VesselName = "Probe"
+            };
+
+            // Live set DOES contain the spawned pid, so the stamp is legitimate.
+            var liveVesselPids = new HashSet<uint> { livePid, 999u };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out int otherPreserved, liveVesselPids);
+
+            Assert.True(incoming.VesselSpawned);
+            Assert.Equal(livePid, incoming.SpawnedVesselPersistentId);
+            // Both VesselSpawned and SpawnedVesselPersistentId counted as preserved.
+            Assert.True(otherPreserved >= 2);
+            Assert.DoesNotContain(logLines, l => l.Contains("dropped stale spawn stamp"));
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_NullLiveSet_PreservesStampAsBefore()
+        {
+            // Backward-compat: with no live set supplied, the guard is inert and
+            // the spawn stamp is preserved exactly as the pre-guard code did.
+            const uint pid = 4242u;
+            var existing = new Recording
+            {
+                RecordingId = "rec-nullguard-existing",
+                VesselName = "Lander",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = pid
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-nullguard-incoming",
+                VesselName = "Lander"
+            };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _, null);
+
+            Assert.True(incoming.VesselSpawned);
+            Assert.Equal(pid, incoming.SpawnedVesselPersistentId);
+            Assert.DoesNotContain(logLines, l => l.Contains("dropped stale spawn stamp"));
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_IncomingHasOwnSpawnPid_StaleExistingDoesNotClobber()
+        {
+            // The pending tree authored its own fresh spawn state. A stale
+            // existing stamp must neither overwrite the incoming value nor reset
+            // it; the helper only ever copies into a default incoming.
+            const uint deadPid = 100u;
+            const uint freshPid = 200u;
+            var existing = new Recording
+            {
+                RecordingId = "rec-own-existing",
+                VesselName = "Capsule",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = deadPid
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-own-incoming",
+                VesselName = "Capsule",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = freshPid
+            };
+
+            // Neither pid is in the live set; deadPid would be stale.
+            var liveVesselPids = new HashSet<uint> { 999u };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _, liveVesselPids);
+
+            // Incoming keeps its own fresh stamp untouched.
+            Assert.True(incoming.VesselSpawned);
+            Assert.Equal(freshPid, incoming.SpawnedVesselPersistentId);
+            // No false-alarm log: the suppression changed nothing here (the
+            // else-branch guards would not have copied into a non-default
+            // incoming), so the "dropped" line must not fire.
+            Assert.DoesNotContain(logLines, l => l.Contains("dropped stale spawn stamp"));
+        }
+
+        [Fact]
+        public void PreserveLiveRuntimeFieldsOnReplace_EmptyLiveSet_DropsStaleStamp()
+        {
+            // An empty (but non-null) live set is positive evidence of zero live
+            // vessels; the production caller normalizes empty to null, but the
+            // pure helper still treats a non-null empty set as "pid absent" so the
+            // contract is unambiguous at the unit level.
+            const uint deadPid = 555u;
+            var existing = new Recording
+            {
+                RecordingId = "rec-empty-existing",
+                VesselName = "Booster",
+                VesselSpawned = true,
+                SpawnedVesselPersistentId = deadPid
+            };
+            var incoming = new Recording
+            {
+                RecordingId = "rec-empty-incoming",
+                VesselName = "Booster"
+            };
+
+            RecordingStore.PreserveLiveRuntimeFieldsOnReplace(
+                existing, incoming, out _, out _, new HashSet<uint>());
+
+            Assert.False(incoming.VesselSpawned);
+            Assert.Equal(0u, incoming.SpawnedVesselPersistentId);
+        }
+
         [Fact]
         public void OnVesselBackgrounded_SkipsDestroyedRecording_DoesNotInitializeState()
         {

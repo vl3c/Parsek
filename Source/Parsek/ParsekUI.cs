@@ -61,6 +61,13 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
+        // The labeled marker uses GhostMapPresence.IsPolylineRecentlyOwningGhostPhase to decide
+        // when to prefer trajPos over the stale OrbitDriver mesh transform during the brief
+        // post-polyline-release window (the seg-drive dispatcher runs on a ~0.5s cadence so the
+        // mesh transform is stale for ~12 frames at 60Hz right after polyline release). The
+        // GhostOrbitLinePatch reads from the same source to keep the stock icon suppressed
+        // through the same window, so both the labeled marker and the stock icon agree.
+
         // Cached waypoint indices and body lookup for trajectory-derived map marker positions (Bug A fix)
         private readonly Dictionary<int, int> mapMarkerCachedIndices = new Dictionary<int, int>();
         private readonly Dictionary<string, CelestialBody> bodyCache = new Dictionary<string, CelestialBody>();
@@ -1156,7 +1163,7 @@ namespace Parsek
                     // the sole position indicator, so it must draw — otherwise an
                     // airless descent (e.g. the Mun) shows the polyline with no ghost
                     // icon. (IsPolylineOwningGhostPhase is checked directly, not via
-                    // the icon-suppressed flag, which GhostOrbitIconClampPatch can
+                    // the icon-suppressed flag, which GhostOrbitIconDrivePatch can
                     // clear on-arc.)
                     if (ghostPid == 0
                         || (!GhostMapPresence.IsIconSuppressed(ghostPid)
@@ -1191,8 +1198,43 @@ namespace Parsek
                 // seam the playtest showed via Marker pos markerPos=(0,0,0)). Treat a near-origin transform
                 // as unpositioned and fall through to the trajectory-derived position below; a genuinely
                 // positioned mesh is never at the floating-origin centre (it is a different vessel).
+                // During a non-orbital phase the trajectory polyline owns the rendering and the stock
+                // proto orbit icon is hidden (GhostOrbitLinePatch drawIcons=NONE). The ghost mesh
+                // transform stops being driven per-frame in that phase because the orbit-segment drive
+                // path is not active and any state-vector reseed only refreshes the orbit at the orbit-
+                // resolve cadence (~5s), so the mesh transform freezes at the last seeded position
+                // between reseeds even as the recording's effUT advances. The labelled non-proto marker
+                // would then ride that stale mesh and read as "frozen at the polyline's start" - the
+                // exact playtest seam. During polyline ownership the recorded trajectory points are the
+                // source of truth (the polyline draws them), so fall through to TryComputeGhostWorldPosition
+                // at the loop-mapped effUT below. The diagnostic "Marker pos: ... meshVsTraj" makes this
+                // explicit by reporting both sources.
+                //
+                // PolylineReleaseGraceSec extends the "polyline phase" through a short grace window
+                // after the polyline releases ownership: the seg-drive dispatcher runs on a ~0.5s
+                // cadence, so the next orbital segment is not applied on the same frame as release.
+                // For ~12 frames in between, the mesh transform is still stale at the pre-polyline
+                // position. Without the grace, the marker reads that stale mesh and snaps backward by
+                // hundreds of km (the parking-orbit endpoint vs the loiter), which is what the playtest
+                // reported as "icon teleported far away to the wrong position on the loiter". The grace
+                // suppresses that stale read until the seg-drive catches up; trajPos / TryComputeGhost
+                // WorldPosition is preferred when available, and the marker simply does not draw for
+                // those frames when the recording has no points covering the post-cut effUT (gracefully
+                // invisible for ~200ms rather than teleporting). End-of-grace lands on the freshly seg-
+                // driven mesh transform and the marker resumes normally.
+                uint ghostPidForPhase = GhostMapPresence.HasGhostVesselForRecording(kvp.Key)
+                    ? GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key)
+                    : 0u;
+                // Polyline ownership including the post-release grace - shared with GhostOrbitLinePatch.
+                // The stamping happens in the orbit-line patch every frame the polyline owns; here we
+                // just read. The grace duration matches Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds.
+                bool polylinePhase = ghostPidForPhase != 0
+                    && GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(
+                        ghostPidForPhase,
+                        Parsek.Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds);
                 Vector3 markerPos;
-                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f;
+                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
+                    && !polylinePhase;
                 if (meshPositioned)
                 {
                     markerPos = state.ghost.transform.position;
