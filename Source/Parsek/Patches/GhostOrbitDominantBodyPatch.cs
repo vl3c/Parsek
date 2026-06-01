@@ -54,7 +54,7 @@ namespace Parsek.Patches
         {
             Vessel v = __instance != null ? __instance.vessel : null;
             if (v == null || !ShouldSkipDominantBodyCheck(v.persistentId))
-                return true; // not a ghost — run stock CheckDominantBody
+                return true; // not a ghost: run stock CheckDominantBody
 
             // Parsek-owned ghost: never let KSP transition its SOI. "false" tells the
             // caller (UpdateOrbit) the dominant body did not change, so it skips

@@ -851,15 +851,15 @@ namespace Parsek
         /// <summary>
         /// The CelestialBody name Parsek last applied to each ghost's OrbitDriver, keyed by persistentId.
         /// The orbit-renderer rebuild (and the "SOI change" log) is gated on a change measured against
-        /// THIS, not against <c>vessel.orbitDriver.referenceBody</c>. KSP's own orbit propagation
-        /// re-transitions an unloaded ghost's referenceBody between Parsek's per-frame reseeds (a launch
-        /// body escape hyperbola gets kicked out to the parent star; a center-aimed interplanetary
-        /// transfer's endpoints fall back inside the launch / target SOI), so the driver-field compare
-        /// trips EVERY frame near an SOI boundary and toggles <c>orbitRenderer.enabled</c> off/on each
-        /// frame -> the orbit line blinks at the start and end of a transfer leg. Comparing against the
-        /// body WE last applied fires the rebuild once per genuine Parsek-driven body change instead
-        /// (drawMode stays REDRAW_AND_RECALCULATE afterwards, so the line keeps tracking the reseeded
-        /// orbit without the disruptive enable-toggle).
+        /// THIS, the body WE last applied, rather than <c>vessel.orbitDriver.referenceBody</c> (a
+        /// KSP-owned field). This is the correct invariant: the disruptive
+        /// <c>orbitRenderer.enabled</c> off/on rebuild should fire once per genuine Parsek-driven body
+        /// change, not whenever some other actor touches the driver's reference body. (KSP's own per-frame
+        /// SOI transition used to flip the reference body of a ghost mid-transfer and trip this every
+        /// frame; that is now prevented at the source by
+        /// <see cref="Parsek.Patches.GhostOrbitDominantBodyPatch"/>, so this gate is defense-in-depth that
+        /// also avoids a redundant full-renderer rebuild on each reseed.) After the rebuild, drawMode stays
+        /// REDRAW_AND_RECALCULATE so the line keeps tracking the reseeded orbit without re-toggling.
         /// </summary>
         internal static readonly Dictionary<uint, string> ghostLastAppliedOrbitBody
             = new Dictionary<uint, string>();
@@ -7316,10 +7316,11 @@ namespace Parsek
             }
 
             // SOI transition handling (same pattern as ApplyOrbitToVessel): compare against the body
-            // PARSEK last applied, not orbitDriver.referenceBody (KSP re-transitions it between our
-            // reseeds, which would toggle the renderer every frame near an SOI boundary -> orbit-line
-            // blink). OrbitDriver.celestialBody is only for real CelestialBody drivers; vessel targets
-            // must keep identity in OrbitDriver.vessel.
+            // PARSEK last applied, not orbitDriver.referenceBody (a KSP-owned field), so the renderer
+            // rebuild fires once per genuine Parsek-driven body change. (KSP's per-frame SOI transition
+            // is now blocked for ghosts by GhostOrbitDominantBodyPatch; this stays as the correct
+            // invariant + avoids a redundant rebuild.) OrbitDriver.celestialBody is only for real
+            // CelestialBody drivers; vessel targets must keep identity in OrbitDriver.vessel.
             ghostLastAppliedOrbitBody.TryGetValue(vessel.persistentId, out string lastAppliedBody);
             bool soiChanged = GhostOrbitBodyChanged(lastAppliedBody, body.name);
             if (soiChanged)

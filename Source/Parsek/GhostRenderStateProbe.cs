@@ -11,7 +11,7 @@ namespace Parsek
     /// <list type="bullet">
     /// <item><see cref="Parsek.Patches.GhostOrbitLinePatch.LogOrbitLineDecision"/> is
     /// <see cref="ParsekLog.VerboseOnChange"/>, so it only logs when OUR DECISION
-    /// changes — if KSP / another patch toggles <c>orbitRenderer.line.active</c> or
+    /// changes: if KSP / another patch toggles <c>orbitRenderer.line.active</c> or
     /// <c>orbitRenderer.enabled</c> BETWEEN our LateUpdate Postfix invocations, the
     /// decision log shows a steady "visible-body-frame, line.active=True" while the
     /// rendered line actually blinks. The probe samples those fields at end-of-frame
@@ -33,8 +33,8 @@ namespace Parsek
     /// updated this frame.</item>
     /// </list>
     ///
-    /// Read-only: this never mutates renderer / orbit / line state — every site reads
-    /// and logs only. Placed at <see cref="DefaultExecutionOrderAttribute"/> 10000 so
+    /// Read-only: this never mutates renderer / orbit / line state (every site reads
+    /// and logs only). Placed at <see cref="DefaultExecutionOrderAttribute"/> 10000 so
     /// the LateUpdate runs AFTER OrbitRendererBase.LateUpdate (order 0, where
     /// GhostOrbitLinePatch.Postfix runs) and after the polyline Driver (order -50).
     /// </summary>
@@ -45,6 +45,18 @@ namespace Parsek
         private const string Tag = "GhostRenderProbe";
         private static readonly CultureInfo ic = CultureInfo.InvariantCulture;
         private static GhostRenderStateProbe instance;
+
+        /// <summary>
+        /// DISABLED BY DEFAULT. This is an opt-in forensic diagnostic (it found the
+        /// SOI-transition orbit-line blink, fixed in <see cref="Parsek.Patches.GhostOrbitDominantBodyPatch"/>).
+        /// It does per-frame, per-ghost reflection (<see cref="System.Reflection.FieldInfo.GetValue"/>)
+        /// plus position sampling, which must NOT run in normal play, so the per-frame
+        /// body of <see cref="LateUpdate"/> early-returns unless this is flipped true.
+        /// Re-arm it from a debugger / temporary edit when investigating a future
+        /// rendering issue. (The file is retained rather than deleted only because file
+        /// deletion was unavailable in the authoring environment; it is safe to delete.)
+        /// </summary>
+        internal static bool Enabled = false;
 
         /// <summary>Single-frame icon-position delta threshold for the JUMP detector
         /// (metres). The heliocentric coast under high warp moves the icon by a few km
@@ -70,6 +82,11 @@ namespace Parsek
 
         void LateUpdate()
         {
+            // Opt-in only (see Enabled): never do per-frame per-ghost reflection in
+            // normal play. Disabled by default, so this is a one-bool no-op in release.
+            if (!Enabled)
+                return;
+
             // Only sample in map-capable scenes; this is cheap, but no point firing
             // it on the main menu / KSC / editor.
             GameScenes scene = HighLogic.LoadedScene;
