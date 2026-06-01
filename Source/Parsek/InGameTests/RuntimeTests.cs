@@ -1445,6 +1445,110 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Inertial-frame gap glide under a large loop shift (the ~90 deg icon-teleport fix). On a
+        /// LOOPED re-aimed mission the gap point is replayed ~1e9 s after it was recorded; Kerbin has
+        /// rotated ~96.6 deg over that shift. The body-fixed seed (the pre-fix path) resolves the gap
+        /// point via <c>GetWorldSurfacePosition</c> at the LIVE Kerbin orientation, so the icon sits
+        /// rotated off the inertial orbit lines (drawn from recorded Keplerian elements). The fix
+        /// (<see cref="OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>)
+        /// reconstructs the point's INERTIAL position from its recorded UT + body rotation (incl.
+        /// initialRotation) and seeds the orbit at the loop-shifted epoch, so the seeded orbit's
+        /// position at liveUT matches the recorded INERTIAL longitude, not the live-BodyFrame
+        /// body-fixed projection.
+        ///
+        /// This is the only path that exercises the live <c>body.rotationPeriod</c> +
+        /// <c>initialRotation</c> + <c>GetRelSurfacePosition</c> + <c>Orbit.UpdateFromStateVectors</c>
+        /// together (xUnit cannot run any of those). It asserts: (a) the inertial-seeded orbit's
+        /// world position differs from the live-BodyFrame body-fixed projection by the rotation the
+        /// loop shift induces (the icon no longer rotates by kerbinRot(shift)); (b) the inertial seed
+        /// reconstructs the SAME world position the inertial orbit LINES would draw (a body-relative
+        /// inertial point at the recorded rotation phase), so icon and line stay co-located.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Looped gap glide seeds the recorded inertial position (icon stays on the orbit lines, no ~90 deg teleport)")]
+        public void GhostMapGapGlideSeedsInertialPositionUnderLoopShift()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // A mid-gap point from the recorded raise arc (rec 61e9...30): body-fixed lat/lon/alt at
+            // ~131 km, recorded UT inside the parking->loiter gap, and a typical ~2.1 km/s velocity.
+            const double recordedUT = 52570071.0;        // mid-gap
+            const double lat = -0.0383;
+            const double lon = 49.19;                     // body-fixed longitude as recorded
+            const double alt = 131465.0;
+            var recordedVel = new Vector3d(2100.0, 0.0, 0.0);
+
+            // The loop replays ~1.002e9 s later (the Kerbin->Duna loop period from the evidence log).
+            const double loopShift = 1.002e9;
+            double epochUT = recordedUT + loopShift;
+
+            double rotationPeriod = kerbin.rotationPeriod;
+            InGameAssert.IsTrue(!double.IsNaN(rotationPeriod) && System.Math.Abs(rotationPeriod) > 1.0,
+                $"Kerbin rotationPeriod must be finite/non-zero (got {rotationPeriod:F1})");
+
+            // Resolve initialRotation via the same reflection path the chokepoint uses.
+            double initialRotation = OrbitSeedResolver.ResolveInitialRotation(kerbin);
+
+            // (a) The FIX: reconstruct the inertial position at the recorded UT, seed the orbit at the
+            // loop-shifted epoch. This is the EXACT call UpdateGhostOrbitFromStateVectors makes for the
+            // orbit-raise-gap-points reason on an Absolute branch.
+            var inertialOrbit = new Orbit();
+            inertialOrbit.referenceBody = kerbin;
+            bool inertialOk = OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+                inertialOrbit, kerbin, lat, lon, alt, recordedVel,
+                recordedUT, epochUT, rotationPeriod, initialRotation,
+                out double inertialLon, out string inertialFail);
+            InGameAssert.IsTrue(inertialOk,
+                $"inertial seed must succeed (fail={inertialFail ?? "(null)"})");
+
+            // The seeded orbit's position at liveUT (== epochUT) is the icon position the map draws.
+            inertialOrbit.Init();
+            inertialOrbit.UpdateFromUT(epochUT);
+            Vector3d inertialIconWorld = kerbin.position + inertialOrbit.pos;   // body-relative -> world
+
+            // The recorded INERTIAL world position the orbit LINES draw from: a body-relative point at
+            // the recorded rotation phase (lon lifted by initialRotation + recordedUT * 360 / period).
+            double phaseDeg = initialRotation + (recordedUT * 360.0) / rotationPeriod;
+            double recordedInertialLon = OrbitReseed.WrapLongitudeDegrees(lon + phaseDeg);
+            InGameAssert.IsTrue(System.Math.Abs(recordedInertialLon - inertialLon) < 1e-3,
+                $"reconstructed inertial longitude ({inertialLon:F4}) must equal the recorded rotation-phase " +
+                $"longitude ({recordedInertialLon:F4})");
+            Vector3d recordedInertialWorld =
+                kerbin.position + kerbin.GetRelSurfacePosition(lat, recordedInertialLon, alt);
+
+            double iconVsLine = (inertialIconWorld - recordedInertialWorld).magnitude;
+            // The icon must sit on the inertial line point within a small tolerance (orbit seeding
+            // round-trips the state vector; the only drift is sub-period propagation noise).
+            InGameAssert.IsLessThan(iconVsLine, 50000.0,
+                $"inertial-seeded icon ({iconVsLine:F0} m from the recorded inertial line point) must stay " +
+                $"co-located with the inertial orbit lines (no rotation off the line)");
+
+            // (b) The BUG: the body-fixed seed projects the gap point through GetWorldSurfacePosition at
+            // the LIVE Kerbin orientation. Over the ~1e9 s loop shift Kerbin rotated ~96.6 deg, so the
+            // body-fixed icon sits that far around the orbit from the inertial line point. Show the
+            // separation is large (the teleport the fix removes).
+            Vector3d bodyFixedWorld = kerbin.GetWorldSurfacePosition(lat, lon, alt);
+            double bodyFixedVsLine = (bodyFixedWorld - recordedInertialWorld).magnitude;
+            InGameAssert.IsGreaterThan(bodyFixedVsLine, 100000.0,
+                $"the body-fixed seed ({bodyFixedVsLine:F0} m from the inertial line point) must be far off " +
+                $"the inertial line (the ~90 deg teleport) — if this fails the loop-shift regression model is stale");
+
+            InGameAssert.IsTrue(iconVsLine * 5 < bodyFixedVsLine,
+                $"the inertial seed ({iconVsLine:F0} m) must be far closer to the inertial line than the " +
+                $"body-fixed seed ({bodyFixedVsLine:F0} m) — the fix removes the rotation");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapGapGlideSeedsInertialPositionUnderLoopShift: inertialLon={inertialLon:F2} " +
+                $"iconVsLine={iconVsLine:F0}m bodyFixedVsLine={bodyFixedVsLine:F0}m " +
+                $"rotPeriod={rotationPeriod:F0}s initialRot={initialRotation:F2}");
+        }
+
+        /// <summary>
         /// Regression guard for the hyperbolic-escape ghost icon. The ghost OrbitDriver is seeded at the
         /// RAW recorded epoch (no loop shift baked in) and the icon-drive patch propagates it at the
         /// loop-mapped effUT. A hyperbolic escape segment (the Kerbin-SOI exit to interplanetary space)

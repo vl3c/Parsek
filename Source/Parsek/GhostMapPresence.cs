@@ -208,6 +208,21 @@ namespace Parsek
         internal static int lifecycleDestroyedThisTick;
         internal static int lifecycleUpdatedThisTick;
 
+        // Orbit-raise gap-glide seed-frame counters: how many gap frames seeded the
+        // icon in the reconstructed INERTIAL frame vs fell back to the body-fixed
+        // (live-rotation) frame. Emitted once per ~5s window via a shared-key summary
+        // so a KSP.log capture proves the inertial path actually fired (inertial>0)
+        // rather than silently compiling out (the PR-#885 no-op trap). Cumulative
+        // across the session; reset only for testing.
+        internal static int gapGlideInertialSeedCount;
+        internal static int gapGlideBodyFixedFallbackCount;
+
+        internal static void ResetGapGlideCountersForTesting()
+        {
+            gapGlideInertialSeedCount = 0;
+            gapGlideBodyFixedFallbackCount = 0;
+        }
+
         internal struct GhostMapVisibilityCounters
         {
             public int uniqueTracked;
@@ -7642,6 +7657,76 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            // Orbit-raise gap glide: reconstruct the recorded INERTIAL position. The body-fixed
+            // FromWorldPosAndRecordedVelocity seed below resolves the gap point via
+            // body.GetWorldSurfacePosition at the LIVE body orientation; on a loop replayed ~1e9 s
+            // later the body has rotated, so the body-fixed gap rendering sits rotated off the
+            // inertial orbit lines drawn from recorded Keplerian elements. Reconstruct the point's
+            // inertial position from its recorded UT + body rotation (incl. initialRotation) so the
+            // parking -> raise -> loiter -> escape arc lives in one inertial frame (no teleport at the
+            // raise->loiter seam). Gated to the orbit-raise-gap-points reason on an Absolute branch
+            // ONLY; the launch ascent (no preceding OrbitSegment) never reaches this path via
+            // ShouldDriveGapFromPoints, and SOI-gap / checkpoint / terminal callers pass other reasons.
+            bool inertialPathFired = false;
+            string inertialDeclineReason = null;
+            double inertialLonForLog = double.NaN;
+            if (ShouldSeedGapGlideInertial(stateVectorUpdateReason, resolution.Branch))
+            {
+                if (OrbitSeedResolver.TryResolveRotationPeriod(body, out double gapRotationPeriod))
+                {
+                    double gapInitialRotation = OrbitSeedResolver.ResolveInitialRotation(body);
+                    if (OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+                            vessel.orbitDriver.orbit,
+                            body,
+                            point.latitude,
+                            point.longitude,
+                            point.altitude,
+                            vel,
+                            point.ut,
+                            point.ut + loopEpochShiftSeconds,
+                            gapRotationPeriod,
+                            gapInitialRotation,
+                            out double inertialLon,
+                            out string gapFailReason))
+                    {
+                        inertialPathFired = true;
+                        inertialLonForLog = inertialLon;
+                        gapGlideInertialSeedCount++;
+                    }
+                    else
+                    {
+                        inertialDeclineReason = gapFailReason ?? "historical-helper-declined";
+                    }
+                }
+                else
+                {
+                    inertialDeclineReason = "historical-rotation-unavailable";
+                }
+
+                if (!inertialPathFired)
+                {
+                    gapGlideBodyFixedFallbackCount++;
+                    ParsekLog.Warn(Tag,
+                        string.Format(ic,
+                            "Gap-glide inertial seed declined for ghost pid={0} recIndex={1} body={2} "
+                            + "recordedUT={3:F2} shift={4:F1} reason={5}: falling back to body-fixed seed "
+                            + "(icon may rotate off the inertial orbit lines this frame)",
+                            vessel.persistentId, recordingIndex, body.name, point.ut,
+                            loopEpochShiftSeconds, inertialDeclineReason ?? "(null)"));
+                }
+
+                // Aggregate proof-of-fire summary (shared key, ~5s window): a KSP.log capture must
+                // show inertial>0 for the looped re-aim playtest; inertial==0 means the gate never
+                // engaged (the no-op trap). bodyFixed counts the safety fallbacks.
+                ParsekLog.VerboseRateLimited(Tag,
+                    "gap-glide-inertial-summary",
+                    string.Format(ic,
+                        "Gap-glide seed summary: inertial={0} bodyFixed={1} "
+                        + "(orbit-raise gaps reconstructed in inertial frame)",
+                        gapGlideInertialSeedCount, gapGlideBodyFixedFallbackCount),
+                    5.0);
+            }
+
             // The state-vector path keeps the OLD contract: a SHIFTED-epoch orbit (seeded at
             // ut + loopEpochShiftSeconds == liveUT) that stock propagates at the LIVE Planetarium
             // clock. The segment-driven raw-epoch + effUT-drive contract (GhostOrbitIconDrivePatch)
@@ -7673,13 +7758,20 @@ namespace Parsek
 
             // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
             // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
-            // being propagated forward along the ellipse. Zero shift for non-loop ghosts.
-            OrbitReseed.FromWorldPosAndRecordedVelocity(
-                vessel.orbitDriver.orbit,
-                body,
-                worldPos,
-                vel,
-                ut + loopEpochShiftSeconds);
+            // being propagated forward along the ellipse. Zero shift for non-loop ghosts. Skipped
+            // when the orbit-raise inertial branch above already seeded the orbit (it seeded at the
+            // same loop-shifted epoch via the reconstructed inertial position) so we don't re-seed
+            // it back into the body-fixed frame; the body-fixed seed still runs for every other
+            // reason and as the safety fallback when the inertial reconstruction declined.
+            if (!inertialPathFired)
+            {
+                OrbitReseed.FromWorldPosAndRecordedVelocity(
+                    vessel.orbitDriver.orbit,
+                    body,
+                    worldPos,
+                    vel,
+                    ut + loopEpochShiftSeconds);
+            }
             vessel.orbitDriver.updateFromParameters();
             NormalizeGhostOrbitDriverTargetIdentity(vessel, "update-state-vector");
 
@@ -7715,7 +7807,17 @@ namespace Parsek
             done.StateVecAlt = point.altitude;
             done.StateVecSpeed = point.velocity.magnitude;
             done.UT = ut;
-            done.Reason = stateVectorUpdateReason;
+            // For the orbit-raise gap glide, annotate which frame seeded the orbit (inertial
+            // reconstruction vs body-fixed live-rotation fallback) and the reconstructed inertial
+            // longitude, so each driven frame self-identifies in the post-hoc log.
+            done.Reason = ShouldSeedGapGlideInertial(stateVectorUpdateReason, resolution.Branch)
+                ? string.Format(ic,
+                    "{0} seedFrame={1} inertialLon={2:F4}{3}",
+                    stateVectorUpdateReason,
+                    inertialPathFired ? "inertial" : "body-fixed",
+                    inertialLonForLog,
+                    inertialPathFired ? "" : (" decline=" + (inertialDeclineReason ?? "(null)")))
+                : stateVectorUpdateReason;
             ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
 
             StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
@@ -7745,6 +7847,25 @@ namespace Parsek
         {
             return string.IsNullOrEmpty(lastAppliedBodyName)
                 || !string.Equals(lastAppliedBodyName, newBodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Pure gate for the orbit-raise gap glide's inertial-frame reconstruction inside
+        /// <see cref="UpdateGhostOrbitFromStateVectors"/>. The inertial branch fires ONLY when the
+        /// state-vector update came from the gap-glide call sites (reason
+        /// <c>"orbit-raise-gap-points"</c>, passed only by the flight + TS gap branches) AND the
+        /// world position was resolved through the Absolute branch (body-fixed geographic
+        /// lat/lon/alt). Every other reason (SOI-gap checkpoint, terminal fallback, null) and every
+        /// other branch (relative anchor-local offsets, body-fixed-primary debris, orbital-checkpoint)
+        /// keeps the unchanged body-fixed live-rotation seed. The orbital-vacuum-vs-launch-ascent
+        /// discrimination is enforced upstream by <see cref="ShouldDriveGapFromPoints"/> (which
+        /// requires an OrbitSegment bracket on both sides); the launch ascent has no preceding orbit
+        /// segment so it never reaches the gap-glide reason. Pure.
+        /// </summary>
+        internal static bool ShouldSeedGapGlideInertial(string stateVectorUpdateReason, string resolutionBranch)
+        {
+            return string.Equals(stateVectorUpdateReason, "orbit-raise-gap-points", System.StringComparison.Ordinal)
+                && string.Equals(resolutionBranch, "absolute", System.StringComparison.Ordinal);
         }
 
         /// <summary>

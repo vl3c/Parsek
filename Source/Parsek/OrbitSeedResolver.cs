@@ -346,7 +346,7 @@ namespace Parsek
             return null;
         }
 
-        private static bool TryResolveRotationPeriod(CelestialBody body, out double rotationPeriod)
+        internal static bool TryResolveRotationPeriod(CelestialBody body, out double rotationPeriod)
         {
             rotationPeriod = double.NaN;
             if (object.ReferenceEquals(body, null))
@@ -358,7 +358,7 @@ namespace Parsek
             return IsFinite(rotationPeriod) && Math.Abs(rotationPeriod) > double.Epsilon;
         }
 
-        private static double ResolveInitialRotation(CelestialBody body)
+        internal static double ResolveInitialRotation(CelestialBody body)
         {
             if (object.ReferenceEquals(body, null))
                 return 0.0;
