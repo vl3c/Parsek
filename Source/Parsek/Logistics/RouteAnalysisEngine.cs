@@ -14,6 +14,20 @@ namespace Parsek.Logistics
         MissingEndpointProof = 5
     }
 
+    /// <summary>
+    /// Controls whether <see cref="RouteAnalysisEngine"/> emits its per-call
+    /// INFO diagnostics. One-shot callers (commit-time / the Create Route dialog)
+    /// use <see cref="Diagnostic"/>; the ~1/second candidate sweep
+    /// (<see cref="RouteCandidateFinder.DeriveCandidates"/>) uses <see cref="Quiet"/>
+    /// and logs a single rate-appropriate batch summary instead, so the per-tree
+    /// rejection lines do not spam the log on every poll.
+    /// </summary>
+    internal enum RouteAnalysisLogMode
+    {
+        Diagnostic = 0,
+        Quiet = 1
+    }
+
     internal sealed class RouteAnalysisResult
     {
         public RouteAnalysisStatus Status;
@@ -39,14 +53,16 @@ namespace Parsek.Logistics
     {
         private const double ResourceEpsilon = 1e-9;
 
-        internal static RouteAnalysisResult AnalyzeTree(RecordingTree tree)
+        internal static RouteAnalysisResult AnalyzeTree(
+            RecordingTree tree,
+            RouteAnalysisLogMode logMode = RouteAnalysisLogMode.Diagnostic)
         {
             if (tree?.Recordings == null || tree.Recordings.Count == 0)
-                return MissingProof();
+                return MissingProof(logMode);
 
             HashSet<string> sourcePathIds = CollectSourcePathRecordingIds(tree);
             if (sourcePathIds == null || sourcePathIds.Count == 0)
-                return MissingProof();
+                return MissingProof(logMode);
 
             Recording source = null;
             RouteConnectionWindow window = null;
@@ -66,7 +82,7 @@ namespace Parsek.Logistics
 
                     if (window != null)
                     {
-                        ParsekLog.Info("Route",
+                        Diag(logMode,
                             $"RouteAnalysis rejected: multiple completed windows tree={tree.Id ?? "<none>"}");
                         return new RouteAnalysisResult
                         {
@@ -80,16 +96,18 @@ namespace Parsek.Logistics
             }
 
             if (window == null)
-                return MissingProof();
+                return MissingProof(logMode);
 
-            return AnalyzeWindow(source, window);
+            return AnalyzeWindow(source, window, logMode);
         }
 
-        internal static RouteAnalysisResult AnalyzeRecording(Recording recording)
+        internal static RouteAnalysisResult AnalyzeRecording(
+            Recording recording,
+            RouteAnalysisLogMode logMode = RouteAnalysisLogMode.Diagnostic)
         {
             if (recording?.RouteConnectionWindows == null ||
                 recording.RouteConnectionWindows.Count == 0)
-                return MissingProof();
+                return MissingProof(logMode);
 
             RouteConnectionWindow window = null;
             for (int i = 0; i < recording.RouteConnectionWindows.Count; i++)
@@ -108,18 +126,19 @@ namespace Parsek.Logistics
             }
 
             if (window == null)
-                return MissingProof();
+                return MissingProof(logMode);
 
-            return AnalyzeWindow(recording, window);
+            return AnalyzeWindow(recording, window, logMode);
         }
 
         private static RouteAnalysisResult AnalyzeWindow(
             Recording source,
-            RouteConnectionWindow window)
+            RouteConnectionWindow window,
+            RouteAnalysisLogMode logMode)
         {
             if (!HasEndpointProof(window))
             {
-                ParsekLog.Info("Route",
+                Diag(logMode,
                     $"RouteAnalysis rejected: missing endpoint proof source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"} targetPid={window.TransferTargetVesselPid} " +
                     $"kind={window.TransferKind} situation={window.TransferEndpointSituation} " +
@@ -134,7 +153,7 @@ namespace Parsek.Logistics
 
             if (HasMixedPickupDelivery(window))
             {
-                ParsekLog.Info("Route",
+                Diag(logMode,
                     $"RouteAnalysis rejected: mixed pickup/delivery source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
@@ -151,7 +170,7 @@ namespace Parsek.Logistics
             if ((resources == null || resources.Count == 0) &&
                 (inventory == null || inventory.Count == 0))
             {
-                ParsekLog.Info("Route",
+                Diag(logMode,
                     $"RouteAnalysis rejected: no delivery manifest source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"}");
                 return new RouteAnalysisResult
@@ -166,14 +185,18 @@ namespace Parsek.Logistics
             // [launch..undock] trim on window.UndockUT. A non-finite UndockUT would
             // make the window unrenderable downstream (RouteBuilder rejects it with
             // backing-mission-unresolvable), so surface it at analysis time as a
-            // diagnostic — eligibility itself is unchanged.
-            if (double.IsNaN(window.UndockUT) || double.IsInfinity(window.UndockUT))
+            // diagnostic — eligibility itself is unchanged. Gated with the other
+            // per-call diagnostics so the poll sweep does not re-warn every second;
+            // the one-shot Create Route path (Diagnostic) still surfaces it, and
+            // RouteBuilder independently rejects the build.
+            if (logMode == RouteAnalysisLogMode.Diagnostic &&
+                (double.IsNaN(window.UndockUT) || double.IsInfinity(window.UndockUT)))
                 ParsekLog.Warn("Route",
                     $"RouteAnalysis: eligible window carries non-finite UndockUT source={source?.RecordingId ?? "<none>"} " +
                     $"window={window.WindowId ?? "<none>"} undockUT={window.UndockUT.ToString("R", CultureInfo.InvariantCulture)} " +
                     "(RouteBackingMission cannot derive the [launch..undock] trim; RouteBuilder will reject)");
 
-            ParsekLog.Info("Route",
+            Diag(logMode,
                 $"RouteAnalysis eligible: source={source?.RecordingId ?? "<none>"} " +
                 $"window={window.WindowId ?? "<none>"} resources={resources?.Count ?? 0} " +
                 $"inventory={inventory?.Count ?? 0}");
@@ -188,10 +211,19 @@ namespace Parsek.Logistics
             };
         }
 
-        private static RouteAnalysisResult MissingProof()
+        private static RouteAnalysisResult MissingProof(RouteAnalysisLogMode logMode)
         {
-            ParsekLog.Info("Route", "RouteAnalysis rejected: missing route proof");
+            Diag(logMode, "RouteAnalysis rejected: missing route proof");
             return new RouteAnalysisResult { Status = RouteAnalysisStatus.MissingRouteProof };
+        }
+
+        // Per-call INFO diagnostic, emitted only in Diagnostic mode. In Quiet mode
+        // (the ~1/second candidate sweep) the per-tree lines are suppressed; the
+        // sweep's single batch summary (RouteCandidateFinder) carries the aggregate.
+        private static void Diag(RouteAnalysisLogMode logMode, string message)
+        {
+            if (logMode == RouteAnalysisLogMode.Diagnostic)
+                ParsekLog.Info("Route", message);
         }
 
         private static bool HasEndpointProof(RouteConnectionWindow window)

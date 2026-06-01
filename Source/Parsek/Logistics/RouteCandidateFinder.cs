@@ -92,6 +92,13 @@ namespace Parsek.Logistics
             int notSealed = 0;
             int ineligible = 0;
             int alreadyPromoted = 0;
+            // Per-reason breakdown of the ineligible count, so the single batch
+            // summary preserves the diagnosability the per-tree engine logs used
+            // to give. The engine runs in Quiet mode here (this sweep polls ~1/s),
+            // so it emits no per-tree INFO; the detailed per-tree reason is still
+            // logged at INFO on the one-shot Create Route path (Diagnostic mode).
+            int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
+                mixedPickup = 0, noManifest = 0;
             for (int i = 0; i < committedTrees.Count; i++)
             {
                 RecordingTree tree = committedTrees[i];
@@ -104,10 +111,19 @@ namespace Parsek.Logistics
                     continue;
                 }
 
-                RouteAnalysisResult analysis = RouteAnalysisEngine.AnalyzeTree(tree);
+                RouteAnalysisResult analysis =
+                    RouteAnalysisEngine.AnalyzeTree(tree, RouteAnalysisLogMode.Quiet);
                 if (analysis == null || !analysis.IsEligible)
                 {
                     ineligible++;
+                    switch (analysis?.Status)
+                    {
+                        case RouteAnalysisStatus.MissingRouteProof: missingProof++; break;
+                        case RouteAnalysisStatus.MultipleConnectionWindows: multiWindow++; break;
+                        case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
+                        case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
+                        case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
+                    }
                     continue;
                 }
 
@@ -123,7 +139,9 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"DeriveCandidates: trees={committedTrees.Count} candidates={result.Count} " +
-                $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted}");
+                $"notSealed={notSealed} ineligible={ineligible} alreadyPromoted={alreadyPromoted} " +
+                $"[missingProof={missingProof} multiWindow={multiWindow} " +
+                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} noManifest={noManifest}]");
             return result;
         }
 
