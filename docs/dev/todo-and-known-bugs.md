@@ -1268,7 +1268,7 @@ The acceptance test exists: `RelativeAnchorResolverTests.TryResolveAnchorPose_An
 
 ---
 
-## Open - v0.9.3 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
+## Done - v0.9.3 Orbit-segment ghosts teleport multi-kilometres at the payload-to-orbit transition
 
 **Evidence:** Same watch-mode playtest log, `logs/2026-05-18_2023_kerbalx-debris-instability-and-probe-dup/KSP.log`. Recording `c059aabf` (Kerbal X Probe) carries 43 seconds of authored payload up to UT 335.57 followed by an orbit segment covering UT 359.64 to 1364.71 (segmentIndex=0, cacheKey=170000). At frame 45241 (UT 359.659, ~24 seconds after `payloadEndUT`) the playback engine transitions from "hold last-payload position" to "orbital-frame propagation" and the ghost teleports **34,651 m in a single frame**:
 
@@ -1295,7 +1295,7 @@ The rotation channel also jumps across the transition (`(0.673,-0.199,-0.233,-0.
 
 **Coverage:** `GhostPlaybackEngineTests` adds `ShouldUseOrbitTailPlayback_BeforeOnRailsTransitionGap_BridgesGap` and `TryFindOrbitTailPlaybackSegment_BridgesOnRailsTransitionGap` (the ~21s payload-to-orbit fixture now routes gap frames to orbit-tail playback instead of clamping the last point), `PredictedOrbitTailContinuity_EngagesOnFirstOrbitFrameAcrossOnRailsGap` (the continuity blend covers the first bridged frame with weight ~1 and eases to 0 by lastPoint + blend, still inside the gap), and updates `ShouldUseOrbitTailPlayback_BeforeDistantPredictedSegmentStart_DoesNotBridgeGap` to pin the new 30s boundary (a 42s gap still does not bridge). Full xUnit suite green (13061 passed).
 
-**Status:** OPEN. The defensive renderer fix above is landed (it cannot regress current play: there are no predicted tails to bridge right now), but the entry stays open because the acceptance criterion (no `large-delta` transition frame in a fresh playtest) is unverified for lack of a live repro. To confirm: fly a recording that scene-exits with an incomplete predicted orbit tail (e.g. a probe that goes on-rails mid-ascent) with `GhostRenderTrace` enabled on that recording, and check the payload-to-orbit handoff is smooth.
+**Status:** CLOSED 2026-05-31 via the defensive renderer fix above (PR #997). Not live-reproduced in this cycle: the path is dormant (recent recordings produce no predicted tails), and the fix cannot regress current play (there are nothing to bridge today), so it was landed and closed without a fresh-playtest confirmation. **If the mesh jump recurs in play, reopen and capture evidence:** enable Verbose + Ghost render tracing, replay the offending recording, and check `KSP.log` for `reason=large-delta` at the payload-to-orbit handoff (the bridged orbit-tail continuity should instead log `Predicted orbit-tail continuity: ... weight=...` with no large-delta).
 
 ---
 
