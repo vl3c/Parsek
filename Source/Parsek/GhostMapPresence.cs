@@ -843,6 +843,22 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
 
         /// <summary>
+        /// The CelestialBody name Parsek last applied to each ghost's OrbitDriver, keyed by persistentId.
+        /// The orbit-renderer rebuild (and the "SOI change" log) is gated on a change measured against
+        /// THIS, not against <c>vessel.orbitDriver.referenceBody</c>. KSP's own orbit propagation
+        /// re-transitions an unloaded ghost's referenceBody between Parsek's per-frame reseeds (a launch
+        /// body escape hyperbola gets kicked out to the parent star; a center-aimed interplanetary
+        /// transfer's endpoints fall back inside the launch / target SOI), so the driver-field compare
+        /// trips EVERY frame near an SOI boundary and toggles <c>orbitRenderer.enabled</c> off/on each
+        /// frame -> the orbit line blinks at the start and end of a transfer leg. Comparing against the
+        /// body WE last applied fires the rebuild once per genuine Parsek-driven body change instead
+        /// (drawMode stays REDRAW_AND_RECALCULATE afterwards, so the line keeps tracking the reseeded
+        /// orbit without the disruptive enable-toggle).
+        /// </summary>
+        internal static readonly Dictionary<uint, string> ghostLastAppliedOrbitBody
+            = new Dictionary<uint, string>();
+
+        /// <summary>
         /// True if any live map-ghost's playback head (<paramref name="currentUT"/>, live frame) has moved
         /// outside the orbit-segment bounds currently applied to it. When that happens the applied orbit is
         /// stale and <see cref="Parsek.Patches.GhostOrbitLinePatch"/>'s stale-segment guard blanks the line
@@ -2215,6 +2231,7 @@ namespace Parsek
             ghostOrbitLineGraceUntilUT.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
+            ghostLastAppliedOrbitBody.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
@@ -3257,6 +3274,7 @@ namespace Parsek
             ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
+            ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -3479,6 +3497,7 @@ namespace Parsek
             ghostOrbitLineGraceUntilUT.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
+            ghostLastAppliedOrbitBody.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
@@ -7290,10 +7309,13 @@ namespace Parsek
                 return true;
             }
 
-            // SOI transition handling (same pattern as ApplyOrbitToVessel).
-            // OrbitDriver.celestialBody is only for real CelestialBody drivers;
-            // vessel targets must keep identity in OrbitDriver.vessel.
-            bool soiChanged = vessel.orbitDriver.referenceBody != body;
+            // SOI transition handling (same pattern as ApplyOrbitToVessel): compare against the body
+            // PARSEK last applied, not orbitDriver.referenceBody (KSP re-transitions it between our
+            // reseeds, which would toggle the renderer every frame near an SOI boundary -> orbit-line
+            // blink). OrbitDriver.celestialBody is only for real CelestialBody drivers; vessel targets
+            // must keep identity in OrbitDriver.vessel.
+            ghostLastAppliedOrbitBody.TryGetValue(vessel.persistentId, out string lastAppliedBody);
+            bool soiChanged = GhostOrbitBodyChanged(lastAppliedBody, body.name);
             if (soiChanged)
             {
                 var soi = NewDecisionFields("update-state-vector-soi-change");
@@ -7330,6 +7352,9 @@ namespace Parsek
                 vessel.orbitRenderer.enabled = false;
                 vessel.orbitRenderer.enabled = true;
             }
+
+            // Remember the body we just applied (see GhostOrbitBodyChanged / ghostLastAppliedOrbitBody).
+            ghostLastAppliedOrbitBody[vessel.persistentId] = body.name;
 
             lifecycleUpdatedThisTick++;
 
@@ -7372,6 +7397,20 @@ namespace Parsek
         }
 
         /// <summary>
+        /// True when the ghost orbit body Parsek is about to apply differs from the body it last applied
+        /// to this ghost (or nothing has been applied yet). Gates the orbit-renderer rebuild + "SOI
+        /// change" log so they fire once per genuine Parsek-driven body change, not every frame KSP
+        /// transiently re-transitions the unloaded ghost's <c>OrbitDriver.referenceBody</c> between
+        /// reseeds (the cause of the transfer-leg orbit-line blink). Pure. See
+        /// <see cref="ghostLastAppliedOrbitBody"/>.
+        /// </summary>
+        internal static bool GhostOrbitBodyChanged(string lastAppliedBodyName, string newBodyName)
+        {
+            return string.IsNullOrEmpty(lastAppliedBodyName)
+                || !string.Equals(lastAppliedBodyName, newBodyName, System.StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Shared: apply an OrbitSegment's Keplerian elements to a ghost vessel's OrbitDriver.
         /// Handles body resolution, orbit construction, SOI transitions, and logging.
         /// </summary>
@@ -7394,10 +7433,16 @@ namespace Parsek
                 return;
             }
 
-            // SOI transition: compare the Orbit reference body. OrbitDriver.celestialBody
-            // must stay null for vessel targets; stock OrbitTargeter treats a non-null
-            // celestialBody on a target driver as a body target and drops same-body ghosts.
-            bool soiChanged = vessel.orbitDriver.referenceBody != body;
+            // SOI transition: compare against the body PARSEK last applied to this ghost, NOT
+            // vessel.orbitDriver.referenceBody. KSP re-transitions an unloaded ghost's referenceBody
+            // between our per-frame reseeds (escape hyperbola kicked out to the parent star; a
+            // center-aimed transfer's endpoints fall inside the launch / target SOI), so the driver-field
+            // compare trips every frame near an SOI boundary and toggles the renderer off/on each frame
+            // -> the orbit line blinks at the start / end of a transfer leg. (OrbitDriver.celestialBody
+            // must stay null for vessel targets; stock OrbitTargeter treats a non-null celestialBody on a
+            // target driver as a body target and drops same-body ghosts.)
+            ghostLastAppliedOrbitBody.TryGetValue(vessel.persistentId, out string lastAppliedBody);
+            bool soiChanged = GhostOrbitBodyChanged(lastAppliedBody, body.name);
             if (soiChanged)
             {
                 ParsekLog.Info(Tag,
@@ -7453,6 +7498,10 @@ namespace Parsek
                 ParsekLog.Verbose(Tag,
                     string.Format(ic, "Forced orbit renderer redraw for {0} after SOI change", logContext));
             }
+
+            // Remember the body we just applied so the next frame's soiChanged compares against it
+            // (KSP may transiently re-transition orbitDriver.referenceBody before then).
+            ghostLastAppliedOrbitBody[vessel.persistentId] = body.name;
 
             // Diagnostic logging: orbit elements + hyperbola extent
             Orbit drv = vessel.orbitDriver.orbit;
@@ -8558,6 +8607,7 @@ namespace Parsek
             ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
+            ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
@@ -8622,6 +8672,7 @@ namespace Parsek
             ghostOrbitLineGraceUntilUT.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
+            ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();

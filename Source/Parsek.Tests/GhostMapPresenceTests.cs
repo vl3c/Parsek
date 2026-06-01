@@ -4097,5 +4097,45 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region GhostOrbitBodyChanged
+
+        // The orbit-renderer rebuild (enable-toggle) + "SOI change" log must fire ONLY when Parsek
+        // applies a different body than it last applied to this ghost. Comparing against KSP's own
+        // OrbitDriver.referenceBody tripped every frame near an SOI boundary (KSP re-transitions an
+        // unloaded ghost's body between Parsek's reseeds) and blinked the transfer-leg orbit line.
+
+        /// <summary>First application (no body recorded yet) counts as a change so the renderer seeds.</summary>
+        [Fact]
+        public void GhostOrbitBodyChanged_NoPriorBody_True()
+        {
+            Assert.True(GhostMapPresence.GhostOrbitBodyChanged(null, "Kerbin"));
+            Assert.True(GhostMapPresence.GhostOrbitBodyChanged("", "Kerbin"));
+        }
+
+        /// <summary>Re-applying the SAME body is NOT a change: no spurious redraw, no blink.</summary>
+        [Fact]
+        public void GhostOrbitBodyChanged_SameBody_False()
+        {
+            Assert.False(GhostMapPresence.GhostOrbitBodyChanged("Kerbin", "Kerbin"));
+            Assert.False(GhostMapPresence.GhostOrbitBodyChanged("Sun", "Sun"));
+        }
+
+        /// <summary>A genuine body transition (the two transfer seams) IS a change: redraw once.</summary>
+        [Fact]
+        public void GhostOrbitBodyChanged_DifferentBody_True()
+        {
+            Assert.True(GhostMapPresence.GhostOrbitBodyChanged("Kerbin", "Sun"));
+            Assert.True(GhostMapPresence.GhostOrbitBodyChanged("Sun", "Duna"));
+        }
+
+        /// <summary>Comparison is case-sensitive/ordinal (body names are exact); differing case is a change.</summary>
+        [Fact]
+        public void GhostOrbitBodyChanged_CaseDiffers_True()
+        {
+            Assert.True(GhostMapPresence.GhostOrbitBodyChanged("Kerbin", "kerbin"));
+        }
+
+        #endregion
     }
 }
