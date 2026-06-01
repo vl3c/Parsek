@@ -143,6 +143,13 @@ detailed window so the surrounding frames get full per-frame detail.
 | `PolylineLegChange` | a polyline leg activates / deactivates for a recording, or `IsRenderingNonOrbitalLeg` flips | SectionChangeWindow |
 | `MarkerVisibilityChange` | an IMGUI / atmospheric marker starts or stops drawing, or its skip-reason changes | SectionChangeWindow |
 
+`FirstPosition` has two emit paths for the same phase: in the MVP it is probe-derived
+(emitted on the first end-of-frame truth read for a pid, needs no recordingId or
+decision hook); in the second cut it is also decision-derived at the orbit-apply caller,
+carrying the applied `OrbitSegment`. Same phase tag, two sources. The MVP emits
+`GhostCreated` / `GhostDestroyed` from the lifecycle path and `FirstPosition` from the
+first probe read; `SegmentApplied` and the decision-derived variants are second-cut.
+
 ### Tier B: per-frame rendered truth (change-based, PROTO surfaces only)
 
 The end-of-frame probe samples the ACTUAL state per tracked ghost and emits one line
@@ -230,14 +237,17 @@ and the recordingId-collision concern the review raised:
 recordingId is needed only for the window/second-cut, and is resolved per pid via
 `GhostMapPresence.vesselPidToRecordingId`. That reverse map is currently INCOMPLETE: it
 is written only inside `TrackRecordingGhostVessel` (`GhostMapPresence.cs:9032, 9044`),
-which runs on the recording-index path; the chain create path
-(`GhostMapPresence.cs:2206`, `vesselsByChainPid[...] = vessel`) registers the pid in
-`ghostMapVesselPids` but never writes `vesselPidToRecordingId`. So chain-tip ghosts
-have no reverse entry today. The second cut must complete it: write
-`vesselPidToRecordingId[pid] = traj.RecordingId` on the chain create path too (a
-one-line addition where `traj` is already in scope). This is a latent-gap fix worth
-making regardless, and it is the ONLY production code the tracer touches. Until it
-lands, the MVP is unaffected because it keys state by pid and does not need recordingId.
+which runs on the recording-index path; the chain create path (`CreateGhostVessel`,
+around `GhostMapPresence.cs:2203-2206`) registers the pid in `ghostMapVesselPids` via
+`BuildAndLoadGhostProtoVesselCore` (`:9455`) and sets `vesselsByChainPid[...] = vessel`,
+but never writes `vesselPidToRecordingId`. So chain-tip ghosts have no reverse entry
+today. The second cut must complete it: in `CreateGhostVessel` (where both `vessel` and
+`traj` are in scope) write `vesselPidToRecordingId[vessel.persistentId] =
+traj.RecordingId`, keyed by the live ghost `vessel.persistentId` (the same key
+`TrackRecordingGhostVessel` uses at `:9032`), NOT `chain.OriginalVesselPid` (the
+`vesselsByChainPid` key). This is a latent-gap fix worth making regardless, and it is
+the ONLY production code the tracer touches. Until it lands, the MVP is unaffected
+because it keys state by pid and does not need recordingId.
 
 ### RenderSurface enum
 
@@ -379,7 +389,7 @@ Anchors are current-as-of this branch; treat as "around":
 | `GhostOrbitLinePatch.Postfix` | `Patches/GhostOrbitLinePatch.cs:534` | ProtoOrbitLine / ProtoIcon | intended `line.active` / `drawIcons` + reason | via pid reverse map |
 | `GhostOrbitArcPatch.Prefix` | `Patches/GhostOrbitLinePatch.cs:919` | ProtoOrbitLine | arc bounds `fromE`/`toE`, ecc, sma, clipped draw range | via pid reverse map |
 | `GhostMapPresence.UpdateGhostOrbitForRecording` | `GhostMapPresence.cs:6736` | ProtoOrbitLine | `SegmentApplied` + `FirstPosition`: applied `OrbitSegment`, source, world pos, body-frame bounds cache write | yes (recordingIndex -> id) |
-| `GhostMapPresence.UpdateGhostOrbit` (chain) | `GhostMapPresence.cs:2248` | ProtoOrbitLine | chain-pid `SegmentApplied` + `FirstPosition` | yes (chain -> traj.RecordingId) |
+| `GhostMapPresence.UpdateGhostOrbit` (chain) | `GhostMapPresence.cs:2248` | ProtoOrbitLine | chain-pid `SegmentApplied` + `FirstPosition` | via reverse map (post-fix); no `traj` in scope at :2248 |
 | `GhostMapPresence.Update*GhostLifecycle` | `GhostMapPresence.cs:5801` | (lifecycle) | `GhostCreated` / `GhostDestroyed` | yes |
 | `GhostTrajectoryPolylineRenderer.Driver.LateUpdate` | `Display/GhostTrajectoryPolylineRenderer.cs:921` | Polyline | which legs drew, head-UT gate, `IsRenderingNonOrbitalLeg` transition | yes (rec.RecordingId) |
 | `ParsekUI.DrawMapMarkers` | `ParsekUI.cs:1069` | ImguiLabeledMarker | marker pos source (mesh vs traj), `meshVsTraj` gap, skip reason (decision-only) | yes |
@@ -387,10 +397,13 @@ Anchors are current-as-of this branch; treat as "around":
 
 Hook `SegmentApplied` / `FirstPosition` at the two CALLERS
 (`UpdateGhostOrbitForRecording`, `UpdateGhostOrbit`) rather than at the shared private
-`ApplyOrbitToVessel` (`GhostMapPresence.cs:7715`), because the callers have the
-recording / chain id in scope while `ApplyOrbitToVessel` is `private` and keyed by a
-bare `Vessel` (it would have to re-resolve the id through the reverse map). The callers
-already log "Orbit updated" today, so the hook lands where the existing diagnostic is.
+`ApplyOrbitToVessel` (`GhostMapPresence.cs:7715`), which is `private` and keyed by a
+bare `Vessel`. `UpdateGhostOrbitForRecording` has the recordingIndex (hence id) in
+scope; `UpdateGhostOrbit(uint chainPid, ...)` at `:2248` has only `chainPid` and must
+resolve the id through the completed reverse map (`vesselPidToRecordingId`) or the
+chain's tip recording id, so this caller hook is second-cut, after the reverse-map fix.
+The callers already log "Orbit updated" today, so the hook lands where the existing
+diagnostic is.
 
 Truth-layer hook (the folded `GhostRenderStateProbe`):
 
@@ -619,3 +632,10 @@ Always:
   promoted to the recommended first cut and reflected in the phased plan; O(all vessels)
   iteration -> O(ghosts) fold-in fix; "reuse TraceSeparation" -> softened to "modeled
   on" (per-pid ring is new code).
+- Second review (revised doc): verdict SHIP WITH CHANGES, no MUST-FIX. Applied the
+  SHOULD-ADDRESS clarity fixes: reverse-map keyed by `vessel.persistentId` (not the
+  chain pid); `UpdateGhostOrbit` (chain) at `:2248` has no `traj` in scope so its caller
+  hook is second-cut via the completed reverse map; `FirstPosition` documented as
+  MVP-probe vs second-cut-decision variants of one phase; tightened the
+  `ghostMapVesselPids` registration site to `BuildAndLoadGhostProtoVesselCore` (`:9455`).
+  All other revision claims verified correct against the source.
