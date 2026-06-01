@@ -3708,6 +3708,67 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure decision: should the ghost map icon be driven from recorded trajectory
+        /// POINTS (the body-fixed state-vector path) across this UT instead of carrying
+        /// the previous OrbitSegment forward?
+        ///
+        /// <para>
+        /// Context: <see cref="TrajectoryMath.FindOrbitSegmentOrSameBodyCarry"/> keeps a
+        /// ghost's orbit alive across a same-body inter-segment gap by returning the
+        /// PREVIOUS segment (the "capture-burn between two Mun orbits" case it was built
+        /// for). That carry is correct when the two bracketing orbits are essentially the
+        /// same shape. But when the gap is a real orbit RAISE (parking orbit -> higher
+        /// loiter orbit, sma 671928 -> 731230 across a ~205s burn arc), carrying the stale
+        /// parking segment freezes the icon on the OLD orbit, and when UT finally enters
+        /// the next segment the icon TELEPORTS to the new orbit (the ~1318 km jump the
+        /// playtest showed). The recorder actually captured that raise arc as ~84 body-fixed
+        /// Absolute trajectory POINTS; this predicate routes the icon onto those points so
+        /// it glides continuously across the gap.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns true iff ALL hold:
+        /// (1) <paramref name="effUT"/> falls in a genuine orbit-segment gap (no segment
+        ///     contains it) bracketed by a previous + next segment;
+        /// (2) the recording has Absolute/body-fixed track coverage at effUT (real
+        ///     lat/lon/alt POINTs to drive from);
+        /// (3) the covering track section is NOT Relative (Relative stores anchor-local
+        ///     metre offsets in the lat/lon/alt fields, not geographic coordinates -- the
+        ///     state-vector positioner would produce a position deep inside the planet);
+        /// (4) the bracketing segments are NOT orbit-equivalent for map display -- so the
+        ///     genuine same-orbit carry case (capture burn between two equivalent orbits)
+        ///     that the carry was built for stays on the carry path, byte-identical.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldDriveGapFromPoints(
+            IReadOnlyList<OrbitSegment> effectiveSegments,
+            IPlaybackTrajectory traj,
+            double effUT)
+        {
+            if (traj == null)
+                return false;
+
+            if (!TryFindOrbitSegmentGap(effectiveSegments, effUT,
+                    out OrbitSegment previous, out OrbitSegment next))
+                return false;
+
+            if (!HasRecordedTrackCoverageAtUT(traj, effUT))
+                return false;
+
+            if (IsInRelativeFrame(traj, effUT))
+                return false;
+
+            // Preserve the carry's original purpose: when the two bracketing segments
+            // describe the same orbit shape, the carry (previous segment held forward)
+            // is correct and the icon stays put with no teleport. Only the NON-equivalent
+            // gap (a real raise / plane change) needs the points glide.
+            if (TrajectoryMath.AreOrbitSegmentsEquivalentForMapDisplay(previous, next))
+                return false;
+
+            return true;
+        }
+
+        /// <summary>
         /// Evaluates the narrow OrbitalCheckpoint state-vector carve-out for SOI gaps.
         /// <paramref name="expectedSoiGapBody"/> is a caller hint; when the segment
         /// list contains the bracketing gap, the actual post-gap segment body wins.
@@ -6137,6 +6198,59 @@ namespace Parsek
                     continue;
                 }
 
+                // Gap-points glide (Tracking Station mirror of the flight-scene branch in
+                // ParsekPlaybackPolicy.CheckPendingMapVessels): FindOrbitSegmentOrSameBodyCarry carried
+                // the PREVIOUS segment forward across a same-body inter-segment gap, holding coveringSegment
+                // true. For a real orbit RAISE (parking -> higher loiter) that freezes the icon on the stale
+                // parking orbit and then teleports it ~1318 km onto the loiter orbit when effUT enters the
+                // next segment. This ghost was created as a Segment ghost (isStateVector is false for an
+                // Absolute gap in a HasOrbitSegments recording), so the isStateVector branch below never
+                // reaches it -- a dedicated branch is required. Drive it from the recorded body-fixed POINTS
+                // so it glides the raise arc. Gated to the NON-orbit-equivalent gap so the equivalent-orbit
+                // carry (capture burn between two same orbits) stays byte-identical on the carry. Placed
+                // AFTER the removeReason block so a genuine expiry still wins, and the continue bypasses the
+                // segment-apply tail.
+                if (coveringSegment.HasValue
+                    && !isStateVector
+                    && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT))
+                {
+                    TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(
+                        rec.Points, effUT, ref cachedStateVectorIndex);
+                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                    if (gapPoint.HasValue)
+                    {
+                        // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
+                        // suppression case (the ghost must be torn down this tick); false on the normal
+                        // success path (ghost updated in place). Mirror the isStateVector branch below.
+                        bool reFlySuppressed = UpdateGhostOrbitFromStateVectors(
+                            idx, rec, gapPoint.Value, effUT,
+                            stateVectorUpdateReason: "orbit-raise-gap-points",
+                            loopEpochShiftSeconds: tsLoopEpochShift);
+                        ParsekLog.VerboseRateLimited(Tag,
+                            "ts-gap-points-glide-" + idx,
+                            string.Format(ic,
+                                "TS gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
+                                "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
+                                idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
+                            2.0);
+                        if (reFlySuppressed)
+                        {
+                            if (toRemove == null) toRemove = new List<(int, string)>();
+                            toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                        }
+                        continue;
+                    }
+                    // No bracketing point (effUT precedes first / past last recorded point): fall through
+                    // to the unchanged same-body carry / segment-apply path. Never force a single stale point.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-gap-points-nobracket-" + idx,
+                        string.Format(ic,
+                            "TS gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
+                            "(falling through to same-body segment carry)",
+                            idx, effUT),
+                        5.0);
+                }
+
                 if (isStateVector)
                 {
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
@@ -6191,7 +6305,15 @@ namespace Parsek
                     continue;
                 }
 
-                if (!hasOrbitBounds)
+                // A ghost with no stored orbit bounds is normally skipped (it is not a live
+                // segment ghost). EXCEPTION: when a covering OrbitSegment exists at effUT we must
+                // still (re)apply it. This is the recovery frame after a gap-points glide cleared
+                // ghostOrbitBounds via UpdateGhostOrbitFromStateVectors: as soon as effUT enters
+                // the next real segment (e.g. the loiter orbit after the raise gap) the segment-apply
+                // below re-seeds the orbit + re-populates ghostOrbitBounds, snapping the icon onto the
+                // loiter orbit instead of stranding it on the stale state-vector seed. With no covering
+                // segment the original skip stands. bounds==(0,0) here forces the apply below.
+                if (!hasOrbitBounds && !coveringSegment.HasValue)
                     continue;
 
                 // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
