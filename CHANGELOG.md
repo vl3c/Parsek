@@ -98,6 +98,10 @@ All notable changes to Parsek are documented here.
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
 - New "Map/TS render tracing" diagnostics setting (Settings > Diagnostics, off by default) that, like the existing ghost render tracing toggle, writes detailed map and tracking-station ghost render diagnostics to the log when investigating map/TS rendering. Leave off for normal playtests (it produces large logs).
 
+### Internals
+
+- The `[Engine] engine-frame-iter` diagnostic trace now reports each ghost's per-frame visibility outcome (`[out:vis=.. retired=.. zone=.. rdist=..]`), not just its pre-render inputs, and auto-enables during a Re-Fly session. This pins down the still-open "ghost vanishes at the Inertial-frame transition" case by showing whether a ghost was actually hidden and why, rather than only that it was iterated.
+
 ### Known limitations
 
 - A looped interplanetary mission now re-aims its transfer to the target's current position so it reaches the target (see Looping, above); the exception is a steeply-inclined target (like Moho), whose transfer window is skipped so the mission replays its original transfer for now. Single-body and moon missions (Mun, Minmus) relaunch at the correct window, though a moon mission's orbit may still sit slightly off the launch site (closed in a later update).
@@ -151,6 +155,7 @@ All notable changes to Parsek are documented here.
 - Stock UI Fly / Switch-To into a previously committed vessel now correctly opens the segment-scoped Merge dialog, removes in-segment debris on Discard, and recognizes Parsek-spawned vessels as committed-tree members instead of fragmenting them into a standalone tree. The dialog body unifies on `"{TreeName} - {Duration}"` for both short segments and long launches.
 - Map Switch-To now opens a Merge/Discard dialog for the prior switch-segment recording before switching, instead of silently superseding it and orphaning the tree.
 - Map Switch-To to a far vessel now opens the Merge/Discard dialog for the ongoing recording before the scene reload, matching the Esc-to-Space-Center behavior.
+- In-flight Switch-To from a recording vessel to a separate previously-flown vessel that is nearby now prompts to keep or discard the current recording first, then continues that vessel's recorded history correctly instead of starting a fresh standalone recording.
 - Merge dialog after a switch/Fly auto-record now shows the segment's elapsed time, not the full tree's mission duration, so the player can distinguish a short post-switch segment from a long pre-switch recording at a glance.
 - Switch/Fly pre-switch dialog now shows the actual elapsed segment duration during a live recording (was 0s), and clicking Merge synchronously clears the prior session marker instead of leaning on the defensive supersede fallback.
 - Map Switch-To back to a previously flown, fresh-launched vessel (e.g. Kerbal X relaunched from VAB) now attaches the new switch-segment as a continuation under the existing mission tree instead of authoring a brand-new standalone tree. Before the fix, the new segment ended up in its own auto-group separate from the mission group.
