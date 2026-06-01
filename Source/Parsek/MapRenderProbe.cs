@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Globalization;
-using System.Reflection;
 using UnityEngine;
 
 namespace Parsek
@@ -14,8 +13,10 @@ namespace Parsek
     /// allocation.
     ///
     /// <para>Reads the ACTUALLY RENDERED state per tracked ghost
-    /// (<see cref="OrbitRendererBase"/> enabled / drawMode / drawIcons, reflected
-    /// <c>VectorLine.active</c>, <see cref="OrbitDriver"/> orbit body / sma / ecc,
+    /// (<see cref="OrbitRendererBase"/> enabled / drawMode / drawIcons, the
+    /// <c>VectorLine.active</c> truth read through the public
+    /// <see cref="OrbitRendererBase.OrbitLine"/> property,
+    /// <see cref="OrbitDriver"/> orbit body / sma / ecc,
     /// and <see cref="Vessel.GetWorldPos3D"/>) and emits:
     /// <list type="bullet">
     /// <item>Tier-A <c>FirstPosition</c>: the probe-derived MVP variant, emitted
@@ -53,19 +54,23 @@ namespace Parsek
         // every ~0.5 s real time at worst.
         private const double JumpAnomalyMinIntervalSeconds = 0.5;
 
-        // Cached reflection on the protected OrbitRendererBase.line field. KSP
-        // marks the Vectrosity line protected; the Harmony patch sees it via
-        // __instance, but a regular MonoBehaviour cannot. Resolved once at first
-        // use and reused for every sample (FieldInfo.GetValue is cheap).
-        private FieldInfo orbitRendererLineField;
-        private PropertyInfo vectorLineActiveProperty;
-
         // Per-pid truth state, all cleared on scene change so a stale entry never
         // fires a spurious anomaly across a TS <-> flight transition. The probe
         // tracks last-value strings locally (rather than leaning on ParsekLog's
         // VerboseOnChange dict) so the scene-change clear is a single Clear() and
         // the just-reset suppression is exact.
         private readonly Dictionary<uint, Vector3d> prevWorldPos = new Dictionary<uint, Vector3d>();
+        // Body-relative (orbit-frame) position per pid = GetWorldPos3D - referenceBody.position.
+        // This is the icon-jump DECISION quantity. prevWorldPos above is retained only to log
+        // the raw-world delta as context (so a re-test shows the frame contamination magnitude).
+        // Measuring the jump in the orbit's own reference-body frame cancels the floating-origin
+        // and reference-body world motion that otherwise dominates a distant ghost's raw world
+        // delta at high warp (KSP builds an on-rails vessel's world position as
+        // referenceBody.position + orbitRelative, so the body-relative delta IS the orbital arc).
+        private readonly Dictionary<uint, Vector3d> prevBodyRelPos = new Dictionary<uint, Vector3d>();
+        // Reference-body name backing the body-relative position per pid, so an SOI crossing
+        // (e.g. Kerbin -> Sun) is detected and the cross-frame body-relative delta suppressed.
+        private readonly Dictionary<uint, string> lastIconJumpBody = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastLineActive = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastRendererEnabled = new Dictionary<uint, string>();
         private readonly Dictionary<uint, string> lastDrawIcons = new Dictionary<uint, string>();
@@ -115,6 +120,8 @@ namespace Parsek
         private void ClearAllPerPidState()
         {
             prevWorldPos.Clear();
+            prevBodyRelPos.Clear();
+            lastIconJumpBody.Clear();
             lastLineActive.Clear();
             lastRendererEnabled.Clear();
             lastDrawIcons.Clear();
@@ -199,9 +206,10 @@ namespace Parsek
 
             // --- Tier-B change-based truth (one line per field on change) ---
             // First sample for this pid (including the first after a scene-change
-            // clear): no trustworthy previous world position, so the jump check
+            // clear, or the first resolvable-body frame after a body=null gap):
+            // no trustworthy previous body-relative position, so the jump check
             // is suppressed via justReset.
-            bool justReset = !prevWorldPos.ContainsKey(pid);
+            bool justReset = !prevBodyRelPos.ContainsKey(pid);
 
             // Capture the previously-sampled line.active BEFORE EmitTruthOnChange
             // overwrites lastLineActive, so the blink predicate below sees the
@@ -318,37 +326,82 @@ namespace Parsek
                 firstPositionEmittedPids.Add(pid);
             }
 
-            // --- Tier-C icon-jump anomaly (per-frame, orbit-derived threshold) ---
-            Vector3d prev;
-            if (prevWorldPos.TryGetValue(pid, out prev))
+            // --- Tier-C icon-jump anomaly (per-frame, orbit-relative threshold) ---
+            // Measure the jump in the orbit's OWN reference-body frame
+            // (bodyRelPos = worldPos - body.position), NOT the raw GetWorldPos3D
+            // world-frame delta. KSP builds an on-rails vessel's world position
+            // as referenceBody.position + orbitRelative, so the body-relative
+            // delta is the actual orbital arc that ComputeExpectedMotionMeters
+            // predicts. The raw world-frame delta of a ghost far from the
+            // floating origin is dominated by the reference-body's own world
+            // motion under warp (both worldPos and body.position are read at the
+            // SAME live UT, so the loop shift is NOT a factor - it only sets
+            // where on its orbit the ghost is), which scales with geometry and is
+            // unrelated to the ghost's orbital speed - that frame contamination
+            // is exactly what produced false-positive icon-jumps on smooth
+            // heliocentric coasts at high warp.
+            if (body != null)
             {
-                double dPos = (worldPos - prev).magnitude;
-                double expectedMotion = ComputeExpectedMotionMeters(driver, body);
-                if (MapRenderTrace.IsIconJump(
-                        dPos: dPos,
-                        expectedMotionMeters: expectedMotion,
-                        currentFrame: frame,
-                        floatingOriginShiftFrame: foShiftFrame,
-                        justReset: justReset)
-                    && PassesJumpRateLimit(pid, realtime))
+                Vector3d bodyRelPos = worldPos - body.position;
+
+                // Reference-body change (e.g. SOI crossing Kerbin -> Sun): the
+                // previous body-relative position was measured in the OLD body's
+                // frame, so its delta against this frame is a frame mismatch.
+                string lastJumpBody;
+                bool bodyChanged = lastIconJumpBody.TryGetValue(pid, out lastJumpBody)
+                    && lastJumpBody != bodyName;
+
+                Vector3d prevBodyRel;
+                if (prevBodyRelPos.TryGetValue(pid, out prevBodyRel))
                 {
-                    MapRenderTrace.EmitAnomaly(
-                        MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT, currentUT,
-                        "icon-jump",
-                        string.Format(ic,
-                            "dPos={0}m expectedDP={1}m warpRate={2} dt={3} body={4} lineActive={5} renderer.enabled={6} sma={7} ecc={8} worldPos={9}",
-                            MapRenderTrace.FormatDouble(dPos, "F0"),
-                            MapRenderTrace.FormatDouble(expectedMotion, "F0"),
-                            UnityWarpRate().ToString("F0", ic),
-                            UnityUnscaledDeltaTime().ToString("F4", ic),
-                            bodyName, lineActive, rendererEnabled,
-                            MapRenderTrace.FormatDouble(sma, "F0"),
-                            MapRenderTrace.FormatDouble(ecc, "F4"),
-                            MapRenderTrace.FormatVector3d(worldPos)));
+                    double dPos = (bodyRelPos - prevBodyRel).magnitude;
+                    double expectedMotion = ComputeExpectedMotionMeters(driver, body);
+                    if (MapRenderTrace.IsIconJump(
+                            dPos: dPos,
+                            expectedMotionMeters: expectedMotion,
+                            currentFrame: frame,
+                            floatingOriginShiftFrame: foShiftFrame,
+                            justReset: justReset,
+                            bodyChanged: bodyChanged)
+                        && PassesJumpRateLimit(pid, realtime))
+                    {
+                        // dPosWorld is the raw world-frame delta, logged only as
+                        // context so a re-test shows how much the reference-body
+                        // frame motion was inflating the old metric.
+                        Vector3d prevWorld;
+                        double dPosWorld = prevWorldPos.TryGetValue(pid, out prevWorld)
+                            ? (worldPos - prevWorld).magnitude
+                            : double.NaN;
+                        MapRenderTrace.EmitAnomaly(
+                            MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT, currentUT,
+                            "icon-jump",
+                            string.Format(ic,
+                                "dPos={0}m expectedDP={1}m dPosWorld={2}m warpRate={3} dt={4} body={5} lineActive={6} renderer.enabled={7} sma={8} ecc={9} bodyRelPos={10}",
+                                MapRenderTrace.FormatDouble(dPos, "F0"),
+                                MapRenderTrace.FormatDouble(expectedMotion, "F0"),
+                                MapRenderTrace.FormatDouble(dPosWorld, "F0"),
+                                UnityWarpRate().ToString("F0", ic),
+                                UnityUnscaledDeltaTime().ToString("F4", ic),
+                                bodyName, lineActive, rendererEnabled,
+                                MapRenderTrace.FormatDouble(sma, "F0"),
+                                MapRenderTrace.FormatDouble(ecc, "F4"),
+                                MapRenderTrace.FormatVector3d(bodyRelPos)));
+                    }
                 }
+                // Record this frame's body-relative position + body so the next
+                // frame's jump check is live (next sample has justReset == false).
+                prevBodyRelPos[pid] = bodyRelPos;
+                lastIconJumpBody[pid] = bodyName;
             }
-            // Record this frame's position so the next frame's jump check is live
-            // (the very next sample for this pid will have justReset == false).
+            else
+            {
+                // No reference body this frame: cannot form a body-relative
+                // position. Drop any stale prev so the next resolvable-body frame
+                // is treated as just-reset rather than compared across the gap.
+                prevBodyRelPos.Remove(pid);
+                lastIconJumpBody.Remove(pid);
+            }
+            // Retain the raw world position for the dPosWorld context log above.
             prevWorldPos[pid] = worldPos;
 
             // --- In-window full per-frame snapshot (Tier-B detail) ---
@@ -422,33 +475,29 @@ namespace Parsek
             return true;
         }
 
-        private string ReadLineActive(OrbitRendererBase rendererBase)
+        // Read the orbit line's visibility truth through the PUBLIC
+        // OrbitRendererBase.OrbitLine property (the Vectrosity VectorLine the
+        // renderer actually draws) and read VectorLine.active directly - the same
+        // access GhostOrbitLinePatch uses to toggle the ghost orbit line. The
+        // retired GhostRenderStateProbe prototype reflected a NonPublic instance
+        // field named "line", but the field is named "orbitLine" and is exposed
+        // via the OrbitLine property, so the GetField("line", ...) reflection
+        // always returned null ("(field-missing)") and the line.active truth
+        // never had real data. No reflection here: VectorLine.active is a
+        // compile-time member. internal static so the in-game test can drive it
+        // against a live ghost's renderer. The null / error fallbacks are kept.
+        internal static string ReadLineActive(OrbitRendererBase rendererBase)
         {
             if (rendererBase == null) return "(no-renderer)";
             try
             {
-                if (orbitRendererLineField == null)
-                {
-                    orbitRendererLineField = typeof(OrbitRendererBase).GetField(
-                        "line",
-                        BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (orbitRendererLineField == null)
-                        return "(field-missing)";
-                }
-                object line = orbitRendererLineField.GetValue(rendererBase);
+                var line = rendererBase.OrbitLine;
                 if (line == null) return "(line-null)";
-                if (vectorLineActiveProperty == null)
-                {
-                    vectorLineActiveProperty = line.GetType().GetProperty("active");
-                    if (vectorLineActiveProperty == null)
-                        return "(prop-missing)";
-                }
-                object val = vectorLineActiveProperty.GetValue(line);
-                return val != null ? val.ToString() : "(prop-null)";
+                return line.active.ToString();
             }
             catch (System.Exception ex)
             {
-                return "(reflect-err:" + ex.GetType().Name + ")";
+                return "(read-err:" + ex.GetType().Name + ")";
             }
         }
 

@@ -159,7 +159,7 @@ per field only when that field changes (`VerboseOnChange`), so a one-frame toggl
 and back is two lines, not silence, and steady state is one line then quiet:
 
 - renderer: `OrbitRendererBase.{enabled, drawMode, drawIcons}`
-- line: reflected `VectorLine.active`
+- line: `VectorLine.active`, read directly via the public `OrbitRendererBase.OrbitLine` property (no reflection: the field is `orbitLine`, exposed by `OrbitLine`)
 - orbit: `OrbitDriver.orbit.{referenceBody, semiMajorAxis, eccentricity}`
 - world position: `Vessel.GetWorldPos3D()` (jump detector, not on-change)
 
@@ -181,7 +181,12 @@ can mutate state between our decision and the render.
 Pure predicates, each with explicit suppression rationale (cf. the mesh tracer's
 floating-origin / zero-velocity carve-outs):
 
-- `icon-jump`: world position delta exceeds expected motion. Expected motion is
+- `icon-jump`: position delta exceeds expected motion. (Shipped refinement, branch
+  `maprender-iconjump-warp`: the delta is measured in the orbit's BODY-RELATIVE frame
+  `GetWorldPos3D - referenceBody.position`, NOT the raw world frame - comparing a
+  raw-world delta against a body-centered orbital speed flagged smooth fast coasts of
+  distant ghosts at high warp as false positives, because the reference-body's own
+  world motion dominates the raw delta.) Expected motion is
   orbit-derived (orbital speed * dt * warpRate), an improvement over the prototype's
   fixed 1000 km/frame threshold which was warp-tuned rather than warp-aware. Pin the
   `dt` source explicitly (`Time.unscaledDeltaTime` for the visual frame) and read
@@ -484,15 +489,16 @@ consolidation plus the existing probe.
 ## Performance and gating discipline
 
 Per the project Visual and Recording Design Principle, many ghosts render at once and
-the probe does per-frame, per-ghost reflection (`VectorLine.active`) plus position
-sampling. That is forbidden in normal play. Mitigations, all already established:
+the probe does per-frame, per-ghost truth reads (`OrbitRendererBase.OrbitLine.active`
+plus the renderer / orbit fields) plus position sampling. That is forbidden in normal
+play. Mitigations, all already established:
 
 - Off by default. When disabled, every entry point is a `null`-check plus a bool check
-  and returns. No reflection, no sampling, no allocation. This matches
-  `GhostRenderTrace` (`if (!IsEnabled) return;`) and the prototype
-  (`GhostRenderStateProbe.cs:87`).
-- Reflection `FieldInfo` / `PropertyInfo` cached once at first use
-  (`GhostRenderStateProbe.cs:71-72, 186-201`).
+  and returns. No truth reads, no sampling, no allocation. This matches
+  `GhostRenderTrace` (`if (!IsEnabled) return;`).
+- The line truth is read directly through the public `OrbitRendererBase.OrbitLine`
+  property (no reflection). `VectorLine.active` is a compile-time member, the same
+  access `GhostOrbitLinePatch` uses to toggle the ghost orbit line.
 - Tier-B is change-based, not per-frame dumps. Full per-frame detail only inside open
   windows.
 - Probe runs only in `FLIGHT` and `TRACKSTATION` and only when `ghostMapVesselPids` is
@@ -510,14 +516,13 @@ Mirror `GhostRenderTrace`'s test design (`GhostRenderTraceTests`):
 - `ForceEnabledForTesting` flag and `FrameCounterOverrideForTesting` /
   `FloatingOriginFrameOverrideForTesting` seams so xUnit drives deterministic frames.
 - Pure predicates with no Unity dependency, unit-tested directly:
-  `EvaluateGate(...)` (reason strings), `IsIconJump(dPos, expected, warpRate, foFrame, currentFrame, justReset)`,
+  `EvaluateGate(...)` (reason strings), `IsIconJump(dPos, expectedMotionMeters, currentFrame, floatingOriginShiftFrame, justReset, bodyChanged)` (dPos is the body-relative delta; `bodyChanged` suppresses SOI-crossing frames),
   `IsOrbitDiscontinuity(...)`, and `ReconcileMapRenderState(intended, actual)` (second
   cut).
 - Unity-ECall isolation: any method that touches `Time.frameCount`,
-  `Transform.position`, `Vessel.GetWorldPos3D`, or reflected `VectorLine.active` is
-  isolated in its own helper (the prototype already does this for the reflection path)
-  so the JIT verifier in the xUnit runtime never walks an ECall on an unreachable
-  branch.
+  `Transform.position`, `Vessel.GetWorldPos3D`, or `VectorLine.active` (via the
+  `OrbitRendererBase.OrbitLine` property) is isolated in its own helper so the JIT
+  verifier in the xUnit runtime never walks an ECall on an unreachable branch.
 - Log-assertion tests using `ParsekLog.TestSinkForTesting` to confirm each structural
   event and anomaly emits the expected `phase=` and `reason=` tokens.
 - Persistence round-trip unit test for `mapRenderTracing` using the

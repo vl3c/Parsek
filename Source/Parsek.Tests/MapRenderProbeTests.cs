@@ -6,8 +6,10 @@ namespace Parsek.Tests
     /// Unit coverage for the pure Tier-C anomaly predicates folded into
     /// <see cref="MapRenderTrace"/> from the render-state probe prototype:
     /// <see cref="MapRenderTrace.IsIconJump"/> (orbit-derived jump threshold with
-    /// the fixed floor, floating-origin shift suppression, and just-reset
-    /// suppression) and <see cref="MapRenderTrace.IsLineBlink"/> (toggle within N
+    /// the fixed floor, floating-origin shift suppression, just-reset suppression,
+    /// and reference-body-change suppression - the predicate's <c>dPos</c> is the
+    /// body-relative orbit-frame delta the probe measures, not the raw world-frame
+    /// delta) and <see cref="MapRenderTrace.IsLineBlink"/> (toggle within N
     /// frames). These predicates are Unity-ECall-free: they take primitives only,
     /// so the JIT verifier never walks a Unity native here. No shared static state
     /// is touched, but the class is kept in the Sequential collection for
@@ -29,7 +31,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.False(jump);
         }
@@ -42,7 +45,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.True(jump);
         }
@@ -62,7 +66,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 2_000_000.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.False(jump);
         }
@@ -76,7 +81,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 2_000_000.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.True(jump);
         }
@@ -91,7 +97,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: 1000,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.False(jump);
         }
@@ -105,7 +112,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1001,
                 floatingOriginShiftFrame: 1000,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.False(jump);
         }
@@ -119,7 +127,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1002,
                 floatingOriginShiftFrame: 1000,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.True(jump);
         }
@@ -137,9 +146,47 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: true);
+                justReset: true,
+                bodyChanged: false);
 
             Assert.False(jump);
+        }
+
+        // ---- IsIconJump: reference-body change (SOI crossing) suppression ----
+
+        [Fact]
+        public void IsIconJump_BodyChanged_Suppressed()
+        {
+            // The orbit's reference body changed this frame (e.g. SOI crossing
+            // Kerbin -> Sun). The previous body-relative position was measured in
+            // the OLD body's frame, so a huge cross-frame delta is a frame
+            // mismatch, not a teleport, and must NOT fire.
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: 50_000_000.0,
+                expectedMotionMeters: 0.0,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: true);
+
+            Assert.False(jump);
+        }
+
+        [Fact]
+        public void IsIconJump_SameBody_AboveThreshold_Jump()
+        {
+            // Same reference body (bodyChanged false): a genuine off-orbit delta
+            // above the floor still flags. Guards that the body-change suppression
+            // does not blanket-disable the detector.
+            bool jump = MapRenderTrace.IsIconJump(
+                dPos: MapRenderTrace.IconJumpFloorMeters + 1.0,
+                expectedMotionMeters: 0.0,
+                currentFrame: 1000,
+                floatingOriginShiftFrame: FrameNoFloatingOrigin,
+                justReset: false,
+                bodyChanged: false);
+
+            Assert.True(jump);
         }
 
         // ---- IsIconJump: NaN / infinity guards ----
@@ -152,7 +199,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: 0.0,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.False(jump);
         }
@@ -167,7 +215,8 @@ namespace Parsek.Tests
                 expectedMotionMeters: double.NaN,
                 currentFrame: 1000,
                 floatingOriginShiftFrame: FrameNoFloatingOrigin,
-                justReset: false);
+                justReset: false,
+                bodyChanged: false);
 
             Assert.True(jump);
         }
