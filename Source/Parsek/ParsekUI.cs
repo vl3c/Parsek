@@ -61,6 +61,20 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
+        // Grace window for the post-polyline-release transition (orbit-raise-gap fix follow-up):
+        // the seg-drive dispatcher runs on a cadence (~0.5s MapOrbitUpdateIntervalSec), so when the
+        // trajectory polyline releases ownership of a non-orbital phase there is a brief window
+        // (~200ms in practice, ~12 frames at 60Hz) before the next orbital segment is applied. During
+        // that window the ghost mesh transform is still STALE at the last seg-drive position (e.g. the
+        // parking-orbit endpoint from before the gap), so reading state.ghost.transform.position would
+        // snap the labelled marker ~400 km backward for those frames - the "icon teleported far away
+        // to the wrong position" symptom. We extend the polyline phase by this grace, during which the
+        // marker prefers trajPos (when available) or simply skips (when not), rather than reading the
+        // stale mesh transform. The grace ends as soon as the new segment is applied and the icon-drive
+        // patch refreshes the mesh transform.
+        private const float PolylineReleaseGraceSec = 1.5f;
+        private static readonly Dictionary<uint, float> lastPolylineOwningRealTimePerPid = new Dictionary<uint, float>();
+
         // Cached waypoint indices and body lookup for trajectory-derived map marker positions (Bug A fix)
         private readonly Dictionary<int, int> mapMarkerCachedIndices = new Dictionary<int, int>();
         private readonly Dictionary<string, CelestialBody> bodyCache = new Dictionary<string, CelestialBody>();
@@ -1202,9 +1216,33 @@ namespace Parsek
                 // source of truth (the polyline draws them), so fall through to TryComputeGhostWorldPosition
                 // at the loop-mapped effUT below. The diagnostic "Marker pos: ... meshVsTraj" makes this
                 // explicit by reporting both sources.
-                bool polylinePhase = GhostMapPresence.HasGhostVesselForRecording(kvp.Key)
-                    && GhostMapPresence.IsPolylineOwningGhostPhase(
-                        GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key));
+                //
+                // PolylineReleaseGraceSec extends the "polyline phase" through a short grace window
+                // after the polyline releases ownership: the seg-drive dispatcher runs on a ~0.5s
+                // cadence, so the next orbital segment is not applied on the same frame as release.
+                // For ~12 frames in between, the mesh transform is still stale at the pre-polyline
+                // position. Without the grace, the marker reads that stale mesh and snaps backward by
+                // hundreds of km (the parking-orbit endpoint vs the loiter), which is what the playtest
+                // reported as "icon teleported far away to the wrong position on the loiter". The grace
+                // suppresses that stale read until the seg-drive catches up; trajPos / TryComputeGhost
+                // WorldPosition is preferred when available, and the marker simply does not draw for
+                // those frames when the recording has no points covering the post-cut effUT (gracefully
+                // invisible for ~200ms rather than teleporting). End-of-grace lands on the freshly seg-
+                // driven mesh transform and the marker resumes normally.
+                uint ghostPidForPhase = GhostMapPresence.HasGhostVesselForRecording(kvp.Key)
+                    ? GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key)
+                    : 0u;
+                bool currentlyPolylineOwning = ghostPidForPhase != 0
+                    && GhostMapPresence.IsPolylineOwningGhostPhase(ghostPidForPhase);
+                if (currentlyPolylineOwning)
+                {
+                    lastPolylineOwningRealTimePerPid[ghostPidForPhase] = Time.realtimeSinceStartup;
+                }
+                bool inPolylineReleaseGrace = !currentlyPolylineOwning
+                    && ghostPidForPhase != 0
+                    && lastPolylineOwningRealTimePerPid.TryGetValue(ghostPidForPhase, out float lastOwningT)
+                    && Time.realtimeSinceStartup - lastOwningT < PolylineReleaseGraceSec;
+                bool polylinePhase = currentlyPolylineOwning || inPolylineReleaseGrace;
                 Vector3 markerPos;
                 bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
                     && !polylinePhase;
