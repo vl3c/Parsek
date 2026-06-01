@@ -300,5 +300,65 @@ namespace Parsek.Tests
 
             Assert.False(blink);
         }
+
+        // ---- IsIconOffOrbit ----
+
+        [Fact]
+        public void IsIconOffOrbit_OnOrbit_NotOff()
+        {
+            // Icon sits exactly on its orbit line (angle ~0): no anomaly.
+            bool off = MapRenderTrace.IsIconOffOrbit(
+                angleDeg: 0.0, minAngleDeg: MapRenderTrace.IconOffOrbitMinAngleDeg);
+
+            Assert.False(off);
+        }
+
+        [Fact]
+        public void IsIconOffOrbit_SmallJitterUnderThreshold_NotOff()
+        {
+            // Float / interpolation jitter below the threshold is not reported.
+            bool off = MapRenderTrace.IsIconOffOrbit(angleDeg: 0.4, minAngleDeg: 1.0);
+
+            Assert.False(off);
+        }
+
+        [Fact]
+        public void IsIconOffOrbit_AtThreshold_NotOff()
+        {
+            // Strict greater-than: exactly the threshold does not fire.
+            bool off = MapRenderTrace.IsIconOffOrbit(angleDeg: 1.0, minAngleDeg: 1.0);
+
+            Assert.False(off);
+        }
+
+        [Fact]
+        public void IsIconOffOrbit_LargeAngle_Off()
+        {
+            // The documented looped-re-aim defect (~96.8 deg body rotation over the
+            // loop shift): the icon is far off its own orbit line.
+            bool off = MapRenderTrace.IsIconOffOrbit(
+                angleDeg: 96.84, minAngleDeg: MapRenderTrace.IconOffOrbitMinAngleDeg);
+
+            Assert.True(off);
+        }
+
+        [Fact]
+        public void IsIconOffOrbit_NaN_NotOff()
+        {
+            // Degenerate orbit (NaN propagation) must not report a spurious off-orbit.
+            bool off = MapRenderTrace.IsIconOffOrbit(
+                angleDeg: double.NaN, minAngleDeg: 1.0);
+
+            Assert.False(off);
+        }
+
+        [Fact]
+        public void IsIconOffOrbit_Infinity_NotOff()
+        {
+            bool off = MapRenderTrace.IsIconOffOrbit(
+                angleDeg: double.PositiveInfinity, minAngleDeg: 1.0);
+
+            Assert.False(off);
+        }
     }
 }

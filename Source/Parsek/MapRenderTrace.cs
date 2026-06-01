@@ -61,6 +61,20 @@ namespace Parsek
         internal const double ExpectedMotionMultiplier = 4.0;
 
         /// <summary>
+        /// Minimum angle (degrees) between the proto icon's body-relative position
+        /// and the orbit's OWN predicted body-relative position (at the icon's
+        /// drive clock) before the <c>icon-off-orbit</c> anomaly fires. The orbit
+        /// LINE and the vessel ICON both derive from <c>OrbitDriver.orbit</c>, so a
+        /// correctly placed icon sits ON its line (angle ~0); a large angle means
+        /// the icon is off its own orbit - the looped / re-aimed rotation bug that
+        /// <see cref="IsIconJump"/> (no per-frame delta) and <see cref="IsLineBlink"/>
+        /// (line stays active) are both blind to. 1 deg cleanly separates float /
+        /// interpolation noise from the real defect (a body-rotation-over-loop-shift
+        /// residual is tens of degrees).
+        /// </summary>
+        internal const double IconOffOrbitMinAngleDeg = 1.0;
+
+        /// <summary>
         /// Floating-origin shift-frame suppression window (frames). On a
         /// stock <c>FloatingOrigin.setOffset</c> rebase every ghost shifts by
         /// the same magnitude on the same frame; the jump detector would read
@@ -339,6 +353,26 @@ namespace Parsek
                 return false;
             int sinceLast = currentFrame - lastToggleFrame;
             return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
+        /// <summary>
+        /// Pure <c>icon-off-orbit</c> anomaly predicate (Tier C). Returns true when
+        /// the angle between the proto icon's body-relative position and the orbit's
+        /// own predicted body-relative position (computed by the caller at the icon's
+        /// drive clock <c>effUT = liveUT - loopShift</c>) exceeds
+        /// <paramref name="minAngleDeg"/>. The icon and its orbit line share one
+        /// <c>OrbitDriver.orbit</c>, so on a correctly placed ghost this angle is ~0;
+        /// a large value is the icon sitting off its own drawn line (the looped /
+        /// re-aimed rotation defect). A static offset produces no per-frame delta and
+        /// keeps <c>line.active</c> true, so neither <see cref="IsIconJump"/> nor
+        /// <see cref="IsLineBlink"/> can see it - this predicate is the dedicated
+        /// signal. NaN / Infinity (degenerate orbit) returns false.
+        /// </summary>
+        internal static bool IsIconOffOrbit(double angleDeg, double minAngleDeg)
+        {
+            if (double.IsNaN(angleDeg) || double.IsInfinity(angleDeg))
+                return false;
+            return angleDeg > minAngleDeg;
         }
 
         /// <summary>
