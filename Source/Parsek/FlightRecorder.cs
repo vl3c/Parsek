@@ -6572,6 +6572,19 @@ namespace Parsek
                         $"StartRecording: forwarded launch guid {pendingRecordedVesselGuid} " +
                         $"to active tree recording '{ActiveTree.ActiveRecordingId}'");
                 }
+                // Forward the start-location fields too (same always-tree-root gap): the recorder
+                // captures body / launch site at StartRecording (above), but for a multi-recording
+                // tree (launch then dock / continue) the OnSave flush forwards them to whichever
+                // child is active at save time, not the root, so the root keeps no LaunchSiteName /
+                // StartBodyName and a KSC-origin supply route cannot resolve its origin. A mid-flight
+                // child has LaunchSiteName == null so it never adopts a launch site it lacks.
+                if (treeRecBackstop.AdoptStartLocationIfEmpty(StartBodyName, StartBiome, StartSituation, LaunchSiteName))
+                {
+                    backstopChanged = true;
+                    ParsekLog.Verbose("Recorder",
+                        $"StartRecording: forwarded start location (body={StartBodyName ?? "(null)"}, " +
+                        $"launchSite={LaunchSiteName ?? "(null)"}) to active tree recording '{ActiveTree.ActiveRecordingId}'");
+                }
                 if (backstopChanged)
                     treeRecBackstop.MarkFilesDirty();
             }

@@ -53,6 +53,7 @@ All notable changes to Parsek are documented here.
 - Changing a supply route's dispatch cadence no longer stalls or mis-times the next run.
 - A supply route ghost no longer flashes at its end-of-run position for one frame when you enter the Tracking Station.
 - The supply route candidate list now shows the run's true transit time (the full launch-to-undock span), and route creation is now rejected for a malformed run instead of producing a route that never delivers.
+- Creating a supply route from a flight that kept recording past its launch (for example a rover that launched, then later docked) no longer fails with "origin unresolvable". The launch site and body are now stored on the flight's first (root) recording, so the route can identify its KSC origin.
 
 ### UI
 

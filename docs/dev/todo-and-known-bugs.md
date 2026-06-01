@@ -38,6 +38,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Supply route Create failed "origin unresolvable" (launch site not on the tree root)
+
+- Playtest (save `logi1`, KSP.log 2026-06-01_2012): pressing Create on an eligible candidate repeatedly logged `BuildRoute rejected: endpoint-missing (origin unresolvable) ... launchSite=<none> startBody=<none> originProof=no` for the dock tree's root recording `355680cb`. `RouteBuilder` resolves the route origin from `committedTree.RootRecordingId`, which carried neither a launch site nor a start body, so it was classified as neither a KSC launch nor a docked non-KSC origin and rejected.
+- **Root cause (confirmed in the log, not the audit fix):** the recorder DID capture the launch site at start (`Start location captured: ... launchSite=Runway` for `355680cb` at 20:09:17.797), but the `FlightRecorder.StartRecording` tree-root backstop forwarded only the launch guid + crew + controllers onto the root, NOT `LaunchSiteName` / `StartBodyName`. For a single-recording tree the OnSave flush (`ParsekFlight` ~670/3254) happens to land on the root, but for a multi-recording tree (launch, then dock / continue) the flush forwards the launch fields to whichever child is active at save time, leaving the root permanently empty. The same craft's earlier single-recording launch tree `8e0103ce` got its `launchSiteName=Runway` only by that luck. (The two trees have different `recordedVesselGuid`s -> two distinct launches, not a switch-continuation.)
+- **Fix:** new `Recording.AdoptStartLocationIfEmpty(body, biome, situation, launchSite)` (mirrors `AdoptStartCrewIfEmpty` / `AdoptRecordedVesselGuidIfEmpty`, per-field no-overwrite) called from the StartRecording backstop, so the just-captured launch location is forwarded onto the always-tree-root recording. A mid-flight child has `launchSite == null`, so it adopts only its body and never claims a launch site it lacked. Verbose-logs `forwarded start location (body=..., launchSite=...)`.
+- **Coverage:** 4 `CrewManifestTests` (`AdoptStartLocationIfEmpty_*`: adopt-when-empty, no-overwrite, per-field independence, all-null no-op). Full suite green (13702).
+- **Status:** CLOSED 2026-06-01. Fixes NEW recordings only (pre-1.0, no migration); the existing `logi1` recording stays origin-unresolvable and must be re-flown to test. In-game validation: relaunch a rover from the Runway, drive to a base, dock + transfer fuel, undock, commit, and confirm Create succeeds (grep `KSP.log` for `forwarded start location`).
+
+---
+
 ## Done - v0.10.0 Supply routes post-implementation audit + fixes (route-on-Missions)
 
 - Ran a multi-agent audit of the shipped route-on-Missions v0 against the goal "fuel delivered launch -> destination on the loopable Missions system." Verdict: works end-to-end with no blockers; the suborbital same-body case was already correct. 12 of 14 findings confirmed; the two boundary findings (non-KSC origin stub, `RouteModule` revert skeleton) were intentional v0 scope, not bugs.
