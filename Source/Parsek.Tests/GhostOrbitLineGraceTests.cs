@@ -232,6 +232,42 @@ namespace Parsek.Tests
             Assert.Equal(int.MinValue, GhostMapPresence.GetOrbitLineGraceUntilFrame(4242u));
         }
 
+        // --- Stamp -> defer -> expire composition (the frame-model contract) ---
+
+        [Fact]
+        public void StampThenDefer_OneFrameLaterDefers_PastWindowHides()
+        {
+            // The exact relationship the per-frame patch implements and the UT model
+            // broke: stamp graceUntil = F + OrbitLineGraceFrames on a shown frame, a
+            // dip one frame later is still inside the window (defers), a dip just past
+            // the window hides. Composes the real stamp + the real comparator.
+            const int shownFrame = 100000;
+            int n = GhostOrbitLinePatch.OrbitLineGraceFrames;
+            GhostMapPresence.StampOrbitLineGrace(7u, shownFrame + n);
+            int graceUntil = GhostMapPresence.GetOrbitLineGraceUntilFrame(7u);
+
+            // One frame after the show: inside the window -> defer (no blink).
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                currentFrame: shownFrame + 1,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+
+            // The last in-window frame still defers (inclusive deadline).
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: shownFrame + n,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+
+            // One frame past the window (a sustained off): hides -> polyline owns.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                currentFrame: shownFrame + n + 1,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+        }
+
         // --- Grace constant is a sane frame window ---
 
         [Fact]

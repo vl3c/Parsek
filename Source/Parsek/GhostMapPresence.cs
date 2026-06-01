@@ -736,10 +736,10 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostsWithSuppressedIcon = new HashSet<uint>();
 
         /// <summary>
-        /// Per-ghost orbit-line "grace deadline" (in universe time). When
+        /// Per-ghost orbit-line "grace deadline" (a render-frame count). When
         /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> genuinely shows the
-        /// orbit line (`visible-body-frame`), it stamps a short UT grace window
-        /// here. While the live UT is still inside that window, a TRANSIENT off
+        /// orbit line (`visible-body-frame`), it stamps a short grace window
+        /// here. While the current render frame is still inside that window, a TRANSIENT off
         /// reason (`stale-segment-awaiting-reseed` or `polyline-owns-phase`) is
         /// deferred for a few frames so the line does not blink off at a short
         /// phase-boundary segment while the per-frame reseed catches up.
