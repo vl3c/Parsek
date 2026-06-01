@@ -22,11 +22,13 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 **Coverage:** xUnit in `TreeCommitTests.cs` (adopted-absorbed leaf superseded + spawn state cleared; guid-gate rejects a same-craft relaunch-pid collision; survivor target = merged pid is a no-op; unique spawn pid superseded without guid; already-superseded skipped). Full suite green (13,714).
 
-**Residual:** the already-spawned phantom in the existing `logi1` save is pre-existing data the fix does not retroactively remove (the player can recover it). Verify in-game that a fresh delivery docking into a landed depot no longer spawns a duplicate at the runway.
+**Residual:** the already-spawned phantom in the existing `logi1` save is pre-existing data the fix does not retroactively remove (the player can recover it); only new duplicates are prevented.
+
+**In-game confirmed** (`logs/2026-06-01_2341_phantom-fix-validate/`, save `l2`, branch @ `4306d5ba`): the exact scenario reproduced (landed `rover fuel 0` pid 2123618197 adopted at KSC, then a transport docked into it: `dock merge pending (merged=3593251538, absorbed=0, isTarget=True)`), the fix fired (`CreateMergeBranch: ... superseded by dock-merge continuation ... match=baked-pid guid=26098b39...`), and both pre-fix failure signatures were ABSENT: zero `Attempting spawn for`/`Vessel spawned for` (no phantom materialized) and zero `Spawn-death detected` (the death loop stayed quiet because the merge cleared `VesselSpawned`).
 
 **Review (two clean adversarial Opus passes, both SHIP-WITH-CHANGES, no blocker):** accepted design decisions: (1) the supersede stamp is written at MERGE time and never reverted because the dock physically merges the vessels (a later tree discard does not un-merge them, and commit-time-only marking would re-expose the phantom on discard); the dangling supersede id after a discard is harmless (`ShouldSpawnAtRecordingEnd` uses the field as a non-empty gate). (2) When the absorbed vessel's launch guid is unknown the baked-pid route falls back to pid-only and may over-suppress same-craft historical leaves (benign, abnormal no-guid state only). (3) The unique-spawn-pid route is durable only when the merge beats the same-frame spawn-death reset; the reported adoption/baked-pid case is durable regardless. Applied changes: removed the dead `BranchPointType.Board` arm of the step-8b guard (Board callers pass `routeTargetVesselPid=0`); documented the merge-time-irreversible semantics and the two limitations. The `CreateMergeBranch` call-site wiring (route-target resolution + guid extraction in `OnPartCouple`) is Unity-only and not xUnit-reachable; the pure helper is unit-tested and the call site rests on the pending in-game confirmation.
 
-**Status:** CLOSED 2026-06-01 (pending in-game confirmation).
+**Status:** CLOSED 2026-06-01, in-game confirmed.
 
 ---
 
