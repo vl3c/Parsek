@@ -408,12 +408,28 @@ namespace Parsek
                 // Reads are non-mutating and run at exec-order 10000 (after the renderer). Rate-
                 // limited per pid because the offset is persistent (it would fire every frame).
                 Orbit offOrbit = driver != null ? driver.orbit : null;
-                if (offOrbit != null)
+                // Skip when the icon is SUPPRESSED / clamped: in those states
+                // (GhostOrbitIconDrivePatch past-window / before-window / off-arc)
+                // the OrbitDriver is parked at a clamped endpoint UT, NOT at effUT,
+                // so comparing against the orbit's effUT position would be a
+                // guaranteed false positive - and the icon is correctly OFF the
+                // visible arc by design there. ghostsWithSuppressedIcon is set/cleared
+                // this frame by the drive Prefix + the line Postfix, both before this
+                // order-10000 probe, so IsIconSuppressed is current. Only the actively
+                // driven (on-arc, line-shown) icon is checked - the genuine bug case.
+                if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
                 {
                     double offShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
                     double offEffUT = currentUT - offShift;
                     Vector3d orbitRelEff = OrbitRelativePositionYup(offOrbit, offEffUT);
-                    double angleIconVsOrbitEff = UnityAngleDeg(bodyRelPos, orbitRelEff);
+                    // Degenerate / unresolved orbit: a zero predicted position makes
+                    // Vector3d.Angle return 90 deg (acos of a zero dot) - a phantom
+                    // rotation. Real ghost orbits have a nonzero radius, so a near-zero
+                    // magnitude means "not resolved yet"; feed NaN so the predicate
+                    // (NaN-guarded) skips it rather than reporting a spurious 90 deg.
+                    double angleIconVsOrbitEff = orbitRelEff.sqrMagnitude > 1.0
+                        ? UnityAngleDeg(bodyRelPos, orbitRelEff)
+                        : double.NaN;
                     if (MapRenderTrace.IsIconOffOrbit(
                             angleIconVsOrbitEff, MapRenderTrace.IconOffOrbitMinAngleDeg)
                         && PassesOffOrbitRateLimit(pid, realtime))
@@ -425,7 +441,7 @@ namespace Parsek
                             string.Format(ic,
                                 "angleIconVsOrbitEff={0} angleEffVsLive={1} loopShift={2} effUT={3} | "
                                 + "lonIcon={4} lonOrbitEff={5} lonOrbitLive={6} | iconR={7} orbitEffR={8} | "
-                                + "inc={9} LAN={10} argPe={11} sma={12} ecc={13} body={14}",
+                                + "lineActive={9} inc={10} LAN={11} argPe={12} sma={13} ecc={14} body={15}",
                                 MapRenderTrace.FormatDouble(angleIconVsOrbitEff, "F2"),
                                 MapRenderTrace.FormatDouble(UnityAngleDeg(orbitRelEff, orbitRelLive), "F2"),
                                 MapRenderTrace.FormatDouble(offShift, "F1"),
@@ -435,6 +451,7 @@ namespace Parsek
                                 MapRenderTrace.FormatDouble(LongitudeDeg(orbitRelLive), "F2"),
                                 MapRenderTrace.FormatDouble(bodyRelPos.magnitude, "F0"),
                                 MapRenderTrace.FormatDouble(orbitRelEff.magnitude, "F0"),
+                                lineActive,
                                 MapRenderTrace.FormatDouble(offOrbit.inclination, "F3"),
                                 MapRenderTrace.FormatDouble(offOrbit.LAN, "F3"),
                                 MapRenderTrace.FormatDouble(offOrbit.argumentOfPeriapsis, "F3"),
