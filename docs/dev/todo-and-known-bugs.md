@@ -1994,7 +1994,7 @@ The v0.9.2 PR neutralized the downstream consequence at the Re-Fly load path (`R
 
 ---
 
-## Open - Re-Fly continuation ghost vanishes when active vessel crosses into Inertial reference frame
+## Done - Re-Fly continuation ghost vanishes when active vessel crosses into Inertial reference frame
 
 - A committed Re-Fly continuation ghost (a "Kerbal X Probe" recording, `rec_152453a952804ee7b54f129bdfe2fdc1`) stops being rendered the moment the active live vessel crosses into the KSP Inertial reference frame (around ~100 km altitude on Kerbin, frequently coincident with the active vessel going on-rails / packing). The user reports this is a recent regression — it used to render correctly through that transition.
 - Authoritative log: `logs/2026-05-13_1848_ghost-tail-render-broken/KSP.log`. The last `GhostRenderTrace` event for the affected recording is at line ~130145 (`phase=AfterUpdate rec=rec_1524 ghostIndex=9 frame=75777 currentUT=160.470`). Stock KSP `Reference Frame: Inertial` appears 45 frames later at line 130166. From frame 75865 the `GuardSkip` summary lists indexes 0–8 and 10 but never index 9; engine batch summary still reports `active=1`. Pre/post-shift batch counters are identical (`noRenderableData=1 sessionSuppressed=8 supersededByRelation=1 active=1`).
@@ -2012,7 +2012,7 @@ The v0.9.2 PR neutralized the downstream consequence at the Re-Fly load path (`R
 - `[out:vis=F retired=F zone=Physics/Visual ...]` ⇒ a SetActive(false) from some other path (warp suppression / activation-hold); narrow by the same-frame `Frame:` batch counters.
 - producer-side cross-checks unchanged: `aru` F→T ⇒ anchor-refly-unstable mid-loop; `skip` flips ⇒ producer flag; `hd` T→F ⇒ `HasRenderableGhostData` cleared `Points`/`OrbitSegments`/`SurfacePos`; `hs` T→F without a `Ghost #9 destroyed` line ⇒ `ghostStates` mutated outside known paths.
 
-**Status:** OPEN — instrumentation-complete (outcome token added; PR #837 trace was input-only). Needs a fresh Re-Fly repro at the ~100 km inertial transition to localize; no behavioral fix shipped yet because all recorded-data positioning paths are frame-independent and the surviving evidence (no GuardSkip for index 9, `active=1`, no Beyond hysteresis) does not single out one mechanism. The authoritative 2026-05-13 log no longer exists.
+**Status:** CLOSED 2026-06-01 — closed without a behavioral fix by user decision. The instrumentation (outcome token + Re-Fly auto-on, PR #998) is the deliverable: all recorded-data positioning paths are frame-independent and the surviving evidence (no GuardSkip for index 9, `active=1`, no Beyond hysteresis) did not single out one mechanism, so no fix could be landed responsibly without a fresh repro, and the authoritative 2026-05-13 log no longer exists. If the vanish recurs, the `[out:...]` token now pins the mechanism from a single repro (use the decision tree above) and this entry can be reopened with that evidence.
 
 ---
 
