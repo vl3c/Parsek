@@ -11,6 +11,7 @@ All notable changes to Parsek are documented here.
 - Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
 - Fixed a looped mission's map icon jumping to the wrong point on a circular orbit (about 90 degrees off) as the orbit appeared after the climb. The looped orbit was drawn at its original sky orientation instead of being turned to line up with the relaunch, so the icon snapped onto it rather than continuing from where the ascent ended.
 - Fixed a brief flash of the previous orbit circle on the map at the moment a looped mission's next orbit was about to appear (the old orbit line was redrawn for a fraction of a second before the new one loaded).
+- Fixed a looped mission's map icon vanishing off into deep space on its escape trajectory out of a planet's sphere of influence (the icon was placed at the live time instead of the replayed time, so the open escape path flung it far past where the mission actually was).
 
 ### UI
 

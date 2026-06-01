@@ -40,6 +40,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Looped ghost icon vanished on the hyperbolic escape out of Kerbin SOI (regression from the effUT drive)
+
+- Playtest regression: the ghost icon was not rendered on the hyperbolic escape trajectory through Kerbin SOI to interplanetary space. Log (rec 61e9...30, 2026-06-01_1734): the escape segment `[63966985.6,64044032.7]` (sma=-3818300 ecc=1.1916, body=Kerbin) was applied, but the ghost mesh sat at worldPos ~`(7.1e11,-1.2e10,4.7e11)` (|pos| ~8.5e11 m), far outside Kerbin's ~8.4e7 m SOI, swinging wildly frame to frame.
+- **Root cause:** the effUT-drive fix (Fix 1 of this PR) seeds the ghost OrbitDriver at the RAW recorded epoch and relies on `GhostOrbitIconDrivePatch` to propagate at the loop-mapped effUT. But the patch early-returned (deferred to stock) for `eccentricity >= 1.0`, so a hyperbolic escape was propagated by stock at the LIVE clock (`liveUT = effUT + shift`, a ~1e9 s shift far past the recorded escape), flinging the icon billions of metres out the open trajectory. On pre-PR `main` the orbit carried a SHIFTED epoch, so stock-at-live-UT landed correctly; the raw-epoch seed regressed it.
+- **Fix:** `GhostOrbitIconDrivePatch.Prefix` no longer defers for hyperbolic orbits. The degeneracy guard is now `orbit == null || double.IsNaN(period) || period <= 0` (a hyperbolic period is `+Infinity`, which passes). A hyperbolic escape segment covers a single outward pass with no below-ground arc, so `onArc` is forced true for hyperbolic (the period-based above-ground arc test is meaningless for an open orbit), and the existing window past/before clamp + suppress handles the segment edges. `UpdateFromUT(effUT)` already propagates hyperbolic correctly, so the icon now tracks the recorded escape inside its window and suppresses once the live clock leaves it (the heliocentric leg takes over with body=Sun).
+- **Tests:** in-game `GhostMapIconDrivesHyperbolicEscapeAtEffUT` builds the real escape orbit, drives it at effUT across the window asserting the position stays within Kerbin SOI and advances, and confirms a live-UT propagation lands >100x SOI (the broken position). No existing unit test asserted hyperbolic deferral, so none regressed. Full suite green (13,111).
+- **Status:** CLOSED 2026-06-01 (pending playtest confirmation that the escape icon now tracks the trajectory).
+
+---
+
 ## In progress - v0.10.0 Missions window: vessel composition over time (first cut, playtesting)
 
 - Goal (from 2026-05-25 design chat): show each vessel's COMPOSITION (controllers + crew) broken into intervals of compositional stability, as a nested tree. A node = a stable composition labeled with counts ("pod x1, probe x1, crew x3"); it branches at composition-change events; a stable composition that ends as a whole is a terminal leaf.
