@@ -53,6 +53,10 @@ namespace Parsek
             toolTip = "When enabled, write detailed per-ghost render placement diagnostics to KSP.log. Leave off for normal playtests.")]
         public bool ghostRenderTracing = false;
 
+        [GameParameters.CustomParameterUI("Map/TS render tracing (Warning: huge logs)",
+            toolTip = "When enabled, write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off for normal playtests. Per-frame detail also requires Verbose logging on.")]
+        public bool mapRenderTracing = false;
+
         [GameParameters.CustomParameterUI("Readable sidecar mirrors (Warning: extra disk usage)",
             toolTip = "When enabled, also write human-readable .txt mirrors of recording sidecars for debugging and binary/text comparison")]
         public bool writeReadableSidecarMirrors = true;

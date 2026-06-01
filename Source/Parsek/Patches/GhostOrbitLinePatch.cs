@@ -218,68 +218,11 @@ namespace Parsek.Patches
                 v.SetPosition(refBody.position + pos - off);
             }
 
-            // Icon-position truth diagnostic (PR #1003 follow-up): logs the ghost icon's POSITION
-            // AS RENDERED THIS FRAME in a FRAME-INDEPENDENT way every ~1s per pid (the prior
-            // icon-pos-delta log only had worldPos in floating-origin coords at 5s cadence with
-            // no truth reference, which made phase glitches invisible across consecutive samples).
-            // Reports the propagated orbital phase (mna at driveUT), body-fixed lat/lon/alt of the
-            // icon (these are frame-independent), the seeded orbit's epoch/mna, and the
-            // delta-since-last-sample on the orbital circle. A smooth orbital sweep advances mna
-            // and lat/lon monotonically with sub-degree per-second steps under normal warp; a
-            // phase jump shows as a non-monotone mna or a lat/lon discontinuity. Body-fixed
-            // coordinates remove the Krakensbane / floating-origin frame shift that was confusing
-            // the prior diagnostic (worldPos deltas of hundreds of km between samples that were
-            // actually consistent on the orbit). The point of THIS log is to make the user-visible
-            // "icon at the wrong place on the loiter" obvious in KSP.log without ambiguity.
-            if (v != null && refBody != null)
-            {
-                Vector3d iconWorldPos = v.GetWorldPos3D();
-                double iconLat = refBody.GetLatitude(iconWorldPos);
-                double iconLon = refBody.GetLongitude(iconWorldPos);
-                double iconAlt = refBody.GetAltitude(iconWorldPos);
-                double mnaPropagatedRad = orbit.meanAnomaly; // in radians after UpdateFromUT(driveUT)
-                double mnaPropagatedDeg = mnaPropagatedRad * 180.0 / System.Math.PI;
-                // Normalize to [0, 360) for readability.
-                double mnaNormDeg = ((mnaPropagatedDeg % 360.0) + 360.0) % 360.0;
-
-                // Orientation + body-relative position diagnostic. A map-icon position jump with a
-                // CONTINUOUS mean anomaly is an orbital-plane ORIENTATION (OrbitFrame, from
-                // inc/LAN/argPe via Orbit.Init) change, so logging inc/LAN/argPe + the body-relative
-                // inertial position (orbit.pos, before refBody.position + floating origin) makes such
-                // a flip readable. This is how the looped-orbit body-fixed-phase bug was pinned.
-                Vector3d bodyRelPos = orbit.pos; // Planetarium-frame position relative to refBody
-
-                // Separate the ORBIT-LINE position from the VESSEL-TRANSFORM (icon/marker) position.
-                // `iconLon` above is from v.GetWorldPos3D() = the vessel transform, which a later
-                // same-frame write (gap-glide / segment positioning) can overwrite and which can lag
-                // one frame. `orbitLon` is computed DIRECTLY from the orbit position set this frame
-                // (refBody.position + orbit.pos - comOffset) = the orbit LINE's body-fixed longitude,
-                // non-stale. `lonDiv` (their shortest-arc gap) reads ~0 when the icon sits on the line
-                // and spikes when the transform diverges from it (the user-visible "icon off the line").
-                Vector3d comOff = __instance.driverTransform != null
-                    ? (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM
-                    : Vector3d.zero;
-                Vector3d orbitWorldPos = refBody.position + pos - comOff; // pos already swizzled above
-                double orbitLon = refBody.GetLongitude(orbitWorldPos);
-                double orbitLat = refBody.GetLatitude(orbitWorldPos);
-                double lonDivergence = System.Math.Abs(
-                    ((orbitLon - iconLon + 540.0) % 360.0) - 180.0); // shortest-arc |Δlon|, [0,180]
-                ParsekLog.VerboseRateLimited("GhostIconTruth",
-                    "icon-truth-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Icon truth pid={0} body={1} driveUT={2:F1} mnaRad={3:F4} mnaDeg={4:F2} " +
-                        "inc={5:F4} lan={6:F4} argPe={7:F4} " +
-                        "transformLat={8:F3} transformLon={9:F3} orbitLat={10:F3} orbitLon={11:F3} " +
-                        "lonDiv={12:F2} alt={13:F0} segSma={14:F0} segEcc={15:F4} " +
-                        "segMnaEpoch={16:F4} segEpoch={17:F1} bodyRelPos={18} worldPos={19} scene={20}",
-                        pid, refBody.bodyName, driveUT, mnaPropagatedRad, mnaNormDeg,
-                        orbit.inclination, orbit.LAN, orbit.argumentOfPeriapsis,
-                        iconLat, iconLon, orbitLat, orbitLon, lonDivergence, iconAlt,
-                        orbit.semiMajorAxis, orbit.eccentricity,
-                        orbit.meanAnomalyAtEpoch, orbit.epoch,
-                        bodyRelPos.ToString("F0"), iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
-                    1.0);
-            }
+            // The per-frame icon-truth / icon-vs-line divergence / icon-jump diagnostics that used
+            // to live here (PR #1003 follow-ups) were always-on, per-ghost, per-frame reads. They
+            // are now subsumed by the gated MapRenderProbe (Tier-B body-orbit / line truth +
+            // Tier-C icon-jump anomaly), behind the mapRenderTracing setting, so the steady-state
+            // per-frame cost is gone from normal play. See docs/dev/design-map-ts-render-tracer.md.
             return false;
         }
     }
