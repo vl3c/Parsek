@@ -54,6 +54,8 @@ All notable changes to Parsek are documented here.
 - A supply route ghost no longer flashes at its end-of-run position for one frame when you enter the Tracking Station.
 - The supply route candidate list now shows the run's true transit time (the full launch-to-undock span), and route creation is now rejected for a malformed run instead of producing a route that never delivers.
 - Creating a supply route from a flight that kept recording past its launch (for example a rover that launched, then later docked) no longer fails with "origin unresolvable". The launch site and body are now stored on the flight's first (root) recording, so the route can identify its KSC origin.
+- Repeated landed deliveries of the same craft to the same ground base no longer stack on top of each other and explode when you load into the scene. Each newly materialized landed vessel is now nudged a few metres clear of existing same-spot vessels at the Space Center / Tracking Station (where nothing is loaded and the old collision check could not see the on-rails vessels already parked there).
+- A supply route's looping ghost now stops at the dock (the moment of delivery) instead of flying on through the docked period: the docked-together combined vessel no longer appears at the end of each loop. The route now loops the launch-to-dock run, so the cadence shortens to that run's duration.
 
 ### UI
 

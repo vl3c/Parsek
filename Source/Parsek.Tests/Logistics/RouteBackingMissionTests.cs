@@ -192,7 +192,7 @@ namespace Parsek.Tests.Logistics
             });
 
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, undockUT: 2000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeExcludedIntervalKeys(tree, segmentEndUT: 2000.0, launchUT: 1000.0);
 
             Assert.Empty(excluded);
         }
@@ -321,7 +321,7 @@ namespace Parsek.Tests.Logistics
                 });
 
             HashSet<string> members =
-                RouteBackingMission.ComputeMemberRecordingIds(tree, undockUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeMemberRecordingIds(tree, segmentEndUT: 3000.0, launchUT: 1000.0);
 
             // The transport's full pre-route-undock through-line is kept; the early
             // undock at 1500 does NOT trim the continuing transport.

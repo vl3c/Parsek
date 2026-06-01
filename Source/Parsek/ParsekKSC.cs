@@ -2690,6 +2690,58 @@ namespace Parsek
                             lastPt.Value.velocity.z);
                     }
 
+                    // De-overlap landed deliveries (#duplicate-stack): multiple committed
+                    // leaf recordings of the SAME craft delivered to the SAME ground base
+                    // resolve to (lat,lon) within a few metres of each other. At KSC nothing
+                    // is loaded, so CheckOverlapAgainstLoadedVessels finds no blockers and they
+                    // stack on top of each other, then explode when the player loads them into
+                    // physics. Nudge the new spawn clear of existing same-body landed protos
+                    // BEFORE the snapshot apply so both the SpawnAtPosition and the fallback
+                    // RespawnVessel paths use the corrected position. Skipped for EVA (EVAs
+                    // intentionally overlap their parent) and for recorded-terminal-orbit spawns.
+                    if (!isEva
+                        && !useRecordedTerminalOrbit
+                        && body != null
+                        && VesselSpawner.IsSurfaceTerminal(rec.TerminalStateValue))
+                    {
+                        // excludePid=0: at this point the recording is NOT yet materialized
+                        // (ShouldSpawnAtKscEnd already rejected already-spawned recordings),
+                        // and VesselPersistentId is the craft-baked pid shared by every
+                        // delivery of this craft — excluding it would wrongly drop sibling
+                        // deliveries we must de-overlap against. Nudge clear of ALL existing
+                        // same-body landed vessels.
+                        var existingLanded = VesselSpawner.GatherExistingLandedVesselPositions(
+                            body, 0u);
+                        var deOverlap = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                            spawnLat,
+                            spawnLon,
+                            existingLanded,
+                            SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters,
+                            body.Radius);
+                        if (deOverlap.Nudged)
+                        {
+                            ParsekLog.Info("KSCSpawn",
+                                $"De-overlap for #{recIdx} \"{rec.VesselName}\": " +
+                                $"nudged {deOverlap.NudgeMeters.ToString("F1", CultureInfo.InvariantCulture)}m " +
+                                $"(existing landed={existingLanded.Count}, " +
+                                $"nearest now={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m, " +
+                                $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m" +
+                                (deOverlap.Exhausted ? ", spiral-exhausted" : "") + ") " +
+                                $"lat {spawnLat.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Latitude.ToString("F6", CultureInfo.InvariantCulture)} " +
+                                $"lon {spawnLon.ToString("F6", CultureInfo.InvariantCulture)}->{deOverlap.Longitude.ToString("F6", CultureInfo.InvariantCulture)}");
+                            spawnLat = deOverlap.Latitude;
+                            spawnLon = deOverlap.Longitude;
+                        }
+                        else
+                        {
+                            ParsekLog.Verbose("KSCSpawn",
+                                $"De-overlap for #{recIdx} \"{rec.VesselName}\": clear " +
+                                $"(existing landed={existingLanded.Count}, " +
+                                $"nearest={deOverlap.NearestBlockerMeters.ToString("F1", CultureInfo.InvariantCulture)}m >= " +
+                                $"min={SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters.ToString("F0", CultureInfo.InvariantCulture)}m)");
+                        }
+                    }
+
                     if (isEva)
                     {
                         VesselSpawner.ApplyResolvedSpawnStateToSnapshot(

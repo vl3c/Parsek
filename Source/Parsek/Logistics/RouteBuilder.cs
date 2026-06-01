@@ -132,26 +132,39 @@ namespace Parsek.Logistics
             // When no tree was supplied (legacy single-recording path), the source IS
             // the root, so rootLaunchUT == source.StartUT.
             double rootLaunchUT = rootRec != null ? rootRec.StartUT : source.StartUT;
+            // The route segment renders [root launch .. DOCK] (playtest follow-up):
+            // rendering STOPS at the docking moment, so the docked-together combined
+            // vessel (the dock-merged child recording, which spans dock..undock) is
+            // NOT rendered. The dock is a clean recording boundary (the transport's
+            // solo recording ends at the couple; the merged child starts there), so
+            // trimming the segment end to the dock excludes the combined vessel
+            // exactly. The UNDOCK UT is kept only for the window-sanity check + logs.
             double undockUT = analysis.ConnectionWindow != null
                 ? analysis.ConnectionWindow.UndockUT
                 : double.NaN;
+            double recordedDockUT = analysis.ConnectionWindow != null
+                ? analysis.ConnectionWindow.DockUT
+                : double.NaN;
 
-            // (must-fix #3) Transit duration is the RENDERED span (undock - root
-            // launch), not the leaf-only source.EndUT - source.StartUT. Also the
-            // clamp reference for the DispatchInterval >= span pin below.
-            double transitDuration = undockUT - rootLaunchUT;
+            // (must-fix #3) Transit duration is the RENDERED span (DOCK - root launch:
+            // the launch-to-dock outbound run), NOT the leaf-only
+            // source.EndUT - source.StartUT and NOT the full launch-to-undock span.
+            // Also the clamp reference for the DispatchInterval >= span pin below.
+            double transitDuration = recordedDockUT - rootLaunchUT;
 
-            // Backing-mission-unresolvable reject: the [launch..undock] window must
-            // be finite and non-empty for the loop render + clock to work.
-            if (double.IsNaN(undockUT) || double.IsInfinity(undockUT)
+            // Backing-mission-unresolvable reject: the [launch..dock] window must
+            // be finite and non-empty for the loop render + clock to work. The
+            // undock must also be finite (used by the CRE-5 window-sanity check).
+            if (double.IsNaN(recordedDockUT) || double.IsInfinity(recordedDockUT)
+                || double.IsNaN(undockUT) || double.IsInfinity(undockUT)
                 || double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT)
                 || transitDuration <= 0.0)
             {
                 ParsekLog.Info(Tag,
                     $"BuildRoute rejected: backing-mission-unresolvable source={source.RecordingId ?? "<none>"} " +
                     $"tree={(committedTree != null ? committedTree.Id ?? "<none>" : "<null>")} " +
-                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} undockUT={undockUT.ToString("R", ic)} " +
-                    $"span={transitDuration.ToString("R", ic)}");
+                    $"rootLaunchUT={rootLaunchUT.ToString("R", ic)} dockUT={recordedDockUT.ToString("R", ic)} " +
+                    $"undockUT={undockUT.ToString("R", ic)} span={transitDuration.ToString("R", ic)}");
                 return new RouteBuildOutcome { RejectReason = "backing-mission-unresolvable" };
             }
 
@@ -210,14 +223,15 @@ namespace Parsek.Logistics
             // interval is always >= span: it never undercuts the rendered span.
             dispatchInterval = cadenceMultiplier * transitDuration;
 
-            // (must-fix #3) Widen the source set to EVERY [root..undock] member
+            // (must-fix #3) Widen the source set to EVERY [root..dock] member
             // recording so RevalidateSources tracks the whole rendered path, not
             // just the leaf. The member set is the KEPT-intervals' recording ids
             // from the same composition walk RouteBackingMission uses. The leaf
             // (dock child) always stays in the set (it carries the delivery
-            // binding); fall back to the leaf alone when the walk yields nothing.
+            // binding) even though it is NOT rendered; fall back to the leaf alone
+            // when the walk yields nothing.
             HashSet<string> memberRecordingIds = committedTree != null
-                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, undockUT, rootLaunchUT)
+                ? RouteBackingMission.ComputeMemberRecordingIds(committedTree, recordedDockUT, rootLaunchUT)
                 : new HashSet<string>();
             // The leaf (dock child) is ALWAYS a member: it carries the delivery
             // binding even when the composition walk surfaced the transport via its
@@ -274,9 +288,11 @@ namespace Parsek.Logistics
                 recordingIds.Add(memberRec.RecordingId);
             }
 
-            // Excluded interval keys for the backing-mission render trim.
+            // Excluded interval keys for the backing-mission render trim. End at the
+            // DOCK so the docked-together combined vessel (the merged child, which
+            // starts at the dock) and everything after it are excluded from render.
             HashSet<string> excludedIntervalKeys = committedTree != null
-                ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, undockUT, rootLaunchUT)
+                ? RouteBackingMission.ComputeExcludedIntervalKeys(committedTree, recordedDockUT, rootLaunchUT)
                 : new HashSet<string>();
 
             // Origin discovery. KSC-origin if recording carries a launch site
@@ -368,23 +384,21 @@ namespace Parsek.Logistics
                 ? new List<InventoryPayloadItem>(analysis.InventoryDeliveryManifest)
                 : new List<InventoryPayloadItem>();
 
-            // Loop-clock dock binding: the leaf (dock child) source carries the
-            // recorded dock UT the loop clock crosses each cycle to fire delivery
-            // (Phase 4). LoopAnchorUT is set here only when the route is created
-            // ACTIVE (the dialog path); the Paused->Activate path sets it in
-            // RouteOrchestrator.TryActivate. The builder floors nothing — the loop
-            // builder floors the anchor to spanEnd, so this value is diagnostic.
-            double recordedDockUT = analysis.ConnectionWindow != null
-                ? analysis.ConnectionWindow.DockUT
-                : double.NaN;
+            // Loop-clock dock binding: recordedDockUT (computed above as the route
+            // segment END) is the UT the loop clock crosses each cycle to fire
+            // delivery (Phase 4); with the [launch..dock] segment it equals spanEnd.
+            // LoopAnchorUT is set here only when the route is created ACTIVE (the
+            // dialog path); the Paused->Activate path sets it in
+            // RouteOrchestrator.TryActivate.
 
-            // (CRE-5) Validate the recorded dock UT lies strictly inside the
-            // rendered [rootLaunchUT .. undockUT] span. The dock is a mid-flight
-            // event: it must come after launch and before undock. A malformed
-            // window (NaN dock, dock <= launch, or dock >= undock) would build a
-            // route whose loop clock can never fire a crossing
-            // (RouteLoopClock.IsDockUTInSpan false forever -> a route that never
-            // delivers). Fail fast instead of persisting a dead route.
+            // (CRE-5) Validate the recorded dock UT lies strictly inside the source
+            // [rootLaunchUT .. undockUT] window: the dock must come AFTER launch (a
+            // non-empty rendered [launch..dock] segment) and BEFORE undock (a
+            // well-formed dock/undock pair). A malformed window (NaN dock,
+            // dock <= launch, or dock >= undock) would build a route whose loop
+            // clock can never fire a crossing (RouteLoopClock.IsDockUTInSpan false
+            // forever -> a route that never delivers). Fail fast instead of
+            // persisting a dead route.
             if (!IsDockUTWithinSpan(recordedDockUT, rootLaunchUT, undockUT))
             {
                 ParsekLog.Info(Tag,

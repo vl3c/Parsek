@@ -96,7 +96,7 @@ namespace Parsek.InGameTests
                 // Derive the route's backing-mission definition exactly as RouteBuilder
                 // would, and commit an Active route bound to the tree.
                 HashSet<string> excluded = RouteBackingMission.ComputeExcludedIntervalKeys(
-                    routeTree, undockUT: 3000.0, launchUT: 1000.0);
+                    routeTree, segmentEndUT: 3000.0, launchUT: 1000.0);
                 var route = new Route
                 {
                     Id = routeId,

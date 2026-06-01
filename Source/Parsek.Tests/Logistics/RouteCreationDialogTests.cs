@@ -782,7 +782,8 @@ namespace Parsek.Tests.Logistics
         public void ComputeRootToUndockSpan_MultiLegTree_UsesRootLaunchToUndock_NotLeafSpan()
         {
             // Root launch at 1000; mid-flight dock child spans [2000, 3000] with
-            // undock at 2800. Leaf span = 1000; rendered span = 2800 - 1000 = 1800.
+            // dock at 2400, undock at 2800. Leaf span = 1000; rendered [root..DOCK]
+            // span = 2400 - 1000 = 1400 (rendering stops at the dock, not the undock).
             var root = new Recording
             {
                 RecordingId = "launch-root",
@@ -818,8 +819,8 @@ namespace Parsek.Tests.Logistics
 
             double span = RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree);
 
-            // Rendered span (root launch -> undock), NOT the leaf span (1000).
-            Assert.Equal(1800.0, span);
+            // Rendered span (root launch -> DOCK), NOT the leaf span (1000).
+            Assert.Equal(1400.0, span);
         }
 
         // catches: a single-recording tree (rootRec == source) not falling back to
@@ -837,8 +838,8 @@ namespace Parsek.Tests.Logistics
 
             double span = RouteCreationDialog.ComputeRootToUndockSpan(analysis, tree);
 
-            // Window undock 160 - root launch 0 = 160.
-            Assert.Equal(160.0, span);
+            // Window dock 100 - root launch 0 = 100 (segment ends at the dock).
+            Assert.Equal(100.0, span);
         }
     }
 }

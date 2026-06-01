@@ -664,5 +664,128 @@ namespace Parsek.Tests
         {
             Assert.False(SpawnCollisionDetector.ShouldSkipVesselType(VesselType.Relay));
         }
+
+        // ────────────────────────────────────────────────────────────
+        //  Landed-spawn de-overlap (ComputeDeOverlappedLandedSpawn)
+        // ────────────────────────────────────────────────────────────
+
+        private const double KerbinRadius = 600000.0;
+
+        [Fact]
+        public void NearestExistingDistance_EmptyList_ReturnsMaxValue()
+        {
+            double d = SpawnCollisionDetector.NearestExistingDistance(
+                0.0, -74.0, new List<(double lat, double lon)>(), KerbinRadius);
+            Assert.Equal(double.MaxValue, d);
+        }
+
+        [Fact]
+        public void NearestExistingDistance_PicksClosest()
+        {
+            var existing = new List<(double lat, double lon)>
+            {
+                (0.0, -74.0),   // ~same point
+                (0.5, -74.0),   // far
+            };
+            // A point 0.001 deg north of the first ~= 10.5m on Kerbin.
+            double d = SpawnCollisionDetector.NearestExistingDistance(
+                0.001, -74.0, existing, KerbinRadius);
+            Assert.InRange(d, 9.0, 12.0);
+        }
+
+        [Fact]
+        public void ComputeDeOverlap_NoExisting_ReturnsProposedUnchanged()
+        {
+            var r = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                -0.033, -74.726, new List<(double lat, double lon)>(),
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters, KerbinRadius);
+
+            Assert.False(r.Nudged);
+            Assert.Equal(0.0, r.NudgeMeters);
+            Assert.Equal(-0.033, r.Latitude);
+            Assert.Equal(-74.726, r.Longitude);
+        }
+
+        [Fact]
+        public void ComputeDeOverlap_AlreadyClear_ReturnsProposedUnchanged()
+        {
+            // Existing vessel 0.01 deg (~105m on Kerbin) away, well beyond the 15m
+            // minimum (0.001 deg would be only ~10.5m, INSIDE the minimum).
+            var existing = new List<(double lat, double lon)> { (-0.043, -74.726) };
+            var r = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                -0.033, -74.726, existing,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters, KerbinRadius);
+
+            Assert.False(r.Nudged);
+            Assert.Equal(-0.033, r.Latitude);
+            Assert.Equal(-74.726, r.Longitude);
+            Assert.True(r.NearestBlockerMeters >= SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters);
+        }
+
+        [Fact]
+        public void ComputeDeOverlap_Overlapping_NudgesClear()
+        {
+            // This is the live bug: two deliveries 4.9m apart (pids 2919613313 / 1557661175).
+            var existing = new List<(double lat, double lon)>
+            {
+                (-0.031690232629735422, -74.722127762908656),
+            };
+            double proposedLat = -0.031455844120231183; // 1557661175, ~4.9m from the above
+            double proposedLon = -74.722527211635821;
+
+            double minSep = SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters;
+            var r = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                proposedLat, proposedLon, existing, minSep, KerbinRadius);
+
+            Assert.True(r.Nudged);
+            Assert.False(r.Exhausted);
+            // After nudge, the chosen position must be at least the minimum from the blocker.
+            double nearest = SpawnCollisionDetector.NearestExistingDistance(
+                r.Latitude, r.Longitude, existing, KerbinRadius);
+            Assert.True(nearest >= minSep,
+                $"nearest={nearest} expected >= {minSep}");
+        }
+
+        [Fact]
+        public void ComputeDeOverlap_ClusterOfFive_NudgesClearOfAll()
+        {
+            // The full live cluster (all 5 landed rover deliveries within ~135m).
+            var existing = new List<(double lat, double lon)>
+            {
+                (-0.031690232629735422, -74.722127762908656),
+                (-0.031455844120231183, -74.722527211635821),
+                (-0.039260067078145375, -74.732615416630736),
+                (-0.033583364384812679, -74.726464565123464),
+                (-0.032842271771563521, -74.72423562344045),
+            };
+            // Propose a 6th delivery on top of one of the cluster members.
+            double minSep = SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters;
+            var r = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                -0.032842271771563521, -74.72423562344045, existing, minSep, KerbinRadius);
+
+            Assert.True(r.Nudged);
+            double nearest = SpawnCollisionDetector.NearestExistingDistance(
+                r.Latitude, r.Longitude, existing, KerbinRadius);
+            Assert.True(nearest >= minSep,
+                $"nearest={nearest} expected >= {minSep}");
+        }
+
+        [Fact]
+        public void ComputeDeOverlap_NudgeStaysLocal()
+        {
+            // De-overlap must not scatter deliveries far across the map — a single
+            // blocker should resolve within a couple of ring steps (well under 100m).
+            var existing = new List<(double lat, double lon)>
+            {
+                (-0.031690232629735422, -74.722127762908656),
+            };
+            var r = SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn(
+                -0.031455844120231183, -74.722527211635821, existing,
+                SpawnCollisionDetector.DefaultLandedSpawnSeparationMeters, KerbinRadius);
+
+            Assert.True(r.Nudged);
+            Assert.True(r.NudgeMeters <= 100.0,
+                $"nudge={r.NudgeMeters}m should stay local (<=100m)");
+        }
     }
 }

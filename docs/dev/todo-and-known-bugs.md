@@ -12,6 +12,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Supply route ghost rendered the docked combined vessel; render now stops at the dock
+
+- Playtest (first working route): the route's looping ghost was correct UP TO the dock, but then kept rendering the docked-together combined vessel (the dock-merged child recording, spanning dock..undock) at the end of each loop. The user wants rendering to STOP at the docking moment, not the undocking moment.
+- **Cause:** the route segment was `[launch .. undock]` (design 0.8). The dock-merged child (the combined vessel) starts at the dock and is part of that span, so it rendered.
+- **Fix:** the route segment is now `[launch .. dock]`. `RouteBuilder` uses `ConnectionWindow.DockUT` (not UndockUT) as the segment end for `transitDuration`, `ComputeMemberRecordingIds`, and `ComputeExcludedIntervalKeys`; the dock is a clean recording boundary (the transport's solo recording ends at the couple, the merged child starts there), so excluding intervals at/after the dock drops the combined vessel exactly. The LoopUnit span, the loop clock, the dispatch cadence, and the displayed transit (`ComputeRootToUndockSpan`, now root-to-dock) all shorten to the launch-to-dock run. Delivery still fires when the loop clock reaches `RecordedDockUT` (now the span end). `RouteBackingMission`'s `undockUT` param renamed to `segmentEndUT`. CRE-5 still validates the dock lies within the source `[launch..undock]` window.
+- **Coverage:** RouteBuilderTests / RouteBackingMissionTests / RouteCreationDialogTests retuned to dock-based spans; full suite green (13,709).
+- **Status:** CLOSED 2026-06-01 (pending in-game confirmation that the combined vessel no longer appears at loop end).
+
+---
+
+## Done - v0.10.0 Duplicate landed deliveries stacked on top of each other and exploded on scene load
+
+- ~~Live playtest (`logs/.../logistics-v0`, KSP.log ~20:27-20:35, save `logi1`). A v0 supply route (`Route: KSC -> Kerbin`, tree `52c71cdb`) loops a ground rover (`rover fuel 0`) that drives to a base and docks. Each completed delivery commits a NEW leaf recording of the SAME craft, all terminating Landed at the base. The Space Center / Tracking Station materializes every committed landed leaf as a real proto vessel. The save accumulated 5 LANDED `rover fuel 0` vessels (pids 2919613313, 1557661175, 2123618197, 873918633, 1408376423) clustered within ~135 m, two of them only 4.9 m apart. When the player loaded into flight near the base (20:31:22, `Unpacking rover fuel 0` x6 -> `OnPartJointBreak` on pid 2123618197), the overlapping rovers' part joints broke = the "explosions".~~
+
+**Root cause:** The KSC/TS materialization path (`ParsekKSC.TrySpawnAtRecordingEnd` -> `VesselSpawner.SpawnAtPosition` / `RespawnVessel`) does NO positional de-overlap at all. The only overlap-prevention mechanism (`VesselSpawner.CheckSpawnCollisions` -> `SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels`) is (a) called only from the FLIGHT path (`SpawnOrRecoverIfTooClose`), never from the KSC path, and (b) structurally blind to on-rails vessels: it uses `Physics.OverlapBox` and explicitly skips `!other.loaded` (`SpawnCollisionDetector.cs:762`). At the Space Center nothing is loaded, so even if it were called it would see zero blockers. The 5 deliveries are 5 DISTINCT launches (different `RecordedVesselGuid`), so the guid-aware adoption guard correctly does not collapse them — they are genuinely separate vessels that simply land on the same spot with no de-overlap.
+
+**Fix:** Added a proto-aware lateral de-overlap at the KSC/TS materialization path. New pure `SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn` (spirals the proposed lat/lon outward in `DefaultLandedSpawnSeparationMeters = 15 m` steps until clear of all existing same-body landed positions) + `NearestExistingDistance`, fed by new runtime `VesselSpawner.GatherExistingLandedVesselPositions` (gathers loaded AND on-rails proto landed/splashed vessels on the spawn body, skipping ghost-map / Debris/EVA/Flag/SpaceObject). Wired into `ParsekKSC.TrySpawnAtRecordingEnd` after `ResolveSpawnPosition` and before the snapshot apply (skipped for EVA + recorded-terminal-orbit), so the nudged (lat,lon) flows into both `SpawnAtPosition` and the fallback `RespawnVessel`. The FLIGHT path was already protected (loaded base vessels are real blockers for `CheckOverlapAgainstLoadedVessels` + walkback). Verbose `KSCSpawn` de-overlap logging.
+
+**Coverage:** xUnit in `SpawnCollisionDetectorTests.cs` (no-existing / already-clear / single-overlap-nudges-clear / live-5-cluster / nudge-stays-local / `NearestExistingDistance`).
+
+**Residual:** the 5 already-stacked rovers in the existing `logi1` save are pre-existing data the fix does not retroactively separate; only NEW deliveries are de-overlapped. The supervisor should verify in-game that a fresh delivery into a populated base spreads out and does not explode.
+
+---
+
 ## Done - Logistics route analyzer missed dock window on tree with no ActiveRecordingId (sixth playtest)
 
 - ~~Sixth in-game playtest (`logs/2026-05-18_2249_logistics-v0-dock-test-6/`). Every step of the pipeline fired correctly: pre-couple partner snapshot captured (`partnerPid=2243112625 parts=14`), gate accepted (`partnerSnapshotCaptured=True partnerKnown=True partnerEligible=True`), dock window captured on recording `daaeb89c` (`transportParts=14 endpointParts=14`), undock fired the deferred handler (`DeferredHandleTransientUndock: dispatching CreateSplitBranch activePid=2243112625 newPid=4207486107`), window completed on undock (`Route proof dock window completed on undock: parent=daaeb89c... ut=632.74`). The saved persistent.sfs even shows the complete window with both `DOCK_TRANSPORT/ENDPOINT_RESOURCES` and `UNDOCK_TRANSPORT/ENDPOINT_RESOURCES`. But at commit (`User chose: Tree Merge`), `RouteAnalysis rejected: missing route proof` for tree `d3ed3d5c`. The Create Supply Route dialog never appeared.~~
