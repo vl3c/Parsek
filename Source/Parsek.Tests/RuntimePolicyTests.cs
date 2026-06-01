@@ -1269,5 +1269,49 @@ namespace Parsek.Tests
         }
 
         #endregion
+
+        #region ShouldDeferLoopShiftedMapPresence (flight initial map-ghost create)
+
+        // The flight initial map-ghost create (HandleGhostCreated) must defer a loop-shifted
+        // member to the loop-aware per-frame create (CheckPendingMapVessels) instead of seeding
+        // ghost orbit/arc bounds at the raw recorded startUT with shift 0 (which left
+        // ghostOrbitLoopShiftedPids clear and produced a recorded-UT stored-bounds-fallback
+        // window for one tick). Off the loop path the helper must return false so non-loop
+        // members keep the immediate create byte-for-byte.
+
+        [Fact]
+        public void ShouldDeferLoopShiftedMapPresence_NonLoopMember_ReturnsFalse()
+        {
+            // effUT == currentUT (shift 0) and not hidden: the common non-loop case.
+            Assert.False(ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(
+                loopEpochShiftSeconds: 0.0, renderHidden: false));
+        }
+
+        [Fact]
+        public void ShouldDeferLoopShiftedMapPresence_LoopMemberInWindow_ReturnsTrue()
+        {
+            // Positive live-frame shift: a looping member replaying inside its window this cycle.
+            Assert.True(ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(
+                loopEpochShiftSeconds: 561642668.55, renderHidden: false));
+        }
+
+        [Fact]
+        public void ShouldDeferLoopShiftedMapPresence_NegativeShift_ReturnsTrue()
+        {
+            // Any non-zero shift (sign-agnostic) is loop-shifted and must defer.
+            Assert.True(ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(
+                loopEpochShiftSeconds: -120.5, renderHidden: false));
+        }
+
+        [Fact]
+        public void ShouldDeferLoopShiftedMapPresence_RenderHidden_ReturnsTrue()
+        {
+            // Outside its loop window this cycle (shift resolves to 0 but renderHidden is set):
+            // still defer so the per-frame pass creates it when the window opens.
+            Assert.True(ParsekPlaybackPolicy.ShouldDeferLoopShiftedMapPresence(
+                loopEpochShiftSeconds: 0.0, renderHidden: true));
+        }
+
+        #endregion
     }
 }
