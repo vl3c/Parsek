@@ -39,15 +39,16 @@ namespace Parsek
 
         /// <summary>
         /// Fixed single-frame icon-position jump floor (metres). Carried over
-        /// from the <c>GhostRenderStateProbe</c> prototype: the heliocentric
-        /// coast under high warp moves the icon a few km/frame, while an
-        /// SOI-exit teleport in the log was tens of millions of metres, so
-        /// 1000 km/frame cleanly separates "real teleport" from "fast warp".
-        /// This is now a FLOOR under the orbit-derived expected-motion model
-        /// (expected = orbital speed * dt * warpRate) so degenerate /
-        /// near-zero-velocity orbits never report a spurious jump while a slow
-        /// real teleport on a fast orbit can still exceed the orbit-derived
-        /// threshold.
+        /// from the <c>GhostRenderStateProbe</c> prototype: a real on-orbit
+        /// SOI-exit teleport was tens of millions of metres, so 1000 km/frame
+        /// cleanly separates "real teleport" from normal motion. This is a FLOOR
+        /// under the orbit-derived expected-motion model (expected =
+        /// orbital speed * dt * warpRate) so degenerate / near-zero-velocity
+        /// orbits never report a spurious jump while a slow real teleport on a
+        /// fast orbit can still exceed the orbit-derived threshold. NOTE: the
+        /// caller now measures the delta in the orbit's BODY-RELATIVE frame
+        /// (see <see cref="IsIconJump"/>), so this floor compares against the
+        /// orbit-relative displacement, not the raw world-frame delta.
         /// </summary>
         internal const double IconJumpFloorMeters = 1_000_000.0;
 
@@ -231,32 +232,65 @@ namespace Parsek
 
         /// <summary>
         /// Pure <c>icon-jump</c> anomaly predicate (Tier C). Returns true when
-        /// the observed per-frame world-position delta <paramref name="dPos"/>
-        /// exceeds the threshold AND the frame is not suppressed. The threshold
-        /// is the larger of the fixed <see cref="IconJumpFloorMeters"/> floor
-        /// and the orbit-derived expected motion (caller computes expected =
+        /// the observed per-frame <paramref name="dPos"/> exceeds the threshold
+        /// AND the frame is not suppressed. The threshold is the larger of the
+        /// fixed <see cref="IconJumpFloorMeters"/> floor and the orbit-derived
+        /// expected motion (caller computes expected =
         /// orbital speed * unscaledDeltaTime * warpRate) scaled by
         /// <see cref="ExpectedMotionMultiplier"/>, so a degenerate near-zero
         /// orbit falls back to the floor while a slow teleport on a fast orbit
-        /// can still trip the orbit-derived threshold. Suppressed on the first
-        /// frame after a per-pid state reset (<paramref name="justReset"/>:
-        /// there is no trustworthy previous position) and on floating-origin
-        /// shift frames (<paramref name="floatingOriginShiftFrame"/> within
+        /// can still trip the orbit-derived threshold.
+        ///
+        /// <para><paramref name="dPos"/> MUST be measured in the orbit's own
+        /// reference-body frame (the caller passes the delta of
+        /// <c>GetWorldPos3D - referenceBody.position</c>, i.e. the body-relative
+        /// position), NOT the raw <c>GetWorldPos3D</c> world-frame delta. The
+        /// expected-motion model is the orbital arc about the reference body, so
+        /// the measured delta must be in that same frame. Comparing a raw
+        /// world-frame delta against a body-centered orbital speed flags smooth
+        /// fast coasts at high warp as false positives: the world-frame delta of
+        /// a ghost far from the floating origin is dominated by the
+        /// reference-body's own world motion under warp (read at the same live UT
+        /// as the ghost, so a re-aimed ghost's loop shift is not a factor here),
+        /// which scales with geometry and is unrelated to the ghost's orbital
+        /// speed. The body-relative frame cancels all of that
+        /// (KSP builds an on-rails vessel's world position as
+        /// <c>referenceBody.position + orbitRelative</c>, so the body-relative
+        /// delta IS the orbital arc).</para>
+        ///
+        /// <para>Suppressed on the first frame after a per-pid state reset
+        /// (<paramref name="justReset"/>: there is no trustworthy previous
+        /// position), on the frame the orbit's reference body changes
+        /// (<paramref name="bodyChanged"/>: a body-relative delta across an SOI
+        /// crossing compares two different frames and is meaningless), and on
+        /// floating-origin shift frames
+        /// (<paramref name="floatingOriginShiftFrame"/> within
         /// <see cref="FloatingOriginSuppressionFrameWindow"/> of
         /// <paramref name="currentFrame"/>), mirroring
-        /// <see cref="GhostRenderTrace.IsLargeDeltaSignalSuppressed"/>.
+        /// <see cref="GhostRenderTrace.IsLargeDeltaSignalSuppressed"/>. (The
+        /// floating-origin suppression is largely redundant once the delta is
+        /// body-relative, since the rebase cancels with the body's own shift, but
+        /// it is kept as a cheap belt-and-braces guard.)</para>
         /// </summary>
         internal static bool IsIconJump(
             double dPos,
             double expectedMotionMeters,
             int currentFrame,
             int floatingOriginShiftFrame,
-            bool justReset)
+            bool justReset,
+            bool bodyChanged)
         {
             // No trustworthy previous position right after a per-pid reset
-            // (scene transition / ghost-pid rebuild). A stale prevWorldPos
+            // (scene transition / ghost-pid rebuild). A stale prevBodyRelPos
             // would otherwise fire a spurious jump on re-entry.
             if (justReset)
+                return false;
+
+            // The orbit's reference body changed this frame (e.g. SOI crossing
+            // Kerbin -> Sun). The previous body-relative position was measured in
+            // the OLD body's frame, so its delta against this frame's NEW-body
+            // position is a frame mismatch, not a teleport.
+            if (bodyChanged)
                 return false;
 
             if (double.IsNaN(dPos) || double.IsInfinity(dPos))
