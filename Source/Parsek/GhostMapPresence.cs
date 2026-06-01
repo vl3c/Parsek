@@ -7792,6 +7792,17 @@ namespace Parsek
             // Postfix + AnyGhostHeadLeftAppliedSegment comparisons (which use the live clock) are
             // byte-identical to before; the two prefixes subtract the shift where they need the
             // recorded clock.
+            //
+            // NOTE: a loop-shift body-fixed LAN rotation was tried here (rotate the node by the body's
+            // rotation over the shift so the inertial orbit projects to its recorded body-fixed
+            // appearance, to close the parking->loiter line-vs-raise desync). It was REVERTED: it
+            // rotates ONLY the map OrbitDriver's orbit (line + map icon), not the flight-scene ghost
+            // mesh, the recorded trajectory points, or the other stages' rendering, so the rotated
+            // line ended up inconsistent with everything else (the ghost on its old recorded path, the
+            // other stage's trajectory in the wrong place, the hyperbolic escape line rotated off its
+            // own icon). The transformation would have to apply to the entire ghost rendering
+            // consistently to be valid; rotating one element in isolation breaks more than it fixes.
+            // See docs/dev/todo-and-known-bugs.md.
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
@@ -8951,6 +8962,7 @@ namespace Parsek
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
             ghostOrbitEpochShift.Clear();
+            ClearPolylineOwningStampsForTesting();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

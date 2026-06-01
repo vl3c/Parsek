@@ -358,5 +358,6 @@ namespace Parsek.Tests
             }
             return max;
         }
+
     }
 }

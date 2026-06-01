@@ -1444,6 +1444,77 @@ namespace Parsek.InGameTests
                 $"GhostMapIconGlidesAcrossRaiseGap[{scene}]: maxFixedStep={maxFixedStep:F0}m seamJump={seamJump:F0}m");
         }
 
+        /// <summary>
+        /// Regression guard for the hyperbolic-escape ghost icon. The ghost OrbitDriver is seeded at the
+        /// RAW recorded epoch (no loop shift baked in) and the icon-drive patch propagates it at the
+        /// loop-mapped effUT. A hyperbolic escape segment (the Kerbin-SOI exit to interplanetary space)
+        /// must be driven at effUT just like an ellipse: propagating it at the LIVE clock instead
+        /// (liveUT = effUT + a ~1e9 s shift, far past the recorded escape) flings the icon billions of
+        /// metres into deep space, off its trajectory (the "icon not rendered on the hyperbolic escape"
+        /// regression). This uses the real escape orbit from the evidence log (rec 61e9...30 "Kerbal X",
+        /// segment 63966985.6..64044032.7, sma=-3818300 ecc=1.1916). Drives at effUT across the segment
+        /// window and asserts the position stays within Kerbin's SOI and advances; then shows that the
+        /// live-UT (defer-to-stock) propagation lands orders of magnitude outside the SOI.
+        /// </summary>
+        [InGameTest(Category = "GhostPlayback",
+            Description = "Hyperbolic escape ghost icon is driven at effUT (stays in SOI), not at live UT (deep space)",
+            Scene = GameScenes.FLIGHT)]
+        public void GhostMapIconDrivesHyperbolicEscapeAtEffUT()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+            const double rawEpoch = 63966985.6;
+            const double segStart = 63966985.6;
+            const double segEnd = 64044032.7;
+            var orbit = new Orbit();
+            orbit.SetOrbit(1.3329, 1.1916, -3818300.0, 50.0, 60.0, 0.0238, rawEpoch, kerbin);
+            orbit.Init();
+            InGameAssert.IsTrue(orbit.eccentricity >= 1.0,
+                $"test orbit must be hyperbolic (ecc={orbit.eccentricity:F3})");
+
+            double soi = kerbin.sphereOfInfluence; // ~8.4e7 m for Kerbin
+            // Drive at effUT across the recorded escape window: position must stay within the SOI
+            // (the escape is inside Kerbin's SOI until segEnd) and advance every step (glides).
+            const int steps = 6;
+            Vector3d prev = Vector3d.zero;
+            double minStep = double.MaxValue, maxInSoi = 0.0;
+            for (int i = 0; i < steps; i++)
+            {
+                double effUT = segStart + (segEnd - segStart) * (i / (double)(steps - 1));
+                orbit.UpdateFromUT(effUT);
+                Vector3d pos = orbit.pos;
+                InGameAssert.IsFalse(double.IsNaN(pos.x) || double.IsInfinity(pos.x),
+                    $"effUT drive must produce a finite position (effUT={effUT:F0})");
+                double r = pos.magnitude;
+                maxInSoi = System.Math.Max(maxInSoi, r);
+                // Allow a little margin past the SOI radius for the final exit sample.
+                InGameAssert.IsLessThan(r, soi * 1.2,
+                    $"effUT-driven escape must stay within Kerbin SOI (r={r:F0} m, SOI={soi:F0} m) — " +
+                    $"a far-out position is the live-UT regression");
+                if (i > 0) minStep = System.Math.Min(minStep, (pos - prev).magnitude);
+                prev = pos;
+            }
+            InGameAssert.IsGreaterThan(minStep, 1.0,
+                $"hyperbolic escape icon must advance > 1 m per effUT step (minStep={minStep:F1} m)");
+
+            // Contrast: propagating at a LIVE-UT-like time (raw epoch + a representative ~8e8 s loop
+            // shift = where stock would put it if the patch deferred) lands far outside the SOI. This
+            // is the broken position the regression produced; the effUT drive above avoids it.
+            orbit.UpdateFromUT(rawEpoch + 800000000.0);
+            double rLiveUt = orbit.pos.magnitude;
+            InGameAssert.IsGreaterThan(rLiveUt, soi * 100.0,
+                $"sanity: live-UT propagation must land far outside the SOI (r={rLiveUt:F0} m, SOI={soi:F0} m) — " +
+                $"this is exactly the deep-space misplacement the effUT drive prevents");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconDrivesHyperbolicEscapeAtEffUT: SOI={soi:F0}m maxInWindow={maxInSoi:F0}m " +
+                $"minStep={minStep:F1}m liveUtR={rLiveUt:E2}m");
+        }
+
         #endregion
 
         #region Parsek Settings

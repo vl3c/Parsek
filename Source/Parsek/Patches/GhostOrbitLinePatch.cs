@@ -118,9 +118,17 @@ namespace Parsek.Patches
             if (__instance.reverse) return true;
 
             Orbit orbit = __instance.orbit;
-            // Hyperbolic / degenerate / missing orbit → let stock handle it unchanged.
-            if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0)
+            // Missing / degenerate orbit → let stock handle it unchanged. Hyperbolic is NOT deferred:
+            // the ghost orbit is seeded at the RAW recorded epoch (no shift baked in), so deferring a
+            // hyperbolic escape to stock would propagate the OPEN trajectory at the LIVE clock (far
+            // past the recorded escape, since liveUT = effUT + shift with a huge shift), flinging the
+            // icon billions of metres out into deep space - the "icon not rendered on the hyperbolic
+            // escape" regression. We drive it at effUT like the elliptical case so it tracks the
+            // recorded escape arc within its segment window. (A hyperbolic period is +Infinity, which
+            // passes the period<=0 degeneracy guard; NaN/zero periods still defer.)
+            if (orbit == null || double.IsNaN(orbit.period) || orbit.period <= 0.0)
                 return true;
+            bool hyperbolic = orbit.eccentricity >= 1.0;
 
             double currentUT = Planetarium.GetUniversalTime();
             // No recorded arc bounds (terminal-orbit ghost): let stock propagate at live UT. These
@@ -130,7 +138,12 @@ namespace Parsek.Patches
                 return true;
 
             double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
-            bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
+            // A hyperbolic escape segment covers a single OUTWARD pass with no below-ground arc, so the
+            // icon is on the visible arc whenever the loop clock is within the segment window; the
+            // period-based above-ground arc test is meaningless for an open orbit (period is infinite),
+            // so treat hyperbolic as always-on-arc and let the window past/before clamp + suppress.
+            bool onArc = hyperbolic
+                || GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
             var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
 
             double driveUT = decision.DriveUT;
@@ -180,11 +193,12 @@ namespace Parsek.Patches
             pos.Swizzle();
             vel.Swizzle();
             // Degenerate propagation: bail to stock's NaN handling (unload + destroy) WITHOUT
-            // writing NaN into __instance.pos/vel first. This branch is effectively unreachable for
-            // these ghosts (the earlier guard already required eccentricity < 1 and period > 0, so
-            // the elliptical propagation is finite), but bailing before the write keeps the driver
-            // state clean and matches stock's contract that the destroy decision runs on a fresh
-            // re-propagation rather than on a half-written effUT NaN.
+            // writing NaN into __instance.pos/vel first. The window clamp keeps driveUT inside the
+            // recorded segment for both elliptical and hyperbolic orbits, so the propagation is
+            // finite in the normal case; this guard catches any residual NaN (e.g. a degenerate
+            // reseed) and bailing before the write keeps the driver state clean, matching stock's
+            // contract that the destroy decision runs on a fresh re-propagation rather than on a
+            // half-written effUT NaN.
             if (double.IsNaN(pos.x))
                 return true;
             // Keep the driver's recorded propagation time faithful to the position we set: stock sets
@@ -693,17 +707,23 @@ namespace Parsek.Patches
                 // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
                 // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
                 // "icon teleported far away to the wrong position on the loiter orbit" playtest
-                // seam. Defer the icon-show until seg-drive applies; the orbit LINE follows the
-                // existing line-grace policy (if elliptical, show; orbit-line is decoupled from the
-                // icon and benign here). On the next tick, seg-drive will apply, hasBounds becomes
-                // true, the visible-body-frame branch (above) fires with the now-fresh mesh, the
-                // icon shows in the right place, and the stamp expires naturally over the grace.
+                // seam. Defer the icon-show until seg-drive applies. The orbit LINE is ALSO held off
+                // here: with no fresh segment applied yet (hasBounds is false in this terminal
+                // branch), the renderer still holds the PREVIOUS segment's ellipse, so re-enabling
+                // the line would briefly redraw that stale ellipse (the parking circle flashing for
+                // ~0.3-0.5s before the loiter line appears - the "glimpse of another circular orbit
+                // before the loiter" playtest report). A hidden line for the few grace frames until
+                // seg-drive applies is strictly better than drawing the wrong ellipse; the trajectory
+                // polyline already covered the visual through the non-orbital phase. On the next tick,
+                // seg-drive applies, hasBounds becomes true, the visible-body-frame branch (above)
+                // fires with the fresh loiter orbit, line + icon show in the right place, and the
+                // stamp expires naturally over the grace.
                 bool postPolylineReleaseGrace =
                     GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
                     && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
                 if (postPolylineReleaseGrace)
                 {
-                    line.active = orbitFiniteElliptical;
+                    line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     LogOrbitLineDecision(
