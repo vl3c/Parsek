@@ -843,6 +843,46 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
 
         /// <summary>
+        /// Per-ghost loop-epoch shift (seconds), i.e. <c>liveUT - effUT</c>, written every
+        /// reseed by <see cref="ApplyOrbitToVessel"/>. The ghost OrbitDriver is now seeded with
+        /// the RAW recorded epoch (no shift baked into the elements), and the icon-drive +
+        /// arc-clip patches map the live Planetarium clock back to the recorded sample clock with
+        /// <c>effUT = liveUT - shift</c> every frame, so the icon glides continuously at the
+        /// loop-mapped <c>effUT</c> rate instead of being re-pinned at each rate-limited reseed
+        /// (the frozen-icon-on-short-arc bug). 0 (absent) off the loop path, so non-loop ghosts
+        /// keep <c>effUT == liveUT</c> and behave exactly as before.
+        ///
+        /// This is the AUTHORITY for the per-frame icon clock: the value is constant within a loop
+        /// cycle (effUT tracks liveUT 1:1) and is re-snapped at the next reseed, so propagation
+        /// between reseeds matches the replay. Cleared on every ghost teardown / scene change
+        /// alongside <see cref="ghostOrbitBounds"/>.
+        /// </summary>
+        internal static readonly Dictionary<uint, double> ghostOrbitEpochShift =
+            new Dictionary<uint, double>();
+
+        /// <summary>
+        /// Returns the loop-epoch shift (<c>liveUT - effUT</c>) currently applied to
+        /// <paramref name="vesselPid"/>, or <c>0</c> when none is recorded (non-loop ghost).
+        /// </summary>
+        internal static double GetGhostOrbitEpochShift(uint vesselPid)
+        {
+            return ghostOrbitEpochShift.TryGetValue(vesselPid, out double shift) ? shift : 0.0;
+        }
+
+        /// <summary>
+        /// Pure: map the live Planetarium clock to the loop-mapped recorded-sample clock for a
+        /// ghost map vessel. <c>effUT = liveUT - shift</c>. With the RAW-epoch seed this is the
+        /// UT the ghost OrbitDriver must be propagated at so the icon lands on the replayed phase,
+        /// and the UT the arc-clip patch must use for its eccentric-anomaly bounds so the line
+        /// shape stays in exact lockstep with the icon. Identity (returns <paramref name="liveUT"/>)
+        /// when <paramref name="shift"/> is 0.
+        /// </summary>
+        internal static double MapLiveUTToEffUT(double liveUT, double shift)
+        {
+            return liveUT - shift;
+        }
+
+        /// <summary>
         /// True if any live map-ghost's playback head (<paramref name="currentUT"/>, live frame) has moved
         /// outside the orbit-segment bounds currently applied to it. When that happens the applied orbit is
         /// stale and <see cref="Parsek.Patches.GhostOrbitLinePatch"/>'s stale-segment guard blanks the line
@@ -2216,6 +2256,7 @@ namespace Parsek
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
+            ghostOrbitEpochShift.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;
@@ -3258,6 +3299,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -3480,6 +3522,7 @@ namespace Parsek
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
+            ghostOrbitEpochShift.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -7407,14 +7450,21 @@ namespace Parsek
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
             //
-            // Loop replay (loopEpochShiftSeconds = liveUT - effUT, 0 off the loop path): the
-            // segment was selected at the loop-mapped effUT, but the icon + arc patches operate
-            // against the LIVE Planetarium clock. Pushing the orbit epoch AND the stored arc
-            // bounds forward by the same shift puts the orbit, the bounds, and the live clock in
-            // one frame, so the icon sits at the replayed phase and GhostOrbitArcPatch /
-            // GhostOrbitIconClampPatch keep clipping correctly. The shift is constant within a
-            // loop cycle (effUT tracks liveUT 1:1), so natural propagation between the rate-limited
-            // reseeds matches the replay; it jumps once per cycle wrap and is re-snapped next tick.
+            // RAW recorded epoch (no shift baked in): the loop-mapped sample clock (effUT) can
+            // advance FASTER than the live Planetarium clock (e.g. under time warp, the loop maps
+            // a short live span to a huge recorded span). Stock OrbitDriver propagates the icon at
+            // the LIVE clock every FixedUpdate, so a shifted epoch only lands the right phase at
+            // the instant the (rate-limited) reseed re-snaps the shift; between reseeds the live
+            // clock is too slow and the icon stalls on a near-fixed anomaly until the next reseed
+            // jumps it forward (the frozen-icon-on-short-arc sawtooth). Instead we seed the raw
+            // epoch and record the loop shift in ghostOrbitEpochShift; GhostOrbitIconDrivePatch
+            // drives the OrbitDriver at effUT = liveUT - shift every frame so the icon glides at
+            // the effUT rate (matching the mesh path and the wide-segment case), and
+            // GhostOrbitArcPatch evaluates its arc bounds at the same effUT so the line stays in
+            // lockstep. The stored arc bounds stay in the LIVE frame (shifted) so the line-toggle
+            // Postfix + AnyGhostHeadLeftAppliedSegment comparisons (which use the live clock) are
+            // byte-identical to before; the two prefixes subtract the shift where they need the
+            // recorded clock.
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
@@ -7423,24 +7473,33 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch + loopEpochShiftSeconds,
+                segment.epoch,
                 body);
 
-            vessel.orbitDriver.updateFromParameters();
-            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
+            // Record the per-frame icon clock state BEFORE the first propagation so the
+            // OrbitDriver tick that updateFromParameters() triggers reads the right shift + bounds
+            // through GhostOrbitIconDrivePatch (otherwise that in-call frame would propagate at the
+            // live clock against stale/absent bounds for one frame).
+            ghostOrbitEpochShift[vessel.persistentId] = loopEpochShiftSeconds;
 
-            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch), shifted into
-            // the live frame for loop replay (see the epoch note above).
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch) + the
+            // line-toggle Postfix, shifted into the LIVE frame for loop replay so the live-clock
+            // comparisons in those consumers are unchanged. The arc-clip + icon-drive patches
+            // subtract the shift (via ghostOrbitEpochShift) to recover the recorded UTs for their
+            // eccentric-anomaly / propagation math against the raw-epoch orbit.
             ghostOrbitBounds[vessel.persistentId] =
                 (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
             // Mark/unmark this ghost as loop-shifted so TryGetVisibleOrbitBoundsForGhostVessel
             // returns these (shifted) bounds rather than re-deriving raw recorded bounds from the
-            // OrbitSegments at the live UT, which would desync the arc/icon clip from the shifted
-            // orbit epoch when the live clock falls inside the member's recorded window.
+            // OrbitSegments at the live UT, which would desync the arc/icon clip from the live
+            // frame when the live clock falls inside the member's recorded window.
             if (loopEpochShiftSeconds != 0.0)
                 ghostOrbitLoopShiftedPids.Add(vessel.persistentId);
             else
                 ghostOrbitLoopShiftedPids.Remove(vessel.persistentId);
+
+            vessel.orbitDriver.updateFromParameters();
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -8559,6 +8618,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -8623,6 +8683,7 @@ namespace Parsek
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

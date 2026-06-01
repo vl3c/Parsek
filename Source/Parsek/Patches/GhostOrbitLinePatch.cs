@@ -24,89 +24,169 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Clamps ghost vessel OrbitDriver propagation to the visible arc of the orbit
-    /// segment (#212b). Without this, the OrbitDriver propagates the vessel along
-    /// the full Keplerian ellipse, positioning the icon underground during the
-    /// periapsis passage. The orbit LINE is clipped by GhostOrbitArcPatch, but the
-    /// vessel ICON follows the OrbitDriver position — this patch keeps the icon
-    /// on the visible arc by clamping the propagated UT.
+    /// Drives a ghost vessel's OrbitDriver to the loop-mapped recorded sample clock
+    /// (<c>effUT = liveUT - shift</c>) every physics frame, instead of letting stock propagate
+    /// it at the LIVE Planetarium clock. This fixes the frozen-icon-on-short-arc bug: under time
+    /// warp (or any loop where the recorded sample clock runs faster than live), stock's live-UT
+    /// propagation only lands the right phase at each rate-limited reseed and stalls the icon on a
+    /// near-fixed anomaly in between, so the marker freezes on short orbital arcs and teleports at
+    /// segment seams while the drawn orbit line stays correct. Driving at <c>effUT</c> makes the
+    /// icon a continuous function of (orbit elements, effUT), so it glides in lockstep with the
+    /// arc line (which GhostOrbitArcPatch evaluates at the same <c>effUT</c>), with no freeze and
+    /// no seam teleport, in both the flight map and the Tracking Station (the patch is keyed only
+    /// on IsGhostMapVessel, no scene check).
     ///
-    /// When the vessel would be on the underground portion, the UT is clamped to
-    /// the nearest arc endpoint (startUT or endUT), freezing the icon at the edge
-    /// of the visible arc.
+    /// It patches the internal <c>updateFromParameters(bool)</c> overload (the one that actually
+    /// sets the position) and returns <c>false</c> so stock does NOT re-propagate at live UT and
+    /// overwrite us. The parameterless overload that stock's per-FixedUpdate UpdateOrbit() calls
+    /// forwards to this one with <c>setPosition: true</c>, so we own every per-frame placement for
+    /// ghost map vessels. The body replicates stock OrbitDriver.updateFromParameters(bool)
+    /// verbatim (UpdateFromUT → pos/vel → Swizzle → NaN guard → SetPosition with the
+    /// driverTransform.rotation * localCoM offset); any null / NaN / hyperbolic / degenerate case
+    /// bails (returns true) so stock keeps its existing behavior.
     ///
-    /// Architecture: OrbitDriver.updateFromParameters() calls orbit.UpdateFromUT(UT)
-    /// which sets the vessel's world position. This prefix intercepts the UT before
-    /// propagation and clamps it to the visible arc if needed.
+    /// #212b underground suppression is preserved in effUT space: when <c>effUT</c> is genuinely
+    /// past / before the recorded window or off the visible (above-ground) arc, the driver is
+    /// clamped to the nearest recorded endpoint and the pid is added to ghostsWithSuppressedIcon
+    /// so the below-atmosphere custom-icon handoff still works and the icon never goes underground.
     /// </summary>
-    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new Type[0])]
-    internal static class GhostOrbitIconClampPatch
+    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new[] { typeof(bool) })]
+    internal static class GhostOrbitIconDrivePatch
     {
-        static void Prefix(OrbitDriver __instance)
+        /// <summary>
+        /// Pure: which recorded-clock UT should the OrbitDriver be propagated at this frame, and
+        /// is the icon suppressed? The stored arc bounds are in the LIVE frame
+        /// (<paramref name="startUTShifted"/> / <paramref name="endUTShifted"/>), so the live-clock
+        /// past/before-window checks use them directly; the returned <c>DriveUT</c> is in the
+        /// RECORDED frame (effUT space) because the OrbitDriver is now seeded with the raw recorded
+        /// epoch. <paramref name="onArc"/> is the orbit-dependent visible-arc result computed by the
+        /// caller (true when the orbit is degenerate / full-period, matching IsOnOrbitalArc).
+        /// </summary>
+        internal static IconDriveDecision ResolveIconDriveDecision(
+            double liveUT,
+            double startUTShifted,
+            double endUTShifted,
+            double shift,
+            bool onArc)
         {
-            if (__instance.vessel == null) return;
+            // Past the recorded window → clamp to the last recorded position (raw end UT).
+            if (liveUT > endUTShifted)
+                return new IconDriveDecision(
+                    GhostMapPresence.MapLiveUTToEffUT(endUTShifted, shift), suppressed: true,
+                    reason: "past-window");
+            // Before the recorded window → clamp to the first recorded position (raw start UT).
+            if (liveUT < startUTShifted)
+                return new IconDriveDecision(
+                    GhostMapPresence.MapLiveUTToEffUT(startUTShifted, shift), suppressed: true,
+                    reason: "before-window");
+            // Within the window but off the visible (above-ground) arc → caller clamps to the
+            // nearest endpoint in orbital-time space (needs the Orbit), so signal off-arc here.
+            if (!onArc)
+                return new IconDriveDecision(
+                    driveUT: double.NaN, suppressed: true, reason: "off-arc");
+            // On the visible arc → drive at the loop-mapped effUT so the icon glides.
+            return new IconDriveDecision(
+                GhostMapPresence.MapLiveUTToEffUT(liveUT, shift), suppressed: false,
+                reason: "on-arc-drive");
+        }
+
+        /// <summary>Result of <see cref="ResolveIconDriveDecision"/>.</summary>
+        internal readonly struct IconDriveDecision
+        {
+            internal readonly double DriveUT;
+            internal readonly bool Suppressed;
+            internal readonly string Reason;
+            internal IconDriveDecision(double driveUT, bool suppressed, string reason)
+            {
+                DriveUT = driveUT;
+                Suppressed = suppressed;
+                Reason = reason;
+            }
+        }
+
+        static bool Prefix(OrbitDriver __instance, bool setPosition)
+        {
+            if (__instance == null || __instance.vessel == null) return true;
 
             uint pid = __instance.vessel.persistentId;
-            if (!GhostMapPresence.IsGhostMapVessel(pid)) return;
-            double currentUT = Planetarium.GetUniversalTime();
-            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
-                pid, currentUT, out double startUT, out double endUT))
-                return;
+            if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
 
             Orbit orbit = __instance.orbit;
-            if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0) return;
+            // Hyperbolic / degenerate / missing orbit → let stock handle it unchanged.
+            if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0)
+                return true;
 
-            // Past recording bounds → clamp to endUT so icon sits at last recorded position
-            if (currentUT > endUT)
-            {
-                orbit.UpdateFromUT(endUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                return;
-            }
-            if (currentUT < startUT)
-            {
-                orbit.UpdateFromUT(startUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                return;
-            }
+            double currentUT = Planetarium.GetUniversalTime();
+            // No recorded arc bounds (terminal-orbit ghost): let stock propagate at live UT. These
+            // ghosts have shift 0 and a full ellipse, so live == effUT and the icon already glides.
+            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                    pid, currentUT, out double startUT, out double endUT))
+                return true;
 
-            // Within bounds — check if on the visible arc
+            double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
             bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
-            if (!onArc)
+            var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
+
+            double driveUT = decision.DriveUT;
+            if (decision.Reason == "off-arc")
             {
-                // Off the visible arc (underground) — clamp to the nearest arc endpoint
+                // Off the visible (above-ground) arc — clamp to the nearest arc endpoint in
+                // orbital-time space, then map that live-frame endpoint back to the recorded clock.
                 double period = orbit.period;
                 double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
                 double obtStart = ((orbit.getObtAtUT(startUT) % period) + period) % period;
                 double obtEnd = ((orbit.getObtAtUT(endUT) % period) + period) % period;
-
-                // Pick the closer endpoint in orbital-time space
                 double distToStart, distToEnd;
                 if (obtStart <= obtEnd)
                 {
-                    // No wraparound: gap is [obtEnd, obtStart+period]
                     distToStart = (obtStart - obtNow + period) % period;
                     distToEnd = (obtNow - obtEnd + period) % period;
                 }
                 else
                 {
-                    // Wraparound: gap is [obtEnd, obtStart]
                     distToStart = (obtNow <= obtStart) ? (obtStart - obtNow) : (obtStart + period - obtNow);
                     distToEnd = (obtNow >= obtEnd) ? (obtNow - obtEnd) : (obtNow + period - obtEnd);
                 }
-
-                double clampUT = (distToEnd <= distToStart) ? endUT : startUT;
-                orbit.UpdateFromUT(clampUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-
-                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "clamp-" + pid,
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Icon clamped pid={0} UT={1:F1} clampUT={2:F1} bounds=[{3:F1},{4:F1}]",
-                        pid, currentUT, clampUT, startUT, endUT));
-                return;
+                double clampUTShifted = (distToEnd <= distToStart) ? endUT : startUT;
+                driveUT = GhostMapPresence.MapLiveUTToEffUT(clampUTShifted, shift);
             }
 
-            GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+            if (decision.Suppressed)
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+            else
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+
+            ParsekLog.VerboseRateLimited("GhostOrbitIcon", "drive-" + pid,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Icon drive pid={0} reason={1} liveUT={2:F1} effUT/driveUT={3:F1} shift={4:F1} " +
+                    "bounds=[{5:F1},{6:F1}] suppressed={7} scene={8}",
+                    pid, decision.Reason, currentUT, driveUT, shift,
+                    startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
+                1.0);
+
+            // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
+            // recorded-clock driveUT instead of the live clock. (orbitdriver_decomp.cs:607-726.)
+            orbit.UpdateFromUT(driveUT);
+            Vector3d pos = orbit.pos;
+            Vector3d vel = orbit.vel;
+            pos.Swizzle();
+            vel.Swizzle();
+            __instance.pos = pos;
+            __instance.vel = vel;
+            if (double.IsNaN(pos.x))
+                return true; // degenerate propagation — defer to stock's NaN handling
+
+            if (!setPosition)
+                return false;
+
+            Vessel v = __instance.vessel;
+            CelestialBody refBody = __instance.referenceBody;
+            if (v != null && refBody != null && __instance.driverTransform != null)
+            {
+                Vector3d off = (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM;
+                v.SetPosition(refBody.position + pos - off);
+            }
+            return false;
         }
     }
 
@@ -117,7 +197,7 @@ namespace Parsek.Patches
     ///
     /// Architecture: OrbitRendererBase.LateUpdate calls DrawOrbit() then DrawNodes().
     /// This postfix runs after both, suppressing the Vectrosity line for ghost vessels.
-    /// Icon clamping is handled separately by GhostOrbitIconClampPatch on OrbitDriver.
+    /// Icon positioning is handled separately by GhostOrbitIconDrivePatch on OrbitDriver.
     /// </summary>
     [HarmonyPatch(typeof(OrbitRendererBase), "LateUpdate")]
     internal static class GhostOrbitLinePatch
@@ -639,12 +719,22 @@ namespace Parsek.Patches
             if (orbit == null) return true;
             if (orbit.eccentricity >= 1.0) return true; // let stock handle hyperbolic
 
-            // Full orbit or more — let stock draw the complete ellipse
+            // Full orbit or more — let stock draw the complete ellipse. The span is
+            // shift-invariant, so the stored live-frame bounds give the correct test.
             if (endUT - startUT >= orbit.period) return true;
 
+            // The OrbitDriver is now seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
+            // drives it at effUT = liveUT - shift), but the stored arc bounds are in the LIVE frame.
+            // Map them back to the recorded clock so the eccentric-anomaly arc shape is computed in
+            // the SAME frame the icon is driven in — keeping the line and the marker in exact
+            // lockstep on arbitrarily short arcs. shift is 0 (identity) off the loop path.
+            double arcShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+            double startUTRaw = GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
+            double endUTRaw = GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
+
             // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
-            double fromE = orbit.EccentricAnomalyAtUT(startUT);
-            double toE = orbit.EccentricAnomalyAtUT(endUT);
+            double fromE = orbit.EccentricAnomalyAtUT(startUTRaw);
+            double toE = orbit.EccentricAnomalyAtUT(endUTRaw);
 
             // NaN guard — degenerate orbits or UT outside validity
             if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;

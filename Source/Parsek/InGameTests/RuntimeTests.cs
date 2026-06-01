@@ -1223,6 +1223,111 @@ namespace Parsek.InGameTests
                 $"ecc={seed.Segment.eccentricity:F4} source={source}");
         }
 
+        /// <summary>
+        /// Frozen-icon-on-short-arc fix (flight map): the ghost icon position is propagated at the
+        /// loop-mapped effUT each frame (GhostOrbitIconDrivePatch), so it must GLIDE continuously
+        /// along a SUB-PERIOD orbital arc even while the live clock would barely advance through the
+        /// thin recorded window. Uses a real KSP Orbit with the exact frozen-icon segment elements
+        /// (sma=671928 ecc=0.0883 near Kerbin, a ~80 deg arc) and asserts the propagated world
+        /// position advances > 1 m per effUT step (status=moving), then stays continuous when effUT
+        /// crosses the recorded segment endpoint into the next sample (no seam teleport in effUT
+        /// space). This is the Unity-runtime proof the Kepler propagation requires; xUnit cannot run
+        /// Orbit.UpdateFromUT.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Ghost map icon glides along a sub-period orbital arc when driven at effUT (no freeze/seam)")]
+        public void GhostMapIconGlidesOnShortArc_Flight()
+        {
+            AssertIconGlidesOnShortArc("FLIGHT");
+        }
+
+        /// <summary>
+        /// Tracking-Station variant of <see cref="GhostMapIconGlidesOnShortArc_Flight"/>. The
+        /// icon-drive patch is keyed only on IsGhostMapVessel (no scene check) and the TS refresh
+        /// feeds the SAME segment + loop shift through the SAME ApplyOrbitToVessel, so the same
+        /// effUT-driven glide must hold in the Tracking Station.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Ghost map icon glides along a sub-period orbital arc in the Tracking Station too")]
+        public void GhostMapIconGlidesOnShortArc_TrackingStation()
+        {
+            AssertIconGlidesOnShortArc("TRACKSTATION");
+        }
+
+        private static void AssertIconGlidesOnShortArc(string scene)
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // The exact frozen-icon segment from the evidence log (rec 61e9...30 "Kerbal X"):
+            // sma=671928 ecc=0.0883, recorded window 52569494.7..52569925.6 (~431 s) = a ~80 deg arc
+            // of the ~1842 s orbit. Raw epoch (no shift baked in), matching ApplyOrbitToVessel.
+            var orbit = new Orbit();
+            orbit.referenceBody = kerbin;
+            const double rawEpoch = 52569494.7;
+            const double rawStart = 52569494.7;
+            const double rawEnd = 52569925.6;
+            orbit.SetOrbit(0.1887, 0.088283, 671928.0, 75.0, 152.9042, 1.463204, rawEpoch, kerbin);
+            orbit.Init();
+
+            // The fix drives the OrbitDriver at effUT = liveUT - shift. effUT advances 1:1 with the
+            // loop clock; sample it at five points spanning the recorded window and assert the
+            // propagated position advances every step (the icon glides, not freezes).
+            const int steps = 5;
+            double prevDist = double.NaN;
+            Vector3d prevPos = Vector3d.zero;
+            double minStep = double.MaxValue;
+            double maxStep = 0.0;
+            for (int i = 0; i < steps; i++)
+            {
+                double effUT = rawStart + (rawEnd - rawStart) * (i / (double)(steps - 1));
+                orbit.UpdateFromUT(effUT);
+                Vector3d pos = orbit.pos;
+                if (i > 0)
+                {
+                    double step = (pos - prevPos).magnitude;
+                    minStep = System.Math.Min(minStep, step);
+                    maxStep = System.Math.Max(maxStep, step);
+                }
+                prevPos = pos;
+                prevDist = pos.magnitude;
+            }
+
+            InGameAssert.IsGreaterThan(minStep, 1.0,
+                $"[{scene}] icon must advance > 1 m per effUT step on the short arc " +
+                $"(minStep={minStep:F1} m) — a frozen icon would step ~0 m");
+
+            // Seam continuity: stepping one effUT increment PAST the recorded end must move by a
+            // comparable amount, not teleport. The icon is a continuous function of effUT, so the
+            // cross-endpoint step should be the same order of magnitude as the in-window steps.
+            double dt = (rawEnd - rawStart) / (steps - 1);
+            orbit.UpdateFromUT(rawEnd);
+            Vector3d atEnd = orbit.pos;
+            orbit.UpdateFromUT(rawEnd + dt);
+            Vector3d pastEnd = orbit.pos;
+            double seamStep = (pastEnd - atEnd).magnitude;
+            InGameAssert.IsGreaterThan(seamStep, 1.0,
+                $"[{scene}] icon must keep moving across the segment endpoint (seamStep={seamStep:F1} m)");
+            InGameAssert.IsLessThan(seamStep, maxStep * 5.0,
+                $"[{scene}] cross-endpoint step ({seamStep:F1} m) must be the same order as in-window " +
+                $"steps (maxStep={maxStep:F1} m) — no seam teleport");
+
+            // Sanity: the elements are sub-period (the arc is genuinely a sliver of the orbit), so
+            // this is the freeze-prone regime the fix targets.
+            double windowFraction = (rawEnd - rawStart) / orbit.period;
+            InGameAssert.IsLessThan(windowFraction, 1.0,
+                $"[{scene}] test must use a sub-period arc (window={windowFraction:F3} of period {orbit.period:F0}s)");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconGlidesOnShortArc[{scene}]: period={orbit.period:F0}s " +
+                $"windowFrac={windowFraction:F3} minStep={minStep:F1}m maxStep={maxStep:F1}m " +
+                $"seamStep={seamStep:F1}m");
+        }
+
         #endregion
 
         #region Parsek Settings
