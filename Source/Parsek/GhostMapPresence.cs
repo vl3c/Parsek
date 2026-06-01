@@ -7372,7 +7372,7 @@ namespace Parsek
                 ghostOrbitBounds.Remove(vessel.persistentId)
                 | ghostBodyFrameOrbitBounds.Remove(vessel.persistentId)
                 | ghostOrbitLoopShiftedPids.Remove(vessel.persistentId)
-                | (ghostOrbitEpochShift.Remove(vessel.persistentId));
+                | ghostOrbitEpochShift.Remove(vessel.persistentId);
             if (hadStaleSegmentDrive)
             {
                 ParsekLog.Verbose(Tag,

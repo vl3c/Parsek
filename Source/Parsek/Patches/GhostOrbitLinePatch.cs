@@ -104,12 +104,18 @@ namespace Parsek.Patches
             }
         }
 
-        static bool Prefix(OrbitDriver __instance, bool setPosition)
+        static bool Prefix(OrbitDriver __instance, bool setPosition, ref double ___updateUT)
         {
             if (__instance == null || __instance.vessel == null) return true;
 
             uint pid = __instance.vessel.persistentId;
             if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
+
+            // Ghost map drivers are forward vessel drivers (reverse == false, vessel != null checked
+            // above). This patch replicates only stock's "!reverse && vessel != null" SetPosition branch;
+            // defer the reverse == true case to stock unchanged (the vessel == null / celestial-body-only
+            // branch is already deferred by the null-vessel guard above).
+            if (__instance.reverse) return true;
 
             Orbit orbit = __instance.orbit;
             // Hyperbolic / degenerate / missing orbit → let stock handle it unchanged.
@@ -165,7 +171,9 @@ namespace Parsek.Patches
                 1.0);
 
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
-            // recorded-clock driveUT instead of the live clock. (orbitdriver_decomp.cs:607-726.)
+            // recorded-clock driveUT instead of the live clock. Stock does updateUT = now then
+            // UpdateFromUT(updateUT); we mirror that below by recording driveUT (the UT we actually
+            // propagate at) into the private updateUT field. (orbitdriver_decomp.cs:607-726.)
             orbit.UpdateFromUT(driveUT);
             Vector3d pos = orbit.pos;
             Vector3d vel = orbit.vel;
@@ -179,6 +187,9 @@ namespace Parsek.Patches
             // re-propagation rather than on a half-written effUT NaN.
             if (double.IsNaN(pos.x))
                 return true;
+            // Keep the driver's recorded propagation time faithful to the position we set: stock sets
+            // updateUT = now, we propagated at driveUT. updateUT is private, injected here via ___updateUT.
+            ___updateUT = driveUT;
             __instance.pos = pos;
             __instance.vel = vel;
 

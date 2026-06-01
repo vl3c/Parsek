@@ -1231,8 +1231,11 @@ namespace Parsek.InGameTests
         /// (sma=671928 ecc=0.0883 near Kerbin, a ~80 deg arc) and asserts the propagated world
         /// position advances > 1 m per effUT step (status=moving), then stays continuous when effUT
         /// crosses the recorded segment endpoint into the next sample (no seam teleport in effUT
-        /// space). This is the Unity-runtime proof the Kepler propagation requires; xUnit cannot run
-        /// Orbit.UpdateFromUT.
+        /// space). This is a Unity-runtime check of the PREMISE the fix relies on (a sub-period arc's
+        /// Kepler position is a continuous function of effUT, which xUnit cannot evaluate since it
+        /// cannot run Orbit.UpdateFromUT). It does NOT fire the live GhostOrbitIconDrivePatch on a real
+        /// ghost ProtoVessel: the patch decision logic is covered by GhostOrbitIconDriveTests, and the
+        /// end-to-end behaviour by playtest.
         /// </summary>
         [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
             Description = "Ghost map icon glides along a sub-period orbital arc when driven at effUT (no freeze/seam)")]
@@ -1242,10 +1245,12 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
-        /// Tracking-Station variant of <see cref="GhostMapIconGlidesOnShortArc_Flight"/>. The
-        /// icon-drive patch is keyed only on IsGhostMapVessel (no scene check) and the TS refresh
-        /// feeds the SAME segment + loop shift through the SAME ApplyOrbitToVessel, so the same
-        /// effUT-driven glide must hold in the Tracking Station.
+        /// Tracking-Station variant of <see cref="GhostMapIconGlidesOnShortArc_Flight"/>: the same
+        /// premise check, run under the TRACKSTATION scene tag. It shares AssertIconGlidesOnShortArc and
+        /// differs from the flight variant only by scene, so it confirms the Kepler premise holds in the
+        /// TS runtime, not that the live patch fires there. Scene parity of the actual fix is by
+        /// construction (the patch is keyed only on IsGhostMapVessel with no scene check, and the TS
+        /// refresh feeds the SAME segment + loop shift through the SAME ApplyOrbitToVessel) plus playtest.
         /// </summary>
         [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
             Description = "Ghost map icon glides along a sub-period orbital arc in the Tracking Station too")]
