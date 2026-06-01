@@ -227,21 +227,81 @@ namespace Parsek.Patches
                 double mnaPropagatedDeg = mnaPropagatedRad * 180.0 / System.Math.PI;
                 // Normalize to [0, 360) for readability.
                 double mnaNormDeg = ((mnaPropagatedDeg % 360.0) + 360.0) % 360.0;
+
+                // PR #1003 follow-up #2: the body-fixed lat/lon jump at the parking->loiter seam
+                // was confirmed to be a REAL ~97 deg inertial teleport (consecutive 1s samples, so
+                // Kerbin rotation is negligible) while mna stayed continuous. pos = f(mna,
+                // OrbitFrame) and OrbitFrame is set ONLY by inc/LAN/argPe (via Orbit.Init), so a
+                // position jump with continuous mna is an ORIENTATION (OrbitFrame) flip. The 1s
+                // truth cadence + lack of orientation/body-relative-pos fields could not name the
+                // corrupting frame. So log the live orbit's orientation (inc/LAN/argPe) and the
+                // BODY-RELATIVE inertial position (orbit.pos, before refBody.position + floating
+                // origin) here, and add a zero-spam frame-to-frame JUMP detector below that fires
+                // ONLY when the body-relative position moves more than the threshold in one frame.
+                Vector3d bodyRelPos = orbit.pos; // Planetarium-frame position relative to refBody
                 ParsekLog.VerboseRateLimited("GhostIconTruth",
                     "icon-truth-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Icon truth pid={0} body={1} driveUT={2:F1} mnaRad={3:F4} mnaDeg={4:F2} " +
-                        "lat={5:F3} lon={6:F3} alt={7:F0} segSma={8:F0} segEcc={9:F4} " +
-                        "segMnaEpoch={10:F4} segEpoch={11:F1} worldPos={12} scene={13}",
+                        "inc={5:F4} lan={6:F4} argPe={7:F4} " +
+                        "lat={8:F3} lon={9:F3} alt={10:F0} segSma={11:F0} segEcc={12:F4} " +
+                        "segMnaEpoch={13:F4} segEpoch={14:F1} bodyRelPos={15} worldPos={16} scene={17}",
                         pid, refBody.bodyName, driveUT, mnaPropagatedRad, mnaNormDeg,
+                        orbit.inclination, orbit.LAN, orbit.argumentOfPeriapsis,
                         iconLat, iconLon, iconAlt,
                         orbit.semiMajorAxis, orbit.eccentricity,
                         orbit.meanAnomalyAtEpoch, orbit.epoch,
-                        iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
+                        bodyRelPos.ToString("F0"), iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
                     1.0);
+
+                // Frame-to-frame jump detector (full rate, fires only on the anomaly). Compares the
+                // body-relative inertial position against the previous frame's for this pid. A
+                // genuine orbital sweep moves sub-km per frame at these altitudes; a > threshold
+                // step in one frame is the teleport. Logs prev/curr orientation + mna so the
+                // corrupting reseed (OrbitFrame change with no Parsek-logged reapply) is named.
+                if (lastIconBodyRelPos.TryGetValue(pid, out var prev))
+                {
+                    double stepM = (bodyRelPos - prev.pos).magnitude;
+                    if (stepM > IconJumpThresholdMeters)
+                    {
+                        ParsekLog.Warn("GhostIconJump",
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Icon JUMP pid={0} body={1} step={2:F0}m driveUT {3:F1}->{4:F1} " +
+                                "mnaDeg {5:F2}->{6:F2} inc {7:F4}->{8:F4} lan {9:F4}->{10:F4} " +
+                                "argPe {11:F4}->{12:F4} sma {13:F0}->{14:F0} prevPos={15} currPos={16}",
+                                pid, refBody.bodyName, stepM, prev.driveUT, driveUT,
+                                prev.mnaDeg, mnaNormDeg, prev.inc, orbit.inclination,
+                                prev.lan, orbit.LAN, prev.argPe, orbit.argumentOfPeriapsis,
+                                prev.sma, orbit.semiMajorAxis,
+                                prev.pos.ToString("F0"), bodyRelPos.ToString("F0")));
+                    }
+                }
+                lastIconBodyRelPos[pid] = new IconFrameSnapshot(
+                    bodyRelPos, driveUT, mnaNormDeg, orbit.inclination, orbit.LAN,
+                    orbit.argumentOfPeriapsis, orbit.semiMajorAxis);
             }
             return false;
         }
+
+        /// <summary>Per-frame body-relative icon snapshot for the jump detector.</summary>
+        private readonly struct IconFrameSnapshot
+        {
+            internal readonly Vector3d pos;
+            internal readonly double driveUT, mnaDeg, inc, lan, argPe, sma;
+            internal IconFrameSnapshot(Vector3d pos, double driveUT, double mnaDeg,
+                double inc, double lan, double argPe, double sma)
+            {
+                this.pos = pos; this.driveUT = driveUT; this.mnaDeg = mnaDeg;
+                this.inc = inc; this.lan = lan; this.argPe = argPe; this.sma = sma;
+            }
+        }
+
+        /// <summary>Previous-frame body-relative icon position + orientation per ghost pid.</summary>
+        private static readonly System.Collections.Generic.Dictionary<uint, IconFrameSnapshot>
+            lastIconBodyRelPos = new System.Collections.Generic.Dictionary<uint, IconFrameSnapshot>();
+
+        /// <summary>One-frame body-relative step above this (metres) is logged as an icon teleport.</summary>
+        private const double IconJumpThresholdMeters = 50000.0;
     }
 
     /// <summary>
