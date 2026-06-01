@@ -55,6 +55,12 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
+        private static readonly MethodInfo FlightEvaHatchIsObstructedMoreMethod =
+            FlightEvaType?.GetMethod("HatchIsObstructedMore",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Part), typeof(Transform) },
+                null);
         private static readonly MethodInfo FlightGlobalsSetActiveVesselMethod =
             typeof(FlightGlobals).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
@@ -2131,19 +2137,81 @@ namespace Parsek.InGameTests
                 yield return WaitForEvaBranchCount(tree, initialEvaBranches + 1, 10f, "first EVA branch");
 
                 Vessel sourceVessel = firstSourcePart?.vessel ?? vessel;
+                uint sourcePid = sourceVessel.persistentId;
+
+                // After spawnEVA, KSP auto-switches focus to the freshly created EVA kerbal a few
+                // frames later. Wait for that hand-off: it parks the source capsule's recording into
+                // the tree BackgroundMap, which is the precondition the background-parent branch path
+                // is built for. Switching back before the hand-off would be a no-op (the capsule is
+                // still active), and KSP's later auto-switch would then steal focus away again.
+                yield return WaitForActiveVesselToLeavePid(sourcePid, 10f);
+                if (FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.persistentId == sourcePid)
+                {
+                    InGameAssert.Skip(
+                        "KSP never auto-switched focus to the first EVA kerbal, so the source capsule " +
+                        "was never parked to background; cannot exercise the background-parent path");
+                    yield break;
+                }
+
+                // KSP's spawnEVA refuses a second EVA while a kerbal stands on the only hatch: it runs
+                // an obstruction check, posts a screen message, and returns null WITHOUT firing
+                // onCrewOnEva. So move the first EVA kerbal a few metres clear of the capsule before
+                // the second EVA — this mirrors the real reproducer, where the first kerbal had walked
+                // away (planted a flag) before the user EVA'd the second. The auto-switch above leaves
+                // the EVA kerbal as the active vessel, so it is the one to move.
+                Vessel firstEvaVessel = FlightGlobals.ActiveVessel;
+                if (firstEvaVessel == null || !firstEvaVessel.isEVA)
+                {
+                    InGameAssert.Skip(
+                        "expected the first EVA kerbal to be the active vessel after KSP's auto-switch, " +
+                        "but it was not; cannot clear the capsule hatch for the second EVA");
+                    yield break;
+                }
+                MoveVesselClearOfAnchor(firstEvaVessel, sourceVessel, 12.0);
+                yield return new WaitForSeconds(0.5f);
+
+                // Switch back to the source capsule and wait for focus to settle on it.
                 if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
                 {
                     InGameAssert.Skip(switchSkipReason);
                     yield break;
                 }
 
-                yield return WaitForActiveVesselPid(sourceVessel.persistentId, 10f);
+                yield return WaitForActiveVesselPid(sourcePid, 10f);
                 yield return new WaitForSeconds(0.5f);
+
+                // Keep the capsule active-but-idle: the first EVA's switch-away already parked the
+                // capsule's recording into the tree BackgroundMap; disarm the post-switch auto-record
+                // watch so it cannot promote that still-backgrounded recording into a live recorder
+                // before the second EVA fires. A live recorder here would route the second EVA through
+                // the live mid-recording branch path instead of the background-parent path under test.
+                TryDisarmPostSwitchAutoRecord(
+                    flight, "EvaTwiceFromSameCapsule: keep source capsule idle before second EVA");
+                if (flight.IsPostSwitchAutoRecordArmedForPid(sourcePid) || flight.IsRecording)
+                {
+                    InGameAssert.Skip(
+                        "source capsule did not settle into an idle, non-recording state after " +
+                        "switch-back (post-switch auto-record still armed, or recording resumed), so " +
+                        "the second EVA would not take the background-parent path");
+                    yield break;
+                }
 
                 if (!TryGetEvaSource(sourceVessel, out Part secondSourcePart, out ProtoCrewMember secondCrew,
                     out Transform secondAirlock, out string secondEvaSourceSkipReason))
                 {
                     InGameAssert.Skip(secondEvaSourceSkipReason);
+                    yield break;
+                }
+
+                // Guard against a misleading timeout: if the capsule hatch is still obstructed, KSP's
+                // spawnEVA returns null with no onCrewOnEva and no branch. Surface that as a clear Skip
+                // (the reposition above did not clear the hatch) instead of a 10s WaitForEvaBranchCount
+                // timeout that looks like a product regression.
+                if (IsHatchObstructed(secondSourcePart, secondAirlock))
+                {
+                    InGameAssert.Skip(
+                        "capsule hatch still obstructed after moving the first EVA kerbal clear; " +
+                        "spawnEVA would refuse the second EVA, so the background-parent path is unreachable");
                     yield break;
                 }
 
@@ -3013,6 +3081,75 @@ namespace Parsek.InGameTests
             InGameAssert.Fail(
                 $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
                 $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+        }
+
+        // Waits (without asserting) until the active vessel is no longer the given pid, or the
+        // timeout elapses. Used to observe KSP's stock auto-switch to a freshly spawned EVA kerbal;
+        // the caller decides whether a non-switch is a Skip or an error.
+        private static IEnumerator WaitForActiveVesselToLeavePid(uint pid, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                if (active == null || active.persistentId != pid)
+                    yield break;
+
+                yield return null;
+            }
+        }
+
+        // Moves a loaded vessel a fixed distance horizontally away from an anchor vessel, so it stops
+        // obstructing the anchor's hatch. Used to step the first EVA kerbal off the capsule ladder
+        // before the second EVA (KSP's spawnEVA refuses a second EVA while the only hatch is blocked).
+        private static void MoveVesselClearOfAnchor(Vessel mover, Vessel anchor, double metres)
+        {
+            if (mover == null || anchor == null || VesselSetPositionMethod == null)
+                return;
+
+            Vector3d anchorPos = anchor.GetWorldPos3D();
+            Vector3d moverPos = mover.GetWorldPos3D();
+            // Derive up from body+position rather than anchor.upAxis: the anchor is backgrounded after
+            // the focus switch, so its cached upAxis can be stale.
+            Vector3d up = FlightGlobals.getUpAxis(anchor.mainBody, anchorPos);
+            Vector3d awayFromAnchor = moverPos - anchorPos;
+            // Horizontal component of the anchor->mover direction (project out the local up axis).
+            Vector3d horizontal = awayFromAnchor - up * Vector3d.Dot(awayFromAnchor, up);
+            if (horizontal.magnitude < 0.1)
+                horizontal = (Vector3d)anchor.transform.forward; // degenerate: mover directly above anchor
+            horizontal = horizontal.normalized;
+
+            // Teleport only — velocity is intentionally left untouched; the kerbal is relocated and left
+            // to settle over the subsequent wait frames. Do not also zero velocity / nudge the rigidbody.
+            VesselSetPositionMethod.Invoke(mover, new object[] { moverPos + horizontal * metres });
+        }
+
+        // Reflects FlightEVA.HatchIsObstructedMore(Part, Transform) — the stricter check (outward ray +
+        // inward ray + overlap sphere) that spawnEVA applies to the PRIMARY hatch, so this precheck
+        // matches the gate that would actually refuse the second EVA. Returns false (treat as clear)
+        // when the check is unavailable so the test still proceeds (spawnEVA enforces the real gate);
+        // logs a breadcrumb so a later "timed out instead of skipping" investigation has a trail.
+        private static bool IsHatchObstructed(Part part, Transform airlock)
+        {
+            if (part == null || airlock == null)
+                return false;
+            if (FlightEvaHatchIsObstructedMoreMethod == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: FlightEVA.HatchIsObstructedMore not reflectable; treating hatch as clear");
+                return false;
+            }
+
+            try
+            {
+                return (bool)FlightEvaHatchIsObstructedMoreMethod.Invoke(null, new object[] { part, airlock });
+            }
+            catch
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: HatchIsObstructedMore invoke threw; treating hatch as clear");
+                return false;
+            }
         }
 
         private static int CountEvaBranches(RecordingTree tree)
