@@ -83,6 +83,18 @@ namespace Parsek.Logistics
                 else
                     actualPerResource[resourceName] = actual;
             }
+
+            // Delivery verification (playtest follow-up): the actual resource write
+            // into the destination tank was previously silent (only exceptions
+            // logged), so a delivery cycle could not be confirmed to have moved fuel.
+            // Log the requested-vs-written per resource. Bounded (one resource per
+            // route per cycle), so Info is appropriate. written==0 means the tank
+            // was full, NO_FLOW, or the resource is absent on the destination.
+            ParsekLog.Info(Tag,
+                $"Delivery write: route={route?.Id ?? "<none>"} dest={vessel?.vesselName ?? "<none>"} " +
+                $"pid={(vessel != null ? vessel.persistentId : 0u).ToString(IC)} " +
+                $"resource={resourceName} requested={amount.ToString("R", IC)} " +
+                $"written={actual.ToString("R", IC)} path={(isLoaded ? "loaded" : "unloaded")}");
         }
 
         internal double ReadActualResource(string resourceName)
