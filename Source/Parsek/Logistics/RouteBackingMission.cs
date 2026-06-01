@@ -7,13 +7,15 @@ namespace Parsek.Logistics
     /// <summary>
     /// The ONE backing-mission helper for Supply Routes (design §0; plan Phase 0
     /// task 4 / Phase 1). A v0 route renders as a looped Mission segment over its
-    /// source tree's <c>[launch .. undock]</c> path. This helper owns the two
-    /// route-side derivations:
+    /// source tree's <c>[launch .. dock]</c> path: rendering STOPS at the docking
+    /// moment (playtest follow-up), so the docked-together combined vessel (the
+    /// dock-merged child, which spans dock..undock) is NOT rendered. This helper
+    /// owns the two route-side derivations:
     /// <list type="number">
     ///   <item><see cref="ComputeExcludedIntervalKeys"/> — which composition
     ///   intervals to drop so the rendered window end-trims to
-    ///   <c>[launch .. undock]</c> (the post-undock survivor / payload tail is
-    ///   excluded).</item>
+    ///   <c>[launch .. dock]</c> (the docked combined-vessel tail AND the
+    ///   post-undock survivor / payload tail are excluded).</item>
     ///   <item><see cref="BuildMission"/> — the on-demand, route-owned
     ///   <see cref="Mission"/> object handed to <c>MissionLoopUnitBuilder.Build</c>.
     ///   It is NEVER inserted into <c>MissionStore</c>.</item>
@@ -25,7 +27,8 @@ namespace Parsek.Logistics
     /// <c>MissionStructureBuilder.Build(tree)</c> →
     /// <c>MissionCompositionBuilder.Build(structure)</c>. The window START derives
     /// from the tree ROOT launch (<c>launchUT</c>, the root recording's StartUT),
-    /// NOT from the mid-flight merged dock child. The END is the undock UT.
+    /// NOT from the mid-flight merged dock child. The END is the recorded DOCK UT
+    /// (v0 stops rendering at the docking moment).
     /// </para>
     /// <para>
     /// This helper intentionally SKIPS <c>MissionThroughLineBuilder.Build</c>:
@@ -51,28 +54,30 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// Small UT epsilon for the straddling-interval boundary test. An interval
-        /// whose start is at-or-after <c>undockUT - Epsilon</c> is treated as
-        /// post-undock and excluded; an interval that merely ENDS at the undock is
-        /// kept (its start is strictly before). Tiny relative to any real flight
-        /// timeline so it only resolves exact-boundary ties.
+        /// whose start is at-or-after <c>segmentEndUT - Epsilon</c> is treated as
+        /// past the segment end and excluded (for v0 this catches the dock-merged
+        /// combined vessel, whose start IS the dock = segment end); an interval that
+        /// merely ENDS at the segment end is kept (its start is strictly before).
+        /// Tiny relative to any real flight timeline so it only resolves
+        /// exact-boundary ties.
         /// </summary>
         internal const double BoundaryEpsilonSeconds = 1e-6;
 
         /// <summary>
         /// Derives the set of composition-interval keys
         /// (<c>MissionCompositionNode.HeadLegId</c>) to EXCLUDE so the backing
-        /// mission renders only <c>[launchUT .. undockUT]</c>. Pure.
+        /// mission renders only <c>[launchUT .. segmentEndUT]</c>. Pure.
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
-        /// <param name="undockUT">End of the route segment (the undock instant).</param>
+        /// <param name="segmentEndUT">End of the route segment (v0: the recorded DOCK UT, so the docked combined-vessel tail is excluded).</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Excluded interval keys. Empty set on any guard failure (NaN inputs,
-        /// <c>undockUT &lt;= launchUT</c>, or no composition roots) — the whole
+        /// <c>segmentEndUT &lt;= launchUT</c>, or no composition roots) — the whole
         /// segment renders, an honest fallback.
         /// </returns>
         internal static HashSet<string> ComputeExcludedIntervalKeys(
-            RecordingTree tree, double undockUT, double launchUT)
+            RecordingTree tree, double segmentEndUT, double launchUT)
         {
             var excluded = new HashSet<string>();
             var ic = CultureInfo.InvariantCulture;
@@ -84,19 +89,19 @@ namespace Parsek.Logistics
                     "ComputeExcludedIntervalKeys: tree=<null> -> empty (whole segment renders)");
                 return excluded;
             }
-            if (double.IsNaN(undockUT) || double.IsNaN(launchUT))
+            if (double.IsNaN(segmentEndUT) || double.IsNaN(launchUT))
             {
                 ParsekLog.Verbose(Tag,
                     $"ComputeExcludedIntervalKeys: NaN window tree={tree.Id ?? "<null>"} " +
-                    $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                    $"segmentEndUT={segmentEndUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
                     "-> empty (whole segment renders)");
                 return excluded;
             }
-            if (undockUT <= launchUT)
+            if (segmentEndUT <= launchUT)
             {
                 ParsekLog.Verbose(Tag,
-                    $"ComputeExcludedIntervalKeys: undockUT<=launchUT tree={tree.Id ?? "<null>"} " +
-                    $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                    $"ComputeExcludedIntervalKeys: segmentEndUT<=launchUT tree={tree.Id ?? "<null>"} " +
+                    $"segmentEndUT={segmentEndUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
                     "-> empty (whole segment renders)");
                 return excluded;
             }
@@ -113,7 +118,7 @@ namespace Parsek.Logistics
             }
 
             // Collect the recording ids that separated at the route's TERMINAL
-            // Undock branch point (the one at/nearest undockUT). Keying the trim on
+            // Undock branch point (the one at/nearest segmentEndUT). Keying the trim on
             // these (rather than a pure StartUT scan) is robust against
             // structural-peel edge clamping: MissionComposition clamps a peel UT
             // into [runStart, runEnd], so a leg's StartUT can drift; the
@@ -124,17 +129,17 @@ namespace Parsek.Logistics
             // Scoped to the terminal undock (Phase 1 review carry-forward): an
             // earlier in-flight undock (a mid-mission separation BEFORE the route's
             // dock cycle) must NOT trim the survivor that continues on to the dock.
-            // We pick the Undock branch point whose UT is closest to undockUT, and
+            // We pick the Undock branch point whose UT is closest to segmentEndUT, and
             // additionally AND the branch-child test with the StartUT>=boundary
             // guard in WalkAndClassify so a child that legitimately starts before
             // the boundary is never dropped on branch-id alone.
-            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, undockUT);
+            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, segmentEndUT);
 
             // --- Walk every selectable interval; exclude post-undock ones. ---
             int scanned = 0;
             int excludedCount = 0;
             int keptCount = 0;
-            double boundary = undockUT - BoundaryEpsilonSeconds;
+            double boundary = segmentEndUT - BoundaryEpsilonSeconds;
             for (int i = 0; i < roots.Count; i++)
             {
                 WalkAndClassify(roots[i], boundary, undockChildLegIds, excluded,
@@ -143,7 +148,7 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"ComputeExcludedIntervalKeys: tree={tree.Id ?? "<null>"} " +
-                $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                $"segmentEndUT={segmentEndUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
                 $"scanned={scanned.ToString(ic)} excluded={excludedCount.ToString(ic)} " +
                 $"kept={keptCount.ToString(ic)} undockChildren={undockChildLegIds.Count.ToString(ic)}");
             return excluded;
@@ -151,7 +156,7 @@ namespace Parsek.Logistics
 
         /// <summary>
         /// (must-fix #3) Derives the set of underlying recording ids in the route's
-        /// rendered <c>[launchUT .. undockUT]</c> member window — every recording
+        /// rendered <c>[launchUT .. segmentEndUT]</c> member window — every recording
         /// that backs a KEPT (non-excluded) selectable composition interval. On a
         /// multi-recording flight this is MORE than the single dock-child leaf, so
         /// the route widens <c>RecordingIds</c> / <c>SourceRefs</c> to cover the
@@ -161,7 +166,7 @@ namespace Parsek.Logistics
         /// <see cref="ComputeExcludedIntervalKeys"/>.
         /// </summary>
         /// <param name="tree">Source recording tree (read-only).</param>
-        /// <param name="undockUT">End of the route segment (the undock instant).</param>
+        /// <param name="segmentEndUT">End of the route segment (v0: the recorded DOCK UT, so the docked combined-vessel tail is excluded).</param>
         /// <param name="launchUT">Start of the route segment (tree ROOT launch UT).</param>
         /// <returns>
         /// Member recording ids for the kept intervals. On any guard failure (the
@@ -170,7 +175,7 @@ namespace Parsek.Logistics
         /// else an empty set — the caller falls back to the leaf in that case.
         /// </returns>
         internal static HashSet<string> ComputeMemberRecordingIds(
-            RecordingTree tree, double undockUT, double launchUT)
+            RecordingTree tree, double segmentEndUT, double launchUT)
         {
             var members = new HashSet<string>();
             var ic = CultureInfo.InvariantCulture;
@@ -184,8 +189,8 @@ namespace Parsek.Logistics
 
             // Mirror the guards in ComputeExcludedIntervalKeys: a malformed window
             // renders the whole segment, so the member set is "every recording id".
-            bool malformed = double.IsNaN(undockUT) || double.IsNaN(launchUT)
-                || undockUT <= launchUT;
+            bool malformed = double.IsNaN(segmentEndUT) || double.IsNaN(launchUT)
+                || segmentEndUT <= launchUT;
 
             MissionStructure structure = MissionStructureBuilder.Build(tree);
             List<MissionCompositionNode> roots = MissionCompositionBuilder.Build(structure);
@@ -211,13 +216,13 @@ namespace Parsek.Logistics
                     AddRootOrAllRecordingIds(tree, members);
                 ParsekLog.Verbose(Tag,
                     $"ComputeMemberRecordingIds: malformed window tree={tree.Id ?? "<null>"} " +
-                    $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                    $"segmentEndUT={segmentEndUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
                     $"-> members={members.Count.ToString(ic)} (whole segment)");
                 return members;
             }
 
-            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, undockUT);
-            double boundary = undockUT - BoundaryEpsilonSeconds;
+            var undockChildLegIds = CollectTerminalUndockChildLegIds(tree, segmentEndUT);
+            double boundary = segmentEndUT - BoundaryEpsilonSeconds;
             int kept = 0;
             for (int i = 0; i < roots.Count; i++)
                 CollectMemberRecordingIds(roots[i], collectAll: false,
@@ -229,7 +234,7 @@ namespace Parsek.Logistics
 
             ParsekLog.Verbose(Tag,
                 $"ComputeMemberRecordingIds: tree={tree.Id ?? "<null>"} " +
-                $"undockUT={undockUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
+                $"segmentEndUT={segmentEndUT.ToString("R", ic)} launchUT={launchUT.ToString("R", ic)} " +
                 $"keptIntervals={kept.ToString(ic)} members={members.Count.ToString(ic)}");
             return members;
         }
@@ -345,7 +350,7 @@ namespace Parsek.Logistics
         }
 
         // The child recording ids of the route's TERMINAL Undock branch point: the
-        // Undock branch point whose UT is at/nearest <paramref name="undockUT"/>.
+        // Undock branch point whose UT is at/nearest <paramref name="segmentEndUT"/>.
         // These are the legs that separated at the route's undock — both the
         // survivor continuation and the undocked offshoot — so both end up
         // post-undock-excluded.
@@ -353,18 +358,18 @@ namespace Parsek.Logistics
         // Scoping to the single terminal undock (Phase 1 review carry-forward)
         // prevents an EARLIER in-flight undock (a mid-mission separation before the
         // route's dock cycle) from wrongly trimming a survivor that continues on to
-        // the dock. The terminal undock's children start at/after undockUT by
+        // the dock. The terminal undock's children start at/after segmentEndUT by
         // construction, so the StartUT>=boundary OR in WalkAndClassify still catches
         // them even when MissionComposition clamps a child's StartUT slightly below
         // the boundary.
         private static HashSet<string> CollectTerminalUndockChildLegIds(
-            RecordingTree tree, double undockUT)
+            RecordingTree tree, double segmentEndUT)
         {
             var ids = new HashSet<string>();
             if (tree.BranchPoints == null)
                 return ids;
 
-            // Pick the Undock branch point closest to undockUT. Ties (exact-UT
+            // Pick the Undock branch point closest to segmentEndUT. Ties (exact-UT
             // duplicates, which a well-formed tree should not have) keep the first.
             BranchPoint terminal = null;
             double bestDelta = double.PositiveInfinity;
@@ -373,7 +378,7 @@ namespace Parsek.Logistics
                 BranchPoint bp = tree.BranchPoints[i];
                 if (bp == null || bp.Type != BranchPointType.Undock || bp.ChildRecordingIds == null)
                     continue;
-                double delta = Math.Abs(bp.UT - undockUT);
+                double delta = Math.Abs(bp.UT - segmentEndUT);
                 if (delta < bestDelta)
                 {
                     bestDelta = delta;

@@ -183,15 +183,20 @@ namespace Parsek
         /// </summary>
         internal static double ComputeRootToUndockSpan(RouteAnalysisResult result, RecordingTree tree)
         {
+            // NOTE (playtest follow-up): the rendered route segment now ends at the
+            // DOCK, not the undock (rendering stops at the docking moment; the docked
+            // combined vessel is not rendered). So this returns the [root .. DOCK]
+            // span = the route's TransitDuration. The method name is retained for
+            // call-site stability; "Undock" is historical.
             Recording source = result?.SourceRecording;
             double leafSpan = source != null
                 ? Math.Max(1.0, source.EndUT - source.StartUT)
                 : 1.0;
 
-            double undockUT = result?.ConnectionWindow != null
-                ? result.ConnectionWindow.UndockUT
+            double dockUT = result?.ConnectionWindow != null
+                ? result.ConnectionWindow.DockUT
                 : double.NaN;
-            if (double.IsNaN(undockUT) || double.IsInfinity(undockUT))
+            if (double.IsNaN(dockUT) || double.IsInfinity(dockUT))
                 return leafSpan;
 
             // Root launch UT from the tree ROOT (the launch site), falling back to
@@ -207,7 +212,7 @@ namespace Parsek
             if (double.IsNaN(rootLaunchUT) || double.IsInfinity(rootLaunchUT))
                 return leafSpan;
 
-            double span = undockUT - rootLaunchUT;
+            double span = dockUT - rootLaunchUT;
             return span > 0.0 ? span : leafSpan;
         }
 

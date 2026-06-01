@@ -105,7 +105,7 @@ namespace Parsek.Tests.Logistics
             // Build the route-owned Mission via the production helpers exactly as the
             // host seams do: derive the excluded keys, then build the Mission.
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(tree, undockUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeExcludedIntervalKeys(tree, segmentEndUT: 3000.0, launchUT: 1000.0);
             Route route = new RouteFixtureBuilder()
                 .WithId("route-loopunit")
                 .WithName("Loop Unit Route")
@@ -167,7 +167,7 @@ namespace Parsek.Tests.Logistics
             committed.AddRange(manualTree.Recordings.Values);
 
             HashSet<string> excluded =
-                RouteBackingMission.ComputeExcludedIntervalKeys(routeTree, undockUT: 3000.0, launchUT: 1000.0);
+                RouteBackingMission.ComputeExcludedIntervalKeys(routeTree, segmentEndUT: 3000.0, launchUT: 1000.0);
             Route route = new RouteFixtureBuilder()
                 .WithId("route-disjoint")
                 .WithBackingMissionTreeId(routeTreeId)

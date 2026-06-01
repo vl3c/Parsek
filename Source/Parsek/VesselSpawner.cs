@@ -310,6 +310,103 @@ namespace Parsek
             return false;
         }
 
+        /// <summary>
+        /// Gathers (lat, lon) for every existing same-body landed/splashed vessel — loaded
+        /// AND on-rails proto — that could be a stacking blocker for a new surface spawn.
+        /// At KSC / Tracking Station nothing is loaded, so the loaded-only collision check
+        /// (<see cref="SpawnCollisionDetector.CheckOverlapAgainstLoadedVessels"/>) sees no
+        /// blockers and lets duplicate deliveries of the same craft stack on top of each
+        /// other (then explode when the player loads them into physics). This proto-aware
+        /// gather feeds <see cref="SpawnCollisionDetector.ComputeDeOverlappedLandedSpawn"/>
+        /// so the new spawn is nudged clear before materialization.
+        ///
+        /// Excludes: the recording's own already-adopted source vessel (<paramref name="excludePid"/>),
+        /// ghost-map vessels, and Debris/EVA/Flag/SpaceObject types. Only same-body surface
+        /// vessels are returned — orbital/flying vessels do not constrain a ground footprint.
+        /// </summary>
+        internal static List<(double lat, double lon)> GatherExistingLandedVesselPositions(
+            CelestialBody body, uint excludePid)
+        {
+            var result = new List<(double lat, double lon)>();
+            if (body == null)
+                return result;
+
+            int loadedCount = 0;
+            int protoCount = 0;
+            try
+            {
+                var vessels = FlightGlobals.Vessels;
+                if (vessels != null)
+                {
+                    for (int i = 0; i < vessels.Count; i++)
+                    {
+                        Vessel v = vessels[i];
+                        if (v == null) continue;
+                        if (v.persistentId == excludePid) continue;
+                        if (v.mainBody != body) continue;
+                        if (!(v.Landed || v.Splashed)) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(v.persistentId)) continue;
+                        if (SpawnCollisionDetector.ShouldSkipVesselType(v.vesselType)) continue;
+                        result.Add((v.latitude, v.longitude));
+                        loadedCount++;
+                    }
+                }
+
+                var protoVessels = HighLogic.CurrentGame?.flightState?.protoVessels;
+                if (protoVessels != null)
+                {
+                    for (int i = 0; i < protoVessels.Count; i++)
+                    {
+                        ProtoVessel pv = protoVessels[i];
+                        if (pv == null) continue;
+                        if (pv.persistentId == excludePid) continue;
+                        // Skip protos already represented by a loaded Vessel (counted above).
+                        if (pv.vesselRef != null && pv.vesselRef.loaded) continue;
+                        if (GhostMapPresence.IsGhostMapVessel(pv.persistentId)) continue;
+                        if (SpawnCollisionDetector.ShouldSkipVesselType(pv.vesselType)) continue;
+                        if (!ProtoVesselIsOnSameBodySurface(pv, body)) continue;
+                        result.Add((pv.latitude, pv.longitude));
+                        protoCount++;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!IsHeadlessKspAccessFailure(ex))
+                    throw;
+                ParsekLog.Verbose("Spawner",
+                    $"GatherExistingLandedVesselPositions: KSP unavailable for body={body?.name} — returning {result.Count} so far");
+            }
+
+            ParsekLog.Verbose("Spawner",
+                $"GatherExistingLandedVesselPositions: body={body.name} excludePid={excludePid} " +
+                $"loaded={loadedCount} proto={protoCount} total={result.Count}");
+            return result;
+        }
+
+        /// <summary>
+        /// True when a proto vessel is landed/splashed (or its persisted situation is a
+        /// surface situation) on the given body. Surface situation gates the de-overlap
+        /// gather so an orbiting proto sharing the body does not constrain the footprint.
+        /// </summary>
+        private static bool ProtoVesselIsOnSameBodySurface(ProtoVessel pv, CelestialBody body)
+        {
+            if (pv == null || body == null)
+                return false;
+
+            int refBodyIndex = pv.orbitSnapShot != null
+                ? pv.orbitSnapShot.ReferenceBodyIndex
+                : -1;
+            if (refBodyIndex >= 0 && refBodyIndex != body.flightGlobalsIndex)
+                return false;
+
+            return pv.landed
+                || pv.splashed
+                || pv.situation == Vessel.Situations.LANDED
+                || pv.situation == Vessel.Situations.SPLASHED
+                || pv.situation == Vessel.Situations.PRELAUNCH;
+        }
+
         private static bool IsHeadlessKspAccessFailure(Exception ex)
         {
             for (Exception current = ex; current != null; current = current.InnerException)

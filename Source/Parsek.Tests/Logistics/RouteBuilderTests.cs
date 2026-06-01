@@ -297,13 +297,13 @@ namespace Parsek.Tests.Logistics
         }
 
         [Fact]
-        public void Build_TransitDurationIsRenderedSpan_UndockMinusRootLaunch()
+        public void Build_TransitDurationIsRenderedSpan_DockMinusRootLaunch()
         {
-            // (must-fix #3) TransitDuration is the RENDERED span (undockUT -
-            // rootLaunchUT), NOT the leaf-only source.EndUT - source.StartUT.
-            // With no committedTree, rootLaunchUT == source.StartUT. Span here is
-            // undock(2700) - launch(2000) = 700, which differs from the recording
-            // span (2900 - 2000 = 900) so the test pins the new contract.
+            // (must-fix #3 + playtest follow-up) TransitDuration is the RENDERED span
+            // [rootLaunchUT .. DOCK]: rendering stops at the docking moment, so the
+            // docked-together combined vessel (dock..undock) is NOT rendered. NOT
+            // undock-launch and NOT the leaf-only source span. With no committedTree,
+            // rootLaunchUT == source.StartUT. Span here is dock(2500) - launch(2000) = 500.
             Recording source = MakeKscSource(
                 startUT: 2000.0, endUT: 2900.0, dockUT: 2500.0, undockUT: 2700.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
@@ -312,7 +312,7 @@ namespace Parsek.Tests.Logistics
                 RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 900.0), Game.Modes.SANDBOX);
 
             Assert.NotNull(outcome.Route);
-            Assert.Equal(700.0, outcome.Route.TransitDuration);
+            Assert.Equal(500.0, outcome.Route.TransitDuration);
         }
 
         [Fact]
@@ -362,7 +362,8 @@ namespace Parsek.Tests.Logistics
             // (must-fix #2) When allowIntervalBelowTransit is set (the debug /
             // candidate Create Route path), an interval below the rendered span is
             // CLAMPED UP to the span (not rejected) so cadence == interval == span
-            // and one crossing == one dispatch cycle. Span = undock(900)-launch(0).
+            // and one crossing == one dispatch cycle. Span = dock(800)-launch(0) = 800
+            // (the segment ends at the dock, not the undock).
             Recording source = MakeKscSource(
                 startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
@@ -375,9 +376,9 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(outcome.Route);
             Assert.Null(outcome.RejectReason);
-            // Interval clamped UP to the span.
-            Assert.Equal(900.0, outcome.Route.DispatchInterval);
-            Assert.Equal(900.0, outcome.Route.TransitDuration);
+            // Interval clamped UP to the span (= dock - launch = 800).
+            Assert.Equal(800.0, outcome.Route.DispatchInterval);
+            Assert.Equal(800.0, outcome.Route.TransitDuration);
             Assert.Contains(logLines, l =>
                 l.Contains("[Route]")
                 && l.Contains("interval below span")
@@ -605,10 +606,13 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(outcome.Route);
             Route route = outcome.Route;
-            // Span = undock(3000) - rootLaunch(1000) = 2000.
-            Assert.Equal(2000.0, route.TransitDuration);
-            // Member set covers the kept [root..undock] recordings: the launch root
-            // and the dock child. The post-undock survivor is NOT a member.
+            // Span = dock(2000) - rootLaunch(1000) = 1000 (segment ends at the dock,
+            // so the docked combined-vessel tail is not rendered).
+            Assert.Equal(1000.0, route.TransitDuration);
+            // Member set covers the [root..dock] kept recordings (the launch root)
+            // plus the force-added delivery-binding leaf (the dock child, which
+            // carries the proof even though it is not rendered). The post-undock
+            // survivor is NOT a member.
             Assert.Contains("launch-root", route.RecordingIds);
             Assert.Contains("docked-child", route.RecordingIds);
             Assert.DoesNotContain("survivor", route.RecordingIds);
@@ -627,18 +631,19 @@ namespace Parsek.Tests.Logistics
         {
             // (Phase 6) An interval equal to the rendered span -> N=1 (the floor),
             // and DispatchInterval == TransitDuration. Default cadence is the
-            // minimum loop time. Span = undock(1400) - launch(1000) = 400.
+            // minimum loop time. Span = dock(1200) - launch(1000) = 200 (segment
+            // ends at the dock).
             Recording source = MakeKscSource(
                 startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
-                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 400.0), Game.Modes.SANDBOX);
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 200.0), Game.Modes.SANDBOX);
 
             Assert.NotNull(outcome.Route);
             Assert.Equal(1, outcome.Route.CadenceMultiplier);
-            Assert.Equal(400.0, outcome.Route.TransitDuration);
-            Assert.Equal(400.0, outcome.Route.DispatchInterval);
+            Assert.Equal(200.0, outcome.Route.TransitDuration);
+            Assert.Equal(200.0, outcome.Route.DispatchInterval);
         }
 
         [Fact]
@@ -646,17 +651,18 @@ namespace Parsek.Tests.Logistics
         {
             // (Phase 6) An interval of N x span derives CadenceMultiplier=N and the
             // interval is re-derived as N x span so the two stay in lock-step. Span =
-            // undock(1400) - launch(1000) = 400; entered interval 1200 = 3 x 400.
+            // dock(1200) - launch(1000) = 200 (segment ends at the dock); entered
+            // interval 600 = 3 x 200.
             Recording source = MakeKscSource(
                 startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
-                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 1200.0), Game.Modes.SANDBOX);
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 600.0), Game.Modes.SANDBOX);
 
             Assert.NotNull(outcome.Route);
             Assert.Equal(3, outcome.Route.CadenceMultiplier);
-            Assert.Equal(1200.0, outcome.Route.DispatchInterval);
+            Assert.Equal(600.0, outcome.Route.DispatchInterval);
             // DispatchInterval == N x TransitDuration exactly.
             Assert.Equal(outcome.Route.CadenceMultiplier * outcome.Route.TransitDuration,
                 outcome.Route.DispatchInterval);
@@ -670,7 +676,7 @@ namespace Parsek.Tests.Logistics
         {
             // (Phase 6 + must-fix #2) When an interval below the span is clamped up,
             // the resulting cadence is N=1 (the clamp lands exactly at the span).
-            // Span = undock(900) - launch(0) = 900.
+            // Span = dock(800) - launch(0) = 800 (segment ends at the dock).
             Recording source = MakeKscSource(
                 startUT: 0.0, endUT: 1000.0, dockUT: 800.0, undockUT: 900.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
@@ -683,7 +689,7 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(outcome.Route);
             Assert.Equal(1, outcome.Route.CadenceMultiplier);
-            Assert.Equal(900.0, outcome.Route.DispatchInterval);
+            Assert.Equal(800.0, outcome.Route.DispatchInterval);
         }
 
         // -----------------------------------------------------------------
@@ -851,9 +857,10 @@ namespace Parsek.Tests.Logistics
             // (CRE-2) The player-shown transit (LogisticsWindowUI.CandidateTransit and
             // the dialog summary) both route through ComputeRootToUndockSpan. That
             // span MUST equal the created route's TransitDuration; otherwise the table
-            // / summary under-reports the leaf span while the route flies the full
-            // [root..undock] span. On this fixture the leaf span (1000) is HALF the
-            // rendered span (2000), so a leaf-span display would be visibly wrong.
+            // / summary misreports while the route flies the rendered [root..DOCK] span
+            // (rendering stops at the dock). On this fixture the leaf dock-child span
+            // (1000) differs from the rendered [root..dock] span (dock 2500 - launch
+            // 1000 = 1500), so a leaf-span display would be visibly wrong.
             RecordingTree tree = MakeMultiLegTree(out Recording windowChild);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
 
@@ -866,7 +873,7 @@ namespace Parsek.Tests.Logistics
                 initialStatus: RouteStatus.Paused);
 
             Assert.NotNull(outcome.Route);
-            Assert.Equal(2000.0, outcome.Route.TransitDuration);
+            Assert.Equal(1500.0, outcome.Route.TransitDuration);
             // Display span == created route span (the whole point of CRE-2).
             Assert.Equal(outcome.Route.TransitDuration, shownSpan);
             // And it is NOT the leaf-only dock-child span (which would be 1000).
@@ -876,11 +883,12 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void Cre2_BuildSummaryBlock_TransitLine_UsesFullRootToUndockSpan_NotLeafSpan()
         {
-            // (CRE-2) The dialog summary "Transit:" line must render the full
-            // [root..undock] span, not the leaf dock-child span. Span here = 700s
-            // (under one hour, so FormatDuration never reads GameSettings -> no Unity
-            // dependency); leaf span would be 900s, which formats differently. Pin the
-            // override anyway so the format is deterministic.
+            // (CRE-2) The dialog summary "Transit:" line must render the rendered
+            // [root..DOCK] span (rendering stops at the dock), not the leaf dock-child
+            // span. Span here = dock(2500) - root(2000) = 500s (under one hour, so
+            // FormatDuration never reads GameSettings -> no Unity dependency); leaf span
+            // would be 900s, which formats differently. Pin the override anyway so the
+            // format is deterministic.
             ParsekTimeFormat.KerbinTimeOverrideForTesting = true;
             try
             {
@@ -910,12 +918,12 @@ namespace Parsek.Tests.Logistics
 
                 RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
 
-                // root.StartUT(2000) .. undock(2700) -> 700s -> "11m 40s".
+                // root.StartUT(2000) .. dock(2500) -> 500s.
                 string block = RouteCreationFormatters.BuildSummaryBlock(
                     analysis, Game.Modes.SANDBOX, tree);
 
-                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(700.0), block);
-                // The leaf span (900s = "15m 0s") must NOT appear on the Transit line.
+                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(500.0), block);
+                // The leaf span (900s) must NOT appear on the Transit line.
                 Assert.DoesNotContain("Transit: " + ParsekTimeFormat.FormatDuration(900.0), block);
             }
             finally
@@ -941,8 +949,9 @@ namespace Parsek.Tests.Logistics
                 string block = RouteCreationFormatters.BuildSummaryBlock(
                     analysis, Game.Modes.SANDBOX);
 
-                // No tree -> root falls back to source.StartUT(0); span = undock(500) - 0 = 500.
-                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(500.0), block);
+                // No tree -> root falls back to source.StartUT(0); span = dock(200) - 0
+                // = 200 (segment ends at the dock, not the undock).
+                Assert.Contains("Transit: " + ParsekTimeFormat.FormatDuration(200.0), block);
             }
             finally
             {
@@ -1041,8 +1050,9 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotNull(outcome.Route);
             Assert.Null(outcome.RejectReason);
-            // rootLaunchUT == source.StartUT, span = undock(1400) - 1000 = 400.
-            Assert.Equal(400.0, outcome.Route.TransitDuration);
+            // rootLaunchUT == source.StartUT, span = dock(1200) - 1000 = 200 (segment
+            // ends at the dock, not the undock).
+            Assert.Equal(200.0, outcome.Route.TransitDuration);
         }
 
         // -----------------------------------------------------------------
@@ -1079,8 +1089,12 @@ namespace Parsek.Tests.Logistics
             windowChild.RouteConnectionWindows[0].DockUT = 3500.0;
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(windowChild);
 
+            // Interval >= the (corrupt) dock-based span (dock 3500 - launch 1000 =
+            // 2500) so the interval-below-transit clamp does not preempt the CRE-5
+            // dock-out-of-span reject. A corrupt dock past undock must reject as
+            // dock-ut-out-of-span.
             RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
-                analysis, tree, Inputs(interval: 2000.0), Game.Modes.SANDBOX,
+                analysis, tree, Inputs(interval: 2500.0), Game.Modes.SANDBOX,
                 idFactory: null,
                 initialStatus: RouteStatus.Paused);
 
@@ -1123,20 +1137,21 @@ namespace Parsek.Tests.Logistics
             // (CRE-3) A player-entered interval between 1x and 2x the span (1.4x here)
             // rounds to N=1 and is rewritten back DOWN to exactly the span. That is the
             // documented lock-step intent (whole-span cadence; one crossing == one
-            // cycle), and it can NEVER undercut the span. Span = undock(1400) -
-            // launch(1000) = 400; entered interval = 560 (1.4x) -> N=1 -> interval 400.
+            // cycle), and it can NEVER undercut the span. Span = dock(1200) -
+            // launch(1000) = 200 (segment ends at the dock); entered interval = 280
+            // (1.4x) -> N=1 -> interval 200.
             Recording source = MakeKscSource(
                 startUT: 1000.0, endUT: 1500.0, dockUT: 1200.0, undockUT: 1400.0);
             RouteAnalysisResult analysis = EligibleAnalysisFromSource(source);
 
             RouteBuilder.RouteBuildOutcome outcome =
-                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 560.0), Game.Modes.SANDBOX);
+                RouteBuilder.BuildRoute(analysis, null, Inputs(interval: 280.0), Game.Modes.SANDBOX);
 
             Assert.NotNull(outcome.Route);
             Assert.Equal(1, outcome.Route.CadenceMultiplier);
-            Assert.Equal(400.0, outcome.Route.TransitDuration);
+            Assert.Equal(200.0, outcome.Route.TransitDuration);
             // Re-derived interval lands exactly at the span, never below it.
-            Assert.Equal(400.0, outcome.Route.DispatchInterval);
+            Assert.Equal(200.0, outcome.Route.DispatchInterval);
             Assert.True(outcome.Route.DispatchInterval >= outcome.Route.TransitDuration);
         }
     }

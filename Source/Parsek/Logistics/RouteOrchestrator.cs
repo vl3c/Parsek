@@ -1087,6 +1087,18 @@ namespace Parsek.Logistics
             // inventory. The planner is unit-tested in isolation (Phase A).
             DeliveryPlan plan = RouteDeliveryPlanner.PrepareDelivery(route, stopIndex, probe);
 
+            // Delivery verification (playtest follow-up): log the resolved
+            // destination vessel + which branch (loaded/unloaded) + the planned
+            // counts, so a cycle's delivery is traceable end-to-end (this line +
+            // the per-resource "Delivery write: ... written=X" from LiveDeliveryWriters).
+            ParsekLog.Info(Tag,
+                $"Delivery endpoint resolved: route={ShortIdForLog(route)} cycle={cycleId} " +
+                $"dest={destVessel.vesselName ?? "<none>"} " +
+                $"pid={destVessel.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"path={(destinationIsLoaded ? "loaded" : "unloaded")} " +
+                $"plannedResources={(plan.Resources?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                $"plannedInventory={(plan.Inventory?.Count ?? 0).ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+
             // STEP 5/6: apply the planned writes. Build an ApplyDeliveryContext
             // that funnels the live mutations behind delegates so the testable
             // helper does not need to instantiate Vessel / Funding /
