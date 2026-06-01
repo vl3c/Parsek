@@ -12,6 +12,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Phantom rover re-spawned at KSC after a delivery docked into a landed vessel
+
+- ~~Live playtest (`logs/2026-06-01_2155_phantom-rover/`, save `logi1`, KSP.log ~21:46-21:52). The player drove rovers near the runway and an extra `rover fuel 0` appeared with no rewind and no playback. KSCSpawn materialized a real vessel (pid 1787519024) at 21:51:59 for committed Landed leaf `804f5cff` (vessel pid 2899379747).~~ Distinct from the duplicate-landed-deliveries de-overlap entry below: that was N separate launches landing on the same spot; this is a SINGLE vessel re-spawned as a duplicate of itself.
+
+**Root cause:** Recording `804f5cff` (Landed leaf) adopted its own live vessel at KSC (`SpawnedVesselPersistentId = VesselPersistentId = 2899379747`). Back in flight a transport rover docked INTO it (UT 1607, dock branch point `268aab...` `mergeCause=DOCK targetVesselPid=2899379747`); KSP merged them and the combined vessel kept the transport's pid (1603439995), so 2899379747 vanished from `FlightGlobals.Vessels` without dying. `ParsekPlaybackPolicy.RunSpawnDeathChecks` detects death purely by `FindVesselByPid(SpawnedVesselPersistentId) == null`, so it declared a false death and reset `VesselSpawned=false`. The existing `RecordingStore.ShouldMarkSupersededTerminalSpawn` supersession links a continuation to its prior only by pid-equality (continuation keeps the same pid, true for undock/chain) or name+UT contiguity; a dock DROPS the absorbed pid (merged vessel has a different pid) and the dock branch point references the absorbed vessel by pid only (no recording-id link), so nothing connected `804f5cff` to the merged continuation. On the next Space Center visit `804f5cff` looked like an un-spawned Landed leaf with no live source, so KSCSpawn spawned a fresh duplicate.
+
+**Fix:** New `RecordingStore.MarkTerminalSpawnSupersededByDockMerge`, called from `ParsekFlight.CreateMergeBranch` (step 8b) on Dock/Board merges where the absorbed endpoint pid (`routeTargetVesselPid`, the branch point `TargetVesselPersistentId`) is non-zero and is NOT the surviving merged pid. It scans committed recordings for the absorbed vessel by pid (a unique Parsek spawn pid is matched pid-only, collision-free; the craft-baked `VesselPersistentId` route is guid-gated against the live absorbed vessel's launch guid read from the pre-couple partner snapshot via `VesselLaunchIdentity.TryReadVesselGuid`, mirroring the #976 adoption-relaunch guard), then stamps `TerminalSpawnSupersededByRecordingId = mergedChild.RecordingId` and clears `VesselSpawned`/`SpawnedVesselPersistentId` so the spawn-death loop goes quiet and `ShouldSpawnAtRecordingEnd` (flight + KSC) suppresses the duplicate. Keying on `VesselPersistentId` (not `SpawnedVesselPersistentId`) makes it durable regardless of whether the same-frame spawn-death check already zeroed the spawn stamp; running at the merge site (before the death check) keeps the adoption identity intact.
+
+**Coverage:** xUnit in `TreeCommitTests.cs` (adopted-absorbed leaf superseded + spawn state cleared; guid-gate rejects a same-craft relaunch-pid collision; survivor target = merged pid is a no-op; unique spawn pid superseded without guid; already-superseded skipped). Full suite green (13,714).
+
+**Residual:** the already-spawned phantom in the existing `logi1` save is pre-existing data the fix does not retroactively remove (the player can recover it). Verify in-game that a fresh delivery docking into a landed depot no longer spawns a duplicate at the runway.
+
+**Status:** CLOSED 2026-06-01 (pending in-game confirmation).
+
+---
+
 ## Done - v0.10.0 Supply route ghost rendered the docked combined vessel; render now stops at the dock
 
 - Playtest (first working route): the route's looping ghost was correct UP TO the dock, but then kept rendering the docked-together combined vessel (the dock-merged child recording, spanning dock..undock) at the end of each loop. The user wants rendering to STOP at the docking moment, not the undocking moment.

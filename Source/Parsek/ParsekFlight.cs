@@ -5549,6 +5549,35 @@ namespace Parsek
             activeTree.BranchPoints.Add(bp);
             activeTree.AddOrReplaceRecording(mergedChild);
 
+            // 8b. Phantom-rover fix: when this merge absorbed a Parsek-spawned / adopted
+            // vessel that has its own committed terminal leaf (cross-tree, e.g. a landed
+            // rover a logistics transport docked into), that leaf's live vessel just
+            // disappeared into the merged vessel. Suppress its terminal spawn so the
+            // spawn-death check + KSCSpawn don't later materialise a duplicate at the
+            // runway. routeTargetVesselPid is the absorbed endpoint pid (the dock branch
+            // point's TargetVesselPersistentId); skip when it survived as the merged vessel.
+            if ((branchType == BranchPointType.Dock || branchType == BranchPointType.Board)
+                && routeTargetVesselPid != 0
+                && routeTargetVesselPid != mergedVesselPid)
+            {
+                string absorbedLaunchGuid =
+                    (pendingDockPartnerSnapshot != null
+                     && pendingDockPartnerSnapshotPid == routeTargetVesselPid)
+                        ? VesselLaunchIdentity.TryReadVesselGuid(pendingDockPartnerSnapshot)
+                        : null;
+                int superseded = RecordingStore.MarkTerminalSpawnSupersededByDockMerge(
+                    routeTargetVesselPid,
+                    absorbedLaunchGuid,
+                    mergedVesselPid,
+                    mergedChild.RecordingId,
+                    "CreateMergeBranch");
+                if (superseded > 0)
+                    ParsekLog.Info("Flight",
+                        $"Dock-merge superseded {superseded} committed terminal spawn(s): " +
+                        $"absorbedPid={routeTargetVesselPid} mergedPid={mergedVesselPid} " +
+                        $"continuation={mergedChild.RecordingId}");
+            }
+
             // 9. Set active recording
             activeTree.ActiveRecordingId = mergedChild.RecordingId;
 
