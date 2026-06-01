@@ -120,6 +120,61 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure epoch-split resolver for the gap glide: reconstruct the inertial seed inputs at
+        /// <paramref name="recordedUT"/> (the rotation-phase UT) but report the SEPARATE
+        /// <paramref name="epochUT"/> the orbit must be seeded at (== recordedUT + loop shift).
+        /// Unity-free (the surface lookup is injected) so the recordedUT-position / epochUT-seed
+        /// split is directly testable. The wrapper
+        /// <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/> calls this then
+        /// applies <paramref name="seedEpochUT"/> to <c>Orbit.UpdateFromStateVectors</c>.
+        /// </summary>
+        internal static bool TryComputeHistoricalSurfaceInputsWithEpoch(
+            double lat,
+            double lon,
+            double alt,
+            Vector3d recordedVelWorldYup,
+            double recordedUT,
+            double epochUT,
+            double rotationPeriod,
+            double initialRotationDeg,
+            System.Func<double, double, double, Vector3d> getBodyRelativeSurfacePositionYup,
+            out StateVectorInputs inputs,
+            out double inertialLongitude,
+            out double seedEpochUT,
+            out string failureReason)
+        {
+            inputs = default(StateVectorInputs);
+            inertialLongitude = double.NaN;
+            seedEpochUT = double.NaN;
+            failureReason = null;
+
+            if (!IsFinite(epochUT))
+            {
+                failureReason = "non-finite-epoch";
+                return false;
+            }
+
+            if (!TryComputeHistoricalSurfaceInputs(
+                    lat,
+                    lon,
+                    alt,
+                    recordedVelWorldYup,
+                    recordedUT,
+                    rotationPeriod,
+                    initialRotationDeg,
+                    getBodyRelativeSurfacePositionYup,
+                    out inputs,
+                    out inertialLongitude,
+                    out failureReason))
+            {
+                return false;
+            }
+
+            seedEpochUT = epochUT;
+            return true;
+        }
+
+        /// <summary>
         /// Build orbit elements at <paramref name="ut"/> from a body-fixed
         /// lat/lon/alt position and a recorder-frame Y-up world velocity.
         /// </summary>
@@ -246,7 +301,9 @@ namespace Parsek
         /// <summary>
         /// Build orbit elements from a historical body-relative surface
         /// position reconstructed at <paramref name="ut"/> and a recorder-frame
-        /// Y-up world velocity.
+        /// Y-up world velocity. The orbit epoch is seeded at <paramref name="ut"/>
+        /// (no loop shift); for the loop-shifted gap-glide variant use
+        /// <see cref="TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>.
         /// </summary>
         internal static bool TryFromHistoricalLatLonAltAndRecordedVelocity(
             Orbit dst,
@@ -261,6 +318,59 @@ namespace Parsek
             out double inertialLongitude,
             out string failureReason)
         {
+            // Single-UT overload: reconstruct the inertial position at the recorded
+            // UT and seed the orbit epoch at the SAME UT. Delegating with
+            // epochUT == ut keeps this byte-identical to the original implementation
+            // for its OrbitSeedResolver MapPresence caller.
+            return TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+                dst,
+                body,
+                lat,
+                lon,
+                alt,
+                recordedVelWorldYup,
+                ut,
+                ut,
+                rotationPeriod,
+                initialRotationDeg,
+                out inertialLongitude,
+                out failureReason);
+        }
+
+        /// <summary>
+        /// Build orbit elements from a historical body-relative surface position
+        /// reconstructed at <paramref name="recordedUT"/> (the rotation-phase UT),
+        /// but seed the orbit EPOCH at a SEPARATE <paramref name="epochUT"/>.
+        /// </summary>
+        /// <remarks>
+        /// The orbit-raise gap glide reconstructs the recorded inertial POSITION at
+        /// the point's recorded UT (so it is consistent with the surrounding inertial
+        /// orbit segments rather than rotated by live body rotation), but must seed
+        /// the orbit epoch at <c>recordedUT + loopEpochShiftSeconds == liveUT</c> so
+        /// the loop phase is preserved exactly as the body-fixed
+        /// <see cref="FromWorldPosAndRecordedVelocity"/>(ut + shift) call does. The
+        /// velocity is a frame no-op pass-through (<c>.xzy</c> only); the POSITION is
+        /// the only term whose frame changes (body-fixed surface position lifted into
+        /// the inertial frame via the recorded rotation phase). Unlike
+        /// <see cref="TrajectoryMath.FrameTransform.LiftToInertial"/> this DOES include
+        /// <c>initialRotation</c> (that helper omits it because it round-trips through
+        /// LowerFromInertialToWorld where the term cancels; here there is no round-trip,
+        /// the single ABSOLUTE seed needs the full rotation phase).
+        /// </remarks>
+        internal static bool TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+            Orbit dst,
+            CelestialBody body,
+            double lat,
+            double lon,
+            double alt,
+            Vector3d recordedVelWorldYup,
+            double recordedUT,
+            double epochUT,
+            double rotationPeriod,
+            double initialRotationDeg,
+            out double inertialLongitude,
+            out string failureReason)
+        {
             if (dst == null || body == null)
             {
                 inertialLongitude = double.NaN;
@@ -268,18 +378,20 @@ namespace Parsek
                 return false;
             }
 
-            if (!TryComputeHistoricalSurfaceInputs(
+            if (!TryComputeHistoricalSurfaceInputsWithEpoch(
                     lat,
                     lon,
                     alt,
                     recordedVelWorldYup,
-                    ut,
+                    recordedUT,
+                    epochUT,
                     rotationPeriod,
                     initialRotationDeg,
                     (historicalLat, historicalLon, historicalAlt) =>
                         body.GetRelSurfacePosition(historicalLat, historicalLon, historicalAlt),
                     out StateVectorInputs inputs,
                     out inertialLongitude,
+                    out double seedEpochUT,
                     out failureReason))
             {
                 return false;
@@ -289,13 +401,15 @@ namespace Parsek
                 inputs.PositionForUpdate,
                 inputs.VelocityForUpdate,
                 body,
-                ut);
+                seedEpochUT);
             ParsekLog.Verbose("OrbitReseed",
                 string.Format(CultureInfo.InvariantCulture,
-                    "TryFromHistoricalLatLonAltAndRecordedVelocity: body={0} ut={1:F2} " +
-                    "lat={2:F4} lon={3:F4} inertialLon={4:F4} alt={5:F1} |vel|={6:F2}",
+                    "TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch: body={0} recordedUT={1:F2} " +
+                    "epochUT={2:F2} loopShift={3:F2} lat={4:F4} lon={5:F4} inertialLon={6:F4} alt={7:F1} |vel|={8:F2}",
                     body?.name ?? "(null)",
-                    ut,
+                    recordedUT,
+                    epochUT,
+                    epochUT - recordedUT,
                     lat,
                     lon,
                     inertialLongitude,

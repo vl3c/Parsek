@@ -55,6 +55,12 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
+        private static readonly MethodInfo FlightEvaHatchIsObstructedMoreMethod =
+            FlightEvaType?.GetMethod("HatchIsObstructedMore",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Part), typeof(Transform) },
+                null);
         private static readonly MethodInfo FlightGlobalsSetActiveVesselMethod =
             typeof(FlightGlobals).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
@@ -1445,6 +1451,112 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Inertial-frame gap glide under a large loop shift (the ~90 deg icon-teleport fix). On a
+        /// LOOPED re-aimed mission the gap point is replayed ~1e9 s after it was recorded; Kerbin has
+        /// rotated ~96.6 deg over that shift. The body-fixed seed (the pre-fix path) resolves the gap
+        /// point via <c>GetWorldSurfacePosition</c> at the LIVE Kerbin orientation, so the icon sits
+        /// rotated off the inertial orbit lines (drawn from recorded Keplerian elements). The fix
+        /// (<see cref="OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch"/>)
+        /// reconstructs the point's INERTIAL position from its recorded UT + body rotation (incl.
+        /// initialRotation) and seeds the orbit at the loop-shifted epoch, so the seeded orbit's
+        /// position at liveUT matches the recorded INERTIAL longitude, not the live-BodyFrame
+        /// body-fixed projection.
+        ///
+        /// This is the only path that exercises the live <c>body.rotationPeriod</c> +
+        /// <c>initialRotation</c> + <c>GetRelSurfacePosition</c> + <c>Orbit.UpdateFromStateVectors</c>
+        /// together (xUnit cannot run any of those). It asserts: (a) the inertial-seeded orbit's
+        /// world position differs from the live-BodyFrame body-fixed projection by the rotation the
+        /// loop shift induces (the icon no longer rotates by kerbinRot(shift)); (b) the inertial-seeded
+        /// orbit's pos round-trips back to the recorded inertial point at the recorded rotation phase.
+        /// NOTE: (b) is a self-consistency check of the seed -> UpdateFromStateVectors -> orbit.pos
+        /// round-trip, NOT independent proof that the icon lands on the actual recorded OrbitSegment
+        /// line geometry; true icon-on-line co-location is a playtest concern.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Looped gap glide seeds the recorded inertial position (icon stays on the orbit lines, no ~90 deg teleport)")]
+        public void GhostMapGapGlideSeedsInertialPositionUnderLoopShift()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // A mid-gap point from the recorded raise arc (rec 61e9...30): body-fixed lat/lon/alt at
+            // ~131 km, recorded UT inside the parking->loiter gap, and a typical ~2.1 km/s velocity.
+            const double recordedUT = 52570071.0;        // mid-gap
+            const double lat = -0.0383;
+            const double lon = 49.19;                     // body-fixed longitude as recorded
+            const double alt = 131465.0;
+            var recordedVel = new Vector3d(2100.0, 0.0, 0.0);
+
+            // The loop replays ~1.002e9 s later (the Kerbin->Duna loop period from the evidence log).
+            const double loopShift = 1.002e9;
+            double epochUT = recordedUT + loopShift;
+
+            double rotationPeriod = kerbin.rotationPeriod;
+            InGameAssert.IsTrue(!double.IsNaN(rotationPeriod) && System.Math.Abs(rotationPeriod) > 1.0,
+                $"Kerbin rotationPeriod must be finite/non-zero (got {rotationPeriod:F1})");
+
+            // Resolve initialRotation via the same reflection path the chokepoint uses.
+            double initialRotation = OrbitSeedResolver.ResolveInitialRotation(kerbin);
+
+            // (a) The FIX: reconstruct the inertial position at the recorded UT, seed the orbit at the
+            // loop-shifted epoch. This is the EXACT call UpdateGhostOrbitFromStateVectors makes for the
+            // orbit-raise-gap-points reason on an Absolute branch.
+            var inertialOrbit = new Orbit();
+            inertialOrbit.referenceBody = kerbin;
+            bool inertialOk = OrbitReseed.TryFromHistoricalLatLonAltAndRecordedVelocityWithEpoch(
+                inertialOrbit, kerbin, lat, lon, alt, recordedVel,
+                recordedUT, epochUT, rotationPeriod, initialRotation,
+                out double inertialLon, out string inertialFail);
+            InGameAssert.IsTrue(inertialOk,
+                $"inertial seed must succeed (fail={inertialFail ?? "(null)"})");
+
+            // The seeded orbit's position at liveUT (== epochUT) is the icon position the map draws.
+            inertialOrbit.Init();
+            inertialOrbit.UpdateFromUT(epochUT);
+            Vector3d inertialIconWorld = kerbin.position + inertialOrbit.pos;   // body-relative -> world
+
+            // The recorded INERTIAL world position the orbit LINES draw from: a body-relative point at
+            // the recorded rotation phase (lon lifted by initialRotation + recordedUT * 360 / period).
+            double phaseDeg = initialRotation + (recordedUT * 360.0) / rotationPeriod;
+            double recordedInertialLon = OrbitReseed.WrapLongitudeDegrees(lon + phaseDeg);
+            InGameAssert.IsTrue(System.Math.Abs(recordedInertialLon - inertialLon) < 1e-3,
+                $"reconstructed inertial longitude ({inertialLon:F4}) must equal the recorded rotation-phase " +
+                $"longitude ({recordedInertialLon:F4})");
+            Vector3d recordedInertialWorld =
+                kerbin.position + kerbin.GetRelSurfacePosition(lat, recordedInertialLon, alt);
+
+            double iconVsLine = (inertialIconWorld - recordedInertialWorld).magnitude;
+            // The icon must sit on the inertial line point within a small tolerance (orbit seeding
+            // round-trips the state vector; the only drift is sub-period propagation noise).
+            InGameAssert.IsLessThan(iconVsLine, 50000.0,
+                $"inertial-seeded icon ({iconVsLine:F0} m from the recorded inertial line point) must stay " +
+                $"co-located with the inertial orbit lines (no rotation off the line)");
+
+            // (b) The BUG: the body-fixed seed projects the gap point through GetWorldSurfacePosition at
+            // the LIVE Kerbin orientation. Over the ~1e9 s loop shift Kerbin rotated ~96.6 deg, so the
+            // body-fixed icon sits that far around the orbit from the inertial line point. Show the
+            // separation is large (the teleport the fix removes).
+            Vector3d bodyFixedWorld = kerbin.GetWorldSurfacePosition(lat, lon, alt);
+            double bodyFixedVsLine = (bodyFixedWorld - recordedInertialWorld).magnitude;
+            InGameAssert.IsGreaterThan(bodyFixedVsLine, 100000.0,
+                $"the body-fixed seed ({bodyFixedVsLine:F0} m from the inertial line point) must be far off " +
+                $"the inertial line (the ~90 deg teleport): if this fails the loop-shift regression model is stale");
+
+            InGameAssert.IsTrue(iconVsLine * 5 < bodyFixedVsLine,
+                $"the inertial seed ({iconVsLine:F0} m) must be far closer to the inertial line than the " +
+                $"body-fixed seed ({bodyFixedVsLine:F0} m): the fix removes the rotation");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapGapGlideSeedsInertialPositionUnderLoopShift: inertialLon={inertialLon:F2} " +
+                $"iconVsLine={iconVsLine:F0}m bodyFixedVsLine={bodyFixedVsLine:F0}m " +
+                $"rotPeriod={rotationPeriod:F0}s initialRot={initialRotation:F2}");
+        }
+
+        /// <summary>
         /// Regression guard for the hyperbolic-escape ghost icon. The ghost OrbitDriver is seeded at the
         /// RAW recorded epoch (no loop shift baked in) and the icon-drive patch propagates it at the
         /// loop-mapped effUT. A hyperbolic escape segment (the Kerbin-SOI exit to interplanetary space)
@@ -2131,19 +2243,81 @@ namespace Parsek.InGameTests
                 yield return WaitForEvaBranchCount(tree, initialEvaBranches + 1, 10f, "first EVA branch");
 
                 Vessel sourceVessel = firstSourcePart?.vessel ?? vessel;
+                uint sourcePid = sourceVessel.persistentId;
+
+                // After spawnEVA, KSP auto-switches focus to the freshly created EVA kerbal a few
+                // frames later. Wait for that hand-off: it parks the source capsule's recording into
+                // the tree BackgroundMap, which is the precondition the background-parent branch path
+                // is built for. Switching back before the hand-off would be a no-op (the capsule is
+                // still active), and KSP's later auto-switch would then steal focus away again.
+                yield return WaitForActiveVesselToLeavePid(sourcePid, 10f);
+                if (FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.persistentId == sourcePid)
+                {
+                    InGameAssert.Skip(
+                        "KSP never auto-switched focus to the first EVA kerbal, so the source capsule " +
+                        "was never parked to background; cannot exercise the background-parent path");
+                    yield break;
+                }
+
+                // KSP's spawnEVA refuses a second EVA while a kerbal stands on the only hatch: it runs
+                // an obstruction check, posts a screen message, and returns null WITHOUT firing
+                // onCrewOnEva. So move the first EVA kerbal a few metres clear of the capsule before
+                // the second EVA — this mirrors the real reproducer, where the first kerbal had walked
+                // away (planted a flag) before the user EVA'd the second. The auto-switch above leaves
+                // the EVA kerbal as the active vessel, so it is the one to move.
+                Vessel firstEvaVessel = FlightGlobals.ActiveVessel;
+                if (firstEvaVessel == null || !firstEvaVessel.isEVA)
+                {
+                    InGameAssert.Skip(
+                        "expected the first EVA kerbal to be the active vessel after KSP's auto-switch, " +
+                        "but it was not; cannot clear the capsule hatch for the second EVA");
+                    yield break;
+                }
+                MoveVesselClearOfAnchor(firstEvaVessel, sourceVessel, 12.0);
+                yield return new WaitForSeconds(0.5f);
+
+                // Switch back to the source capsule and wait for focus to settle on it.
                 if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
                 {
                     InGameAssert.Skip(switchSkipReason);
                     yield break;
                 }
 
-                yield return WaitForActiveVesselPid(sourceVessel.persistentId, 10f);
+                yield return WaitForActiveVesselPid(sourcePid, 10f);
                 yield return new WaitForSeconds(0.5f);
+
+                // Keep the capsule active-but-idle: the first EVA's switch-away already parked the
+                // capsule's recording into the tree BackgroundMap; disarm the post-switch auto-record
+                // watch so it cannot promote that still-backgrounded recording into a live recorder
+                // before the second EVA fires. A live recorder here would route the second EVA through
+                // the live mid-recording branch path instead of the background-parent path under test.
+                TryDisarmPostSwitchAutoRecord(
+                    flight, "EvaTwiceFromSameCapsule: keep source capsule idle before second EVA");
+                if (flight.IsPostSwitchAutoRecordArmedForPid(sourcePid) || flight.IsRecording)
+                {
+                    InGameAssert.Skip(
+                        "source capsule did not settle into an idle, non-recording state after " +
+                        "switch-back (post-switch auto-record still armed, or recording resumed), so " +
+                        "the second EVA would not take the background-parent path");
+                    yield break;
+                }
 
                 if (!TryGetEvaSource(sourceVessel, out Part secondSourcePart, out ProtoCrewMember secondCrew,
                     out Transform secondAirlock, out string secondEvaSourceSkipReason))
                 {
                     InGameAssert.Skip(secondEvaSourceSkipReason);
+                    yield break;
+                }
+
+                // Guard against a misleading timeout: if the capsule hatch is still obstructed, KSP's
+                // spawnEVA returns null with no onCrewOnEva and no branch. Surface that as a clear Skip
+                // (the reposition above did not clear the hatch) instead of a 10s WaitForEvaBranchCount
+                // timeout that looks like a product regression.
+                if (IsHatchObstructed(secondSourcePart, secondAirlock))
+                {
+                    InGameAssert.Skip(
+                        "capsule hatch still obstructed after moving the first EVA kerbal clear; " +
+                        "spawnEVA would refuse the second EVA, so the background-parent path is unreachable");
                     yield break;
                 }
 
@@ -3013,6 +3187,75 @@ namespace Parsek.InGameTests
             InGameAssert.Fail(
                 $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
                 $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+        }
+
+        // Waits (without asserting) until the active vessel is no longer the given pid, or the
+        // timeout elapses. Used to observe KSP's stock auto-switch to a freshly spawned EVA kerbal;
+        // the caller decides whether a non-switch is a Skip or an error.
+        private static IEnumerator WaitForActiveVesselToLeavePid(uint pid, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                if (active == null || active.persistentId != pid)
+                    yield break;
+
+                yield return null;
+            }
+        }
+
+        // Moves a loaded vessel a fixed distance horizontally away from an anchor vessel, so it stops
+        // obstructing the anchor's hatch. Used to step the first EVA kerbal off the capsule ladder
+        // before the second EVA (KSP's spawnEVA refuses a second EVA while the only hatch is blocked).
+        private static void MoveVesselClearOfAnchor(Vessel mover, Vessel anchor, double metres)
+        {
+            if (mover == null || anchor == null || VesselSetPositionMethod == null)
+                return;
+
+            Vector3d anchorPos = anchor.GetWorldPos3D();
+            Vector3d moverPos = mover.GetWorldPos3D();
+            // Derive up from body+position rather than anchor.upAxis: the anchor is backgrounded after
+            // the focus switch, so its cached upAxis can be stale.
+            Vector3d up = FlightGlobals.getUpAxis(anchor.mainBody, anchorPos);
+            Vector3d awayFromAnchor = moverPos - anchorPos;
+            // Horizontal component of the anchor->mover direction (project out the local up axis).
+            Vector3d horizontal = awayFromAnchor - up * Vector3d.Dot(awayFromAnchor, up);
+            if (horizontal.magnitude < 0.1)
+                horizontal = (Vector3d)anchor.transform.forward; // degenerate: mover directly above anchor
+            horizontal = horizontal.normalized;
+
+            // Teleport only — velocity is intentionally left untouched; the kerbal is relocated and left
+            // to settle over the subsequent wait frames. Do not also zero velocity / nudge the rigidbody.
+            VesselSetPositionMethod.Invoke(mover, new object[] { moverPos + horizontal * metres });
+        }
+
+        // Reflects FlightEVA.HatchIsObstructedMore(Part, Transform) — the stricter check (outward ray +
+        // inward ray + overlap sphere) that spawnEVA applies to the PRIMARY hatch, so this precheck
+        // matches the gate that would actually refuse the second EVA. Returns false (treat as clear)
+        // when the check is unavailable so the test still proceeds (spawnEVA enforces the real gate);
+        // logs a breadcrumb so a later "timed out instead of skipping" investigation has a trail.
+        private static bool IsHatchObstructed(Part part, Transform airlock)
+        {
+            if (part == null || airlock == null)
+                return false;
+            if (FlightEvaHatchIsObstructedMoreMethod == null)
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: FlightEVA.HatchIsObstructedMore not reflectable; treating hatch as clear");
+                return false;
+            }
+
+            try
+            {
+                return (bool)FlightEvaHatchIsObstructedMoreMethod.Invoke(null, new object[] { part, airlock });
+            }
+            catch
+            {
+                ParsekLog.Verbose("TestRunner",
+                    "IsHatchObstructed: HatchIsObstructedMore invoke threw; treating hatch as clear");
+                return false;
+            }
         }
 
         private static int CountEvaBranches(RecordingTree tree)
