@@ -211,6 +211,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldDriveGapFromPoints_FalseInOrbitalCheckpointFrame()
+        {
+            // OrbitalCheckpoint gap section: the flat Recording.Points list is sparse / empty
+            // across an on-rails coast (the section is a Keplerian bridge, not a per-frame
+            // body-fixed sample stream), so bracketing it would strand the icon on a stale
+            // clamped flat point. The Absolute-frame requirement rejects it -- the gap glide
+            // only drives from points inside an Absolute (atmospheric / maneuver) section.
+            var traj = BuildRecording(gapFrame: ReferenceFrame.OrbitalCheckpoint);
+            double midGap = (ParkingEndUT + LoiterStartUT) / 2.0;
+            Assert.False(GhostMapPresence.ShouldDriveGapFromPoints(traj.OrbitSegments, traj, midGap),
+                "OrbitalCheckpoint coast gap must stay on the carry path, not the flat-points glide.");
+        }
+
+        [Fact]
         public void ShouldDriveGapFromPoints_FalseForOrbitEquivalentCarryGap()
         {
             // The carry was BUILT for an equivalent-orbit gap (capture burn between two identical
@@ -234,15 +248,26 @@ namespace Parsek.Tests
 
         // === Continuity: the icon must track the recorded ascent across the gap (no freeze, no 400km snap) ===
 
-        // This is the load-bearing regression. It walks the gap at the same cadence the per-tick
-        // map refresh would, and compares the icon track produced by:
+        // This walks the gap at the same cadence the per-tick map refresh would, and compares the
+        // icon track produced by:
         //   (a) the FIXED path: ShouldDriveGapFromPoints -> BracketPointAtUT -> recorded lat/lon/alt
         //   (b) the BUGGY path: FindOrbitSegmentOrSameBodyCarry, which carries the parking segment
         //       across the whole gap (the icon is frozen at the parking-orbit phase) and then jumps
         //       to the loiter orbit at the seam.
         // It asserts (a) is continuous (each step << 50 km) and that (b) exhibits the >100 km seam
-        // jump the fix removes. Without the fix, the dispatcher uses path (b) and the icon teleports;
-        // with the fix it uses path (a) and glides.
+        // jump the fix removes.
+        //
+        // SCOPE: this is a PREDICATE + CONTINUITY premise test. It proves that (1)
+        // ShouldDriveGapFromPoints fires across the raise gap, (2) the recorded points form a
+        // continuous track while the carried segment teleports. It does NOT exercise the live
+        // dispatcher wiring (the two branches in ParsekPlaybackPolicy.CheckPendingMapVessels and
+        // GhostMapPresence.RefreshTrackingStationGhosts that actually route the ghost onto the
+        // points): disabling those branches leaves this test green because it calls the predicate
+        // and the positioner inputs directly rather than the dispatcher. The dispatcher wiring +
+        // the real GetWorldSurfacePosition resolution are guarded by the Unity-runtime in-game
+        // tests RuntimeTests.GhostMapIconGlidesAcrossRaiseGap_Flight /
+        // _TrackingStation (which xUnit cannot run because they need a live CelestialBody and
+        // Orbit.UpdateFromUT), plus playtest.
         [Fact]
         public void IconGlidesRecordedAscentAcrossGap_NoFreezeNoSnap()
         {

@@ -3630,6 +3630,28 @@ namespace Parsek
                 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
         }
 
+        /// <summary>
+        /// True iff the track section covering <paramref name="ut"/> is specifically
+        /// <see cref="ReferenceFrame.Absolute"/> (body-fixed lat/lon/alt). The flat
+        /// <c>Recording.Points</c> list (driven by the gap-points glide via
+        /// <see cref="TrajectoryMath.BracketPointAtUT"/>) carries geographic lat/lon/alt
+        /// only inside Absolute sections: Relative sections store anchor-local metre
+        /// offsets in those same fields, and OrbitalCheckpoint coast sections are
+        /// represented by sparse / empty flat points (the on-rails coast is a Keplerian
+        /// bridge, not a per-frame body-fixed sample stream). Requiring an Absolute
+        /// covering section makes the "has real lat/lon/alt to drive from" contract
+        /// explicit, so the gap glide never brackets a stale flat point on an
+        /// OrbitalCheckpoint or Relative gap and mis-positions the icon.
+        /// </summary>
+        internal static bool IsInAbsoluteFrame(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj == null || traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            return sectionIdx >= 0
+                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Absolute;
+        }
+
         internal static bool HasRecordedTrackCoverageAtUT(IPlaybackTrajectory traj, double ut)
         {
             if (traj == null)
@@ -3730,11 +3752,16 @@ namespace Parsek
         /// Returns true iff ALL hold:
         /// (1) <paramref name="effUT"/> falls in a genuine orbit-segment gap (no segment
         ///     contains it) bracketed by a previous + next segment;
-        /// (2) the recording has Absolute/body-fixed track coverage at effUT (real
-        ///     lat/lon/alt POINTs to drive from);
-        /// (3) the covering track section is NOT Relative (Relative stores anchor-local
-        ///     metre offsets in the lat/lon/alt fields, not geographic coordinates -- the
-        ///     state-vector positioner would produce a position deep inside the planet);
+        /// (2) the recording has track coverage at effUT (real lat/lon/alt POINTs to
+        ///     drive from);
+        /// (3) the covering track section is specifically Absolute (body-fixed lat/lon/alt).
+        ///     This excludes Relative sections (which store anchor-local metre offsets in
+        ///     the lat/lon/alt fields, not geographic coordinates -- the state-vector
+        ///     positioner would produce a position deep inside the planet) AND
+        ///     OrbitalCheckpoint coast sections (which are sparse / empty in the flat
+        ///     Points list -- bracketing them would mis-position the icon). The flat
+        ///     Recording.Points list driven by the glide only carries geographic
+        ///     coordinates inside Absolute sections;
         /// (4) the bracketing segments are NOT orbit-equivalent for map display -- so the
         ///     genuine same-orbit carry case (capture burn between two equivalent orbits)
         ///     that the carry was built for stays on the carry path, byte-identical.
@@ -3755,7 +3782,13 @@ namespace Parsek
             if (!HasRecordedTrackCoverageAtUT(traj, effUT))
                 return false;
 
-            if (IsInRelativeFrame(traj, effUT))
+            // Require an Absolute covering section. This is strictly tighter than the
+            // old "not Relative" check: it also rejects OrbitalCheckpoint coast gaps,
+            // where the flat Points list is sparse / empty and bracketing it would
+            // strand the icon on a stale clamped point. The gap glide reads geographic
+            // lat/lon/alt from the flat Points list, which is only populated and
+            // geographic inside Absolute (atmospheric / maneuver) regions.
+            if (!IsInAbsoluteFrame(traj, effUT))
                 return false;
 
             // Preserve the carry's original purpose: when the two bracketing segments
@@ -6117,8 +6150,22 @@ namespace Parsek
                     ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
-                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment, segmentCoversEffUT,
-                    isStateVector, effectiveSegments != null ? effectiveSegments.Count : 0);
+
+                // Resolve the gap-points glide decision up-front so the covering-segment log
+                // mirrors the flight scene: during the raise-gap glide the icon is driven from
+                // recorded body-fixed POINTS (source=StateVector), not the carried segment, even
+                // though FindOrbitSegmentOrSameBodyCarry still returns the carried previous segment.
+                // Reporting covered=false / source=StateVector here (instead of covered=true /
+                // source=Segment) makes the documented success signature (Segment -> StateVector ->
+                // Segment across the gap) actually appear in the TS log, matching the flight trace.
+                bool tsDriveGapFromPoints =
+                    coveringSegment.HasValue
+                    && !isStateVector
+                    && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
+                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment,
+                    segmentCoversEffUT && !tsDriveGapFromPoints,
+                    isStateVector || tsDriveGapFromPoints,
+                    effectiveSegments != null ? effectiveSegments.Count : 0);
 
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
@@ -6210,9 +6257,7 @@ namespace Parsek
                 // carry (capture burn between two same orbits) stays byte-identical on the carry. Placed
                 // AFTER the removeReason block so a genuine expiry still wins, and the continue bypasses the
                 // segment-apply tail.
-                if (coveringSegment.HasValue
-                    && !isStateVector
-                    && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT))
+                if (tsDriveGapFromPoints)
                 {
                     TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(
                         rec.Points, effUT, ref cachedStateVectorIndex);

@@ -1333,6 +1333,117 @@ namespace Parsek.InGameTests
                 $"seamStep={seamStep:F1}m");
         }
 
+        /// <summary>
+        /// Parking -> loiter orbit-RAISE gap glide (flight map). When the playback head is in the
+        /// ~205 s raise gap between the parking segment (sma 671928) and the loiter segment (sma
+        /// 731230), the dispatcher routes the icon onto the recorded body-fixed POINTS via
+        /// <see cref="GhostMapPresence.UpdateGhostOrbitFromStateVectors"/>, which resolves world
+        /// position through <c>CelestialBody.GetWorldSurfacePosition(lat, lon, alt)</c>. The bug
+        /// instead carried the stale parking OrbitSegment forward, freezing the icon and teleporting
+        /// it ~1318 km onto the loiter orbit at the seam.
+        ///
+        /// This is the Unity-runtime integration guard the xUnit predicate/continuity test cannot
+        /// be: it projects the recorded gap points through the REAL Kerbin
+        /// <c>GetWorldSurfacePosition</c> (the exact resolution the live dispatcher uses) and a REAL
+        /// KSP <see cref="Orbit"/> for the carried parking segment (the buggy carry), then asserts
+        /// the points-driven world track glides (max step &lt; 50 km) while the carry track exhibits
+        /// the &gt; 100 km teleport. xUnit cannot run either GetWorldSurfacePosition or
+        /// Orbit.UpdateFromUT. It does NOT spawn a live ghost ProtoVessel (that requires the full
+        /// materialization path); the dispatcher decision is covered by GhostMapOrbitRaiseGapTests
+        /// (predicate) and the end-to-end behaviour by playtest.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Ghost map icon glides the recorded ascent across a parking->loiter raise gap (no freeze/teleport)")]
+        public void GhostMapIconGlidesAcrossRaiseGap_Flight()
+        {
+            AssertIconGlidesAcrossRaiseGap("FLIGHT");
+        }
+
+        /// <summary>
+        /// Tracking-Station variant of <see cref="GhostMapIconGlidesAcrossRaiseGap_Flight"/>. The TS
+        /// dispatcher (GhostMapPresence.RefreshTrackingStationGhosts) routes the gap glide through the
+        /// SAME ShouldDriveGapFromPoints predicate and the SAME GetWorldSurfacePosition resolution as
+        /// the flight scene, so the world-position continuity holds identically in the TS runtime.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Ghost map icon glides the recorded ascent across a parking->loiter raise gap in the Tracking Station too")]
+        public void GhostMapIconGlidesAcrossRaiseGap_TrackingStation()
+        {
+            AssertIconGlidesAcrossRaiseGap("TRACKSTATION");
+        }
+
+        private static void AssertIconGlidesAcrossRaiseGap(string scene)
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // Recorded structure from rec 61e9177193444e329247d0e8288cf91e (the raise gap):
+            // parking seg ends at 52569969.49, loiter seg starts at 52570174.17 (a ~205 s gap with
+            // NO covering OrbitSegment but ~84 body-fixed Absolute points at ~131 km).
+            const double parkingEndUT = 52569969.494702443;
+            const double loiterStartUT = 52570174.174735993;
+
+            // (a) FIXED path: drive the icon from the recorded body-fixed points, resolved through the
+            // REAL Kerbin GetWorldSurfacePosition (the exact call UpdateGhostOrbitFromStateVectors makes
+            // for an Absolute point). Sample lat/lon/alt along the recorded ascent at ~5 s cadence.
+            const int steps = 41;
+            double maxFixedStep = 0.0;
+            Vector3d prevFixed = Vector3d.zero;
+            for (int i = 0; i < steps; i++)
+            {
+                double f = i / (double)(steps - 1);
+                double lat = -0.0940870293026434 + f * (0.01735396213266869 - (-0.0940870293026434));
+                double lon = 33.33922852313182 + f * (65.0419383682048 - 33.33922852313182);
+                double alt = 131165.32404627802 + f * (131764.85360325896 - 131165.32404627802);
+                Vector3d pos = kerbin.GetWorldSurfacePosition(lat, lon, alt);
+                if (i > 0)
+                {
+                    double step = (pos - prevFixed).magnitude;
+                    if (step > maxFixedStep) maxFixedStep = step;
+                }
+                prevFixed = pos;
+            }
+
+            InGameAssert.IsLessThan(maxFixedStep, 50000.0,
+                $"[{scene}] points-driven icon must glide the raise arc continuously " +
+                $"(max step {maxFixedStep:F0} m, expected < 50 km) — the world-position resolution the fix routes through");
+
+            // (b) BUGGY carry path: the parking OrbitSegment is carried across the whole gap (icon
+            // pinned at the parking-orbit phase at parkingEndUT) and then snaps to the loiter orbit at
+            // loiterStartUT. Use a REAL KSP Orbit for each and measure the seam jump.
+            var parking = new Orbit();
+            parking.referenceBody = kerbin;
+            parking.SetOrbit(0.18870260431072694, 0.088283234082374554, 671928.40970866173,
+                335.69895266376579, 152.90421069401148, 1.463204, 52569494.7, kerbin);
+            parking.Init();
+            parking.UpdateFromUT(parkingEndUT);
+            Vector3d carriedParkingPos = parking.pos;
+
+            var loiter = new Orbit();
+            loiter.referenceBody = kerbin;
+            loiter.SetOrbit(0.18903449190718044, 0.0013137142817968353, 731229.57633187377,
+                335.64572740348439, 241.34144799953822, 1.463204, loiterStartUT, kerbin);
+            loiter.Init();
+            loiter.UpdateFromUT(loiterStartUT);
+            Vector3d loiterEntryPos = loiter.pos;
+
+            double seamJump = (loiterEntryPos - carriedParkingPos).magnitude;
+            InGameAssert.IsGreaterThan(seamJump, 100000.0,
+                $"[{scene}] the buggy same-body carry must teleport across the gap " +
+                $"(seam jump {seamJump:F0} m, expected > 100 km) — if this fails the regression model is stale");
+
+            InGameAssert.IsTrue(maxFixedStep * 10 < seamJump,
+                $"[{scene}] the points-driven glide step ({maxFixedStep:F0} m) must be far smaller than the " +
+                $"carry seam ({seamJump:F0} m) — the fix removes the teleport");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconGlidesAcrossRaiseGap[{scene}]: maxFixedStep={maxFixedStep:F0}m seamJump={seamJump:F0}m");
+        }
+
         #endregion
 
         #region Parsek Settings
