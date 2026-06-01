@@ -378,7 +378,7 @@ namespace Parsek
         public double TerminalSpawnSafetyApoapsisAltitude = double.NaN;
         public double TerminalSpawnSafetyPressure = double.NaN;
         public int SceneExitSituation = -1;     // Vessel.Situations at scene exit (-1 = still in flight/unknown)
-        public bool SpawnSuppressedByRewind;     // True only for the active/source recording protected by plain Rewind-to-Launch strip cleanup (#573). Persisted with scoped metadata below so legacy broad markers can be ignored/cleared (#589).
+        public bool SpawnSuppressedByRewind;     // True only for the active/source recording protected by plain Rewind-to-Launch strip cleanup (#573). Scoped to that one recording (#589): the only marker reason produced is same-recording, persisted with the scoped metadata below.
         public string SpawnSuppressedByRewindReason;
         public double SpawnSuppressedByRewindUT = double.NaN;
 

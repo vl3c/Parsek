@@ -8896,7 +8896,7 @@ namespace Parsek
         /// committed-clone branch.</para>
         /// </summary>
         internal static bool TryFindCommittedTreeMatchingVessel(uint pid)
-            => TryFindCommittedTreeMatchingVessel(pid, null);
+            => TryFindCommittedTreeMatchingVessel(pid, null, out _);
 
         // liveGuid is the focused live vessel's Vessel.id ("N" form, null = unknown). #976-class:
         // the VesselPersistentId branch matches the craft-baked pid, which a relaunch of the same
@@ -8904,7 +8904,31 @@ namespace Parsek
         // branch matches a KSP-unique spawn pid that cannot collide with a baked pid, so it stays
         // pid-only. A null/unknown guid falls back to today's pid-only behavior.
         internal static bool TryFindCommittedTreeMatchingVessel(uint pid, string liveGuid)
+            => TryFindCommittedTreeMatchingVessel(pid, liveGuid, out _);
+
+        /// <summary>
+        /// Single implementation backing both bool overloads. Returns the
+        /// matched committed <see cref="RecordingTree"/> via
+        /// <paramref name="matchedTree"/> (null when no match), and the bool
+        /// result is exactly <c>matchedTree != null</c>. The matching semantics
+        /// are identical to the bool overloads: a direct
+        /// <see cref="Recording.VesselPersistentId"/> match (gated by
+        /// <see cref="VesselLaunchIdentity.LiveVesselIsRecordedLaunch"/> so a
+        /// relaunch of the same craft does not collide on the baked pid), plus
+        /// the <see cref="Recording.VesselSpawned"/> +
+        /// <see cref="Recording.SpawnedVesselPersistentId"/> match for a
+        /// Parsek-spawned vessel (KSP-unique spawn pid, pid-only). The first
+        /// matching tree wins.
+        ///
+        /// <para>The out-param overload lets the Map Switch-To Prefix compare
+        /// the matched committed tree id against the live active tree id, so a
+        /// re-select of the vessel you are already flying (its own committed
+        /// clone) does not trigger a pre-switch dialog.</para>
+        /// </summary>
+        internal static bool TryFindCommittedTreeMatchingVessel(
+            uint pid, string liveGuid, out RecordingTree matchedTree)
         {
+            matchedTree = null;
             if (pid == 0u) return false;
             var trees = RecordingStore.CommittedTrees;
             if (trees == null) return false;
@@ -8917,7 +8941,10 @@ namespace Parsek
                     if (rec == null) continue;
                     if (rec.VesselPersistentId == pid
                         && VesselLaunchIdentity.LiveVesselIsRecordedLaunch(rec, pid, liveGuid))
+                    {
+                        matchedTree = tree;
                         return true;
+                    }
                     // Bug 5: also match recordings whose Parsek-spawned vessel
                     // is the focused one. SpawnedVesselPersistentId is set by
                     // the spawn-at-end pipeline at the new live PID minted on
@@ -8927,6 +8954,7 @@ namespace Parsek
                         && rec.SpawnedVesselPersistentId != 0
                         && rec.SpawnedVesselPersistentId == pid)
                     {
+                        matchedTree = tree;
                         return true;
                     }
                 }

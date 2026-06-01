@@ -8,8 +8,9 @@ namespace Parsek.InGameTests
     /// Rewind-to-Staging (Phase 4, design §5.10 + §6.1): verifies the root-save
     /// -then-move flow. KSP <c>GamePersistence.SaveGame</c> writes to the save
     /// folder root; the RewindPointAuthor atomically moves the file into
-    /// <c>Parsek/RewindPoints/</c>. After capture, no <c>Parsek_TempRP_*.sfs</c>
-    /// should remain in the save root.
+    /// <c>Parsek/RewindPoints/</c>. After capture, neither a <c>Parsek_TempRP_*.sfs</c>
+    /// nor its orphaned <c>Parsek_TempRP_*.loadmeta</c> sidecar should remain in the
+    /// save root.
     /// </summary>
     public class SavePathRootThenMoveTest
     {
@@ -17,7 +18,7 @@ namespace Parsek.InGameTests
             AllowBatchExecution = false,
             RestoreBatchFlightBaselineAfterExecution = true,
             BatchSkipReason = "Isolated-run only — drives stock staging which permanently mutates the vessel; excluded from ordinary Run All / Run category. Use Run All + Isolated or the row play button in a disposable FLIGHT session.",
-            Description = "RewindPoint quicksave ends up in Parsek/RewindPoints/, no leftover Parsek_TempRP_*.sfs in save root")]
+            Description = "RewindPoint quicksave ends up in Parsek/RewindPoints/, no leftover Parsek_TempRP_*.sfs or .loadmeta in save root")]
         public IEnumerator SavePathRootThenMove()
         {
             var vessel = FlightGlobals.ActiveVessel;
@@ -87,6 +88,22 @@ namespace Parsek.InGameTests
             }
             InGameAssert.AreEqual(0, stray.Length,
                 $"Expected no Parsek_TempRP_*.sfs in save root; found {stray.Length}");
+
+            // No stray Parsek_TempRP_*.loadmeta sidecar in save root either: SaveGame
+            // writes the .sfs + .loadmeta pair to the root, only the .sfs is moved, and
+            // FileIOUtils.DeleteSaveSidecarLoadMeta must clean up the orphaned sidecar.
+            string[] strayMeta = Directory.Exists(saveRoot)
+                ? Directory.GetFiles(saveRoot, "Parsek_TempRP_*.loadmeta", SearchOption.TopDirectoryOnly)
+                : new string[0];
+            if (strayMeta.Length > 0)
+            {
+                ParsekLog.Error("RewindTest",
+                    $"[CRITICAL] SavePathRootThenMove: {strayMeta.Length} orphaned Parsek_TempRP_*.loadmeta " +
+                    $"sidecar(s) left in save root after move: " +
+                    string.Join(", ", strayMeta));
+            }
+            InGameAssert.AreEqual(0, strayMeta.Length,
+                $"Expected no Parsek_TempRP_*.loadmeta in save root; found {strayMeta.Length}");
 
             ParsekLog.Info("RewindTest",
                 $"SavePathRootThenMove: PASS rp={rp.RewindPointId} path={expectedPath}");

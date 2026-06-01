@@ -716,9 +716,10 @@ namespace Parsek
             }
             rec.VesselDestroyed = ParseBoolOr(recNode, "vesselDestroyed", rec.VesselDestroyed);
             rec.TerminalSpawnSupersededByRecordingId = recNode.GetValue("terminalSpawnSupersededBy");
-            // #573/#589: load scoped post-rewind suppression marker. Older saves
-            // only contain the bool because the original fix marked whole trees;
-            // tag those as legacy-unscoped so the spawn gate can clear them.
+            // #573/#589: load the scoped post-rewind suppression marker. The only
+            // reason produced today is same-recording. Pre-reset saves that wrote a
+            // bare bool without a reason are rejected at the schema-generation gate
+            // above, so no reasonless marker reaches this point.
             string spawnSuppressedStr = recNode.GetValue("spawnSuppressedByRewind");
             if (spawnSuppressedStr != null)
             {
@@ -736,9 +737,6 @@ namespace Parsek
                     if (double.TryParse(spawnSuppressedUTStr, NumberStyles.Float, ic, out spawnSuppressedUT))
                         rec.SpawnSuppressedByRewindUT = spawnSuppressedUT;
                 }
-
-                if (string.IsNullOrEmpty(rec.SpawnSuppressedByRewindReason))
-                    rec.SpawnSuppressedByRewindReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
             }
             rec.LastAppliedResourceIndex = ParseIntOr(recNode, "lastResIdx", rec.LastAppliedResourceIndex);
             // pointCount is informational — Points list is loaded from sidecar file

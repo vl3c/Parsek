@@ -5038,6 +5038,10 @@ namespace Parsek
                 string destPath = System.IO.Path.Combine(rewindDir, saveFileName + ".sfs");
                 System.IO.File.Move(rootPath, destPath);
 
+                // SaveGame also wrote a .loadmeta sidecar to the root; only the .sfs
+                // moves, so delete the orphan instead of leaving it to litter the save folder.
+                FileIOUtils.DeleteSaveSidecarLoadMeta(savesDir, saveFileName, "Recorder");
+
                 RewindSaveFileName = saveFileName;
             }
             catch (Exception ex)

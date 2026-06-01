@@ -84,34 +84,99 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ShouldSpawnAtRecordingEnd_LegacyUnscopedMarker_IsClearedAndSpawnAllowed()
+        public void ShouldSpawnAtRecordingEnd_SameRecordingMarker_BlocksWithoutMutatingMarker()
         {
-            var futureSameTree = MakeRecording(
-                "future-legacy",
-                "Bob Kerman",
-                736156658u,
-                "tree-legacy",
-                startUT: 24034.0,
-                endUT: 24062.0);
-            futureSameTree.SpawnSuppressedByRewind = true;
+            // The #573 spawn-suppression check is a pure predicate: it blocks the
+            // same-recording active/source marker WITHOUT clearing it. The decision
+            // must not mutate the recording — the marker is lifted only by the
+            // explicit watch-entry path (TryClearSpawnSuppressionOnWatchEntry).
+            var rec = MakeRecording(
+                "same-recording-blocked",
+                "Kerbal X",
+                2708531065u,
+                "tree-block",
+                startUT: 0.0,
+                endUT: 182.766);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameRecording;
+            rec.SpawnSuppressedByRewindUT = 50.0;
 
             var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                futureSameTree,
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+
+            Assert.False(result.needsSpawn);
+            Assert.Contains("#573", result.reason);
+            // Marker preserved — the decision did not mutate the recording.
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
+                rec.SpawnSuppressedByRewindReason);
+            Assert.Equal(50.0, rec.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_NonSameRecordingMarker_AllowsWithoutMutatingMarker()
+        {
+            // Defensive: a flag-true marker whose reason is NOT same-recording is not
+            // an absolute block (production only ever scopes same-recording). The pure
+            // predicate allows spawn to evaluate and does not mutate the recording.
+            var rec = MakeRecording(
+                "non-same-recording-marker",
+                "Bob Kerman",
+                736156658u,
+                "tree-allow",
+                startUT: 24034.0,
+                endUT: 24062.0);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason =
+                ParsekScenario.RewindSpawnSuppressionReasonSameTreeFutureRecording;
+            rec.SpawnSuppressedByRewindUT = 30.0;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
                 isActiveChainMember: false,
                 isChainLooping: false);
 
             Assert.True(result.needsSpawn);
-            Assert.False(futureSameTree.SpawnSuppressedByRewind);
-            Assert.Null(futureSameTree.SpawnSuppressedByRewindReason);
-            Assert.True(double.IsNaN(futureSameTree.SpawnSuppressedByRewindUT));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]") &&
-                l.Contains("SpawnSuppressedByRewind cleared") &&
-                l.Contains("reason=legacy-unscoped"));
-            Assert.Contains(logLines, l =>
-                l.Contains("[Rewind]") &&
-                l.Contains("Spawn allowed despite same-tree rewind") &&
-                l.Contains("markerReason=legacy-unscoped"));
+            // Marker preserved (not consumed) — the decision is pure.
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameTreeFutureRecording,
+                rec.SpawnSuppressedByRewindReason);
+            Assert.Equal(30.0, rec.SpawnSuppressedByRewindUT);
+        }
+
+        [Fact]
+        public void ShouldSpawnAtRecordingEnd_FlagTrueNullReason_AllowsWithoutMutatingMarker()
+        {
+            // The exact retired-legacy shape: flag set, reason absent. The old code
+            // consumed (cleared + logged) such a marker; the pure predicate now treats
+            // it as not-an-absolute-block and allows spawn to evaluate without mutating.
+            // Production never produces this shape (the gate always sets same-recording),
+            // so this only pins the predicate's behavior, not a live path.
+            var rec = MakeRecording(
+                "flag-true-null-reason",
+                "Jeb Kerman",
+                736156659u,
+                "tree-null-reason",
+                startUT: 24034.0,
+                endUT: 24062.0);
+            rec.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewindReason = null;
+
+            var result = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                rec,
+                isActiveChainMember: false,
+                isChainLooping: false);
+
+            Assert.True(result.needsSpawn);
+            // Not cleared, not logged: the decision is a pure query.
+            Assert.True(rec.SpawnSuppressedByRewind);
+            Assert.Null(rec.SpawnSuppressedByRewindReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("SpawnSuppressedByRewind cleared")
+                || l.Contains("Spawn allowed despite same-tree rewind"));
         }
 
         [Fact]
@@ -211,26 +276,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RecordingTree_LoadLegacyBoolOnlySuppression_TagsLegacyUnscoped()
+        public void RecordingTree_LoadBoolOnlySuppression_LeavesReasonNull_NoLegacyNormalization()
         {
-            var legacy = MakeRecording(
-                "legacy-source",
-                "Legacy Source",
+            // The legacy-unscoped normalizer was removed: a flag-true marker saved
+            // without a reason round-trips with a null reason (the codec no longer
+            // fabricates one). Production never writes a reasonless marker —
+            // MarkRewoundTreeRecordingsAsGhostOnly always sets same-recording — and
+            // pre-reset saves are rejected at the schema-generation gate on load.
+            var rec = MakeRecording(
+                "bool-only-source",
+                "Bool Only Source",
                 555u,
-                "legacy-tree",
+                "bool-only-tree",
                 startUT: 0.0,
                 endUT: 30.0);
-            legacy.SpawnSuppressedByRewind = true;
+            rec.SpawnSuppressedByRewind = true;
 
             var node = new ConfigNode("RECORDING");
-            RecordingTree.SaveRecordingInto(node, legacy);
+            RecordingTree.SaveRecordingInto(node, rec);
 
             var loaded = new Recording();
             RecordingTree.LoadRecordingFrom(node, loaded);
 
             Assert.True(loaded.SpawnSuppressedByRewind);
-            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped,
-                loaded.SpawnSuppressedByRewindReason);
+            Assert.Null(loaded.SpawnSuppressedByRewindReason);
             Assert.True(double.IsNaN(loaded.SpawnSuppressedByRewindUT));
         }
 
@@ -314,21 +383,20 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryClearSpawnSuppressionOnWatchEntry_LegacyUnscopedMarker_DoesNotClear()
+        public void TryClearSpawnSuppressionOnWatchEntry_NonSameRecordingMarker_DoesNotClear()
         {
-            // Legacy unscoped markers are normalized by ShouldBlockSpawnForRewindSuppression
-            // on first spawn-decision access. Watch entry must not touch them — clearing
-            // here would skip the normalization log path that audits relied on.
+            // Watch entry only lifts the same-recording marker. A marker carrying any
+            // other reason is left untouched (and no clearance is logged).
             var rec = MakeRecording(
-                "legacy-future",
-                "Legacy Future",
+                "non-same-recording-future",
+                "Other Reason",
                 pid: 736156658u,
-                treeId: "legacy-tree",
+                treeId: "other-tree",
                 startUT: 100.0,
                 endUT: 160.0);
             rec.SpawnSuppressedByRewind = true;
             rec.SpawnSuppressedByRewindReason =
-                ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
+                ParsekScenario.RewindSpawnSuppressionReasonSameTreeFutureRecording;
             rec.SpawnSuppressedByRewindUT = 50.0;
 
             int logCount = logLines.Count;
@@ -336,7 +404,7 @@ namespace Parsek.Tests
 
             Assert.False(cleared);
             Assert.True(rec.SpawnSuppressedByRewind);
-            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped,
+            Assert.Equal(ParsekScenario.RewindSpawnSuppressionReasonSameTreeFutureRecording,
                 rec.SpawnSuppressedByRewindReason);
             Assert.Equal(50.0, rec.SpawnSuppressedByRewindUT);
             Assert.Equal(logCount, logLines.Count);

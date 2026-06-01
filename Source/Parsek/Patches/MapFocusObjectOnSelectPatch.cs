@@ -218,9 +218,24 @@ namespace Parsek.Patches
             // same Merge/Discard dialog so the player makes a deliberate
             // call before the reload, matching the Esc-to-SC UX.
             //
+            // Case C (no-session loaded separate-committed target, the
+            // in-bubble committed-clone Bounded fix): when no session is
+            // armed but an in-flight recording exists AND the loaded target
+            // is a SEPARATE previously-committed vessel (a committed tree
+            // whose id differs from the live active tree id), the in-bubble
+            // consume would run with activeTree still set and skip the
+            // committed-clone restore (which requires activeTree == null),
+            // wrongly routing the target to standalone / BG-member instead
+            // of continuing its committed history. Open the same dialog so
+            // the live tree is committed/discarded first; the target then
+            // restores through the existing committed-clone Path B.
+            //
             // Same-target Switch-To (player double-clicks the active session's
             // own vessel) bypasses the dialog: the consume helper's existing
-            // `duplicate-intent-same-target` branch handles it.
+            // `duplicate-intent-same-target` branch handles it. Re-selecting
+            // the vessel you are already flying (its own committed clone) is
+            // filtered by targetIsSeparateCommittedVessel below (matched tree
+            // id == active tree id -> not separate -> no dialog).
             //
             // Re-entry guard: if a merge/dialog popup is already open (this
             // dialog or any other), defer to the existing one so the player
@@ -237,21 +252,84 @@ namespace Parsek.Patches
             // an in-bubble switch with no session is the existing
             // continuation-recording flow and stays unchanged.
             bool targetIsUnloaded = !vessel.loaded;
+
+            // Case C (in-bubble committed-clone Bounded fix): the loaded
+            // target is a SEPARATE previously-committed vessel when there is
+            // an active recording, the target is in the physics bubble
+            // (loaded), and it matches a committed tree whose id differs from
+            // the live active tree id. The live active tree id guard makes
+            // re-selecting the vessel you are already flying (its own
+            // committed clone) NOT open a dialog. Any lookup failure (null
+            // flight, Traverse/store hiccup) falls back to false so we keep
+            // today's in-bubble behavior; logged Verbose.
+            bool targetIsSeparateCommittedVessel = false;
+            if (hasActiveRecording && !targetIsUnloaded)
+            {
+                try
+                {
+                    // Guid "N" form is culture-invariant by definition (hex
+                    // digits only); matches the ParsekFlight consume call site.
+                    string liveGuid = vessel.id != Guid.Empty
+                        ? vessel.id.ToString("N")
+                        : null;
+                    RecordingTree matchedTree;
+                    bool matched = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                        vessel.persistentId, liveGuid, out matchedTree);
+                    string activeTreeId = ParsekFlight.Instance?.ActiveTreeForDisplay?.Id;
+                    if (matched
+                        && matchedTree != null
+                        && !string.Equals(matchedTree.Id, activeTreeId, StringComparison.Ordinal))
+                    {
+                        targetIsSeparateCommittedVessel = true;
+                        ParsekLog.Verbose("SwitchIntentPatch",
+                            $"pre-switch Case C: loaded target is separate committed vessel " +
+                            $"targetPid={vessel.persistentId} matchedTreeId={matchedTree.Id ?? "<null>"} " +
+                            $"activeTreeId={activeTreeId ?? "<null>"}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    targetIsSeparateCommittedVessel = false;
+                    ParsekLog.Verbose("SwitchIntentPatch",
+                        $"pre-switch Case C lookup failed: {ex.GetType().Name}: {ex.Message} " +
+                        $"targetPid={vessel.persistentId} - treating as not-separate (today's behavior)");
+                }
+            }
+
             var decision = DecidePreSwitchDialogAction(
                 hasActiveSession: existingSession != null,
                 priorFocusedPid: existingSession?.FocusedVesselPersistentId ?? 0u,
                 newTargetPid: vessel.persistentId,
                 anotherDialogOpen: ParsekScenario.MergeDialogPending,
                 hasActiveRecording: hasActiveRecording,
-                targetIsUnloaded: targetIsUnloaded);
+                targetIsUnloaded: targetIsUnloaded,
+                targetIsSeparateCommittedVessel: targetIsSeparateCommittedVessel);
             switch (decision)
             {
                 case PreSwitchDialogDecision.OpenDialog:
                     {
+                        // Distinguish the three OpenDialog routes in KSP.log so
+                        // a reader can tell Case A (session) from the two
+                        // no-session sub-cases: Case B (unloaded target, scene
+                        // reload) vs Case C (loaded separate-committed target,
+                        // in-bubble committed-clone). The no-session handlers
+                        // are the same for B and C; only the trigger differs.
+                        string openCase = existingSession != null
+                            ? "A-session"
+                            : (targetIsSeparateCommittedVessel ? "C-loaded-separate-committed"
+                                                               : "B-unloaded");
+                        ParsekLog.Info("SwitchIntentPatch",
+                            $"pre-switch-dialog opening case={openCase} " +
+                            $"targetPid={vessel.persistentId} " +
+                            $"hasActiveRecording={hasActiveRecording} " +
+                            $"targetIsUnloaded={targetIsUnloaded} " +
+                            $"targetIsSeparateCommittedVessel={targetIsSeparateCommittedVessel} " +
+                            $"priorSessionId={existingSession?.SessionId.ToString("D", CultureInfo.InvariantCulture) ?? "<no-session>"}");
+
                         // Branch on whether a session is armed. Case A keeps
-                        // the existing session-aware handlers; Case B routes
-                        // through the new no-session handlers that commit /
-                        // discard the live active tree directly.
+                        // the existing session-aware handlers; Case B / Case C
+                        // route through the new no-session handlers that commit
+                        // / discard the live active tree directly.
                         bool dialogOpened = existingSession != null
                             ? TryOpenPreSwitchDecisionDialog(vessel, existingSession)
                             : TryOpenPreSwitchDecisionDialogNoSession(vessel);
@@ -267,8 +345,11 @@ namespace Parsek.Patches
                         // consume helper still logs the orphan as a documented
                         // degradation. For Case B the prior recording silently
                         // survives the scene reload as it did before this
-                        // change — no regression vs. the pre-extension shape.
-                        // Already Warn-logged by ShowPreSwitchDecisionDialog.
+                        // change; for Case C the in-bubble consume runs with
+                        // activeTree still set and routes the target to
+                        // standalone — both are the pre-extension behavior, no
+                        // regression. Already Warn-logged by
+                        // ShowPreSwitchDecisionDialog.
                         break;
                     }
                 case PreSwitchDialogDecision.SkipDialogSameTarget:
@@ -282,6 +363,7 @@ namespace Parsek.Patches
                         $"pre-switch-dialog skipped: another merge dialog is open " +
                         $"priorSessionId={existingSession?.SessionId.ToString("D", CultureInfo.InvariantCulture) ?? "<no-session>"} " +
                         $"hasActiveRecording={hasActiveRecording} targetIsUnloaded={targetIsUnloaded} " +
+                        $"targetIsSeparateCommittedVessel={targetIsSeparateCommittedVessel} " +
                         $"targetPid={vessel.persistentId} - re-entry guard");
                     break;
                 case PreSwitchDialogDecision.NoPriorSession:
@@ -350,14 +432,19 @@ namespace Parsek.Patches
         }
 
         /// <summary>
-        /// No-session Case B: open the pre-switch Merge / Discard dialog
-        /// when an in-flight recording exists but no
-        /// <see cref="SwitchSegmentSession"/> is armed and the new
-        /// target vessel is unloaded (out-of-bubble). The Map Switch-To
-        /// stock path would otherwise scene-reload (FLIGHT→FLIGHT) and
-        /// skip the SceneExit Esc-to-Space-Center dialog filter, so the
-        /// player would never get a deliberate Merge/Discard prompt
-        /// for the prior recording today.
+        /// No-session Case B / Case C: open the pre-switch Merge / Discard
+        /// dialog when an in-flight recording exists but no
+        /// <see cref="SwitchSegmentSession"/> is armed and either the new
+        /// target vessel is unloaded (Case B, out-of-bubble) or it is a
+        /// loaded separate previously-committed vessel (Case C, in-bubble
+        /// committed-clone). For Case B the Map Switch-To stock path would
+        /// otherwise scene-reload (FLIGHT→FLIGHT) and skip the SceneExit
+        /// Esc-to-Space-Center dialog filter; for Case C the in-bubble
+        /// consume would skip the committed-clone restore (which requires
+        /// <c>activeTree == null</c>) and wrongly route the target to a
+        /// standalone / BG-member segment. Either way the player would
+        /// never get a deliberate Merge/Discard prompt for the prior
+        /// recording today.
         ///
         /// <para>The handlers commit-in-flight (Merge) or
         /// active-tree-discard (Discard) the live tree, then arm a fresh
@@ -677,12 +764,14 @@ namespace Parsek.Patches
         /// <see cref="FlightGlobals.SetActiveVessel"/>.
         ///
         /// <para>Round-6 review: passes a context-aware screen message
-        /// ("Recording discarded - switching to far vessel") and ledger
+        /// ("Recording discarded - switching vessels") and ledger
         /// reason ("pre-switch-dialog-discard-no-session"). The default
-        /// "idle on pad" toast is wrong-context here because the
-        /// predicate requires <c>targetIsUnloaded</c> AND
-        /// <c>HasActiveTree</c>, i.e. the player has been actively
-        /// flying out of the bubble; the default
+        /// "idle on pad" toast is wrong-context here because this handler
+        /// now covers both Case B (target out-of-bubble / unloaded, scene
+        /// reload) and Case C (loaded separate-committed target,
+        /// in-bubble), with <c>HasActiveTree</c> required in either, i.e.
+        /// the player has been actively flying; the neutral "switching
+        /// vessels" wording fits both. The default
         /// "suppressed-scene-exit-discard" ledger reason is
         /// similarly wrong-context.</para>
         ///
@@ -717,7 +806,7 @@ namespace Parsek.Patches
                 {
                     flight.AutoDiscardActiveTreeWithMessage(
                         reason: "pre-switch-dialog discard (no-session)",
-                        screenMessage: "Recording discarded - switching to far vessel",
+                        screenMessage: "Recording discarded - switching vessels",
                         ledgerRecalcReason: "pre-switch-dialog-discard-no-session");
                     ParsekLog.Info("SwitchIntentPatch",
                         $"pre-switch-dialog-discard-chosen-no-session " +
@@ -886,15 +975,30 @@ namespace Parsek.Patches
         /// without opening a dialog.</para>
         ///
         /// <para><b>Case B — no session, active in-flight recording,
-        /// target out-of-bubble (unloaded).</b> Map Switch-To to an
-        /// unloaded target triggers stock's
-        /// <c>FlightDriver.StartAndFocusVessel</c> scene reload. The
-        /// existing SceneExit dialog filter explicitly skips FLIGHT→FLIGHT
-        /// transitions (see <see cref="SceneExitInterceptor"/>), so the
-        /// prior recording silently survives the reload without a player
-        /// decision today. This branch surfaces the same Merge/Discard
-        /// dialog the Esc-to-Space-Center flow uses, before the scene
-        /// reload runs.</para>
+        /// target out-of-bubble (unloaded), OR a loaded separate
+        /// previously-committed vessel.</b> Two sub-cases share the same
+        /// no-session Merge/Discard handlers:
+        /// <list type="bullet">
+        /// <item><b>Unloaded target</b> — Map Switch-To to an unloaded
+        ///     target triggers stock's <c>FlightDriver.StartAndFocusVessel</c>
+        ///     scene reload. The existing SceneExit dialog filter explicitly
+        ///     skips FLIGHT→FLIGHT transitions (see
+        ///     <see cref="SceneExitInterceptor"/>), so the prior recording
+        ///     silently survives the reload without a player decision today.</item>
+        /// <item><b>Loaded separate-committed target</b>
+        ///     (<paramref name="targetIsSeparateCommittedVessel"/>) — the
+        ///     target is in the physics bubble but is a SEPARATE vessel with
+        ///     its own committed history (a different tree than the live
+        ///     active one). Without the dialog the in-bubble consume runs with
+        ///     the live <c>activeTree</c> still set, so the committed-clone
+        ///     restore (which requires <c>activeTree == null</c>) is skipped
+        ///     and the target wrongly routes to a standalone / BG-member
+        ///     segment instead of continuing its committed history. Committing
+        ///     or discarding the live tree first clears <c>activeTree</c> so
+        ///     the existing committed-clone restore path fires.</item>
+        /// </list>
+        /// Both surface the same Merge/Discard dialog the Esc-to-Space-Center
+        /// flow uses, before the switch runs.</para>
         ///
         /// <para>Returns:
         /// <list type="bullet">
@@ -922,18 +1026,31 @@ namespace Parsek.Patches
         /// Pure helper for unit-testing the pre-switch dialog gate. See
         /// <see cref="PreSwitchDialogDecision"/> for the full truth table.
         /// Case A (active session) ALWAYS takes priority over Case B
-        /// (no session, active recording, unloaded target): a live session
-        /// is a stronger signal than a passive recording, and the existing
-        /// session-aware Merge path keeps its session-specific bookkeeping
-        /// (clear marker, scoped discard).
+        /// (no session, active recording, unloaded OR loaded-separate-committed
+        /// target): a live session is a stronger signal than a passive
+        /// recording, and the existing session-aware Merge path keeps its
+        /// session-specific bookkeeping (clear marker, scoped discard).
         /// </summary>
+        /// <param name="targetIsSeparateCommittedVessel">
+        /// True when the switch target is a LOADED (in-bubble) vessel that is a
+        /// SEPARATE previously-committed vessel — i.e. it matches a committed
+        /// tree whose id differs from the live active tree id. Computed by the
+        /// Prefix via <see cref="ParsekFlight.TryFindCommittedTreeMatchingVessel(uint,string,out RecordingTree)"/>.
+        /// When true (and no session is armed), the no-session Merge/Discard
+        /// dialog opens so the live tree is committed/discarded first and the
+        /// target's committed-clone restore can fire (it requires
+        /// <c>activeTree == null</c>). False for the active vessel's own
+        /// committed clone (same tree), non-committed loaded targets, and on
+        /// any lookup failure (falls back to today's in-bubble behavior).
+        /// </param>
         internal static PreSwitchDialogDecision DecidePreSwitchDialogAction(
             bool hasActiveSession,
             uint priorFocusedPid,
             uint newTargetPid,
             bool anotherDialogOpen,
             bool hasActiveRecording,
-            bool targetIsUnloaded)
+            bool targetIsUnloaded,
+            bool targetIsSeparateCommittedVessel)
         {
             if (hasActiveSession)
             {
@@ -944,10 +1061,14 @@ namespace Parsek.Patches
                 return PreSwitchDialogDecision.OpenDialog;
             }
             // Case B: no session armed, but a recording is in flight AND
-            // the target is unloaded. Stock would scene-reload silently
-            // and skip the Esc-to-SC dialog filter — surface the choice
-            // before the reload.
-            if (hasActiveRecording && targetIsUnloaded)
+            // either (1) the target is unloaded — stock would scene-reload
+            // silently and skip the Esc-to-SC dialog filter; or (2) the
+            // target is a loaded separate previously-committed vessel —
+            // the in-bubble consume would otherwise skip the committed-clone
+            // restore (which needs activeTree == null) and wrongly route the
+            // target to standalone / BG-member. Either way, surface the
+            // choice so the live tree is resolved before the switch.
+            if (hasActiveRecording && (targetIsUnloaded || targetIsSeparateCommittedVessel))
             {
                 if (anotherDialogOpen)
                     return PreSwitchDialogDecision.SkipDialogReEntry;

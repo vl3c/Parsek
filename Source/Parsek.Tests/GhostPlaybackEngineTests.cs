@@ -703,23 +703,30 @@ namespace Parsek.Tests
         [Fact]
         public void ShouldUseOrbitTailPlayback_BeforeDistantPredictedSegmentStart_DoesNotBridgeGap()
         {
+            // A predicted tail whose startUT is more than
+            // PredictedOrbitTailBridgeMaxGapSeconds (30s) past the last authored point
+            // is not a coast-continuation gap we can safely back-propagate across
+            // (e.g. the v0.9.2 ~1226s merge-artifact gap), so it is not bridged.
             var traj = new MockTrajectory().WithTimeRange(100.0, 497.79);
             traj.EndUTOverride = 1971.0;
             traj.OrbitSegments.Add(new OrbitSegment
             {
-                startUT = 499.0,
+                startUT = 540.0,   // gap 42.21s, beyond the 30s bridge cap
                 endUT = 1971.0,
                 bodyName = "Kerbin",
                 semiMajorAxis = 700000.0,
                 isPredicted = true,
             });
 
-            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 497.98));
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 500.0));
         }
 
         [Fact]
         public void ShouldUseOrbitTailPlayback_DestroyedTailBridgesFinalizerGap()
         {
+            // The destroyed-specific bridge tier was unified into the single 30s
+            // PredictedOrbitTailBridgeMaxGapSeconds cap; a destroyed terminal still
+            // bridges its (small) finalizer gap, now via that shared cap.
             var traj = new MockTrajectory().WithTimeRange(100.0, 687.58);
             traj.EndUTOverride = 1683.91;
             traj.TerminalStateValue = TerminalState.Destroyed;
@@ -762,6 +769,116 @@ namespace Parsek.Tests
             Assert.True(found);
             Assert.Equal(1, segmentIndex);
             Assert.Equal(498.168, segment.startUT, 3);
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_BeforeOnRailsTransitionGap_BridgesGap()
+        {
+            // Regression: payload-to-orbit teleport (v0.9.3). The predicted coast
+            // tail's startUT sits ~21s past the last authored point (the unsampled
+            // window between the vessel going on-rails and the on-rails / scene-exit
+            // orbit snapshot). Before the fix this 21s gap exceeded the 0.5s bridge
+            // cap, so the ghost held the last-point pose through the gap and then
+            // teleported ~34km to the orbit when it activated. The 30s cap now bridges
+            // it: the orbit is played (back-propagated) through the gap.
+            var traj = new MockTrajectory().WithTimeRange(292.57, 338.72);
+            traj.EndUTOverride = 1364.71;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 359.64,
+                endUT = 1364.71,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            // A frame inside the [lastPoint, startUT] gap now routes to orbit-tail
+            // playback instead of clamping to the last point.
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 345.0));
+            // The very first frame past the last point bridges too.
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(traj, 338.75));
+        }
+
+        [Fact]
+        public void TryFindOrbitTailPlaybackSegment_BridgesOnRailsTransitionGap()
+        {
+            var traj = new MockTrajectory().WithTimeRange(292.57, 338.72);
+            traj.EndUTOverride = 1364.71;
+            traj.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 359.64,
+                endUT = 1364.71,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+
+            bool found = GhostPlaybackEngine.TryFindOrbitTailPlaybackSegment(
+                traj, 345.0, out OrbitSegment segment, out int segmentIndex);
+
+            Assert.True(found);
+            Assert.Equal(0, segmentIndex);
+            Assert.Equal(359.64, segment.startUT, 3);
+        }
+
+        [Fact]
+        public void PredictedOrbitTailContinuity_EngagesOnFirstOrbitFrameAcrossOnRailsGap()
+        {
+            // The continuity offset must pin the orbit-tail handoff on the first
+            // bridged frame so there is no teleport. For the payload-to-orbit gap
+            // (last point 338.72 -> orbit start 359.64) the blend window is the 10s
+            // cap, the offset weight is ~1 at the first frame past the last point, and
+            // it eases to 0 by lastPoint + blend (still inside the gap, where the ghost
+            // is already riding the pure back-propagated orbit).
+            const double lastPointUT = 338.72;
+            const double segmentStartUT = 359.64;
+
+            double blend = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityBlendSeconds(
+                lastPointUT, segmentStartUT);
+            Assert.Equal(10.0, blend, 3);
+
+            double firstFrameWeight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT, lastPointUT + 0.02, blend);
+            Assert.True(firstFrameWeight > 0.99,
+                $"first-frame weight {firstFrameWeight} should pin the handoff");
+
+            double endOfBlendWeight = GhostPlaybackEngine.ResolvePredictedOrbitTailContinuityWeight(
+                lastPointUT, lastPointUT + blend, blend);
+            Assert.Equal(0.0, endOfBlendWeight, 3);
+        }
+
+        [Fact]
+        public void ShouldUseOrbitTailPlayback_GapExactlyAtBridgeCap_BridgesButNotJustBeyond()
+        {
+            // Pin the cap boundary: a gap equal to PredictedOrbitTailBridgeMaxGapSeconds
+            // bridges (the loop check is gap > cap + 1e-6), a gap just beyond does not.
+            const double lastPointUT = 100.0;
+            double cap = GhostPlaybackEngine.PredictedOrbitTailBridgeMaxGapSeconds;
+            double playbackUT = lastPointUT + cap - 1.0; // inside the gap, before startUT
+
+            var atCap = new MockTrajectory().WithTimeRange(70.0, lastPointUT);
+            atCap.EndUTOverride = 1100.0;
+            atCap.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = lastPointUT + cap,   // gap == cap
+                endUT = 1100.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+            Assert.True(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(atCap, playbackUT));
+
+            var beyondCap = new MockTrajectory().WithTimeRange(70.0, lastPointUT);
+            beyondCap.EndUTOverride = 1100.0;
+            beyondCap.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = lastPointUT + cap + 0.5,   // gap just beyond cap
+                endUT = 1100.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                isPredicted = true,
+            });
+            Assert.False(GhostPlaybackEngine.ShouldUseOrbitTailPlayback(beyondCap, playbackUT));
         }
 
         [Fact]

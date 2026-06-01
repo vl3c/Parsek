@@ -4946,9 +4946,10 @@ namespace Parsek
 
             // Plain Rewind-to-Launch source protection (#573) remains an absolute
             // block for the active/source recording that was stripped during rewind.
-            // Legacy broad tree markers from the old implementation are consumed and
-            // ignored here so future same-tree recordings can materialize normally
-            // when playback reaches their terminal EndUT (#589).
+            // Future same-tree recordings are never marked (#589):
+            // MarkRewoundTreeRecordingsAsGhostOnly only scopes the same-recording
+            // marker, so they materialize normally when playback reaches their
+            // terminal EndUT.
             if (ShouldBlockSpawnForRewindSuppression(rec, out string rewindSuppressionReason))
             {
                 return (false, rewindSuppressionReason);
@@ -5086,6 +5087,18 @@ namespace Parsek
             return (true, "");
         }
 
+        /// <summary>
+        /// Pure predicate: returns true when a recording must NOT spawn at its
+        /// terminal end because plain Rewind-to-Launch scoped a #573 active/source
+        /// suppression marker onto it. The only marker reason produced today is
+        /// <see cref="ParsekScenario.RewindSpawnSuppressionReasonSameRecording"/>
+        /// (the active/source recording stripped during rewind); it is an absolute
+        /// block so the stripped vessel cannot respawn next to the player's
+        /// freshly-launched one. Any other reason is not an absolute block and is
+        /// left for the downstream gates. This is a query: it does not mutate the
+        /// recording or log — the marker is lifted only by the explicit watch-entry
+        /// path (<see cref="ParsekScenario.TryClearSpawnSuppressionOnWatchEntry"/>).
+        /// </summary>
         private static bool ShouldBlockSpawnForRewindSuppression(
             Recording rec,
             out string reason)
@@ -5094,8 +5107,7 @@ namespace Parsek
             if (rec == null || !rec.SpawnSuppressedByRewind)
                 return false;
 
-            string markerReason = rec.SpawnSuppressedByRewindReason;
-            if (string.Equals(markerReason,
+            if (string.Equals(rec.SpawnSuppressedByRewindReason,
                     ParsekScenario.RewindSpawnSuppressionReasonSameRecording,
                     StringComparison.Ordinal))
             {
@@ -5103,16 +5115,6 @@ namespace Parsek
                 return true;
             }
 
-            if (string.IsNullOrEmpty(markerReason))
-                markerReason = ParsekScenario.RewindSpawnSuppressionReasonLegacyUnscoped;
-
-            ParsekScenario.ClearRewindSpawnSuppression(
-                rec,
-                $"reason={markerReason} endpointUT={ParsekScenario.FormatRewindUT(rec.EndUT)}",
-                "spawn allowed despite same-tree rewind because marker is not same-recording");
-            ParsekLog.Info("Rewind",
-                $"Spawn allowed despite same-tree rewind: \"{rec.VesselName}\" id={rec.RecordingId} " +
-                $"endpointUT={ParsekScenario.FormatRewindUT(rec.EndUT)} markerReason={markerReason}");
             return false;
         }
 

@@ -551,6 +551,34 @@ namespace Parsek
                 + "]";
         }
 
+        // Per-frame VISIBILITY OUTCOME token appended to each engine-iter entry,
+        // read from the post-loop GhostPlaybackState. This is the signal that
+        // closes the gap left by FormatEngineIterEntry (which captures only
+        // pre-render inputs): for the "active=1 but invisible" ghost-vanish
+        // symptom it tells, at a glance per frame, whether the ghost's mesh
+        // ended the frame shown (vis=T) or hidden, and if hidden, WHY — the
+        // relative-anchor retire path (retired=T) versus distance LOD
+        // (zone=Beyond + rdist). hasGhost=false means no GhostPlaybackState
+        // entry at all (the slot was skipped/destroyed/never spawned).
+        // Pure/static (primitive args only) so the format is unit-pinnable
+        // without a Unity GameObject.
+        internal static string FormatEngineIterOutcome(
+            bool hasGhost,
+            bool meshVisible,
+            bool anchorRetiredThisFrame,
+            RenderingZone zone,
+            double renderDistance)
+        {
+            if (!hasGhost)
+                return "[out:none]";
+
+            return "[out:vis=" + (meshVisible ? "T" : "F")
+                + " retired=" + (anchorRetiredThisFrame ? "T" : "F")
+                + " zone=" + zone.ToString()
+                + " rdist=" + RenderingZoneManager.FormatDistanceForLog(renderDistance)
+                + "]";
+        }
+
         internal static string FormatRecordingIdShort(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId))
@@ -943,41 +971,26 @@ namespace Parsek
             int ghostsProcessed = 0;
             int trajectoriesIterated = 0;
 
-            // Engine-iteration trace builder (one ParsekLog line per frame,
-            // rate-limited via VerboseRateLimited so it can ride a 1.0s minimum
-            // without losing fidelity at 60fps). Off when ghostRenderTracing is
-            // off so the steady-state cost is zero. Bypasses GhostRenderTrace
-            // entirely — the trace is gated by IsDetailedWindowOpen, but this
-            // builder must run for every trajectory regardless so a future
-            // repro can distinguish "fell out of iteration" from "rendered with
-            // closed trace window."
+            // Engine-iteration trace gate. The line itself is built once per
+            // frame in a dedicated post-loop pass (see below) so each entry can
+            // report not just the pre-render inputs but the per-frame VISIBILITY
+            // OUTCOME (mesh shown/hidden + reason), read from the final
+            // GhostPlaybackState after the loop has positioned/hidden it.
+            // Bypasses GhostRenderTrace's IsDetailedWindowOpen gate so a
+            // ghost-vanish repro can tell "fell out of iteration" from
+            // "iterated, positioned, then hidden." Auto-on whenever a Re-Fly
+            // session is active (the ghost-vanish-inertial repro is a Re-Fly
+            // continuation ghost) so the next repro is captured without the user
+            // first enabling ghostRenderTracing; emit is rate-limited to 1.0s.
             bool engineIterTraceEnabled =
-                ParsekSettings.Current?.ghostRenderTracing == true;
-            System.Text.StringBuilder engineIterBuilder = engineIterTraceEnabled
-                ? new System.Text.StringBuilder(trajectories.Count * 48)
-                : null;
+                ParsekSettings.Current?.ghostRenderTracing == true
+                || ctx.activeReFlyMarker != null;
 
             for (int i = 0; i < trajectories.Count; i++)
             {
                 trajectoriesIterated++;
                 var traj = trajectories[i];
                 var f = flags[i];
-
-                if (engineIterBuilder != null)
-                {
-                    if (engineIterBuilder.Length > 0)
-                        engineIterBuilder.Append(',');
-                    engineIterBuilder.Append(FormatEngineIterEntry(
-                        index: i,
-                        recordingId: traj?.RecordingId,
-                        skipReason: f.skipGhost
-                            ? f.skipReason
-                            : GhostPlaybackSkipReason.None,
-                        anchorReFlyUnstable: f.anchorReFlyUnstable,
-                        hasRenderableData: HasRenderableGhostData(traj),
-                        inGhostStates: ghostStates.ContainsKey(i),
-                        endUT: traj?.EndUT ?? double.NaN));
-                }
 
                 // Disabled/suppressed: destroy any active ghost before skipping.
                 // Bug #433: only the PlaybackEnabled=false cause is career-neutral, so
@@ -1363,14 +1376,52 @@ namespace Parsek
             }
 
             // Engine-iteration trace emit: one log line listing every iterated
-            // trajectory's identity + skipReason + renderable-data + ghostStates
-            // membership + endUT. Bypasses GhostRenderTrace's anomaly-window
-            // gate so a future ghost-vanish regression repro can answer
-            // definitively: did the recording reach the loop? what skipReason
-            // did it have? was ghostStates[i] still present? Rate-limited to
+            // trajectory's identity + producer-side inputs (skipReason /
+            // anchorReFlyUnstable / renderable-data / ghostStates membership /
+            // endUT) AND its per-frame VISIBILITY OUTCOME, read here from the
+            // post-loop GhostPlaybackState: did the ghost end the frame with its
+            // mesh shown, and if hidden, was it the relative-anchor retire path
+            // (retired=T) or distance LOD (zone=Beyond + rdist)? This closes the
+            // gap that made the loop-top-only trace inconclusive for the
+            // "active=1 but invisible" symptom — skip=None at the loop top did
+            // NOT prove the ghost rendered, because a retire/zone-hide happens
+            // after positioning. Bypasses GhostRenderTrace's anomaly-window gate
+            // so a ghost-vanish repro can answer definitively. Rate-limited to
             // 1.0s to keep steady-state cost negligible.
-            if (engineIterBuilder != null && engineIterBuilder.Length > 0)
+            if (engineIterTraceEnabled)
             {
+                var engineIterBuilder =
+                    new System.Text.StringBuilder(trajectories.Count * 64);
+                for (int i = 0; i < trajectories.Count; i++)
+                {
+                    var iterTraj = trajectories[i];
+                    var iterFlags = flags[i];
+                    if (engineIterBuilder.Length > 0)
+                        engineIterBuilder.Append(',');
+                    engineIterBuilder.Append(FormatEngineIterEntry(
+                        index: i,
+                        recordingId: iterTraj?.RecordingId,
+                        skipReason: iterFlags.skipGhost
+                            ? iterFlags.skipReason
+                            : GhostPlaybackSkipReason.None,
+                        anchorReFlyUnstable: iterFlags.anchorReFlyUnstable,
+                        hasRenderableData: HasRenderableGhostData(iterTraj),
+                        inGhostStates: ghostStates.ContainsKey(i),
+                        endUT: iterTraj?.EndUT ?? double.NaN));
+
+                    GhostPlaybackState iterState;
+                    ghostStates.TryGetValue(i, out iterState);
+                    bool hasGhost = iterState != null;
+                    bool meshVisible = hasGhost
+                        && iterState.ghost != null
+                        && iterState.ghost.activeSelf;
+                    engineIterBuilder.Append(FormatEngineIterOutcome(
+                        hasGhost,
+                        meshVisible,
+                        anchorRetiredThisFrame: hasGhost && iterState.anchorRetiredThisFrame,
+                        zone: hasGhost ? iterState.currentZone : RenderingZone.Physics,
+                        renderDistance: hasGhost ? iterState.lastRenderDistance : double.NaN));
+                }
                 EmitEngineIterTrace(engineIterBuilder.ToString());
             }
 
@@ -7045,19 +7096,32 @@ namespace Parsek
                 && diagnostic.BodyFixedFramesCoverUT;
         }
 
-        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
-        internal const double DestroyedPredictedOrbitTailBridgeMaxGapSeconds = 5.0;
+        // Maximum gap (seconds) between the last authored trajectory point and a
+        // predicted orbit tail's startUT that the renderer will bridge by playing
+        // the orbit (back-propagated) through the gap instead of holding the last
+        // point and then teleporting to the orbit when it activates. The gap is the
+        // unsampled window between when per-frame sampling stopped (the vessel went
+        // on-rails / left the physics bubble) and when the predicted coast tail was
+        // captured (on-rails / scene-exit snapshot). Across this window the vessel is
+        // a pure Keplerian coast, so back-propagating the tail orbit to the last
+        // point is correct, and the orbit-tail continuity offset pins the handoff so
+        // there is no visible teleport (it only smooths the small reseed residual).
+        // Sized for on-rails / scene-exit transition gaps (the payload-to-orbit
+        // teleport was an observed ~24s gap) with headroom; bounded so a far-future
+        // post-maneuver orbit is never back-propagated into the coast window (the
+        // first predicted segment after the last point is always the current coast,
+        // whose own range covers the run up to any later maneuver segment).
+        //
+        // A single cap covers both live and Destroyed tails: the historical
+        // Destroyed-specific 5s tier was raised because destroyed finalizer tails had
+        // a larger gap than live finalizer tails; the on-rails discovery shows live
+        // tails need an even larger window, so the distinction is obsolete and a
+        // wider cap can never reduce destroyed bridging (it can only widen it, which
+        // the continuity offset keeps teleport-free).
+        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 30.0;
         internal const double PredictedOrbitTailContinuityMinBlendSeconds = 5.0;
         internal const double PredictedOrbitTailContinuityExtraBlendSeconds = 2.0;
         internal const double PredictedOrbitTailContinuityMaxBlendSeconds = 10.0;
-
-        internal static double ResolvePredictedOrbitTailBridgeMaxGapSeconds(
-            IPlaybackTrajectory traj)
-        {
-            return traj != null && traj.TerminalStateValue == TerminalState.Destroyed
-                ? DestroyedPredictedOrbitTailBridgeMaxGapSeconds
-                : PredictedOrbitTailBridgeMaxGapSeconds;
-        }
 
         internal static double ResolvePredictedOrbitTailContinuityBlendSeconds(
             double lastPointUT, double segmentStartUT)
@@ -7135,8 +7199,7 @@ namespace Parsek
                     continue;
 
                 double gap = candidate.startUT - lastPointUT;
-                double maxBridgeGap = ResolvePredictedOrbitTailBridgeMaxGapSeconds(traj);
-                if (gap > maxBridgeGap + 1e-6)
+                if (gap > PredictedOrbitTailBridgeMaxGapSeconds + 1e-6)
                     continue;
                 if (playbackUT < candidate.startUT - 1e-6
                     && playbackUT <= candidate.endUT

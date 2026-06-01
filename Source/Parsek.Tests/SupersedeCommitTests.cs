@@ -3276,6 +3276,127 @@ namespace Parsek.Tests
                 && l.Contains("skippedPreRewindCarveOut=6"));
         }
 
+        // ---------------------------------------------------------------
+        // Regression: "v0.9.2 In-place Re-Fly debris attributed to pre-rewind
+        // root recording". The user's repro had 2 debris that separated DURING
+        // an in-place re-fly. The bug anchored them to the pre-rewind origin, so
+        // the supersede closure (rooted at the origin) swept them up and the ERS
+        // filter hid them after commit, when they conceptually belong to the new
+        // continuation and should stay visible as its child debris.
+        //
+        // The recorder now swaps tree.ActiveRecordingId to the continuation fork
+        // before the breakup is processed (proven in
+        // Bug585InPlaceContinuationRestoreTests.ResolveInPlaceContinuationTarget_
+        // InPlaceMarker_SwapsTarget), so CreateBreakupChildRecording anchors redo
+        // debris to the fork (== marker.ActiveReFlyRecordingId), not the origin.
+        //
+        // This test pins the downstream half: post-rewind debris parented to the
+        // continuation are OUTSIDE the superseded closure (which is rooted at the
+        // origin / supersede target), so they get no supersede row, drop out of
+        // the tombstone-scope subtree, and stay visible — while an origin-parented
+        // post-rewind debris (genuine original-timeline breakup the re-fly redid)
+        // is still superseded and hidden.
+        // ---------------------------------------------------------------
+        [Fact]
+        public void AppendRelations_PostRewindDebrisParentedToContinuation_StaysVisible()
+        {
+            const string treeId = "tree_cont";
+            const string originId = "rec_origin_cont";
+            const string provisionalId = "rec_prov_cont";
+
+            var origin = Rec(originId, treeId,
+                childBranchPointId: "bp_origin_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            origin.ExplicitStartUT = 0.0;
+            origin.Points.Add(new TrajectoryPoint { ut = 0.0 });
+            origin.Points.Add(new TrajectoryPoint { ut = 5.0 });
+            // EndUT well past rewindUT + eps so the chain-head carve-out does not
+            // fire on origin itself (mirrors RunAppendForDebrisFixture).
+            origin.ExplicitEndUT = 100.0;
+
+            // Origin-parented post-rewind debris (original-timeline breakup the
+            // re-fly redid) → still superseded + hidden.
+            var debrisOrigin = Rec("d_origin_post", treeId,
+                parentBranchPointId: "bp_origin_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            debrisOrigin.IsDebris = true;
+            debrisOrigin.ParentAnchorRecordingId = originId;
+            debrisOrigin.ExplicitStartUT = 34.10;
+            debrisOrigin.Points.Add(new TrajectoryPoint { ut = 34.10 });
+
+            // The user's two redo debris (StartUT 34.10 and 37.14) the recorder
+            // anchored to the continuation fork → must stay visible after commit.
+            var debrisCont1 = Rec("d_cont_post_1", treeId,
+                parentBranchPointId: "bp_prov_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            debrisCont1.IsDebris = true;
+            debrisCont1.ParentAnchorRecordingId = provisionalId;
+            debrisCont1.ExplicitStartUT = 34.10;
+            debrisCont1.Points.Add(new TrajectoryPoint { ut = 34.10 });
+
+            var debrisCont2 = Rec("d_cont_post_2", treeId,
+                parentBranchPointId: "bp_prov_child",
+                state: MergeState.Immutable, terminal: TerminalState.Destroyed);
+            debrisCont2.IsDebris = true;
+            debrisCont2.ParentAnchorRecordingId = provisionalId;
+            debrisCont2.ExplicitStartUT = 37.14;
+            debrisCont2.Points.Add(new TrajectoryPoint { ut = 37.14 });
+
+            var bps = new List<BranchPoint>
+            {
+                Bp("bp_origin_child", BranchPointType.Breakup,
+                    parents: new List<string> { originId },
+                    children: new List<string> { "d_origin_post" }),
+                Bp("bp_prov_child", BranchPointType.Breakup,
+                    parents: new List<string> { provisionalId },
+                    children: new List<string> { "d_cont_post_1", "d_cont_post_2" }),
+            };
+
+            InstallTree(treeId,
+                new List<Recording> { origin, debrisOrigin, debrisCont1, debrisCont2 },
+                bps);
+
+            var provisional = AddProvisional(provisionalId, treeId,
+                TerminalState.Landed, supersedeTargetId: originId);
+            provisional.ChildBranchPointId = "bp_prov_child";
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_cont",
+                TreeId = treeId,
+                ActiveReFlyRecordingId = provisionalId,
+                OriginChildRecordingId = originId,
+                SupersedeTargetId = originId,
+                RewindPointId = "rp_cont",
+                InvokedUT = 29.42,
+                RewindPointUT = 29.42,
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var scenario = InstallScenario(marker);
+
+            var subtree = SupersedeCommit.AppendRelations(marker, provisional, scenario);
+
+            // Origin-parented post-rewind debris IS superseded → hidden.
+            Assert.Contains(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "d_origin_post");
+            Assert.False(EffectiveState.IsVisible(debrisOrigin, scenario.RecordingSupersedes),
+                "origin-parented post-rewind debris must be superseded/hidden after commit");
+
+            // The two continuation-parented redo debris get NO supersede row,
+            // never enter the tombstone-scope subtree (they are outside the
+            // closure rooted at the origin / supersede target), and stay visible.
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "d_cont_post_1");
+            Assert.DoesNotContain(scenario.RecordingSupersedes,
+                r => r.OldRecordingId == "d_cont_post_2");
+            Assert.DoesNotContain("d_cont_post_1", subtree);
+            Assert.DoesNotContain("d_cont_post_2", subtree);
+            Assert.True(EffectiveState.IsVisible(debrisCont1, scenario.RecordingSupersedes),
+                "continuation-parented redo debris must stay visible after commit");
+            Assert.True(EffectiveState.IsVisible(debrisCont2, scenario.RecordingSupersedes),
+                "continuation-parented redo debris must stay visible after commit");
+        }
+
         [Fact]
         public void AppendRelations_NaNRewindPointUT_FallsBackToInvokedUT()
         {

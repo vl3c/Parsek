@@ -1223,6 +1223,298 @@ namespace Parsek.InGameTests
                 $"ecc={seed.Segment.eccentricity:F4} source={source}");
         }
 
+        /// <summary>
+        /// Frozen-icon-on-short-arc fix (flight map): the ghost icon position is propagated at the
+        /// loop-mapped effUT each frame (GhostOrbitIconDrivePatch), so it must GLIDE continuously
+        /// along a SUB-PERIOD orbital arc even while the live clock would barely advance through the
+        /// thin recorded window. Uses a real KSP Orbit with the exact frozen-icon segment elements
+        /// (sma=671928 ecc=0.0883 near Kerbin, a ~80 deg arc) and asserts the propagated world
+        /// position advances > 1 m per effUT step (status=moving), then stays continuous when effUT
+        /// crosses the recorded segment endpoint into the next sample (no seam teleport in effUT
+        /// space). This is a Unity-runtime check of the PREMISE the fix relies on (a sub-period arc's
+        /// Kepler position is a continuous function of effUT, which xUnit cannot evaluate since it
+        /// cannot run Orbit.UpdateFromUT). It does NOT fire the live GhostOrbitIconDrivePatch on a real
+        /// ghost ProtoVessel: the patch decision logic is covered by GhostOrbitIconDriveTests, and the
+        /// end-to-end behaviour by playtest.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Ghost map icon glides along a sub-period orbital arc when driven at effUT (no freeze/seam)")]
+        public void GhostMapIconGlidesOnShortArc_Flight()
+        {
+            AssertIconGlidesOnShortArc("FLIGHT");
+        }
+
+        /// <summary>
+        /// Tracking-Station variant of <see cref="GhostMapIconGlidesOnShortArc_Flight"/>: the same
+        /// premise check, run under the TRACKSTATION scene tag. It shares AssertIconGlidesOnShortArc and
+        /// differs from the flight variant only by scene, so it confirms the Kepler premise holds in the
+        /// TS runtime, not that the live patch fires there. Scene parity of the actual fix is by
+        /// construction (the patch is keyed only on IsGhostMapVessel with no scene check, and the TS
+        /// refresh feeds the SAME segment + loop shift through the SAME ApplyOrbitToVessel) plus playtest.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Ghost map icon glides along a sub-period orbital arc in the Tracking Station too")]
+        public void GhostMapIconGlidesOnShortArc_TrackingStation()
+        {
+            AssertIconGlidesOnShortArc("TRACKSTATION");
+        }
+
+        private static void AssertIconGlidesOnShortArc(string scene)
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // The exact frozen-icon segment from the evidence log (rec 61e9...30 "Kerbal X"):
+            // sma=671928 ecc=0.0883, recorded window 52569494.7..52569925.6 (~431 s) = a ~80 deg arc
+            // of the ~1842 s orbit. Raw epoch (no shift baked in), matching ApplyOrbitToVessel.
+            var orbit = new Orbit();
+            orbit.referenceBody = kerbin;
+            const double rawEpoch = 52569494.7;
+            const double rawStart = 52569494.7;
+            const double rawEnd = 52569925.6;
+            orbit.SetOrbit(0.1887, 0.088283, 671928.0, 75.0, 152.9042, 1.463204, rawEpoch, kerbin);
+            orbit.Init();
+
+            // The fix drives the OrbitDriver at effUT = liveUT - shift. effUT advances 1:1 with the
+            // loop clock; sample it at five points spanning the recorded window and assert the
+            // propagated position advances every step (the icon glides, not freezes).
+            const int steps = 5;
+            double prevDist = double.NaN;
+            Vector3d prevPos = Vector3d.zero;
+            double minStep = double.MaxValue;
+            double maxStep = 0.0;
+            for (int i = 0; i < steps; i++)
+            {
+                double effUT = rawStart + (rawEnd - rawStart) * (i / (double)(steps - 1));
+                orbit.UpdateFromUT(effUT);
+                Vector3d pos = orbit.pos;
+                if (i > 0)
+                {
+                    double step = (pos - prevPos).magnitude;
+                    minStep = System.Math.Min(minStep, step);
+                    maxStep = System.Math.Max(maxStep, step);
+                }
+                prevPos = pos;
+                prevDist = pos.magnitude;
+            }
+
+            InGameAssert.IsGreaterThan(minStep, 1.0,
+                $"[{scene}] icon must advance > 1 m per effUT step on the short arc " +
+                $"(minStep={minStep:F1} m) — a frozen icon would step ~0 m");
+
+            // Seam continuity: stepping one effUT increment PAST the recorded end must move by a
+            // comparable amount, not teleport. The icon is a continuous function of effUT, so the
+            // cross-endpoint step should be the same order of magnitude as the in-window steps.
+            double dt = (rawEnd - rawStart) / (steps - 1);
+            orbit.UpdateFromUT(rawEnd);
+            Vector3d atEnd = orbit.pos;
+            orbit.UpdateFromUT(rawEnd + dt);
+            Vector3d pastEnd = orbit.pos;
+            double seamStep = (pastEnd - atEnd).magnitude;
+            InGameAssert.IsGreaterThan(seamStep, 1.0,
+                $"[{scene}] icon must keep moving across the segment endpoint (seamStep={seamStep:F1} m)");
+            InGameAssert.IsLessThan(seamStep, maxStep * 5.0,
+                $"[{scene}] cross-endpoint step ({seamStep:F1} m) must be the same order as in-window " +
+                $"steps (maxStep={maxStep:F1} m) — no seam teleport");
+
+            // Sanity: the elements are sub-period (the arc is genuinely a sliver of the orbit), so
+            // this is the freeze-prone regime the fix targets.
+            double windowFraction = (rawEnd - rawStart) / orbit.period;
+            InGameAssert.IsLessThan(windowFraction, 1.0,
+                $"[{scene}] test must use a sub-period arc (window={windowFraction:F3} of period {orbit.period:F0}s)");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconGlidesOnShortArc[{scene}]: period={orbit.period:F0}s " +
+                $"windowFrac={windowFraction:F3} minStep={minStep:F1}m maxStep={maxStep:F1}m " +
+                $"seamStep={seamStep:F1}m");
+        }
+
+        /// <summary>
+        /// Parking -> loiter orbit-RAISE gap glide (flight map). When the playback head is in the
+        /// ~205 s raise gap between the parking segment (sma 671928) and the loiter segment (sma
+        /// 731230), the dispatcher routes the icon onto the recorded body-fixed POINTS via
+        /// <see cref="GhostMapPresence.UpdateGhostOrbitFromStateVectors"/>, which resolves world
+        /// position through <c>CelestialBody.GetWorldSurfacePosition(lat, lon, alt)</c>. The bug
+        /// instead carried the stale parking OrbitSegment forward, freezing the icon and teleporting
+        /// it ~1318 km onto the loiter orbit at the seam.
+        ///
+        /// This is the Unity-runtime integration guard the xUnit predicate/continuity test cannot
+        /// be: it projects the recorded gap points through the REAL Kerbin
+        /// <c>GetWorldSurfacePosition</c> (the exact resolution the live dispatcher uses) and a REAL
+        /// KSP <see cref="Orbit"/> for the carried parking segment (the buggy carry), then asserts
+        /// the points-driven world track glides (max step &lt; 50 km) while the carry track exhibits
+        /// the &gt; 100 km teleport. xUnit cannot run either GetWorldSurfacePosition or
+        /// Orbit.UpdateFromUT. It does NOT spawn a live ghost ProtoVessel (that requires the full
+        /// materialization path); the dispatcher decision is covered by GhostMapOrbitRaiseGapTests
+        /// (predicate) and the end-to-end behaviour by playtest.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Ghost map icon glides the recorded ascent across a parking->loiter raise gap (no freeze/teleport)")]
+        public void GhostMapIconGlidesAcrossRaiseGap_Flight()
+        {
+            AssertIconGlidesAcrossRaiseGap("FLIGHT");
+        }
+
+        /// <summary>
+        /// Tracking-Station variant of <see cref="GhostMapIconGlidesAcrossRaiseGap_Flight"/>. The TS
+        /// dispatcher (GhostMapPresence.RefreshTrackingStationGhosts) routes the gap glide through the
+        /// SAME ShouldDriveGapFromPoints predicate and the SAME GetWorldSurfacePosition resolution as
+        /// the flight scene, so the world-position continuity holds identically in the TS runtime.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.TRACKSTATION,
+            Description = "Ghost map icon glides the recorded ascent across a parking->loiter raise gap in the Tracking Station too")]
+        public void GhostMapIconGlidesAcrossRaiseGap_TrackingStation()
+        {
+            AssertIconGlidesAcrossRaiseGap("TRACKSTATION");
+        }
+
+        private static void AssertIconGlidesAcrossRaiseGap(string scene)
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // Recorded structure from rec 61e9177193444e329247d0e8288cf91e (the raise gap):
+            // parking seg ends at 52569969.49, loiter seg starts at 52570174.17 (a ~205 s gap with
+            // NO covering OrbitSegment but ~84 body-fixed Absolute points at ~131 km).
+            const double parkingEndUT = 52569969.494702443;
+            const double loiterStartUT = 52570174.174735993;
+
+            // (a) FIXED path: drive the icon from the recorded body-fixed points, resolved through the
+            // REAL Kerbin GetWorldSurfacePosition (the exact call UpdateGhostOrbitFromStateVectors makes
+            // for an Absolute point). Sample lat/lon/alt along the recorded ascent at ~5 s cadence.
+            const int steps = 41;
+            double maxFixedStep = 0.0;
+            Vector3d prevFixed = Vector3d.zero;
+            for (int i = 0; i < steps; i++)
+            {
+                double f = i / (double)(steps - 1);
+                double lat = -0.0940870293026434 + f * (0.01735396213266869 - (-0.0940870293026434));
+                double lon = 33.33922852313182 + f * (65.0419383682048 - 33.33922852313182);
+                double alt = 131165.32404627802 + f * (131764.85360325896 - 131165.32404627802);
+                Vector3d pos = kerbin.GetWorldSurfacePosition(lat, lon, alt);
+                if (i > 0)
+                {
+                    double step = (pos - prevFixed).magnitude;
+                    if (step > maxFixedStep) maxFixedStep = step;
+                }
+                prevFixed = pos;
+            }
+
+            InGameAssert.IsLessThan(maxFixedStep, 50000.0,
+                $"[{scene}] points-driven icon must glide the raise arc continuously " +
+                $"(max step {maxFixedStep:F0} m, expected < 50 km) — the world-position resolution the fix routes through");
+
+            // (b) BUGGY carry path: the parking OrbitSegment is carried across the whole gap (icon
+            // pinned at the parking-orbit phase at parkingEndUT) and then snaps to the loiter orbit at
+            // loiterStartUT. Use a REAL KSP Orbit for each and measure the seam jump.
+            var parking = new Orbit();
+            parking.referenceBody = kerbin;
+            parking.SetOrbit(0.18870260431072694, 0.088283234082374554, 671928.40970866173,
+                335.69895266376579, 152.90421069401148, 1.463204, 52569494.7, kerbin);
+            parking.Init();
+            parking.UpdateFromUT(parkingEndUT);
+            Vector3d carriedParkingPos = parking.pos;
+
+            var loiter = new Orbit();
+            loiter.referenceBody = kerbin;
+            loiter.SetOrbit(0.18903449190718044, 0.0013137142817968353, 731229.57633187377,
+                335.64572740348439, 241.34144799953822, 1.463204, loiterStartUT, kerbin);
+            loiter.Init();
+            loiter.UpdateFromUT(loiterStartUT);
+            Vector3d loiterEntryPos = loiter.pos;
+
+            double seamJump = (loiterEntryPos - carriedParkingPos).magnitude;
+            InGameAssert.IsGreaterThan(seamJump, 100000.0,
+                $"[{scene}] the buggy same-body carry must teleport across the gap " +
+                $"(seam jump {seamJump:F0} m, expected > 100 km) — if this fails the regression model is stale");
+
+            InGameAssert.IsTrue(maxFixedStep * 10 < seamJump,
+                $"[{scene}] the points-driven glide step ({maxFixedStep:F0} m) must be far smaller than the " +
+                $"carry seam ({seamJump:F0} m) — the fix removes the teleport");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconGlidesAcrossRaiseGap[{scene}]: maxFixedStep={maxFixedStep:F0}m seamJump={seamJump:F0}m");
+        }
+
+        /// <summary>
+        /// Regression guard for the hyperbolic-escape ghost icon. The ghost OrbitDriver is seeded at the
+        /// RAW recorded epoch (no loop shift baked in) and the icon-drive patch propagates it at the
+        /// loop-mapped effUT. A hyperbolic escape segment (the Kerbin-SOI exit to interplanetary space)
+        /// must be driven at effUT just like an ellipse: propagating it at the LIVE clock instead
+        /// (liveUT = effUT + a ~1e9 s shift, far past the recorded escape) flings the icon billions of
+        /// metres into deep space, off its trajectory (the "icon not rendered on the hyperbolic escape"
+        /// regression). This uses the real escape orbit from the evidence log (rec 61e9...30 "Kerbal X",
+        /// segment 63966985.6..64044032.7, sma=-3818300 ecc=1.1916). Drives at effUT across the segment
+        /// window and asserts the position stays within Kerbin's SOI and advances; then shows that the
+        /// live-UT (defer-to-stock) propagation lands orders of magnitude outside the SOI.
+        /// </summary>
+        [InGameTest(Category = "GhostPlayback",
+            Description = "Hyperbolic escape ghost icon is driven at effUT (stays in SOI), not at live UT (deep space)",
+            Scene = GameScenes.FLIGHT)]
+        public void GhostMapIconDrivesHyperbolicEscapeAtEffUT()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+            const double rawEpoch = 63966985.6;
+            const double segStart = 63966985.6;
+            const double segEnd = 64044032.7;
+            var orbit = new Orbit();
+            orbit.SetOrbit(1.3329, 1.1916, -3818300.0, 50.0, 60.0, 0.0238, rawEpoch, kerbin);
+            orbit.Init();
+            InGameAssert.IsTrue(orbit.eccentricity >= 1.0,
+                $"test orbit must be hyperbolic (ecc={orbit.eccentricity:F3})");
+
+            double soi = kerbin.sphereOfInfluence; // ~8.4e7 m for Kerbin
+            // Drive at effUT across the recorded escape window: position must stay within the SOI
+            // (the escape is inside Kerbin's SOI until segEnd) and advance every step (glides).
+            const int steps = 6;
+            Vector3d prev = Vector3d.zero;
+            double minStep = double.MaxValue, maxInSoi = 0.0;
+            for (int i = 0; i < steps; i++)
+            {
+                double effUT = segStart + (segEnd - segStart) * (i / (double)(steps - 1));
+                orbit.UpdateFromUT(effUT);
+                Vector3d pos = orbit.pos;
+                InGameAssert.IsFalse(double.IsNaN(pos.x) || double.IsInfinity(pos.x),
+                    $"effUT drive must produce a finite position (effUT={effUT:F0})");
+                double r = pos.magnitude;
+                maxInSoi = System.Math.Max(maxInSoi, r);
+                // Allow a little margin past the SOI radius for the final exit sample.
+                InGameAssert.IsLessThan(r, soi * 1.2,
+                    $"effUT-driven escape must stay within Kerbin SOI (r={r:F0} m, SOI={soi:F0} m) — " +
+                    $"a far-out position is the live-UT regression");
+                if (i > 0) minStep = System.Math.Min(minStep, (pos - prev).magnitude);
+                prev = pos;
+            }
+            InGameAssert.IsGreaterThan(minStep, 1.0,
+                $"hyperbolic escape icon must advance > 1 m per effUT step (minStep={minStep:F1} m)");
+
+            // Contrast: propagating at a LIVE-UT-like time (raw epoch + a representative ~8e8 s loop
+            // shift = where stock would put it if the patch deferred) lands far outside the SOI. This
+            // is the broken position the regression produced; the effUT drive above avoids it.
+            orbit.UpdateFromUT(rawEpoch + 800000000.0);
+            double rLiveUt = orbit.pos.magnitude;
+            InGameAssert.IsGreaterThan(rLiveUt, soi * 100.0,
+                $"sanity: live-UT propagation must land far outside the SOI (r={rLiveUt:F0} m, SOI={soi:F0} m) — " +
+                $"this is exactly the deep-space misplacement the effUT drive prevents");
+
+            ParsekLog.Info("TestRunner",
+                $"GhostMapIconDrivesHyperbolicEscapeAtEffUT: SOI={soi:F0}m maxInWindow={maxInSoi:F0}m " +
+                $"minStep={minStep:F1}m liveUtR={rLiveUt:E2}m");
+        }
+
         #endregion
 
         #region Parsek Settings
@@ -4819,6 +5111,78 @@ namespace Parsek.InGameTests
                         ghostPid,
                         matchingGhostCount,
                         expectedGhostName));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#1005: MapRenderProbe reads a real orbit-line active truth (True/False) via OrbitRendererBase.OrbitLine, not a broken reflection sentinel")]
+        public IEnumerator MapRenderProbe_ReadsRealLineActiveTruth()
+        {
+            // Regression coverage for the map/TS render tracer line-truth bug: the
+            // probe used to reflect a NonPublic field named "line" on
+            // OrbitRendererBase (the field is actually "orbitLine", exposed via the
+            // public OrbitLine property), so ReadLineActive always returned
+            // "(field-missing)" and the line.active truth (the probe's headline
+            // line-blink capability) never had real data. The fix reads
+            // OrbitRendererBase.OrbitLine.active directly. This drives that read
+            // against a live ghost's renderer and asserts a real bool truth, since
+            // the line.active read is Unity-runtime and cannot be unit-tested.
+            using (var scope = new SyntheticTrackingStationRecordingScope("maprender-lineactive"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP run the ProtoVessel load + OrbitRendererBase.Start
+                // (MakeLine populates the protected orbitLine the OrbitLine
+                // property exposes) over a few frames so the probe has a real
+                // Vectrosity line to read.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+
+                Vessel ghost = FindVesselByPersistentId(ghostPid);
+                InGameAssert.IsNotNull(ghost,
+                    "Synthetic TS ghost PID should resolve to a live Vessel");
+
+                OrbitRendererBase rendererBase = ghost.orbitRenderer;
+                if (rendererBase == null)
+                {
+                    InGameAssert.Skip(
+                        "Ghost vessel has no orbitRenderer yet (map-object orbit renderer not built in this session)");
+                    yield break;
+                }
+
+                // Read line.active through the exact path MapRenderProbe.Sample
+                // uses to feed the Tier-B line.active truth and the Tier-C
+                // line-blink anomaly.
+                string lineActive = MapRenderProbe.ReadLineActive(rendererBase);
+
+                // The bug: GetField("line", ...) returned null, so this was always
+                // "(field-missing)". The field is "orbitLine", read via OrbitLine.
+                InGameAssert.AreNotEqual("(field-missing)", lineActive,
+                    "ReadLineActive must not report (field-missing): the orbit line is exposed via the OrbitRendererBase.OrbitLine property, not a private 'line' field");
+
+                if (lineActive == "(line-null)")
+                {
+                    InGameAssert.Skip(
+                        "OrbitRendererBase.OrbitLine not yet built for this ghost (Start/MakeLine has not run); line.active truth unavailable this session");
+                    yield break;
+                }
+
+                InGameAssert.IsTrue(
+                    lineActive == "True" || lineActive == "False",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ReadLineActive should report a real VectorLine.active bool truth (True/False), got '{0}'",
+                        lineActive));
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "MapRenderProbe_ReadsRealLineActiveTruth: ghostPid={0} lineActive={1}",
+                        ghostPid,
+                        lineActive));
             }
         }
 
@@ -8478,6 +8842,72 @@ namespace Parsek.InGameTests
                     FlightGlobals.fetch.SetVesselTarget(null, overrideInputLock: true);
                 }
                 GhostMapPresence.RemoveGhostVesselForRecording(recordingIndex, "ingame-targeting-canary-cleanup");
+            }
+        }
+
+        [InGameTest(Category = "MapPresence", Scene = GameScenes.FLIGHT,
+            Description = "Chain ghost create writes the pid -> recordingId reverse map; RemoveGhostVessel clears it")]
+        public IEnumerator ChainGhost_ReverseMap_WrittenOnCreate_ClearedOnRemove()
+        {
+            // Guards the second-cut reverse-map completion: CreateGhostVessel(chain) must write
+            // vesselPidToRecordingId keyed by the LIVE ghost pid (mirroring the timeline path's
+            // TrackRecordingGhostVessel), and RemoveGhostVessel must clear it. The write is a
+            // Unity-runtime path (builds a ProtoVessel), so this lives in-game rather than xUnit.
+            if (FlightGlobals.fetch == null || FlightGlobals.ActiveVessel == null)
+            {
+                InGameAssert.Skip("FlightGlobals or active vessel is unavailable");
+                yield break;
+            }
+
+            Vessel active = FlightGlobals.ActiveVessel;
+            if (active.mainBody == null)
+            {
+                InGameAssert.Skip("Active vessel main body is unavailable");
+                yield break;
+            }
+
+            Recording rec = BuildSyntheticFlightTargetRecording(active, Planetarium.GetUniversalTime());
+            InGameAssert.IsFalse(string.IsNullOrEmpty(rec.RecordingId),
+                "Synthetic recording should carry a non-empty RecordingId");
+
+            // Minimal chain. CreateGhostVessel only reads chain.OriginalVesselPid (the
+            // vesselsByChainPid key + re-entry guard); the ghost's own live pid (KSP-assigned,
+            // unique) is the reverse-map key. Use a high OriginalVesselPid unlikely to collide.
+            uint chainPid = 0x7F000000u + (uint)(Time.frameCount & 0xFFFF);
+            var chain = new GhostChain { OriginalVesselPid = chainPid, TipRecordingId = rec.RecordingId };
+
+            Vessel ghost = null;
+            uint ghostLivePid = 0u;
+            try
+            {
+                ghost = GhostMapPresence.CreateGhostVessel(chain, rec);
+                InGameAssert.IsNotNull(ghost,
+                    "CreateGhostVessel(chain) should build a ghost from the synthetic orbit recording");
+                ghostLivePid = ghost.persistentId;
+
+                yield return null;
+
+                InGameAssert.AreEqual(rec.RecordingId,
+                    GhostMapPresence.FindRecordingIdByVesselPid(ghostLivePid),
+                    "CreateGhostVessel(chain) must write the pid -> recordingId reverse map for chain ghosts");
+
+                GhostMapPresence.RemoveGhostVessel(chain.OriginalVesselPid, "chain-reverse-map-test-cleanup");
+                ghost = null;
+
+                InGameAssert.IsNull(
+                    GhostMapPresence.FindRecordingIdByVesselPid(ghostLivePid),
+                    "RemoveGhostVessel must clear the chain ghost's reverse-map entry");
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ChainGhost_ReverseMap: chainPid={0} ghostLivePid={1} recId={2} OK",
+                        chainPid, ghostLivePid, rec.RecordingId));
+            }
+            finally
+            {
+                if (ghost != null)
+                    GhostMapPresence.RemoveGhostVessel(
+                        chain.OriginalVesselPid, "chain-reverse-map-test-finally-cleanup");
             }
         }
 
