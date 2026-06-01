@@ -203,6 +203,43 @@ namespace Parsek.Patches
                 Vector3d off = (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM;
                 v.SetPosition(refBody.position + pos - off);
             }
+
+            // Icon-position truth diagnostic (PR #1003 follow-up): logs the ghost icon's POSITION
+            // AS RENDERED THIS FRAME in a FRAME-INDEPENDENT way every ~1s per pid (the prior
+            // icon-pos-delta log only had worldPos in floating-origin coords at 5s cadence with
+            // no truth reference, which made phase glitches invisible across consecutive samples).
+            // Reports the propagated orbital phase (mna at driveUT), body-fixed lat/lon/alt of the
+            // icon (these are frame-independent), the seeded orbit's epoch/mna, and the
+            // delta-since-last-sample on the orbital circle. A smooth orbital sweep advances mna
+            // and lat/lon monotonically with sub-degree per-second steps under normal warp; a
+            // phase jump shows as a non-monotone mna or a lat/lon discontinuity. Body-fixed
+            // coordinates remove the Krakensbane / floating-origin frame shift that was confusing
+            // the prior diagnostic (worldPos deltas of hundreds of km between samples that were
+            // actually consistent on the orbit). The point of THIS log is to make the user-visible
+            // "icon at the wrong place on the loiter" obvious in KSP.log without ambiguity.
+            if (v != null && refBody != null)
+            {
+                Vector3d iconWorldPos = v.GetWorldPos3D();
+                double iconLat = refBody.GetLatitude(iconWorldPos);
+                double iconLon = refBody.GetLongitude(iconWorldPos);
+                double iconAlt = refBody.GetAltitude(iconWorldPos);
+                double mnaPropagatedRad = orbit.meanAnomaly; // in radians after UpdateFromUT(driveUT)
+                double mnaPropagatedDeg = mnaPropagatedRad * 180.0 / System.Math.PI;
+                // Normalize to [0, 360) for readability.
+                double mnaNormDeg = ((mnaPropagatedDeg % 360.0) + 360.0) % 360.0;
+                ParsekLog.VerboseRateLimited("GhostIconTruth",
+                    "icon-truth-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Icon truth pid={0} body={1} driveUT={2:F1} mnaRad={3:F4} mnaDeg={4:F2} " +
+                        "lat={5:F3} lon={6:F3} alt={7:F0} segSma={8:F0} segEcc={9:F4} " +
+                        "segMnaEpoch={10:F4} segEpoch={11:F1} worldPos={12} scene={13}",
+                        pid, refBody.bodyName, driveUT, mnaPropagatedRad, mnaNormDeg,
+                        iconLat, iconLon, iconAlt,
+                        orbit.semiMajorAxis, orbit.eccentricity,
+                        orbit.meanAnomalyAtEpoch, orbit.epoch,
+                        iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
+                    1.0);
+            }
             return false;
         }
     }
