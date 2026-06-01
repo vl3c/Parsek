@@ -61,11 +61,15 @@ namespace Parsek.Patches
             // RecalculateOrbit / OnRailsSOITransition. Parsek re-applies the correct
             // orbit + body every frame.
             __result = false;
+            // Func<string> overload: this Prefix runs every physics tick per ghost, so
+            // build the message only when the rate limiter actually emits (verbose is on
+            // by default, so the eager-string overload would format every tick).
+            uint pid = v.persistentId;
             ParsekLog.VerboseRateLimited("GhostMap",
-                "dominant-body-suppressed-" + v.persistentId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "dominant-body-suppressed-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Suppressed KSP on-rails dominant-body SOI transition for ghost pid={0} (Parsek owns this orbit)",
-                    v.persistentId),
+                    pid),
                 5.0);
             return false;
         }
