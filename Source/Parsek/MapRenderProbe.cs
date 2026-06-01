@@ -303,10 +303,12 @@ namespace Parsek
             // delta is the actual orbital arc that ComputeExpectedMotionMeters
             // predicts. The raw world-frame delta of a ghost far from the
             // floating origin is dominated by the reference-body's own world
-            // motion (and the loop-shift epoch mismatch for re-aimed ghosts),
-            // which scales with geometry and is unrelated to the ghost's orbital
-            // speed - that mismatch is exactly what produced false-positive
-            // icon-jumps on smooth heliocentric coasts at high warp.
+            // motion under warp (both worldPos and body.position are read at the
+            // SAME live UT, so the loop shift is NOT a factor - it only sets
+            // where on its orbit the ghost is), which scales with geometry and is
+            // unrelated to the ghost's orbital speed - that frame contamination
+            // is exactly what produced false-positive icon-jumps on smooth
+            // heliocentric coasts at high warp.
             if (body != null)
             {
                 Vector3d bodyRelPos = worldPos - body.position;

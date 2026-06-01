@@ -179,7 +179,12 @@ can mutate state between our decision and the render.
 Pure predicates, each with explicit suppression rationale (cf. the mesh tracer's
 floating-origin / zero-velocity carve-outs):
 
-- `icon-jump`: world position delta exceeds expected motion. Expected motion is
+- `icon-jump`: position delta exceeds expected motion. (Shipped refinement, branch
+  `maprender-iconjump-warp`: the delta is measured in the orbit's BODY-RELATIVE frame
+  `GetWorldPos3D - referenceBody.position`, NOT the raw world frame - comparing a
+  raw-world delta against a body-centered orbital speed flagged smooth fast coasts of
+  distant ghosts at high warp as false positives, because the reference-body's own
+  world motion dominates the raw delta.) Expected motion is
   orbit-derived (orbital speed * dt * warpRate), an improvement over the prototype's
   fixed 1000 km/frame threshold which was warp-tuned rather than warp-aware. Pin the
   `dt` source explicitly (`Time.unscaledDeltaTime` for the visual frame) and read
@@ -506,7 +511,7 @@ Mirror `GhostRenderTrace`'s test design (`GhostRenderTraceTests`):
 - `ForceEnabledForTesting` flag and `FrameCounterOverrideForTesting` /
   `FloatingOriginFrameOverrideForTesting` seams so xUnit drives deterministic frames.
 - Pure predicates with no Unity dependency, unit-tested directly:
-  `EvaluateGate(...)` (reason strings), `IsIconJump(dPos, expected, warpRate, foFrame, currentFrame, justReset)`,
+  `EvaluateGate(...)` (reason strings), `IsIconJump(dPos, expectedMotionMeters, currentFrame, floatingOriginShiftFrame, justReset, bodyChanged)` (dPos is the body-relative delta; `bodyChanged` suppresses SOI-crossing frames),
   `IsOrbitDiscontinuity(...)`, and `ReconcileMapRenderState(intended, actual)` (second
   cut).
 - Unity-ECall isolation: any method that touches `Time.frameCount`,
