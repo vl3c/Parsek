@@ -155,6 +155,7 @@ namespace Parsek
         internal static void Reset()
         {
             detailedUntilByKey.Clear();
+            lineIntentByPid.Clear();
         }
 
         private static int CurrentFrameCount()
@@ -522,6 +523,108 @@ namespace Parsek
             string combined = "reason=" + Token(reason)
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined);
+        }
+
+        // ---- Decision-vs-truth reconciliation (second cut) ----
+        //
+        // GhostOrbitLinePatch is the authoritative per-render-frame decision for a ghost's orbit
+        // line + drawIcons. It records the INTENDED state here (frame-stamped); the end-of-frame
+        // MapRenderProbe (execution order 10000, same frame) reads the ACTUAL rendered state and
+        // reconciles - but ONLY when the intent was stamped on the same frame (within
+        // IntentFreshnessFrames). A same-frame mismatch means KSP or another patch toggled
+        // line.active / drawIcons AFTER our Postfix decided it (the blink / post-decision-mutation
+        // case the probe exists to catch). Stale intent (e.g. a frame on which KSP skipped
+        // OrbitRendererBase.LateUpdate, so no decision ran) is dropped, never flagged - exactly the
+        // "our decision log goes silent" gap the prototype could not distinguish.
+
+        /// <summary>Max Unity-frame gap between a recorded decision intent and the probe's truth read
+        /// for the two to be reconciled. 1 allows a physics substep straddling the render frame.</summary>
+        internal const int IntentFreshnessFrames = 1;
+
+        /// <summary>A decision hook's intended orbit-line / drawIcons state for a ghost, stamped with
+        /// the Unity frame it was decided on.</summary>
+        internal struct LineRenderIntent
+        {
+            public int Frame;
+            public bool LineActive;
+            public string DrawIcons;
+            public string Reason;
+        }
+
+        private static readonly Dictionary<string, LineRenderIntent> lineIntentByPid =
+            new Dictionary<string, LineRenderIntent>(StringComparer.Ordinal);
+
+        /// <summary>Record the authoritative orbit-line decision for a pid this frame (called from
+        /// GhostOrbitLinePatch). Keyed by pid; stamped with the current Unity frame. No-op when
+        /// disabled.</summary>
+        internal static void RecordLineIntent(uint pid, bool lineActive, string drawIcons, string reason)
+        {
+            if (!IsEnabled)
+                return;
+            lineIntentByPid[pid.ToString(CultureInfo.InvariantCulture)] = new LineRenderIntent
+            {
+                Frame = CurrentFrameCount(),
+                LineActive = lineActive,
+                DrawIcons = drawIcons,
+                Reason = reason
+            };
+        }
+
+        /// <summary>True when a line decision intent for <paramref name="pidKey"/> was stamped within
+        /// <see cref="IntentFreshnessFrames"/> of <paramref name="currentFrame"/> (so it is safe to
+        /// reconcile against this frame's truth read). Stale intent is dropped.</summary>
+        internal static bool TryGetFreshLineIntent(
+            string pidKey, int currentFrame, out LineRenderIntent intent)
+        {
+            if (lineIntentByPid.TryGetValue(pidKey, out intent)
+                && Math.Abs(currentFrame - intent.Frame) <= IntentFreshnessFrames)
+                return true;
+            intent = default(LineRenderIntent);
+            return false;
+        }
+
+        /// <summary>Pure reconciliation: compare a decision hook's intended line/icon state against the
+        /// probe's actual end-of-frame read. Returns a space-joined mismatch-token string, or empty
+        /// when consistent. An "unknown" actual token (null/empty, or a "(...)" sentinel such as
+        /// "(field-missing)" while the OrbitLine reflection is unfixed, or "(no-renderer)") is treated
+        /// as NO SIGNAL and skipped, so each field's check no-ops until real truth is available.</summary>
+        internal static string ReconcileLineState(
+            LineRenderIntent intent, string actualLineActive, string actualDrawIcons)
+        {
+            string mismatch = null;
+            bool? actualLine = ParseTriBool(actualLineActive);
+            if (actualLine.HasValue && actualLine.Value != intent.LineActive)
+                mismatch = AppendToken(mismatch,
+                    "line-toggled-after-decision(intended=" + Bool(intent.LineActive)
+                    + ",actual=" + Bool(actualLine.Value) + ")");
+            if (!string.IsNullOrEmpty(intent.DrawIcons)
+                && !IsUnknownToken(actualDrawIcons)
+                && intent.DrawIcons != actualDrawIcons)
+                mismatch = AppendToken(mismatch,
+                    "drawIcons-changed-after-decision(intended=" + intent.DrawIcons
+                    + ",actual=" + actualDrawIcons + ")");
+            return mismatch ?? string.Empty;
+        }
+
+        // "True"/"False" (bool.ToString) parse to the bool; any other token (e.g. "(field-missing)")
+        // is unknown -> null, so the line check is skipped until real line.active truth exists.
+        private static bool? ParseTriBool(string s)
+        {
+            if (s == "True") return true;
+            if (s == "False") return false;
+            return null;
+        }
+
+        // Unknown / no-signal actual token: null/empty, or a parenthesized sentinel like
+        // "(field-missing)" / "(no-renderer)" / "(line-null)".
+        private static bool IsUnknownToken(string s)
+        {
+            return string.IsNullOrEmpty(s) || s[0] == '(';
+        }
+
+        private static string AppendToken(string acc, string token)
+        {
+            return string.IsNullOrEmpty(acc) ? token : acc + " " + token;
         }
 
         private static string BuildPrefix(
