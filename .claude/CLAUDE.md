@@ -185,7 +185,7 @@ Pick `<target>` carefully:
 - Branching from `main` → use `origin/main` (local main may be ahead of remote from in-progress work).
 - Branching from a feature branch that's about to be merged → compare `git log --oneline <local>..origin/<branch>` first. Use the local ref if it's ahead; use `origin/<branch>` if it's behind or matches.
 
-When a fresh worktree was created off a parent feature branch and finishes its work: commit on the fix/chore branch → in the parent worktree, `git merge --no-ff <branch>` it back → leave the branch around unless the user asks to prune. This merge-back step does NOT apply when you stayed on the same branch the whole time inside one worktree (the changes are already there).
+When a worktree's branch finishes its work, land it via a GitHub PR, NOT a local merge into the main checkout: commit on the branch, `git push -u origin <branch>`, then `gh pr create` (clean body, no Co-Authored-By / AI attribution). The PR is reviewed and merged on GitHub. Do NOT `git merge --no-ff <branch>` into `Parsek/` (the main checkout) to land finished work. A fix/chore branch stacked on an unmerged feature branch can open a PR targeting that feature branch instead of `main`; leave the branch around unless the user asks to prune.
 
 `Parsek.csproj` probes up to 5 parent levels for `Kerbal Space Program/`, so builds work from worktrees at this location.
 
