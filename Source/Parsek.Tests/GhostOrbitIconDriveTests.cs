@@ -208,5 +208,58 @@ namespace Parsek.Tests
             Assert.Equal(arcStartRaw, GhostMapPresence.MapLiveUTToEffUT(startUTShifted, shift));
             Assert.Equal(arcEndRaw, GhostMapPresence.MapLiveUTToEffUT(endUTShifted, shift));
         }
+
+        // --- state-vector transition: the drive patch must DEFER (return true) for a
+        //     state-vector-reseeded ghost, so stock propagates the shifted-epoch orbit at live UT ---
+
+        [Fact]
+        public void DrivePatchGate_StaleLoopShiftedSegmentBounds_WouldEngage()
+        {
+            // The pre-fix hazard: a loop ghost that just transitioned in place from a covering
+            // OrbitSegment into a transfer-coast OrbitalCheckpoint gap kept its prior segment
+            // phase's loop-shifted bounds + epoch shift. The now-authoritative drive patch keys on
+            // TryGetVisibleOrbitBoundsForGhostVessel: with the stale loop-shifted entry present it
+            // returns the stale (shifted) bounds, so the patch WOULD engage and re-subtract the
+            // shift from the already-shifted state-vector orbit (the freeze/mis-position regression).
+            const uint pid = 4242u;
+            GhostMapPresence.ghostOrbitBounds[pid] = (950.0, 1050.0);
+            GhostMapPresence.ghostOrbitLoopShiftedPids.Add(pid);
+            GhostMapPresence.ghostOrbitEpochShift[pid] = 600.0;
+
+            bool engaged = GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT: 1000.0, out double startUT, out double endUT);
+
+            Assert.True(engaged);
+            Assert.Equal(950.0, startUT);
+            Assert.Equal(1050.0, endUT);
+        }
+
+        [Fact]
+        public void DrivePatchGate_AfterStateVectorReseedClearsSegmentDicts_Defers()
+        {
+            // The fix: UpdateGhostOrbitFromStateVectors clears the segment-drive dicts for the pid
+            // before reseeding the shifted-epoch state-vector orbit. With the dicts cleared,
+            // TryGetVisibleOrbitBoundsForGhostVessel returns false (no loop-shifted entry, no stored
+            // bounds, no covering OrbitSegment for an unmapped pid), so GhostOrbitIconDrivePatch
+            // returns true and defers to stock's live-UT propagation of the shifted-epoch orbit
+            // (the correct state-vector behavior in BOTH the flight map and the Tracking Station).
+            const uint pid = 4242u;
+            GhostMapPresence.ghostOrbitBounds[pid] = (950.0, 1050.0);
+            GhostMapPresence.ghostOrbitLoopShiftedPids.Add(pid);
+            GhostMapPresence.ghostOrbitEpochShift[pid] = 600.0;
+
+            // Simulate the state-vector reseed's stale-segment-drive clear.
+            GhostMapPresence.ghostOrbitBounds.Remove(pid);
+            GhostMapPresence.ghostBodyFrameOrbitBounds.Remove(pid);
+            GhostMapPresence.ghostOrbitLoopShiftedPids.Remove(pid);
+            GhostMapPresence.ghostOrbitEpochShift.Remove(pid);
+
+            bool engaged = GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                pid, currentUT: 1000.0, out _, out _);
+
+            Assert.False(engaged);
+            // The shift is also gone, so any incidental read maps live -> eff as identity.
+            Assert.Equal(0.0, GhostMapPresence.GetGhostOrbitEpochShift(pid));
+        }
     }
 }

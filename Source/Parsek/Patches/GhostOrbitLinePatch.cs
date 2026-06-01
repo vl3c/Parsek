@@ -171,10 +171,16 @@ namespace Parsek.Patches
             Vector3d vel = orbit.vel;
             pos.Swizzle();
             vel.Swizzle();
+            // Degenerate propagation: bail to stock's NaN handling (unload + destroy) WITHOUT
+            // writing NaN into __instance.pos/vel first. This branch is effectively unreachable for
+            // these ghosts (the earlier guard already required eccentricity < 1 and period > 0, so
+            // the elliptical propagation is finite), but bailing before the write keeps the driver
+            // state clean and matches stock's contract that the destroy decision runs on a fresh
+            // re-propagation rather than on a half-written effUT NaN.
+            if (double.IsNaN(pos.x))
+                return true;
             __instance.pos = pos;
             __instance.vel = vel;
-            if (double.IsNaN(pos.x))
-                return true; // degenerate propagation — defer to stock's NaN handling
 
             if (!setPosition)
                 return false;
@@ -448,7 +454,7 @@ namespace Parsek.Patches
                 // Hide the orbit line AND the proto-vessel icon, and mark the icon
                 // suppressed (same as the below-atmosphere branch). During a
                 // non-orbital phase the proto orbit is meaningless and
-                // GhostOrbitIconClampPatch already suppresses the icon off-arc,
+                // GhostOrbitIconDrivePatch already suppresses the icon off-arc,
                 // which makes ClassifyAtmosphericMarkerSkip draw the non-proto
                 // trajectory marker. Leaving the proto icon as OBJ here would draw
                 // BOTH the proto icon and the non-proto marker (the overlapping
@@ -484,7 +490,7 @@ namespace Parsek.Patches
                 && __instance.vessel.orbit.altitude < body.atmosphereDepth;
 
             // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch and the
-            // icon position by GhostOrbitIconClampPatch, both of which use SEGMENT bounds.
+            // icon position by GhostOrbitIconDrivePatch, both of which use SEGMENT bounds.
             // For the line.active toggle we instead use BODY-FRAME bounds (the run of
             // consecutive same-body OrbitSegments around the playback head). That keeps the
             // line continuously visible across inter-segment burns / sparse-physics gaps

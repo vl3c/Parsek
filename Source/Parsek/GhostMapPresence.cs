@@ -7355,6 +7355,35 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            // The state-vector path keeps the OLD contract: a SHIFTED-epoch orbit (seeded at
+            // ut + loopEpochShiftSeconds == liveUT) that stock propagates at the LIVE Planetarium
+            // clock. The segment-driven raw-epoch + effUT-drive contract (GhostOrbitIconDrivePatch)
+            // must therefore NOT engage for this ghost. If this pid was previously a covering
+            // OrbitSegment ghost (a loop mission crossing from a parking-orbit segment into a
+            // transfer-coast OrbitalCheckpoint gap updates the SAME ghost in place, especially in
+            // the Tracking Station where the dispatcher does not remove+recreate it), the prior
+            // segment phase left stale segment bounds + loop-shift + epoch-shift entries. The
+            // now-authoritative drive patch would read those stale dicts and re-subtract a shift
+            // from this already-shifted state-vector orbit, mis-positioning or freezing the icon and
+            // suppressing it. Clear them here (BEFORE updateFromParameters so even the in-call frame
+            // defers to stock) so TryGetVisibleOrbitBoundsForGhostVessel returns false, the drive
+            // patch returns true, and stock correctly propagates the shifted-epoch orbit at live UT.
+            bool hadStaleSegmentDrive =
+                ghostOrbitBounds.Remove(vessel.persistentId)
+                | ghostBodyFrameOrbitBounds.Remove(vessel.persistentId)
+                | ghostOrbitLoopShiftedPids.Remove(vessel.persistentId)
+                | (ghostOrbitEpochShift.Remove(vessel.persistentId));
+            if (hadStaleSegmentDrive)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "State-vector reseed cleared stale segment-drive state for ghost pid={0} "
+                        + "recIndex={1} (segment->state-vector transition, shift={2:F1}, scene={3}): "
+                        + "icon now stock-propagated at live UT off the effUT drive path",
+                        vessel.persistentId, recordingIndex, loopEpochShiftSeconds,
+                        HighLogic.LoadedScene));
+            }
+
             // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
             // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
             // being propagated forward along the ellipse. Zero shift for non-loop ghosts.

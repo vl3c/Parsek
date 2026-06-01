@@ -1156,7 +1156,7 @@ namespace Parsek
                     // the sole position indicator, so it must draw — otherwise an
                     // airless descent (e.g. the Mun) shows the polyline with no ghost
                     // icon. (IsPolylineOwningGhostPhase is checked directly, not via
-                    // the icon-suppressed flag, which GhostOrbitIconClampPatch can
+                    // the icon-suppressed flag, which GhostOrbitIconDrivePatch can
                     // clear on-arc.)
                     if (ghostPid == 0
                         || (!GhostMapPresence.IsIconSuppressed(ghostPid)
