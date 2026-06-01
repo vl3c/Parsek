@@ -653,5 +653,44 @@ namespace Parsek.Tests
             Assert.True(MapRenderTrace.TryGetFreshLineIntent("7", 101, out var intent));
             Assert.Equal("NONE", intent.DrawIcons);
         }
+
+        // ---- polyline-orbit-overlap anomaly ----
+
+        [Fact]
+        public void ReconcilePolylineOverlap_NotOwning_ReturnsEmpty()
+        {
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(false, "True", "OBJ"));
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithIconShown_Flags()
+        {
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(true, "False", "OBJ");
+            Assert.Contains("proto-icon-shown-while-polyline-owns", overlap);
+            Assert.Contains("drawIcons=OBJ", overlap);
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithIconNone_NoOverlap()
+        {
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(true, "False", "NONE"));
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithLineActive_Flags()
+        {
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(true, "True", "NONE");
+            Assert.Contains("orbit-line-active-while-polyline-owns", overlap);
+        }
+
+        [Fact]
+        public void ReconcilePolylineOverlap_OwningWithUnknownLine_SkipsLineFacet()
+        {
+            // line facet dormant until the OrbitLine reflection is fixed; icon NONE => no overlap.
+            Assert.Equal(string.Empty,
+                MapRenderTrace.ReconcilePolylineOverlap(true, "(field-missing)", "NONE"));
+        }
     }
 }

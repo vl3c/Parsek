@@ -606,6 +606,29 @@ namespace Parsek
             return mismatch ?? string.Empty;
         }
 
+        /// <summary>Pure: a ghost's proto orbit line + icon must NOT draw while the trajectory polyline
+        /// owns this recording's current non-orbital leg (they would overlap - the double-draw the
+        /// polyline-owns branch in GhostOrbitLinePatch exists to prevent). Given whether the polyline
+        /// owns the phase + the actual rendered line/icon tokens, returns a mismatch-reason string
+        /// (empty => no overlap). This is a higher-level invariant check independent of what the patch
+        /// intended, so it catches a proto draw leaking through during polyline ownership for any
+        /// reason. Unknown tokens are skipped (the line facet stays dormant until real line.active
+        /// truth exists; the drawIcons facet is live now).</summary>
+        internal static string ReconcilePolylineOverlap(
+            bool polylineOwns, string actualLineActive, string actualDrawIcons)
+        {
+            if (!polylineOwns)
+                return string.Empty;
+            string mismatch = null;
+            bool? line = ParseTriBool(actualLineActive);
+            if (line.HasValue && line.Value)
+                mismatch = AppendToken(mismatch, "orbit-line-active-while-polyline-owns");
+            if (!IsUnknownToken(actualDrawIcons) && actualDrawIcons != "NONE")
+                mismatch = AppendToken(mismatch,
+                    "proto-icon-shown-while-polyline-owns(drawIcons=" + actualDrawIcons + ")");
+            return mismatch ?? string.Empty;
+        }
+
         // "True"/"False" (bool.ToString) parse to the bool; any other token (e.g. "(field-missing)")
         // is unknown -> null, so the line check is skipped until real line.active truth exists.
         private static bool? ParseTriBool(string s)

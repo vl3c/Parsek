@@ -261,6 +261,18 @@ namespace Parsek
                             mismatch, lineIntent.Reason, frame - lineIntent.Frame));
             }
 
+            // --- Tier-C polyline-orbit-overlap anomaly ---
+            // The proto orbit line + icon must not draw while the trajectory polyline owns this
+            // recording's non-orbital leg (the double-draw seam). A higher-level invariant check
+            // independent of the patch's intent. The drawIcons facet is live now; the line facet
+            // lights up with the OrbitLine-reflection fix.
+            string overlap = MapRenderTrace.ReconcilePolylineOverlap(
+                GhostMapPresence.IsPolylineOwningGhostPhase(pid), lineActive, drawIcons);
+            if (!string.IsNullOrEmpty(overlap))
+                MapRenderTrace.EmitAnomaly(
+                    MapRenderTrace.RenderSurface.Polyline, pidKey, currentUT, currentUT,
+                    "polyline-orbit-overlap", overlap);
+
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
             // predicate fires only when the PREVIOUS toggle was within the window,
