@@ -5115,6 +5115,78 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
+            Description = "#1005: MapRenderProbe reads a real orbit-line active truth (True/False) via OrbitRendererBase.OrbitLine, not a broken reflection sentinel")]
+        public IEnumerator MapRenderProbe_ReadsRealLineActiveTruth()
+        {
+            // Regression coverage for the map/TS render tracer line-truth bug: the
+            // probe used to reflect a NonPublic field named "line" on
+            // OrbitRendererBase (the field is actually "orbitLine", exposed via the
+            // public OrbitLine property), so ReadLineActive always returned
+            // "(field-missing)" and the line.active truth (the probe's headline
+            // line-blink capability) never had real data. The fix reads
+            // OrbitRendererBase.OrbitLine.active directly. This drives that read
+            // against a live ghost's renderer and asserts a real bool truth, since
+            // the line.active read is Unity-runtime and cannot be unit-tested.
+            using (var scope = new SyntheticTrackingStationRecordingScope("maprender-lineactive"))
+            {
+                GhostMapPresence.UpdateTrackingStationGhostLifecycle();
+
+                // Let KSP run the ProtoVessel load + OrbitRendererBase.Start
+                // (MakeLine populates the protected orbitLine the OrbitLine
+                // property exposes) over a few frames so the probe has a real
+                // Vectrosity line to read.
+                yield return null;
+                yield return null;
+                yield return null;
+
+                uint ghostPid = GhostMapPresence.GetGhostVesselPidForRecording(scope.RecordingIndex);
+                InGameAssert.IsTrue(ghostPid != 0,
+                    "Synthetic TS recording should have a ghost PID after the lifecycle tick");
+
+                Vessel ghost = FindVesselByPersistentId(ghostPid);
+                InGameAssert.IsNotNull(ghost,
+                    "Synthetic TS ghost PID should resolve to a live Vessel");
+
+                OrbitRendererBase rendererBase = ghost.orbitRenderer;
+                if (rendererBase == null)
+                {
+                    InGameAssert.Skip(
+                        "Ghost vessel has no orbitRenderer yet (map-object orbit renderer not built in this session)");
+                    yield break;
+                }
+
+                // Read line.active through the exact path MapRenderProbe.Sample
+                // uses to feed the Tier-B line.active truth and the Tier-C
+                // line-blink anomaly.
+                string lineActive = MapRenderProbe.ReadLineActive(rendererBase);
+
+                // The bug: GetField("line", ...) returned null, so this was always
+                // "(field-missing)". The field is "orbitLine", read via OrbitLine.
+                InGameAssert.AreNotEqual("(field-missing)", lineActive,
+                    "ReadLineActive must not report (field-missing): the orbit line is exposed via the OrbitRendererBase.OrbitLine property, not a private 'line' field");
+
+                if (lineActive == "(line-null)")
+                {
+                    InGameAssert.Skip(
+                        "OrbitRendererBase.OrbitLine not yet built for this ghost (Start/MakeLine has not run); line.active truth unavailable this session");
+                    yield break;
+                }
+
+                InGameAssert.IsTrue(
+                    lineActive == "True" || lineActive == "False",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "ReadLineActive should report a real VectorLine.active bool truth (True/False), got '{0}'",
+                        lineActive));
+
+                ParsekLog.Info("TestRunner",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "MapRenderProbe_ReadsRealLineActiveTruth: ghostPid={0} lineActive={1}",
+                        ghostPid,
+                        lineActive));
+            }
+        }
+
+        [InGameTest(Category = "TrackingStation", Scene = GameScenes.TRACKSTATION,
             AllowBatchExecution = false,
             BatchSkipReason = "Manual-only — this canary drives stock Tracking Station Fly on a spawned orbital vessel and transitions the session to FLIGHT. Run it from a disposable Tracking Station session after an orbital recording has spawned.",
             Description = "#554/#550: spawned orbital TS vessel can be selected/flown without loading a stale asteroid/comet")]

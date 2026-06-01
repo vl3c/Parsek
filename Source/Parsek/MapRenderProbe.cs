@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Globalization;
-using System.Reflection;
 using UnityEngine;
 
 namespace Parsek
@@ -14,8 +13,10 @@ namespace Parsek
     /// allocation.
     ///
     /// <para>Reads the ACTUALLY RENDERED state per tracked ghost
-    /// (<see cref="OrbitRendererBase"/> enabled / drawMode / drawIcons, reflected
-    /// <c>VectorLine.active</c>, <see cref="OrbitDriver"/> orbit body / sma / ecc,
+    /// (<see cref="OrbitRendererBase"/> enabled / drawMode / drawIcons, the
+    /// <c>VectorLine.active</c> truth read through the public
+    /// <see cref="OrbitRendererBase.OrbitLine"/> property,
+    /// <see cref="OrbitDriver"/> orbit body / sma / ecc,
     /// and <see cref="Vessel.GetWorldPos3D"/>) and emits:
     /// <list type="bullet">
     /// <item>Tier-A <c>FirstPosition</c>: the probe-derived MVP variant, emitted
@@ -52,13 +53,6 @@ namespace Parsek
         // flood the log; we still get a discrete event per distinct teleport
         // every ~0.5 s real time at worst.
         private const double JumpAnomalyMinIntervalSeconds = 0.5;
-
-        // Cached reflection on the protected OrbitRendererBase.line field. KSP
-        // marks the Vectrosity line protected; the Harmony patch sees it via
-        // __instance, but a regular MonoBehaviour cannot. Resolved once at first
-        // use and reused for every sample (FieldInfo.GetValue is cheap).
-        private FieldInfo orbitRendererLineField;
-        private PropertyInfo vectorLineActiveProperty;
 
         // Per-pid truth state, all cleared on scene change so a stale entry never
         // fires a spurious anomaly across a TS <-> flight transition. The probe
@@ -391,33 +385,29 @@ namespace Parsek
             return true;
         }
 
-        private string ReadLineActive(OrbitRendererBase rendererBase)
+        // Read the orbit line's visibility truth through the PUBLIC
+        // OrbitRendererBase.OrbitLine property (the Vectrosity VectorLine the
+        // renderer actually draws) and read VectorLine.active directly - the same
+        // access GhostOrbitLinePatch uses to toggle the ghost orbit line. The
+        // retired GhostRenderStateProbe prototype reflected a NonPublic instance
+        // field named "line", but the field is named "orbitLine" and is exposed
+        // via the OrbitLine property, so the GetField("line", ...) reflection
+        // always returned null ("(field-missing)") and the line.active truth
+        // never had real data. No reflection here: VectorLine.active is a
+        // compile-time member. internal static so the in-game test can drive it
+        // against a live ghost's renderer. The null / error fallbacks are kept.
+        internal static string ReadLineActive(OrbitRendererBase rendererBase)
         {
             if (rendererBase == null) return "(no-renderer)";
             try
             {
-                if (orbitRendererLineField == null)
-                {
-                    orbitRendererLineField = typeof(OrbitRendererBase).GetField(
-                        "line",
-                        BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (orbitRendererLineField == null)
-                        return "(field-missing)";
-                }
-                object line = orbitRendererLineField.GetValue(rendererBase);
+                var line = rendererBase.OrbitLine;
                 if (line == null) return "(line-null)";
-                if (vectorLineActiveProperty == null)
-                {
-                    vectorLineActiveProperty = line.GetType().GetProperty("active");
-                    if (vectorLineActiveProperty == null)
-                        return "(prop-missing)";
-                }
-                object val = vectorLineActiveProperty.GetValue(line);
-                return val != null ? val.ToString() : "(prop-null)";
+                return line.active.ToString();
             }
             catch (System.Exception ex)
             {
-                return "(reflect-err:" + ex.GetType().Name + ")";
+                return "(read-err:" + ex.GetType().Name + ")";
             }
         }
 
