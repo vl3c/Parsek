@@ -7045,19 +7045,32 @@ namespace Parsek
                 && diagnostic.BodyFixedFramesCoverUT;
         }
 
-        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 0.5;
-        internal const double DestroyedPredictedOrbitTailBridgeMaxGapSeconds = 5.0;
+        // Maximum gap (seconds) between the last authored trajectory point and a
+        // predicted orbit tail's startUT that the renderer will bridge by playing
+        // the orbit (back-propagated) through the gap instead of holding the last
+        // point and then teleporting to the orbit when it activates. The gap is the
+        // unsampled window between when per-frame sampling stopped (the vessel went
+        // on-rails / left the physics bubble) and when the predicted coast tail was
+        // captured (on-rails / scene-exit snapshot). Across this window the vessel is
+        // a pure Keplerian coast, so back-propagating the tail orbit to the last
+        // point is correct, and the orbit-tail continuity offset pins the handoff so
+        // there is no visible teleport (it only smooths the small reseed residual).
+        // Sized for on-rails / scene-exit transition gaps (the payload-to-orbit
+        // teleport was an observed ~24s gap) with headroom; bounded so a far-future
+        // post-maneuver orbit is never back-propagated into the coast window (the
+        // first predicted segment after the last point is always the current coast,
+        // whose own range covers the run up to any later maneuver segment).
+        //
+        // A single cap covers both live and Destroyed tails: the historical
+        // Destroyed-specific 5s tier was raised because destroyed finalizer tails had
+        // a larger gap than live finalizer tails; the on-rails discovery shows live
+        // tails need an even larger window, so the distinction is obsolete and a
+        // wider cap can never reduce destroyed bridging (it can only widen it, which
+        // the continuity offset keeps teleport-free).
+        internal const double PredictedOrbitTailBridgeMaxGapSeconds = 30.0;
         internal const double PredictedOrbitTailContinuityMinBlendSeconds = 5.0;
         internal const double PredictedOrbitTailContinuityExtraBlendSeconds = 2.0;
         internal const double PredictedOrbitTailContinuityMaxBlendSeconds = 10.0;
-
-        internal static double ResolvePredictedOrbitTailBridgeMaxGapSeconds(
-            IPlaybackTrajectory traj)
-        {
-            return traj != null && traj.TerminalStateValue == TerminalState.Destroyed
-                ? DestroyedPredictedOrbitTailBridgeMaxGapSeconds
-                : PredictedOrbitTailBridgeMaxGapSeconds;
-        }
 
         internal static double ResolvePredictedOrbitTailContinuityBlendSeconds(
             double lastPointUT, double segmentStartUT)
@@ -7135,8 +7148,7 @@ namespace Parsek
                     continue;
 
                 double gap = candidate.startUT - lastPointUT;
-                double maxBridgeGap = ResolvePredictedOrbitTailBridgeMaxGapSeconds(traj);
-                if (gap > maxBridgeGap + 1e-6)
+                if (gap > PredictedOrbitTailBridgeMaxGapSeconds + 1e-6)
                     continue;
                 if (playbackUT < candidate.startUT - 1e-6
                     && playbackUT <= candidate.endUT
