@@ -4136,6 +4136,31 @@ namespace Parsek.Tests
             Assert.True(GhostMapPresence.GhostOrbitBodyChanged("Kerbin", "kerbin"));
         }
 
+        /// <summary>
+        /// The once-per-genuine-change contract over a transfer's body sequence: a change is reported
+        /// only when the body actually differs from the last APPLIED body. Mirrors how ApplyOrbitToVessel
+        /// records ghostLastAppliedOrbitBody after each apply, so the renderer rebuild fires once at each
+        /// seam (initial seed, Kerbin->Sun, Sun->Duna), NOT on the repeated same-body frames in between
+        /// (those repeated frames were the blink).
+        /// </summary>
+        [Fact]
+        public void GhostOrbitBodyChanged_TransferSequence_FiresOncePerSeam()
+        {
+            string lastApplied = null;
+            int rebuilds = 0;
+            // Kerbin parking + escape (repeated frames), Sun heliocentric transfer (repeated),
+            // then the Duna capture hyperbola (repeated) - the member #30 sequence from the log.
+            foreach (string body in new[] { "Kerbin", "Kerbin", "Kerbin", "Sun", "Sun", "Sun", "Sun", "Duna", "Duna" })
+            {
+                if (GhostMapPresence.GhostOrbitBodyChanged(lastApplied, body))
+                    rebuilds++;
+                lastApplied = body; // record-after, exactly as ApplyOrbitToVessel does
+            }
+            // Initial Kerbin seed + Kerbin->Sun + Sun->Duna = 3 rebuilds across the whole transfer,
+            // not one per frame (the old referenceBody compare tripped every frame near an SOI boundary).
+            Assert.Equal(3, rebuilds);
+        }
+
         #endregion
     }
 }
