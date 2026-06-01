@@ -419,6 +419,18 @@ namespace Parsek
                     $"Drawing atmospheric marker #{i} \"{rec.VesselName}\" " +
                     $"terminal={rec.TerminalStateValue?.ToString() ?? "null"} " +
                     $"lat={sampledPoint.latitude:F2} lon={sampledPoint.longitude:F2} alt={sampledPoint.altitude:F0}");
+
+                // MapRenderTrace IMGUI surface coverage (AtmosphericMarker). Decision-only: this
+                // marker draws here in OnGUI, so the position IS the truth (no end-of-frame
+                // reconciliation). Gated + rate-limited inside EmitMarker.
+                if (MapRenderTrace.IsEnabled)
+                    MapRenderTrace.EmitMarker(
+                        MapRenderTrace.RenderSurface.AtmosphericMarker, rec.RecordingId,
+                        Planetarium.GetUniversalTime(),
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "vessel={0} worldPos={1} lat={2:F2} lon={3:F2} alt={4:F0} terminal={5}",
+                            rec.VesselName, worldPos, sampledPoint.latitude, sampledPoint.longitude,
+                            sampledPoint.altitude, rec.TerminalStateValue?.ToString() ?? "null"));
             }
 
             LogAtmosphericMarkerSummary(summary);

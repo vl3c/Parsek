@@ -692,5 +692,33 @@ namespace Parsek.Tests
             Assert.Equal(string.Empty,
                 MapRenderTrace.ReconcilePolylineOverlap(true, "(field-missing)", "NONE"));
         }
+
+        // ---- IMGUI marker-surface emit ----
+
+        [Fact]
+        public void EmitMarker_Enabled_EmitsMarkerDrawWithSurface()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.ImguiLabeledMarker, "rec-marker-enabled", 100.0,
+                "vessel=Munar_Probe markerPos=(1.00,2.00,3.00)");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]")
+                && l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=MarkerDraw")
+                && l.Contains("surface=ImguiLabeledMarker")
+                && l.Contains("pid=rec-marker-enabled"));
+        }
+
+        [Fact]
+        public void EmitMarker_Disabled_NoOp()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            MapRenderTrace.EmitMarker(
+                MapRenderTrace.RenderSurface.AtmosphericMarker, "rec-marker-disabled", 100.0, "vessel=X");
+            Assert.Empty(logLines);
+        }
     }
 }

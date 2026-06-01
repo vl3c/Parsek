@@ -525,6 +525,25 @@ namespace Parsek
             EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined);
         }
 
+        /// <summary>IMGUI marker-surface decision emit (<c>ImguiLabeledMarker</c> /
+        /// <c>AtmosphericMarker</c>). These surfaces draw in OnGUI - AFTER the end-of-frame probe -
+        /// so they are decision-only: there is no separate end-of-frame truth read to reconcile (the
+        /// marker is blitted at exactly the world position the code computed, so the decision IS the
+        /// draw). Keyed by the marker's identity (a recordingId on these surfaces, carried in the
+        /// prefix <c>pid=</c> slot). Rate-limited per (surface, key) so a per-marker line does not
+        /// flood. Gated by <see cref="IsEnabled"/>.</summary>
+        internal static void EmitMarker(
+            RenderSurface surface, string key, double currentUT, string details,
+            double minIntervalSeconds = 2.0)
+        {
+            if (!IsEnabled)
+                return;
+            string message = BuildPrefix("MarkerDraw", surface, key, currentUT, currentUT, CurrentFrameCount())
+                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
+            ParsekLog.VerboseRateLimited(
+                Tag, "marker-" + RenderSurfaceToken(surface) + "-" + Token(key), message, minIntervalSeconds);
+        }
+
         // ---- Decision-vs-truth reconciliation (second cut) ----
         //
         // GhostOrbitLinePatch is the authoritative per-render-frame decision for a ghost's orbit
