@@ -782,6 +782,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Per-pid real-time stamp of the last frame the trajectory polyline was actively rendering
+        /// this ghost's non-orbital leg. Used by both GhostOrbitLinePatch (to defer the stock orbit
+        /// icon from showing at a STALE OrbitDriver mesh position right after polyline release - the
+        /// "icon teleported to the wrong position on the loiter" symptom: the seg-drive dispatcher
+        /// runs on a ~0.5s cadence so the new orbital segment is not applied on the same frame as
+        /// polyline release, and the OrbitDriver.pos is still at the pre-polyline segment's
+        /// endpoint for ~12 frames at 60Hz) and by the ParsekUI labeled-marker draw (to keep using
+        /// trajPos through the same brief window). Cleared in <see cref="ResetForTesting"/>.
+        /// </summary>
+        private static readonly Dictionary<uint, float> lastPolylineOwningRealTimePerPid =
+            new Dictionary<uint, float>();
+
+        /// <summary>
+        /// Stamps "polyline is currently rendering this ghost's non-orbital leg" at the current
+        /// real-time clock. Called by <see cref="Parsek.Patches.GhostOrbitLinePatch"/> on every
+        /// frame the polyline-owns-phase branch fires.
+        /// </summary>
+        internal static void StampPolylineOwning(uint pid)
+        {
+            lastPolylineOwningRealTimePerPid[pid] = UnityEngine.Time.realtimeSinceStartup;
+        }
+
+        /// <summary>
+        /// True when the trajectory polyline is currently rendering this ghost's non-orbital leg
+        /// OR was rendering it within <paramref name="graceSeconds"/> ago. The grace covers the
+        /// post-release window where the seg-drive dispatcher hasn't yet applied the next orbital
+        /// segment and the OrbitDriver mesh transform is still stale. Pure read; no side effects.
+        /// </summary>
+        internal static bool IsPolylineRecentlyOwningGhostPhase(uint pid, float graceSeconds)
+        {
+            if (IsPolylineOwningGhostPhase(pid))
+                return true;
+            return lastPolylineOwningRealTimePerPid.TryGetValue(pid, out float last)
+                && UnityEngine.Time.realtimeSinceStartup - last < graceSeconds;
+        }
+
+        /// <summary>Test-only: clear the polyline-owning real-time stamps.</summary>
+        internal static void ClearPolylineOwningStampsForTesting()
+        {
+            lastPolylineOwningRealTimePerPid.Clear();
+        }
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>
@@ -847,6 +890,46 @@ namespace Parsek
         /// non-loop ghosts keep the existing segment re-derivation.
         /// </summary>
         internal static readonly HashSet<uint> ghostOrbitLoopShiftedPids = new HashSet<uint>();
+
+        /// <summary>
+        /// Per-ghost loop-epoch shift (seconds), i.e. <c>liveUT - effUT</c>, written every
+        /// reseed by <see cref="ApplyOrbitToVessel"/>. The ghost OrbitDriver is now seeded with
+        /// the RAW recorded epoch (no shift baked into the elements), and the icon-drive +
+        /// arc-clip patches map the live Planetarium clock back to the recorded sample clock with
+        /// <c>effUT = liveUT - shift</c> every frame, so the icon glides continuously at the
+        /// loop-mapped <c>effUT</c> rate instead of being re-pinned at each rate-limited reseed
+        /// (the frozen-icon-on-short-arc bug). 0 (absent) off the loop path, so non-loop ghosts
+        /// keep <c>effUT == liveUT</c> and behave exactly as before.
+        ///
+        /// This is the AUTHORITY for the per-frame icon clock: the value is constant within a loop
+        /// cycle (effUT tracks liveUT 1:1) and is re-snapped at the next reseed, so propagation
+        /// between reseeds matches the replay. Cleared on every ghost teardown / scene change
+        /// alongside <see cref="ghostOrbitBounds"/>.
+        /// </summary>
+        internal static readonly Dictionary<uint, double> ghostOrbitEpochShift =
+            new Dictionary<uint, double>();
+
+        /// <summary>
+        /// Returns the loop-epoch shift (<c>liveUT - effUT</c>) currently applied to
+        /// <paramref name="vesselPid"/>, or <c>0</c> when none is recorded (non-loop ghost).
+        /// </summary>
+        internal static double GetGhostOrbitEpochShift(uint vesselPid)
+        {
+            return ghostOrbitEpochShift.TryGetValue(vesselPid, out double shift) ? shift : 0.0;
+        }
+
+        /// <summary>
+        /// Pure: map the live Planetarium clock to the loop-mapped recorded-sample clock for a
+        /// ghost map vessel. <c>effUT = liveUT - shift</c>. With the RAW-epoch seed this is the
+        /// UT the ghost OrbitDriver must be propagated at so the icon lands on the replayed phase,
+        /// and the UT the arc-clip patch must use for its eccentric-anomaly bounds so the line
+        /// shape stays in exact lockstep with the icon. Identity (returns <paramref name="liveUT"/>)
+        /// when <paramref name="shift"/> is 0.
+        /// </summary>
+        internal static double MapLiveUTToEffUT(double liveUT, double shift)
+        {
+            return liveUT - shift;
+        }
 
         /// <summary>
         /// The CelestialBody name Parsek last applied to each ghost's OrbitDriver, keyed by persistentId.
@@ -2239,6 +2322,7 @@ namespace Parsek
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
+            ghostOrbitEpochShift.Remove(ghostPid);
             vesselsByChainPid.Remove(chainPid);
             lastKnownByChainPid.Remove(chainPid);
             lifecycleDestroyedThisTick++;
@@ -3282,6 +3366,7 @@ namespace Parsek
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -3505,6 +3590,7 @@ namespace Parsek
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
             ghostOrbitLoopShiftedPids.Remove(ghostPid);
+            ghostOrbitEpochShift.Remove(ghostPid);
             vesselPidToRecordingIndex.Remove(ghostPid);
             vesselPidToRecordingId.Remove(ghostPid);
             vesselsByRecordingIndex.Remove(recordingIndex);
@@ -3612,6 +3698,28 @@ namespace Parsek
                 && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Relative;
         }
 
+        /// <summary>
+        /// True iff the track section covering <paramref name="ut"/> is specifically
+        /// <see cref="ReferenceFrame.Absolute"/> (body-fixed lat/lon/alt). The flat
+        /// <c>Recording.Points</c> list (driven by the gap-points glide via
+        /// <see cref="TrajectoryMath.BracketPointAtUT"/>) carries geographic lat/lon/alt
+        /// only inside Absolute sections: Relative sections store anchor-local metre
+        /// offsets in those same fields, and OrbitalCheckpoint coast sections are
+        /// represented by sparse / empty flat points (the on-rails coast is a Keplerian
+        /// bridge, not a per-frame body-fixed sample stream). Requiring an Absolute
+        /// covering section makes the "has real lat/lon/alt to drive from" contract
+        /// explicit, so the gap glide never brackets a stale flat point on an
+        /// OrbitalCheckpoint or Relative gap and mis-positions the icon.
+        /// </summary>
+        internal static bool IsInAbsoluteFrame(IPlaybackTrajectory traj, double ut)
+        {
+            if (traj == null || traj.TrackSections == null || traj.TrackSections.Count == 0)
+                return false;
+            int sectionIdx = TrajectoryMath.FindTrackSectionForUT(traj.TrackSections, ut);
+            return sectionIdx >= 0
+                && traj.TrackSections[sectionIdx].referenceFrame == ReferenceFrame.Absolute;
+        }
+
         internal static bool HasRecordedTrackCoverageAtUT(IPlaybackTrajectory traj, double ut)
         {
             if (traj == null)
@@ -3687,6 +3795,87 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Pure decision: should the ghost map icon be driven from recorded trajectory
+        /// POINTS (the body-fixed state-vector path) across this UT instead of carrying
+        /// the previous OrbitSegment forward?
+        ///
+        /// <para>
+        /// Context: <see cref="TrajectoryMath.FindOrbitSegmentOrSameBodyCarry"/> keeps a
+        /// ghost's orbit alive across a same-body inter-segment gap by returning the
+        /// PREVIOUS segment (the "capture-burn between two Mun orbits" case it was built
+        /// for). That carry is correct when the two bracketing orbits are essentially the
+        /// same shape. But when the gap is a real orbit RAISE (parking orbit -> higher
+        /// loiter orbit, sma 671928 -> 731230 across a ~205s burn arc), carrying the stale
+        /// parking segment freezes the icon on the OLD orbit, and when UT finally enters
+        /// the next segment the icon TELEPORTS to the new orbit (the ~1318 km jump the
+        /// playtest showed). The recorder actually captured that raise arc as ~84 body-fixed
+        /// Absolute trajectory POINTS; this predicate routes the icon onto those points so
+        /// it glides continuously across the gap.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns true iff ALL hold:
+        /// (1) <paramref name="effUT"/> falls in a genuine orbit-segment gap (no segment
+        ///     contains it) bracketed by a previous + next segment;
+        /// (2) the recording has track coverage at effUT (real lat/lon/alt POINTs to
+        ///     drive from);
+        /// (3) the covering track section is specifically Absolute (body-fixed lat/lon/alt).
+        ///     This excludes Relative sections (which store anchor-local metre offsets in
+        ///     the lat/lon/alt fields, not geographic coordinates -- the state-vector
+        ///     positioner would produce a position deep inside the planet) AND
+        ///     OrbitalCheckpoint coast sections (which are sparse / empty in the flat
+        ///     Points list -- bracketing them would mis-position the icon). The flat
+        ///     Recording.Points list driven by the glide only carries geographic
+        ///     coordinates inside Absolute sections;
+        /// (4) the bracketing segments are NOT orbit-equivalent for map display -- so the
+        ///     genuine same-orbit carry case (capture burn between two equivalent orbits)
+        ///     that the carry was built for stays on the carry path, byte-identical.
+        /// </para>
+        /// </summary>
+        internal static bool ShouldDriveGapFromPoints(
+            IReadOnlyList<OrbitSegment> effectiveSegments,
+            IPlaybackTrajectory traj,
+            double effUT)
+        {
+            if (traj == null)
+                return false;
+
+            if (!TryFindOrbitSegmentGap(effectiveSegments, effUT,
+                    out OrbitSegment previous, out OrbitSegment next))
+                return false;
+
+            // Same-body gap only (self-protecting contract): the points glide is for a raise / plane
+            // change within one SOI. A cross-body gap is an SOI crossing, handled by the
+            // OrbitalCheckpoint state-vector path, not here. The flight + TS dispatchers already pre-gate
+            // on FindOrbitSegmentOrSameBodyCarry (which is same-body), so this is belt-and-suspenders, but
+            // it keeps the predicate correct in isolation - TryFindOrbitSegmentGap, unlike the carry, has
+            // no body check - and robust against a future caller that does not pre-gate.
+            if (!string.Equals(previous.bodyName, next.bodyName, StringComparison.Ordinal))
+                return false;
+
+            if (!HasRecordedTrackCoverageAtUT(traj, effUT))
+                return false;
+
+            // Require an Absolute covering section. This is strictly tighter than the
+            // old "not Relative" check: it also rejects OrbitalCheckpoint coast gaps,
+            // where the flat Points list is sparse / empty and bracketing it would
+            // strand the icon on a stale clamped point. The gap glide reads geographic
+            // lat/lon/alt from the flat Points list, which is only populated and
+            // geographic inside Absolute (atmospheric / maneuver) regions.
+            if (!IsInAbsoluteFrame(traj, effUT))
+                return false;
+
+            // Preserve the carry's original purpose: when the two bracketing segments
+            // describe the same orbit shape, the carry (previous segment held forward)
+            // is correct and the icon stays put with no teleport. Only the NON-equivalent
+            // gap (a real raise / plane change) needs the points glide.
+            if (TrajectoryMath.AreOrbitSegmentsEquivalentForMapDisplay(previous, next))
+                return false;
+
+            return true;
         }
 
         /// <summary>
@@ -6038,8 +6227,22 @@ namespace Parsek
                     ? TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT)
                     : (OrbitSegment?)null;
                 bool segmentCoversEffUT = coveringSegment.HasValue;
-                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment, segmentCoversEffUT,
-                    isStateVector, effectiveSegments != null ? effectiveSegments.Count : 0);
+
+                // Resolve the gap-points glide decision up-front so the covering-segment log
+                // mirrors the flight scene: during the raise-gap glide the icon is driven from
+                // recorded body-fixed POINTS (source=StateVector), not the carried segment, even
+                // though FindOrbitSegmentOrSameBodyCarry still returns the carried previous segment.
+                // Reporting covered=false / source=StateVector here (instead of covered=true /
+                // source=Segment) makes the documented success signature (Segment -> StateVector ->
+                // Segment across the gap) actually appear in the TS log, matching the flight trace.
+                bool tsDriveGapFromPoints =
+                    coveringSegment.HasValue
+                    && !isStateVector
+                    && ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
+                LogMapCoveringSegmentChange("TS", idx, effUT, coveringSegment,
+                    segmentCoversEffUT && !tsDriveGapFromPoints,
+                    isStateVector || tsDriveGapFromPoints,
+                    effectiveSegments != null ? effectiveSegments.Count : 0);
 
                 int cachedStateVectorIndex = trackingStationStateVectorCachedIndices.TryGetValue(idx, out int cached)
                     ? cached
@@ -6119,6 +6322,57 @@ namespace Parsek
                     continue;
                 }
 
+                // Gap-points glide (Tracking Station mirror of the flight-scene branch in
+                // ParsekPlaybackPolicy.CheckPendingMapVessels): FindOrbitSegmentOrSameBodyCarry carried
+                // the PREVIOUS segment forward across a same-body inter-segment gap, holding coveringSegment
+                // true. For a real orbit RAISE (parking -> higher loiter) that freezes the icon on the stale
+                // parking orbit and then teleports it ~1318 km onto the loiter orbit when effUT enters the
+                // next segment. This ghost was created as a Segment ghost (isStateVector is false for an
+                // Absolute gap in a HasOrbitSegments recording), so the isStateVector branch below never
+                // reaches it -- a dedicated branch is required. Drive it from the recorded body-fixed POINTS
+                // so it glides the raise arc. Gated to the NON-orbit-equivalent gap so the equivalent-orbit
+                // carry (capture burn between two same orbits) stays byte-identical on the carry. Placed
+                // AFTER the removeReason block so a genuine expiry still wins, and the continue bypasses the
+                // segment-apply tail.
+                if (tsDriveGapFromPoints)
+                {
+                    TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(
+                        rec.Points, effUT, ref cachedStateVectorIndex);
+                    trackingStationStateVectorCachedIndices[idx] = cachedStateVectorIndex;
+                    if (gapPoint.HasValue)
+                    {
+                        // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
+                        // suppression case (the ghost must be torn down this tick); false on the normal
+                        // success path (ghost updated in place). Mirror the isStateVector branch below.
+                        bool reFlySuppressed = UpdateGhostOrbitFromStateVectors(
+                            idx, rec, gapPoint.Value, effUT,
+                            stateVectorUpdateReason: "orbit-raise-gap-points",
+                            loopEpochShiftSeconds: tsLoopEpochShift);
+                        ParsekLog.VerboseRateLimited(Tag,
+                            "ts-gap-points-glide-" + idx,
+                            string.Format(ic,
+                                "TS gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
+                                "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
+                                idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
+                            2.0);
+                        if (reFlySuppressed)
+                        {
+                            if (toRemove == null) toRemove = new List<(int, string)>();
+                            toRemove.Add((idx, TrackingStationGhostSkipActiveReFlyRelativeUpdate));
+                        }
+                        continue;
+                    }
+                    // No bracketing point (effUT precedes first / past last recorded point): fall through
+                    // to the unchanged same-body carry / segment-apply path. Never force a single stale point.
+                    ParsekLog.VerboseRateLimited(Tag,
+                        "ts-gap-points-nobracket-" + idx,
+                        string.Format(ic,
+                            "TS gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
+                            "(falling through to same-body segment carry)",
+                            idx, effUT),
+                        5.0);
+                }
+
                 if (isStateVector)
                 {
                     TrajectoryPoint? pt = TrajectoryMath.BracketPointAtUT(
@@ -6173,7 +6427,15 @@ namespace Parsek
                     continue;
                 }
 
-                if (!hasOrbitBounds)
+                // A ghost with no stored orbit bounds is normally skipped (it is not a live
+                // segment ghost). EXCEPTION: when a covering OrbitSegment exists at effUT we must
+                // still (re)apply it. This is the recovery frame after a gap-points glide cleared
+                // ghostOrbitBounds via UpdateGhostOrbitFromStateVectors: as soon as effUT enters
+                // the next real segment (e.g. the loiter orbit after the raise gap) the segment-apply
+                // below re-seeds the orbit + re-populates ghostOrbitBounds, snapping the icon onto the
+                // loiter orbit instead of stranding it on the stale state-vector seed. With no covering
+                // segment the original skip stands. bounds==(0,0) here forces the apply below.
+                if (!hasOrbitBounds && !coveringSegment.HasValue)
                     continue;
 
                 // Reuse the covering segment resolved above (same effUT, same OrbitSegments list).
@@ -7341,6 +7603,35 @@ namespace Parsek
             Vector3d worldPos = resolution.WorldPos;
             Vector3d vel = new Vector3d(point.velocity.x, point.velocity.y, point.velocity.z);
 
+            // The state-vector path keeps the OLD contract: a SHIFTED-epoch orbit (seeded at
+            // ut + loopEpochShiftSeconds == liveUT) that stock propagates at the LIVE Planetarium
+            // clock. The segment-driven raw-epoch + effUT-drive contract (GhostOrbitIconDrivePatch)
+            // must therefore NOT engage for this ghost. If this pid was previously a covering
+            // OrbitSegment ghost (a loop mission crossing from a parking-orbit segment into a
+            // transfer-coast OrbitalCheckpoint gap updates the SAME ghost in place, especially in
+            // the Tracking Station where the dispatcher does not remove+recreate it), the prior
+            // segment phase left stale segment bounds + loop-shift + epoch-shift entries. The
+            // now-authoritative drive patch would read those stale dicts and re-subtract a shift
+            // from this already-shifted state-vector orbit, mis-positioning or freezing the icon and
+            // suppressing it. Clear them here (BEFORE updateFromParameters so even the in-call frame
+            // defers to stock) so TryGetVisibleOrbitBoundsForGhostVessel returns false, the drive
+            // patch returns true, and stock correctly propagates the shifted-epoch orbit at live UT.
+            bool hadStaleSegmentDrive =
+                ghostOrbitBounds.Remove(vessel.persistentId)
+                | ghostBodyFrameOrbitBounds.Remove(vessel.persistentId)
+                | ghostOrbitLoopShiftedPids.Remove(vessel.persistentId)
+                | ghostOrbitEpochShift.Remove(vessel.persistentId);
+            if (hadStaleSegmentDrive)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(ic,
+                        "State-vector reseed cleared stale segment-drive state for ghost pid={0} "
+                        + "recIndex={1} (segment->state-vector transition, shift={2:F1}, scene={3}): "
+                        + "icon now stock-propagated at live UT off the effUT drive path",
+                        vessel.persistentId, recordingIndex, loopEpochShiftSeconds,
+                        HighLogic.LoadedScene));
+            }
+
             // Loop replay: push the orbit epoch forward by (liveUT - effUT) so the icon, drawn at
             // getPositionAtUT(liveUT), lands on the world position recorded at effUT instead of
             // being propagated forward along the ellipse. Zero shift for non-loop ghosts.
@@ -7459,14 +7750,32 @@ namespace Parsek
             // Direct element assignment via SetOrbit — bypasses the lossy
             // state-vector roundtrip in UpdateFromOrbitAtUT (#172).
             //
-            // Loop replay (loopEpochShiftSeconds = liveUT - effUT, 0 off the loop path): the
-            // segment was selected at the loop-mapped effUT, but the icon + arc patches operate
-            // against the LIVE Planetarium clock. Pushing the orbit epoch AND the stored arc
-            // bounds forward by the same shift puts the orbit, the bounds, and the live clock in
-            // one frame, so the icon sits at the replayed phase and GhostOrbitArcPatch /
-            // GhostOrbitIconClampPatch keep clipping correctly. The shift is constant within a
-            // loop cycle (effUT tracks liveUT 1:1), so natural propagation between the rate-limited
-            // reseeds matches the replay; it jumps once per cycle wrap and is re-snapped next tick.
+            // RAW recorded epoch (no shift baked in): the loop-mapped sample clock (effUT) can
+            // advance FASTER than the live Planetarium clock (e.g. under time warp, the loop maps
+            // a short live span to a huge recorded span). Stock OrbitDriver propagates the icon at
+            // the LIVE clock every FixedUpdate, so a shifted epoch only lands the right phase at
+            // the instant the (rate-limited) reseed re-snaps the shift; between reseeds the live
+            // clock is too slow and the icon stalls on a near-fixed anomaly until the next reseed
+            // jumps it forward (the frozen-icon-on-short-arc sawtooth). Instead we seed the raw
+            // epoch and record the loop shift in ghostOrbitEpochShift; GhostOrbitIconDrivePatch
+            // drives the OrbitDriver at effUT = liveUT - shift every frame so the icon glides at
+            // the effUT rate (matching the mesh path and the wide-segment case), and
+            // GhostOrbitArcPatch evaluates its arc bounds at the same effUT so the line stays in
+            // lockstep. The stored arc bounds stay in the LIVE frame (shifted) so the line-toggle
+            // Postfix + AnyGhostHeadLeftAppliedSegment comparisons (which use the live clock) are
+            // byte-identical to before; the two prefixes subtract the shift where they need the
+            // recorded clock.
+            //
+            // NOTE: a loop-shift body-fixed LAN rotation was tried here (rotate the node by the body's
+            // rotation over the shift so the inertial orbit projects to its recorded body-fixed
+            // appearance, to close the parking->loiter line-vs-raise desync). It was REVERTED: it
+            // rotates ONLY the map OrbitDriver's orbit (line + map icon), not the flight-scene ghost
+            // mesh, the recorded trajectory points, or the other stages' rendering, so the rotated
+            // line ended up inconsistent with everything else (the ghost on its old recorded path, the
+            // other stage's trajectory in the wrong place, the hyperbolic escape line rotated off its
+            // own icon). The transformation would have to apply to the entire ghost rendering
+            // consistently to be valid; rotating one element in isolation breaks more than it fixes.
+            // See docs/dev/todo-and-known-bugs.md.
             Orbit orb = vessel.orbitDriver.orbit;
             orb.SetOrbit(
                 segment.inclination,
@@ -7475,24 +7784,33 @@ namespace Parsek
                 segment.longitudeOfAscendingNode,
                 segment.argumentOfPeriapsis,
                 segment.meanAnomalyAtEpoch,
-                segment.epoch + loopEpochShiftSeconds,
+                segment.epoch,
                 body);
 
-            vessel.orbitDriver.updateFromParameters();
-            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
+            // Record the per-frame icon clock state BEFORE the first propagation so the
+            // OrbitDriver tick that updateFromParameters() triggers reads the right shift + bounds
+            // through GhostOrbitIconDrivePatch (otherwise that in-call frame would propagate at the
+            // live clock against stale/absent bounds for one frame).
+            ghostOrbitEpochShift[vessel.persistentId] = loopEpochShiftSeconds;
 
-            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch), shifted into
-            // the live frame for loop replay (see the epoch note above).
+            // Store orbit segment time bounds for arc clipping (GhostOrbitArcPatch) + the
+            // line-toggle Postfix, shifted into the LIVE frame for loop replay so the live-clock
+            // comparisons in those consumers are unchanged. The arc-clip + icon-drive patches
+            // subtract the shift (via ghostOrbitEpochShift) to recover the recorded UTs for their
+            // eccentric-anomaly / propagation math against the raw-epoch orbit.
             ghostOrbitBounds[vessel.persistentId] =
                 (segment.startUT + loopEpochShiftSeconds, segment.endUT + loopEpochShiftSeconds);
             // Mark/unmark this ghost as loop-shifted so TryGetVisibleOrbitBoundsForGhostVessel
             // returns these (shifted) bounds rather than re-deriving raw recorded bounds from the
-            // OrbitSegments at the live UT, which would desync the arc/icon clip from the shifted
-            // orbit epoch when the live clock falls inside the member's recorded window.
+            // OrbitSegments at the live UT, which would desync the arc/icon clip from the live
+            // frame when the live clock falls inside the member's recorded window.
             if (loopEpochShiftSeconds != 0.0)
                 ghostOrbitLoopShiftedPids.Add(vessel.persistentId);
             else
                 ghostOrbitLoopShiftedPids.Remove(vessel.persistentId);
+
+            vessel.orbitDriver.updateFromParameters();
+            NormalizeGhostOrbitDriverTargetIdentity(vessel, logContext);
 
             // After SOI change, force the orbit renderer to recalculate for the new body.
             // Without this, the orbit line stays clipped to the old body's SOI radius.
@@ -8616,6 +8934,8 @@ namespace Parsek
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
+            ClearPolylineOwningStampsForTesting();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();
@@ -8681,6 +9001,7 @@ namespace Parsek
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
             ghostOrbitLoopShiftedPids.Clear();
+            ghostOrbitEpochShift.Clear();
             vesselsByChainPid.Clear();
             vesselsByRecordingIndex.Clear();
             vesselPidToRecordingIndex.Clear();

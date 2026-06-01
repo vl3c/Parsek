@@ -1074,7 +1074,25 @@ namespace Parsek
                 acceptTerminalOrbitForLoopSynthesis: false);
             stateVectorCachedIndices[evt.Index] = cachedStateVectorIndex;
 
-            if (source != TrackingStationGhostSource.None)
+            // Loop-shifted members must be created on a loop-aware per-frame tick
+            // (CheckPendingMapVessels): that path resolves the source at the loop-mapped
+            // effUT and threads the live-frame epoch shift into the orbit + arc-clip bounds.
+            // Creating here at the raw recorded startUT with the default shift=0 seeds
+            // recorded-UT bounds and leaves ghostOrbitLoopShiftedPids clear, so for one tick
+            // the map-orbit window resolver returns a recorded-UT fallback window (the
+            // icon-clamp / orbit-line glitch at first appearance and at every window re-entry).
+            // Defer so the per-frame path owns loop-member creation, mirroring the TS create
+            // sites and the flight pending-create path. Off the loop path effUT == currentUT
+            // (shift 0, renderHidden false), so non-loop members keep the immediate create
+            // byte-for-byte.
+            double initialNowUT = Planetarium.GetUniversalTime();
+            ResolveMapPresenceSampleUT(
+                evt.Index, evt.Trajectory.StartUT, evt.Trajectory.EndUT, initialNowUT,
+                engine.CurrentLoopUnits, out bool initialRenderHidden, out double initialLoopShift);
+            bool deferForLoopAware =
+                ShouldDeferLoopShiftedMapPresence(initialLoopShift, initialRenderHidden);
+
+            if (source != TrackingStationGhostSource.None && !deferForLoopAware)
             {
                 Vessel ghost = GhostMapPresence.CreateGhostVesselFromSource(
                     evt.Index,
@@ -1100,15 +1118,25 @@ namespace Parsek
             }
             else
             {
-                // Initial/pre-orbital deferrals are not SOI-gap recoveries; only the
-                // gap-between-orbit-segments requeue path opts into this fallback.
+                // Initial/pre-orbital deferrals and loop-shifted members are not SOI-gap
+                // recoveries; only the gap-between-orbit-segments requeue path opts into that
+                // fallback. The per-frame CheckPendingMapVessels pass resolves the source at
+                // the loop-mapped effUT and creates with the live-frame epoch shift.
                 pendingMapVessels[evt.Index] = new PendingMapVessel(
                     evt.Trajectory,
                     allowSoiGapStateVectorFallback: false,
                     expectedSoiGapBody: null);
                 ParsekLog.Verbose("Policy",
-                    $"Deferred ghost map vessel for #{evt.Index} \"{evt.Trajectory.VesselName}\" " +
-                    "— recording starts pre-orbital");
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Deferred ghost map vessel for #{0} \"{1}\": {2} (source={3} loopShift={4:F2} renderHidden={5})",
+                        evt.Index,
+                        evt.Trajectory.VesselName,
+                        deferForLoopAware
+                            ? "loop-shifted member, deferring to loop-aware per-frame create"
+                            : "recording starts pre-orbital",
+                        source,
+                        initialLoopShift,
+                        initialRenderHidden));
             }
         }
 
@@ -1121,6 +1149,23 @@ namespace Parsek
         internal static bool ShouldCreateStateVectorOrbit(double altitude, double speed, double atmosphereDepth)
         {
             return GhostMapPresence.ShouldCreateStateVectorOrbit(altitude, speed, atmosphereDepth);
+        }
+
+        /// <summary>
+        /// Pure decision: should an initial ghost-map-presence create (<see cref="HandleGhostCreated"/>)
+        /// defer to the loop-aware per-frame pass (<see cref="CheckPendingMapVessels"/>) instead of
+        /// creating immediately at the raw recorded startUT? True when the member is replaying
+        /// loop-shifted this cycle (<paramref name="loopEpochShiftSeconds"/> != 0) or is outside its
+        /// loop window this cycle (<paramref name="renderHidden"/>). False off the loop path
+        /// (shift 0, not hidden), so non-loop members keep the immediate create unchanged. The
+        /// immediate create would otherwise seed recorded-UT orbit/arc bounds and leave the
+        /// loop-shifted flag clear for a tick, so the map-orbit window resolver hands back a
+        /// recorded-UT fallback window while the live clock is far ahead.
+        /// </summary>
+        internal static bool ShouldDeferLoopShiftedMapPresence(
+            double loopEpochShiftSeconds, bool renderHidden)
+        {
+            return renderHidden || loopEpochShiftSeconds != 0.0;
         }
 
         /// <summary>
@@ -1581,17 +1626,82 @@ namespace Parsek
                 // when the recording is truly past its last segment. Body-frame carry keeps
                 // the previous segment's orbit active until UT enters the next segment.
                 OrbitSegment? seg = TrajectoryMath.FindOrbitSegmentOrSameBodyCarry(effectiveSegments, effUT);
+
+                // Gap-points glide: FindOrbitSegmentOrSameBodyCarry keeps seg.HasValue true across a
+                // same-body inter-segment gap by carrying the PREVIOUS segment forward. That is correct
+                // for an equivalent-orbit gap (capture burn between two same Mun orbits) but wrong for a
+                // real orbit RAISE (parking -> higher loiter, sma 671928 -> 731230 across a ~205s arc):
+                // the stale parking orbit freezes the icon, then it teleports ~1318 km onto the loiter
+                // orbit when UT enters the next segment. The recorder captured that raise as body-fixed
+                // Absolute trajectory POINTS, so route the icon onto those points and glide it across the
+                // gap. Gated to the NON-orbit-equivalent gap so the equivalent-orbit carry stays untouched.
+                bool driveGapFromPoints =
+                    seg.HasValue
+                    && GhostMapPresence.ShouldDriveGapFromPoints(effectiveSegments, rec, effUT);
+
                 // Flight-map companion to the TS covering-segment log: same MapTraj on-change diagnostic so the
                 // SOI-exit blink / orbit-line GAP / body flip-flop is visible on the flight path too. When a
                 // segment covers effUT the icon follows that OrbitSegment (source=Segment); when none does and
                 // a terminal state-vector fallback is cached for this member, the icon is driven by that
                 // fallback (resolved in the !seg.HasValue branch below), so report source=StateVector. The
-                // membership check is stable frame-to-frame (it does not flip-flop) and mirrors the TS path's
-                // trackingStationStateVectorOrbitTrajectories check.
-                bool flightIsStateVector = !seg.HasValue && stateVectorCachedIndices.ContainsKey(idx);
-                GhostMapPresence.LogMapCoveringSegmentChange("FLIGHT", idx, effUT, seg, seg.HasValue,
+                // gap-points glide above also drives the icon from the state-vector point path, so report
+                // source=StateVector for it too. The membership check is stable frame-to-frame (it does not
+                // flip-flop) and mirrors the TS path's trackingStationStateVectorOrbitTrajectories check.
+                bool flightIsStateVector =
+                    driveGapFromPoints
+                    || (!seg.HasValue && stateVectorCachedIndices.ContainsKey(idx));
+                GhostMapPresence.LogMapCoveringSegmentChange("FLIGHT", idx, effUT, seg, seg.HasValue && !driveGapFromPoints,
                     flightIsStateVector,
                     effectiveSegments != null ? effectiveSegments.Count : 0);
+
+                // Gap-points glide branch: drive the existing (Segment-created) ghost from the recorded
+                // body-fixed point at effUT via the same state-vector positioner the SOI-gap fallback uses.
+                // UpdateGhostOrbitFromStateVectors clears the stale segment-drive dicts (bounds / loop-shift /
+                // epoch-shift) so GhostOrbitIconDrivePatch defers to stock at live UT instead of clamping the
+                // icon past-window on the parking orbit. continue skips the segment-apply tail below.
+                if (driveGapFromPoints)
+                {
+                    int gapCachedIndex = stateVectorCachedIndices.TryGetValue(idx, out int gapCached)
+                        ? gapCached
+                        : -1;
+                    TrajectoryPoint? gapPoint = TrajectoryMath.BracketPointAtUT(rec.Points, effUT, ref gapCachedIndex);
+                    stateVectorCachedIndices[idx] = gapCachedIndex;
+                    if (gapPoint.HasValue)
+                    {
+                        // UpdateGhostOrbitFromStateVectors returns true ONLY in the active-re-fly
+                        // suppression case; false on the normal success path. The flight scene removes the
+                        // ghost via its own re-fly suppression machinery (MarkStateVectorGhostDeferredForActiveReFly
+                        // runs inside the call), so we just record the result for the log here.
+                        bool reFlySuppressed = GhostMapPresence.UpdateGhostOrbitFromStateVectors(
+                            idx, rec, gapPoint.Value, effUT,
+                            stateVectorUpdateReason: "orbit-raise-gap-points",
+                            loopEpochShiftSeconds: loopEpochShiftSeconds);
+                        ParsekLog.VerboseRateLimited("Policy",
+                            "flight-gap-points-glide-" + idx,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "Flight gap-points glide: member={0} effUT={1:F1} body={2} alt={3:F0} reFlySuppressed={4} " +
+                                "(orbit-raise gap, icon glides recorded ascent instead of segment carry)",
+                                idx, effUT, gapPoint.Value.bodyName ?? "(null)", gapPoint.Value.altitude, reFlySuppressed),
+                            2.0);
+                        // The ghost is now state-vector-driven; record a sentinel orbit key (sma/ecc 0)
+                        // via the deferred orbitUpdates list (we cannot mutate lastMapOrbitByIndex during
+                        // its own enumeration) so the next in-segment frame sees a differing key and
+                        // re-applies a fresh covering orbit instead of skip-unchanged.
+                        if (orbitUpdates == null) orbitUpdates = new List<KeyValuePair<int, (string, double, double)>>();
+                        orbitUpdates.Add(new KeyValuePair<int, (string, double, double)>(
+                            idx, (gapPoint.Value.bodyName, 0.0, 0.0)));
+                        continue;
+                    }
+                    // No bracketing point (effUT precedes first / past last recorded point): fall through
+                    // to the unchanged carry/segment-apply path. Never force a single stale point.
+                    ParsekLog.VerboseRateLimited("Policy",
+                        "flight-gap-points-nobracket-" + idx,
+                        string.Format(CultureInfo.InvariantCulture,
+                            "Flight gap-points glide skipped (no bracketing point): member={0} effUT={1:F1} " +
+                            "(falling through to same-body segment carry)",
+                            idx, effUT),
+                        5.0);
+                }
 
                 // No map-visible orbit at current UT — either we've truly left orbital
                 // playback, or the next segment is in a different SOI/body.
