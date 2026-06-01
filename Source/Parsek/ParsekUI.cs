@@ -1191,8 +1191,23 @@ namespace Parsek
                 // seam the playtest showed via Marker pos markerPos=(0,0,0)). Treat a near-origin transform
                 // as unpositioned and fall through to the trajectory-derived position below; a genuinely
                 // positioned mesh is never at the floating-origin centre (it is a different vessel).
+                // During a non-orbital phase the trajectory polyline owns the rendering and the stock
+                // proto orbit icon is hidden (GhostOrbitLinePatch drawIcons=NONE). The ghost mesh
+                // transform stops being driven per-frame in that phase because the orbit-segment drive
+                // path is not active and any state-vector reseed only refreshes the orbit at the orbit-
+                // resolve cadence (~5s), so the mesh transform freezes at the last seeded position
+                // between reseeds even as the recording's effUT advances. The labelled non-proto marker
+                // would then ride that stale mesh and read as "frozen at the polyline's start" - the
+                // exact playtest seam. During polyline ownership the recorded trajectory points are the
+                // source of truth (the polyline draws them), so fall through to TryComputeGhostWorldPosition
+                // at the loop-mapped effUT below. The diagnostic "Marker pos: ... meshVsTraj" makes this
+                // explicit by reporting both sources.
+                bool polylinePhase = GhostMapPresence.HasGhostVesselForRecording(kvp.Key)
+                    && GhostMapPresence.IsPolylineOwningGhostPhase(
+                        GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key));
                 Vector3 markerPos;
-                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f;
+                bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
+                    && !polylinePhase;
                 if (meshPositioned)
                 {
                     markerPos = state.ghost.transform.position;
