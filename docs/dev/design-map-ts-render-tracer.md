@@ -94,10 +94,12 @@ heavier reconciliation layer.
   does not own timing.
 - Not always-on. It is a forensic tool, like `ghostRenderTracing`. The warning label
   ("huge logs") carries over.
-- Does not change rendering behavior, recording format, or any decision. Pure
-  observation. The one small production change it requires is completing the
-  `vesselPidToRecordingId` reverse map for chain ghosts (see Identity key), which is a
-  latent-gap fix, not a behavior change.
+- Pure observation for the tracer itself (no recording-format or decision changes).
+  The one production change it requires is completing the `vesselPidToRecordingId`
+  reverse map for chain ghosts (see Identity key): a latent-gap fix that, as a side
+  effect, makes chain ghosts correctly participate in polyline-ownership icon hiding
+  (the same behavior timeline ghosts already get). That is a small, intended
+  rendering-behavior change for chain ghosts and must be validated in a playtest.
 
 ---
 

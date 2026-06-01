@@ -2210,6 +2210,9 @@ namespace Parsek
                 // (MapRenderTrace second-cut window/correlation, polyline-ownership, visibility
                 // checks) silently dropped them. Keyed by the LIVE ghost vessel.persistentId (the
                 // map world's native key), NOT chain.OriginalVesselPid. Removed in RemoveGhostVessel.
+                // No else-remove branch (unlike TrackRecordingGhostVessel) is needed: we only reach
+                // here on a fresh create (the vesselsByChainPid.ContainsKey early-return above blocks
+                // re-entry), and the live pid is a fresh KSP-unique spawn pid, so no stale entry exists.
                 if (!string.IsNullOrEmpty(traj.RecordingId))
                     vesselPidToRecordingId[vessel.persistentId] = traj.RecordingId;
                 lifecycleCreatedThisTick++;
