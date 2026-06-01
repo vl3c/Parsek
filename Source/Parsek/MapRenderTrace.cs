@@ -23,12 +23,60 @@ namespace Parsek
     /// </summary>
     internal static class MapRenderTrace
     {
+        // Single subsystem tag for the whole map / TS render surface, mirroring
+        // the GhostRenderTrace tag model so one grep filter lights up every
+        // surface around an event.
+        internal const string Tag = "MapRenderTrace";
+
         // Window-length constants mirror GhostRenderTrace's window model.
         internal const double InitialWindowSeconds = 4.0;
         internal const double SegmentChangeWindowSeconds = 2.0;
         internal const double SectionChangeWindowSeconds = 2.0;
         internal const double AnomalyWindowSeconds = 5.0;
         internal const double DestroyWindowSeconds = 1.0;
+
+        // ---- Tier-C anomaly tuning ----
+
+        /// <summary>
+        /// Fixed single-frame icon-position jump floor (metres). Carried over
+        /// from the <c>GhostRenderStateProbe</c> prototype: the heliocentric
+        /// coast under high warp moves the icon a few km/frame, while an
+        /// SOI-exit teleport in the log was tens of millions of metres, so
+        /// 1000 km/frame cleanly separates "real teleport" from "fast warp".
+        /// This is now a FLOOR under the orbit-derived expected-motion model
+        /// (expected = orbital speed * dt * warpRate) so degenerate /
+        /// near-zero-velocity orbits never report a spurious jump while a slow
+        /// real teleport on a fast orbit can still exceed the orbit-derived
+        /// threshold.
+        /// </summary>
+        internal const double IconJumpFloorMeters = 1_000_000.0;
+
+        /// <summary>
+        /// Multiplier applied to the orbit-derived expected per-frame motion
+        /// before it becomes a jump threshold (slack for interpolation /
+        /// sampling jitter). Mirrors <see cref="GhostRenderTrace"/>'s
+        /// <c>VelocityDeltaMultiplier</c>.
+        /// </summary>
+        internal const double ExpectedMotionMultiplier = 4.0;
+
+        /// <summary>
+        /// Floating-origin shift-frame suppression window (frames). On a
+        /// stock <c>FloatingOrigin.setOffset</c> rebase every ghost shifts by
+        /// the same magnitude on the same frame; the jump detector would read
+        /// that as a teleport. Suppress for the shift frame itself plus this
+        /// many frames of slack, matching
+        /// <see cref="GhostRenderTrace.FloatingOriginSuppressionFrameWindow"/>.
+        /// </summary>
+        internal const int FloatingOriginSuppressionFrameWindow = 1;
+
+        /// <summary>
+        /// Window (frames) within which a <c>line.active</c> toggle out and
+        /// back counts as a blink. A renderer that legitimately turns its line
+        /// off and leaves it off for many frames is not a blink; a 1-frame
+        /// flicker is. The probe samples once per visual frame, so consecutive
+        /// frames differ by 1.
+        /// </summary>
+        internal const int LineBlinkFrameWindow = 8;
 
         internal struct GateDecision
         {
@@ -100,7 +148,7 @@ namespace Parsek
         /// </summary>
         internal static System.Func<int> FrameCounterOverrideForTesting;
 
-        private static bool IsEnabled =>
+        internal static bool IsEnabled =>
             ForceEnabledForTesting
             || (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderTracing);
 
@@ -161,6 +209,103 @@ namespace Parsek
                 && currentUT <= until;
         }
 
+        // ---- Tier-C anomaly predicates (pure; Unity-ECall-free) ----
+
+        /// <summary>
+        /// Production reads
+        /// <see cref="ReFlySettleStabilityTracker.LastFloatingOriginShiftFrame"/>;
+        /// xUnit overrides via <see cref="FloatingOriginFrameOverrideForTesting"/>
+        /// so the suppression test can drive the floating-origin frame without
+        /// going through the tracker's logging path. Mirrors the equivalent
+        /// seam in <see cref="GhostRenderTrace"/>.
+        /// </summary>
+        internal static System.Func<int> FloatingOriginFrameOverrideForTesting;
+
+        internal static int LastFloatingOriginShiftFrame()
+        {
+            var ovr = FloatingOriginFrameOverrideForTesting;
+            if (ovr != null)
+                return ovr();
+            return ReFlySettleStabilityTracker.LastFloatingOriginShiftFrame;
+        }
+
+        /// <summary>
+        /// Pure <c>icon-jump</c> anomaly predicate (Tier C). Returns true when
+        /// the observed per-frame world-position delta <paramref name="dPos"/>
+        /// exceeds the threshold AND the frame is not suppressed. The threshold
+        /// is the larger of the fixed <see cref="IconJumpFloorMeters"/> floor
+        /// and the orbit-derived expected motion (caller computes expected =
+        /// orbital speed * unscaledDeltaTime * warpRate) scaled by
+        /// <see cref="ExpectedMotionMultiplier"/>, so a degenerate near-zero
+        /// orbit falls back to the floor while a slow teleport on a fast orbit
+        /// can still trip the orbit-derived threshold. Suppressed on the first
+        /// frame after a per-pid state reset (<paramref name="justReset"/>:
+        /// there is no trustworthy previous position) and on floating-origin
+        /// shift frames (<paramref name="floatingOriginShiftFrame"/> within
+        /// <see cref="FloatingOriginSuppressionFrameWindow"/> of
+        /// <paramref name="currentFrame"/>), mirroring
+        /// <see cref="GhostRenderTrace.IsLargeDeltaSignalSuppressed"/>.
+        /// </summary>
+        internal static bool IsIconJump(
+            double dPos,
+            double expectedMotionMeters,
+            int currentFrame,
+            int floatingOriginShiftFrame,
+            bool justReset)
+        {
+            // No trustworthy previous position right after a per-pid reset
+            // (scene transition / ghost-pid rebuild). A stale prevWorldPos
+            // would otherwise fire a spurious jump on re-entry.
+            if (justReset)
+                return false;
+
+            if (double.IsNaN(dPos) || double.IsInfinity(dPos))
+                return false;
+
+            // Floating-origin rebase: every ghost shifts the same magnitude on
+            // the same frame; the delta is the rebase, not a teleport.
+            if (floatingOriginShiftFrame != int.MinValue
+                && currentFrame >= floatingOriginShiftFrame
+                && currentFrame - floatingOriginShiftFrame
+                    <= FloatingOriginSuppressionFrameWindow)
+                return false;
+
+            double expected = double.IsNaN(expectedMotionMeters)
+                    || double.IsInfinity(expectedMotionMeters)
+                ? 0.0
+                : Math.Max(0.0, expectedMotionMeters);
+            double threshold = Math.Max(
+                IconJumpFloorMeters,
+                expected * ExpectedMotionMultiplier);
+            return dPos > threshold;
+        }
+
+        /// <summary>
+        /// Pure <c>line-blink</c> anomaly predicate (Tier C). Returns true when
+        /// <c>line.active</c> just toggled this frame (<paramref name="toggled"/>)
+        /// AND the PREVIOUS toggle for the same ghost happened within
+        /// <see cref="LineBlinkFrameWindow"/> frames (<paramref name="currentFrame"/>
+        /// - <paramref name="lastToggleFrame"/> &lt;= window). A single steady
+        /// transition is not a blink; a toggle out and back within the window is.
+        /// The first observed toggle for a pid
+        /// (<paramref name="hasLastToggleFrame"/> false) is recorded by the caller
+        /// but not reported here. Detectable from the truth read alone, so it is
+        /// in the MVP.
+        /// </summary>
+        internal static bool IsLineBlink(
+            bool toggled,
+            bool hasLastToggleFrame,
+            int lastToggleFrame,
+            int currentFrame)
+        {
+            if (!toggled)
+                return false;
+            if (!hasLastToggleFrame)
+                return false;
+            int sinceLast = currentFrame - lastToggleFrame;
+            return sinceLast >= 0 && sinceLast <= LineBlinkFrameWindow;
+        }
+
         /// <summary>
         /// Pure gate predicate, shaped like
         /// <see cref="GhostRenderTrace.EvaluateGateForTesting"/>. Decides
@@ -209,9 +354,63 @@ namespace Parsek
             string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount())
                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
             if (important)
-                ParsekLog.Info("MapRenderTrace", message);
+                ParsekLog.Info(Tag, message);
             else
-                ParsekLog.Verbose("MapRenderTrace", message);
+                ParsekLog.Verbose(Tag, message);
+        }
+
+        /// <summary>
+        /// Tier-B change-based truth emit: routes one <c>phase= surface= ...</c>
+        /// line through <see cref="ParsekLog.VerboseOnChange"/> so the field is
+        /// logged only when <paramref name="stateKey"/> changes for the given
+        /// <paramref name="pidKey"/>. A one-frame toggle out and back is two
+        /// lines, steady state is one line then quiet. Gated by
+        /// <see cref="IsEnabled"/>; the <c>VerboseOnChange</c> identity is
+        /// <c>phase + ":" + pidKey</c> so each field tracks its own last value
+        /// per pid.
+        /// </summary>
+        internal static void EmitOnChange(
+            string phase,
+            RenderSurface surface,
+            string pidKey,
+            double currentUT,
+            double effUT,
+            string stateKey,
+            string details)
+        {
+            if (!IsEnabled)
+                return;
+
+            string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount())
+                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
+            ParsekLog.VerboseOnChange(Tag, phase + ":" + pidKey, stateKey, message);
+        }
+
+        /// <summary>
+        /// Tier-C anomaly emit: routes an important <c>phase=Anomaly</c> line
+        /// (carrying <c>reason=</c> + caller details) to
+        /// <see cref="ParsekLog.Info"/> via <see cref="EmitRaw"/> and opens an
+        /// anomaly detailed window for the pid so the surrounding frames capture
+        /// full detail. The caller (the probe) soft-rate-limits per pid+reason
+        /// so a runaway hyperbola fling cannot flood the log. Gated by
+        /// <see cref="IsEnabled"/>.
+        /// </summary>
+        internal static void EmitAnomaly(
+            RenderSurface surface,
+            string pidKey,
+            double currentUT,
+            double effUT,
+            string reason,
+            string details)
+        {
+            if (!IsEnabled)
+                return;
+
+            OpenDetailedWindow(pidKey, currentUT, AnomalyWindowSeconds, reason);
+
+            string combined = "reason=" + Token(reason)
+                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
+            EmitRaw(true, "Anomaly", surface, pidKey, currentUT, effUT, combined);
         }
 
         private static string BuildPrefix(
