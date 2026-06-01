@@ -741,38 +741,44 @@ namespace Parsek
         /// orbit line (`visible-body-frame`), it stamps a short UT grace window
         /// here. While the live UT is still inside that window, a TRANSIENT off
         /// reason (`stale-segment-awaiting-reseed` or `polyline-owns-phase`) is
-        /// deferred for one frame so the line does not blink off at a short
+        /// deferred for a few frames so the line does not blink off at a short
         /// phase-boundary segment while the per-frame reseed catches up.
         /// Durable off reasons (below-atmosphere / out-of-body-frame) are never
-        /// graced. A UT-based window (not a frame count) is used so the grace is
-        /// warp-stable. Cleared alongside <see cref="ghostsWithSuppressedIcon"/>
-        /// on every ghost teardown / scene change.
+        /// graced. The deadline is a RENDER FRAME count (Time.frameCount), NOT a
+        /// UT window: the blink is a per-render-frame chatter, and under time warp
+        /// UT advances by hundreds-to-thousands of seconds per frame, so a UT
+        /// window (the old 1.5 s) collapses below a single frame's UT step and
+        /// defers nothing. A frame count is warp-independent: it defers a few-frame
+        /// transient dip at any warp, while a SUSTAINED phase (more than the grace
+        /// frames of consecutive off, e.g. the polyline owning a whole below-surface
+        /// descent) still expires and hides. Cleared alongside
+        /// <see cref="ghostsWithSuppressedIcon"/> on every ghost teardown / scene change.
         /// </summary>
-        internal static readonly Dictionary<uint, double> ghostOrbitLineGraceUntilUT =
-            new Dictionary<uint, double>();
+        internal static readonly Dictionary<uint, int> ghostOrbitLineGraceUntilFrame =
+            new Dictionary<uint, int>();
 
         /// <summary>
-        /// Stamps the orbit-line grace deadline for <paramref name="pid"/> at
-        /// <paramref name="graceUntilUT"/>. Called by
+        /// Stamps the orbit-line grace deadline for <paramref name="pid"/> at render
+        /// frame <paramref name="graceUntilFrame"/>. Called by
         /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> on every frame the
         /// line is genuinely shown so a subsequent transient off-dip can be
-        /// deferred until the deadline.
+        /// deferred until the deadline frame.
         /// </summary>
-        internal static void StampOrbitLineGrace(uint pid, double graceUntilUT)
+        internal static void StampOrbitLineGrace(uint pid, int graceUntilFrame)
         {
-            ghostOrbitLineGraceUntilUT[pid] = graceUntilUT;
+            ghostOrbitLineGraceUntilFrame[pid] = graceUntilFrame;
         }
 
         /// <summary>
-        /// Returns the orbit-line grace deadline (UT) for <paramref name="pid"/>,
-        /// or <see cref="double.NegativeInfinity"/> when none is stamped (so any
-        /// `currentUT &lt;= graceUntil` test is false and grace is inactive).
+        /// Returns the orbit-line grace deadline (render frame) for <paramref name="pid"/>,
+        /// or <see cref="int.MinValue"/> when none is stamped (so any
+        /// `currentFrame &lt;= graceUntil` test is false and grace is inactive).
         /// </summary>
-        internal static double GetOrbitLineGraceUntil(uint pid)
+        internal static int GetOrbitLineGraceUntilFrame(uint pid)
         {
-            return ghostOrbitLineGraceUntilUT.TryGetValue(pid, out double until)
+            return ghostOrbitLineGraceUntilFrame.TryGetValue(pid, out int until)
                 ? until
-                : double.NegativeInfinity;
+                : int.MinValue;
         }
 
         /// <summary>
@@ -2228,7 +2234,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
-            ghostOrbitLineGraceUntilUT.Remove(ghostPid);
+            ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
@@ -3271,7 +3277,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilUT.Clear();
+            ghostOrbitLineGraceUntilFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -3494,7 +3500,7 @@ namespace Parsek
 
             ghostMapVesselPids.Remove(ghostPid);
             ghostsWithSuppressedIcon.Remove(ghostPid);
-            ghostOrbitLineGraceUntilUT.Remove(ghostPid);
+            ghostOrbitLineGraceUntilFrame.Remove(ghostPid);
             ghostOrbitBounds.Remove(ghostPid);
             ghostBodyFrameOrbitBounds.Remove(ghostPid);
             ghostLastAppliedOrbitBody.Remove(ghostPid);
@@ -8604,7 +8610,7 @@ namespace Parsek
             OrbitSeedResolver.ResetForTesting();
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilUT.Clear();
+            ghostOrbitLineGraceUntilFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
@@ -8669,7 +8675,7 @@ namespace Parsek
 
             ghostMapVesselPids.Clear();
             ghostsWithSuppressedIcon.Clear();
-            ghostOrbitLineGraceUntilUT.Clear();
+            ghostOrbitLineGraceUntilFrame.Clear();
             ghostOrbitBounds.Clear();
             ghostBodyFrameOrbitBounds.Clear();
             ghostLastAppliedOrbitBody.Clear();
