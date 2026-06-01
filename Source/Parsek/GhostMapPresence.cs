@@ -776,6 +776,49 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Per-pid real-time stamp of the last frame the trajectory polyline was actively rendering
+        /// this ghost's non-orbital leg. Used by both GhostOrbitLinePatch (to defer the stock orbit
+        /// icon from showing at a STALE OrbitDriver mesh position right after polyline release - the
+        /// "icon teleported to the wrong position on the loiter" symptom: the seg-drive dispatcher
+        /// runs on a ~0.5s cadence so the new orbital segment is not applied on the same frame as
+        /// polyline release, and the OrbitDriver.pos is still at the pre-polyline segment's
+        /// endpoint for ~12 frames at 60Hz) and by the ParsekUI labeled-marker draw (to keep using
+        /// trajPos through the same brief window). Cleared in <see cref="ResetForTesting"/>.
+        /// </summary>
+        private static readonly Dictionary<uint, float> lastPolylineOwningRealTimePerPid =
+            new Dictionary<uint, float>();
+
+        /// <summary>
+        /// Stamps "polyline is currently rendering this ghost's non-orbital leg" at the current
+        /// real-time clock. Called by <see cref="Parsek.Patches.GhostOrbitLinePatch"/> on every
+        /// frame the polyline-owns-phase branch fires.
+        /// </summary>
+        internal static void StampPolylineOwning(uint pid)
+        {
+            lastPolylineOwningRealTimePerPid[pid] = UnityEngine.Time.realtimeSinceStartup;
+        }
+
+        /// <summary>
+        /// True when the trajectory polyline is currently rendering this ghost's non-orbital leg
+        /// OR was rendering it within <paramref name="graceSeconds"/> ago. The grace covers the
+        /// post-release window where the seg-drive dispatcher hasn't yet applied the next orbital
+        /// segment and the OrbitDriver mesh transform is still stale. Pure read; no side effects.
+        /// </summary>
+        internal static bool IsPolylineRecentlyOwningGhostPhase(uint pid, float graceSeconds)
+        {
+            if (IsPolylineOwningGhostPhase(pid))
+                return true;
+            return lastPolylineOwningRealTimePerPid.TryGetValue(pid, out float last)
+                && UnityEngine.Time.realtimeSinceStartup - last < graceSeconds;
+        }
+
+        /// <summary>Test-only: clear the polyline-owning real-time stamps.</summary>
+        internal static void ClearPolylineOwningStampsForTesting()
+        {
+            lastPolylineOwningRealTimePerPid.Clear();
+        }
+
+        /// <summary>
         /// Map from chain PID (OriginalVesselPid) to the ghost Vessel object.
         /// Used for orbit updates, cleanup, and target transfer.
         /// </summary>

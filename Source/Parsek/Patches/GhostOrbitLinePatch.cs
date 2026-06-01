@@ -235,6 +235,17 @@ namespace Parsek.Patches
         internal const double OrbitLineGraceSeconds = 1.5;
 
         /// <summary>
+        /// Real-time grace window (seconds) during which the stock orbit icon is held
+        /// suppressed after the trajectory polyline releases ownership of a non-orbital phase.
+        /// Covers the worst-case lag between polyline release and the next seg-drive dispatcher
+        /// tick (MapOrbitUpdateIntervalSec = 0.5s under load, plus the on-vessel apply jitter);
+        /// 1.5s is comfortably above that and matches OrbitLineGraceSeconds for consistency.
+        /// Once seg-drive applies, the visible-body-frame / out-of-body-frame branches engage
+        /// with fresh bounds and the icon shows on the correct mesh position naturally.
+        /// </summary>
+        internal const float PolylineReleaseGraceSeconds = 1.5f;
+
+        /// <summary>
         /// The two TRANSIENT off reasons that the grace window may defer for one
         /// frame at a short phase-boundary segment.
         /// </summary>
@@ -426,6 +437,16 @@ namespace Parsek.Patches
             // orbit-updater cadence.
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
+                // Stamp the "polyline owning" real-time clock so the terminal-visible branch (below)
+                // can defer the icon-show for a short grace after the polyline releases. Without
+                // this defer the stock orbit icon would appear at the OrbitDriver's STALE mesh
+                // transform (the pre-polyline segment's endpoint - e.g. the parking-orbit endpoint
+                // before the orbit-raise gap) for the ~0.5s between polyline release and the next
+                // seg-drive dispatcher tick, which is the visible "icon teleported far away to the
+                // wrong position on the loiter orbit" symptom from the playtest. Stamping every
+                // frame the polyline owns means the grace measures time-since-RELEASE precisely.
+                GhostMapPresence.StampPolylineOwning(pid);
+
                 // Grace (FIX #26): a TRANSIENT single-frame dip into
                 // polyline-owns at a short phase boundary (the ghost is really
                 // orbital this frame but a sub-second non-orbital leg covers the
@@ -649,6 +670,41 @@ namespace Parsek.Patches
             }
             else
             {
+                // Post-polyline-release icon grace: the trajectory polyline just released ownership
+                // of this ghost's non-orbital phase (within PolylineReleaseGraceSeconds, stamped each
+                // frame the polyline-owns branch above fired). The seg-drive dispatcher runs on a
+                // ~0.5s cadence so the next orbital segment has NOT been applied yet, which means
+                // the OrbitDriver mesh transform is still at the pre-polyline segment's endpoint
+                // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
+                // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
+                // "icon teleported far away to the wrong position on the loiter orbit" playtest
+                // seam. Defer the icon-show until seg-drive applies; the orbit LINE follows the
+                // existing line-grace policy (if elliptical, show; orbit-line is decoupled from the
+                // icon and benign here). On the next tick, seg-drive will apply, hasBounds becomes
+                // true, the visible-body-frame branch (above) fires with the now-fresh mesh, the
+                // icon shows in the right place, and the stamp expires naturally over the grace.
+                bool postPolylineReleaseGrace =
+                    GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
+                    && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
+                if (postPolylineReleaseGrace)
+                {
+                    line.active = orbitFiniteElliptical;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "post-polyline-release-grace",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: false,
+                        currentUT,
+                        double.NaN,
+                        double.NaN);
+                    return;
+                }
+
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);

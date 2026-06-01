@@ -61,19 +61,12 @@ namespace Parsek
         // Reusable per-frame buffers (used by DrawMapMarkers for chain dedup)
         private static readonly Dictionary<string, int> chainTipIndexBuffer = new Dictionary<string, int>();
 
-        // Grace window for the post-polyline-release transition (orbit-raise-gap fix follow-up):
-        // the seg-drive dispatcher runs on a cadence (~0.5s MapOrbitUpdateIntervalSec), so when the
-        // trajectory polyline releases ownership of a non-orbital phase there is a brief window
-        // (~200ms in practice, ~12 frames at 60Hz) before the next orbital segment is applied. During
-        // that window the ghost mesh transform is still STALE at the last seg-drive position (e.g. the
-        // parking-orbit endpoint from before the gap), so reading state.ghost.transform.position would
-        // snap the labelled marker ~400 km backward for those frames - the "icon teleported far away
-        // to the wrong position" symptom. We extend the polyline phase by this grace, during which the
-        // marker prefers trajPos (when available) or simply skips (when not), rather than reading the
-        // stale mesh transform. The grace ends as soon as the new segment is applied and the icon-drive
-        // patch refreshes the mesh transform.
-        private const float PolylineReleaseGraceSec = 1.5f;
-        private static readonly Dictionary<uint, float> lastPolylineOwningRealTimePerPid = new Dictionary<uint, float>();
+        // The labeled marker uses GhostMapPresence.IsPolylineRecentlyOwningGhostPhase to decide
+        // when to prefer trajPos over the stale OrbitDriver mesh transform during the brief
+        // post-polyline-release window (the seg-drive dispatcher runs on a ~0.5s cadence so the
+        // mesh transform is stale for ~12 frames at 60Hz right after polyline release). The
+        // GhostOrbitLinePatch reads from the same source to keep the stock icon suppressed
+        // through the same window, so both the labeled marker and the stock icon agree.
 
         // Cached waypoint indices and body lookup for trajectory-derived map marker positions (Bug A fix)
         private readonly Dictionary<int, int> mapMarkerCachedIndices = new Dictionary<int, int>();
@@ -1232,17 +1225,13 @@ namespace Parsek
                 uint ghostPidForPhase = GhostMapPresence.HasGhostVesselForRecording(kvp.Key)
                     ? GhostMapPresence.GetGhostVesselPidForRecording(kvp.Key)
                     : 0u;
-                bool currentlyPolylineOwning = ghostPidForPhase != 0
-                    && GhostMapPresence.IsPolylineOwningGhostPhase(ghostPidForPhase);
-                if (currentlyPolylineOwning)
-                {
-                    lastPolylineOwningRealTimePerPid[ghostPidForPhase] = Time.realtimeSinceStartup;
-                }
-                bool inPolylineReleaseGrace = !currentlyPolylineOwning
-                    && ghostPidForPhase != 0
-                    && lastPolylineOwningRealTimePerPid.TryGetValue(ghostPidForPhase, out float lastOwningT)
-                    && Time.realtimeSinceStartup - lastOwningT < PolylineReleaseGraceSec;
-                bool polylinePhase = currentlyPolylineOwning || inPolylineReleaseGrace;
+                // Polyline ownership including the post-release grace - shared with GhostOrbitLinePatch.
+                // The stamping happens in the orbit-line patch every frame the polyline owns; here we
+                // just read. The grace duration matches Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds.
+                bool polylinePhase = ghostPidForPhase != 0
+                    && GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(
+                        ghostPidForPhase,
+                        Parsek.Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds);
                 Vector3 markerPos;
                 bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
                     && !polylinePhase;
