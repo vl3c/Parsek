@@ -313,6 +313,14 @@ namespace Parsek
         /// <see cref="ParsekLog.Info"/>). Reason strings:
         /// <c>force</c> / <c>important</c> / <c>initial-window</c> /
         /// <c>window</c> / <c>closed</c>.
+        ///
+        /// <para>Second-cut scaffolding: the MVP emit paths
+        /// (<see cref="EmitStructural"/> / <see cref="EmitOnChange"/> /
+        /// <see cref="EmitWindowSnapshot"/> / <see cref="EmitAnomaly"/>) do their
+        /// own gating, so this predicate is currently exercised only by tests; it
+        /// lands in production with the decision-layer / reconciliation second
+        /// cut. Same for the <c>FormatVector3</c> / <c>FormatQuaternion</c> /
+        /// <c>ShortId</c> / <c>Bool</c> formatters below.</para>
         /// </summary>
         internal static GateDecision EvaluateGate(
             double currentUT,
@@ -360,14 +368,21 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Tier-B change-based truth emit: routes one <c>phase= surface= ...</c>
-        /// line through <see cref="ParsekLog.VerboseOnChange"/> so the field is
-        /// logged only when <paramref name="stateKey"/> changes for the given
-        /// <paramref name="pidKey"/>. A one-frame toggle out and back is two
-        /// lines, steady state is one line then quiet. Gated by
-        /// <see cref="IsEnabled"/>; the <c>VerboseOnChange</c> identity is
-        /// <c>phase + ":" + pidKey</c> so each field tracks its own last value
-        /// per pid.
+        /// Tier-B change-based truth emit: one <c>phase= surface= ...</c> Verbose
+        /// line for a field whose value just changed for <paramref name="pidKey"/>.
+        ///
+        /// <para>Change detection is owned by the CALLER (<see cref="MapRenderProbe"/>
+        /// tracks each field's previous value per pid locally and only calls this
+        /// when the field actually changed, and clears that per-pid state on scene
+        /// switch). This deliberately routes straight to <see cref="EmitRaw"/>
+        /// (Verbose) and does NOT re-gate through
+        /// <see cref="ParsekLog.VerboseOnChange"/>: that second on-change layer
+        /// keyed an identity dict that is not cleared on scene transition, so on a
+        /// tracking-station &lt;-&gt; flight re-entry it suppressed the first
+        /// post-switch transition (persistentId is craft-baked, so the pre- and
+        /// post-switch values usually match). The probe's local dict, cleared on
+        /// scene switch, is the single source of on-change truth. <see cref="EmitRaw"/>
+        /// early-returns when disabled.</para>
         /// </summary>
         internal static void EmitOnChange(
             string phase,
@@ -375,15 +390,36 @@ namespace Parsek
             string pidKey,
             double currentUT,
             double effUT,
-            string stateKey,
+            string details)
+        {
+            EmitRaw(false, phase, surface, pidKey, currentUT, effUT, details);
+        }
+
+        /// <summary>
+        /// In-window full per-frame snapshot (Tier-B detail). Emits one ungated
+        /// (by on-change) Verbose <c>phase=Snapshot</c> line carrying the caller's
+        /// full current truth, but ONLY while a detailed window is open for the
+        /// pid (a window is opened by a structural event or an anomaly). Outside a
+        /// window this is a no-op, so steady state is not spammed; inside a window
+        /// the surrounding frames capture continuous motion, not just transitions
+        /// (the design doc's "full per-frame snapshot line" promise). Gated by
+        /// <see cref="IsEnabled"/>. Callers should still guard the
+        /// <paramref name="details"/> string build with
+        /// <see cref="IsDetailedWindowOpen"/> so a closed-window frame pays no
+        /// formatting cost.
+        /// </summary>
+        internal static void EmitWindowSnapshot(
+            RenderSurface surface,
+            string pidKey,
+            double currentUT,
+            double effUT,
             string details)
         {
             if (!IsEnabled)
                 return;
-
-            string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount())
-                + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
-            ParsekLog.VerboseOnChange(Tag, phase + ":" + pidKey, stateKey, message);
+            if (!IsDetailedWindowOpen(pidKey, currentUT))
+                return;
+            EmitRaw(false, "Snapshot", surface, pidKey, currentUT, effUT, details);
         }
 
         /// <summary>

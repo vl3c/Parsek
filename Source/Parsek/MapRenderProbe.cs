@@ -211,7 +211,7 @@ namespace Parsek
 
             EmitTruthOnChange(lastLineActive, pid, lineActive,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
-                "line.active", lineActive,
+                "line.active",
                 string.Format(ic,
                     "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6}",
                     lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
@@ -219,14 +219,14 @@ namespace Parsek
 
             EmitTruthOnChange(lastRendererEnabled, pid, rendererEnabled,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
-                "renderer.enabled", rendererEnabled,
+                "renderer.enabled",
                 string.Format(ic,
                     "renderer.enabled={0} lineActive={1} drawMode={2} body={3}",
                     rendererEnabled, lineActive, drawMode, bodyName));
 
             EmitTruthOnChange(lastDrawIcons, pid, drawIcons,
                 MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT,
-                "drawIcons", drawIcons,
+                "drawIcons",
                 string.Format(ic,
                     "drawIcons={0} lineActive={1} renderer.enabled={2} body={3}",
                     drawIcons, lineActive, rendererEnabled, bodyName));
@@ -236,7 +236,7 @@ namespace Parsek
                 + MapRenderTrace.FormatDouble(ecc, "F4");
             EmitTruthOnChange(lastBodyOrbit, pid, bodyOrbitKey,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
-                "body-orbit", bodyOrbitKey,
+                "body-orbit",
                 string.Format(ic,
                     "body={0} sma={1} ecc={2} lineActive={3} renderer.enabled={4}",
                     bodyName, MapRenderTrace.FormatDouble(sma, "F0"),
@@ -319,6 +319,24 @@ namespace Parsek
             // Record this frame's position so the next frame's jump check is live
             // (the very next sample for this pid will have justReset == false).
             prevWorldPos[pid] = worldPos;
+
+            // --- In-window full per-frame snapshot (Tier-B detail) ---
+            // While a detailed window is open for this pid (opened by a structural
+            // event - GhostCreated / FirstPosition - or an anomaly), dump the full
+            // current truth every frame so the window captures continuous motion,
+            // not just the on-change transitions. No-op outside a window. The
+            // window check guards the string build so closed-window frames pay
+            // nothing.
+            if (MapRenderTrace.IsDetailedWindowOpen(pidKey, currentUT))
+            {
+                MapRenderTrace.EmitWindowSnapshot(
+                    MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT, currentUT,
+                    string.Format(ic,
+                        "lineActive={0} renderer.enabled={1} drawMode={2} drawIcons={3} body={4} sma={5} ecc={6} worldPos={7}",
+                        lineActive, rendererEnabled, drawMode, drawIcons, bodyName,
+                        MapRenderTrace.FormatDouble(sma, "F0"), MapRenderTrace.FormatDouble(ecc, "F4"),
+                        MapRenderTrace.FormatVector3d(worldPos)));
+            }
         }
 
         private void EmitTruthOnChange(
@@ -329,7 +347,6 @@ namespace Parsek
             string pidKey,
             double currentUT,
             string fieldPhase,
-            string stateKey,
             string details)
         {
             string last;
@@ -337,8 +354,12 @@ namespace Parsek
             bool changed = !had || last != currentValue;
             if (changed)
             {
+                // This probe-local dict (cleared on scene switch) is the SINGLE
+                // on-change gate; EmitOnChange routes straight to Verbose and does
+                // not re-gate, so the first post-scene-switch transition is not
+                // swallowed by stale state.
                 MapRenderTrace.EmitOnChange(
-                    fieldPhase, surface, pidKey, currentUT, currentUT, stateKey, details);
+                    fieldPhase, surface, pidKey, currentUT, currentUT, details);
                 store[pid] = currentValue;
             }
         }

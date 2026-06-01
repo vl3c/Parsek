@@ -427,6 +427,81 @@ namespace Parsek.Tests
                 && l.Contains("sma=850000"));
         }
 
+        // ---- In-window per-frame snapshot (Tier-B detail) ----
+
+        [Fact]
+        public void EmitWindowSnapshot_NoOpWhenNoWindowOpen()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+
+            // No window opened for this pid: the snapshot is a no-op so steady
+            // state is not spammed.
+            MapRenderTrace.EmitWindowSnapshot(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                "100037",
+                1000.0,
+                1000.0,
+                "lineActive=True body=Mun");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("phase=Snapshot"));
+        }
+
+        [Fact]
+        public void EmitWindowSnapshot_EmitsVerboseWhileWindowOpen()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+            MapRenderTrace.OpenDetailedWindow("100037", 1000.0, 4.0, "test");
+
+            MapRenderTrace.EmitWindowSnapshot(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                "100037",
+                1001.0,
+                1001.0,
+                "lineActive=True body=Mun");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[VERBOSE]")
+                && l.Contains("[MapRenderTrace]")
+                && l.Contains("phase=Snapshot")
+                && l.Contains("surface=ProtoOrbitLine")
+                && l.Contains("pid=100037")
+                && l.Contains("body=Mun"));
+        }
+
+        [Fact]
+        public void EmitWindowSnapshot_NoOpAfterWindowExpires()
+        {
+            MapRenderTrace.ForceEnabledForTesting = true;
+            MapRenderTrace.OpenDetailedWindow("100037", 1000.0, 4.0, "test");
+
+            // currentUT past the window end (1000 + 4): the snapshot stops.
+            MapRenderTrace.EmitWindowSnapshot(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                "100037",
+                1005.0,
+                1005.0,
+                "lineActive=True body=Mun");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("phase=Snapshot"));
+        }
+
+        [Fact]
+        public void EmitWindowSnapshot_NoOpWhenDisabled()
+        {
+            MapRenderTrace.ForceEnabledForTesting = false;
+            // Even if a window were somehow open, a disabled tracer emits nothing.
+            MapRenderTrace.OpenDetailedWindow("100037", 1000.0, 4.0, "test");
+
+            MapRenderTrace.EmitWindowSnapshot(
+                MapRenderTrace.RenderSurface.ProtoOrbitLine,
+                "100037",
+                1001.0,
+                1001.0,
+                "lineActive=True body=Mun");
+
+            Assert.Empty(logLines);
+        }
+
         // ---- mapRenderTracing persistence round-trip ----
 
         [Fact]

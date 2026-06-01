@@ -457,7 +457,7 @@ namespace Parsek
 
             bool mapRenderTracing = GUILayout.Toggle(s.mapRenderTracing,
                 new GUIContent(" Map/TS render tracing (Warning: huge logs)",
-                    "Write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off unless investigating map/TS rendering."));
+                    "Write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off unless investigating map/TS rendering. Per-frame detail also requires Verbose logging on."));
             if (mapRenderTracing != s.mapRenderTracing)
             {
                 s.mapRenderTracing = mapRenderTracing;
