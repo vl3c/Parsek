@@ -6141,7 +6141,8 @@ namespace Parsek
         // (body flip-flops Kerbin<->Sun back and forth => rapid alternating lines), the orbit line going dark
         // (covered -> GAP(no-segment)), and the Segment<->StateVector route flip. A reader greps tag MapTraj
         // for one member to see the exact sequence of what the map drew. <paramref name="scene"/> = "TS" or
-        // "FLIGHT". Pairs with the icon-pos-delta (stall) and the existing "SOI change" orbit-line log.
+        // "FLIGHT". Pairs with the gated MapRenderProbe (which subsumed the old icon-pos-delta stall
+        // diagnostic) and the existing "SOI change" orbit-line log.
         internal static void LogMapCoveringSegmentChange(
             string scene, int idx, double effUT, OrbitSegment? coveringSegment,
             bool segmentCoversEffUT, bool isStateVector, int effectiveSegmentCount)
@@ -6889,27 +6890,10 @@ namespace Parsek
             done.Segment = segment;
             ParsekLog.VerboseRateLimited(Tag, updateKey, BuildGhostMapDecisionLine(done), 5.0);
 
-            // Frozen-icon diagnostic (the "icon frozen near Kerbin" bug): the map icon's world-position delta
-            // from the PREVIOUS FRAME. This method runs every frame; the log line itself is rate-limited to 5s,
-            // so consecutive emitted lines are ~5s apart but the delta is still measured frame-to-frame against
-            // the immediately preceding frame's position (stashed unconditionally below). dPos ~= 0 on an
-            // emitted frame means the icon did not move that frame; when that persists while the loop clock
-            // advances, the icon is STALLED (frozen) at a fixed orbital anomaly and only the floating-origin
-            // frame shift moves its world position between samples. The body + segment span make it obvious
-            // WHICH segment it is stuck on (e.g. a Kerbin parking-orbit segment near the launch body).
-            // Distinguishes a real freeze from a ghost merely moving slowly at low warp (small but non-zero).
-            double dPosFromLastFrame = hasPrev ? (worldPos - prev.WorldPos).magnitude : double.NaN;
-            ParsekLog.VerboseRateLimited(Tag, "rec-icon-delta-" + (recId ?? recordingIndex.ToString(ic)),
-                string.Format(ic,
-                    "icon-pos-delta: member={0} body={1} worldPos={2} dPosFromLastFrame={3} status={4} " +
-                    "source={5} segUT={6:F1}-{7:F1} sma={8:F0} ecc={9:F3}",
-                    recordingIndex, segment.bodyName, FormatVec3d(worldPos),
-                    double.IsNaN(dPosFromLastFrame) ? "n/a" : dPosFromLastFrame.ToString("F1", ic) + "m",
-                    double.IsNaN(dPosFromLastFrame) ? "first-frame"
-                        : (dPosFromLastFrame < 1.0 ? "STALLED(frozen?)" : "moving"),
-                    sourceLabel, segment.startUT, segment.endUT,
-                    segment.semiMajorAxis, segment.eccentricity),
-                5.0);
+            // The per-frame icon-pos-delta "frozen icon" stall diagnostic that used to live here is
+            // now subsumed by the gated MapRenderProbe (per-pid per-frame world-position jump tracking
+            // + Tier-B body-orbit on-change truth), behind the mapRenderTracing setting. See
+            // docs/dev/design-map-ts-render-tracer.md.
 
             // Refresh last-known so destroy can read the current orbit shape.
             StashLastKnownFrame(recordingIndex, new LastKnownGhostFrame
