@@ -24,89 +24,263 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// Clamps ghost vessel OrbitDriver propagation to the visible arc of the orbit
-    /// segment (#212b). Without this, the OrbitDriver propagates the vessel along
-    /// the full Keplerian ellipse, positioning the icon underground during the
-    /// periapsis passage. The orbit LINE is clipped by GhostOrbitArcPatch, but the
-    /// vessel ICON follows the OrbitDriver position — this patch keeps the icon
-    /// on the visible arc by clamping the propagated UT.
+    /// Drives a ghost vessel's OrbitDriver to the loop-mapped recorded sample clock
+    /// (<c>effUT = liveUT - shift</c>) every physics frame, instead of letting stock propagate
+    /// it at the LIVE Planetarium clock. This fixes the frozen-icon-on-short-arc bug: under time
+    /// warp (or any loop where the recorded sample clock runs faster than live), stock's live-UT
+    /// propagation only lands the right phase at each rate-limited reseed and stalls the icon on a
+    /// near-fixed anomaly in between, so the marker freezes on short orbital arcs and teleports at
+    /// segment seams while the drawn orbit line stays correct. Driving at <c>effUT</c> makes the
+    /// icon a continuous function of (orbit elements, effUT), so it glides in lockstep with the
+    /// arc line (which GhostOrbitArcPatch evaluates at the same <c>effUT</c>), with no freeze and
+    /// no seam teleport, in both the flight map and the Tracking Station (the patch is keyed only
+    /// on IsGhostMapVessel, no scene check).
     ///
-    /// When the vessel would be on the underground portion, the UT is clamped to
-    /// the nearest arc endpoint (startUT or endUT), freezing the icon at the edge
-    /// of the visible arc.
+    /// It patches the internal <c>updateFromParameters(bool)</c> overload (the one that actually
+    /// sets the position) and returns <c>false</c> so stock does NOT re-propagate at live UT and
+    /// overwrite us. The parameterless overload that stock's per-FixedUpdate UpdateOrbit() calls
+    /// forwards to this one with <c>setPosition: true</c>, so we own every per-frame placement for
+    /// ghost map vessels. The body replicates stock OrbitDriver.updateFromParameters(bool)
+    /// verbatim (UpdateFromUT → pos/vel → Swizzle → NaN guard → SetPosition with the
+    /// driverTransform.rotation * localCoM offset); any null / NaN / hyperbolic / degenerate case
+    /// bails (returns true) so stock keeps its existing behavior.
     ///
-    /// Architecture: OrbitDriver.updateFromParameters() calls orbit.UpdateFromUT(UT)
-    /// which sets the vessel's world position. This prefix intercepts the UT before
-    /// propagation and clamps it to the visible arc if needed.
+    /// #212b underground suppression is preserved in effUT space: when <c>effUT</c> is genuinely
+    /// past / before the recorded window or off the visible (above-ground) arc, the driver is
+    /// clamped to the nearest recorded endpoint and the pid is added to ghostsWithSuppressedIcon
+    /// so the below-atmosphere custom-icon handoff still works and the icon never goes underground.
     /// </summary>
-    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new Type[0])]
-    internal static class GhostOrbitIconClampPatch
+    [HarmonyPatch(typeof(OrbitDriver), "updateFromParameters", new[] { typeof(bool) })]
+    internal static class GhostOrbitIconDrivePatch
     {
-        static void Prefix(OrbitDriver __instance)
+        /// <summary>
+        /// Pure: which recorded-clock UT should the OrbitDriver be propagated at this frame, and
+        /// is the icon suppressed? The stored arc bounds are in the LIVE frame
+        /// (<paramref name="startUTShifted"/> / <paramref name="endUTShifted"/>), so the live-clock
+        /// past/before-window checks use them directly; the returned <c>DriveUT</c> is in the
+        /// RECORDED frame (effUT space) because the OrbitDriver is now seeded with the raw recorded
+        /// epoch. <paramref name="onArc"/> is the orbit-dependent visible-arc result computed by the
+        /// caller (true when the orbit is degenerate / full-period, matching IsOnOrbitalArc).
+        /// </summary>
+        internal static IconDriveDecision ResolveIconDriveDecision(
+            double liveUT,
+            double startUTShifted,
+            double endUTShifted,
+            double shift,
+            bool onArc)
         {
-            if (__instance.vessel == null) return;
+            // Past the recorded window → clamp to the last recorded position (raw end UT).
+            if (liveUT > endUTShifted)
+                return new IconDriveDecision(
+                    GhostMapPresence.MapLiveUTToEffUT(endUTShifted, shift), suppressed: true,
+                    reason: "past-window");
+            // Before the recorded window → clamp to the first recorded position (raw start UT).
+            if (liveUT < startUTShifted)
+                return new IconDriveDecision(
+                    GhostMapPresence.MapLiveUTToEffUT(startUTShifted, shift), suppressed: true,
+                    reason: "before-window");
+            // Within the window but off the visible (above-ground) arc → caller clamps to the
+            // nearest endpoint in orbital-time space (needs the Orbit), so signal off-arc here.
+            if (!onArc)
+                return new IconDriveDecision(
+                    driveUT: double.NaN, suppressed: true, reason: "off-arc");
+            // On the visible arc → drive at the loop-mapped effUT so the icon glides.
+            return new IconDriveDecision(
+                GhostMapPresence.MapLiveUTToEffUT(liveUT, shift), suppressed: false,
+                reason: "on-arc-drive");
+        }
+
+        /// <summary>Result of <see cref="ResolveIconDriveDecision"/>.</summary>
+        internal readonly struct IconDriveDecision
+        {
+            internal readonly double DriveUT;
+            internal readonly bool Suppressed;
+            internal readonly string Reason;
+            internal IconDriveDecision(double driveUT, bool suppressed, string reason)
+            {
+                DriveUT = driveUT;
+                Suppressed = suppressed;
+                Reason = reason;
+            }
+        }
+
+        static bool Prefix(OrbitDriver __instance, bool setPosition, ref double ___updateUT)
+        {
+            if (__instance == null || __instance.vessel == null) return true;
 
             uint pid = __instance.vessel.persistentId;
-            if (!GhostMapPresence.IsGhostMapVessel(pid)) return;
-            double currentUT = Planetarium.GetUniversalTime();
-            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
-                pid, currentUT, out double startUT, out double endUT))
-                return;
+            if (!GhostMapPresence.IsGhostMapVessel(pid)) return true;
+
+            // Ghost map drivers are forward vessel drivers (reverse == false, vessel != null checked
+            // above). This patch replicates only stock's "!reverse && vessel != null" SetPosition branch;
+            // defer the reverse == true case to stock unchanged (the vessel == null / celestial-body-only
+            // branch is already deferred by the null-vessel guard above).
+            if (__instance.reverse) return true;
 
             Orbit orbit = __instance.orbit;
-            if (orbit == null || orbit.eccentricity >= 1.0 || orbit.period <= 0) return;
+            // Missing / degenerate orbit → let stock handle it unchanged. Hyperbolic is NOT deferred:
+            // the ghost orbit is seeded at the RAW recorded epoch (no shift baked in), so deferring a
+            // hyperbolic escape to stock would propagate the OPEN trajectory at the LIVE clock (far
+            // past the recorded escape, since liveUT = effUT + shift with a huge shift), flinging the
+            // icon billions of metres out into deep space - the "icon not rendered on the hyperbolic
+            // escape" regression. We drive it at effUT like the elliptical case so it tracks the
+            // recorded escape arc within its segment window. (A hyperbolic period is +Infinity, which
+            // passes the period<=0 degeneracy guard; NaN/zero periods still defer.)
+            if (orbit == null || double.IsNaN(orbit.period) || orbit.period <= 0.0)
+                return true;
+            bool hyperbolic = orbit.eccentricity >= 1.0;
 
-            // Past recording bounds → clamp to endUT so icon sits at last recorded position
-            if (currentUT > endUT)
-            {
-                orbit.UpdateFromUT(endUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                return;
-            }
-            if (currentUT < startUT)
-            {
-                orbit.UpdateFromUT(startUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-                return;
-            }
+            double currentUT = Planetarium.GetUniversalTime();
+            // No recorded arc bounds (terminal-orbit ghost): let stock propagate at live UT. These
+            // ghosts have shift 0 and a full ellipse, so live == effUT and the icon already glides.
+            if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
+                    pid, currentUT, out double startUT, out double endUT))
+                return true;
 
-            // Within bounds — check if on the visible arc
-            bool onArc = GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
-            if (!onArc)
+            double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+            // A hyperbolic escape segment covers a single OUTWARD pass with no below-ground arc, so the
+            // icon is on the visible arc whenever the loop clock is within the segment window; the
+            // period-based above-ground arc test is meaningless for an open orbit (period is infinite),
+            // so treat hyperbolic as always-on-arc and let the window past/before clamp + suppress.
+            bool onArc = hyperbolic
+                || GhostOrbitArcCheck.IsOnOrbitalArc(orbit, startUT, endUT, currentUT);
+            var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
+
+            double driveUT = decision.DriveUT;
+            if (decision.Reason == "off-arc")
             {
-                // Off the visible arc (underground) — clamp to the nearest arc endpoint
+                // Off the visible (above-ground) arc — clamp to the nearest arc endpoint in
+                // orbital-time space, then map that live-frame endpoint back to the recorded clock.
                 double period = orbit.period;
                 double obtNow = ((orbit.getObtAtUT(currentUT) % period) + period) % period;
                 double obtStart = ((orbit.getObtAtUT(startUT) % period) + period) % period;
                 double obtEnd = ((orbit.getObtAtUT(endUT) % period) + period) % period;
-
-                // Pick the closer endpoint in orbital-time space
                 double distToStart, distToEnd;
                 if (obtStart <= obtEnd)
                 {
-                    // No wraparound: gap is [obtEnd, obtStart+period]
                     distToStart = (obtStart - obtNow + period) % period;
                     distToEnd = (obtNow - obtEnd + period) % period;
                 }
                 else
                 {
-                    // Wraparound: gap is [obtEnd, obtStart]
                     distToStart = (obtNow <= obtStart) ? (obtStart - obtNow) : (obtStart + period - obtNow);
                     distToEnd = (obtNow >= obtEnd) ? (obtNow - obtEnd) : (obtNow + period - obtEnd);
                 }
-
-                double clampUT = (distToEnd <= distToStart) ? endUT : startUT;
-                orbit.UpdateFromUT(clampUT);
-                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
-
-                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "clamp-" + pid,
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Icon clamped pid={0} UT={1:F1} clampUT={2:F1} bounds=[{3:F1},{4:F1}]",
-                        pid, currentUT, clampUT, startUT, endUT));
-                return;
+                double clampUTShifted = (distToEnd <= distToStart) ? endUT : startUT;
+                driveUT = GhostMapPresence.MapLiveUTToEffUT(clampUTShifted, shift);
             }
 
-            GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+            if (decision.Suppressed)
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+            else
+                GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
+
+            ParsekLog.VerboseRateLimited("GhostOrbitIcon", "drive-" + pid,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Icon drive pid={0} reason={1} liveUT={2:F1} effUT/driveUT={3:F1} shift={4:F1} " +
+                    "bounds=[{5:F1},{6:F1}] suppressed={7} scene={8}",
+                    pid, decision.Reason, currentUT, driveUT, shift,
+                    startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
+                1.0);
+
+            // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
+            // recorded-clock driveUT instead of the live clock. Stock does updateUT = now then
+            // UpdateFromUT(updateUT); we mirror that below by recording driveUT (the UT we actually
+            // propagate at) into the private updateUT field. (orbitdriver_decomp.cs:607-726.)
+            orbit.UpdateFromUT(driveUT);
+            Vector3d pos = orbit.pos;
+            Vector3d vel = orbit.vel;
+            pos.Swizzle();
+            vel.Swizzle();
+            // Degenerate propagation: bail to stock's NaN handling (unload + destroy) WITHOUT
+            // writing NaN into __instance.pos/vel first. The window clamp keeps driveUT inside the
+            // recorded segment for both elliptical and hyperbolic orbits, so the propagation is
+            // finite in the normal case; this guard catches any residual NaN (e.g. a degenerate
+            // reseed) and bailing before the write keeps the driver state clean, matching stock's
+            // contract that the destroy decision runs on a fresh re-propagation rather than on a
+            // half-written effUT NaN.
+            if (double.IsNaN(pos.x))
+                return true;
+            // Keep the driver's recorded propagation time faithful to the position we set: stock sets
+            // updateUT = now, we propagated at driveUT. updateUT is private, injected here via ___updateUT.
+            ___updateUT = driveUT;
+            __instance.pos = pos;
+            __instance.vel = vel;
+
+            if (!setPosition)
+                return false;
+
+            Vessel v = __instance.vessel;
+            CelestialBody refBody = __instance.referenceBody;
+            if (v != null && refBody != null && __instance.driverTransform != null)
+            {
+                Vector3d off = (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM;
+                v.SetPosition(refBody.position + pos - off);
+            }
+
+            // Icon-position truth diagnostic (PR #1003 follow-up): logs the ghost icon's POSITION
+            // AS RENDERED THIS FRAME in a FRAME-INDEPENDENT way every ~1s per pid (the prior
+            // icon-pos-delta log only had worldPos in floating-origin coords at 5s cadence with
+            // no truth reference, which made phase glitches invisible across consecutive samples).
+            // Reports the propagated orbital phase (mna at driveUT), body-fixed lat/lon/alt of the
+            // icon (these are frame-independent), the seeded orbit's epoch/mna, and the
+            // delta-since-last-sample on the orbital circle. A smooth orbital sweep advances mna
+            // and lat/lon monotonically with sub-degree per-second steps under normal warp; a
+            // phase jump shows as a non-monotone mna or a lat/lon discontinuity. Body-fixed
+            // coordinates remove the Krakensbane / floating-origin frame shift that was confusing
+            // the prior diagnostic (worldPos deltas of hundreds of km between samples that were
+            // actually consistent on the orbit). The point of THIS log is to make the user-visible
+            // "icon at the wrong place on the loiter" obvious in KSP.log without ambiguity.
+            if (v != null && refBody != null)
+            {
+                Vector3d iconWorldPos = v.GetWorldPos3D();
+                double iconLat = refBody.GetLatitude(iconWorldPos);
+                double iconLon = refBody.GetLongitude(iconWorldPos);
+                double iconAlt = refBody.GetAltitude(iconWorldPos);
+                double mnaPropagatedRad = orbit.meanAnomaly; // in radians after UpdateFromUT(driveUT)
+                double mnaPropagatedDeg = mnaPropagatedRad * 180.0 / System.Math.PI;
+                // Normalize to [0, 360) for readability.
+                double mnaNormDeg = ((mnaPropagatedDeg % 360.0) + 360.0) % 360.0;
+
+                // Orientation + body-relative position diagnostic. A map-icon position jump with a
+                // CONTINUOUS mean anomaly is an orbital-plane ORIENTATION (OrbitFrame, from
+                // inc/LAN/argPe via Orbit.Init) change, so logging inc/LAN/argPe + the body-relative
+                // inertial position (orbit.pos, before refBody.position + floating origin) makes such
+                // a flip readable. This is how the looped-orbit body-fixed-phase bug was pinned.
+                Vector3d bodyRelPos = orbit.pos; // Planetarium-frame position relative to refBody
+
+                // Separate the ORBIT-LINE position from the VESSEL-TRANSFORM (icon/marker) position.
+                // `iconLon` above is from v.GetWorldPos3D() = the vessel transform, which a later
+                // same-frame write (gap-glide / segment positioning) can overwrite and which can lag
+                // one frame. `orbitLon` is computed DIRECTLY from the orbit position set this frame
+                // (refBody.position + orbit.pos - comOffset) = the orbit LINE's body-fixed longitude,
+                // non-stale. `lonDiv` (their shortest-arc gap) reads ~0 when the icon sits on the line
+                // and spikes when the transform diverges from it (the user-visible "icon off the line").
+                Vector3d comOff = __instance.driverTransform != null
+                    ? (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM
+                    : Vector3d.zero;
+                Vector3d orbitWorldPos = refBody.position + pos - comOff; // pos already swizzled above
+                double orbitLon = refBody.GetLongitude(orbitWorldPos);
+                double orbitLat = refBody.GetLatitude(orbitWorldPos);
+                double lonDivergence = System.Math.Abs(
+                    ((orbitLon - iconLon + 540.0) % 360.0) - 180.0); // shortest-arc |Δlon|, [0,180]
+                ParsekLog.VerboseRateLimited("GhostIconTruth",
+                    "icon-truth-" + pid.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Icon truth pid={0} body={1} driveUT={2:F1} mnaRad={3:F4} mnaDeg={4:F2} " +
+                        "inc={5:F4} lan={6:F4} argPe={7:F4} " +
+                        "transformLat={8:F3} transformLon={9:F3} orbitLat={10:F3} orbitLon={11:F3} " +
+                        "lonDiv={12:F2} alt={13:F0} segSma={14:F0} segEcc={15:F4} " +
+                        "segMnaEpoch={16:F4} segEpoch={17:F1} bodyRelPos={18} worldPos={19} scene={20}",
+                        pid, refBody.bodyName, driveUT, mnaPropagatedRad, mnaNormDeg,
+                        orbit.inclination, orbit.LAN, orbit.argumentOfPeriapsis,
+                        iconLat, iconLon, orbitLat, orbitLon, lonDivergence, iconAlt,
+                        orbit.semiMajorAxis, orbit.eccentricity,
+                        orbit.meanAnomalyAtEpoch, orbit.epoch,
+                        bodyRelPos.ToString("F0"), iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
+                    1.0);
+            }
+            return false;
         }
     }
 
@@ -117,7 +291,7 @@ namespace Parsek.Patches
     ///
     /// Architecture: OrbitRendererBase.LateUpdate calls DrawOrbit() then DrawNodes().
     /// This postfix runs after both, suppressing the Vectrosity line for ghost vessels.
-    /// Icon clamping is handled separately by GhostOrbitIconClampPatch on OrbitDriver.
+    /// Icon positioning is handled separately by GhostOrbitIconDrivePatch on OrbitDriver.
     /// </summary>
     [HarmonyPatch(typeof(OrbitRendererBase), "LateUpdate")]
     internal static class GhostOrbitLinePatch
@@ -125,17 +299,37 @@ namespace Parsek.Patches
         private const string Tag = "GhostOrbitLine";
 
         /// <summary>
-        /// UT length of the orbit-line grace window. When the line is genuinely
-        /// shown (`visible-body-frame`) a grace deadline of currentUT + this is
-        /// stamped; a subsequent TRANSIENT off-dip within the deadline is
-        /// deferred one frame so the line does not blink at a short
-        /// phase-boundary segment while the per-frame reseed catches up. A
-        /// universe-time window (not a frame count) keeps the grace warp-stable:
-        /// at high warp the head sprints through short segments faster than the
-        /// real-time-rate-limited reseed, so a frame count would expire
-        /// instantly while ~1.5 s of game time still covers the chatter.
+        /// Length of the orbit-line grace window, in RENDER FRAMES. When the line
+        /// is genuinely shown (`visible-body-frame`) a grace deadline of
+        /// Time.frameCount + this is stamped; a subsequent TRANSIENT off-dip within
+        /// the deadline frame is deferred so the line does not blink at a short
+        /// phase-boundary segment while the per-frame reseed catches up.
+        ///
+        /// This is a FRAME count, not a UT window. The blink is per-render-frame
+        /// chatter. The original UT window (1.5 s) was defeated by time warp: at
+        /// transfer-watching warp one render frame advances UT by far more than
+        /// 1.5 s (even a modest ~75x steps ~2.5 UT/frame), so a transient dip's UT
+        /// is already past `lastShownUT + 1.5` on the very next frame and the grace
+        /// deferred ZERO frames -> the heliocentric orbit line blinked. A frame
+        /// count is warp-independent: it defers a few-frame transient dip at any
+        /// warp, while a SUSTAINED off (more consecutive off-frames than this, e.g.
+        /// the polyline owning a whole below-surface descent) still expires and
+        /// hides (the grace deadline was last stamped while the line was visible),
+        /// preserving the FIX-2 sustained-descent handoff. Tunable; the observed
+        /// transfer-phase chatter dips are ~1-12 render frames.
         /// </summary>
-        internal const double OrbitLineGraceSeconds = 1.5;
+        internal const int OrbitLineGraceFrames = 20;
+
+        /// <summary>
+        /// Real-time grace window (seconds) during which the stock orbit icon is held
+        /// suppressed after the trajectory polyline releases ownership of a non-orbital phase.
+        /// Covers the worst-case lag between polyline release and the next seg-drive dispatcher
+        /// tick (MapOrbitUpdateIntervalSec = 0.5s under load, plus the on-vessel apply jitter);
+        /// 1.5s is comfortably above that and matches OrbitLineGraceSeconds for consistency.
+        /// Once seg-drive applies, the visible-body-frame / out-of-body-frame branches engage
+        /// with fresh bounds and the icon shows on the correct mesh position naturally.
+        /// </summary>
+        internal const float PolylineReleaseGraceSeconds = 1.5f;
 
         /// <summary>
         /// The two TRANSIENT off reasons that the grace window may defer for one
@@ -153,8 +347,8 @@ namespace Parsek.Patches
         ///   (<see cref="OffReasonStaleSegment"/> / <see cref="OffReasonPolylineOwns"/>);
         ///   the durable reasons (below-atmosphere, out-of-body-frame) are never
         ///   graced and hide instantly;
-        /// - the grace window is still open (<paramref name="currentUT"/> &lt;=
-        ///   <paramref name="graceUntilUT"/>); and
+        /// - the grace window is still open (<paramref name="currentFrame"/> &lt;=
+        ///   <paramref name="graceUntilFrame"/>); and
         /// - the orbit elements are still finite and elliptical
         ///   (<paramref name="orbitFiniteElliptical"/>), so a real arc exists to
         ///   keep showing (a hyperbolic / degenerate orbit has no meaningful
@@ -163,21 +357,21 @@ namespace Parsek.Patches
         /// A SUSTAINED transient phase (e.g. the polyline owning a whole
         /// below-atmosphere descent) keeps hiding because the grace deadline was
         /// last stamped while the line was visible, so it expires within
-        /// <see cref="OrbitLineGraceSeconds"/> of the last genuine show and the
-        /// off then takes effect normally (the coupling with FIX 2's sustained
-        /// descent ownership).
+        /// <see cref="OrbitLineGraceFrames"/> render frames of the last genuine
+        /// show and the off then takes effect normally (the coupling with FIX 2's
+        /// sustained descent ownership).
         /// </summary>
         internal static bool ShouldDeferOrbitLineHide(
             string offReason,
-            double currentUT,
-            double graceUntilUT,
+            int currentFrame,
+            int graceUntilFrame,
             bool orbitFiniteElliptical)
         {
             if (!orbitFiniteElliptical) return false;
             bool transient =
                 offReason == OffReasonStaleSegment || offReason == OffReasonPolylineOwns;
             if (!transient) return false;
-            return currentUT <= graceUntilUT;
+            return currentFrame <= graceUntilFrame;
         }
 
         /// <summary>
@@ -311,8 +505,8 @@ namespace Parsek.Patches
             // elements must still be finite + elliptical to have an arc to keep
             // showing. Durable off reasons (below-atmosphere / out-of-body-frame)
             // are NEVER graced (they are checked separately below).
-            double graceCurrentUT = Planetarium.GetUniversalTime();
-            double graceUntilUT = GhostMapPresence.GetOrbitLineGraceUntil(pid);
+            int graceCurrentFrame = Time.frameCount;
+            int graceUntilFrame = GhostMapPresence.GetOrbitLineGraceUntilFrame(pid);
             bool orbitFiniteElliptical = IsOrbitFiniteElliptical(__instance.vessel?.orbit);
 
             // Polyline ownership (PR #970): while the map-view trajectory polyline
@@ -329,6 +523,16 @@ namespace Parsek.Patches
             // orbit-updater cadence.
             if (GhostMapPresence.IsPolylineOwningGhostPhase(pid))
             {
+                // Stamp the "polyline owning" real-time clock so the terminal-visible branch (below)
+                // can defer the icon-show for a short grace after the polyline releases. Without
+                // this defer the stock orbit icon would appear at the OrbitDriver's STALE mesh
+                // transform (the pre-polyline segment's endpoint - e.g. the parking-orbit endpoint
+                // before the orbit-raise gap) for the ~0.5s between polyline release and the next
+                // seg-drive dispatcher tick, which is the visible "icon teleported far away to the
+                // wrong position on the loiter orbit" symptom from the playtest. Stamping every
+                // frame the polyline owns means the grace measures time-since-RELEASE precisely.
+                GhostMapPresence.StampPolylineOwning(pid);
+
                 // Grace (FIX #26): a TRANSIENT single-frame dip into
                 // polyline-owns at a short phase boundary (the ghost is really
                 // orbital this frame but a sub-second non-orbital leg covers the
@@ -348,10 +552,10 @@ namespace Parsek.Patches
                 // A SUSTAINED polyline-owns phase (e.g. the whole below-atmosphere
                 // descent FIX #27 makes the polyline own) is NOT deferred at all:
                 // the grace deadline was last stamped while the line was genuinely
-                // shown, so it expires within OrbitLineGraceSeconds and the hide
-                // takes effect, preventing a double-draw of line + polyline.
+                // shown, so it expires within OrbitLineGraceFrames render frames and
+                // the hide takes effect, preventing a double-draw of line + polyline.
                 if (ShouldDeferOrbitLineHide(
-                        OffReasonPolylineOwns, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
+                        OffReasonPolylineOwns, graceCurrentFrame, graceUntilFrame, orbitFiniteElliptical))
                 {
                     line.active = true;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
@@ -359,8 +563,8 @@ namespace Parsek.Patches
                     ParsekLog.VerboseRateLimited(Tag,
                         "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
                         string.Format(CultureInfo.InvariantCulture,
-                            "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1} (line only, icon stays suppressed)",
-                            pid, OffReasonPolylineOwns, graceCurrentUT, graceUntilUT),
+                            "hide deferred by grace pid={0} reason={1} currentFrame={2} graceUntilFrame={3} (line only, icon stays suppressed)",
+                            pid, OffReasonPolylineOwns, graceCurrentFrame, graceUntilFrame),
                         1.0);
                     return;
                 }
@@ -368,7 +572,7 @@ namespace Parsek.Patches
                 // Hide the orbit line AND the proto-vessel icon, and mark the icon
                 // suppressed (same as the below-atmosphere branch). During a
                 // non-orbital phase the proto orbit is meaningless and
-                // GhostOrbitIconClampPatch already suppresses the icon off-arc,
+                // GhostOrbitIconDrivePatch already suppresses the icon off-arc,
                 // which makes ClassifyAtmosphericMarkerSkip draw the non-proto
                 // trajectory marker. Leaving the proto icon as OBJ here would draw
                 // BOTH the proto icon and the non-proto marker (the overlapping
@@ -404,7 +608,7 @@ namespace Parsek.Patches
                 && __instance.vessel.orbit.altitude < body.atmosphereDepth;
 
             // Segment-based ghosts: the orbit line is clipped by GhostOrbitArcPatch and the
-            // icon position by GhostOrbitIconClampPatch, both of which use SEGMENT bounds.
+            // icon position by GhostOrbitIconDrivePatch, both of which use SEGMENT bounds.
             // For the line.active toggle we instead use BODY-FRAME bounds (the run of
             // consecutive same-body OrbitSegments around the playback head). That keeps the
             // line continuously visible across inter-segment burns / sparse-physics gaps
@@ -465,7 +669,7 @@ namespace Parsek.Patches
                     // hide takes effect, so a genuinely stale arc is never shown
                     // for long.
                     if (ShouldDeferOrbitLineHide(
-                            OffReasonStaleSegment, graceCurrentUT, graceUntilUT, orbitFiniteElliptical))
+                            OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame, orbitFiniteElliptical))
                     {
                         // Re-show the proto ICON here (unlike the polyline-owns
                         // grace-defer above): the polyline does NOT own this
@@ -481,8 +685,8 @@ namespace Parsek.Patches
                         ParsekLog.VerboseRateLimited(Tag,
                             "grace-defer-" + pid.ToString(CultureInfo.InvariantCulture),
                             string.Format(CultureInfo.InvariantCulture,
-                                "hide deferred by grace pid={0} reason={1} currentUT={2:F1} graceUntil={3:F1}",
-                                pid, OffReasonStaleSegment, graceCurrentUT, graceUntilUT),
+                                "hide deferred by grace pid={0} reason={1} currentFrame={2} graceUntilFrame={3}",
+                                pid, OffReasonStaleSegment, graceCurrentFrame, graceUntilFrame),
                             1.0);
                         return;
                     }
@@ -514,10 +718,10 @@ namespace Parsek.Patches
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 // Grace (FIX #26): the line is genuinely shown this frame, so
                 // (re)stamp the grace deadline. A transient off-dip in the next
-                // ~OrbitLineGraceSeconds is deferred; once the line stops being
+                // ~OrbitLineGraceFrames render frames is deferred; once the line stops being
                 // genuinely shown the deadline stops advancing and any sustained
                 // off takes effect when it expires.
-                GhostMapPresence.StampOrbitLineGrace(pid, currentUT + OrbitLineGraceSeconds);
+                GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
                 LogOrbitLineDecision(
                     pid,
                     "visible-body-frame",
@@ -552,13 +756,54 @@ namespace Parsek.Patches
             }
             else
             {
+                // Post-polyline-release icon grace: the trajectory polyline just released ownership
+                // of this ghost's non-orbital phase (within PolylineReleaseGraceSeconds, stamped each
+                // frame the polyline-owns branch above fired). The seg-drive dispatcher runs on a
+                // ~0.5s cadence so the next orbital segment has NOT been applied yet, which means
+                // the OrbitDriver mesh transform is still at the pre-polyline segment's endpoint
+                // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
+                // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
+                // "icon teleported far away to the wrong position on the loiter orbit" playtest
+                // seam. Defer the icon-show until seg-drive applies. The orbit LINE is ALSO held off
+                // here: with no fresh segment applied yet (hasBounds is false in this terminal
+                // branch), the renderer still holds the PREVIOUS segment's ellipse, so re-enabling
+                // the line would briefly redraw that stale ellipse (the parking circle flashing for
+                // ~0.3-0.5s before the loiter line appears - the "glimpse of another circular orbit
+                // before the loiter" playtest report). A hidden line for the few grace frames until
+                // seg-drive applies is strictly better than drawing the wrong ellipse; the trajectory
+                // polyline already covered the visual through the non-orbital phase. On the next tick,
+                // seg-drive applies, hasBounds becomes true, the visible-body-frame branch (above)
+                // fires with the fresh loiter orbit, line + icon show in the right place, and the
+                // stamp expires naturally over the grace.
+                bool postPolylineReleaseGrace =
+                    GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
+                    && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
+                if (postPolylineReleaseGrace)
+                {
+                    line.active = false;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "post-polyline-release-grace",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: false,
+                        currentUT,
+                        double.NaN,
+                        double.NaN);
+                    return;
+                }
+
                 line.active = true;
                 __instance.drawIcons = OrbitRendererBase.DrawIcons.ALL;
                 GhostMapPresence.ghostsWithSuppressedIcon.Remove(pid);
                 // Grace (FIX #26): a terminal-orbit ghost genuinely shown this
                 // frame restamps the grace deadline too, so a transient
                 // polyline-owns dip on a terminal ghost is debounced as well.
-                GhostMapPresence.StampOrbitLineGrace(pid, currentUT + OrbitLineGraceSeconds);
+                GhostMapPresence.StampOrbitLineGrace(pid, Time.frameCount + OrbitLineGraceFrames);
                 LogOrbitLineDecision(
                     pid,
                     "terminal-visible",
@@ -639,12 +884,22 @@ namespace Parsek.Patches
             if (orbit == null) return true;
             if (orbit.eccentricity >= 1.0) return true; // let stock handle hyperbolic
 
-            // Full orbit or more — let stock draw the complete ellipse
+            // Full orbit or more — let stock draw the complete ellipse. The span is
+            // shift-invariant, so the stored live-frame bounds give the correct test.
             if (endUT - startUT >= orbit.period) return true;
 
+            // The OrbitDriver is now seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
+            // drives it at effUT = liveUT - shift), but the stored arc bounds are in the LIVE frame.
+            // Map them back to the recorded clock so the eccentric-anomaly arc shape is computed in
+            // the SAME frame the icon is driven in — keeping the line and the marker in exact
+            // lockstep on arbitrarily short arcs. shift is 0 (identity) off the loop path.
+            double arcShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+            double startUTRaw = GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
+            double endUTRaw = GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
+
             // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
-            double fromE = orbit.EccentricAnomalyAtUT(startUT);
-            double toE = orbit.EccentricAnomalyAtUT(endUT);
+            double fromE = orbit.EccentricAnomalyAtUT(startUTRaw);
+            double toE = orbit.EccentricAnomalyAtUT(endUTRaw);
 
             // NaN guard — degenerate orbits or UT outside validity
             if (double.IsNaN(fromE) || double.IsNaN(toE)) return true;

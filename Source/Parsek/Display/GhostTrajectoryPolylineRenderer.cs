@@ -1230,6 +1230,21 @@ namespace Parsek.Display
                                 set.legs[set.legs.Length - 1].startUT, set.legs[set.legs.Length - 1].endUT,
                                 set.legs[0].bodyName ?? "(null)", set.legs[set.legs.Length - 1].bodyName ?? "(null)"),
                             2.0);
+
+                        // CHANGE-based companion to the rate-limited head log: a discrete event whenever the
+                        // active leg, its body, or the drawn state flips. The polyline's part of the SOI-exit
+                        // blink (active leg jumps a Kerbin escape leg -> the Sun transfer leg, or drawn toggles
+                        // on/off in a head-in-gap frame) shows as alternating MapTraj-style lines instead of
+                        // being hidden in the 2s rate-limited samples.
+                        string activeLegBody = activeLeg >= 0
+                            ? (set.legs[activeLeg].bodyName ?? "(null)") : "none";
+                        ParsekLog.VerboseOnChange(DriverTag, "polyline-active." + rec.RecordingId,
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "{0}|{1}|{2}", activeLeg, activeLegBody, anyDrawn),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline active-leg CHANGED: rec={0} headUT={1:F1} activeLeg={2} body={3} " +
+                                "drawn={4} legs={5}",
+                                rec.RecordingId, headUT, activeLeg, activeLegBody, anyDrawn, set.legs.Length));
                     }
 
                     if (anyDrawn)
