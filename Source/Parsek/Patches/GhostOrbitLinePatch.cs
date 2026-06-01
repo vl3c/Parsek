@@ -228,28 +228,20 @@ namespace Parsek.Patches
                 // Normalize to [0, 360) for readability.
                 double mnaNormDeg = ((mnaPropagatedDeg % 360.0) + 360.0) % 360.0;
 
-                // PR #1003 follow-up #2: the body-fixed lat/lon jump at the parking->loiter seam
-                // was confirmed to be a REAL ~97 deg inertial teleport (consecutive 1s samples, so
-                // Kerbin rotation is negligible) while mna stayed continuous. pos = f(mna,
-                // OrbitFrame) and OrbitFrame is set ONLY by inc/LAN/argPe (via Orbit.Init), so a
-                // position jump with continuous mna is an ORIENTATION (OrbitFrame) flip. The 1s
-                // truth cadence + lack of orientation/body-relative-pos fields could not name the
-                // corrupting frame. So log the live orbit's orientation (inc/LAN/argPe) and the
-                // BODY-RELATIVE inertial position (orbit.pos, before refBody.position + floating
-                // origin) here, and add a zero-spam frame-to-frame JUMP detector below that fires
-                // ONLY when the body-relative position moves more than the threshold in one frame.
+                // Orientation + body-relative position diagnostic. A map-icon position jump with a
+                // CONTINUOUS mean anomaly is an orbital-plane ORIENTATION (OrbitFrame, from
+                // inc/LAN/argPe via Orbit.Init) change, so logging inc/LAN/argPe + the body-relative
+                // inertial position (orbit.pos, before refBody.position + floating origin) makes such
+                // a flip readable. This is how the looped-orbit body-fixed-phase bug was pinned.
                 Vector3d bodyRelPos = orbit.pos; // Planetarium-frame position relative to refBody
 
-                // PR #1003 follow-up #3: separate the ORBIT-LINE position from the VESSEL-TRANSFORM
-                // (icon/marker) position. `lon` above is from v.GetWorldPos3D() = the vessel
-                // transform, which a later same-frame write (gap-glide UpdateGhostOrbitFromStateVectors
-                // / segment update-segment) can overwrite, and which can lag one frame. `orbitLon` is
-                // computed DIRECTLY from the orbit position we just set this frame (refBody.position +
-                // orbit.pos - comOffset) = the orbit LINE's body-fixed longitude, non-stale. If
-                // orbitLon stays smooth while lon jumps at the raise->loiter seam, the teleport the
-                // user sees is the vessel-transform marker diverging from the (correct) orbit line,
-                // not the orbit math. The two should agree within the tiny comOffset every frame
-                // except where another positioning method has overwritten the transform.
+                // Separate the ORBIT-LINE position from the VESSEL-TRANSFORM (icon/marker) position.
+                // `iconLon` above is from v.GetWorldPos3D() = the vessel transform, which a later
+                // same-frame write (gap-glide / segment positioning) can overwrite and which can lag
+                // one frame. `orbitLon` is computed DIRECTLY from the orbit position set this frame
+                // (refBody.position + orbit.pos - comOffset) = the orbit LINE's body-fixed longitude,
+                // non-stale. `lonDiv` (their shortest-arc gap) reads ~0 when the icon sits on the line
+                // and spikes when the transform diverges from it (the user-visible "icon off the line").
                 Vector3d comOff = __instance.driverTransform != null
                     ? (QuaternionD)__instance.driverTransform.rotation * (Vector3d)v.localCoM
                     : Vector3d.zero;
@@ -273,73 +265,9 @@ namespace Parsek.Patches
                         orbit.meanAnomalyAtEpoch, orbit.epoch,
                         bodyRelPos.ToString("F0"), iconWorldPos.ToString("F0"), HighLogic.LoadedScene),
                     1.0);
-
-                // Full-rate divergence detector: fires only when the vessel-transform (icon/marker)
-                // body-fixed longitude diverges from the orbit-LINE longitude by more than the
-                // threshold. This is the user-visible "icon off the line" condition. Zero spam when
-                // they track together (the normal case).
-                if (lonDivergence > IconLineDivergenceDeg)
-                {
-                    ParsekLog.Warn("GhostIconDiverge",
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Icon-vs-line divergence pid={0} body={1} driveUT={2:F1} lonDiv={3:F2} " +
-                            "transformLon={4:F3} orbitLon={5:F3} mnaDeg={6:F2} segSma={7:F0}",
-                            pid, refBody.bodyName, driveUT, lonDivergence,
-                            iconLon, orbitLon, mnaNormDeg, orbit.semiMajorAxis));
-                }
-
-                // Frame-to-frame jump detector (full rate, fires only on the anomaly). Compares the
-                // body-relative inertial position against the previous frame's for this pid. A
-                // genuine orbital sweep moves sub-km per frame at these altitudes; a > threshold
-                // step in one frame is the teleport. Logs prev/curr orientation + mna so the
-                // corrupting reseed (OrbitFrame change with no Parsek-logged reapply) is named.
-                if (lastIconBodyRelPos.TryGetValue(pid, out var prev))
-                {
-                    double stepM = (bodyRelPos - prev.pos).magnitude;
-                    if (stepM > IconJumpThresholdMeters)
-                    {
-                        ParsekLog.Warn("GhostIconJump",
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "Icon JUMP pid={0} body={1} step={2:F0}m driveUT {3:F1}->{4:F1} " +
-                                "mnaDeg {5:F2}->{6:F2} inc {7:F4}->{8:F4} lan {9:F4}->{10:F4} " +
-                                "argPe {11:F4}->{12:F4} sma {13:F0}->{14:F0} prevPos={15} currPos={16}",
-                                pid, refBody.bodyName, stepM, prev.driveUT, driveUT,
-                                prev.mnaDeg, mnaNormDeg, prev.inc, orbit.inclination,
-                                prev.lan, orbit.LAN, prev.argPe, orbit.argumentOfPeriapsis,
-                                prev.sma, orbit.semiMajorAxis,
-                                prev.pos.ToString("F0"), bodyRelPos.ToString("F0")));
-                    }
-                }
-                lastIconBodyRelPos[pid] = new IconFrameSnapshot(
-                    bodyRelPos, driveUT, mnaNormDeg, orbit.inclination, orbit.LAN,
-                    orbit.argumentOfPeriapsis, orbit.semiMajorAxis);
             }
             return false;
         }
-
-        /// <summary>Per-frame body-relative icon snapshot for the jump detector.</summary>
-        private readonly struct IconFrameSnapshot
-        {
-            internal readonly Vector3d pos;
-            internal readonly double driveUT, mnaDeg, inc, lan, argPe, sma;
-            internal IconFrameSnapshot(Vector3d pos, double driveUT, double mnaDeg,
-                double inc, double lan, double argPe, double sma)
-            {
-                this.pos = pos; this.driveUT = driveUT; this.mnaDeg = mnaDeg;
-                this.inc = inc; this.lan = lan; this.argPe = argPe; this.sma = sma;
-            }
-        }
-
-        /// <summary>Previous-frame body-relative icon position + orientation per ghost pid.</summary>
-        private static readonly System.Collections.Generic.Dictionary<uint, IconFrameSnapshot>
-            lastIconBodyRelPos = new System.Collections.Generic.Dictionary<uint, IconFrameSnapshot>();
-
-        /// <summary>One-frame body-relative step above this (metres) is logged as an icon teleport.</summary>
-        private const double IconJumpThresholdMeters = 50000.0;
-
-        /// <summary>Vessel-transform vs orbit-line body-fixed longitude gap (deg) above which the
-        /// icon/marker is logged as diverged from the orbit line (the user-visible "off the line").</summary>
-        private const double IconLineDivergenceDeg = 5.0;
     }
 
     /// <summary>
@@ -822,17 +750,23 @@ namespace Parsek.Patches
                 // (e.g. the parking-orbit endpoint before the orbit-raise gap). Showing the stock
                 // orbit icon now (drawIcons=ALL) would draw it at that stale position - the visible
                 // "icon teleported far away to the wrong position on the loiter orbit" playtest
-                // seam. Defer the icon-show until seg-drive applies; the orbit LINE follows the
-                // existing line-grace policy (if elliptical, show; orbit-line is decoupled from the
-                // icon and benign here). On the next tick, seg-drive will apply, hasBounds becomes
-                // true, the visible-body-frame branch (above) fires with the now-fresh mesh, the
-                // icon shows in the right place, and the stamp expires naturally over the grace.
+                // seam. Defer the icon-show until seg-drive applies. The orbit LINE is ALSO held off
+                // here: with no fresh segment applied yet (hasBounds is false in this terminal
+                // branch), the renderer still holds the PREVIOUS segment's ellipse, so re-enabling
+                // the line would briefly redraw that stale ellipse (the parking circle flashing for
+                // ~0.3-0.5s before the loiter line appears - the "glimpse of another circular orbit
+                // before the loiter" playtest report). A hidden line for the few grace frames until
+                // seg-drive applies is strictly better than drawing the wrong ellipse; the trajectory
+                // polyline already covered the visual through the non-orbital phase. On the next tick,
+                // seg-drive applies, hasBounds becomes true, the visible-body-frame branch (above)
+                // fires with the fresh loiter orbit, line + icon show in the right place, and the
+                // stamp expires naturally over the grace.
                 bool postPolylineReleaseGrace =
                     GhostMapPresence.IsPolylineRecentlyOwningGhostPhase(pid, PolylineReleaseGraceSeconds)
                     && !GhostMapPresence.IsPolylineOwningGhostPhase(pid);
                 if (postPolylineReleaseGrace)
                 {
-                    line.active = orbitFiniteElliptical;
+                    line.active = false;
                     __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
                     GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                     LogOrbitLineDecision(

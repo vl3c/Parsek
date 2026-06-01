@@ -1444,6 +1444,84 @@ namespace Parsek.InGameTests
                 $"GhostMapIconGlidesAcrossRaiseGap[{scene}]: maxFixedStep={maxFixedStep:F0}m seamJump={seamJump:F0}m");
         }
 
+        /// <summary>
+        /// Integration coverage for the looped-orbit body-fixed LAN compensation
+        /// (<see cref="GhostMapPresence.ApplyLoopShiftLanRotation"/>), against a REAL Kerbin and real
+        /// Orbits (the pure math is unit-tested in GhostMapOrbitRaiseGapTests; this exercises the live
+        /// body's rotationPeriod and the geometry on constructed orbits). A looped recording replays
+        /// its inertial orbit under a live-frame shift; the fix rotates LAN by the body's rotation over
+        /// the shift so the orbit projects to its recorded BODY-FIXED appearance. Rotating the node is a
+        /// pure rotation about the celestial polar axis, so it must (a) preserve the orbital radius for
+        /// ANY inclination (no shape change), and (b) rotate the position by exactly the applied angle
+        /// for a (near-)equatorial orbit, where the rotation happens in the orbital plane and the
+        /// angle between the two position vectors is frame-independent. Both are checked here. (The
+        /// off-equator azimuth shift for the inclined case follows from it being a single-axis rotation
+        /// and is covered by the radius invariant + the equatorial magnitude; measuring it directly
+        /// would require resolving the world-frame pole, which is avoided to keep the test frame-clean.)
+        /// </summary>
+        [InGameTest(Category = "GhostPlayback",
+            Description = "Loop-shift LAN rotation: real-body period, radius-preserving, equatorial magnitude",
+            Scene = GameScenes.FLIGHT)]
+        public void LoopShiftLanRotation_RealBody_PureRotation()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+            // The gate inputs must be sane for a planet: a positive sidereal spin period, not a star.
+            InGameAssert.IsGreaterThan(kerbin.rotationPeriod, 0.0,
+                "Kerbin.rotationPeriod must be > 0 (the LAN-rotation gate requires it)");
+            InGameAssert.IsFalse(kerbin.isStar, "Kerbin must not be a star (the gate skips stars)");
+
+            const double recordedLan = 335.0;
+            const double shift = 845044935.6;     // a representative loop shift from the playtest evidence
+            const double epoch = 1000.0;
+            double seededLan = GhostMapPresence.ApplyLoopShiftLanRotation(
+                recordedLan, shift, kerbin.rotationPeriod);
+            // Applied rotation (recorded - seeded, normalized) must equal the body rotation over the
+            // shift, computed against the LIVE body's period (the unit tests use a literal period).
+            double appliedRot = ((recordedLan - seededLan) % 360.0 + 360.0) % 360.0;
+            double expectedBodyRot = (shift / kerbin.rotationPeriod * 360.0) % 360.0;
+            InGameAssert.ApproxEqual((float)expectedBodyRot, (float)appliedRot, 0.05f,
+                $"applied LAN rotation ({appliedRot:F3}) must equal Kerbin's rotation over the shift " +
+                $"({expectedBodyRot:F3})");
+
+            // inc=0.1 (near-equatorial, avoids the inc==0 node degeneracy) and inc=35 (inclined).
+            foreach (double inc in new[] { 0.1, 35.0 })
+            {
+                var a = new Orbit();
+                a.SetOrbit(inc, 0.0013, 731230.0, recordedLan, 241.0, 3.0839, epoch, kerbin);
+                a.Init();
+                var b = new Orbit();
+                b.SetOrbit(inc, 0.0013, 731230.0, seededLan, 241.0, 3.0839, epoch, kerbin);
+                b.Init();
+                Vector3d pa = a.getRelativePositionAtUT(epoch);
+                Vector3d pb = b.getRelativePositionAtUT(epoch);
+
+                // (a) Pure rotation preserves radius for ANY inclination (no shape change from a node twist).
+                InGameAssert.ApproxEqual((float)pa.magnitude, (float)pb.magnitude,
+                    (float)(pa.magnitude * 1e-4),
+                    $"inc={inc}: LAN rotation must preserve orbital radius (|A|={pa.magnitude:F0} |B|={pb.magnitude:F0})");
+
+                // (b) For the near-equatorial orbit the rotation is in-plane, so the angle between the
+                // two position vectors (frame-independent) equals the applied LAN rotation.
+                if (inc < 1.0)
+                {
+                    double angBetween = Vector3d.Angle(pa, pb); // 0..180
+                    double expected = appliedRot > 180.0 ? 360.0 - appliedRot : appliedRot;
+                    InGameAssert.ApproxEqual((float)expected, (float)angBetween, 1.0f,
+                        $"near-equatorial: angle between A and B ({angBetween:F2}) must equal the applied " +
+                        $"LAN rotation ({expected:F2}) — confirms the node twist rotates the position by ΔLAN");
+                }
+            }
+
+            ParsekLog.Info("TestRunner",
+                $"LoopShiftLanRotation_RealBody: recordedLan={recordedLan} seededLan={seededLan:F3} " +
+                $"appliedRot={appliedRot:F3} (Kerbin rotPeriod={kerbin.rotationPeriod:F1}s)");
+        }
+
         #endregion
 
         #region Parsek Settings
