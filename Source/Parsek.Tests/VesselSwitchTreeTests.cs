@@ -1256,5 +1256,61 @@ namespace Parsek.Tests
             // Direct VesselPersistentId match still works.
             Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(100u));
         }
+
+        // Fails if: the out-param overload of
+        // TryFindCommittedTreeMatchingVessel stops returning the matched tree,
+        // or the bool overloads stop delegating to it (the in-bubble
+        // committed-clone Bounded fix Case C relies on the Prefix getting the
+        // matched tree back so it can compare its id against the live active
+        // tree id). Pins: (1) the out-param overload yields the matched tree
+        // for a committed-spawned recording, (2) matched non-null <=> bool
+        // true, and (3) a non-match yields null + false.
+        [Fact]
+        public void TryFindCommittedTreeMatchingVessel_OutParam_ReturnsMatchedTree_AndBoolOverloadsDelegate()
+        {
+            // Committed tree whose recording has the spawned-vessel form:
+            // VesselPersistentId=100 (recording-time PID), and
+            // SpawnedVesselPersistentId=999 (live PID minted at spawn time).
+            var tree = MakeTree("rec_active");
+            tree.Id = "tree_outparam";
+            tree.Recordings["rec_active"].TreeId = tree.Id;
+            tree.Recordings["rec_active"].VesselPersistentId = 100u;
+            tree.Recordings["rec_active"].VesselSpawned = true;
+            tree.Recordings["rec_active"].SpawnedVesselPersistentId = 999u;
+            tree.Recordings["rec_active"].TerminalStateValue = TerminalState.Orbiting;
+
+            AddTreeToCommittedStore(tree);
+
+            // Spawned-PID match: out-param yields the matched tree, bool true.
+            RecordingTree matchedSpawned;
+            bool spawnedHit = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                999u, liveGuid: null, out matchedSpawned);
+            Assert.True(spawnedHit);
+            Assert.NotNull(matchedSpawned);
+            Assert.Same(tree, matchedSpawned);
+
+            // Direct VesselPersistentId match also yields the same tree.
+            RecordingTree matchedDirect;
+            bool directHit = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                100u, liveGuid: null, out matchedDirect);
+            Assert.True(directHit);
+            Assert.Same(tree, matchedDirect);
+
+            // Bool overloads delegate: matched non-null <=> bool true. Both
+            // the (pid) and (pid, guid) bool overloads must agree with the
+            // out-param result for the same inputs.
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(999u));
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(999u, null));
+            Assert.True(ParsekFlight.TryFindCommittedTreeMatchingVessel(100u));
+
+            // Non-match: out-param is null and bool is false (matched non-null
+            // <=> bool true holds on the negative side too).
+            RecordingTree matchedMiss;
+            bool missHit = ParsekFlight.TryFindCommittedTreeMatchingVessel(
+                7777u, liveGuid: null, out matchedMiss);
+            Assert.False(missHit);
+            Assert.Null(matchedMiss);
+            Assert.False(ParsekFlight.TryFindCommittedTreeMatchingVessel(7777u));
+        }
     }
 }

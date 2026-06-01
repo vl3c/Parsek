@@ -6,11 +6,17 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Unit tests for <see cref="GhostOrbitLinePatch.ShouldDeferOrbitLineHide"/>
-    /// (FIX #26 orbit-line blink grace) and the per-pid grace map in
+    /// (orbit-line blink grace) and the per-pid grace map in
     /// <see cref="GhostMapPresence"/>. The grace debounces only the two TRANSIENT
     /// off reasons at a short phase-boundary segment; the DURABLE off reasons hide
     /// instantly, and a SUSTAINED transient phase still hides once the grace window
     /// expires (the coupling with FIX #27's sustained descent ownership).
+    ///
+    /// The grace deadline is a RENDER FRAME count (Time.frameCount), not a UT
+    /// window: the original UT window collapsed below one frame's UT step under time
+    /// warp and deferred nothing, so the heliocentric orbit line blinked. Frames are
+    /// warp-independent. These tests pass frame numbers directly to the pure
+    /// decision; the comparison (currentFrame &lt;= graceUntilFrame) is unit-agnostic.
     /// </summary>
     [Collection("Sequential")]
     public class GhostOrbitLineGraceTests : IDisposable
@@ -30,11 +36,11 @@ namespace Parsek.Tests
         [Fact]
         public void Defer_PolylineOwns_InsideGrace_KeepsVisible()
         {
-            // currentUT (100) <= graceUntil (101) and a finite ellipse: defer.
+            // currentFrame (100) <= graceUntilFrame (120) and a finite ellipse: defer.
             Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonPolylineOwns,
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -43,19 +49,19 @@ namespace Parsek.Tests
         {
             Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonStaleSegment,
-                currentUT: 100.0,
-                graceUntilUT: 101.5,
+                currentFrame: 100,
+                graceUntilFrame: 115,
                 orbitFiniteElliptical: true));
         }
 
         [Fact]
         public void Defer_AtExactGraceDeadline_StillDefers()
         {
-            // Inclusive deadline: currentUT == graceUntil is still inside.
+            // Inclusive deadline: currentFrame == graceUntilFrame is still inside.
             Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonStaleSegment,
-                currentUT: 101.0,
-                graceUntilUT: 101.0,
+                currentFrame: 101,
+                graceUntilFrame: 101,
                 orbitFiniteElliptical: true));
         }
 
@@ -73,8 +79,8 @@ namespace Parsek.Tests
             // polyline does not own the phase and the marker is already skipped.
             // That side-effect lives in the Unity Postfix; here we pin that the
             // decision input itself is identical for both reasons.
-            const double cur = 100.0;
-            const double until = 101.0;
+            const int cur = 100;
+            const int until = 120;
             bool polyline = GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonPolylineOwns, cur, until, true);
             bool stale = GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
@@ -97,14 +103,14 @@ namespace Parsek.Tests
         [Fact]
         public void Defer_PolylineOwns_AfterGraceExpired_Hides()
         {
-            // Sustained polyline ownership: the deadline is in the past, so the
-            // hide is NOT deferred (no double-draw with the polyline). This is
-            // the FIX #27 coupling: a sustained below-atmosphere descent keeps
-            // hiding the orbit line.
+            // Sustained polyline ownership: the deadline frame is in the past, so
+            // the hide is NOT deferred (no double-draw with the polyline). This is
+            // the FIX #27 coupling: a sustained below-atmosphere descent (more than
+            // OrbitLineGraceFrames consecutive off-frames) keeps hiding the line.
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonPolylineOwns,
-                currentUT: 105.0,
-                graceUntilUT: 101.0,
+                currentFrame: 200,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -113,19 +119,19 @@ namespace Parsek.Tests
         {
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonStaleSegment,
-                currentUT: 200.0,
-                graceUntilUT: 150.0,
+                currentFrame: 300,
+                graceUntilFrame: 250,
                 orbitFiniteElliptical: true));
         }
 
         [Fact]
         public void Defer_NoGraceStamped_Hides()
         {
-            // Negative-infinity sentinel (no stamp) never defers.
+            // int.MinValue sentinel (no stamp) never defers.
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonPolylineOwns,
-                currentUT: 100.0,
-                graceUntilUT: double.NegativeInfinity,
+                currentFrame: 100,
+                graceUntilFrame: int.MinValue,
                 orbitFiniteElliptical: true));
         }
 
@@ -136,8 +142,8 @@ namespace Parsek.Tests
         {
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 "below-atmosphere",
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -146,8 +152,8 @@ namespace Parsek.Tests
         {
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 "past-body-frame-end",
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -156,8 +162,8 @@ namespace Parsek.Tests
         {
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 "before-body-frame-start",
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -166,8 +172,8 @@ namespace Parsek.Tests
         {
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 "terminal-below-atmosphere",
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: true));
         }
 
@@ -181,59 +187,97 @@ namespace Parsek.Tests
             // the window.
             Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
                 GhostOrbitLinePatch.OffReasonStaleSegment,
-                currentUT: 100.0,
-                graceUntilUT: 101.0,
+                currentFrame: 100,
+                graceUntilFrame: 120,
                 orbitFiniteElliptical: false));
         }
 
         // --- Per-pid grace map (GhostMapPresence) ---
 
         [Fact]
-        public void GraceMap_Unstamped_ReturnsNegativeInfinity()
+        public void GraceMap_Unstamped_ReturnsIntMinValue()
         {
-            Assert.Equal(double.NegativeInfinity, GhostMapPresence.GetOrbitLineGraceUntil(4242u));
+            Assert.Equal(int.MinValue, GhostMapPresence.GetOrbitLineGraceUntilFrame(4242u));
         }
 
         [Fact]
         public void GraceMap_StampThenRead_RoundTrips()
         {
-            GhostMapPresence.StampOrbitLineGrace(4242u, 123.5);
-            Assert.Equal(123.5, GhostMapPresence.GetOrbitLineGraceUntil(4242u));
+            GhostMapPresence.StampOrbitLineGrace(4242u, 124);
+            Assert.Equal(124, GhostMapPresence.GetOrbitLineGraceUntilFrame(4242u));
         }
 
         [Fact]
         public void GraceMap_StampOverwrites()
         {
-            GhostMapPresence.StampOrbitLineGrace(4242u, 100.0);
-            GhostMapPresence.StampOrbitLineGrace(4242u, 200.0);
-            Assert.Equal(200.0, GhostMapPresence.GetOrbitLineGraceUntil(4242u));
+            GhostMapPresence.StampOrbitLineGrace(4242u, 100);
+            GhostMapPresence.StampOrbitLineGrace(4242u, 200);
+            Assert.Equal(200, GhostMapPresence.GetOrbitLineGraceUntilFrame(4242u));
         }
 
         [Fact]
         public void GraceMap_PerPidIndependent()
         {
-            GhostMapPresence.StampOrbitLineGrace(1u, 10.0);
-            GhostMapPresence.StampOrbitLineGrace(2u, 20.0);
-            Assert.Equal(10.0, GhostMapPresence.GetOrbitLineGraceUntil(1u));
-            Assert.Equal(20.0, GhostMapPresence.GetOrbitLineGraceUntil(2u));
+            GhostMapPresence.StampOrbitLineGrace(1u, 10);
+            GhostMapPresence.StampOrbitLineGrace(2u, 20);
+            Assert.Equal(10, GhostMapPresence.GetOrbitLineGraceUntilFrame(1u));
+            Assert.Equal(20, GhostMapPresence.GetOrbitLineGraceUntilFrame(2u));
         }
 
         [Fact]
         public void GraceMap_ResetForTesting_Clears()
         {
-            GhostMapPresence.StampOrbitLineGrace(4242u, 123.5);
+            GhostMapPresence.StampOrbitLineGrace(4242u, 124);
             GhostMapPresence.ResetForTesting();
-            Assert.Equal(double.NegativeInfinity, GhostMapPresence.GetOrbitLineGraceUntil(4242u));
+            Assert.Equal(int.MinValue, GhostMapPresence.GetOrbitLineGraceUntilFrame(4242u));
         }
 
-        // --- Grace constant is a sane warp-stable window ---
+        // --- Stamp -> defer -> expire composition (the frame-model contract) ---
 
         [Fact]
-        public void GraceSeconds_IsPositiveAndAround1To2Seconds()
+        public void StampThenDefer_OneFrameLaterDefers_PastWindowHides()
         {
-            Assert.True(GhostOrbitLinePatch.OrbitLineGraceSeconds > 0.0);
-            Assert.True(GhostOrbitLinePatch.OrbitLineGraceSeconds >= 1.0
-                && GhostOrbitLinePatch.OrbitLineGraceSeconds <= 2.0);
+            // The exact relationship the per-frame patch implements and the UT model
+            // broke: stamp graceUntil = F + OrbitLineGraceFrames on a shown frame, a
+            // dip one frame later is still inside the window (defers), a dip just past
+            // the window hides. Composes the real stamp + the real comparator.
+            const int shownFrame = 100000;
+            int n = GhostOrbitLinePatch.OrbitLineGraceFrames;
+            GhostMapPresence.StampOrbitLineGrace(7u, shownFrame + n);
+            int graceUntil = GhostMapPresence.GetOrbitLineGraceUntilFrame(7u);
+
+            // One frame after the show: inside the window -> defer (no blink).
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                currentFrame: shownFrame + 1,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+
+            // The last in-window frame still defers (inclusive deadline).
+            Assert.True(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonStaleSegment,
+                currentFrame: shownFrame + n,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+
+            // One frame past the window (a sustained off): hides -> polyline owns.
+            Assert.False(GhostOrbitLinePatch.ShouldDeferOrbitLineHide(
+                GhostOrbitLinePatch.OffReasonPolylineOwns,
+                currentFrame: shownFrame + n + 1,
+                graceUntilFrame: graceUntil,
+                orbitFiniteElliptical: true));
+        }
+
+        // --- Grace constant is a sane frame window ---
+
+        [Fact]
+        public void GraceFrames_IsPositiveAndSaneWindow()
+        {
+            // A few frames (enough to bridge the ~1-12 frame transfer-phase chatter
+            // dips) but well short of a sustained phase that should hide.
+            Assert.True(GhostOrbitLinePatch.OrbitLineGraceFrames > 0);
+            Assert.True(GhostOrbitLinePatch.OrbitLineGraceFrames >= 10
+                && GhostOrbitLinePatch.OrbitLineGraceFrames <= 120);
         }
     }
 }

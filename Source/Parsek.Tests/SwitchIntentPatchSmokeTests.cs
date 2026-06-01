@@ -117,7 +117,8 @@ namespace Parsek.Tests
                 newTargetPid: 1234u,
                 anotherDialogOpen: false,
                 hasActiveRecording: false,
-                targetIsUnloaded: false);
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
         }
 
@@ -134,7 +135,8 @@ namespace Parsek.Tests
                 newTargetPid: 200u,
                 anotherDialogOpen: false,
                 hasActiveRecording: false,
-                targetIsUnloaded: false);
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
         }
 
@@ -152,7 +154,8 @@ namespace Parsek.Tests
                 newTargetPid: 200u,
                 anotherDialogOpen: false,
                 hasActiveRecording: false,
-                targetIsUnloaded: false);
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogSameTarget, actual);
         }
 
@@ -169,7 +172,8 @@ namespace Parsek.Tests
                 newTargetPid: 200u,
                 anotherDialogOpen: true,
                 hasActiveRecording: false,
-                targetIsUnloaded: false);
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry, actual);
         }
 
@@ -194,26 +198,113 @@ namespace Parsek.Tests
                 newTargetPid: 1234u,
                 anotherDialogOpen: false,
                 hasActiveRecording: false,
-                targetIsUnloaded: true);
+                targetIsUnloaded: true,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
         }
 
         [Fact]
-        public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_ReturnsNoPriorSession()
+        public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_NonCommitted_ReturnsNoPriorSession()
         {
-            // Fails if: predicate opens a dialog for in-bubble switches,
-            // breaking the existing in-FLIGHT auto-record-on-switch
-            // flow. The in-bubble path stays "no dialog, prior recording
-            // continues in BG, new vessel auto-records or gets the
-            // first-modification watcher".
+            // Fails if: predicate opens a dialog for in-bubble switches to a
+            // NON-committed loaded target (random vessel, or a BG-member of
+            // the live tree), breaking the existing in-FLIGHT
+            // auto-record-on-switch flow. The in-bubble path stays "no
+            // dialog, prior recording continues in BG, new vessel
+            // auto-records or gets the first-modification watcher".
+            // targetIsSeparateCommittedVessel=false is the load-bearing
+            // input: a loaded target only opens the dialog (Case C) when it
+            // is a SEPARATE committed vessel.
             var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
                 hasActiveSession: false,
                 priorFocusedPid: 0u,
                 newTargetPid: 1234u,
                 anotherDialogOpen: false,
                 hasActiveRecording: true,
-                targetIsUnloaded: false);
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_SeparateCommitted_OpensDialog()
+        {
+            // Fails if: predicate fails to fire the dialog for an in-bubble
+            // Switch-To to a SEPARATE previously-committed vessel (Case C,
+            // the in-bubble committed-clone Bounded fix). Without the
+            // dialog the in-bubble consume runs with activeTree still set
+            // and skips the committed-clone restore (which requires
+            // activeTree == null), wrongly routing the target to a
+            // standalone / BG-member segment. The dialog commits/discards
+            // the live tree first so the restore can fire.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: false,
+                priorFocusedPid: 0u,
+                newTargetPid: 1234u,
+                anotherDialogOpen: false,
+                hasActiveRecording: true,
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: true);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_NoSession_ActiveRecording_LoadedTarget_SameTreeCommitted_NotSeparate_ReturnsNoPriorSession()
+        {
+            // Fails if: re-selecting the vessel you are already flying (its
+            // own committed clone, same tree) opens a spurious dialog. The
+            // Prefix sets targetIsSeparateCommittedVessel=false when the
+            // matched committed tree id equals the live active tree id, so
+            // the same-tree case must stay NoPriorSession (no dialog, the
+            // existing in-bubble continuation handles it).
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: false,
+                priorFocusedPid: 0u,
+                newTargetPid: 1234u,
+                anotherDialogOpen: false,
+                hasActiveRecording: true,
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: false);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.NoPriorSession, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_NoSession_LoadedSeparateCommitted_AnotherDialogOpen_SkipsReEntry()
+        {
+            // Fails if: the re-entry guard doesn't apply to Case C, letting
+            // a second dialog spawn over an already-open merge dialog. The
+            // existing dialog must be resolved first regardless of which
+            // case (B or C) would have triggered the new one.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: false,
+                priorFocusedPid: 0u,
+                newTargetPid: 1234u,
+                anotherDialogOpen: true,
+                hasActiveRecording: true,
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: true);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry, actual);
+        }
+
+        [Fact]
+        public void DecidePreSwitchDialogAction_SessionActive_LoadedSeparateCommitted_StillSessionPath()
+        {
+            // Fails if: a future refactor lets Case C inputs override the
+            // session-first priority. When both Case A (session) and Case C
+            // (active recording + loaded separate committed) inputs are
+            // set, the session-armed handler MUST take precedence — Case A
+            // keeps its scoped-discard / ClearSwitchSegmentSession
+            // bookkeeping that the no-session path doesn't have. The
+            // session path opens its own (session-aware) dialog here.
+            var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
+                hasActiveSession: true,
+                priorFocusedPid: 100u,
+                newTargetPid: 200u,
+                anotherDialogOpen: false,
+                hasActiveRecording: true,
+                targetIsUnloaded: false,
+                targetIsSeparateCommittedVessel: true);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
         }
 
         [Fact]
@@ -230,7 +321,8 @@ namespace Parsek.Tests
                 newTargetPid: 1234u,
                 anotherDialogOpen: false,
                 hasActiveRecording: true,
-                targetIsUnloaded: true);
+                targetIsUnloaded: true,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
         }
 
@@ -247,7 +339,8 @@ namespace Parsek.Tests
                 newTargetPid: 1234u,
                 anotherDialogOpen: true,
                 hasActiveRecording: true,
-                targetIsUnloaded: true);
+                targetIsUnloaded: true,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogReEntry, actual);
         }
 
@@ -266,7 +359,8 @@ namespace Parsek.Tests
                 newTargetPid: 200u,
                 anotherDialogOpen: false,
                 hasActiveRecording: true,
-                targetIsUnloaded: true);
+                targetIsUnloaded: true,
+                targetIsSeparateCommittedVessel: false);
             Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
         }
 
@@ -624,12 +718,14 @@ namespace Parsek.Tests
                 flightSource);
         }
 
-        // Fails if: the Case B no-session Discard handler reverts to
-        // calling AutoDiscardIdleActiveTree(reason) and inherits the
+        // Fails if: the Case B / Case C no-session Discard handler reverts
+        // to calling AutoDiscardIdleActiveTree(reason) and inherits the
         // wrong-context "idle on pad" toast + "suppressed-scene-exit-
         // discard" ledger reason. The reason-aware overload must be
-        // used so the toast says "switching to far vessel" and the
-        // ledger recalc reason is "pre-switch-dialog-discard-no-session".
+        // used so the toast says "switching vessels" (neutral, covers
+        // both the unloaded far-vessel and the loaded separate-committed
+        // target) and the ledger recalc reason is
+        // "pre-switch-dialog-discard-no-session".
         [Fact]
         public void DiscardActiveRecordingAndSwitchTo_NoSession_UsesContextAwareMessage()
         {
@@ -657,11 +753,13 @@ namespace Parsek.Tests
                 discardBody);
 
             // (b) Passes the context-appropriate screen message and
-            //     ledger recalc reason. The toast must reflect
-            //     "switching to far vessel"; the ledger reason must be
-            //     the new grep-able "pre-switch-dialog-discard-no-session".
+            //     ledger recalc reason. The toast must use the neutral
+            //     "switching vessels" wording (covers both the unloaded
+            //     far-vessel Case B and the loaded separate-committed
+            //     Case C); the ledger reason must be the grep-able
+            //     "pre-switch-dialog-discard-no-session".
             Assert.Contains(
-                "\"Recording discarded - switching to far vessel\"",
+                "\"Recording discarded - switching vessels\"",
                 discardBody);
             Assert.Contains(
                 "\"pre-switch-dialog-discard-no-session\"",
