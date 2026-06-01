@@ -3779,6 +3779,15 @@ namespace Parsek
                     out OrbitSegment previous, out OrbitSegment next))
                 return false;
 
+            // Same-body gap only (self-protecting contract): the points glide is for a raise / plane
+            // change within one SOI. A cross-body gap is an SOI crossing, handled by the
+            // OrbitalCheckpoint state-vector path, not here. The flight + TS dispatchers already pre-gate
+            // on FindOrbitSegmentOrSameBodyCarry (which is same-body), so this is belt-and-suspenders, but
+            // it keeps the predicate correct in isolation - TryFindOrbitSegmentGap, unlike the carry, has
+            // no body check - and robust against a future caller that does not pre-gate.
+            if (!string.Equals(previous.bodyName, next.bodyName, StringComparison.Ordinal))
+                return false;
+
             if (!HasRecordedTrackCoverageAtUT(traj, effUT))
                 return false;
 

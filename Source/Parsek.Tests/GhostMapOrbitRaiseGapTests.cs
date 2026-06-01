@@ -246,6 +246,25 @@ namespace Parsek.Tests
                 "Equivalent-orbit same-body gap must stay on the carry path, not the points glide.");
         }
 
+        [Fact]
+        public void ShouldDriveGapFromPoints_FalseForCrossBodyGap()
+        {
+            // A cross-body gap (an SOI crossing, e.g. Kerbin -> Mun) is handled by the OrbitalCheckpoint
+            // state-vector path, not the same-body points glide. The bracketing segments differ in body,
+            // so the predicate must reject it even though the gap has Absolute point coverage and the
+            // orbits are non-equivalent. Without the same-body guard this returns true (TryFindOrbitSegmentGap
+            // has no body check), so this is the regression guard for that guard.
+            var traj = BuildRecording();
+            var segs = traj.OrbitSegments;
+            var second = segs[1];
+            second.bodyName = "Mun";   // cross-body next segment
+            segs[1] = second;
+
+            double midGap = (ParkingEndUT + LoiterStartUT) / 2.0;
+            Assert.False(GhostMapPresence.ShouldDriveGapFromPoints(segs, traj, midGap),
+                "Cross-body gap must stay off the same-body points glide (SOI crossing handled elsewhere).");
+        }
+
         // === Continuity: the icon must track the recorded ascent across the gap (no freeze, no 400km snap) ===
 
         // This walks the gap at the same cadence the per-tick map refresh would, and compares the
