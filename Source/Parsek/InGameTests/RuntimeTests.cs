@@ -55,6 +55,12 @@ namespace Parsek.InGameTests
                 null,
                 new[] { typeof(ProtoCrewMember), typeof(Part), typeof(Transform), typeof(bool) },
                 null);
+        private static readonly MethodInfo FlightEvaHatchIsObstructedMethod =
+            FlightEvaType?.GetMethod("HatchIsObstructed",
+                BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic,
+                null,
+                new[] { typeof(Part), typeof(Transform) },
+                null);
         private static readonly MethodInfo FlightGlobalsSetActiveVesselMethod =
             typeof(FlightGlobals).GetMethods(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
                 .FirstOrDefault(m =>
@@ -2147,6 +2153,23 @@ namespace Parsek.InGameTests
                     yield break;
                 }
 
+                // KSP's spawnEVA refuses a second EVA while a kerbal stands on the only hatch: it runs
+                // an obstruction check, posts a screen message, and returns null WITHOUT firing
+                // onCrewOnEva. So move the first EVA kerbal a few metres clear of the capsule before
+                // the second EVA — this mirrors the real reproducer, where the first kerbal had walked
+                // away (planted a flag) before the user EVA'd the second. The auto-switch above leaves
+                // the EVA kerbal as the active vessel, so it is the one to move.
+                Vessel firstEvaVessel = FlightGlobals.ActiveVessel;
+                if (firstEvaVessel == null || !firstEvaVessel.isEVA)
+                {
+                    InGameAssert.Skip(
+                        "expected the first EVA kerbal to be the active vessel after KSP's auto-switch, " +
+                        "but it was not; cannot clear the capsule hatch for the second EVA");
+                    yield break;
+                }
+                MoveVesselClearOfAnchor(firstEvaVessel, sourceVessel, 12.0);
+                yield return new WaitForSeconds(0.5f);
+
                 // Switch back to the source capsule and wait for focus to settle on it.
                 if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
                 {
@@ -2177,6 +2200,18 @@ namespace Parsek.InGameTests
                     out Transform secondAirlock, out string secondEvaSourceSkipReason))
                 {
                     InGameAssert.Skip(secondEvaSourceSkipReason);
+                    yield break;
+                }
+
+                // Guard against a misleading timeout: if the capsule hatch is still obstructed, KSP's
+                // spawnEVA returns null with no onCrewOnEva and no branch. Surface that as a clear Skip
+                // (the reposition above did not clear the hatch) instead of a 10s WaitForEvaBranchCount
+                // timeout that looks like a product regression.
+                if (IsHatchObstructed(secondSourcePart, secondAirlock))
+                {
+                    InGameAssert.Skip(
+                        "capsule hatch still obstructed after moving the first EVA kerbal clear; " +
+                        "spawnEVA would refuse the second EVA, so the background-parent path is unreachable");
                     yield break;
                 }
 
@@ -3061,6 +3096,43 @@ namespace Parsek.InGameTests
                     yield break;
 
                 yield return null;
+            }
+        }
+
+        // Moves a loaded vessel a fixed distance horizontally away from an anchor vessel, so it stops
+        // obstructing the anchor's hatch. Used to step the first EVA kerbal off the capsule ladder
+        // before the second EVA (KSP's spawnEVA refuses a second EVA while the only hatch is blocked).
+        private static void MoveVesselClearOfAnchor(Vessel mover, Vessel anchor, double metres)
+        {
+            if (mover == null || anchor == null)
+                return;
+
+            Vector3d moverPos = mover.GetWorldPos3D();
+            Vector3d up = anchor.upAxis;
+            Vector3d awayFromAnchor = moverPos - anchor.GetWorldPos3D();
+            // Horizontal component of the anchor->mover direction (project out the local up axis).
+            Vector3d horizontal = awayFromAnchor - up * Vector3d.Dot(awayFromAnchor, up);
+            if (horizontal.magnitude < 0.1)
+                horizontal = (Vector3d)anchor.transform.forward; // degenerate: mover directly above anchor
+            horizontal = horizontal.normalized;
+
+            mover.SetPosition(moverPos + horizontal * metres);
+        }
+
+        // Reflects FlightEVA.HatchIsObstructed(Part, Transform). Returns false when the check is
+        // unavailable so the test still proceeds (spawnEVA itself enforces the real obstruction gate).
+        private static bool IsHatchObstructed(Part part, Transform airlock)
+        {
+            if (FlightEvaHatchIsObstructedMethod == null || part == null || airlock == null)
+                return false;
+
+            try
+            {
+                return (bool)FlightEvaHatchIsObstructedMethod.Invoke(null, new object[] { part, airlock });
+            }
+            catch
+            {
+                return false;
             }
         }
 
