@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.Logistics;
 
 namespace Parsek
 {
@@ -786,6 +787,13 @@ namespace Parsek
                     $"FlipMergeStateAndClearTransient: restored PlaybackEnabled=true on " +
                     $"provisional={provisional.RecordingId ?? "<no-id>"} (was suppressed during recording)");
             }
+
+            // Mid-session route revalidation is now driven by the central
+            // seam inside ParsekScenario.BumpSupersedeStateVersion above:
+            // every ERS-invalidating bump implicitly calls
+            // RouteStore.RevalidateSources("SupersedeStateVersion-bump"),
+            // covering this path plus the ~12 other bump sites identified in
+            // PR #875's P2-1 review. No explicit RevalidateSources call here.
 
             ParsekLog.Info(Tag,
                 $"provisional={provisional.RecordingId ?? "<no-id>"} mergeState={classification.NewState} terminalKind={classification.Kind} " +
@@ -1836,6 +1844,20 @@ namespace Parsek
                 case GameActionType.FundsInitial:
                 case GameActionType.ScienceInitial:
                 case GameActionType.ReputationInitial:
+                    return false;
+
+                // Route skeleton (design doc §6): route actions are emitted by the
+                // scheduler under a RouteId, not produced by a flight recorder. They
+                // are not "world-state changing on a recording" in the sense this
+                // predicate gates — even when a test attaches a synthetic RecordingId
+                // to one, supersede must not strict-block or retry-block on it.
+                // When future dispatch integration ties RouteCargoDelivered effects
+                // to a specific source recording's epoch, revisit this exclusion.
+                case GameActionType.RouteDispatched:
+                case GameActionType.RouteCargoDebited:
+                case GameActionType.RouteCargoDelivered:
+                case GameActionType.RoutePaused:
+                case GameActionType.RouteEndpointLost:
                     return false;
             }
 

@@ -539,6 +539,11 @@ namespace Parsek.Patches
             var flight = ParsekFlight.Instance;
             if (flight != null && flight.HasActiveTree)
             {
+                // Capture the active tree reference BEFORE CommitTreeFlight so
+                // we can pass it to OnTreeCommitted (signature changed to
+                // Action<RecordingTree> on the logistics branch — the route-
+                // creation post-commit hook needs the committed tree's id).
+                RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
                     flight.CommitTreeFlight();
@@ -577,7 +582,7 @@ namespace Parsek.Patches
                 // scene-load.
                 try
                 {
-                    MergeDialog.OnTreeCommitted?.Invoke();
+                    MergeDialog.OnTreeCommitted?.Invoke(committedTreeRef);
                 }
                 catch (Exception ex)
                 {
@@ -687,6 +692,10 @@ namespace Parsek.Patches
 
             if (flight != null && flight.HasActiveTree)
             {
+                // Capture the active tree reference BEFORE CommitTreeFlight so
+                // we can pass it to OnTreeCommitted (signature changed to
+                // Action<RecordingTree> on the logistics branch).
+                RecordingTree committedTreeRef = flight.ActiveTreeForSerialization;
                 try
                 {
                     flight.CommitTreeFlight();
@@ -721,7 +730,7 @@ namespace Parsek.Patches
                 // up immediately.
                 try
                 {
-                    MergeDialog.OnTreeCommitted?.Invoke();
+                    MergeDialog.OnTreeCommitted?.Invoke(committedTreeRef);
                 }
                 catch (Exception ex)
                 {

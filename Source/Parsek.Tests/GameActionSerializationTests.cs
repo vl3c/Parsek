@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
 
@@ -1019,6 +1020,172 @@ namespace Parsek.Tests
             Assert.Equal(25000.0f, r1.InitialFunds);
             Assert.Equal(GameActionType.MilestoneAchievement, r2.Type);
             Assert.Equal("FirstLaunch", r2.MilestoneId);
+        }
+
+        // ================================================================
+        // Route action round-trips (skeleton; design doc §6)
+        // ================================================================
+
+        [Fact]
+        public void Serialize_RouteDispatched_RoundTrips()
+        {
+            var original = new GameAction
+            {
+                UT = 50000.0,
+                Type = GameActionType.RouteDispatched,
+                RouteId = "route-1",
+                RouteCycleId = "cyc-42",
+                RouteStopIndex = 0
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteDispatched, result.Type);
+            Assert.Equal("route-1", result.RouteId);
+            Assert.Equal("cyc-42", result.RouteCycleId);
+            Assert.Equal(0, result.RouteStopIndex);
+        }
+
+        [Fact]
+        public void Serialize_RouteCargoDebited_RoundTripsManifestAndKscCost()
+        {
+            var original = new GameAction
+            {
+                UT = 50000.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-2",
+                RouteCycleId = "cyc-7",
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 250.5 },
+                    { "Oxidizer", 305.75 }
+                },
+                RouteKscFundsCost = 1500f
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteCargoDebited, result.Type);
+            Assert.Equal("route-2", result.RouteId);
+            Assert.Equal("cyc-7", result.RouteCycleId);
+            Assert.NotNull(result.RouteResourceManifest);
+            Assert.Equal(2, result.RouteResourceManifest.Count);
+            Assert.Equal(250.5, result.RouteResourceManifest["LiquidFuel"]);
+            Assert.Equal(305.75, result.RouteResourceManifest["Oxidizer"]);
+            Assert.Equal(1500f, result.RouteKscFundsCost);
+        }
+
+        [Fact]
+        public void Serialize_RouteCargoDelivered_RoundTripsPartialFillRequested()
+        {
+            // Partial-fill case from design doc §10.5 — actual delivered is less
+            // than the requested manifest (destination tanks couldn't take everything).
+            var original = new GameAction
+            {
+                UT = 51000.0,
+                Type = GameActionType.RouteCargoDelivered,
+                RouteId = "route-3",
+                RouteCycleId = "cyc-7",
+                RouteStopIndex = 0,
+                RouteResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 100.0 }
+                },
+                RouteRequestedResourceManifest = new Dictionary<string, double>
+                {
+                    { "LiquidFuel", 150.0 },
+                    { "Oxidizer", 183.0 }
+                }
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteCargoDelivered, result.Type);
+            Assert.Equal(0, result.RouteStopIndex);
+            Assert.Equal(100.0, result.RouteResourceManifest["LiquidFuel"]);
+            Assert.NotNull(result.RouteRequestedResourceManifest);
+            Assert.Equal(150.0, result.RouteRequestedResourceManifest["LiquidFuel"]);
+            Assert.Equal(183.0, result.RouteRequestedResourceManifest["Oxidizer"]);
+        }
+
+        [Fact]
+        public void Serialize_RoutePaused_RoundTripsReason()
+        {
+            var original = new GameAction
+            {
+                UT = 52000.0,
+                Type = GameActionType.RoutePaused,
+                RouteId = "route-4",
+                RouteEndpointReason = "AutoPause:SourceChanged"
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RoutePaused, result.Type);
+            Assert.Equal("route-4", result.RouteId);
+            Assert.Equal("AutoPause:SourceChanged", result.RouteEndpointReason);
+        }
+
+        [Fact]
+        public void Serialize_RouteEndpointLost_RoundTripsReason()
+        {
+            var original = new GameAction
+            {
+                UT = 53000.0,
+                Type = GameActionType.RouteEndpointLost,
+                RouteId = "route-5",
+                RouteEndpointReason = "EndpointLost:OrbitalNoFallback"
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.RouteEndpointLost, result.Type);
+            Assert.Equal("route-5", result.RouteId);
+            Assert.Equal("EndpointLost:OrbitalNoFallback", result.RouteEndpointReason);
+        }
+
+        [Fact]
+        public void Serialize_RouteAction_OmitsZeroAndNullFields()
+        {
+            // Skeleton invariant: no routeKscFundsCost line when zero, no manifest
+            // lines when empty, no routeStopIndex line at the -1 sentinel, no
+            // routeEndpointReason line when null. Lets readers distinguish "absent"
+            // from "explicit zero/empty".
+            var lean = new GameAction
+            {
+                UT = 60000.0,
+                Type = GameActionType.RouteCargoDebited,
+                RouteId = "route-lean"
+                // Everything else default: no cycle id, sentinel stop index,
+                // null/empty manifest, zero KSC cost.
+            };
+
+            var parent = new ConfigNode("ROOT");
+            lean.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+            Assert.NotNull(node);
+
+            Assert.Null(node.GetValue("routeCycleId"));
+            Assert.Null(node.GetValue("routeStopIndex"));
+            Assert.Null(node.GetValue("routeKscFundsCost"));
+            string[] resources = node.GetValues("resource");
+            Assert.True(resources == null || resources.Length == 0);
+            string[] requested = node.GetValues("requestedResource");
+            Assert.True(requested == null || requested.Length == 0);
+            Assert.Null(node.GetValue("routeEndpointReason"));
+
+            // RouteId is the only route field that's always written when non-empty.
+            Assert.Equal("route-lean", node.GetValue("routeId"));
+
+            // Round-trip the lean shape and confirm defaults survive.
+            var result = GameAction.DeserializeFrom(node);
+            Assert.Equal("route-lean", result.RouteId);
+            Assert.Null(result.RouteCycleId);
+            Assert.Equal(-1, result.RouteStopIndex);
+            Assert.Equal(0f, result.RouteKscFundsCost);
+            Assert.Null(result.RouteResourceManifest);
+            Assert.Null(result.RouteRequestedResourceManifest);
+            Assert.Null(result.RouteEndpointReason);
         }
 
         // ================================================================

@@ -7,8 +7,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class MergeEventDetectionTests : System.IDisposable
     {
+        private readonly VesselSpawner.ResolveBodyNameByIndexDelegate originalBodyNameResolver;
+
         public MergeEventDetectionTests()
         {
+            originalBodyNameResolver = VesselSpawner.BodyNameResolverForTesting;
             RecordingStore.SuppressLogging = true;
             MilestoneStore.ResetForTesting();
             GameStateStore.SuppressLogging = true;
@@ -21,6 +24,7 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
             MilestoneStore.ResetForTesting();
             ParsekLog.ResetTestOverrides();
+            VesselSpawner.BodyNameResolverForTesting = originalBodyNameResolver;
         }
 
         #region BuildMergeBranchData — Dock (Two Parents)
@@ -46,6 +50,10 @@ namespace Parsek.Tests
             Assert.Single(bp.ChildRecordingIds);
             Assert.NotNull(bp.Id);
             Assert.NotEmpty(bp.Id);
+            Assert.Equal("DOCK", bp.MergeCause);
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }
 
         [Fact]
@@ -90,6 +98,10 @@ namespace Parsek.Tests
             Assert.Contains("kerbal_rec", bp.ParentRecordingIds);
             Assert.Contains("vessel_rec", bp.ParentRecordingIds);
             Assert.Single(bp.ChildRecordingIds);
+            Assert.Equal("BOARD", bp.MergeCause);
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, mergedChild.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, mergedChild.TransferKind);
         }
 
         #endregion
@@ -161,6 +173,97 @@ namespace Parsek.Tests
 
             Assert.Single(bp.ChildRecordingIds);
             Assert.Equal(child.RecordingId, bp.ChildRecordingIds[0]);
+        }
+
+        [Fact]
+        public void BuildMergeBranchData_Dock_UsesExplicitTargetPid()
+        {
+            var parentIds = new List<string> { "p1", "p2" };
+            var (bp, child) = ParsekFlight.BuildMergeBranchData(
+                parentIds,
+                "tree",
+                3000.0,
+                BranchPointType.Dock,
+                mergedVesselPid: 60,
+                mergedVesselName: "Merged",
+                targetVesselPersistentId: 999,
+                transferKind: RouteConnectionKind.DockingPort);
+
+            Assert.Equal(999u, bp.TargetVesselPersistentId);
+            Assert.Equal(999u, child.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.DockingPort, child.TransferKind);
+        }
+
+        [Fact]
+        public void BuildMergeBranchData_DockWithoutExplicitTarget_DoesNotInventRouteProof()
+        {
+            var parentIds = new List<string> { "p1", "p2" };
+            var (bp, child) = ParsekFlight.BuildMergeBranchData(
+                parentIds,
+                "tree",
+                3000.0,
+                BranchPointType.Dock,
+                mergedVesselPid: 60,
+                mergedVesselName: "Merged");
+
+            Assert.Equal(0u, bp.TargetVesselPersistentId);
+            Assert.Equal(0u, child.TransferTargetVesselPid);
+            Assert.Equal(RouteConnectionKind.None, child.TransferKind);
+        }
+
+        [Fact]
+        public void ResolveDockRouteTargetPid_UsesOtherDockedVessel()
+        {
+            Assert.Equal(222u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: true,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 222));
+            Assert.Equal(111u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: false,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 222));
+            Assert.Equal(0u, ParsekFlight.ResolveDockRouteTargetPid(
+                activeWasDockTarget: true,
+                mergedVesselPid: 111,
+                absorbedVesselPid: 0));
+        }
+
+        [Fact]
+        public void TryBuildRouteEndpointFromSnapshot_UsesAbsorbedVesselSnapshot()
+        {
+            VesselSpawner.BodyNameResolverForTesting = delegate(int index, out string name)
+            {
+                name = index == 1 ? "Mun" : null;
+                return index == 1;
+            };
+            ConfigNode snapshot = new ConfigNode("VESSEL");
+            snapshot.AddValue("persistentId", "222");
+            snapshot.AddValue("sit", "LANDED");
+            snapshot.AddValue("lat", "1.25");
+            snapshot.AddValue("lon", "-2.5");
+            snapshot.AddValue("alt", "123.75");
+            ConfigNode orbit = snapshot.AddNode("ORBIT");
+            orbit.AddValue("REF", "1");
+
+            Assert.True(ParsekFlight.TryBuildRouteEndpointFromSnapshot(
+                snapshot,
+                222,
+                out RouteEndpoint endpoint,
+                out int situation));
+
+            Assert.Equal(222u, endpoint.VesselPersistentId);
+            Assert.Equal("Mun", endpoint.BodyName);
+            Assert.Equal(1.25, endpoint.Latitude);
+            Assert.Equal(-2.5, endpoint.Longitude);
+            Assert.Equal(123.75, endpoint.Altitude);
+            Assert.True(endpoint.IsSurface);
+            Assert.Equal((int)Vessel.Situations.LANDED, situation);
+
+            Assert.False(ParsekFlight.TryBuildRouteEndpointFromSnapshot(
+                snapshot,
+                999,
+                out _,
+                out _));
         }
 
         #endregion

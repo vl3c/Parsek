@@ -177,6 +177,10 @@ namespace Parsek
             RecordingStore.SerializeCrewManifest(recNode, rec);
 
             SaveDockTargetVesselPid(recNode, rec);
+
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.SerializeRouteProofMetadata(recNode, rec);
+
             SaveRewindToStagingMergeState(recNode, rec);
 
             // Pre-Re-Fly anchor trajectory snapshot (#688 follow-up). Captured
@@ -815,6 +819,9 @@ namespace Parsek
 
             // Dock target vessel PID (Phase 11)
             rec.DockTargetVesselPid = ParseUintOr(recNode, "dockTargetPid", rec.DockTargetVesselPid);
+
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.DeserializeRouteProofMetadata(recNode, rec);
 
             // Rewind-to-Staging (design section 5.5 + 9). Recordings without `mergeState`
             // default to Immutable. Stray transient SupersedeTargetId on committed

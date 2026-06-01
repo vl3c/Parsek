@@ -81,6 +81,60 @@ namespace Parsek.Tests
             Assert.Null(rec.StartCrew);
         }
 
+        [Fact]
+        public void AdoptStartLocationIfEmpty_AdoptsWhenEmpty()
+        {
+            var rec = new Recording();
+
+            bool adopted = rec.AdoptStartLocationIfEmpty("Kerbin", "Shores", "Landed", "Runway");
+
+            Assert.True(adopted);
+            Assert.Equal("Kerbin", rec.StartBodyName);
+            Assert.Equal("Shores", rec.StartBiome);
+            Assert.Equal("Landed", rec.StartSituation);
+            Assert.Equal("Runway", rec.LaunchSiteName);
+        }
+
+        [Fact]
+        public void AdoptStartLocationIfEmpty_DoesNotOverwriteExisting()
+        {
+            var rec = new Recording();
+            rec.AdoptStartLocationIfEmpty("Kerbin", "Shores", "Landed", "Runway");
+
+            bool adopted = rec.AdoptStartLocationIfEmpty("Duna", "Highlands", "Flying", "Launch Pad");
+
+            Assert.False(adopted);
+            Assert.Equal("Kerbin", rec.StartBodyName); // unchanged
+            Assert.Equal("Runway", rec.LaunchSiteName); // unchanged
+        }
+
+        [Fact]
+        public void AdoptStartLocationIfEmpty_PerFieldIndependent_MidFlightChildAdoptsBodyNotLaunchSite()
+        {
+            // A mid-flight child captures body=Kerbin but launchSite=null (it did not launch),
+            // so it adopts the body only and never claims a launch site it never had. A later
+            // adopt that DOES carry a launch site then fills only the still-empty launch site.
+            var rec = new Recording();
+            Assert.True(rec.AdoptStartLocationIfEmpty("Kerbin", null, null, null));
+            Assert.Equal("Kerbin", rec.StartBodyName);
+            Assert.True(string.IsNullOrEmpty(rec.LaunchSiteName));
+
+            bool adopted = rec.AdoptStartLocationIfEmpty("Mun", null, null, "Runway");
+
+            Assert.True(adopted);
+            Assert.Equal("Kerbin", rec.StartBodyName); // body not overwritten
+            Assert.Equal("Runway", rec.LaunchSiteName); // launch site filled
+        }
+
+        [Fact]
+        public void AdoptStartLocationIfEmpty_AllNullSource_NoOp()
+        {
+            var rec = new Recording();
+            Assert.False(rec.AdoptStartLocationIfEmpty(null, null, null, null));
+            Assert.True(string.IsNullOrEmpty(rec.StartBodyName));
+            Assert.True(string.IsNullOrEmpty(rec.LaunchSiteName));
+        }
+
         #endregion
 
         #region T11-CREW — ExtractCrewManifest

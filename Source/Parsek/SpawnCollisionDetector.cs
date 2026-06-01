@@ -235,6 +235,160 @@ namespace Parsek
         }
 
         // ────────────────────────────────────────────────────────────
+        //  Landed-spawn de-overlap (pure, unit-testable)
+        // ────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Minimum lateral separation (metres) enforced between a newly-materialized
+        /// surface vessel and any existing same-body landed vessel. Multiple committed
+        /// leaf recordings of the SAME craft delivered to the SAME ground base land
+        /// within a few metres of each other; without de-overlap they stack and explode
+        /// when the player loads them into physics range. 15m clears a typical small/medium
+        /// rover footprint plus margin without scattering deliveries across the map.
+        /// </summary>
+        internal const double DefaultLandedSpawnSeparationMeters = 15.0;
+
+        /// <summary>Max outward spiral steps before giving up and spawning at the last candidate.</summary>
+        internal const int MaxDeOverlapSpiralSteps = 64;
+
+        /// <summary>Result of <see cref="ComputeDeOverlappedLandedSpawn"/>.</summary>
+        internal struct DeOverlapResult
+        {
+            /// <summary>Chosen latitude (degrees) — equals the input when no nudge was needed.</summary>
+            public double Latitude;
+            /// <summary>Chosen longitude (degrees) — equals the input when no nudge was needed.</summary>
+            public double Longitude;
+            /// <summary>True when the proposed position overlapped and the result was nudged outward.</summary>
+            public bool Nudged;
+            /// <summary>Distance (metres) the chosen position was moved from the proposed one (0 when not nudged).</summary>
+            public double NudgeMeters;
+            /// <summary>Distance (metres) to the nearest blocker at the chosen position (MaxValue when none within search).</summary>
+            public double NearestBlockerMeters;
+            /// <summary>True when the spiral exhausted without finding a clear slot (still returns the last candidate).</summary>
+            public bool Exhausted;
+        }
+
+        /// <summary>
+        /// Pure decision: compute a non-overlapping landed spawn position. Given a proposed
+        /// (lat, lon) and the positions of existing same-body landed vessels, returns the
+        /// proposed position unchanged when it is already at least <paramref name="minSeparationMeters"/>
+        /// from every existing vessel; otherwise spirals outward in fixed-metre steps (east/north
+        /// geodesic offsets, small-angle on a sphere) until a clear slot is found or the spiral
+        /// is exhausted.
+        ///
+        /// Body-agnostic and free of Unity/KSP calls so it is directly unit-testable. The caller
+        /// gathers existing landed positions (loaded + on-rails proto) and converts the chosen
+        /// (lat, lon) to a spawn at the SAME altitude as proposed — altitude is not nudged because
+        /// stacking is a horizontal-footprint problem.
+        /// </summary>
+        /// <param name="proposedLat">Proposed spawn latitude (degrees).</param>
+        /// <param name="proposedLon">Proposed spawn longitude (degrees).</param>
+        /// <param name="existing">Existing same-body landed vessel positions (lat, lon) in degrees.</param>
+        /// <param name="minSeparationMeters">Minimum lateral clearance to enforce.</param>
+        /// <param name="bodyRadius">Body radius (metres) for the lat/lon -> metre conversion.</param>
+        internal static DeOverlapResult ComputeDeOverlappedLandedSpawn(
+            double proposedLat,
+            double proposedLon,
+            IList<(double lat, double lon)> existing,
+            double minSeparationMeters,
+            double bodyRadius)
+        {
+            double nearestProposed = NearestExistingDistance(proposedLat, proposedLon, existing, bodyRadius);
+
+            if (nearestProposed >= minSeparationMeters)
+            {
+                return new DeOverlapResult
+                {
+                    Latitude = proposedLat,
+                    Longitude = proposedLon,
+                    Nudged = false,
+                    NudgeMeters = 0.0,
+                    NearestBlockerMeters = nearestProposed,
+                    Exhausted = false,
+                };
+            }
+
+            // Spiral outward. Each ring is one step further; samples per ring grow so the
+            // arc spacing between candidates stays near the step size. The step size is the
+            // separation itself so the first ring lands a full clearance away from the
+            // proposed (overlapping) point.
+            double cosLat = Math.Cos(proposedLat * Math.PI / 180.0);
+            if (Math.Abs(cosLat) < 1e-6) cosLat = 1e-6; // avoid div-by-zero at the poles
+            double metersToDegLat = 180.0 / (Math.PI * bodyRadius);
+            double metersToDegLon = metersToDegLat / cosLat;
+            double step = minSeparationMeters;
+
+            double bestLat = proposedLat;
+            double bestLon = proposedLon;
+            double bestClearance = nearestProposed;
+
+            for (int ring = 1; ring <= MaxDeOverlapSpiralSteps; ring++)
+            {
+                double ringRadius = step * ring;
+                int samples = Math.Max(6, ring * 6);
+                for (int s = 0; s < samples; s++)
+                {
+                    double angle = (2.0 * Math.PI * s) / samples;
+                    double east = ringRadius * Math.Cos(angle);
+                    double north = ringRadius * Math.Sin(angle);
+                    double candLat = proposedLat + north * metersToDegLat;
+                    double candLon = proposedLon + east * metersToDegLon;
+
+                    double nearest = NearestExistingDistance(candLat, candLon, existing, bodyRadius);
+                    if (nearest >= minSeparationMeters)
+                    {
+                        return new DeOverlapResult
+                        {
+                            Latitude = candLat,
+                            Longitude = candLon,
+                            Nudged = true,
+                            NudgeMeters = ringRadius,
+                            NearestBlockerMeters = nearest,
+                            Exhausted = false,
+                        };
+                    }
+                    if (nearest > bestClearance)
+                    {
+                        bestClearance = nearest;
+                        bestLat = candLat;
+                        bestLon = candLon;
+                    }
+                }
+            }
+
+            // Exhausted: return the best (most-clear) candidate found rather than the
+            // overlapping proposed point — at least it maximizes separation.
+            return new DeOverlapResult
+            {
+                Latitude = bestLat,
+                Longitude = bestLon,
+                Nudged = bestLat != proposedLat || bestLon != proposedLon,
+                NudgeMeters = SurfaceDistance(bestLat, bestLon, proposedLat, proposedLon, bodyRadius),
+                NearestBlockerMeters = bestClearance,
+                Exhausted = true,
+            };
+        }
+
+        /// <summary>
+        /// Distance (metres) from (lat, lon) to the nearest entry in <paramref name="existing"/>.
+        /// Returns <see cref="double.MaxValue"/> for an empty/null list.
+        /// </summary>
+        internal static double NearestExistingDistance(
+            double lat, double lon, IList<(double lat, double lon)> existing, double bodyRadius)
+        {
+            if (existing == null || existing.Count == 0)
+                return double.MaxValue;
+
+            double nearest = double.MaxValue;
+            for (int i = 0; i < existing.Count; i++)
+            {
+                double d = SurfaceDistance(lat, lon, existing[i].lat, existing[i].lon, bodyRadius);
+                if (d < nearest) nearest = d;
+            }
+            return nearest;
+        }
+
+        // ────────────────────────────────────────────────────────────
         //  Trajectory walkback (pure, unit-testable)
         // ────────────────────────────────────────────────────────────
 

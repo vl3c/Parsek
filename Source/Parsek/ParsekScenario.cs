@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -228,10 +229,39 @@ namespace Parsek
         /// that adds / removes / clears entries in <see cref="RecordingSupersedes"/>
         /// or <see cref="RecordingRewindRetirements"/>
         /// so <see cref="EffectiveState.ComputeERS"/> knows to rebuild.
+        ///
+        /// <para>
+        /// Also triggers <see cref="RouteStore.RevalidateSources"/> so route
+        /// statuses cannot drift mid-session: every ERS-invalidating bump
+        /// implicitly drives route revalidation. The dispatch evaluator's
+        /// defensive <c>RouteHasValidSourcesInErs</c> gate would still block
+        /// incorrect dispatches if this call were missing — but the UI route
+        /// panel would show stale Active / InTransit until save/load. New
+        /// callers of <c>BumpSupersedeStateVersion</c> get route reactivity
+        /// for free; <see cref="ComputeERS"/> recursion is impossible because
+        /// <see cref="RouteStore.RevalidateSources"/> never bumps the version
+        /// counter.
+        /// </para>
         /// </summary>
         public void BumpSupersedeStateVersion()
         {
             unchecked { SupersedeStateVersion++; }
+
+            // Route subsystem reactivity: every ERS-invalidating bump must
+            // trigger route revalidation so cached Route.Status doesn't lie
+            // until next OnLoad. Wrapped in try/catch so a route-side bug
+            // cannot crash the bump path — supersede / retirement bookkeeping
+            // is load-bearing for many subsystems.
+            try
+            {
+                RouteStore.RevalidateSources("SupersedeStateVersion-bump");
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Warn("Route",
+                    $"RevalidateSources from BumpSupersedeStateVersion threw " +
+                    $"{ex.GetType().Name}: {ex.Message}; route statuses may be stale until next OnLoad");
+            }
         }
 
         /// <summary>
@@ -819,6 +849,70 @@ namespace Parsek
             s_instance = this;
         }
 
+        /// <summary>
+        /// UT at which the last <see cref="RouteOrchestrator.Tick(double)"/>
+        /// fired. Sentinel <c>-1.0</c> means "no tick yet this session" — the
+        /// first Update merely seeds the accumulator and skips the tick body
+        /// so the very first tick does not see a zero-length delta.
+        /// </summary>
+        private double lastRouteTickUT = -1.0;
+
+        /// <summary>
+        /// Unity MonoBehaviour Update hook driven by the live ScenarioModule.
+        /// Drives the route dispatch orchestrator at the cadence defined by
+        /// <see cref="RouteOrchestrator.TickIntervalSec"/>. UT-delta accumulator
+        /// (not wall-clock) so time warp is respected — at 10000x the route
+        /// system sees one Tick per ~100ms wall-clock instead of one per
+        /// 10000s game time. Exceptions from the tick body are caught and
+        /// logged so a transient KSP-state error cannot kill the scenario
+        /// module.
+        /// </summary>
+        private void Update()
+        {
+            if (Planetarium.fetch == null)
+                return;
+
+            double currentUT;
+            try
+            {
+                currentUT = Planetarium.GetUniversalTime();
+            }
+            catch (Exception ex)
+            {
+                // Defensive: Planetarium.GetUniversalTime() can throw during
+                // very early load / scene teardown. A single skipped tick is
+                // benign — the next Update reseeds the accumulator.
+                ParsekLog.Verbose("Route",
+                    $"Update: Planetarium.GetUniversalTime threw {ex.GetType().Name}: {ex.Message}; skipping tick");
+                return;
+            }
+
+            if (lastRouteTickUT < 0.0)
+            {
+                lastRouteTickUT = currentUT;
+                return;
+            }
+            if (currentUT - lastRouteTickUT < RouteOrchestrator.TickIntervalSec)
+                return;
+            lastRouteTickUT = currentUT;
+
+            try
+            {
+                RouteOrchestrator.Tick(currentUT);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Route",
+                    $"RouteOrchestrator.Tick(currentUT) threw {ex.GetType().Name}: {ex.Message}");
+            }
+
+            // (Removed) The commit-time "Create Supply Route?" modal and its
+            // deferred cross-scene retry are gone. Eligible Supply Runs now
+            // surface as derived candidates in the Logistics window (see
+            // RouteCandidateFinder), so route creation no longer interrupts
+            // gameplay with a popup.
+        }
+
         public override void OnSave(ConfigNode node)
         {
             var sw = Stopwatch.StartNew();
@@ -877,6 +971,12 @@ namespace Parsek
                 // only in Phase 1; no behavior wired to these collections yet.
                 savePhase = "refly-state-persist";
                 SaveRewindStagingState(node);
+
+                // Supply routes (design §4.7). RouteStore strips any pre-existing
+                // ROUTES wrapper before writing so stale entries from a prior save
+                // cannot leak through. Empty store writes nothing.
+                savePhase = "routes";
+                RouteStore.SaveRoutesTo(node);
 
                 // Strip ghost map ProtoVessels — they are transient and reconstructed on load
                 savePhase = "ghost-map-strip";
@@ -2688,6 +2788,38 @@ namespace Parsek
                     reconcileUT,
                     useCurrentUtCutoffForFutureActions:
                         IsCurrentUtCutoffSupportedScene(HighLogic.LoadedScene));
+
+                // Supply routes (design §4.7). Loads after recordings + ledger so
+                // Phase 5 source-ref validation has the ERS / ELS data it needs.
+                // RevalidateSources is folded into the "routes" phase: load + validate
+                // is one logical operation, and missing-source / fingerprint-drift
+                // transitions must run on every load before any UI / scheduler sees
+                // a stale Active status.
+                loadPhase = "routes";
+                RouteStore.LoadRoutesFrom(node);
+                RouteStore.RevalidateSources("OnLoad");
+
+                // Mutual-exclusion reconcile (design §0.6): a tree is EITHER a supply route
+                // OR a manually looped recording/mission, never both. Runs AFTER MissionStore
+                // load/normalize (above) and AFTER RouteStore load + RevalidateSources (so
+                // route statuses (and thus BindsTree decisions) are final). For every
+                // route-bound tree, clear both the mission loop and any per-recording loop a
+                // hand-edited or legacy save might carry on that tree. Route looping wins.
+                loadPhase = "route-loop-reconcile";
+                {
+                    double reconcileUtForLoops = Planetarium.fetch != null
+                        ? Planetarium.GetUniversalTime() : 0.0;
+                    var boundTreeIds = RouteTreeGuard.BoundTreeIds();
+                    int reconciledTreeCount = 0;
+                    for (int bi = 0; bi < boundTreeIds.Count; bi++)
+                    {
+                        RouteTreeGuard.ForceClearManualLoopForRouteTree(
+                            boundTreeIds[bi], reconcileUtForLoops);
+                        reconciledTreeCount++;
+                    }
+                    ParsekLog.Info("RouteGuard",
+                        $"OnLoad route-loop reconcile: cleared manual loops on {reconciledTreeCount} route-bound tree(s)");
+                }
 
                 // Schedule deferred seeding: during OnLoad, Funding/R&D/Reputation singletons
                 // may exist but have not loaded their save data yet (KSP loads scenarios in
@@ -6716,6 +6848,9 @@ namespace Parsek
             if (rec.DockTargetVesselPid != 0)
                 recNode.AddValue("dockTargetPid", rec.DockTargetVesselPid.ToString(CultureInfo.InvariantCulture));
 
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.SerializeRouteProofMetadata(recNode, rec);
+
         }
 
         /// <summary>
@@ -6970,6 +7105,9 @@ namespace Parsek
                 if (uint.TryParse(dockTargetPidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out dockTargetPid))
                     rec.DockTargetVesselPid = dockTargetPid;
             }
+
+            // Logistics route proof metadata (additive; missing node = no proof data)
+            RecordingStore.DeserializeRouteProofMetadata(recNode, rec);
         }
 
         /// <summary>

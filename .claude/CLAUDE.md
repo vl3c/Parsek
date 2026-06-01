@@ -34,6 +34,8 @@ From a manual worktree, set `KSPDIR` explicitly because the csproj's relative `K
 
 **If multiple worktrees exist**, any of them can overwrite the shared `GameData/Parsek/Plugins/Parsek.dll`. The deployed file belongs to whichever worktree built most recently. Re-verify after every build if you're switching between worktrees or if a sibling session is also building.
 
+**Diagnosing which build produced a collected log.** A `collect-logs.py` snapshot can run a clobbered DLL from a *different* branch than you expect (sibling-worktree race). Two cross-checks: (1) read `git-state.txt` in the log folder for the branch/commit the collection captured, but note it reflects the directory the script ran from, not necessarily the deployed DLL; (2) grep `KSP.log` for feature-signature strings to confirm what code actually loaded (e.g. `RouteOriginProof` / `Route proof dock window` for logistics, `OnVesselsUndocking` vs `DeferredHandleTransientUndock` for the undock handler, `Parsek' V<x.y.z>` for the assembly version). If a log lacks the signatures of the feature you're investigating, that session ran the wrong DLL and proves nothing about your change.
+
 ## Release
 
 ```bash
@@ -64,6 +66,7 @@ When investigating KSP API behavior, search the web and read other open-source K
 - `VesselPrecalculate.vessel` is protected — compare with `__instance.gameObject != v.gameObject` instead
 - `ModuleEngines.runningEffectName`/`directThrottleEffectName` not accessible at compile time — scan EFFECTS config instead
 - `onPartJointBreak` signature: `(PartJoint joint, float breakForce)`
+- **Docking-port undock event order** (decompiled `Part.Undock`, KSP 1.12.5): inside one `Part.Undock()` call KSP fires `onPartUndock(part)` FIRST (once, before the split, part still on the combined vessel so its `vessel.persistentId == mergedPid`), runs `attachJoint.DestroyJoint()` (fires the synchronous `onPartJointBreak`), creates the new vessel, then fires `onVesselsUndocking(oldVessel, newVessel)` LAST and **unconditionally on every path** with final PIDs. Subscribe to `onVesselsUndocking` for the authoritative undock split signal; never wait for a second `onPartUndock` (there is only one). Parsek handles this in `ParsekFlight.OnPartUndock` (snapshot + `pendingUndockRootPartSeed` only) -> `OnVesselsUndocking` -> `DeferredUndockBranch` -> `CreateSplitBranch`. See `docs/dev/dock-undock-recording-structure.md` §2.2.
 
 **Part names**: KSP converts underscores to dots at runtime. cfg `name = solidBooster_v2` → runtime `solidBooster.v2`. Always use dot-form in `PartLoader.getPartInfoByName` and ghost snapshot part names.
 

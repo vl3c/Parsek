@@ -131,6 +131,20 @@ namespace Parsek
                 case GameActionType.ReputationInitial:
                     return false;
 
+                // Route skeleton (design doc §6): the dispatch/delivery scheduler that
+                // emits these actions isn't built yet, and no resource module consumes
+                // them — RouteModule is a state-tracker only. Classified non-impacting
+                // for now so they cannot poison the legacy-coverage probe. When the
+                // future dispatch integration wires KSC funds debit through
+                // RouteCargoDebited / FundsModule, this classification must be revisited
+                // and the IsResourceImpactingAction_Theory test will fail until it is.
+                case GameActionType.RouteDispatched:
+                case GameActionType.RouteCargoDebited:
+                case GameActionType.RouteCargoDelivered:
+                case GameActionType.RoutePaused:
+                case GameActionType.RouteEndpointLost:
+                    return false;
+
                 default:
                     // Conservative: an unrecognized new action type is treated as non-
                     // resource so it cannot poison the zero-coverage probe. The

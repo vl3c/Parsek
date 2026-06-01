@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -753,14 +754,47 @@ namespace Parsek
             // "Loop [x]": label then checkbox (bare siblings, normal ~4 px margins; a fixed-width
             // wrapper left slack that widened the gap before the period field). The label uses the
             // vertically-centered inline style so it lines up with the centered period label/buttons.
+            //
+            // Mutual exclusion (design §0.6): when this tree is bound to a supply route, the manual
+            // Loop toggle is greyed OFF (a tree is EITHER a route OR a manually looped mission). The
+            // GUI.enabled wrap renders it disabled; the belt-and-suspenders commit guard below blocks
+            // any turn-ON from reaching MissionStore.SetLoopEnabled even if a future layout refactor
+            // drops the wrap.
+            bool missionRouteBound = RouteTreeGuard.RouteBindingFor(mission.TreeId, out Route bindingRoute);
+            bool prevGuiEnabled = GUI.enabled;
+            if (missionRouteBound)
+                GUI.enabled = false;
             GUILayout.Label("Loop", missionHeaderInlineLabel);
             bool loopNow = GUILayout.Toggle(mission.LoopPlayback, "");
+            GUI.enabled = prevGuiEnabled;
+            if (missionRouteBound)
+            {
+                // Inline "Looped by route: <name>" affordance (ASCII only; this distinctive
+                // UTF-16 string also doubles as the deployed-DLL verification token).
+                string routeName = bindingRoute != null && !string.IsNullOrEmpty(bindingRoute.Name)
+                    ? bindingRoute.Name : "route";
+                GUILayout.Label(
+                    new GUIContent("Looped by route", $"Looped by route: {routeName}"),
+                    missionHeaderInlineLabel);
+            }
             if (loopNow != mission.LoopPlayback)
             {
-                MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
-                // Turning loop off disables the period field; end any in-progress edit on it.
-                if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
-                    loopPeriodFocusedMissionId = null;
+                if (missionRouteBound)
+                {
+                    // Commit guard: a route owns this tree's loop; never let a manual turn-ON reach
+                    // MissionStore.SetLoopEnabled.
+                    ParsekLog.Info("RouteGuard",
+                        $"Missions-tab Loop toggle blocked for tree={mission.TreeId} " +
+                        $"(bound by route {(bindingRoute != null ? bindingRoute.Id : "<none>")}); manual loop " +
+                        $"request={loopNow} ignored");
+                }
+                else
+                {
+                    MissionStore.SetLoopEnabled(mission, loopNow, Planetarium.GetUniversalTime());
+                    // Turning loop off disables the period field; end any in-progress edit on it.
+                    if (!loopNow && loopPeriodFocusedMissionId == mission.Id)
+                        loopPeriodFocusedMissionId = null;
+                }
             }
 
             // Periodicity (the Phase-1 / Tier-1 solution) is computed once per mission by the draw

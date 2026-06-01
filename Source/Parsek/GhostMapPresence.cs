@@ -8458,20 +8458,70 @@ namespace Parsek
         /// <c>ParsekTrackingStation.Start</c>), and the Harmony precreate is a static method with no
         /// addon instance to read a cached set from, so the set must be built here. Mirrors the exact
         /// builder inputs of <c>DriveMissionLoopUnits</c> (auto-loop interval, live-body phase-lock seam,
-        /// transited-body rotation mode) so startup and the per-frame lifecycle phase-lock identically.
-        /// Returns <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when there are no looping missions;
-        /// <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/> is then a no-op (effUT == liveUT,
-        /// renderHidden false) and the startup create is byte-identical to its pre-loop-aware behavior.
+        /// transited-body rotation mode) so startup and the per-frame lifecycle phase-lock identically,
+        /// INCLUDING the supply-route render union (REN-1): the route-driving backing missions
+        /// (<see cref="Parsek.Logistics.RouteGhostDriverSelector.SelectGhostDrivingBackingMissions"/>) are
+        /// folded onto <c>MissionStore.Missions</c> here exactly as the per-frame seam does, so a route
+        /// member is sampled at its loop-shifted effUT on the very first TS-entry tick instead of flashing
+        /// at its raw-live-UT terminal/endpoint state for one tick.
+        /// Returns <see cref="GhostPlaybackLogic.LoopUnitSet.Empty"/> when there are no looping missions AND
+        /// no ghost-driving routes; <see cref="GhostPlaybackLogic.ResolveTrackingStationSampleUT"/> is then a
+        /// no-op (effUT == liveUT, renderHidden false) and the startup create is byte-identical to its
+        /// pre-loop-aware behavior.
         /// </summary>
         internal static GhostPlaybackLogic.LoopUnitSet BuildStartupTrackingStationLoopUnits(
             IReadOnlyList<Recording> committed)
         {
-            // No missions => no loop units (MissionLoopUnitBuilder.Build would return Empty anyway).
-            // Early-out before touching settings / the live-body seam so the common no-loop case is a
-            // pure no-op and the result is byte-identical to the pre-loop-aware startup create.
-            IReadOnlyList<Mission> missions = MissionStore.Missions;
-            if (missions == null || missions.Count == 0)
+            // Supply-route render union (REN-1): fold the route-driving backing missions into the
+            // startup builder input, mirroring the per-frame seam (ParsekTrackingStation.DriveMissionLoopUnits).
+            // Without this, the one-shot TS startup create samples a route member at its raw live UT (far
+            // past its recorded window) for ~one tick before the first lifecycle pass corrects it, flashing
+            // the ghost at its terminal/endpoint state. Reads only RouteStore.CommittedRoutes (outside the
+            // ERS/ELS grep gate, mirrors the selector). The selector is pure w.r.t. Unity: the UT is only
+            // threaded into RouteBackingMission.BuildMission's diagnostic log; render phase is loop-clock
+            // owned. Use the SAME UT source as the startup-create pass (CurrentUTNow), not a fresh
+            // Planetarium read, since SpaceTracking.Awake can precreate before Planetarium is ready.
+            // Skip the UT read + selector entirely when there are no committed routes: the selector
+            // returns an empty list regardless of UT in that case, and the UT is only threaded into a
+            // per-route diagnostic log. This keeps the no-route path from touching the live UT seam
+            // (Planetarium) before any route exists.
+            IReadOnlyList<Parsek.Logistics.Route> committedRoutes =
+                Parsek.Logistics.RouteStore.CommittedRoutes;
+            int committedRouteCount = committedRoutes != null ? committedRoutes.Count : 0;
+            IReadOnlyList<Mission> routeMissions;
+            if (committedRouteCount == 0)
+            {
+                routeMissions = System.Array.Empty<Mission>();
+            }
+            else
+            {
+                double routeSelectUT = CurrentUTNow();
+                routeMissions =
+                    Parsek.Logistics.RouteGhostDriverSelector.SelectGhostDrivingBackingMissions(
+                        committedRoutes, routeSelectUT);
+            }
+
+            // No missions AND no route missions => no loop units (MissionLoopUnitBuilder.Build would
+            // return Empty anyway). Early-out before touching settings / the live-body seam so the common
+            // no-loop case is a pure no-op and the result is byte-identical to the pre-loop-aware startup
+            // create.
+            IReadOnlyList<Mission> baseMissions = MissionStore.Missions;
+            int baseMissionCount = baseMissions != null ? baseMissions.Count : 0;
+            if (baseMissionCount == 0 && routeMissions.Count == 0)
                 return GhostPlaybackLogic.LoopUnitSet.Empty;
+
+            // Union the route missions onto a fresh list alongside MissionStore.Missions, exactly like the
+            // three per-frame host push seams, so the route members fold into the existing signature +
+            // owner/member collision logging through the UNCHANGED builder (no edit to any locked file).
+            var missions = new List<Mission>(baseMissionCount + routeMissions.Count);
+            if (baseMissions != null)
+                missions.AddRange(baseMissions);
+            missions.AddRange(routeMissions);
+
+            ParsekLog.Verbose("Mission",
+                $"TS startup loop units: baseMissions={baseMissionCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"routeMissions={routeMissions.Count.ToString(CultureInfo.InvariantCulture)} " +
+                $"unioned={missions.Count.ToString(CultureInfo.InvariantCulture)}");
 
             double autoLoopIntervalSeconds = ParsekSettings.Current?.autoLoopIntervalSeconds
                                              ?? LoopTiming.DefaultLoopIntervalSeconds;
