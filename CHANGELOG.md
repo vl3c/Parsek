@@ -94,6 +94,7 @@ All notable changes to Parsek are documented here.
 ### Log Hygiene
 
 - Capturing a vessel snapshot no longer writes two INFO lines to the log every time (the surface-orbit normalization and the stand-in-crew remap). A long time-warped recording was adding roughly 2,200 such lines per session; both are now rate-limited diagnostic lines.
+- New "Map/TS render tracing" diagnostics setting (Settings > Diagnostics, off by default) that, like the existing ghost render tracing toggle, writes detailed map and tracking-station ghost render diagnostics to the log when investigating map/TS rendering. Leave off for normal playtests (it produces large logs).
 
 ### Known limitations
 

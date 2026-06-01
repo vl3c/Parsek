@@ -25,6 +25,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## In progress - v0.10.0 Map/TS render tracer (`MapRenderTrace`) Phase 1: setting + skeleton
+
+- Design: `docs/dev/design-map-ts-render-tracer.md` (SHIP WITH CHANGES). Phase 1 of the MVP only; the end-of-frame probe (Phase 2), structural events (Phase 3), and the optional second-cut reconciliation/shared-window/reverse-map work are later phases, NOT in this commit.
+- **Done (Phase 1):** new `mapRenderTracing` setting wired exactly like `ghostRenderTracing` across `ParsekSettings` (`[GameParameters.CustomParameterUI]` attribute), `ParsekSettingsPersistence` (const key, backing field, load parse + no-value verbose line, load/save summary fragments, restore block, `RecordMapRenderTracing` with dedup early-out, the SAVE/`AddValue` block, `ResetForTesting` clear, `GetStoredMapRenderTracing` / `SetStoredMapRenderTracingForTesting` accessors), and `UI/SettingsWindowUI.cs` (a Diagnostics toggle after the ghost render tracing toggle + the reset-to-defaults path). New self-contained `Source/Parsek/MapRenderTrace.cs`: `ForceEnabledForTesting`, `IsEnabled`, the `RenderSurface` enum (Unknown / ProtoOrbitLine / ProtoIcon / Polyline / ImguiLabeledMarker / AtmosphericMarker) + token helper, a pid-keyed detailed-window registry (`OpenDetailedWindow` / `IsDetailedWindowOpen` with window-length constants), a pure `EvaluateGate` (force / important / initial-window / window / closed), formatters reproduced from `GhostRenderTrace` (FormatVector3/3d/Quaternion/Double, Token, ShortId, Bool) with Unity-ECall isolation for the frame counter, and an `EmitRaw` that builds one `phase= surface= ...` line and routes important to `ParsekLog.Info` / the rest to `Verbose` under tag `MapRenderTrace`.
+- **HARD CONSTRAINT honoured:** Phase 1 does NOT touch `GhostRenderTrace.cs`; the shared-window/formatter extraction is a deferred second cut, so the formatters are duplicated in `MapRenderTrace.cs` for now.
+- **Tests:** `MapRenderTraceTests` (21): EvaluateGate reason strings, IsEnabled via `ForceEnabledForTesting` and via `ParsekSettings.Current`, the window registry (open/expire/per-pid/extend), an `EmitRaw` log-line `phase=`/`surface=` schema assertion (Info vs Verbose routing), and the `mapRenderTracing` persistence round-trip (Get/Set/Record/Reset/ApplyTo). Full suite green.
+- **Status:** Phase 1 in progress (setting + skeleton landed).
+
+---
+
 ## In progress - v0.10.0 Missions window: vessel composition over time (first cut, playtesting)
 
 - Goal (from 2026-05-25 design chat): show each vessel's COMPOSITION (controllers + crew) broken into intervals of compositional stability, as a nested tree. A node = a stable composition labeled with counts ("pod x1, probe x1, crew x3"); it branches at composition-change events; a stable composition that ends as a whole is a terminal leaf.

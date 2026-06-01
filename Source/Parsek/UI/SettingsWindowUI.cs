@@ -192,6 +192,7 @@ namespace Parsek
                 s.autoMerge = defaults.AutoMerge;
                 s.verboseLogging = defaults.VerboseLogging;
                 s.ghostRenderTracing = false;
+                s.mapRenderTracing = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -202,6 +203,7 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordShowCommittedFutureOverlays(s.showCommittedFutureOverlays);
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
+                ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
@@ -451,6 +453,16 @@ namespace Parsek
                 s.ghostRenderTracing = ghostRenderTracing;
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekLog.Info("UI", $"Setting changed: ghostRenderTracing={s.ghostRenderTracing}");
+            }
+
+            bool mapRenderTracing = GUILayout.Toggle(s.mapRenderTracing,
+                new GUIContent(" Map/TS render tracing (Warning: huge logs)",
+                    "Write detailed map and tracking-station ghost render diagnostics to KSP.log. Leave off unless investigating map/TS rendering."));
+            if (mapRenderTracing != s.mapRenderTracing)
+            {
+                s.mapRenderTracing = mapRenderTracing;
+                ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
+                ParsekLog.Info("UI", $"Setting changed: mapRenderTracing={s.mapRenderTracing}");
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,

@@ -43,6 +43,7 @@ namespace Parsek
         private const string ShowCommittedFutureOverlaysKey = "showCommittedFutureOverlays";
         private const string BlockCommittedActionsKey = "blockCommittedActions";
         private const string GhostRenderTracingKey = "ghostRenderTracing";
+        private const string MapRenderTracingKey = "mapRenderTracing";
         private const string UseSmoothingSplinesKey = "useSmoothingSplines";
         private const string UseAnchorCorrectionKey = "useAnchorCorrection";
         private const string UseAnchorTaxonomyKey = "useAnchorTaxonomy";
@@ -58,6 +59,7 @@ namespace Parsek
         private static bool? storedShowCommittedFutureOverlays;
         private static bool? storedBlockCommittedActions;
         private static bool? storedGhostRenderTracing;
+        private static bool? storedMapRenderTracing;
         private static bool? storedUseSmoothingSplines;
         private static bool? storedUseAnchorCorrection;
         private static bool? storedUseAnchorTaxonomy;
@@ -174,6 +176,17 @@ namespace Parsek
                     ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {GhostRenderTracingKey} — using default");
                 }
 
+                string mapRenderTracingStr = root.GetValue(MapRenderTracingKey);
+                if (!string.IsNullOrEmpty(mapRenderTracingStr)
+                    && bool.TryParse(mapRenderTracingStr, out bool mapRenderTracing))
+                {
+                    storedMapRenderTracing = mapRenderTracing;
+                }
+                else
+                {
+                    ParsekLog.Verbose(Tag, $"Settings file '{path}' has no {MapRenderTracingKey} — using default");
+                }
+
                 string useSplinesStr = root.GetValue(UseSmoothingSplinesKey);
                 if (!string.IsNullOrEmpty(useSplinesStr)
                     && bool.TryParse(useSplinesStr, out bool useSplines))
@@ -229,6 +242,7 @@ namespace Parsek
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<default>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<default>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<default>")}" +
+                    $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<default>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<default>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<default>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<default>")}" +
@@ -322,6 +336,15 @@ namespace Parsek
                     $"Restored ghostRenderTracing {prev} -> {storedGhostRenderTracing.Value} from persistent store");
             }
 
+            if (storedMapRenderTracing.HasValue
+                && storedMapRenderTracing.Value != settings.mapRenderTracing)
+            {
+                bool prev = settings.mapRenderTracing;
+                settings.mapRenderTracing = storedMapRenderTracing.Value;
+                ParsekLog.Info(Tag,
+                    $"Restored mapRenderTracing {prev} -> {storedMapRenderTracing.Value} from persistent store");
+            }
+
             if (storedUseSmoothingSplines.HasValue
                 && storedUseSmoothingSplines.Value != settings.useSmoothingSplines)
             {
@@ -411,6 +434,26 @@ namespace Parsek
             {
                 ParsekLog.Verbose(Tag,
                     $"RecordGhostRenderTracing: Save threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
+            }
+        }
+
+        internal static void RecordMapRenderTracing(bool value)
+        {
+            try { LoadIfNeeded(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordMapRenderTracing: LoadIfNeeded threw SecurityException " +
+                    $"(likely xUnit / non-Unity context: {ex.Message}) — using in-memory fallback");
+            }
+            if (storedMapRenderTracing.HasValue && storedMapRenderTracing.Value == value) return;
+            storedMapRenderTracing = value;
+            try { Save(); }
+            catch (SecurityException ex)
+            {
+                ParsekLog.Verbose(Tag,
+                    $"RecordMapRenderTracing: Save threw SecurityException " +
                     $"(likely xUnit / non-Unity context: {ex.Message}) — store is in-memory only");
             }
         }
@@ -521,6 +564,8 @@ namespace Parsek
                     root.AddValue(BlockCommittedActionsKey, storedBlockCommittedActions.Value.ToString());
                 if (storedGhostRenderTracing.HasValue)
                     root.AddValue(GhostRenderTracingKey, storedGhostRenderTracing.Value.ToString());
+                if (storedMapRenderTracing.HasValue)
+                    root.AddValue(MapRenderTracingKey, storedMapRenderTracing.Value.ToString());
                 if (storedUseSmoothingSplines.HasValue)
                     root.AddValue(UseSmoothingSplinesKey, storedUseSmoothingSplines.Value.ToString());
                 if (storedUseAnchorCorrection.HasValue)
@@ -544,6 +589,7 @@ namespace Parsek
                     $" showCommittedFutureOverlays={(storedShowCommittedFutureOverlays.HasValue ? storedShowCommittedFutureOverlays.Value.ToString() : "<null>")}" +
                     $" blockCommittedActions={(storedBlockCommittedActions.HasValue ? storedBlockCommittedActions.Value.ToString() : "<null>")}" +
                     $" ghostRenderTracing={(storedGhostRenderTracing.HasValue ? storedGhostRenderTracing.Value.ToString() : "<null>")}" +
+                    $" mapRenderTracing={(storedMapRenderTracing.HasValue ? storedMapRenderTracing.Value.ToString() : "<null>")}" +
                     $" useSmoothingSplines={(storedUseSmoothingSplines.HasValue ? storedUseSmoothingSplines.Value.ToString() : "<null>")}" +
                     $" useAnchorCorrection={(storedUseAnchorCorrection.HasValue ? storedUseAnchorCorrection.Value.ToString() : "<null>")}" +
                     $" useAnchorTaxonomy={(storedUseAnchorTaxonomy.HasValue ? storedUseAnchorTaxonomy.Value.ToString() : "<null>")}" +
@@ -567,6 +613,7 @@ namespace Parsek
             storedShowCommittedFutureOverlays = null;
             storedBlockCommittedActions = null;
             storedGhostRenderTracing = null;
+            storedMapRenderTracing = null;
             storedUseSmoothingSplines = null;
             storedUseAnchorCorrection = null;
             storedUseAnchorTaxonomy = null;
@@ -634,6 +681,8 @@ namespace Parsek
 
         internal static bool? GetStoredGhostRenderTracing() => storedGhostRenderTracing;
 
+        internal static bool? GetStoredMapRenderTracing() => storedMapRenderTracing;
+
         internal static bool? GetStoredUseSmoothingSplines() => storedUseSmoothingSplines;
 
         internal static bool? GetStoredUseAnchorCorrection() => storedUseAnchorCorrection;
@@ -682,6 +731,12 @@ namespace Parsek
         internal static void SetStoredGhostRenderTracingForTesting(bool? value)
         {
             storedGhostRenderTracing = value;
+            loaded = true;
+        }
+
+        internal static void SetStoredMapRenderTracingForTesting(bool? value)
+        {
+            storedMapRenderTracing = value;
             loaded = true;
         }
 
