@@ -2131,14 +2131,47 @@ namespace Parsek.InGameTests
                 yield return WaitForEvaBranchCount(tree, initialEvaBranches + 1, 10f, "first EVA branch");
 
                 Vessel sourceVessel = firstSourcePart?.vessel ?? vessel;
+                uint sourcePid = sourceVessel.persistentId;
+
+                // After spawnEVA, KSP auto-switches focus to the freshly created EVA kerbal a few
+                // frames later. Wait for that hand-off: it parks the source capsule's recording into
+                // the tree BackgroundMap, which is the precondition the background-parent branch path
+                // is built for. Switching back before the hand-off would be a no-op (the capsule is
+                // still active), and KSP's later auto-switch would then steal focus away again.
+                yield return WaitForActiveVesselToLeavePid(sourcePid, 10f);
+                if (FlightGlobals.ActiveVessel != null && FlightGlobals.ActiveVessel.persistentId == sourcePid)
+                {
+                    InGameAssert.Skip(
+                        "KSP never auto-switched focus to the first EVA kerbal, so the source capsule " +
+                        "was never parked to background; cannot exercise the background-parent path");
+                    yield break;
+                }
+
+                // Switch back to the source capsule and wait for focus to settle on it.
                 if (!TrySetActiveVesselForTest(sourceVessel, out string switchSkipReason))
                 {
                     InGameAssert.Skip(switchSkipReason);
                     yield break;
                 }
 
-                yield return WaitForActiveVesselPid(sourceVessel.persistentId, 10f);
+                yield return WaitForActiveVesselPid(sourcePid, 10f);
                 yield return new WaitForSeconds(0.5f);
+
+                // Keep the capsule active-but-idle: the first EVA's switch-away already parked the
+                // capsule's recording into the tree BackgroundMap; disarm the post-switch auto-record
+                // watch so it cannot promote that still-backgrounded recording into a live recorder
+                // before the second EVA fires. A live recorder here would route the second EVA through
+                // the live mid-recording branch path instead of the background-parent path under test.
+                TryDisarmPostSwitchAutoRecord(
+                    flight, "EvaTwiceFromSameCapsule: keep source capsule idle before second EVA");
+                if (flight.IsPostSwitchAutoRecordArmedForPid(sourcePid) || flight.IsRecording)
+                {
+                    InGameAssert.Skip(
+                        "source capsule did not settle into an idle, non-recording state after " +
+                        "switch-back (post-switch auto-record still armed, or recording resumed), so " +
+                        "the second EVA would not take the background-parent path");
+                    yield break;
+                }
 
                 if (!TryGetEvaSource(sourceVessel, out Part secondSourcePart, out ProtoCrewMember secondCrew,
                     out Transform secondAirlock, out string secondEvaSourceSkipReason))
@@ -3013,6 +3046,22 @@ namespace Parsek.InGameTests
             InGameAssert.Fail(
                 $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
                 $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+        }
+
+        // Waits (without asserting) until the active vessel is no longer the given pid, or the
+        // timeout elapses. Used to observe KSP's stock auto-switch to a freshly spawned EVA kerbal;
+        // the caller decides whether a non-switch is a Skip or an error.
+        private static IEnumerator WaitForActiveVesselToLeavePid(uint pid, float timeoutSeconds)
+        {
+            float deadline = Time.time + timeoutSeconds;
+            while (Time.time < deadline)
+            {
+                Vessel active = FlightGlobals.ActiveVessel;
+                if (active == null || active.persistentId != pid)
+                    yield break;
+
+                yield return null;
+            }
         }
 
         private static int CountEvaBranches(RecordingTree tree)
