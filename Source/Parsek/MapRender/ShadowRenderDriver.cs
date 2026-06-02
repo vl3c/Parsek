@@ -71,11 +71,20 @@ namespace Parsek.MapRender
         private static readonly Dictionary<uint, StockConicSeed> seedByPid =
             new Dictionary<uint, StockConicSeed>();
 
+        // Per-pid frame stamp: the frame the Director's active segment for this ghost was a TracedPath
+        // (a non-orbital leg - ascent / burn / descent - the autonomous polyline owns). Under the gate
+        // the icon-drive + line patches read this and HARD-SUPPRESS the stock proto icon + line, so the
+        // legacy gap-glide can't stock-propagate a per-frame synthesized orbit and teleport the icon
+        // across it (the s15 escape-burn teleport). Mirrors seedByPid: written each shadow frame, read
+        // with the same +/-SeedFreshnessFrames tolerance, keyed on the intent (not a FixedUpdate stamp).
+        private static readonly Dictionary<uint, int> tracedPathByPid = new Dictionary<uint, int>();
+
         internal static void Reset()
         {
             priorIntentByPid.Clear();
             chainByPid.Clear();
             seedByPid.Clear();
+            tracedPathByPid.Clear();
         }
 
         /// <summary>The shadow runs when render tracing is on (for the reconciler) OR the experimental
@@ -111,6 +120,23 @@ namespace Parsek.MapRender
             return ParsekSettings.Current != null
                 && ParsekSettings.Current.mapRenderDirectorDrive
                 && TryGetFreshStockConicSeed(pid, currentFrame, out _, out _);
+        }
+
+        /// <summary>
+        /// True when the gate is on AND the Director's active segment for <paramref name="pid"/> was a
+        /// TracedPath (non-orbital leg) within <see cref="SeedFreshnessFrames"/> of
+        /// <paramref name="currentFrame"/>. The icon-drive + line patches read this to HARD-SUPPRESS the
+        /// stock proto icon + line on those frames (the autonomous polyline owns the leg), so the legacy
+        /// gap-glide can't stock-propagate a synthesized orbit and teleport the icon. Same shared-signal
+        /// shape as <see cref="IsDirectorDriveActive"/> - keyed on the shadow's per-segment intent, not a
+        /// FixedUpdate stamp, so it stays correct on no-FixedUpdate render frames.
+        /// </summary>
+        internal static bool IsDirectorTracedPathActive(uint pid, int currentFrame)
+        {
+            return ParsekSettings.Current != null
+                && ParsekSettings.Current.mapRenderDirectorDrive
+                && tracedPathByPid.TryGetValue(pid, out int f)
+                && System.Math.Abs(currentFrame - f) <= SeedFreshnessFrames;
         }
 
         /// <summary>
@@ -238,6 +264,11 @@ namespace Parsek.MapRender
                             Seg = intent.Payload.Conic,
                             BodyName = intent.FrameBodyName
                         };
+                    // A visible TracedPath leg (ascent / burn / descent): stamp it so the icon-drive +
+                    // line patches suppress the stock proto icon + line under the gate (the polyline owns
+                    // it). Mutually exclusive with the StockConic seed above (one treatment per intent).
+                    else if (intent.Visible && intent.Treatment == Treatment.TracedPath)
+                        tracedPathByPid[pid] = UnityFrame();
 
                     GhostRenderReconciler.NoteIntent(pid, intent);
                     EmitLocateIntent(pid, currentUT, sample, intent);
@@ -327,6 +358,7 @@ namespace Parsek.MapRender
                 priorIntentByPid.Remove(stalePidScratch[i]);
                 chainByPid.Remove(stalePidScratch[i]);
                 seedByPid.Remove(stalePidScratch[i]);
+                tracedPathByPid.Remove(stalePidScratch[i]);
             }
         }
 

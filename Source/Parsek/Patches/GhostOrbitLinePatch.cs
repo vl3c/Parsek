@@ -117,6 +117,27 @@ namespace Parsek.Patches
             // branch is already deferred by the null-vessel guard above).
             if (__instance.reverse) return true;
 
+            // Director TracedPath suppression (gated by mapRenderDirectorDrive): when the new pipeline's
+            // active segment for this ghost is a non-orbital leg (ascent / burn / descent), the autonomous
+            // polyline owns it and the stock proto icon must be HIDDEN. Assert it HERE, before the
+            // no-bounds early-return below: during an escape-burn gap there are no segment bounds, so the
+            // legacy path falls through to stock, which propagates the gap-glide's per-frame synthesized
+            // eccentric orbit at the live clock and teleports the icon across it (the s15 burn-seam
+            // teleport). Adding the pid to ghostsWithSuppressedIcon makes the marker pass draw the
+            // non-proto polyline indicator instead; the line Postfix kills drawIcons/line.active. Return
+            // true so stock keeps the driver's position (harmless - the icon is not drawn). Recomputed per
+            // frame, so the icon re-shows cleanly when the next StockConic segment (the hyperbolic) starts.
+            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            {
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                ParsekLog.VerboseRateLimited("GhostOrbitIcon", "traced-suppress-" + pid,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Director TracedPath suppress pid={0} frame={1} (polyline owns the leg, proto icon hidden)",
+                        pid, Time.frameCount),
+                    1.0);
+                return true;
+            }
+
             Orbit orbit = __instance.orbit;
             // Missing / degenerate orbit → let stock handle it unchanged. Hyperbolic is NOT deferred:
             // the ghost orbit is seeded at the RAW recorded epoch (no shift baked in), so deferring a
@@ -496,6 +517,34 @@ namespace Parsek.Patches
                         pid,
                         HighLogic.LoadedScene),
                     5.0);
+                return;
+            }
+
+            // Director TracedPath suppression (gated by mapRenderDirectorDrive), checked FIRST so it
+            // pre-empts the polyline-owns / visible-body-frame / grace branches deterministically. When
+            // the new pipeline's active segment for this ghost is a non-orbital leg, the autonomous
+            // polyline owns it: kill the stock orbit line + proto icon so the legacy visible-body-frame
+            // branch can't re-show them on the per-frame gap-glide reseed orbit (the burn-seam icon
+            // teleport + the orbit-line-active-while-polyline-owns flicker). Recomputed per frame, so the
+            // line/icon re-show via visible-body-frame the moment the next StockConic segment starts. Do
+            // NOT stamp the grace deadline here - leave it frozen so the StockConic transition re-stamps
+            // it cleanly.
+            if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracedPathActive(pid, Time.frameCount))
+            {
+                line.active = false;
+                __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                LogOrbitLineDecision(
+                    pid,
+                    "director-traced-path-suppress",
+                    line.active,
+                    __instance.drawIcons,
+                    GhostMapPresence.IsIconSuppressed(pid),
+                    belowAtmosphere: false,
+                    hasBounds: false,
+                    Planetarium.GetUniversalTime(),
+                    double.NaN,
+                    double.NaN);
                 return;
             }
 
