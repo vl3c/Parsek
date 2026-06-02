@@ -86,15 +86,26 @@ namespace Parsek.MapRender
             || (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive);
 
         /// <summary>
-        /// True when the Director recorded a StockConic seed for <paramref name="pid"/> on
-        /// <paramref name="currentFrame"/> (same-frame only). Returns the inertial <see cref="OrbitSegment"/>
-        /// + frame body the Phase-8a drive re-asserts. Stale seeds (a frame the shadow did not run for
-        /// this pid) are dropped, so the patch falls back to the legacy drive.
+        /// Max frame gap between the shadow recording a StockConic seed and the icon-drive patch reading
+        /// it. The shadow (ParsekFlight/TS LateUpdate) and the patch (OrbitDriver LateUpdate) both run in
+        /// LateUpdate with no defined relative order, so requiring the exact same frame can miss when the
+        /// patch runs first (it would see the previous frame's seed). The seed is the segment's inertial
+        /// elements, which are constant across a segment, so a 1-2 frame-old seed is identical in practice
+        /// (the patch supplies its own driveUT; only the elements come from the seed).
+        /// </summary>
+        internal const int SeedFreshnessFrames = 2;
+
+        /// <summary>
+        /// True when the Director recorded a StockConic seed for <paramref name="pid"/> within
+        /// <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>. Returns the inertial
+        /// <see cref="OrbitSegment"/> + frame body the Phase-8a drive re-asserts. Stale seeds (no shadow
+        /// run for this pid recently) are dropped, so the patch falls back to the legacy drive.
         /// </summary>
         internal static bool TryGetFreshStockConicSeed(
             uint pid, int currentFrame, out OrbitSegment seg, out string bodyName)
         {
-            if (seedByPid.TryGetValue(pid, out StockConicSeed s) && s.Frame == currentFrame)
+            if (seedByPid.TryGetValue(pid, out StockConicSeed s)
+                && System.Math.Abs(currentFrame - s.Frame) <= SeedFreshnessFrames)
             {
                 seg = s.Seg;
                 bodyName = s.BodyName;

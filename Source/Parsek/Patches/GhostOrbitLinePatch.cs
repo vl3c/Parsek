@@ -192,12 +192,24 @@ namespace Parsek.Patches
             // off, tracing+shadow not producing one this frame, or a non-StockConic segment) -> the
             // legacy drive runs unchanged. Bodies match for the v1 same-body case; an SOI-mismatched
             // seed body falls back to the driver's reference body.
-            if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive
-                && Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
-                    pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody))
+            if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
             {
-                CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody) ?? __instance.referenceBody;
-                Parsek.MapRender.StockConicTreatment.SeedAndDrive(orbit, dirSeg, seedBody, driveUT);
+                double lanBefore = orbit.LAN;
+                bool fresh = Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody);
+                if (fresh)
+                {
+                    CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody) ?? __instance.referenceBody;
+                    Parsek.MapRender.StockConicTreatment.SeedAndDrive(orbit, dirSeg, seedBody, driveUT);
+                }
+                // Diagnostic (gated): pins whether the re-seed fires + what it changed, so we can tell a
+                // freshness/order miss (fresh=false) from a later overwrite (fresh=true, lan re-asserted,
+                // yet the icon-off-orbit metric stays high).
+                ParsekLog.VerboseRateLimited("MapRender", "8a-reseed-" + pid,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "8a reseed pid={0} fresh={1} curFrame={2} lanBefore={3:F2} lanAfter={4:F2} seedBody={5}",
+                        pid, fresh, Time.frameCount, lanBefore, orbit.LAN, dirBody ?? "-"),
+                    1.0);
             }
 
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
