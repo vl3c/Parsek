@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Parsek;
+using Parsek.Display;
 using Parsek.MapRender;
 using Xunit;
 
@@ -108,6 +109,47 @@ namespace Parsek.Tests
             var traj = new MockTrajectory { RecordingId = "rec-3", Points = new List<TrajectoryPoint> { Pt(5, "Kerbin") } };
             var chain = ChainAssembler.Build(traj, 0, 0, 0, 10);
             Assert.Equal(0, chain.SegmentCount);
+        }
+
+        // A synthetic surface provider (no FlightGlobals): Kerbin has the given radius.
+        private static GhostTrajectoryPolylineRenderer.BodySurfaceProvider KerbinRadius(double r)
+            => (string b, out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info) =>
+               { info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = r }; return string.Equals(b, "Kerbin"); };
+
+        [Fact]
+        public void Build_BelowSurfaceOrbit_FallsToTracedPath_NotStockConic()
+        {
+            // periapsis 500 km < 600 km radius => below surface => excluded from the conic cover (FIX #27)
+            // => the descent points in that span become a TracedPath run, NOT a StockConic segment.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-desc",
+                Points = new List<TrajectoryPoint> { Pt(12, "Kerbin"), Pt(16, "Kerbin"), Pt(20, "Kerbin"), Pt(24, "Kerbin"), Pt(28, "Kerbin") },
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 500000, eccentricity = 0 },
+                },
+            };
+            var chain = ChainAssembler.Build(traj, 0, 0, 0, 40, surface: KerbinRadius(600000));
+            Assert.DoesNotContain(chain.Segments, s => s.Treatment == Treatment.StockConic);
+            Assert.Contains(chain.Segments, s => s.Treatment == Treatment.TracedPath && s.FrameBodyName == "Kerbin");
+        }
+
+        [Fact]
+        public void Build_AboveSurfaceOrbit_WithProvider_StaysStockConic()
+        {
+            // periapsis 700 km > 600 km radius => above surface => the provider does NOT exclude it.
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-orb",
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 30, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0 },
+                },
+            };
+            var chain = ChainAssembler.Build(traj, 0, 0, 0, 40, surface: KerbinRadius(600000));
+            Assert.Single(chain.Segments);
+            Assert.Equal(Treatment.StockConic, chain.Segments[0].Treatment);
         }
     }
 }
