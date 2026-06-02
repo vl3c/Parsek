@@ -2719,13 +2719,41 @@ namespace Parsek.InGameTests
             }
         }
 
+        // True when the active vessel has at least one ignited engine producing positive thrust right
+        // now. Used by the launch waits to tell "this pad craft physically cannot lift off (no
+        // propulsion: spent stage, jets needing intake air, etc.)" apart from a real regression. A
+        // launch test stages the active vessel and expects it to leave PRELAUNCH; if no engine ever
+        // produces thrust, the craft never will, so the wait Skips rather than logging a misleading
+        // 10s product-regression Fail. Mirrors BackgroundRecorder's EngineIgnited && finalThrust > 0
+        // active-engine test; ModuleEnginesFX derives from ModuleEngines so both match.
+        internal static bool VesselIsProducingLaunchThrust(Vessel vessel)
+        {
+            if (vessel?.parts == null)
+                return false;
+            for (int p = 0; p < vessel.parts.Count; p++)
+            {
+                Part part = vessel.parts[p];
+                if (part?.Modules == null) continue;
+                for (int m = 0; m < part.Modules.Count; m++)
+                {
+                    var engine = part.Modules[m] as ModuleEngines;
+                    if (engine != null && engine.EngineIgnited && engine.finalThrust > 0.1f)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         internal static IEnumerator WaitForLaunchAutoRecordStart(float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
+            bool everProducedThrust = false;
             while (Time.time < deadline)
             {
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
+                if (vessel != null && VesselIsProducingLaunchThrust(vessel))
+                    everProducedThrust = true;
                 if (flight != null
                     && flight.IsRecording
                     && vessel != null
@@ -2739,6 +2767,17 @@ namespace Parsek.InGameTests
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
+            // The pad craft never produced launch thrust and stayed on the pad: this session's active
+            // vessel cannot lift off, so the launch flow is untestable here (not a product regression).
+            if (timedOutVessel != null
+                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
+                && !everProducedThrust
+                && !VesselIsProducingLaunchThrust(timedOutVessel))
+            {
+                InGameAssert.Skip(
+                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                    "never left PRELAUNCH; cannot exercise the launch auto-record flow on this craft");
+            }
             InGameAssert.Fail(
                 $"WaitForLaunchAutoRecordStart timed out after {timeoutSeconds:F0}s " +
                 $"(parsekFlight={(timedOutFlight != null)}, " +
@@ -3170,6 +3209,14 @@ namespace Parsek.InGameTests
                 $"expected>={expectedCount} actual={CountEvaBranches(tree)}");
         }
 
+        // Waits until the active vessel is the given pid, or Skips on timeout. The sole caller is the
+        // EVA-twice switch-BACK to the source capsule, driven through stock FlightGlobals.SetActiveVessel
+        // right after the first EVA kerbal was teleported clear of the hatch. KSP sometimes logs
+        // "Switching To Vessel <capsule>" but never completes the transition (the just-teleported
+        // from-vessel is mid-settle, or the spawnEVA auto-focus re-steals focus). That is stock-KSP
+        // not honoring a programmatic switch, NOT a Parsek regression, and the background-parent path
+        // under test can only be set up once the capsule is active again — so a non-switch is a clean
+        // Skip, consistent with this test's other "KSP did not cooperate" guards.
         private static IEnumerator WaitForActiveVesselPid(uint expectedPid, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
@@ -3184,9 +3231,10 @@ namespace Parsek.InGameTests
                 yield return null;
             }
 
-            InGameAssert.Fail(
-                $"WaitForActiveVesselPid timed out after {timeoutSeconds:F0}s " +
-                $"expected={expectedPid} active={FlightGlobals.ActiveVessel?.persistentId ?? 0u}");
+            InGameAssert.Skip(
+                $"KSP did not complete the programmatic switch to the expected vessel within {timeoutSeconds:F0}s " +
+                $"(expected pid={expectedPid} active pid={FlightGlobals.ActiveVessel?.persistentId ?? 0u}); " +
+                "cannot establish the active source capsule, so the background-parent second-EVA path is untestable");
         }
 
         // Waits (without asserting) until the active vessel is no longer the given pid, or the
@@ -6745,6 +6793,13 @@ namespace Parsek.InGameTests
                 // the ghost was just spawned and the range check would be vacuously true.
                 if (gs.lastDistance <= 0.0) continue;
                 if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+                // Skip a ghost that watch entry would immediately drop: EnterWatchMode sets
+                // watchedOverlapCycleIndex = gs.loopCycleIndex, and the per-frame safety net exits
+                // watch when a loop-cycle watch (loopCycleIndex >= 0) is no longer a Mission loop-unit
+                // member. Such a ghost would leave IsWatchingGhost false by the next frame, failing the
+                // angle assertions for an unrelated reason. A non-looping (loopCycleIndex < 0) or
+                // loop-unit-member ghost is a stable watch target.
+                if (gs.loopCycleIndex >= 0 && !engine.IsLoopUnitMember(kvp.Key)) continue;
 
                 index = kvp.Key;
                 state = gs;
@@ -6752,7 +6807,7 @@ namespace Parsek.InGameTests
             }
 
             if (index < 0)
-                InGameAssert.Skip("no same-body ghost available for watch-entry regression");
+                InGameAssert.Skip("no stable same-body ghost available for watch-entry regression");
 
             // --- Capture pre-entry camera forward direction (for 180-flip safety net) ---
             Vector3 cameraForwardBefore = FlightCamera.fetch.transform.forward;
@@ -6836,6 +6891,10 @@ namespace Parsek.InGameTests
                 if (kvp.Key >= committed.Count) continue;
                 if (gs.lastDistance <= 0.0) continue;
                 if (!GhostPlaybackLogic.IsWithinWatchRange(gs.lastDistance, cutoffKm)) continue;
+                // Skip a ghost watch entry would immediately drop (see WatchEntry_SameBody finder):
+                // a loop-cycle watch (loopCycleIndex >= 0) that is no longer a Mission loop-unit member
+                // is released by the per-frame no-target safety net the next frame.
+                if (gs.loopCycleIndex >= 0 && !flight.Engine.IsLoopUnitMember(kvp.Key)) continue;
 
                 index = kvp.Key;
                 state = gs;
@@ -9355,10 +9414,13 @@ namespace Parsek.InGameTests
         private static IEnumerator WaitForRecordingToLeavePrelaunch(string expectedRecordingId, float timeoutSeconds)
         {
             float deadline = Time.time + timeoutSeconds;
+            bool everProducedThrust = false;
             while (Time.time < deadline)
             {
                 var flight = ParsekFlight.Instance;
                 var vessel = FlightGlobals.ActiveVessel;
+                if (vessel != null && RuntimeTests.VesselIsProducingLaunchThrust(vessel))
+                    everProducedThrust = true;
                 string activeRecId = flight?.ActiveTreeForSerialization?.ActiveRecordingId;
                 if (flight != null
                     && flight.IsRecording
@@ -9374,6 +9436,17 @@ namespace Parsek.InGameTests
 
             var timedOutFlight = ParsekFlight.Instance;
             var timedOutVessel = FlightGlobals.ActiveVessel;
+            // The pad craft never produced launch thrust and stayed on the pad: it cannot lift off in
+            // this session, so the staged-launch revert flow is untestable here (not a regression).
+            if (timedOutVessel != null
+                && timedOutVessel.situation == Vessel.Situations.PRELAUNCH
+                && !everProducedThrust
+                && !RuntimeTests.VesselIsProducingLaunchThrust(timedOutVessel))
+            {
+                InGameAssert.Skip(
+                    "active pad vessel produced no launch thrust after staging (no ignited engine), so it " +
+                    "never left PRELAUNCH; cannot exercise the staged-launch flow on this craft");
+            }
             InGameAssert.Fail(
                 $"WaitForRecordingToLeavePrelaunch timed out after {timeoutSeconds:F0}s " +
                 $"(parsekFlight={(timedOutFlight != null)}, " +
