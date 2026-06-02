@@ -1289,6 +1289,21 @@ namespace Parsek
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
 
+                // Comprehensive per-marker DRAW log (always available, rate-limited, NOT tracing-gated):
+                // EVERY non-proto labelled marker logs WHERE it drew + its position SOURCE - mesh-ridden
+                // or trajectory-derived (polyline phase). Cheap (markerPos is already computed for the
+                // draw). A "yellow label in the wrong place" - e.g. riding the body-fixed escape-burn
+                // polyline during a burn - then reads in one line: source=traj polylinePhase=True with the
+                // drawn world position. (The detailed mesh-vs-recorded-path gap stays tracing-gated below.)
+                ParsekLog.VerboseRateLimited("GhostMap",
+                    "marker-draw-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Marker DRAWN: rec={0} vessel={1} source={2} polylinePhase={3} meshActive={4} " +
+                        "meshPositioned={5} vtype={6} drawnPos={7}",
+                        kvp.Key, ghostName, meshPositioned ? "mesh" : "traj", polylinePhase, meshActive,
+                        meshPositioned, vtype, markerPos.ToString("F0")),
+                    2.0);
+
                 // MapRenderTrace IMGUI surface coverage (ImguiLabeledMarker). Decision-only: the
                 // labeled marker draws here in OnGUI, so the projected world position IS the truth
                 // (no end-of-frame reconciliation). Gated + rate-limited inside EmitMarker.

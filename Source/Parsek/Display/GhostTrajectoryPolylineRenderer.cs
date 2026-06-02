@@ -282,6 +282,27 @@ namespace Parsek.Display
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Polyline cache refresh: rec={0} legs={1} hash={2:X}",
                     id, legArray.Length, hash));
+
+            // Full leg STRUCTURE (once per content change, not per frame): every leg's index, recorded
+            // [start,end] span, length, body, point count, and altitude range - so the complete polyline
+            // layout is always in the log and a long non-orbital leg (e.g. the ~100s escape burn the icon
+            // dwells on) is identifiable by span + high altitude (orbital-vacuum) without a screenshot.
+            if (legArray.Length > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < legArray.Length; i++)
+                {
+                    var lg = legArray[i];
+                    int mi = lg.PointCount;
+                    sb.AppendFormat(System.Globalization.CultureInfo.InvariantCulture,
+                        "{0}:[{1:F1}-{2:F1} {3:F0}s {4} pts={5} alt={6:F0}..{7:F0}] ",
+                        i, lg.startUT, lg.endUT, lg.endUT - lg.startUT, lg.bodyName ?? "?", mi,
+                        mi > 0 ? lg.alts[0] : 0.0, mi > 0 ? lg.alts[mi - 1] : 0.0);
+                }
+                ParsekLog.Verbose(Tag,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Polyline legs: rec={0} count={1} | {2}", id, legArray.Length, sb.ToString().TrimEnd()));
+            }
         }
 
         /// <summary>
