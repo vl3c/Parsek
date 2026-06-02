@@ -847,17 +847,27 @@ namespace Parsek.Tests
             Assert.True(built);
             Assert.Equal(TerminalState.Destroyed, cache.TerminalState);
             Assert.Equal(180.0, cache.TerminalUT);
+            // Background / periodic-refresh path: the sub-surface Destroyed verdict is
+            // a self-correcting transient, so it now logs at VERBOSE rather than WARN
+            // (the classification — terminal=Destroyed above — is unchanged). The
+            // companion "classified Destroyed" line is likewise Verbose, not INFO.
             Assert.Equal(1, CountLogLines(
-                "[Parsek][WARN][Extrapolator]",
+                "[Parsek][VERBOSE][Extrapolator]",
                 "Start rejected: sub-surface state",
                 "rec=rec-subsurface-transition",
                 "alt=-599979.0"));
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "Start rejected: sub-surface state",
+                "rec=rec-subsurface-transition"));
             Assert.Equal(1, CountLogLines(
-                "[Parsek][INFO][Extrapolator]",
+                "[Parsek][VERBOSE][Extrapolator]",
                 "classified Destroyed by sub-surface path",
                 "rec=rec-subsurface-transition",
                 "terminalUT=180.0",
                 "body=Kerbin"));
+            // The aggregate refresh summary is a separate log, unaffected by the
+            // sub-surface log-level change, and stays at INFO.
             Assert.Equal(1, CountLogLines(
                 "[Parsek][INFO][Extrapolator]",
                 "FinalizerCache refresh summary",

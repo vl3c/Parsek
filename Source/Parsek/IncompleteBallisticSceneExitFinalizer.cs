@@ -198,7 +198,8 @@ namespace Parsek
             Vessel vessel,
             double commitUT,
             RecordingTree recordingTree,
-            out IncompleteBallisticFinalizationResult result)
+            out IncompleteBallisticFinalizationResult result,
+            bool warnOnSubSurfaceStart = true)
         {
             result = default(IncompleteBallisticFinalizationResult);
             try
@@ -246,7 +247,8 @@ namespace Parsek
                             extrapolationBodies,
                             warnOnSubSurfaceStart: false),
                         recordingTree,
-                        out result))
+                        out result,
+                        warnOnSubSurfaceStart))
                 {
                     return false;
                 }
@@ -309,7 +311,13 @@ namespace Parsek
                 return false;
             }
 
-            return TryFinalizeRecording(recording, vessel, commitUT, recordingTree, out result);
+            // Background / periodic-refresh path: a sub-surface Destroyed verdict
+            // here is frequently a transient solver-teardown artifact that the next
+            // refresh self-corrects, so log it at Verbose (not WARN). The one-shot
+            // scene-exit caller (TryApply...) keeps the authoritative WARN default.
+            return TryFinalizeRecording(
+                recording, vessel, commitUT, recordingTree, out result,
+                warnOnSubSurfaceStart: false);
         }
 
         internal static bool IsAlreadyClassifiedDestroyed(Recording recording)
@@ -388,32 +396,51 @@ namespace Parsek
             double terminalUT,
             string bodyName,
             double altitude,
-            double threshold)
+            double threshold,
+            bool warnOnSubSurfaceStart = true)
         {
             string key = string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId;
             if (!subSurfaceDestroyedClassificationLogs.Add(key))
                 return false;
 
-            ParsekLog.Warn("Extrapolator",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "Start rejected: sub-surface state rec={0} body={1} ut={2:F3} alt={3:F1} " +
-                    "(threshold={4:F1}); classifying recording as Destroyed",
-                    key,
-                    bodyName ?? "(unknown-body)",
-                    terminalUT,
-                    altitude,
-                    threshold));
-            ParsekLog.Info("Extrapolator",
-                string.Format(
-                    CultureInfo.InvariantCulture,
-                    "TryFinalizeRecording: classified Destroyed by sub-surface path " +
-                    "rec={0} terminalUT={1:F1} body={2} alt={3:F1} threshold={4:F1}",
-                    key,
-                    terminalUT,
-                    bodyName ?? "(unknown-body)",
-                    altitude,
-                    threshold));
+            string rejectedMessage = string.Format(
+                CultureInfo.InvariantCulture,
+                "Start rejected: sub-surface state rec={0} body={1} ut={2:F3} alt={3:F1} " +
+                "(threshold={4:F1}); classifying recording as Destroyed",
+                key,
+                bodyName ?? "(unknown-body)",
+                terminalUT,
+                altitude,
+                threshold);
+            string classifiedMessage = string.Format(
+                CultureInfo.InvariantCulture,
+                "TryFinalizeRecording: classified Destroyed by sub-surface path " +
+                "rec={0} terminalUT={1:F1} body={2} alt={3:F1} threshold={4:F1}",
+                key,
+                terminalUT,
+                bodyName ?? "(unknown-body)",
+                altitude,
+                threshold);
+
+            // The sub-surface Destroyed verdict is authoritative on the one-shot
+            // scene-exit path (warnOnSubSurfaceStart: true) but is a transient,
+            // self-correcting artifact on the per-refresh background path: at the
+            // backgrounded_loaded frame the live orbit solver is briefly torn down,
+            // the start-state collapses to the body origin (alt ~ -Radius), and the
+            // next refresh re-reads the real (e.g. Landed) state. The background
+            // caller passes warnOnSubSurfaceStart: false so that expected transient
+            // logs at Verbose, per the logging convention (self-correcting per-frame
+            // transients are not WARN). The classification itself is unchanged.
+            if (warnOnSubSurfaceStart)
+            {
+                ParsekLog.Warn("Extrapolator", rejectedMessage);
+                ParsekLog.Info("Extrapolator", classifiedMessage);
+            }
+            else
+            {
+                ParsekLog.Verbose("Extrapolator", rejectedMessage);
+                ParsekLog.Verbose("Extrapolator", classifiedMessage);
+            }
             return true;
         }
 
@@ -463,7 +490,8 @@ namespace Parsek
             TryBuildStartStateProvider buildLiveStartState,
             ExtrapolateProvider extrapolate,
             RecordingTree recordingTree,
-            out IncompleteBallisticFinalizationResult result)
+            out IncompleteBallisticFinalizationResult result,
+            bool warnOnSubSurfaceStart = true)
         {
             result = default(IncompleteBallisticFinalizationResult);
             string recordingId = recording?.RecordingId ?? "(null)";
@@ -885,7 +913,8 @@ namespace Parsek
                     result.terminalUT,
                     result.subSurfaceDestroyedBodyName,
                     result.subSurfaceDestroyedAltitude,
-                    result.subSurfaceDestroyedThreshold);
+                    result.subSurfaceDestroyedThreshold,
+                    warnOnSubSurfaceStart);
             }
 
             return applied;

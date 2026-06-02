@@ -282,7 +282,12 @@ namespace Parsek
                     result.terminalUT,
                     result.subSurfaceDestroyedBodyName,
                     result.subSurfaceDestroyedAltitude,
-                    result.subSurfaceDestroyedThreshold);
+                    result.subSurfaceDestroyedThreshold,
+                    // Background/periodic refresh: an expected, self-correcting
+                    // sub-surface transient logs at Verbose, not WARN. (Usually a
+                    // no-op here anyway: the shared finalize path already logged +
+                    // deduped this recording id.)
+                    warnOnSubSurfaceStart: false);
             }
 
             return CompleteRefresh(cache, Accept(cache), recordingsExamined, 0, newlyClassified);
