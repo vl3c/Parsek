@@ -55,10 +55,54 @@ namespace Parsek.MapRender
             public GhostRenderChain Chain;
         }
 
+        // The Director's current StockConic seed per pid (the inertial OrbitSegment + frame body),
+        // frame-stamped, for the Phase-8a gated drive: GhostOrbitIconDrivePatch re-asserts THIS conic so
+        // the icon rides the same elements the line is drawn from. Populated each shadow frame for a
+        // visible StockConic ghost; read same-frame by the patch (the shadow runs in Update, the patch
+        // in LateUpdate). Independent of the reconciler store (works even with tracing off, as long as
+        // the shadow runs).
+        private struct StockConicSeed
+        {
+            public int Frame;
+            public OrbitSegment Seg;
+            public string BodyName;
+        }
+
+        private static readonly Dictionary<uint, StockConicSeed> seedByPid =
+            new Dictionary<uint, StockConicSeed>();
+
         internal static void Reset()
         {
             priorIntentByPid.Clear();
             chainByPid.Clear();
+            seedByPid.Clear();
+        }
+
+        /// <summary>The shadow runs when render tracing is on (for the reconciler) OR the experimental
+        /// Phase-8a director-drive gate is on (so the StockConic seed is populated for the patch even
+        /// with tracing off). Off by default - zero cost in normal play.</summary>
+        internal static bool Enabled =>
+            MapRenderTrace.IsEnabled
+            || (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive);
+
+        /// <summary>
+        /// True when the Director recorded a StockConic seed for <paramref name="pid"/> on
+        /// <paramref name="currentFrame"/> (same-frame only). Returns the inertial <see cref="OrbitSegment"/>
+        /// + frame body the Phase-8a drive re-asserts. Stale seeds (a frame the shadow did not run for
+        /// this pid) are dropped, so the patch falls back to the legacy drive.
+        /// </summary>
+        internal static bool TryGetFreshStockConicSeed(
+            uint pid, int currentFrame, out OrbitSegment seg, out string bodyName)
+        {
+            if (seedByPid.TryGetValue(pid, out StockConicSeed s) && s.Frame == currentFrame)
+            {
+                seg = s.Seg;
+                bodyName = s.BodyName;
+                return true;
+            }
+            seg = default(OrbitSegment);
+            bodyName = null;
+            return false;
         }
 
         /// <summary>
@@ -135,6 +179,17 @@ namespace Parsek.MapRender
                     priorIntentByPid.TryGetValue(pid, out GhostRenderIntent prior);
                     GhostRenderIntent intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     priorIntentByPid[pid] = intent;
+
+                    // Record the Director's StockConic seed this frame so the Phase-8a gated patch can
+                    // re-assert this inertial conic (one-source icon+line). Frame-stamped for same-frame
+                    // freshness at the patch site.
+                    if (intent.Visible && intent.Treatment == Treatment.StockConic && intent.Payload.HasConic)
+                        seedByPid[pid] = new StockConicSeed
+                        {
+                            Frame = UnityFrame(),
+                            Seg = intent.Payload.Conic,
+                            BodyName = intent.FrameBodyName
+                        };
 
                     GhostRenderReconciler.NoteIntent(pid, intent);
                     EmitLocateIntent(pid, currentUT, sample, intent);
@@ -224,7 +279,12 @@ namespace Parsek.MapRender
             {
                 priorIntentByPid.Remove(stalePidScratch[i]);
                 chainByPid.Remove(stalePidScratch[i]);
+                seedByPid.Remove(stalePidScratch[i]);
             }
         }
+
+        // Isolated Unity-native read (Time.frameCount): only ever JIT-compiled in-game, since the unit
+        // tests exercise DecideForGhost / ClassifyScope directly and never call RunFrame.
+        private static int UnityFrame() => UnityEngine.Time.frameCount;
     }
 }

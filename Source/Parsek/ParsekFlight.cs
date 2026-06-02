@@ -18530,7 +18530,8 @@ namespace Parsek
             // via MapRenderProbe. Writes NOTHING to the stock surfaces. Wholly gated on the
             // off-by-default mapRenderTracing setting so normal play pays nothing. Runs after
             // CheckPendingMapVessels (map presence is current) and well before the end-of-frame probe.
-            if (MapRenderTrace.IsEnabled)
+            // Also runs when the experimental director-drive gate is on (it needs the StockConic seed).
+            if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try
                 {

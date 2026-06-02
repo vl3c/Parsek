@@ -150,9 +150,20 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   TracedPath is a follower shell until 8b (the autonomous polyline still draws). STILL DEFERRED in
   Phase 5: the floating-origin frame + camera-focus draw-side, the §13 seam / moon-config logs, and
   resolving §15.1 (proto re-seed latency) in-game before the swap execution.
-- **Phase 8a (next) wires it:** swap `GhostOrbitLinePatch`'s decision/drive to the Director +
-  `StockConicTreatment` behind a runtime gate, at a fixed exec order before the stock `OrbitRenderer`,
-  and validate `angleIconVsOrbitEff -> ~0` in-game.
+- **Phase 8a - WIRED, default-OFF gated flip (NEEDS IN-GAME VALIDATION).** New setting
+  `ParsekSettings.mapRenderDirectorDrive` (Settings, EXPERIMENTAL, default false). When on,
+  `GhostOrbitIconDrivePatch` re-asserts the Director's StockConic conic each frame via
+  `StockConicTreatment.SeedAndDrive(orbit, seg, body, driveUT)` right before it propagates + positions
+  the icon, so the icon rides the SAME inertial elements the line is drawn from (one source) - the
+  icon-off-orbit fix by construction. The shadow stores the per-pid seed (`ShadowRenderDriver`
+  `seedByPid` + `TryGetFreshStockConicSeed`, same-frame freshness); `ShadowRenderDriver.Enabled` makes
+  the shadow run when tracing OR this gate is on. Default off = zero behaviour change; the legacy drive
+  runs when off / no fresh seed. **To validate:** turn on `mapRenderDirectorDrive` (+ `mapRenderTracing`
+  to read the metric) on the looped re-aim mission, expect `angleIconVsOrbitEff -> ~0` (was ~96.5).
+  KNOWN LIMITS until validated: SOI-mismatched seed body falls back to the driver body; off-arc clamp
+  driveUT is computed pre-reseed; only same-body StockConic ghosts are seeded (re-aim/overlap skipped).
+  Risk hotspot - wants a clean-context review before the gate flips default-on / the legacy path is
+  deleted (8a finalization).
 - **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
   over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from
   `MapViewScene`, which is now just the FLIGHT gate). `ParsekTrackingStation.Update` runs

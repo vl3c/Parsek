@@ -183,6 +183,23 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
+            // Phase 8a (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): re-assert the new
+            // pipeline's Director conic for this ghost so the icon rides the SAME inertial elements the
+            // orbit line is drawn from - one source - which eliminates the looped-re-aim
+            // icon-rotated-off-its-line desync (the old path lets a body-fixed reseed move the icon off
+            // the inertial line). SeedAndDrive re-seeds the segment elements + propagates at driveUT;
+            // the propagate + SetPosition below then place the icon on that conic. No fresh seed (gate
+            // off, tracing+shadow not producing one this frame, or a non-StockConic segment) -> the
+            // legacy drive runs unchanged. Bodies match for the v1 same-body case; an SOI-mismatched
+            // seed body falls back to the driver's reference body.
+            if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive
+                && Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
+                    pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody))
+            {
+                CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody) ?? __instance.referenceBody;
+                Parsek.MapRender.StockConicTreatment.SeedAndDrive(orbit, dirSeg, seedBody, driveUT);
+            }
+
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
             // recorded-clock driveUT instead of the live clock. Stock does updateUT = now then
             // UpdateFromUT(updateUT); we mirror that below by recording driveUT (the UT we actually

@@ -258,7 +258,7 @@ namespace Parsek
             // the stock surfaces. Gated on the off-by-default mapRenderTracing setting; try/catch so a
             // diagnostic bug can never break the TS update. Runs every Update tick (cachedLoopUnits is
             // fresh) before the rate-limited lifecycle pass.
-            if (MapRenderTrace.IsEnabled)
+            if (MapRender.ShadowRenderDriver.Enabled)
             {
                 try
                 {
