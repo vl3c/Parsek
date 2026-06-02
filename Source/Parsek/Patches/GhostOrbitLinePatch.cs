@@ -248,7 +248,12 @@ namespace Parsek.Patches
                     pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody);
                 if (fresh)
                 {
-                    CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody) ?? __instance.referenceBody;
+                    // Resolve the seed's own frame body. Gate director-drive on it resolving (no
+                    // referenceBody fallback) so this matches ShadowRenderDriver.IsDirectorDriveActive
+                    // EXACTLY - the arc-clip + probe read that predicate, so sharing the condition prevents
+                    // a one-frame icon(effUT)/line(live-bounds) split on a degenerate unresolvable body. A
+                    // real recorded body name always resolves, so normal play is unchanged.
+                    CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody);
                     if (seedBody != null)
                     {
                         // Bake epoch += shift, propagate at the live drive UT. This IS the icon's final

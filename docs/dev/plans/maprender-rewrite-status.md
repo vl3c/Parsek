@@ -173,9 +173,13 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   when tracing OR this gate is on. Default off = zero behaviour change; the legacy effUT drive runs when
   off / no fresh seed. **To validate:** turn on `mapRenderDirectorDrive` (+ `mapRenderTracing` to read the
   metric) on the s15 looped re-aim mission, expect `angleIconVsOrbitEff -> ~0` (was ~96.5) and the icon
-  visually on its line. KNOWN LIMITS until validated: SOI-mismatched seed body falls back to the driver
-  body; only same-body StockConic ghosts are seeded (re-aim/overlap skipped). Risk hotspot - wants a
-  clean-context review before the gate flips default-on / the legacy path is deleted (8a finalization).
+  visually on its line. KNOWN LIMITS until validated: only same-body StockConic ghosts are seeded
+  (re-aim/overlap skipped); a fresh seed whose body name does not resolve (degenerate, never for a real
+  recording) falls to the legacy path - the icon-drive + arc-clip + probe share ONE predicate
+  (`ShadowRenderDriver.IsDirectorDriveActive` = gate AND fresh seed AND body resolves) so they never split
+  on it; toggling the gate OFF mid-flight may briefly (~0.5s, until the next dispatcher reseed re-snaps the
+  raw epoch) show a stale orbit (self-healing, manual-toggle-only). Risk hotspot - wants a clean-context
+  review before the gate flips default-on / the legacy path is deleted (8a finalization).
   In-game test: `DirectorDriveEpochBakePlacesIconOnRecordedPhase` (RuntimeTests, GhostMap, FLIGHT).
 - **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
   over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from

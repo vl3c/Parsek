@@ -117,9 +117,18 @@ namespace Parsek.MapRender
         /// </summary>
         internal static bool IsDirectorDriveActive(uint pid, int currentFrame)
         {
+            // Gate on a fresh seed AND a resolvable seed body - the SAME condition the icon-drive Prefix
+            // uses to decide it actually bakes (GhostOrbitIconDrivePatch resolves seedBody via
+            // FlightGlobals.GetBodyByName(dirBody) and only goes director when non-null). Keeping the two
+            // sites on one predicate means the arc-clip (which switches to LIVE bounds when this is true)
+            // can never disagree with the icon-drive (which would otherwise fall to the legacy effUT path
+            // on an unresolvable body) for a one-frame icon/line split. A real recorded body name always
+            // resolves, so this is a no-op in normal play; it only closes the degenerate null/unknown-body
+            // gap deterministically.
             return ParsekSettings.Current != null
                 && ParsekSettings.Current.mapRenderDirectorDrive
-                && TryGetFreshStockConicSeed(pid, currentFrame, out _, out _);
+                && TryGetFreshStockConicSeed(pid, currentFrame, out _, out string seedBody)
+                && FlightGlobals.GetBodyByName(seedBody) != null;
         }
 
         /// <summary>
