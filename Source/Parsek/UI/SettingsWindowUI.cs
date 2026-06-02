@@ -193,6 +193,7 @@ namespace Parsek
                 s.verboseLogging = defaults.VerboseLogging;
                 s.ghostRenderTracing = false;
                 s.mapRenderTracing = false;
+                s.mapRenderDirectorDrive = false;
                 s.writeReadableSidecarMirrors = defaults.WriteReadableSidecarMirrors;
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
@@ -204,6 +205,7 @@ namespace Parsek
                 ParsekSettingsPersistence.RecordBlockCommittedActions(s.blockCommittedActions);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
+                ParsekSettingsPersistence.RecordMapRenderDirectorDrive(s.mapRenderDirectorDrive);
                 // blockCommittedActions needs no controller refresh; click-block patches read it at call time.
                 if (s.showCommittedFutureOverlays != priorShowCommittedFutureOverlays)
                     StockUiOverlayController.RefreshOpenScreensAfterSettingsChanged();
@@ -463,6 +465,16 @@ namespace Parsek
                 s.mapRenderTracing = mapRenderTracing;
                 ParsekSettingsPersistence.RecordMapRenderTracing(s.mapRenderTracing);
                 ParsekLog.Info("UI", $"Setting changed: mapRenderTracing={s.mapRenderTracing}");
+            }
+
+            bool mapRenderDirectorDrive = GUILayout.Toggle(s.mapRenderDirectorDrive,
+                new GUIContent(" Map/TS new render drive (EXPERIMENTAL)",
+                    "When on, the new map-render pipeline drives each conic ghost's orbit + icon from one source, fixing the looped-re-aim icon-rotated-off-its-line bug. Experimental; off uses the existing path. Leave off unless validating the rewrite."));
+            if (mapRenderDirectorDrive != s.mapRenderDirectorDrive)
+            {
+                s.mapRenderDirectorDrive = mapRenderDirectorDrive;
+                ParsekSettingsPersistence.RecordMapRenderDirectorDrive(s.mapRenderDirectorDrive);
+                ParsekLog.Info("UI", $"Setting changed: mapRenderDirectorDrive={s.mapRenderDirectorDrive}");
             }
 
             bool writeReadableSidecarMirrors = GUILayout.Toggle(s.writeReadableSidecarMirrors,
