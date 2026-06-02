@@ -219,10 +219,13 @@ chain by mission type:
 1. **Descent re-stitch** — the recorded descent renders at its recorded body-relative geometry
    but is not seamed to the re-aimed arrival capture orbit; closing that rigid orbit↔landing
    seam is the largest item (and it is near the surface, so on-camera — not a tolerated SOI seam).
-2. **Single continuous recording** — when ascent+transfer are one un-split recording, that
-   member is wrapped in `ReaimedTrajectory` and its ascent `Points` are dropped; fix by
-   re-timing the recorded ascent onto the re-aimed departure, or formalize the
-   chain-decomposition requirement.
+2. **Single continuous recording** — when ascent+transfer are one un-split recording, the
+   member is wrapped in `ReaimedTrajectory`, which empties `Points`, so the **orbit/engine
+   surface** drops the ascent. (The **polyline surface** reads raw `rec.Points` directly off
+   the Recording — re-aim-agnostic, headUT-gated — so it would still draw the ascent; the two
+   surfaces *disagree* for this case, which is itself a coherence argument for routing both
+   through one Director.) Fix by re-timing the recorded ascent onto the re-aimed departure, or
+   formalize the chain-decomposition requirement.
 3. **Ascent re-timing** to the re-aimed departure, **S1 ejection synthesis**, and the
    **arrival seam blend** (polish).
 
@@ -470,20 +473,26 @@ branch (§13), not optional.
 
 Per the directive *don't implement orbital mechanics from scratch*, the orbital math is
 extracted into its own replaceable module **in this effort**. Investigation found it already
-cleanly layered in `Reaim/`, behind a single linear caller funnel (`ReaimPlaybackResolver` →
-`ReaimTransferSynthesizer.TrySynthesizeTransfer` → `UvLambert.Solve`, each with exactly one
-production caller), so the blast radius is tiny. Two interfaces:
+cleanly layered in `Reaim/`, behind a single linear *synthesis* funnel (`ReaimPlaybackResolver` →
+`ReaimTransferSynthesizer.TrySynthesizeTransfer` → `UvLambert.Solve`, the latter two each with
+exactly one production caller), so the blast radius is tiny. (The resolver itself has two
+production entry points — flight `ResolveForFrame` and map/TS `TryResolveWindowSegments` — that
+converge one level down into the shared synthesis path + per-window cache.) Two interfaces:
 
 - **`ITransferSolver`** — the pure Lambert solve (`UvLambert.Solve`: `mu, r1, r2, tof, prograde
   → v1, v2`, fail-closed). Already zero-Unity, zero-global-state; becomes the swap-a-library
   seam essentially verbatim. Guarded by the existing `UvLambertTests` (Curtis 5.2 textbook
   case, round-trips, degenerate fail-closed) — a swapped impl must pass them.
 - **`IEncounterSolver`** — wraps stock `PatchedConics.CalculatePatch` + the geometric
-  proximity fallback, isolated so the Lambert swap and the encounter swap are independent.
+  proximity fallback, **to be isolated** (today both halves are co-located inside
+  `TrySynthesizeTransfer`, with the plane-projection / sane-conic policy sitting between them),
+  so the Lambert swap and the encounter swap become independent.
 
 The **one signature change that buys swap-freedom:** the synthesizer returns frame-agnostic
-Kepler elements (a `TransferConic` / `OrbitSegment`) instead of a live KSP `Orbit`, so nothing
-downstream depends on `Orbit` / `CalculatePatch` semantics. **Stays Parsek-side** (NOT in the
+Kepler elements (a `TransferConic` / `OrbitSegment`) instead of a live KSP `Orbit`. (The live
+`Orbit` is already confined to the synthesizer + the one-line `ReaimOrbitSegmentConverter`;
+downstream of the resolver is already `OrbitSegment`-only — the change pushes that conversion
+behind the interface so a swapped solver need never construct a KSP `Orbit`.) **Stays Parsek-side** (NOT in the
 library boundary): the AliceWorld `.xzy` frame swizzle, `Orbit` construction, the
 plane-projection / prograde-handedness / `IsSaneTransferConic` policy, the tof-search loop,
 per-window caching, and the **declined→faithful** contract — when a window's solve declines (no
@@ -570,8 +579,8 @@ assigned treatment, icon riding the line). Which segments exist depends on §4:
 
 - **Ascent / atmospheric** (TracedPath): appears at launch; icon rides from the surface up;
   full segment path visible. Renders for faithful missions and for the faithful ascent *member*
-  of a chain-decomposed re-aimed mission; dropped only when ascent+transfer are one un-split
-  recording (§4 item 2).
+  of a chain-decomposed re-aimed mission; dropped (on the orbit/engine surface only) when
+  ascent+transfer are one un-split recording (§4 item 2).
 - **Loiter / parking orbit** (StockConic): full ellipse; icon rides it. Loiter *count* is
   the scheduler's trim; the renderer plays exactly the orbits present in the chain.
 - **Ejection → SOI exit** (body-relative; StockConic or TracedPath by the conic test):
@@ -601,10 +610,10 @@ Each: scenario → expected behavior → [v1 / deferred].
 
 1. **Moon flyby with mismatched config.** Recorded arc passes a moon the scheduler left out
    of place → vessel "teleports" past empty space. *Renderer draws as-is at live positions,
-   logs the recorded-vs-live moon phase offset, does not correct.* For a re-aimed
-   interplanetary mission a flyby renders only if its arc is an on-rails `OrbitSegment`; a
-   recorded approach `Points`/`TrackSection` flyby is behind the §4 prerequisite. [v1:
-   scheduler constraint exists for Mun/Minmus; extend.]
+   logs the recorded-vs-live moon phase offset, does not correct.* A chain-decomposed approach
+   member's recorded flyby `Points`/`TrackSection` render today (frame-split per §6.2); only a
+   single-recording arrival's approach is behind the §4 item-2 prerequisite. [v1: scheduler
+   constraint exists for Mun/Minmus; extend.]
 2. **SOI-boundary direction seam.** Recorded exit direction ≠ heliocentric appearance.
    *Accepted, not corrected.* [Deferred.]
 3. **Variable chain structure.** Direct departure, direct landing, same-body. *Assembled
@@ -763,8 +772,11 @@ SOI seam, self-overlapping instances, camera-focus through a swap.
 
 ## 16. References
 
-- `docs/dev/done/plans/reaim-interplanetary-transfers.md` — deterministic transfer (Lambert),
-  v1 = orbital arrival, S4 descent deferred.
+- `docs/dev/done/plans/reaim-interplanetary-transfers.md` — deterministic transfer (Lambert).
+  Note: its "v1 = orbital arrival, S4 descent deferred" scope is **superseded for
+  chain-decomposed (multi-member) missions** — the recorded descent renders as a separate
+  faithful member via the polyline renderer; only the single-recording re-stitch (§4 item 1)
+  remains deferred.
 - `docs/dev/done/plans/reaim-loiter-compression.md` — whole-period loiter trimming.
 - `docs/dev/design-mission-periodicity.md` — launch-window scheduling; "replay as-is" superseded.
 - `docs/dev/design-mission-abstractions.md` — Mission / selection / span-clock / overlap; the
