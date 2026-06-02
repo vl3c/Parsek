@@ -4,11 +4,10 @@
 Tracking-Station ghost-render path. The implementation will REPLACE the current
 smear of Harmony patches + OnGUI passes + lifecycle ticks with a new module whose
 internal structure mirrors the gameplay model, reusing existing solver/playback
-code and proven snippets but re-organizing WHO decides what. This doc specifies the
-gameplay necessity, the target architecture, the reuse/replace map, behavior, edge
-cases, diagnostics, and tests. It does NOT specify method-level code changes — that
-is Step 4 (explore + plan). It does NOT change the recording format, the re-aim
-solver, or the periodicity scheduler; it changes how the renderer CONSUMES them.*
+code and proven snippets but re-organizing WHO decides what. It does NOT specify
+method-level code changes — that is Step 4 (explore + plan). It does NOT change the
+recording format, the re-aim solver, or the periodicity scheduler; it changes how the
+renderer CONSUMES them.*
 
 *Supersedes the precursor note `design-map-ts-looped-mission-render.md` (folded in).
 Builds on: `docs/dev/done/plans/reaim-interplanetary-transfers.md`,
@@ -17,6 +16,11 @@ Builds on: `docs/dev/done/plans/reaim-interplanetary-transfers.md`,
 superseded — see that doc's banner), `docs/dev/design-mission-abstractions.md`,
 `docs/parsek-ghost-trajectory-rendering-design.md`, and
 `docs/dev/design-map-ts-render-tracer.md`.*
+
+> **Template map (per `development-workflow.md` §3):** Problem = §1; Terminology = §2;
+> Mental Model = §3; Data Model = §6.2 + §6.10; Behavior = §9; Edge Cases = §10; What
+> Doesn't Change = §11; Backward Compatibility = §12; Diagnostic Logging = §13; Test
+> Plan = §14.
 
 ---
 
@@ -48,26 +52,31 @@ The root cause is structural, not a collection of independent bugs:
    (recorded points → generated conic → recorded points) and every re-anchored joint is
    a fresh opportunity for a glitch.
 
-3. **The Tracking Station has no looped-ghost animation at all today** (the Phase-F gap
-   in `design-mission-abstractions.md`): TS positions ghost proto-vessels once at the
-   live UT against each recording's recorded window, with no per-frame loop-phase remap.
-   So TS is not just buggy for loops — it is unimplemented for them.
+3. **The Tracking Station already animates looped ghosts, but only at the per-recording
+   level** (the Phase-F span-clock remap: `ResolveTrackingStationSampleUT`, wired through
+   `ParsekTrackingStation.Update` → `UpdateTrackingStationGhostLifecycle`). It positions
+   each member at its own remapped UT, but it has **no chain re-assembly** (the
+   heterogeneous recorded→generated→recorded hand-off, treatment switching, the
+   make-before-break swap) and, by design, no overlap machinery (it renders a single span
+   instance). So the TS gap is narrower than "unimplemented" — it is "extend the existing
+   Phase-F remap into the chain model," not "build TS animation from nothing."
 
 The fix is to make the renderer's internal model *match the gameplay model*: a
 variable-structure **chain** of typed segments joined at typed seams, with one
-per-frame decision owner and dumb follower surfaces. The rewrite is the opportunity to
-collapse the scattered coordination into that single structure.
+per-frame decision owner over the Parsek-owned surfaces and dumb follower surfaces. The
+rewrite is the opportunity to collapse the scattered coordination into that structure.
 
 ## 2. Terminology
 
 - **Ghost** — a playback-only representation of a recorded vessel on the map/TS. The
   player *watches* ghosts; ghost interaction (focus / target / Fly / re-fly) is already
   implemented and out of scope.
-- **Segment** — a contiguous stretch of a ghost's path with one render treatment.
+- **Segment** — a contiguous stretch of a ghost's path with one render treatment AND one
+  body frame.
   - **Recorded segment** — replayed exactly from recorded data (ascent, burns, in-SOI
     arcs, landing). Non-conic stretches are *recorded-point* segments.
-  - **Generated segment** — computed deterministically, not backed by recorded points
-    (the heliocentric transfer). Always a clean conic.
+  - **Generated segment** — computed deterministically by the solver, not backed by
+    recorded points (the heliocentric transfer). Always a clean conic.
 - **Sub-chain** — a maximal run of recorded segments anchored to one body's frame: the
   **departure sub-chain** (launch body) and the **arrival sub-chain** (destination body).
 - **Joint** — a boundary between two segments. **Rigid** joints must connect cleanly
@@ -77,17 +86,22 @@ collapse the scattered coordination into that single structure.
 - **Treatment** — how a segment is drawn: **stock-conic** (a stock KSP object —
   proto-vessel icon + KSP orbit line) or **traced-path** (our drawn polyline of recorded
   points + marker/label icon).
-- **Chain** — the per-cycle-window ordered list of typed segments for one ghost,
-  assembled from its (possibly re-aimed) trajectory + the loop unit's window/anchor/cuts.
-- **Cycle window** — `[launch UT … end UT]` of one relaunch of a looped mission, as
-  scheduled. A looped ghost renders only while the live clock is inside a cycle window.
+- **Chain** — the per-cycle-window, per-instance ordered list of typed segments for one
+  ghost, assembled from its (possibly re-aimed) trajectory + the loop unit's
+  window/anchor/cuts.
+- **Cycle window / instance** — `[launch UT … end UT]` of one relaunch. A self-overlapping
+  mission has several staggered *instances* live at once; each is a distinct ghost with
+  its own chain and clock position. A looped ghost renders only while the live clock is
+  inside one of its cycle windows.
 - **Scheduler** — the existing re-aim + periodicity machinery that chooses *when* (launch
   UT, loiter counts, arrival window) so recorded arcs play against live bodies that
-  ≈ match the recording. Out of scope to redesign; the renderer consumes its output.
+  ≈ match the recording. The renderer consumes its output and does not re-plan.
+- **Solver** — the orbital-mechanics engine behind the scheduler (Lambert transfer,
+  patched-conic encounter). A replaceable module (see §6.9).
 - **Render intent** — the renderer's single per-frame, per-ghost decision: visible?,
   treatment, drive-UT, icon position, line spec, label.
 
-## 3. Gameplay model (necessity first)
+## 3. Mental model (gameplay, necessity first)
 
 ### 3.1 The chain
 
@@ -98,11 +112,15 @@ from the recorded segment classification — never a fixed template:
  ── DEPARTURE SUB-CHAIN ──────────►  ⟂  ──TRANSFER──  ⟂  ──── ARRIVAL SUB-CHAIN ─────►
  launch · ascent · [loiter] · eject     (generated)      SOI-entry · approach · [loiter] · land
  anchored to LAUNCH BODY frame          clean conic       anchored to DESTINATION BODY frame
-   rigid recorded segments              must look         rigid recorded segments
-        ▲ flexible: launch UT,          perfect              ▲ flexible: arrival window
+   rigid recorded segments              away from         rigid recorded segments
+        ▲ flexible: launch UT,          the SOI seams        ▲ flexible: arrival window
           departure loiter count                              (→ moon config), arrival loiter
         ⟂ flexible SOI exit               ⟂ flexible SOI entry
 ```
+
+This is the **general target model**. What is actually renderable in v1 depends on the
+mission type (§4): a faithful same-parent mission renders the whole chain; a re-aimed
+cross-parent mission renders the conic subset + orbital arrival.
 
 ### 3.2 Decoupling at the SOI joints (why re-aim exists)
 
@@ -128,18 +146,24 @@ rotation ~daily; destination phase ~per moon/synodic period).
 | Departure loiter count | integer, bounded (~100 → 1–5) | flexible |
 | Orbit → SOI exit | — | **rigid** (recorded, exact) |
 | Departure SOI exit (angle + timing) | time + tolerated seam | flexible joint |
-| Heliocentric transfer | — | **rigid but generated** (deterministic, perfect) |
+| Heliocentric transfer | — | **generated, deterministic** |
 | Destination SOI entry (angle + timing) | time + tolerated seam | flexible joint |
 | In-SOI approach (incl. moon flybys) | — | **rigid** (recorded, exact) |
 | Arrival loiter count | integer, bounded | flexible |
 | Landing | — | **rigid** (recorded, exact) |
 
+The generated transfer is a **clean conic away from the SOI seams**. Its v1 stitching
+anchors to the recorded SOI-exit state and swaps only the post-exit velocity to the
+solver's departure velocity, so the departure SOI edge carries an accepted velocity
+discontinuity (the flexible-seam artifact) — not a "byte-perfect" join. "Looks perfect"
+means the conic body itself is clean, not that the SOI seam is continuous.
+
 ### 3.4 Variable structure
 
 Optional pieces drop out per mission: *direct departure* ⇒ no departure parking loiter;
-*direct landing / atmospheric slowdown* ⇒ no arrival loiter; a *same-body* mission
-(Kerbin→Mun) has no heliocentric transfer segment. The chain is read from each
-recording's segment classification, not stamped from a template.
+*direct landing / atmospheric slowdown* ⇒ no arrival loiter; a *same-body* mission has no
+heliocentric transfer. The chain is read from each recording's segment classification,
+not stamped from a template.
 
 ### 3.5 Correctness priority (where the system must spend effort)
 
@@ -154,13 +178,12 @@ Two kinds of seam error, deliberately ranked:
   arc at live positions and relies on the schedule.
 - **SOI-boundary exit/entry *direction* mismatch → deferred.** "Exited to the planet's
   right but appears on the left in heliocentric zoom" is off-camera, across two zoom
-  levels nobody cross-references. Accepted for v1; "which side gives" at the departure
-  seam (re-point the recorded arc vs bend the transfer) is left for later.
+  levels nobody cross-references. Accepted for v1.
 
 ### 3.6 Rendering scope (only while it happens)
 
-A looped mission contributes nothing to the map until its launch. The wait is pure UI:
-a **Warp-to-launch** button (jumps the global clock to ~15 s before the calculated launch
+A looped mission contributes nothing to the map until its launch. The wait is pure UI: a
+**Warp-to-launch** button (jumps the global clock to ~15 s before the calculated launch
 UT) and a **Time-to-launch** countdown in the Missions tab. The renderer never draws an
 idle or future mission and never previews the chain ahead of the icon (an end-to-end
 forward preview is a deferred advanced feature). At any instant the ghost occupies exactly
@@ -169,26 +192,56 @@ segment visible so the player sees where the ghost is going within it.
 
 ## 4. Scope (v1)
 
-- **In:** single hop, launch-SOI → one other SOI; destination is a **single-moon** body
-  (Duna, Eve, …) or a same-body target (Mun, Minmus). Exact non-looped recordings (the
-  degenerate single-sub-chain case) keep working unchanged. Parity between map view (in
-  flight) and the Tracking Station.
+The renderable chain depends on the mission type, because re-aim only engages for
+cross-parent targets and currently surfaces only conic segments:
+
+- **Same-parent / same-body missions (Mun, Minmus) — FAITHFUL replay.** Re-aim does not
+  engage; the recording plays as-is with periodicity-scheduled launch windows. The
+  **whole chain renders** (recorded ascent/loiter/approach/landing as TracedPath +
+  conics), because `Points` / `TrackSections` are present. This is the richest v1 case.
+- **Cross-parent interplanetary missions (Duna, Eve, …) — RE-AIMED.** `ReaimedTrajectory`
+  substitutes the heliocentric leg and exposes **`OrbitSegments` only** (`Points` /
+  `TrackSections` are empty on the re-aimed adapter), and re-aim v1 is **orbital arrival,
+  no re-stitched descent** (`reaim-interplanetary-transfers.md` defers the target-surface
+  S4 leg). So the v1 renderable interplanetary chain is the **conic subset**: departure
+  orbit/ejection, the generated transfer, and the arrival capture orbit — ending at
+  orbital arrival. The recorded ascent and descent *surface tracks* do not render for a
+  re-aimed mission until a re-aim-adapter prerequisite lands (see below).
+- **Non-looped exact recordings** keep working unchanged (the degenerate single-sub-chain
+  case, span clock = identity).
+- **Map view (in flight) ↔ Tracking Station parity** is required for what each case renders.
+
+**Named prerequisite (out of this module, gating the full interplanetary chain):**
+re-timing the recorded surface/atmospheric ascent and descent tracks onto the synthesized
+spans — i.e. populating `Points` / `TrackSections` on the re-aimed adapter so the
+TracedPath treatment has data on a re-aimed mission. Until then, interplanetary v1 is
+conic-only / orbital-arrival. This is a solver/adapter task (§6.9), not a render task; the
+render architecture is designed for the full chain so it needs no change when the data
+arrives.
+
 - **Deferred:** Jool / multi-moon destinations (mini-system), gravity assists, multi-hop
-  chains, plane-aware / complex transfers, the end-to-end forward chain preview, and
-  erasing the SOI-boundary *direction* seam.
+  chains, plane-aware / complex transfers, the end-to-end forward chain preview, the
+  re-aimed descent/ascent surface-track re-stitch (above), and erasing the SOI-boundary
+  *direction* seam.
 
 ## 5. Responsibility split (load-bearing)
 
-The single most important architectural line. It keeps the renderer simple and puts the
-hard correctness in the already-working scheduler:
+Three layers, three owners. The point is to keep the renderer simple and put the hard
+correctness in the already-working scheduler/solver:
 
+- **Solver owns *the orbital mathematics*** (transfer generation, encounter solve) behind
+  a replaceable module boundary (§6.9). We do **not** implement orbital mechanics from
+  scratch — the boundary lets a library replace the current hand-rolled Lambert with zero
+  render-side impact.
 - **Scheduler owns *when*.** Launch UT, loiter counts, arrival window — chosen so recorded
   arcs play against live bodies that ≈ match the recording, including the high-visibility
   moon-flyby phases.
-- **Renderer owns *drawing the current segment*.** It draws recorded arcs relative to the
-  relevant body **at the bodies' live positions** and **never repositions or nudges a
-  celestial body**. It trusts the schedule. A moon that isn't where it was recorded is a
-  scheduler miss — the renderer **logs it but does not correct it**.
+- **Renderer owns *drawing the current segment*.** It depends only on the *segment output*
+  (the `OrbitSegments` / recorded points it is handed), never on the solver internals or
+  scheduler reasoning. It draws recorded arcs relative to the relevant body **at the
+  bodies' live positions** and **never repositions or nudges a celestial body**. A moon
+  that isn't where it was recorded is a scheduler miss — the renderer **logs it but does
+  not correct it**.
 
 ## 6. Target architecture
 
@@ -196,66 +249,77 @@ hard correctness in the already-working scheduler:
 
 ```
             ┌──────────────────────────────────────────────────────────────┐
-  REUSED →  │  Scheduler stack (UNCHANGED): MissionLoopUnitBuilder,         │
-            │  re-aim pipeline (ReaimedTrajectory, classifier, planner,     │
-            │  loiter compressor), MissionPeriodicity, span clock           │
-            │  (TryComputeSpanLoopUT / DecompressSpanUT), IPlaybackTrajectory│
+  SOLVER →  │  Orbital-solver module (REPLACEABLE, §6.9): transfer/Lambert  │
+  MODULE    │  + patched-conic, behind ITransferSolver. May be a library.   │
             ├──────────────────────────────────────────────────────────────┤
-   NEW   →  │  L1  ChainAssembler   (IPlaybackTrajectory + LoopUnit)        │  per-window, cached
-  MODULE    │                       → GhostRenderChain (ordered RenderSeg.) │  assigns treatments
-  "Parsek.  ├──────────────────────────────────────────────────────────────┤
+  REUSED →  │  Scheduler stack: MissionLoopUnitBuilder (owns LoopUnitSet),  │
+            │  re-aim pipeline (ReaimedTrajectory, ReaimPlaybackResolver,    │
+            │  classifier/planner/loiter-compressor), MissionPeriodicity,    │
+            │  span clock (TryComputeSpanLoopUT / DecompressSpanUT),         │
+            │  IPlaybackTrajectory                                           │
+            ├──────────────────────────────────────────────────────────────┤
+   NEW   →  │  L1  ChainAssembler   (IPlaybackTrajectory + LoopUnit +       │  per-(window,instance)
+  MODULE    │       declined/faithful signal) → GhostRenderChain            │  cached; assigns
+  "Parsek.  │                                                               │  treatments + frames
    MapRender"│  L2  ChainSampler     Sample(chain, liveUT) → GhostSample    │  pure, scene-agnostic
-            │                       {segment, treatment, pos|conic, phase,  │  uses span clock
-            │                        coverage}                              │
-            ├──────────────────────────────────────────────────────────────┤
-            │  L3  GhostRenderDirector  per-frame, per-ghost:               │  THE single decision
-            │      chain+sampler → GhostRenderIntent                        │  owner. subsumes ALL
-            │      {visible, treatment, driveUT, iconPos, lineSpec, label}  │  today's gate flags
+            │  L3  GhostRenderDirector  per-frame, per-instance:            │  single owner over
+            │       chain+sampler → GhostRenderIntent                       │  PARSEK-owned surfaces
             ├───────────────────────────────┬──────────────────────────────┤
             │  L4  IGhostRenderTreatment     │  IGhostMapScene (adapter)    │
             │   • StockConicTreatment        │   • project pos → scene space │
-            │     (proto-vessel + KSP orbit) │   • camera / scene gate       │  ← SCENE SPLIT
-            │   • TracedPathTreatment        │   • proto-vessel lifecycle    │
-            │     (polyline + marker/label)  │  Impls: MapViewScene,         │
-            │   (pure followers of intent)   │         TrackingStationScene  │
+            │     (stock proto + KSP orbit,  │   • camera / scene gate       │  ← SCENE SPLIT
+            │      MANAGED vs KSP)           │   • proto-vessel lifecycle    │
+            │   • TracedPathTreatment        │   • single floating-origin    │
+            │     (polyline + marker, OWNED) │     frame per cycle           │
+            │   (pure followers of intent)   │  Impls: MapViewScene,         │
+            │                                │         TrackingStationScene  │
             ├───────────────────────────────┴──────────────────────────────┤
-            │  L5  GhostRenderReconciler   assert rendered-truth == intent  │  the tracer, promoted
+            │  L5  GhostRenderReconciler  (REUSES MapRenderTrace/Probe):    │  pervasive, always-on
+            │       assert rendered-truth == intent at every decision point │  observability
             └──────────────────────────────────────────────────────────────┘
    ATOMS (UNCHANGED): TrajectoryPoint · OrbitSegment · TrackSection · terminal state · bounds
 ```
 
 ### 6.2 The central new abstraction: `GhostRenderChain`
 
-This is the object the old code lacked. For one ghost in one cycle window it is the
-ordered list of `RenderSegment`s — a **render-oriented view** over existing playback data,
-not a copy of it.
+This is the object the old code lacked. For one ghost *instance* in one cycle window it is
+the ordered list of `RenderSegment`s — a **render-oriented view** over existing playback
+data, not a copy of it.
 
 ```
 struct RenderSegment
     SegmentKind  Kind            // Ascent, Loiter, Eject, Transfer, Approach, ArrivalOrbit, Landing, ...
     Treatment    Treatment       // StockConic | TracedPath  (assigned at assembly)
-    double       StartUT, EndUT   // in the ASSEMBLED-chain clock (post-trim, post-reanchor)
-    string       FrameBodyName    // body this segment is anchored to (launch / dest / Sun)
+    double       StartUT, EndUT   // ASSEMBLED-chain clock (post-trim, post-reanchor)
+    string       FrameBodyName    // EXACTLY ONE body frame per segment (see split rule)
     SegmentPayload Payload        // conic: an OrbitSegment ref;  traced: a Points/TrackSection span ref
     bool         IsGenerated      // true for the re-aimed transfer
-    bool         IsFlexibleSeamEntry / IsFlexibleSeamExit   // marks the SOI joints
+    SeamKind     LeadingSeam, TrailingSeam   // Rigid | FlexibleSoi | None
 
 class GhostRenderChain
-    string             RecordingId
-    int                CommittedIndex     // positional index, the LoopUnitSet contract
-    IReadOnlyList<RenderSegment> Segments  // ordered by StartUT, contiguous (gaps allowed at flexible seams)
-    double             WindowStartUT, WindowEndUT
-    // built once per (BuildSignature, cycle window); cached; O(log n) locate by UT
+    string  RecordingId
+    int     CommittedIndex        // positional index, the LoopUnitSet contract
+    int     InstanceKey           // cycle/instance discriminator — distinguishes overlap instances
+    IReadOnlyList<RenderSegment> Segments   // ordered by StartUT; gaps allowed only at FlexibleSoi seams
+    double  WindowStartUT, WindowEndUT
+    bool    IsFaithfulFallback    // solver declined → recorded-as-is (see §6.9, §10)
+    // built once per (BuildSignature, reaim-window index, InstanceKey); cached; O(log n) locate by UT
 ```
 
-**Treatment assignment is the unified orbit-vs-polyline decision** (today split inside
-the polyline renderer): a segment is **StockConic** iff it corresponds to an `OrbitSegment`
-that is renderable as a true conic at its UTs (above surface — reuse the existing
-below-surface exclusion so a periapsis-below-radius arc is NOT a conic and its descent
-samples become a TracedPath). Otherwise it is **TracedPath** (from `Points` /
-`TrackSection` frames). The re-aimed transfer is simply an `OrbitSegment` with
-`IsGenerated=true`, assigned StockConic. Putting this rule in ONE place (the assembler)
-removes the read-side ambiguity that produced "position deep inside the planet" bugs.
+Two assembler rules the reviews surfaced:
+
+- **Treatment assignment is the unified orbit-vs-polyline decision** (today split inside
+  the polyline renderer): a segment is **StockConic** iff it corresponds to an
+  `OrbitSegment` renderable as a true conic at its UTs (above surface — reuse the existing
+  `SegmentIsRenderableConic` / `ComputeOrbitalCoverIntervals` + below-surface exclusion so
+  a periapsis-below-radius arc is NOT a conic and its descent samples become a TracedPath).
+  Otherwise it is **TracedPath**. The re-aimed transfer is an `OrbitSegment` with
+  `IsGenerated=true`, assigned StockConic. One place for this rule removes the read-side
+  ambiguity that produced "position deep inside the planet" bugs.
+- **One body frame per segment.** A recorded arc that grazes a moon's SOI changes body
+  frame mid-arc; the assembler **splits the `RenderSegment` at every intra-arc SOI
+  crossing** so each has exactly one `FrameBodyName`. (A moon flyby is therefore both a
+  scheduler phase constraint *and* a renderer frame split.)
 
 ### 6.3 `ChainSampler` (L2)
 
@@ -263,301 +327,399 @@ removes the read-side ambiguity that produced "position deep inside the planet" 
 
 1. Map `liveUT` → assembled-chain UT via the **span clock** (`TryComputeSpanLoopUT`,
    including `DecompressSpanUT` for loiter cuts and the schedule for phase-locked
-   launches). For a non-looped exact recording this is the identity.
+   launches). For a non-looped exact recording this is the identity. Because it is pure in
+   `liveUT`, a quickload is simply a different sample — no persisted recorded-UT is trusted.
 2. Locate the `RenderSegment` containing that UT (O(log n)); return
-   `{segment, treatment, body, interpolated position OR conic elements, phase,
-   coverageValid}`. Outside any segment (pre-launch / post-end / inter-cycle tail) →
-   `coverageValid=false` (the ghost renders nothing).
+   `{segment, treatment, frameBody, interpolated position OR conic elements, phase,
+   coverage}`. **Coverage is three-valued:** `InSegment`, `InInteriorGap` (between two
+   chain segments — e.g. a flexible-seam UT gap the clock landed inside), or `OutsideWindow`
+   (pre-launch / post-end / inter-cycle tail). The Director treats these differently (§6.4).
 
-This collapses the 3–4 duplicate `(recording, UT) → where/what` resolvers
-(`ParsekUI.TryComputeGhostWorldPosition`, the polyline leg builder, the orbit patches,
-the flight positioner) into one.
+This collapses the 3–4 duplicate `(recording, UT) → where/what` resolvers into one.
 
-### 6.4 `GhostRenderDirector` (L3) — the single decision owner
+### 6.4 `GhostRenderDirector` (L3) — the single owner over Parsek surfaces
 
-Once per frame, before any surface draws, for each ghost: sample the chain and emit a
-`GhostRenderIntent`:
+Once per frame, before any surface draws, for each ghost instance: sample the chain and
+emit a `GhostRenderIntent`. The Director **subsumes every Parsek-owned scattered gate**
+that exists today: `activeLegRecordings`, `ghostsWithSuppressedIcon`, the frame/real-time
+grace windows, `IsPolylineOwningGhostPhase`, the stale-segment / body-frame continuity
+dance, the loop epoch shift, and the flight-map presence drive currently in
+`ParsekPlaybackPolicy.CheckPendingMapVessels` (§7). Surface ownership and visibility among
+the Parsek surfaces become one function with one output, testable in isolation.
 
-```
-struct GhostRenderIntent
-    bool       Visible
-    Treatment  Treatment        // exactly one this frame
-    double     DriveUT           // recorded-frame UT to drive the icon/conic at
-    Vector3d   IconPosition      // resolved position on the active line
-    LineSpec   Line              // conic bounds (arc clip) OR traced-path leg span
-    string     Label
-```
+Three behaviors the reviews require here:
 
-The Director **subsumes every scattered gate** that exists today: `activeLegRecordings`,
-`ghostsWithSuppressedIcon`, the frame/real-time grace windows, `IsPolylineOwningGhostPhase`,
-the stale-segment / body-frame-bounds continuity dance, and the loop epoch shift. Surface
-ownership and visibility become one function with one output, testable in isolation. The
-make-before-break swap at a treatment transition is decided here, atomically — the
-incoming treatment is placed and verified before the outgoing one tears down — instead of
-being negotiated implicitly between patches.
+- **Gap classification.** `InInteriorGap` (mid-chain, e.g. warp stepped across a
+  flexible-seam gap) ⇒ **hold the last intent / suppress the icon-jump anomaly**, do not
+  blink the ghost off. `OutsideWindow` ⇒ render nothing (retire). The difference is
+  load-bearing at high warp where one frame can step over a whole segment.
+- **Make-before-break swaps** at a treatment transition are decided here, atomically — the
+  incoming treatment is placed and verified before the outgoing tears down. If a KSP
+  constraint (proto-vessel orbit re-seed latency, open question §15.1) forces a one-frame
+  settle, it is modeled explicitly here as a bounded swap state, NOT as a scattered grace
+  window.
+- **Single-owner scope is explicit.** The Director fully owns the Parsek surfaces
+  (TracedPath polyline/marker, and the *decision* to show/hide the stock surface). It does
+  **not** own KSP's internal `line.active` toggling — that boundary stays a managed
+  contract (§6.5).
 
 ### 6.5 Treatments (L4) — pure followers
 
-`StockConicTreatment` and `TracedPathTreatment` stop deciding anything. Each frame they
-read the intent: *am I the active treatment for this ghost? then draw at `DriveUT` /
-`Line`; else stand down.* No treatment ever reads another treatment's flag.
+`StockConicTreatment` and `TracedPathTreatment` stop deciding visibility. Each frame they
+read the intent: *am I the active treatment for this instance? then draw at `DriveUT` /
+`Line`; else stand down.* No treatment reads another treatment's flag.
 
-- **StockConicTreatment** keeps using stock KSP objects (proto-vessel + `OrbitRenderer`
-  line), per the "use stock objects as much as possible" rule — the loiter, transfer, and
-  arrival orbit are clean conics, so the stock orbit line gives the stock look and the
-  full conic *ahead* of the icon for free. Because KSP co-owns `line.active` (it toggles
-  it during SOI transitions / floating-origin shifts), this surface is **managed**: the
-  treatment re-asserts the intent every frame and L5 catches residual blinks. (This is the
-  one bounded asymmetry vs the fully-**owned** TracedPath surface; it is the accepted price
-  of stock look.)
-- **TracedPathTreatment** owns its polyline + marker/label entirely (nobody else touches
-  them), so the icon and the path are produced together from one `DriveUT` and cannot
-  disagree.
+- **StockConicTreatment** uses stock KSP objects (proto-vessel + `OrbitRenderer` line), per
+  "use stock objects as much as possible" — the loiter, transfer, and arrival orbit are
+  clean conics, so the stock line gives the stock look and the full conic *ahead* of the
+  icon for free. **This surface is MANAGED, not fully owned:** KSP co-owns `line.active`
+  (it toggles it during SOI transitions / floating-origin shifts), so the treatment
+  re-asserts the intent every frame and the reconciler catches residual blinks. Honestly: a
+  per-frame Parsek↔KSP contract survives here for this one surface; the rewrite does not
+  eliminate it, it *localizes and instruments* it (one place re-asserts, the reconciler
+  flags divergence) instead of spreading it across patches.
+- **TracedPathTreatment** fully owns its polyline + marker/label (nobody else touches them),
+  so the icon and the path are produced together from one `DriveUT` and cannot disagree.
 
-**Invariants enforced structurally:**
-1. Exactly one treatment per ghost per frame (kills polyline/orbit double-draw).
+**Invariants enforced structurally (for the Parsek-owned decision):**
+1. Exactly one treatment active per instance per frame (kills polyline/orbit double-draw).
 2. Icon always on and always on its current segment's line (kills icon blink and
    icon-off-line drift).
-3. Stock wherever the segment is a conic; traced-path only for recorded non-conic
-   stretches.
+3. Stock wherever the segment is a conic; traced-path only for recorded non-conic stretches.
 4. Current segment only — no forward preview across seams.
 
 ### 6.6 Scene split (L4 adapter): `IGhostMapScene`
 
 The only things implemented twice. `MapViewScene` (in flight) and `TrackingStationScene`
 each provide: position→scene-space projection, the active camera, the scene-visibility
-gate, and proto-vessel spawn/drive lifecycle. The Director, Sampler, Assembler, and
-treatment *logic* are written once against this adapter and never know which scene they
-are in. **The TS adapter is the largest piece of genuinely new work** — TS has no
-looped-ghost animation today; under the rewrite it drives its proto-vessels from the
-same Director output as map view.
+gate, proto-vessel spawn/drive lifecycle, **a single floating-origin frame per Director
+cycle** (so both treatments project against the same origin — closes the swap/shift offset
+jump), and **camera-focus continuity across a treatment swap** (re-home focus onto the
+incoming surface, or keep a persistent focus anchor, so destroying a focused proto-vessel
+mid-swap doesn't drop the camera). The Director/Sampler/Assembler/treatment *logic* are
+written once against this adapter and never know which scene they are in.
+
+**TS adapter = extend, not invent.** TS already runs the Phase-F per-recording span-clock
+remap (`ResolveTrackingStationSampleUT` via `UpdateTrackingStationGhostLifecycle`). The
+work is to drive its proto-vessels from the chain model (treatment switching,
+make-before-break) instead of a single per-recording remap, and to keep its by-design
+single-span-instance behavior (no overlap machinery in SC/TS).
 
 ### 6.7 Per-frame flow & execution order
 
 ```
-[once per cycle-window change]  ChainAssembler.Build(trajectory, loopUnit) → cached GhostRenderChain
-[every frame, fixed early order]
-  for each ghost:
-     sample   = ChainSampler.Sample(chain, liveUT)
-     intent   = GhostRenderDirector.Decide(sample)        // single decision
-     scene.Apply(intent) via the active treatment          // pure follower draws
+[scheduler stack, unchanged]  MissionLoopUnitBuilder.Build → LoopUnitSet  (the loop-unit owner)
+[once per (window, reaim-index, instance) change]
+  ChainAssembler.Build(IPlaybackTrajectory, LoopUnit, faithfulSignal) → cached GhostRenderChain
+[every frame, fixed early order, before stock OrbitRenderer]
+  for each ghost instance:
+     sample = ChainSampler.Sample(chain, liveUT)        // pure
+     intent = GhostRenderDirector.Decide(sample)        // single Parsek-owned decision
+     scene.Apply(intent) via the active treatment        // pure follower draws
+     reconciler.NoteIntent(instance, intent)             // observability
 [end of frame]
-  GhostRenderReconciler.Check(intent vs actual rendered state)  // permanent assertion
+  reconciler.CheckTruth(intent vs actual line/icon/orbit state)   // permanent assertion
 ```
 
 The Director runs at a fixed execution order *before* the stock `OrbitRenderer` and the
-treatment surfaces, so intent is published before anything reads it — replacing today's
-fragile −50/0 ordering contract with an explicit one inside one module.
+treatment surfaces, replacing today's fragile −50/0 ordering contract with an explicit one
+inside one module. **Loop-unit provenance is explicit:** the Director consumes the
+`LoopUnitSet` directly from the scheduler stack (`MissionLoopUnitBuilder`), NOT brokered
+through `GhostPlaybackEngine.CurrentLoopUnits`; the flight engine no longer relays loop
+units to the map path (resolves former open question 2).
 
-### 6.8 `GhostRenderReconciler` (L5)
+### 6.8 `GhostRenderReconciler` (L5) — reuse the tracer, everywhere
 
-The render tracer's decision-vs-truth probe, promoted from a debugging afterthought to a
-permanent assertion: it reads the actual `line.active` / icon / orbit truth at end of
-frame and flags any divergence from `intent`. It now compares against a real first-class
-`intent` object instead of reverse-engineering scattered decisions.
+The render tracer is **reused and integrated pervasively**, not promoted at the end.
+`MapRenderTrace` / `MapRenderProbe` (their tiered Tier-A structural / Tier-B change /
+Tier-C anomaly events, the detailed-window registry, the on-change emit, the end-of-frame
+truth probe) become the module's standing observability layer, extended to every new
+decision point: assembly, locate, gap classification, intent, treatment swap, seam,
+scene-adapter projection, and the moon-config diagnostic. It compares against a real
+first-class `intent` object instead of reverse-engineering scattered decisions, and it
+gains predicates for the new anomaly classes (polyline origin-shift jump, decision-vs-truth
+across a swap, gap-vs-retire misclassification). Logging is a design requirement at every
+branch (§13), not optional.
+
+### 6.9 Orbital-solver module boundary (replaceable)
+
+Per the directive *don't implement orbital mechanics from scratch*: the transfer/encounter
+mathematics lives behind a narrow interface (e.g. `ITransferSolver` — Lambert solve,
+patched-conic encounter), so the current hand-rolled ~150-line Lambert can be swapped for a
+library with **zero render-side impact** (the renderer consumes only `OrbitSegments`,
+provenance-agnostic). The boundary also defines the **declined/degenerate** contract: when
+a window's solve fails (no encounter, energy/eccentricity rejection, steep inclination), the
+solver returns a *decline* signal; the scheduler falls back to faithful (un-re-aimed)
+replay for that window (`ReaimPlaybackResolver`'s existing "fail to faithful, never
+half-applied"), and the `ChainAssembler` marks the chain `IsFaithfulFallback=true` and
+assembles the *recorded* transfer (drawn at its recorded, off-window position) rather than a
+missing/blank transfer segment. Extracting the solver into its own module is a related
+workstream; this doc fixes the *boundary* so the render module is decoupled from it now.
+
+### 6.10 Data model summary
+
+New runtime-only types (nothing persisted): `RenderSegment`, `GhostRenderChain` (§6.2),
+`GhostSample` (§6.3 — `{segment, treatment, frameBody, position|conic, phase, coverage}`),
+`GhostRenderIntent` (`{visible, treatment, driveUT, iconPosition, lineSpec, label}`), and
+the `Treatment` / `SegmentKind` / `SeamKind` / `Coverage` enums. All derived each frame /
+each window from existing recorded data + scheduler output; no save-format change.
 
 ## 7. Reuse vs Replace (existing code map)
 
-**Reuse unchanged (the scheduler/playback substrate):**
-- `IPlaybackTrajectory` (`IPlaybackTrajectory.cs`) — the unified trajectory interface;
-  both recorded and `ReaimedTrajectory` implement it. The chain assembles from it.
-- `ReaimedTrajectory` (`Reaim/ReaimedTrajectory.cs`) + the re-aim pipeline (classifier,
-  window planner, loiter compressor, segment assembler) — substitutes `OrbitSegments`
-  with the synthesized transfer per window; delegates `PartEvents`.
-- `MissionLoopUnitBuilder` + `LoopUnit` / `LoopUnitSet` (`GhostPlaybackLogic.cs`) — the
-  per-window member set, span, cadence, phase anchor, loiter cuts, owner-by-index contract.
+**Reuse unchanged (solver/scheduler/playback substrate):**
+- `IPlaybackTrajectory` — the unified trajectory interface; both recorded and
+  `ReaimedTrajectory` implement it. The chain assembles from it.
+- `ReaimedTrajectory` (`Reaim/ReaimedTrajectory.cs`) + `ReaimPlaybackResolver` (per-window
+  cache, "fail to faithful") + the re-aim pipeline — substitutes `OrbitSegments` with the
+  synthesized transfer per window; `Points`/`TrackSections` empty (the v1 scope boundary in §4).
+- `MissionLoopUnitBuilder` + `LoopUnit` / `LoopUnitSet` — **the loop-unit owner**; the
+  Director consumes its output directly (§6.7).
 - The span clock: `TryComputeSpanLoopUT`, `DecompressSpanUT`, `ResolveTrackingStationSampleUT`
-  (`GhostPlaybackLogic.cs`) — the `(liveUT, unit, member) → assembled-UT` math. **Scene-agnostic; the Sampler calls it.**
-- `MissionPeriodicity` — phase-lock / next-window scheduling.
-- The data atoms (`TrajectoryPoint`, `OrbitSegment`, `TrackSection`, terminal state,
-  bounds resolver) and the below-surface-orbit exclusion logic.
+  (`GhostPlaybackLogic.cs`) — pure, scene-agnostic `(liveUT, unit, member) → assembled-UT`.
+- `MissionPeriodicity`; the data atoms; the `SegmentIsRenderableConic` /
+  below-surface-exclusion logic in `GhostTrajectoryPolylineRenderer.cs`.
 
 **Reuse, but relocated behind the new abstractions:**
-- The proto-vessel **lifecycle** in `GhostMapPresence.cs` (create/destroy, `ghostMapVesselPids`,
-  bounds caching) — kept, but moved behind `IGhostMapScene`; its ad-hoc per-frame
-  *positioning/visibility* decisions are absorbed by the Director.
+- The proto-vessel **lifecycle** in `GhostMapPresence.cs` (create/destroy,
+  `ghostMapVesselPids`, bounds caching) → behind `IGhostMapScene`; its per-frame
+  positioning/visibility decisions are absorbed by the Director.
 - The polyline **drawing** primitives in `GhostTrajectoryPolylineRenderer.cs` (Vectrosity
-  leg build, scaled-space projection, warp-frozen re-projection) — kept as the
-  `TracedPathTreatment` mechanics; its *ownership/visibility* logic (`activeLegRecordings`,
-  head-UT gate, grace) is absorbed by the Director.
-- The orbit-arc clipping (eccentric-anomaly segment culling) and icon-drive-at-recorded-UT
-  mechanics from the orbit patches — kept as `StockConicTreatment` mechanics.
+  leg build, scaled-space + warp-frozen re-projection) → the `TracedPathTreatment`
+  mechanics; its ownership/visibility logic is absorbed by the Director.
+- The orbit-arc clipping + icon-drive-at-recorded-UT mechanics from the orbit patches → the
+  `StockConicTreatment` mechanics.
+- `MapRenderTrace` / `MapRenderProbe` → **reused and extended** as the reconciler (§6.8),
+  not rewritten.
 
 **Replace / delete (the scattered coordination):**
-- The cross-patch gate flags and grace windows: `activeLegRecordings`,
-  `ghostsWithSuppressedIcon`, `IsPolylineOwningGhostPhase` / `IsPolylineRecentlyOwning…`,
-  `ghostOrbitLineGraceUntilFrame`, the stale-segment/body-frame-bounds continuity branches.
-  All become the Director's single intent.
+- The cross-patch gate flags and grace windows (`activeLegRecordings`,
+  `ghostsWithSuppressedIcon`, `IsPolylineOwningGhostPhase` / `…Recently…`,
+  `ghostOrbitLineGraceUntilFrame`, stale-segment/body-frame branches) → the Director's intent.
 - The implicit −50/0 execution-order contract → explicit ordering inside the module.
-- Per-surface independent visibility decisions in `GhostOrbitLinePatch` / `GhostOrbitIconDrivePatch`
-  / `DrawMapMarkers` → pure followers of intent.
+- **`ParsekPlaybackPolicy` — SPLIT.** Its 3D-mesh/spawn-decision half stays out of scope;
+  its **flight-scene map-presence half** (`CheckPendingMapVessels`,
+  `ResolveMapPresenceSampleUT`, the loop-epoch-shift drive) is **in scope** — one of the
+  scattered map-decision sites the Director replaces. (Leaving it standing would re-create a
+  second parallel flight-map owner, the exact "no single owner" problem this kills.)
 
-**Diagnostics:** `MapRenderProbe` / `MapRenderTrace` evolve into `GhostRenderReconciler`
-(end-of-frame truth vs intent), now with a real intent object to compare against.
+**Out of scope (untouched):** the flight-scene 3D ghost **mesh** path —
+`GhostPlaybackEngine` (mesh lifecycle/visibility; note its loop-unit *brokering* to the map
+path is removed, §6.7), `IGhostPositioner` (mesh positioning), and `ParsekPlaybackPolicy`'s
+mesh/spawn half. Ghost interaction, recording, the recorder, and the scheduler's reasoning.
 
-**Out of scope (untouched):** the flight-scene 3D ghost mesh path
-(`GhostPlaybackEngine`, `IGhostPositioner`, `ParsekPlaybackPolicy`) — those are
-flight-only and render meshes, not map surfaces; the new module coexists with them and
-draws the map representation. Ghost interaction, recording, the recorder, and the solver.
+## 8. Renderable chain by mission type (the v1 scope, at a glance)
 
-## 8. Behavior
+| Mission type | Re-aim? | Trajectory data available | Renderable chain in v1 |
+|---|---|---|---|
+| Same-body / same-parent (Mun, Minmus) | no — faithful | full `Points` + `TrackSections` + `OrbitSegments` | **whole chain**: ascent → loiter → approach → loiter → landing (TracedPath + StockConic) |
+| Cross-parent interplanetary (Duna, Eve, …) | yes — `ReaimedTrajectory` | `OrbitSegments` only (`Points`/`TrackSections` empty) | **conic subset, to orbital arrival**: departure orbit/eject → generated transfer → arrival capture orbit. Ascent/descent surface tracks deferred behind the §4 prerequisite |
+| Non-looped exact recording | n/a | full recorded data | identity (span clock = identity); whole recorded path |
+
+The render module is designed for the whole chain; the interplanetary row is narrower
+only because the re-aim adapter does not yet surface recorded surface tracks (§4
+prerequisite). When that data arrives, the same assembler/treatments render it with no
+architecture change.
+
+## 9. Behavior
 
 Per segment kind, as the live clock advances through a cycle window (each renders via its
-assigned treatment, icon riding the line):
+assigned treatment, icon riding the line). Which segments exist depends on §4:
 
-- **Ascent / atmospheric** (TracedPath): appears at launch; icon rides from the surface up;
-  full segment path visible.
+- **Ascent / atmospheric** (TracedPath; faithful missions only in v1): appears at launch;
+  icon rides from the surface up; full segment path visible.
 - **Loiter / parking orbit** (StockConic): full ellipse; icon rides it. Loiter *count* is
   the scheduler's trim; the renderer plays exactly the orbits present in the chain.
-- **Ejection → SOI exit** (body-relative; StockConic or TracedPath by conic test): drawn
-  relative to the launch body; ends at the SOI boundary.
-- **Heliocentric transfer** (generated; StockConic): appears when the ghost ejects; single
-  stock orbit object (heliocentric ellipse + SOI patch by stock default). Must look perfect.
-- **SOI entry → approach** (destination-body-relative): drawn at live positions; moon
-  flybys render correctly iff the scheduler matched the config.
-- **Arrival loiter** (StockConic): optional; as departure loiter.
-- **Landing** (TracedPath): must replay exactly; rigid hand-off from the preceding orbit.
+- **Ejection → SOI exit** (body-relative; StockConic or TracedPath by the conic test):
+  drawn relative to the launch body; ends at the SOI boundary.
+- **Heliocentric transfer** (generated; StockConic): appears when the ghost ejects; a single
+  stock orbit object (heliocentric ellipse + SOI patch by stock default). Clean conic away
+  from the accepted SOI-edge velocity discontinuity.
+- **SOI entry → approach** (destination-body-relative, frame-split at any intra-arc moon
+  SOI): drawn at live positions; moon flybys render correctly iff the scheduler matched the
+  config.
+- **Arrival capture orbit** (StockConic): the v1 interplanetary endpoint (orbital arrival).
+- **Arrival loiter / Landing** (StockConic / TracedPath): full chain for faithful missions;
+  for re-aimed interplanetary, deferred behind the §4 prerequisite.
 
 Seam transitions over time:
 - **Rigid seams** (within a sub-chain; ascent↔orbit; orbit↔landing): visually continuous,
-  no jump/blink — the make-before-break swap guarantees the incoming treatment is placed
-  before the outgoing tears down.
+  no jump/blink — guaranteed by the make-before-break swap.
 - **Flexible SOI seams**: a tolerated discontinuity is expected and **not hidden**
-  (off-camera, high warp); the chain may carry a UT gap there.
+  (off-camera, high warp); the chain may carry a UT gap there (handled as `InInteriorGap`).
 
-## 9. Edge cases
+## 10. Edge cases
 
-Each: scenario → expected behavior → [v1 / deferred]. (Reviewers: extend this list.)
+Each: scenario → expected behavior → [v1 / deferred].
 
-1. **Moon flyby with mismatched config.** Recorded arc passes a moon the scheduler left
-   out of place → vessel "teleports" past empty space. *Renderer draws as-is at live
-   positions, logs the recorded-vs-live moon phase offset, does not correct.* Correctness
-   is the scheduler's binding constraint. [v1: constraint exists for Mun/Minmus; extend.]
+1. **Moon flyby with mismatched config.** Recorded arc passes a moon the scheduler left out
+   of place → vessel "teleports" past empty space. *Renderer draws as-is at live positions,
+   logs the recorded-vs-live moon phase offset, does not correct.* [v1: scheduler constraint
+   exists for Mun/Minmus; extend.]
 2. **SOI-boundary direction seam.** Recorded exit direction ≠ heliocentric appearance.
    *Accepted, not corrected.* [Deferred.]
-3. **Variable chain structure.** Direct departure (no parking loiter), direct landing (no
-   arrival loiter), same-body (no transfer). *Assembled from classification; missing pieces
-   are simply absent segments.* [v1.]
-4. **Loiter trim continuity.** ~100 orbits → 1–5. *Whole-period cut is position/velocity
-   continuous; no seam at the trim; renderer plays only the orbits in the chain.* [v1.]
-5. **Pre-launch.** *Nothing on the map; Warp-to-launch + Time-to-launch UI handle the
-   wait.* [v1.]
-6. **End of cycle / self-overlap.** Period < span ⇒ multiple staggered instances live at
-   once. *Each instance is an independent ghost with its own chain + clock position; the
-   per-frame contract applies per instance. SC/TS render a single span instance (no overlap
-   machinery there), per mission-abstractions.* [v1 within existing caps.]
-7. **Debris ride-along.** *Debris is its own ghost following the same contract; not a
-   special seam.* [v1.]
-8. **Flight map ↔ Tracking Station.** *Identical contract/treatments; only the scene
-   adapter differs. TS is new work (no looped animation today).* [v1: parity required.]
-9. **Non-looped exact recording.** *Degenerate single-sub-chain chain, span clock = identity;
-   must not regress.* [v1.]
-10. **KSP toggles `line.active` mid-frame** (SOI transition, floating-origin shift). *The
-    managed StockConicTreatment re-asserts intent each frame; the reconciler flags residual
-    divergence.* [v1.]
-11. **Below-surface orbit segment** (periapsis < body radius). *Fails the conic test ⇒
+3. **Variable chain structure.** Direct departure, direct landing, same-body. *Assembled
+   from classification; missing pieces are absent segments.* [v1.]
+4. **Loiter trim continuity.** ~100 → 1–5 orbits. *Whole-period cut is position/velocity
+   continuous; no seam at the trim.* [v1.]
+5. **Loiter trim degenerate boundary** (cut to sub-one-rev / a member window collapsing to
+   zero, e.g. the loiter was the member's whole contribution). *Keep a sub-N-rev loiter
+   whole (no cut); a zero-length member renders nothing but a watched ghost holds on its
+   nearest live segment — never blinks off mid-watch (reuse the loiter-doc keep-watched
+   guard).* [v1.]
+6. **Pre-launch.** *Nothing on the map; Warp-to-launch + Time-to-launch UI.* [v1.]
+7. **Warp steps across a flexible-seam gap.** One high-warp frame advances `liveUT` from
+   before a gap to inside it (or skips a whole segment). *Director's `InInteriorGap` ⇒ hold
+   last intent, suppress icon-jump; only `OutsideWindow` retires the ghost.* [v1.]
+8. **Self-overlap (period < span).** Several staggered *instances* of one recording live at
+   once, at different chain positions, possibly needing different treatments simultaneously.
+   *Each instance is a distinct ghost keyed by `InstanceKey`; proto-vessel pids and polyline
+   legs are per-instance, NOT per-recording. SC/TS render a single span instance (no overlap
+   machinery there).* [v1 within existing caps.]
+9. **Debris ride-along (same-SOI / non-transfer).** *Its own ghost following the same
+   contract; not a special seam.* [v1.]
+10. **Debris decoupling DURING the re-synthesized transfer.** A parent-anchored child off the
+    parent mid-transfer has no transfer of its own and is anchored to the parent's frame —
+    which under re-aim is a *synthesized* Sun-relative conic differing from the recording.
+    *Either the child re-aims congruently with its parent (rides the same rotated transfer)
+    or it is declined to faithful and rendered at its recorded position; the assembler must
+    not silently anchor it to a frame that was re-synthesized.* [v1 if transfer-phase debris
+    can occur; else explicitly deferred with the faithful fallback stated. Step-4 probe:
+    whether v1 re-aim recordings retain transfer-phase debris.]
+11. **Flight map ↔ Tracking Station.** *Identical contract/treatments; only the scene adapter
+    differs. TS = extend the Phase-F remap into the chain model.* [v1: parity required.]
+12. **Non-looped exact recording.** *Degenerate single-sub-chain chain, span clock = identity;
+    must not regress.* [v1.]
+13. **KSP toggles `line.active` mid-frame** (SOI transition, floating-origin shift). *Managed
+    StockConicTreatment re-asserts intent each frame; reconciler flags residual divergence.* [v1.]
+14. **Below-surface orbit segment** (periapsis < body radius). *Fails the conic test ⇒
     TracedPath; descent samples merge into the polyline.* [v1.]
-12. **Pause / scene entry mid-cycle / time-warp rate change.** *The sampler is a pure
-    function of liveUT; entering a scene or changing warp resolves the same segment at the
-    current clock with no special transient.* [v1: verify.]
+15. **Floating-origin / Krakensbane shift during a treatment swap or mid-polyline-leg.** *Both
+    surfaces read one origin frame per Director cycle (§6.6); reconciler gains a polyline
+    origin-shift-jump anomaly.* [v1.]
+16. **Camera focused/watching a ghost across a make-before-break swap.** Tearing down the
+    focused proto-vessel would drop camera focus. *Scene adapter re-homes focus onto the
+    incoming surface / keeps a persistent focus anchor.* [v1 if swaps can occur while focused.]
+17. **Re-aim solve declines/degenerates for the live window.** No clean generated transfer.
+    *Assembler marks `IsFaithfulFallback`, draws the recorded transfer at its recorded
+    (off-window) position; never a blank transfer segment (§6.9).* [v1.]
+18. **Re-aim window advances mid-cycle** (cache keyed by member+window, independent of the
+    span). *Chain rebuild trigger includes the re-aim-window index, not just `BuildSignature`
+    (§6.2 cache key).* [v1.]
+19. **Scene switch (flight ↔ TS) mid-segment / mid-seam.** The new scene cold-starts and
+    builds only the incoming treatment; proto-vessel re-seed latency may blank the first
+    frame. *TS adapter handles cold-start-mid-segment without a one-frame blank (model the
+    re-seed settle in the Director, §6.4 / open question §15.1).* [v1: verify.]
+20. **Stock patched-conic re-solve differs per scene** (the transfer's downstream SOI patch
+    recomputed against live bodies, possibly differently in TS vs flight-map; encounter
+    promotion is settings-gated). *StockConicTreatment drives the transfer from the
+    assembler's frozen elements and should not let stock insert an unplanned encounter patch;
+    if it does, log it as a parity divergence.* [Step-4 probe: how much of the patch chain
+    stock re-solves per scene; resolve or explicitly bound the parity risk.]
+21. **Pause / time-warp rate change.** *Sampler is pure in `liveUT`; no special transient.* [v1.]
 
-## 10. What doesn't change
+## 11. What doesn't change
 
 - The recording format, sidecars, and segment classification.
-- The re-aim solver, the periodicity scheduler, the span clock, the loiter compressor — the
-  renderer consumes their output; it never re-plans.
-- Celestial body positions — the renderer never moves a body; moon-config correctness is
-  the scheduler's.
+- The re-aim solver math, the periodicity scheduler, the span clock, the loiter compressor —
+  the renderer consumes their output; it never re-plans. (The solver gains a *module
+  boundary*, §6.9, but its behavior is unchanged.)
+- Celestial body positions — the renderer never moves a body; moon-config correctness is the
+  scheduler's.
 - Ghost interaction (focus / target / Fly / re-fly) and the flight-scene 3D ghost meshes.
 - The Missions UI, the loop model, and the "one loop per tree" rule.
 
-## 11. Backward compatibility
+## 12. Backward compatibility
 
 No save/recording migration: the chain is derived at runtime from existing recorded data +
-the existing loop-unit/scheduler output. Existing looped Missions render through the new
-module on load with no persisted-state change. The module is a rendering replacement, not a
-data change.
+existing scheduler output. Existing looped Missions render through the new module on load
+with no persisted-state change. The module is a rendering replacement, not a data change.
 
-## 12. Diagnostic logging
+## 13. Diagnostic logging
 
-The map/TS render path is otherwise un-debuggable (the whole reason for the tracer). Every
-decision must be reconstructable from the log (subsystem tag `MapRender`):
+The map/TS render path is otherwise un-debuggable (the reason the tracer exists), so logging
+is pervasive and reuses `MapRenderTrace` (subsystem tag `MapRender`). Every branch logs:
 
-- **Chain assembly** (`Verbose`, per window per ghost): segment count, kinds, treatments,
-  UT ranges, which segments are generated, flexible-seam markers.
-- **Segment locate** (`VerboseRateLimited`, per ghost): the located segment + its treatment
-  for the current UT (shared key to avoid spam).
-- **Intent / treatment decision** (`VerboseRateLimited`, on change): active treatment + why
-  (segment kind), confirmation the other stands down, the `DriveUT`.
-- **Seam transition** (`Info`, on change): rigid vs flexible, outgoing→incoming, UT; for
-  flexible SOI seams the tolerated discontinuity magnitude.
-- **Moon-config diagnostic** (`Verbose`, arrival sub-chain): recorded-vs-live phase offset
-  of any moon the arc passes close to — surfaces scheduler misses.
+- **Chain assembly** (`Verbose`, per window per instance): segment count, kinds, treatments,
+  frames, UT ranges, generated/flexible-seam markers, `IsFaithfulFallback`.
+- **Segment locate + coverage** (`VerboseRateLimited`, per instance): located segment +
+  treatment + coverage tri-state (InSegment / InInteriorGap / OutsideWindow).
+- **Intent / treatment decision** (`VerboseRateLimited`, on change): active treatment + why,
+  confirmation the other stands down, `DriveUT`, swap state.
+- **Seam transition** (`Info`, on change): rigid vs flexible-SOI, outgoing→incoming, UT, and
+  the tolerated discontinuity magnitude at a flexible seam.
+- **Moon-config diagnostic** (`Verbose`, arrival sub-chain): recorded-vs-live phase offset of
+  any moon the arc passes close to — surfaces scheduler misses (§10.1).
+- **Faithful-fallback** (`Warn`): a window declined re-aim (§10.17), with the reason.
 - **Reconciler anomalies** (`Warn`): decision-vs-truth divergence, icon-jump, line-blink,
-  polyline-orbit overlap — the permanent assertions.
-- **Pre-launch / no-coverage** (`Verbose`, on change): ghost rendered nothing because the
-  clock is outside any cycle window / segment.
+  polyline-origin-shift, polyline-orbit overlap, gap-vs-retire misclassification.
 
-## 13. Test plan
+## 14. Test plan
 
 Pure / synthetic-recording testable (the heavy correctness lives here):
 
-- **Chain assembly from classification** — synthetic recordings for each structure
-  (full interplanetary, direct departure, direct landing, same-body, non-looped) → assert
-  the ordered segment list (kinds + treatments + UT ranges). *Guards variable-structure
-  assembly and the treatment decision.*
-- **Treatment assignment** — a periapsis-below-radius orbit segment → TracedPath; an
-  above-surface conic → StockConic; a generated transfer → StockConic. *Guards a conic
-  drawn as polyline or vice-versa, and the below-surface merge.*
-- **Segment locate** — assembled chain + a UT sweep → exactly one active segment per UT,
-  none in gaps. *Guards double-draw and seam gaps.*
-- **Span-clock integration** — looped member at various live UTs (incl. loiter cuts and a
-  future-dated launch) → correct assembled-chain UT and segment. *Guards loop-shift and
-  decompression bugs.*
-- **Loiter-trim continuity** — trimmed chain → no positional discontinuity at the cut.
-  *Guards a seam appearing at a whole-period trim.*
-- **Intent invariants** — driving a chain through all transitions → never two treatments
-  active, never icon-off-line. *Guards the structural invariants directly.*
-- **Reconciler** — inject a forced `line.active` toggle → the reconciler flags it. *Guards
-  the permanent assertion itself.*
-- **Log assertion tests** — capture the sink; assert assembly / locate / intent / seam /
-  moon-config lines appear with the right fields. *Guards diagnostic coverage surviving
-  refactor.*
+- **Chain assembly from classification** — synthetic recordings for each structure (faithful
+  same-body full chain, re-aimed interplanetary conic subset, direct departure/landing,
+  non-looped) → assert ordered segment list (kinds + treatments + frames + UT ranges).
+  *Guards variable-structure assembly + the v1 scope boundary.*
+- **Treatment assignment** — below-radius orbit → TracedPath; above-surface conic →
+  StockConic; generated transfer → StockConic. *Guards conic/polyline misclassification + the
+  below-surface merge.*
+- **Intra-arc SOI frame split** — a recorded arc grazing a moon SOI → split into
+  one-frame-each segments. *Guards a two-frame segment (the teleport-next-to-moon class).*
+- **Segment locate + coverage tri-state** — UT sweep incl. a flexible-seam gap → exactly one
+  active segment in-segment, `InInteriorGap` inside a gap, `OutsideWindow` past the end.
+  *Guards double-draw, the warp-gap blink (§10.7), and premature retire.*
+- **Span-clock + re-aim-window integration** — looped member at various live UTs (loiter cuts,
+  future-dated launch, re-aim window advance) → correct assembled-chain UT, segment, and cache
+  rebuild. *Guards loop-shift, decompression, and stale-window bugs.*
+- **Overlap instance keying** — two instances of one recording at different chain positions →
+  distinct `InstanceKey`, distinct surface keys, independent treatments. *Guards the
+  shared-RecordingId collision (§10.8).*
+- **Faithful-fallback** — a declined solve signal → `IsFaithfulFallback` chain with the
+  recorded transfer, never a blank segment. *Guards §10.17.*
+- **Intent invariants** — drive a chain through all transitions → never two treatments active,
+  never icon-off-line. *Guards the structural invariants directly.*
+- **Reconciler** — inject a forced `line.active` toggle / origin shift → flagged. *Guards the
+  permanent assertion.*
+- **Log assertion tests** — assert assembly / locate / intent / seam / moon-config / fallback
+  lines appear with the right fields. *Guards diagnostic coverage surviving refactor.*
 - **Non-looped regression** — exact single recording renders as the degenerate chain.
-  *Guards the already-working exact playback.*
 
-In-game (live KSP): map↔TS parity, a real looped Mun mission watched through a cycle, a
-moon-flyby arrival, a high-warp SOI seam, self-overlapping instances.
+In-game (live KSP): map↔TS parity, a faithful Mun mission watched through a full cycle
+(incl. landing), a re-aimed Duna mission to orbital arrival, a moon-flyby arrival, a high-warp
+SOI seam, self-overlapping instances, camera-focus through a swap.
 
-## 14. Open questions
+## 15. Open questions
 
-1. **Chain cache keying.** Key on `BuildSignature` + cycle-window index? Confirm the
-   invalidation triggers (config change, body geometry change, cadence change) match the
-   scheduler's existing `BuildSignature` so the chain rebuilds exactly when the loop unit does.
-2. **Flight map-view UT source.** In flight, does the Director source the ghost's UT from
-   the flight playback engine's state or independently re-derive it via the span clock? They
-   must agree; re-deriving via the shared pure span clock avoids cross-subsystem state but
-   should be confirmed against the engine for the non-looped and overlap cases.
-3. **Treatment swap atomicity in practice.** The make-before-break swap assumes the incoming
-   treatment can be placed and verified within one frame. Confirm there's no KSP constraint
-   (proto-vessel orbit re-seed latency) that forces a one-frame grace — if there is, model it
-   explicitly in the Director rather than as a scattered grace window.
-4. **How much of `GhostMapPresence` lifecycle is genuinely reusable** vs entangled with the
-   old positioning — to be answered in Step-4 exploration.
-5. **Additional v1 edge cases** — to be expanded by a dedicated review pass.
+1. **Proto-vessel re-seed latency vs make-before-break atomicity.** Does KSP let a
+   proto-vessel's orbit be re-seeded and rendered within one frame, or is a bounded one-frame
+   settle required? Model the answer explicitly in the Director (§6.4) — Step-4 probe.
+2. **Stock patched-conic per-scene divergence** (§10.20) — how much of the transfer's
+   downstream patch chain does stock re-solve in TS vs flight-map, and is encounter promotion
+   settings-gated differently? Resolve or bound the parity risk in Step 4.
+3. **Transfer-phase debris** (§10.10) — do v1 re-aim recordings retain debris that decouples
+   during the heliocentric leg? If yes, parent/child re-aim coherence is v1; if no, state the
+   faithful fallback and defer.
+4. **Solver-module extraction sequencing** — is `ITransferSolver` extracted as part of this
+   rewrite or as a parallel workstream? The render module only needs the *boundary* defined;
+   the extraction can land independently.
+5. **The re-aimed surface-track prerequisite** (§4) — confirm it is a separate adapter task
+   (re-timing recorded ascent/descent `Points`/`TrackSections` onto synthesized spans) and not
+   smuggled into this rewrite.
 
-## 15. References
+## 16. References
 
-- `docs/dev/done/plans/reaim-interplanetary-transfers.md` — deterministic transfer (Lambert).
+- `docs/dev/done/plans/reaim-interplanetary-transfers.md` — deterministic transfer (Lambert),
+  v1 = orbital arrival, S4 descent deferred.
 - `docs/dev/done/plans/reaim-loiter-compression.md` — whole-period loiter trimming.
-- `docs/dev/design-mission-periodicity.md` — launch-window scheduling (`P`, constraints,
-  countdown); "replay as-is" superseded.
-- `docs/dev/design-mission-abstractions.md` — Mission / selection / span-clock / overlap;
-  the Phase-F TS gap.
+- `docs/dev/design-mission-periodicity.md` — launch-window scheduling; "replay as-is" superseded.
+- `docs/dev/design-mission-abstractions.md` — Mission / selection / span-clock / overlap; the
+  Phase-F TS remap.
 - `docs/parsek-ghost-trajectory-rendering-design.md` — existing rendering surfaces.
-- `docs/dev/design-map-ts-render-tracer.md` — the observability layer; its decision-vs-truth
-  probe becomes the reconciler.
+- `docs/dev/design-map-ts-render-tracer.md` — the observability layer reused as the reconciler.
 - Key source seams: `GhostPlaybackLogic.cs` (span clock, LoopUnit/LoopUnitSet),
-  `Reaim/ReaimedTrajectory.cs`, `IPlaybackTrajectory.cs`, `GhostMapPresence.cs`,
+  `Reaim/ReaimedTrajectory.cs` + `Reaim/ReaimPlaybackResolver.cs`, `IPlaybackTrajectory.cs`,
+  `GhostMapPresence.cs`, `ParsekPlaybackPolicy.cs` (`CheckPendingMapVessels`),
+  `ParsekTrackingStation.cs` (`UpdateTrackingStationGhostLifecycle`),
   `Display/GhostTrajectoryPolylineRenderer.cs`, `Patches/GhostOrbitLinePatch.cs`,
   `MapRenderProbe.cs` / `MapRenderTrace.cs`.
