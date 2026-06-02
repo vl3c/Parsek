@@ -1,9 +1,10 @@
 # Map/TS render rewrite — implementation status (branch `claude/maprender-rewrite`)
 
 *Live status of the rewrite from `docs/dev/design-map-ts-render-architecture.md` +
-`docs/dev/plans/map-ts-render-rewrite-phases.md`. Worked in a cloud container that has NO
-`dotnet` and NO KSP assemblies, so nothing below was compiled or tested — all code is written
-against verified type contracts and must be built + tested first thing on a KSP box.*
+`docs/dev/plans/map-ts-render-rewrite-phases.md`. Phases 0–3 were authored in a cloud container
+with NO `dotnet` / NO KSP assemblies; they have since been BUILT + UNIT-TESTED on a KSP box
+(2026-06-02) — see "Build + test verification" below. Phase 6 (reconciler) is now also built +
+tested.*
 
 *Commits are UNSIGNED (the harness SSH signer fails in a sibling worktree). Re-sign / squash at
 merge if the repo needs verified commits.*
@@ -28,15 +29,29 @@ merge if the repo needs verified commits.*
   gap-hold, hidden-outside. Make-before-break EXECUTION + the §15.1 settle are left to the scene.
 
 Tests in `Source/Parsek.Tests/MapRender/`: `GhostRenderChainTests`, `ChainSamplerTests`,
-`GhostRenderDirectorTests`, `ChainAssemblerTests`. (No log-assertion test yet — needs the sink +
-verbose enabled; add when building.)
+`GhostRenderDirectorTests`, `ChainAssemblerTests`, `ChainAssemblerLoggingTests` (the §13 assembly
+log-assertion test, added at build time).
 
-### FIRST when home
-1. `cd Source/Parsek && dotnet build`; fix any compile errors (written blind — most likely culprits:
-   nested-type qualification `GhostPlaybackLogic.LoopUnitSet` / `GhostTrajectoryPolylineRenderer.BodySurfaceProvider`,
-   `Array.Empty`/tuple/`out _` usage, the `Vector3d` global type).
-2. `cd Source/Parsek.Tests && dotnet test` (the 4 new MapRender test classes are pure — should run
-   without KSP). Confirm the locate/coverage/sampler/director/assembler logic.
+## Phase 6 — `GhostRenderReconciler` (DONE — built + tested)
+
+`MapRender/GhostRenderReconciler.cs` (namespace `Parsek.MapRender`). Reuses `MapRenderTrace` as the
+emit sink + frame-stamped intent store (new `MapRenderTrace.RecordRenderIntent` /
+`TryGetFreshRenderIntent`, primitive-only so the tracer keeps no MapRender dependency). Pure compare
+predicates: `ReconcileVisibility` (the `gap-vs-retire` class), `ReconcileTreatment`
+(`decision-vs-old-truth`), `IsPolylineOriginShiftJump` (`polyline-origin-shift`, §10.15 — predicate
+only; probe wiring lands with Phase 4 since it needs the polyline world position). `NoteIntent`
+(shadow producer) + `CheckIntentAgainstOldTruth` (wired into `MapRenderProbe.Sample`, dormant until
+Phase 4 calls `NoteIntent`). Tests: `Source/Parsek.Tests/MapRender/GhostRenderReconcilerTests.cs`
+(pure compares + the reconciler-anomaly log-assertion lines).
+
+### Build + test verification (2026-06-02)
+- `cd Source/Parsek && dotnet build` → clean (0 warnings, 0 errors). The blind-written Phase 0–3
+  code compiled as-is; the only fixes were in the TEST project: (a) `Coverage` is `internal` so a
+  public `[Theory]` could not take it as a parameter (CS0051) — pass its underlying int; (b) a
+  doc-comment in `GhostRenderChain.cs` contained the literal `RecordingStore.CommittedRecordings`,
+  which the ERS/ELS grep-audit flagged — reworded (the type does not read that collection).
+- `cd Source/Parsek.Tests && dotnet test` → full suite green (13248), incl. the 32 pipeline tests +
+  14 reconciler tests.
 
 ## Probe findings
 
@@ -57,7 +72,6 @@ verbose enabled; add when building.)
   (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned) — heavy KSP (proto-vessel,
   OrbitRenderer, Vectrosity, camera, floating-origin). Wire in **decision-only shadow** (compare
   intent vs the OLD path's truth; write nothing to stock).
-- **Phase 6** reconciler — extend `MapRenderTrace`/`MapRenderProbe` against the `GhostRenderIntent`.
 - **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2).
 - **Phase 8** per-surface cutover (8a–8e) — deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** solver extraction: B1 `ITransferSolver` (trivial wrap of `UvLambert.Solve`,

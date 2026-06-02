@@ -283,12 +283,23 @@ namespace Parsek
             // recording's non-orbital leg (the double-draw seam). A higher-level invariant check
             // independent of the patch's intent. The drawIcons facet is live now; the line facet
             // lights up with the OrbitLine-reflection fix.
+            bool polylineOwns = GhostMapPresence.IsPolylineOwningGhostPhase(pid);
             string overlap = MapRenderTrace.ReconcilePolylineOverlap(
-                GhostMapPresence.IsPolylineOwningGhostPhase(pid), lineActive, drawIcons);
+                polylineOwns, lineActive, drawIcons);
             if (!string.IsNullOrEmpty(overlap))
                 MapRenderTrace.EmitAnomaly(
                     MapRenderTrace.RenderSurface.Polyline, pidKey, currentUT, currentUT,
                     "polyline-orbit-overlap", overlap);
+
+            // --- Tier-C new-pipeline reconcile: intent (shadow) vs the OLD path's truth ---
+            // If the new render pipeline recorded a GhostRenderIntent for this pid THIS frame
+            // (decision-only shadow producer, wired in Phase 4), compare it against what the old
+            // scattered coordination actually drew. A divergence is the bug class the rewrite exists
+            // to surface (the new single-owner Director would have rendered something different).
+            // No fresh intent → no-op, so this is dormant until the Phase 4 shadow scene calls
+            // GhostRenderReconciler.NoteIntent. Reuses the same old-path truth read as above.
+            Parsek.MapRender.GhostRenderReconciler.CheckIntentAgainstOldTruth(
+                pid, pidKey, frame, currentUT, currentUT, lineActive, drawIcons, polylineOwns);
 
             // --- Tier-C line-blink anomaly (line.active toggled within N frames) ---
             // A toggle is line.active != the previous sample's value. The blink
