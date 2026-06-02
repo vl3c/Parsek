@@ -311,8 +311,9 @@ Two assembler rules the reviews surfaced:
 - **Treatment assignment is the unified orbit-vs-polyline decision** (today split inside
   the polyline renderer): a segment is **StockConic** iff it corresponds to an
   `OrbitSegment` renderable as a true conic at its UTs (above surface — reuse the existing
-  `SegmentIsRenderableConic` / `ComputeOrbitalCoverIntervals` + below-surface exclusion so
-  a periapsis-below-radius arc is NOT a conic and its descent samples become a TracedPath).
+  below-surface-exclusion logic `IsOrbitSegmentBelowSurface` + `ComputeOrbitalCoverIntervals`
+  in `GhostTrajectoryPolylineRenderer.cs`, so a periapsis-below-radius arc is NOT a conic and
+  its descent samples become a TracedPath).
   Otherwise it is **TracedPath**. The re-aimed transfer is an `OrbitSegment` with
   `IsGenerated=true`, assigned StockConic. One place for this rule removes the read-side
   ambiguity that produced "position deep inside the planet" bugs.
@@ -423,10 +424,12 @@ single-span-instance behavior (no overlap machinery in SC/TS).
 
 The Director runs at a fixed execution order *before* the stock `OrbitRenderer` and the
 treatment surfaces, replacing today's fragile −50/0 ordering contract with an explicit one
-inside one module. **Loop-unit provenance is explicit:** the Director consumes the
-`LoopUnitSet` directly from the scheduler stack (`MissionLoopUnitBuilder`), NOT brokered
-through `GhostPlaybackEngine.CurrentLoopUnits`; the flight engine no longer relays loop
-units to the map path (resolves former open question 2).
+inside one module. **Loop-unit provenance is explicit:** `MissionLoopUnitBuilder.Build` is
+already the genuine per-scene loop-unit owner (cached as `cachedLoopUnits` on flight / TS /
+KSC); the Director consumes that `LoopUnitSet` directly and simply stops reading the flight
+engine's `GhostPlaybackEngine.CurrentLoopUnits` passthrough (a thin relay of the same data).
+The bypass is trivial because the directly-buildable source already exists (resolves former
+open question 2).
 
 ### 6.8 `GhostRenderReconciler` (L5) — reuse the tracer, everywhere
 
@@ -476,8 +479,9 @@ each window from existing recorded data + scheduler output; no save-format chang
   Director consumes its output directly (§6.7).
 - The span clock: `TryComputeSpanLoopUT`, `DecompressSpanUT`, `ResolveTrackingStationSampleUT`
   (`GhostPlaybackLogic.cs`) — pure, scene-agnostic `(liveUT, unit, member) → assembled-UT`.
-- `MissionPeriodicity`; the data atoms; the `SegmentIsRenderableConic` /
-  below-surface-exclusion logic in `GhostTrajectoryPolylineRenderer.cs`.
+- `MissionPeriodicity`; the data atoms; the below-surface-exclusion / orbital-cover logic
+  (`IsOrbitSegmentBelowSurface`, `ComputeOrbitalCoverIntervals`) in
+  `GhostTrajectoryPolylineRenderer.cs`.
 
 **Reuse, but relocated behind the new abstractions:**
 - The proto-vessel **lifecycle** in `GhostMapPresence.cs` (create/destroy,
@@ -503,8 +507,9 @@ each window from existing recorded data + scheduler output; no save-format chang
   second parallel flight-map owner, the exact "no single owner" problem this kills.)
 
 **Out of scope (untouched):** the flight-scene 3D ghost **mesh** path —
-`GhostPlaybackEngine` (mesh lifecycle/visibility; note its loop-unit *brokering* to the map
-path is removed, §6.7), `IGhostPositioner` (mesh positioning), and `ParsekPlaybackPolicy`'s
+`GhostPlaybackEngine` (mesh lifecycle/visibility; note the Director stops reading its
+`CurrentLoopUnits` passthrough — the loop-unit source is `MissionLoopUnitBuilder.Build`
+directly, §6.7), `IGhostPositioner` (mesh positioning), and `ParsekPlaybackPolicy`'s
 mesh/spawn half. Ghost interaction, recording, the recorder, and the scheduler's reasoning.
 
 ## 8. Renderable chain by mission type (the v1 scope, at a glance)
@@ -553,8 +558,10 @@ Each: scenario → expected behavior → [v1 / deferred].
 
 1. **Moon flyby with mismatched config.** Recorded arc passes a moon the scheduler left out
    of place → vessel "teleports" past empty space. *Renderer draws as-is at live positions,
-   logs the recorded-vs-live moon phase offset, does not correct.* [v1: scheduler constraint
-   exists for Mun/Minmus; extend.]
+   logs the recorded-vs-live moon phase offset, does not correct.* For a re-aimed
+   interplanetary mission a flyby renders only if its arc is an on-rails `OrbitSegment`; a
+   recorded approach `Points`/`TrackSection` flyby is behind the §4 prerequisite. [v1:
+   scheduler constraint exists for Mun/Minmus; extend.]
 2. **SOI-boundary direction seam.** Recorded exit direction ≠ heliocentric appearance.
    *Accepted, not corrected.* [Deferred.]
 3. **Variable chain structure.** Direct departure, direct landing, same-body. *Assembled
@@ -582,9 +589,11 @@ Each: scenario → expected behavior → [v1 / deferred].
     which under re-aim is a *synthesized* Sun-relative conic differing from the recording.
     *Either the child re-aims congruently with its parent (rides the same rotated transfer)
     or it is declined to faithful and rendered at its recorded position; the assembler must
-    not silently anchor it to a frame that was re-synthesized.* [v1 if transfer-phase debris
-    can occur; else explicitly deferred with the faithful fallback stated. Step-4 probe:
-    whether v1 re-aim recordings retain transfer-phase debris.]
+    not silently anchor it to a frame that was re-synthesized.* (Partial answer: per
+    `ReaimPlaybackResolver.HasHeliocentricLegInWindow`, a member with no heliocentric leg
+    already passes through faithful; the open part is parent/child *frame coherence*.) [v1 if
+    transfer-phase debris can occur; else explicitly deferred with the faithful fallback
+    stated. Step-4 probe: whether v1 re-aim recordings retain transfer-phase debris.]
 11. **Flight map ↔ Tracking Station.** *Identical contract/treatments; only the scene adapter
     differs. TS = extend the Phase-F remap into the chain model.* [v1: parity required.]
 12. **Non-looped exact recording.** *Degenerate single-sub-chain chain, span clock = identity;
