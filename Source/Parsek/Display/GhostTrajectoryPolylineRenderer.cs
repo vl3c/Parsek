@@ -365,6 +365,21 @@ namespace Parsek.Display
             => headUT >= legStartUT && headUT <= legEndUT;
 
         /// <summary>
+        /// Diagnostic: body-relative WORLD longitude (degrees, atan2(z,x) in Y-up world axes) of a
+        /// recorded leg point as it is ACTUALLY DRAWN - i.e. <c>GetWorldSurfacePosition(lat,lon,alt)</c>
+        /// on the LIVE body minus the body centre. This is the leg's body-FIXED position; comparing it to
+        /// the orbit's inertial longitude (the MapRenderProbe icon-off-orbit lonOrbit*) exposes how far
+        /// the polyline is rotated from the orbits under the loop shift (the escape-burn "isolated
+        /// segment" sits ~one body-rotation-over-the-shift off the inertial loiter/hyperbolic). Matches
+        /// <c>MapRenderProbe.LongitudeDeg</c> so the two numbers are directly comparable.
+        /// </summary>
+        private static double LegPointBodyRelLonDeg(CelestialBody body, double lat, double lon, double alt)
+        {
+            Vector3d rel = body.GetWorldSurfacePosition(lat, lon, alt) - body.position;
+            return System.Math.Atan2(rel.z, rel.x) * (180.0 / System.Math.PI);
+        }
+
+        /// <summary>
         /// Cheap content-hash key for cache invalidation (§1.4). XORs every
         /// sample UT and every TrackSection start/end UT so a
         /// supersede-time re-cut that preserves the four counts and the
@@ -1228,11 +1243,36 @@ namespace Parsek.Display
                                 break;
                             }
                         }
+
+                        // LOGGING GAP FILL: the DRAWN leg's span, length, body, and its body-relative
+                        // WORLD longitude (where the polyline actually renders). A long isolated segment
+                        // (e.g. the escape-burn leg, ~100s span) the icon dwells on, drawn far from the
+                        // inertial loiter/hyperbolic orbits, is the body-fixed-vs-inertial loop-shift
+                        // rotation: compare lon0/lonN here to the probe's lonOrbit* for the same ghost.
+                        string activeLegInfo = "activeLeg=none";
+                        if (activeLeg >= 0)
+                        {
+                            var al = set.legs[activeLeg];
+                            int mAl = al.PointCount;
+                            CelestialBody alBody = ResolveBodyByName(scene, al.bodyName);
+                            if (alBody != null && mAl >= 1)
+                                activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} lon0={6:F1} lonN={7:F1} alt0={8:F0} altN={9:F0}",
+                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl,
+                                    LegPointBodyRelLonDeg(alBody, al.lats[0], al.lons[0], al.alts[0]),
+                                    LegPointBodyRelLonDeg(alBody, al.lats[mAl - 1], al.lons[mAl - 1], al.alts[mAl - 1]),
+                                    al.alts[0], al.alts[mAl - 1]);
+                            else
+                                activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} (no body/pts)",
+                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl);
+                        }
+
                         ParsekLog.VerboseRateLimited(DriverTag, "polyline.head." + rec.RecordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} " +
-                                "firstLeg=[{5:F1},{6:F1}] lastLeg=[{7:F1},{8:F1}] body0={9} bodyN={10}",
-                                rec.RecordingId, set.legs.Length, headUT, activeLeg, anyDrawn,
+                                "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} {5} " +
+                                "firstLeg=[{6:F1},{7:F1}] lastLeg=[{8:F1},{9:F1}] body0={10} bodyN={11}",
+                                rec.RecordingId, set.legs.Length, headUT, activeLeg, anyDrawn, activeLegInfo,
                                 set.legs[0].startUT, set.legs[0].endUT,
                                 set.legs[set.legs.Length - 1].startUT, set.legs[set.legs.Length - 1].endUT,
                                 set.legs[0].bodyName ?? "(null)", set.legs[set.legs.Length - 1].bodyName ?? "(null)"),
@@ -1250,8 +1290,9 @@ namespace Parsek.Display
                                 "{0}|{1}|{2}", activeLeg, activeLegBody, anyDrawn),
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Polyline active-leg CHANGED: rec={0} headUT={1:F1} activeLeg={2} body={3} " +
-                                "drawn={4} legs={5}",
-                                rec.RecordingId, headUT, activeLeg, activeLegBody, anyDrawn, set.legs.Length));
+                                "drawn={4} legs={5} {6}",
+                                rec.RecordingId, headUT, activeLeg, activeLegBody, anyDrawn, set.legs.Length,
+                                activeLegInfo));
                     }
 
                     if (anyDrawn)
