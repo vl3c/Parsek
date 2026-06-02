@@ -101,6 +101,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - The `[Engine] engine-frame-iter` diagnostic trace now reports each ghost's per-frame visibility outcome (`[out:vis=.. retired=.. zone=.. rdist=..]`), not just its pre-render inputs, and auto-enables during a Re-Fly session. This pins down the still-open "ghost vanishes at the Inertial-frame transition" case by showing whether a ghost was actually hidden and why, rather than only that it was iterated.
+- Cut KSP.log spam from several per-recording and per-frame diagnostics that scaled with the number of recordings. Spawn suppression is now one batched per-reason summary per frame instead of one line per recording (previously thousands of lines per second with a large save), the map "Marker pos" loiter-seam diagnostic is gated behind the map-render tracer and skips frames with nothing to compare (about 93 percent of its volume), the per-tree "Save" line folds into the existing committed-tree save summary, and the tech-tree bypass-rehydrate line is batched into one summary per recalc.
 
 ### Known limitations
 

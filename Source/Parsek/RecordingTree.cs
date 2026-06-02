@@ -181,9 +181,11 @@ namespace Parsek
                 SaveBranchPointInto(bpNode, BranchPoints[i]);
             }
 
-            ParsekLog.Verbose("RecordingTree",
-                $"Save: tree='{TreeName}' formatVersion={TreeFormatVersion} " +
-                $"recordings={Recordings.Count} branchPoints={BranchPoints.Count}");
+            // No per-tree log line here: this method is called once per committed tree
+            // inside ParsekScenario.SaveTreeRecordings' loop, which would emit one line
+            // per tree (hundreds with a large save). The caller logs a single batched
+            // summary after the loop; the single-tree active/pending callers log their
+            // own Info line.
         }
 
         public static RecordingTree Load(ConfigNode treeNode)

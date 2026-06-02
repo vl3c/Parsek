@@ -255,6 +255,39 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ComputePlaybackFlags_EmitsOneBatchedSpawnSuppressedSummary()
+        {
+            RecordingStore.ResetForTesting();
+            try
+            {
+                ParsekFlight host = CreateFlightHostForPlaybackFlagTests();
+                // Three non-debris recordings with no vessel snapshot: all spawn-suppressed.
+                var committed = new List<Recording>
+                {
+                    MakeRecording("rec-a", "Vessel A"),
+                    MakeRecording("rec-b", "Vessel B"),
+                    MakeRecording("rec-c", "Vessel C"),
+                };
+
+                ComputePlaybackFlagsForTesting(host, committed, 100.0);
+
+                // One batched summary for the whole list, NOT one line per recording.
+                var summaryLines = logLines
+                    .Where(l => l.Contains("[Spawner]") && l.Contains("Spawn suppressed:"))
+                    .ToList();
+                Assert.Single(summaryLines);
+                Assert.Contains("3 recording(s)", summaryLines[0]);
+                // The former per-recording "Spawn suppressed for #N" line is gone.
+                Assert.DoesNotContain(logLines, l =>
+                    l.Contains("[Spawner]") && l.Contains("Spawn suppressed for #"));
+            }
+            finally
+            {
+                RecordingStore.ResetForTesting();
+            }
+        }
+
+        [Fact]
         public void ComputePlaybackFlags_RewindRetired_SkipsGhostAndSpawn()
         {
             RecordingStore.ResetForTesting();
@@ -649,6 +682,7 @@ namespace Parsek.Tests
             SetPrivateField(host, "reFlyAnchorHoldCountsThisFrame", new Dictionary<string, int>(StringComparer.Ordinal));
             SetPrivateField(host, "reFlyAnchorHoldReasonsThisFrame", new Dictionary<string, string>(StringComparer.Ordinal));
             SetPrivateField(host, "reFlyAnchorHoldReleaseScratch", new List<string>());
+            SetPrivateField(host, "spawnSuppressedReasonScratch", new Dictionary<string, int>(StringComparer.Ordinal));
             return host;
         }
 

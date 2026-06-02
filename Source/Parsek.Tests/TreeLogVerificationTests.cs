@@ -111,11 +111,11 @@ namespace Parsek.Tests
         // C4: ComputeTotal logging removed — pure computation should not log (log spam fix)
 
         // ============================================================
-        // C5: RecordingTree.Save logs summary
+        // C5: RecordingTree.Save is intentionally silent (log-spam fix)
         // ============================================================
 
         [Fact]
-        public void RecordingTreeSave_LogsSummary()
+        public void RecordingTreeSave_DoesNotLogPerTreeLine()
         {
             var tree = new RecordingTree
             {
@@ -138,12 +138,17 @@ namespace Parsek.Tests
             var node = new ConfigNode("RECORDING_TREE");
             tree.Save(node);
 
-            // Phase F: Save no longer logs the resourcesApplied flag (that field
-            // is no longer persisted). The summary still includes recordings + branchPoints.
-            Assert.Contains(capturedLines,
-                line => line.Contains("Save Test")
-                     && line.Contains("recordings=2")
-                     && line.Contains("branchPoints=1"));
+            // Serialization still works...
+            Assert.Equal(2, node.GetNodes("RECORDING").Length);
+            Assert.Single(node.GetNodes("BRANCH_POINT"));
+
+            // ...but Save no longer emits its own per-tree summary line: it is called
+            // once per committed tree inside ParsekScenario.SaveTreeRecordings' loop, which
+            // would emit one line per tree (hundreds with a large save). The caller logs a
+            // single batched summary; the single-tree active/pending callers log their own
+            // Info line.
+            Assert.DoesNotContain(capturedLines,
+                line => line.Contains("[RecordingTree]") && line.Contains("Save: tree="));
         }
 
         // ============================================================

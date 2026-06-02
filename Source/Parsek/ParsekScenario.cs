@@ -971,10 +971,11 @@ namespace Parsek
             ParsekLog.Info("Scenario", $"OnSave: saving {committedTrees.Count} committed tree(s)");
             int treeRecCount = 0;
             int treeTotalPoints = 0, treeTotalOrbitSegments = 0, treeTotalPartEvents = 0;
-            int treeWithTrackSections = 0, treeWithSnapshots = 0;
+            int treeWithTrackSections = 0, treeWithSnapshots = 0, treeTotalBranchPoints = 0;
             for (int t = 0; t < committedTrees.Count; t++)
             {
                 var tree = committedTrees[t];
+                treeTotalBranchPoints += tree.BranchPoints.Count;
 
                 bool treeFilesCurrent = true;
                 foreach (var rec in tree.Recordings.Values)
@@ -1004,7 +1005,8 @@ namespace Parsek
                 ParsekLog.Verbose("Scenario",
                     $"Saved {committedTrees.Count} trees ({treeRecCount} recordings): {treeTotalPoints} points, " +
                     $"{treeTotalOrbitSegments} orbit segments, {treeTotalPartEvents} part events, " +
-                    $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots");
+                    $"{treeWithTrackSections} with track sections, {treeWithSnapshots} with snapshots, " +
+                    $"{treeTotalBranchPoints} branch points");
 
             SaveActiveTreeIfAny(node);
             SavePendingTreeIfAny(node);
