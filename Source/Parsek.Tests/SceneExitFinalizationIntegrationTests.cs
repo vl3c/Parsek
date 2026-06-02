@@ -259,6 +259,51 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SubSurfaceClassification_BackgroundPath_LogsAtVerboseNotWarn()
+        {
+            // warnOnSubSurfaceStart: false is the background / periodic-refresh path,
+            // where a sub-surface Destroyed verdict is a self-correcting transient
+            // (solver torn down at the backgrounding frame). It must NOT emit a WARN
+            // or the INFO "classified Destroyed" line (only Verbose), so it stops
+            // spamming the log with a misleading "600 km underground" message.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                "rec-bg-quiet",
+                500.0,
+                "Kerbin",
+                -599979.0,
+                BallisticExtrapolator.SubSurfaceDestroyedAltitude,
+                warnOnSubSurfaceStart: false));
+
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "Start rejected: sub-surface state",
+                "rec=rec-bg-quiet"));
+            Assert.Equal(0, CountLogLines(
+                "[Parsek][INFO][Extrapolator]",
+                "classified Destroyed by sub-surface path",
+                "rec=rec-bg-quiet"));
+        }
+
+        [Fact]
+        public void SubSurfaceClassification_SceneExitPath_StillLogsAtWarn()
+        {
+            // The default (warnOnSubSurfaceStart: true) one-shot scene-exit path keeps
+            // the authoritative WARN; only the background path is downgraded.
+            Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
+                "rec-sceneexit-warn",
+                500.0,
+                "Kerbin",
+                -599979.0,
+                BallisticExtrapolator.SubSurfaceDestroyedAltitude,
+                warnOnSubSurfaceStart: true));
+
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "Start rejected: sub-surface state",
+                "rec=rec-sceneexit-warn"));
+        }
+
+        [Fact]
         public void TryApply_AlreadyDestroyed_DoesNotReapplyOrMutateTerminal()
         {
             int finalizeCalls = 0;
