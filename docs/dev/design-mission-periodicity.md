@@ -12,6 +12,37 @@ own PR, built in the phases in `docs/dev/plans/mission-periodicity-phases.md`.*
 
 ---
 
+## ⚠️ Superseded: transfer re-aim is the live approach (2026-06-02)
+
+> **This document's "replay the recorded transfer as-is; never re-aim" decision is
+> OBSOLETE for the interplanetary transfer leg.** The current, implemented approach
+> generates the heliocentric transfer per launch window with a Lambert solve so it
+> always intercepts the target — see
+> `docs/dev/done/plans/reaim-interplanetary-transfers.md`.
+>
+> **Why it changed:** the recorded celestial configuration (the launch body's rotation
+> AND every transited body's orbital phase) is set by periods that are mutually
+> incommensurate, so the exact recorded configuration only recurs on their joint
+> resonance — for an interplanetary target that best-fit window is effectively
+> centuries away. A pure replay-as-is loop would almost never get to launch. Re-aim
+> removes that wall: the transfer is recomputed for whatever window we choose, so a
+> usable cadence AND good transfer geometry are always available.
+>
+> **How the two layers now compose (the reconciliation):** the window scheduling in
+> this doc still owns the parts that timing alone *can* make faithful — the
+> launch-site rotation lock, and reusing the recorded SOI-local arcs (ascent/parking,
+> arrival/landing) at a favorable body configuration. Re-aim owns the one part timing
+> alone cannot fix: the heliocentric bridge between SOIs. So everything below about
+> `P`, the constraint extractor, the next-window countdown, and loiter trimming stays
+> valid for the *recorded, replayed* segments; only the premise "the recorded transfer
+> is replayed unchanged" is replaced by "the transfer is regenerated deterministically
+> per window." Correspondingly, the "cross-parent / interplanetary is not yet
+> supported — detect and report" caveats below (the `UnsupportedCrossParent` Support
+> flag, the Phase-4 deferral) are superseded where re-aim now covers a single
+> launch-SOI → other-SOI hop.
+
+---
+
 ## Why this exists
 
 Looping a mission as a unit (#958) replays the recorded trajectory faithfully
@@ -406,10 +437,16 @@ checks IS the contract, and the loop launches only at faithful windows.
 
 ## Key decisions (locked unless re-opened)
 
-- **Replay as-is; do not re-aim the trajectory.** We choose WHEN to launch the
-  recorded mission; we do NOT transform / re-plan the recorded inertial trajectory
-  to intercept the target's *current* position. Re-aiming would mean re-solving the
-  transfer per launch (a different mission each time) and is explicitly out of scope.
+- **~~Replay as-is; do not re-aim the trajectory.~~ OBSOLETE (2026-06-02) — see the
+  Superseded banner at the top of this doc.** This originally locked replaying the
+  recorded transfer unchanged and choosing only WHEN to launch. The interplanetary
+  transfer leg is now **re-aimed**: regenerated per launch window via a Lambert solve
+  so it always intercepts (`docs/dev/done/plans/reaim-interplanetary-transfers.md`),
+  because the exact recorded configuration recurs too rarely (joint resonance of
+  incommensurate periods ≈ centuries) for a replay-as-is interplanetary loop to be
+  usable. What remains true: the recorded SOI-local segments (ascent, parking,
+  arrival, landing) are still replayed as-is and only re-timed; we re-aim the
+  heliocentric bridge between SOIs, not those.
 - **Faithful-only; no free / decorative mode.** Looping always phase-locks to the
   included config's constraints. The checked configuration is the contract.
 - **Over-constrained configs are never refused.** When no exact joint window exists
