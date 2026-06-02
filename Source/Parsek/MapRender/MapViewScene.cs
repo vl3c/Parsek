@@ -57,5 +57,11 @@ namespace Parsek.MapRender
             info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = body.Radius };
             return true;
         }
+
+        public bool IsStarBody(string bodyName)
+        {
+            CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
+            return body != null && body.isStar;
+        }
     }
 }

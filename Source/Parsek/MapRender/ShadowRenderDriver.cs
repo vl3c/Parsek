@@ -19,13 +19,14 @@ namespace Parsek.MapRender
     /// scene adapter (the <see cref="MissionLoopUnitBuilder.Build"/> output), not the engine
     /// passthrough.</para>
     ///
-    /// <para><b>Shadow scope (MVP): faithful, single-instance missions only.</b> Re-aim members render
-    /// a window-specific synthesized transfer that the raw committed recording does not carry, and
-    /// overlap members need per-instance phasing that a single pid→recording resolve does not model;
-    /// shadowing either from the raw recording would emit reconciler noise that is a shadow limitation,
-    /// not a real decision divergence. Both are skipped with a logged reason and land with the re-aim /
-    /// overlap wiring in a later phase. The faithful same-body case (Mun/Minmus) is the design's
-    /// richest v1 case and is exactly what this validates.</para>
+    /// <para><b>Shadow scope (MVP): faithful, single-instance members only — decided PER MEMBER.</b>
+    /// Re-aim is per member, not per mission (design §4): only the heliocentric (Sun-relative) member
+    /// is re-synthesized, so ONLY it is skipped; the Kerbin-departure and destination-arrival members
+    /// of the SAME re-aimed mission are faithful and ARE shadowed (they render their recorded surface
+    /// tracks). Overlap members are still skipped (their per-instance phasing is not modelled by a
+    /// single pid→recording resolve). Skips carry a logged reason and land fully with the re-aim /
+    /// overlap wiring in a later phase. Both the faithful same-body case (Mun/Minmus) AND the faithful
+    /// departure/arrival members of an interplanetary mission are validated here.</para>
     /// </summary>
     internal static class ShadowRenderDriver
     {
@@ -61,20 +62,21 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// PURE scope classifier (design §4): faithful single-instance only this phase. A member with
-        /// no owning unit is a faithful non-loop recording (or a faithful non-member) → shadow. A unit
-        /// member is skipped if it is re-aim, or if it overlaps (its true launch cadence is shorter
-        /// than its span, so several instances are live at once). <paramref name="spanSeconds"/> &lt;= 0
-        /// is treated as non-overlap (degenerate span).
+        /// PURE scope classifier (design §4). Re-aim is decided PER MEMBER, not per mission: only the
+        /// heliocentric (Sun-relative) member of a re-aimed mission is re-synthesized, so it is skipped
+        /// (<paramref name="memberIsHeliocentric"/>); the Kerbin-departure and destination-arrival
+        /// members of that same mission are FAITHFUL and DO render, so they are shadowed. Overlap (the
+        /// unit's true launch cadence shorter than its span → several instances live at once) is still
+        /// skipped — its per-instance phasing is a later phase. A member with no owning unit is a
+        /// faithful non-loop recording → shadow. <paramref name="spanSeconds"/> &lt;= 0 is treated as
+        /// non-overlap (degenerate span).
         /// </summary>
         internal static ShadowScope ClassifyScope(
-            bool hasUnit, bool isReaim, double overlapCadenceSeconds, double spanSeconds)
+            bool memberIsHeliocentric, bool hasUnit, double overlapCadenceSeconds, double spanSeconds)
         {
-            if (!hasUnit)
-                return ShadowScope.Faithful;
-            if (isReaim)
+            if (memberIsHeliocentric)
                 return ShadowScope.SkipReaim;
-            if (spanSeconds > 0.0 && overlapCadenceSeconds > 0.0
+            if (hasUnit && spanSeconds > 0.0 && overlapCadenceSeconds > 0.0
                 && overlapCadenceSeconds < spanSeconds - 1.0)
                 return ShadowScope.SkipOverlap;
             return ShadowScope.Faithful;
@@ -123,8 +125,8 @@ namespace Parsek.MapRender
                         continue;
                     }
 
-                    ShadowScope scope = ClassifyScopeForMember(units, idx, out double wStart, out double wEnd,
-                        traj.StartUT, traj.EndUT);
+                    ShadowScope scope = ClassifyScopeForMember(units, idx, traj, scene,
+                        out double wStart, out double wEnd, traj.StartUT, traj.EndUT);
                     if (scope == ShadowScope.SkipReaim) { skipReaim++; continue; }
                     if (scope == ShadowScope.SkipOverlap) { skipOverlap++; continue; }
 
@@ -151,20 +153,36 @@ namespace Parsek.MapRender
 
         // Resolve a member's window (trimmed if it belongs to a unit) and classify its shadow scope.
         private static ShadowScope ClassifyScopeForMember(
-            GhostPlaybackLogic.LoopUnitSet units, int idx,
+            GhostPlaybackLogic.LoopUnitSet units, int idx, IPlaybackTrajectory traj, IGhostMapScene scene,
             out double windowStartUT, out double windowEndUT,
             double fallbackStartUT, double fallbackEndUT)
         {
             windowStartUT = fallbackStartUT;
             windowEndUT = fallbackEndUT;
+            bool heliocentric = TrajectoryHasHeliocentricLeg(traj, scene);
             if (units != null && units.TryGetUnitForMember(idx, out GhostPlaybackLogic.LoopUnit unit))
             {
                 windowStartUT = unit.MemberStartUT(idx, fallbackStartUT);
                 windowEndUT = unit.MemberEndUT(idx, fallbackEndUT);
-                return ClassifyScope(true, unit.IsReaim, unit.OverlapCadenceSeconds,
+                return ClassifyScope(heliocentric, true, unit.OverlapCadenceSeconds,
                     unit.SpanEndUT - unit.SpanStartUT);
             }
-            return ClassifyScope(false, false, 0.0, 0.0);
+            return ClassifyScope(heliocentric, false, 0.0, 0.0);
+        }
+
+        // A member carries a heliocentric (re-aimed) leg iff its recorded orbit is around a star (the
+        // Sun). Only that member is re-synthesized; the Kerbin-departure / destination-arrival members
+        // of the same mission are faithful (design §4). Uses the scene's live-body star check so the
+        // pure ClassifyScope stays Unity-free.
+        private static bool TrajectoryHasHeliocentricLeg(IPlaybackTrajectory traj, IGhostMapScene scene)
+        {
+            var segs = traj?.OrbitSegments;
+            if (segs == null || scene == null)
+                return false;
+            for (int i = 0; i < segs.Count; i++)
+                if (scene.IsStarBody(segs[i].bodyName))
+                    return true;
+            return false;
         }
 
         private static GhostRenderChain GetOrBuildChain(

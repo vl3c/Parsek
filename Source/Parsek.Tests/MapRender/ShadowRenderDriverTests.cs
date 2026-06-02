@@ -17,44 +17,55 @@ namespace Parsek.Tests
     /// </summary>
     public class ShadowRenderDriverTests
     {
-        // ---- ClassifyScope (faithful single-instance only) ----
+        // ---- ClassifyScope (per-member: heliocentric member skipped, faithful members shadowed) ----
 
         [Fact]
-        public void ClassifyScope_NoUnit_IsFaithful()
+        public void ClassifyScope_NoUnit_NotHeliocentric_IsFaithful()
         {
             // Faithful non-loop recording (or non-member) → shadow it.
             Assert.Equal(ShadowRenderDriver.ShadowScope.Faithful,
-                ShadowRenderDriver.ClassifyScope(hasUnit: false, isReaim: false, overlapCadenceSeconds: 0, spanSeconds: 0));
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: false, overlapCadenceSeconds: 0, spanSeconds: 0));
         }
 
         [Fact]
-        public void ClassifyScope_ReaimUnit_SkipsReaim()
+        public void ClassifyScope_HeliocentricMember_SkipsReaim()
         {
+            // The Sun-relative transfer member is the re-synthesized one → skip.
             Assert.Equal(ShadowRenderDriver.ShadowScope.SkipReaim,
-                ShadowRenderDriver.ClassifyScope(hasUnit: true, isReaim: true, overlapCadenceSeconds: 100, spanSeconds: 1000));
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: true, hasUnit: true, overlapCadenceSeconds: 1000, spanSeconds: 1000));
         }
 
         [Fact]
-        public void ClassifyScope_OverlapUnit_SkipsOverlap()
+        public void ClassifyScope_FaithfulMemberOfReaimMission_IsShadowed()
+        {
+            // A Kerbin-departure / Duna-arrival member of a re-aimed mission is NOT heliocentric → it
+            // is faithful and IS shadowed (the key fix: skip per member, not per mission). This is the
+            // exact in-game case: a Duna mission's Kerbin-orbit parking member.
+            Assert.Equal(ShadowRenderDriver.ShadowScope.Faithful,
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: true, overlapCadenceSeconds: 1000, spanSeconds: 1000));
+        }
+
+        [Fact]
+        public void ClassifyScope_OverlapMember_SkipsOverlap()
         {
             // launch cadence (200s) shorter than span (1000s) → several instances live at once → skip.
             Assert.Equal(ShadowRenderDriver.ShadowScope.SkipOverlap,
-                ShadowRenderDriver.ClassifyScope(hasUnit: true, isReaim: false, overlapCadenceSeconds: 200, spanSeconds: 1000));
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: true, overlapCadenceSeconds: 200, spanSeconds: 1000));
         }
 
         [Fact]
-        public void ClassifyScope_NonOverlapLoopUnit_IsFaithful()
+        public void ClassifyScope_HeliocentricTakesPriorityOverOverlap()
         {
-            // cadence (1000s) >= span (1000s) → single instance at a time → faithful, shadow it.
-            Assert.Equal(ShadowRenderDriver.ShadowScope.Faithful,
-                ShadowRenderDriver.ClassifyScope(hasUnit: true, isReaim: false, overlapCadenceSeconds: 1000, spanSeconds: 1000));
+            // A heliocentric member that also overlaps is skipped as re-aim (the more specific reason).
+            Assert.Equal(ShadowRenderDriver.ShadowScope.SkipReaim,
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: true, hasUnit: true, overlapCadenceSeconds: 200, spanSeconds: 1000));
         }
 
         [Fact]
         public void ClassifyScope_DegenerateSpan_IsFaithful()
         {
             Assert.Equal(ShadowRenderDriver.ShadowScope.Faithful,
-                ShadowRenderDriver.ClassifyScope(hasUnit: true, isReaim: false, overlapCadenceSeconds: 5, spanSeconds: 0));
+                ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: true, overlapCadenceSeconds: 5, spanSeconds: 0));
         }
 
         // ---- DecideForGhost composition (faithful, Empty units = identity span clock, null surface) ----

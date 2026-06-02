@@ -44,5 +44,14 @@ namespace Parsek.MapRender
         /// Wired to the live bodies in a scene impl; null-safe for the assembler.
         /// </summary>
         GhostTrajectoryPolylineRenderer.BodySurfaceProvider BodySurface { get; }
+
+        /// <summary>
+        /// True when <paramref name="bodyName"/> is a star (the Sun). Used to detect a member's
+        /// heliocentric leg: in a re-aimed mission only the heliocentric (Sun-relative) member is
+        /// re-synthesized; the Kerbin-departure and destination-arrival members are faithful and DO
+        /// render (design §4), so the shadow skips only the star-relative member, not the whole
+        /// mission. Resolved against the live bodies; false for an unknown body.
+        /// </summary>
+        bool IsStarBody(string bodyName);
     }
 }
