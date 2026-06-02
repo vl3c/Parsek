@@ -153,7 +153,13 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
 - **Phase 8a (next) wires it:** swap `GhostOrbitLinePatch`'s decision/drive to the Director +
   `StockConicTreatment` behind a runtime gate, at a fixed exec order before the stock `OrbitRenderer`,
   and validate `angleIconVsOrbitEff -> ~0` in-game.
-- **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2 - possible stop-point).
+- **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
+  over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from
+  `MapViewScene`, which is now just the FLIGHT gate). `ParsekTrackingStation.Update` runs
+  `ShadowRenderDriver.RunFrame` over the TS map ghosts (gated + try/catch), so the reconciler now reports
+  decision-vs-old-truth in BOTH scenes. **Phase 7b (next, NEEDS IN-GAME)**: make-before-break +
+  cold-start-mid-segment (§10.19) + per-scene patched-conic divergence (§10.20), gated on the §15.2 probe
+  (possible stop-point - if stock re-solves the patch chain materially differently per scene, escalate).
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
   `TransferConic` frame-agnostic return - touch the in-game-validated re-aim path.

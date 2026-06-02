@@ -90,6 +90,10 @@ namespace Parsek
         /// </summary>
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
 
+        // Phase 7a decision-only shadow (design §6.7): the TS scene adapter the ShadowRenderDriver runs
+        // the new pipeline against. Only touched when mapRenderTracing is on.
+        private readonly MapRender.TrackingStationScene shadowScene = new MapRender.TrackingStationScene();
+
         internal enum AtmosphericMarkerSkipReason
         {
             None,
@@ -248,6 +252,25 @@ namespace Parsek
             // before both the lifecycle pass below and the OnGUI atmospheric-marker pass that reads
             // the cached field. The OnGUI pass never rebuilds.
             DriveMissionLoopUnits(RecordingStore.CommittedRecordings);
+
+            // Phase 7a decision-only shadow: run the new map-render pipeline over the TS map ghosts and
+            // reconcile each intent against the OLD path's truth via MapRenderProbe. Writes NOTHING to
+            // the stock surfaces. Gated on the off-by-default mapRenderTracing setting; try/catch so a
+            // diagnostic bug can never break the TS update. Runs every Update tick (cachedLoopUnits is
+            // fresh) before the rate-limited lifecycle pass.
+            if (MapRenderTrace.IsEnabled)
+            {
+                try
+                {
+                    shadowScene.SetFrameInputs(cachedLoopUnits, Planetarium.GetUniversalTime());
+                    MapRender.ShadowRenderDriver.RunFrame(shadowScene);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.VerboseRateLimited("MapRender", "ts-shadow-run-exception",
+                        "TS shadow RunFrame threw (suppressed): " + ex.GetType().Name + ": " + ex.Message, 10.0);
+                }
+            }
 
             if (Time.time < nextLifecycleCheckTime) return;
             nextLifecycleCheckTime = Time.time + LifecycleCheckIntervalSec;
