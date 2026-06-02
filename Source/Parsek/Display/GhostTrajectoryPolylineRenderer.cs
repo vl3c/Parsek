@@ -868,7 +868,7 @@ namespace Parsek.Display
                 instance = this;
                 DontDestroyOnLoad(gameObject);
                 GameEvents.onGameStateLoad.Add(OnGameStateLoad);
-                GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
+                GameEvents.onLevelWasLoaded.Add(HandleLevelWasLoaded);
                 ParsekLog.Verbose(DriverTag,
                     "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
             }
@@ -879,7 +879,7 @@ namespace Parsek.Display
                 {
                     instance = null;
                     GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
-                    GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
+                    GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
@@ -891,8 +891,15 @@ namespace Parsek.Display
             /// new scene (MINOR-1 / MINOR-2). The DDOL Driver outlives scene
             /// transitions, so a stale controller from the previous scene must
             /// not be reused.
+            ///
+            /// Named HandleLevelWasLoaded (not OnLevelWasLoaded) to avoid colliding
+            /// with Unity's deprecated magic message of that name: Unity scans
+            /// MonoBehaviours for a method called OnLevelWasLoaded and, finding our
+            /// GameScenes-typed handler instead of the magic int signature, logs a
+            /// spurious "[ERR] Script error: OnLevelWasLoaded" on every scene load.
+            /// The real subscription is the KSP GameEvent GameEvents.onLevelWasLoaded.
             /// </summary>
-            private void OnLevelWasLoaded(GameScenes scene)
+            private void HandleLevelWasLoaded(GameScenes scene)
             {
                 cachedControllerScene = (GameScenes)(-1);
                 cachedTsController = null;
