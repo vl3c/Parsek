@@ -397,6 +397,10 @@ namespace Parsek
                             floatingOriginShiftFrame: foShiftFrame,
                             justReset: justReset,
                             bodyChanged: bodyChanged)
+                        // Skip a SUPPRESSED icon: its proto position may still jump (stock propagates a
+                        // phantom orbit) but it is not DRAWN, so it is not a visible teleport - only flag
+                        // teleports the user can actually see (matches the icon-off-orbit guard).
+                        && !GhostMapPresence.IsIconSuppressed(pid)
                         && PassesJumpRateLimit(pid, realtime))
                     {
                         // dPosWorld is the raw world-frame delta, logged only as

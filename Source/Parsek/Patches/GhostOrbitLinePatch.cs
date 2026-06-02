@@ -156,7 +156,18 @@ namespace Parsek.Patches
             // ghosts have shift 0 and a full ellipse, so live == effUT and the icon already glides.
             if (!GhostMapPresence.TryGetVisibleOrbitBoundsForGhostVessel(
                     pid, currentUT, out double startUT, out double endUT))
+            {
+                // No-bounds leak (gated): at a loiter->burn transition the legacy gap-glide reseeds the
+                // orbit to a per-frame synthesized eccentric orbit AND clears the segment bounds before
+                // the chain switches to TracedPath. Without bounds, stock would propagate that phantom
+                // orbit at the live clock and the line Postfix's terminal-visible branch would show the
+                // icon on it (the residual teleport). If the Director is tracking this ghost at all,
+                // suppress the proto icon so the marker pass draws the polyline instead; the icon re-shows
+                // once the Director re-establishes a StockConic drive (the hyperbolic).
+                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
                 return true;
+            }
 
             double shift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
             // A hyperbolic escape segment covers a single OUTWARD pass with no below-ground arc, so the
@@ -839,6 +850,30 @@ namespace Parsek.Patches
                     LogOrbitLineDecision(
                         pid,
                         "post-polyline-release-grace",
+                        line.active,
+                        __instance.drawIcons,
+                        GhostMapPresence.IsIconSuppressed(pid),
+                        belowAtmosphere,
+                        hasBounds: false,
+                        currentUT,
+                        double.NaN,
+                        double.NaN);
+                    return;
+                }
+
+                // Director no-bounds suppression (gated): a director-tracked ghost only reaches this
+                // terminal (no-bounds) branch transiently, when the legacy gap-glide cleared its segment
+                // bounds at a loiter->burn transition and reseeded a phantom eccentric orbit. Showing it
+                // here (ALL) is the residual icon teleport. Suppress instead - the Director re-shows the
+                // icon via the StockConic / visible-body-frame path once bounds return (the hyperbolic).
+                if (Parsek.MapRender.ShadowRenderDriver.IsDirectorTracking(pid, Time.frameCount))
+                {
+                    line.active = false;
+                    __instance.drawIcons = OrbitRendererBase.DrawIcons.NONE;
+                    GhostMapPresence.ghostsWithSuppressedIcon.Add(pid);
+                    LogOrbitLineDecision(
+                        pid,
+                        "director-terminal-suppress",
                         line.active,
                         __instance.drawIcons,
                         GhostMapPresence.IsIconSuppressed(pid),

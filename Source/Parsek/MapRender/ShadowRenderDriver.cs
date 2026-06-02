@@ -140,6 +140,24 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
+        /// True when the gate is on AND the Director is TRACKING <paramref name="pid"/> this frame -
+        /// i.e. it has a fresh StockConic seed OR a fresh TracedPath stamp. Used to plug the no-bounds
+        /// leak: when the legacy gap-glide clears a ghost's segment bounds at a loiter->burn transition,
+        /// the icon-drive early-returns to stock and the line Postfix falls into the `terminal-visible`
+        /// (full-ellipse) branch, showing the proto icon on the per-frame synthesized burn orbit BEFORE
+        /// the chain switches to TracedPath. If the Director is tracking the ghost AT ALL, stock must not
+        /// be allowed to show that phantom - suppress until the Director re-establishes a StockConic drive
+        /// (the hyperbolic) or a TracedPath suppress. NOT a substitute for IsDirectorDriveActive: a ghost
+        /// the Director actively drives WITH bounds still renders via the StockConic path; this only gates
+        /// the legacy no-bounds fallback.
+        /// </summary>
+        internal static bool IsDirectorTracking(uint pid, int currentFrame)
+        {
+            return IsDirectorDriveActive(pid, currentFrame)
+                || IsDirectorTracedPathActive(pid, currentFrame);
+        }
+
+        /// <summary>
         /// True when the Director recorded a StockConic seed for <paramref name="pid"/> within
         /// <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>. Returns the inertial
         /// <see cref="OrbitSegment"/> + frame body the Phase-8a drive re-asserts. Stale seeds (no shadow
