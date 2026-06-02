@@ -434,9 +434,13 @@ namespace Parsek
                     // and resolves the icon at the LIVE clock, so the orbit's own LIVE-clock position IS
                     // the recorded phase the icon should sit on - compare against effUT = currentUT
                     // (shift 0). The legacy raw-epoch path drives the icon at effUT = currentUT - shift,
-                    // so it keeps the recorded-clock comparison. Either way the metric stays truthful:
-                    // angleIconVsOrbitEff -> 0 when the icon rides its line.
-                    double offShift = GhostMapPresence.IsDirectorEpochBaked(pid, Time.frameCount)
+                    // so it keeps the recorded-clock comparison. The active check is keyed on the SEED
+                    // (refreshed by the shadow in Update every render frame), the SAME predicate the
+                    // icon-drive + arc-clip use, so all three agree even on no-FixedUpdate frames - no
+                    // stale-stamp double-shift artifact. angleIconVsOrbitEff ~= 0 means the icon rides its
+                    // OWN line; recorded-phase correctness is proven by the in-game epoch-bake test.
+                    double offShift =
+                        Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount)
                         ? 0.0
                         : GhostMapPresence.GetGhostOrbitEpochShift(pid);
                     double offEffUT = currentUT - offShift;

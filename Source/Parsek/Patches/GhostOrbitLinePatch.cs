@@ -225,9 +225,6 @@ namespace Parsek.Patches
                             orbit, dirSeg, seedBody, shift, liveDriveUT);
                         propagateUT = liveDriveUT;
                         directorDriveActive = true;
-                        // Tell GhostOrbitArcPatch (LateUpdate) that this ghost's epoch carries the shift
-                        // this frame, so it clips the arc at the LIVE bounds rather than remapping to effUT.
-                        GhostMapPresence.StampDirectorEpochBaked(pid, Time.frameCount);
                     }
                 }
                 ParsekLog.VerboseRateLimited("MapRender", "8a-drive-" + pid,
@@ -907,7 +904,7 @@ namespace Parsek.Patches
             // (no effUT remap), so the clipped arc matches the icon's live-clock phase. Mirror the same
             // gate + fresh-seed test the icon-drive patch used so the two stay consistent this frame.
             double arcShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
-            bool arcDirectorDrive = GhostMapPresence.IsDirectorEpochBaked(pid, Time.frameCount);
+            bool arcDirectorDrive = Parsek.MapRender.ShadowRenderDriver.IsDirectorDriveActive(pid, Time.frameCount);
             double startUTRaw = arcDirectorDrive ? startUT : GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
             double endUTRaw = arcDirectorDrive ? endUT : GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
 

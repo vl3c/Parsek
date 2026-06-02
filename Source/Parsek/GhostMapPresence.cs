@@ -751,35 +751,6 @@ namespace Parsek
         internal static readonly HashSet<uint> ghostsWithSuppressedIcon = new HashSet<uint>();
 
         /// <summary>
-        /// Per-pid frame stamp: the render frame <see cref="Parsek.Patches.GhostOrbitIconDrivePatch"/>
-        /// last baked the loop shift into this ghost's orbit EPOCH under the director-drive gate
-        /// (<c>mapRenderDirectorDrive</c>). <see cref="Parsek.Patches.GhostOrbitArcPatch"/> reads it to
-        /// decide whether to clip the arc at the LIVE bounds (epoch carries the shift) or remap to effUT
-        /// (legacy raw-epoch path). Self-cleaning: a stale stamp simply reads as "not baked", so no
-        /// teardown wiring is needed. Stamped in FixedUpdate (the icon drive) and read in the
-        /// same-or-next-frame LateUpdate (the arc clip), hence the +/-1 frame tolerance in
-        /// <see cref="IsDirectorEpochBaked"/>.
-        /// </summary>
-        private static readonly Dictionary<uint, int> ghostDirectorEpochBakedFrame =
-            new Dictionary<uint, int>();
-
-        /// <summary>Record that <paramref name="pid"/>'s orbit epoch carries the loop shift this frame
-        /// (director-drive). See <see cref="ghostDirectorEpochBakedFrame"/>.</summary>
-        internal static void StampDirectorEpochBaked(uint pid, int frame)
-        {
-            ghostDirectorEpochBakedFrame[pid] = frame;
-        }
-
-        /// <summary>True when the director-drive baked <paramref name="pid"/>'s epoch within +/-1 frame
-        /// of <paramref name="currentFrame"/> (so the arc clip uses LIVE bounds). See
-        /// <see cref="ghostDirectorEpochBakedFrame"/>.</summary>
-        internal static bool IsDirectorEpochBaked(uint pid, int currentFrame)
-        {
-            return ghostDirectorEpochBakedFrame.TryGetValue(pid, out int f)
-                && System.Math.Abs(currentFrame - f) <= 1;
-        }
-
-        /// <summary>
         /// Per-ghost orbit-line "grace deadline" (a render-frame count). When
         /// <see cref="Parsek.Patches.GhostOrbitLinePatch"/> genuinely shows the
         /// orbit line (`visible-body-frame`), it stamps a short grace window

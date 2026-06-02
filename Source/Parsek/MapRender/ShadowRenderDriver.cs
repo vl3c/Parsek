@@ -96,6 +96,24 @@ namespace Parsek.MapRender
         internal const int SeedFreshnessFrames = 2;
 
         /// <summary>
+        /// True when the Phase-8a director-drive is ACTIVE for <paramref name="pid"/> this frame: the
+        /// <c>mapRenderDirectorDrive</c> gate is on AND the Director recorded a fresh StockConic seed.
+        /// This is the SINGLE source of truth shared by all three consumers (the icon-drive Prefix that
+        /// bakes the epoch, the arc-clip Prefix that switches to live bounds, and the probe that measures
+        /// against the live clock), so they never disagree on a frame. Keyed on the SEED (refreshed by the
+        /// shadow in Update, every render frame) rather than a per-frame stamp written in FixedUpdate, so
+        /// it stays correct on render frames where no FixedUpdate ran (the orbit keeps its baked epoch from
+        /// the prior FixedUpdate, and this still reports active - no stale-stamp metric artifact / arc
+        /// flicker).
+        /// </summary>
+        internal static bool IsDirectorDriveActive(uint pid, int currentFrame)
+        {
+            return ParsekSettings.Current != null
+                && ParsekSettings.Current.mapRenderDirectorDrive
+                && TryGetFreshStockConicSeed(pid, currentFrame, out _, out _);
+        }
+
+        /// <summary>
         /// True when the Director recorded a StockConic seed for <paramref name="pid"/> within
         /// <see cref="SeedFreshnessFrames"/> of <paramref name="currentFrame"/>. Returns the inertial
         /// <see cref="OrbitSegment"/> + frame body the Phase-8a drive re-asserts. Stale seeds (no shadow
@@ -117,14 +135,16 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// PURE scope classifier (design §4). Re-aim is decided PER MEMBER, not per mission: only the
-        /// heliocentric (Sun-relative) member of a re-aimed mission is re-synthesized, so it is skipped
-        /// (<paramref name="memberIsHeliocentric"/>); the Kerbin-departure and destination-arrival
-        /// members of that same mission are FAITHFUL and DO render, so they are shadowed. Overlap (the
-        /// unit's true launch cadence shorter than its span → several instances live at once) is still
-        /// skipped — its per-instance phasing is a later phase. A member with no owning unit is a
-        /// faithful non-loop recording → shadow. <paramref name="spanSeconds"/> &lt;= 0 is treated as
-        /// non-overlap (degenerate span).
+        /// PURE scope classifier (design §4). NOTE: production now decides re-aim PER ACTIVE SEGMENT (see
+        /// <see cref="ShouldSkipReaimSegment"/>), not per member - a single-recording interplanetary
+        /// flight has both faithful (Kerbin escape / destination arrival) and re-aimed (heliocentric)
+        /// legs, so only the currently-flown heliocentric leg is skipped. This predicate retains the
+        /// <paramref name="memberIsHeliocentric"/> input for the per-member classification it still
+        /// models (and its tests), but the production call site (<see cref="ClassifyOverlapForMember"/>)
+        /// passes false and applies re-aim per segment. Overlap (the unit's true launch cadence shorter
+        /// than its span → several instances live at once) is still skipped per member - its per-instance
+        /// phasing is a later phase. A member with no owning unit is a faithful non-loop recording →
+        /// shadow. <paramref name="spanSeconds"/> &lt;= 0 is treated as non-overlap (degenerate span).
         /// </summary>
         internal static ShadowScope ClassifyScope(
             bool memberIsHeliocentric, bool hasUnit, double overlapCadenceSeconds, double spanSeconds)
@@ -180,16 +200,33 @@ namespace Parsek.MapRender
                         continue;
                     }
 
-                    ShadowScope scope = ClassifyScopeForMember(units, idx, traj, scene,
-                        out double wStart, out double wEnd, traj.StartUT, traj.EndUT);
-                    if (scope == ShadowScope.SkipReaim) { skipReaim++; continue; }
-                    if (scope == ShadowScope.SkipOverlap) { skipOverlap++; continue; }
+                    // Overlap is a per-MEMBER property (the unit's cadence shorter than its span), decided
+                    // before sampling. Re-aim is decided PER ACTIVE SEGMENT after Decide (below), not here.
+                    if (ClassifyOverlapForMember(units, idx, out double wStart, out double wEnd,
+                            traj.StartUT, traj.EndUT) == ShadowScope.SkipOverlap)
+                    {
+                        skipOverlap++;
+                        continue;
+                    }
 
                     GhostRenderChain chain = GetOrBuildChain(pid, traj, idx, wStart, wEnd, surface);
                     GhostSample sample = ChainSampler.Sample(chain, currentUT, units);
                     priorIntentByPid.TryGetValue(pid, out GhostRenderIntent prior);
                     GhostRenderIntent intent = GhostRenderDirector.Decide(sample, prior, traj.VesselName);
                     priorIntentByPid[pid] = intent;
+
+                    // Per-ACTIVE-SEGMENT re-aim skip (design §4, refined from per-member): only the
+                    // heliocentric (Sun-relative) LEG is re-synthesized, so skip the ghost ONLY while it is
+                    // currently flying that leg, NOT the whole member. A single-recording interplanetary
+                    // flight ("Kerbal X": Kerbin escape -> Sun transfer -> Duna) has FAITHFUL Kerbin-escape
+                    // and destination-arrival phases that MUST render with the director-drive; skipping the
+                    // whole member on its Sun leg would also drop its faithful hyperbolic Kerbin escape (the
+                    // icon-off-orbit regression). intent.FrameBodyName is the active segment's frame body.
+                    if (ShouldSkipReaimSegment(intent.Visible, scene.IsStarBody(intent.FrameBodyName)))
+                    {
+                        skipReaim++;
+                        continue;
+                    }
 
                     // Record the Director's StockConic seed this frame so the Phase-8a gated patch can
                     // re-assert this inertial conic (one-source icon+line). Frame-stamped for same-frame
@@ -217,38 +254,37 @@ namespace Parsek.MapRender
                 5.0);
         }
 
-        // Resolve a member's window (trimmed if it belongs to a unit) and classify its shadow scope.
-        private static ShadowScope ClassifyScopeForMember(
-            GhostPlaybackLogic.LoopUnitSet units, int idx, IPlaybackTrajectory traj, IGhostMapScene scene,
+        // PURE: skip the ACTIVE segment when it is the re-synthesized heliocentric (star-relative) leg.
+        // The raw recording's heliocentric conic points where the target USED to be (the re-aim re-plans
+        // it), so the shadow cannot render it faithfully and must not director-drive it; the
+        // Kerbin-departure / destination-arrival legs of the SAME recording ARE faithful and render.
+        // Decided per active segment (after Decide), not per whole trajectory - a single-recording
+        // interplanetary flight has both faithful and re-aimed legs. <paramref name="frameBodyIsStar"/>
+        // is the live <c>IGhostMapScene.IsStarBody(intent.FrameBodyName)</c> result (kept out so this
+        // predicate is Unity-free and unit-testable).
+        internal static bool ShouldSkipReaimSegment(bool intentVisible, bool frameBodyIsStar)
+        {
+            return intentVisible && frameBodyIsStar;
+        }
+
+        // Resolve a member's window (trimmed if it belongs to a unit) and classify ONLY its overlap
+        // scope (re-aim is now decided per active segment via ShouldSkipReaimSegment after Decide).
+        private static ShadowScope ClassifyOverlapForMember(
+            GhostPlaybackLogic.LoopUnitSet units, int idx,
             out double windowStartUT, out double windowEndUT,
             double fallbackStartUT, double fallbackEndUT)
         {
             windowStartUT = fallbackStartUT;
             windowEndUT = fallbackEndUT;
-            bool heliocentric = TrajectoryHasHeliocentricLeg(traj, scene);
             if (units != null && units.TryGetUnitForMember(idx, out GhostPlaybackLogic.LoopUnit unit))
             {
                 windowStartUT = unit.MemberStartUT(idx, fallbackStartUT);
                 windowEndUT = unit.MemberEndUT(idx, fallbackEndUT);
-                return ClassifyScope(heliocentric, true, unit.OverlapCadenceSeconds,
+                // Heliocentric flag false: re-aim is handled per active segment, this classifies overlap.
+                return ClassifyScope(false, true, unit.OverlapCadenceSeconds,
                     unit.SpanEndUT - unit.SpanStartUT);
             }
-            return ClassifyScope(heliocentric, false, 0.0, 0.0);
-        }
-
-        // A member carries a heliocentric (re-aimed) leg iff its recorded orbit is around a star (the
-        // Sun). Only that member is re-synthesized; the Kerbin-departure / destination-arrival members
-        // of the same mission are faithful (design §4). Uses the scene's live-body star check so the
-        // pure ClassifyScope stays Unity-free.
-        private static bool TrajectoryHasHeliocentricLeg(IPlaybackTrajectory traj, IGhostMapScene scene)
-        {
-            var segs = traj?.OrbitSegments;
-            if (segs == null || scene == null)
-                return false;
-            for (int i = 0; i < segs.Count; i++)
-                if (scene.IsStarBody(segs[i].bodyName))
-                    return true;
-            return false;
+            return ClassifyScope(false, false, 0.0, 0.0);
         }
 
         private static GhostRenderChain GetOrBuildChain(

@@ -801,9 +801,14 @@ overwritten and the icon always lands at `orbit(liveUT)`. The raw-epoch + per-fr
 (introduced by `9966ace`, PR #1003) was built on the false premise that the drive controls the icon.
 The live metric already exists on `main` (PR #1014): `MapRenderProbe` emits the gated Tier-C
 `icon-off-orbit` anomaly logging `angleIconVsOrbitEff` (pure predicate `MapRenderTrace.IsIconOffOrbit`,
-threshold `IconOffOrbitMinAngleDeg = 1 deg`). **Success assertion: on the looped re-aim mission with
-`mapRenderTracing` + `mapRenderDirectorDrive` on, `angleIconVsOrbitEff` goes to ~0 for both ghosts
-(was ~96.5 deg).** **The fix (Phase-8a director-drive, §6.5 invariant 2 achieved through the EPOCH):**
+threshold `IconOffOrbitMinAngleDeg = 1 deg`). **In-game ride-the-line signal: on the looped re-aim
+mission with `mapRenderTracing` + `mapRenderDirectorDrive` on, `angleIconVsOrbitEff` goes to ~0 for
+both ghosts (was ~96.5 deg).** Note this proves the icon rides its OWN line (both sides evaluate the
+one orbit at the live clock); recorded-PHASE correctness is proven by the in-game
+`DirectorDriveEpochBakePlacesIconOnRecordedPhase` test (independent raw-epoch reference). The re-aim
+skip is PER ACTIVE SEGMENT (only the heliocentric leg is skipped), so a single-recording
+interplanetary flight's faithful Kerbin escape + destination arrival ARE driven - the "Kerbal X"
+hyperbolic escape needs this, else the whole member is dropped on its later Sun leg. **The fix (Phase-8a director-drive, §6.5 invariant 2 achieved through the EPOCH):**
 since the icon's only resolved clock is LIVE, `StockConicTreatment.SeedAndDriveLive` bakes the loop
 shift into the orbit epoch (`SetOrbit(..., epoch + shift, ...)`) so that live-clock evaluation lands on
 the recorded phase (`M(live) = MAE + n*(effUT - epoch)`). This is the IDENTICAL phase the legacy

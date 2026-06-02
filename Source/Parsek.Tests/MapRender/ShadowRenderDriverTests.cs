@@ -68,6 +68,31 @@ namespace Parsek.Tests
                 ShadowRenderDriver.ClassifyScope(memberIsHeliocentric: false, hasUnit: true, overlapCadenceSeconds: 5, spanSeconds: 0));
         }
 
+        // ---- ShouldSkipReaimSegment (re-aim decided PER ACTIVE SEGMENT, not per whole trajectory) ----
+
+        [Fact]
+        public void ShouldSkipReaimSegment_HeliocentricLeg_Skips()
+        {
+            // Flying the re-synthesized Sun-relative transfer leg → skip (raw conic points where the
+            // target used to be).
+            Assert.True(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: true, frameBodyIsStar: true));
+        }
+
+        [Fact]
+        public void ShouldSkipReaimSegment_FaithfulKerbinLeg_DoesNotSkip()
+        {
+            // The same interplanetary recording's FAITHFUL Kerbin escape / destination arrival legs must
+            // render (the "Kerbal X" hyperbolic escape icon-off-orbit regression when they were dropped).
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: true, frameBodyIsStar: false));
+        }
+
+        [Fact]
+        public void ShouldSkipReaimSegment_HiddenIntent_DoesNotSkip()
+        {
+            // A hidden intent has no active segment to classify; nothing to skip.
+            Assert.False(ShadowRenderDriver.ShouldSkipReaimSegment(intentVisible: false, frameBodyIsStar: true));
+        }
+
         // ---- DecideForGhost composition (faithful, Empty units = identity span clock, null surface) ----
 
         private static TrajectoryPoint Pt(double ut, string body)
