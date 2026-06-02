@@ -151,5 +151,34 @@ namespace Parsek.Tests
             Assert.Single(chain.Segments);
             Assert.Equal(Treatment.StockConic, chain.Segments[0].Treatment);
         }
+
+        [Fact]
+        public void Build_CoalescesSameOrbitFragments_IntoOneStockConic()
+        {
+            // The recorder split one parking coast into 3 same-orbit fragments with sampling gaps
+            // (background/foreground switches), the last a ~40s tail. The chain must render ONE StockConic
+            // for the coast (not three short ones the loop clock flashes across), and keep the escape burn
+            // (different orbit) as its own segment. This is the s15 "Kerbal X" decouple-seam fix at the
+            // chain/director path (the legacy path coalesces separately in ReaimSegmentAssembler).
+            var traj = new MockTrajectory
+            {
+                RecordingId = "rec-frag",
+                Points = new List<TrajectoryPoint>(),
+                OrbitSegments = new List<OrbitSegment>
+                {
+                    new OrbitSegment { startUT = 10, endUT = 100, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0.001, epoch = 10 },
+                    new OrbitSegment { startUT = 150, endUT = 300, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0.001, epoch = 150 }, // 50s gap
+                    new OrbitSegment { startUT = 311, endUT = 351, bodyName = "Kerbin", semiMajorAxis = 700000, eccentricity = 0.001, epoch = 311 }, // 11s gap, ~40s tail
+                    new OrbitSegment { startUT = 400, endUT = 5000, bodyName = "Kerbin", semiMajorAxis = -380000, eccentricity = 1.2, epoch = 400 }, // escape burn
+                },
+            };
+            var chain = ChainAssembler.Build(traj, 0, 0, 0, 6000);
+
+            Assert.Equal(2, chain.SegmentCount); // one coalesced parking + the escape (was 4)
+            Assert.All(chain.Segments, s => Assert.Equal(Treatment.StockConic, s.Treatment));
+            Assert.Equal(10.0, chain.Segments[0].StartUT, 3);   // first fragment's start
+            Assert.Equal(351.0, chain.Segments[0].EndUT, 3);    // last parking fragment's end (spans gaps)
+            Assert.Equal(-380000.0, chain.Segments[1].Payload.Conic.semiMajorAxis, 0); // escape kept separate
+        }
     }
 }

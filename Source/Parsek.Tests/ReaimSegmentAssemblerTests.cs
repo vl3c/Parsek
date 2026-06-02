@@ -190,7 +190,7 @@ namespace Parsek.Tests
                 Seg("Kerbin", 250, 400, 250),  // 50s gap
                 Seg("Kerbin", 411, 451, 411),  // 11s gap, a ~40s tail (the s15 spurious fragment)
             };
-            var merged = ReaimSegmentAssembler.CoalesceSameOrbitFragments(segs);
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
             Assert.Single(merged);
             Assert.Equal(100.0, merged[0].startUT, 3);  // first fragment's start
             Assert.Equal(451.0, merged[0].endUT, 3);    // last fragment's end (spans the gaps)
@@ -209,7 +209,7 @@ namespace Parsek.Tests
                 Seg("Kerbin", 411, 451, 411),
                 burn,
             };
-            var merged = ReaimSegmentAssembler.CoalesceSameOrbitFragments(segs);
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
             Assert.Equal(2, merged.Count);
             Assert.Equal(100.0, merged[0].startUT, 3);
             Assert.Equal(451.0, merged[0].endUT, 3);          // the two parking fragments merged
@@ -226,16 +226,16 @@ namespace Parsek.Tests
                 Seg("Kerbin", 100, 400, 100, predicted: false),
                 Seg("Kerbin", 411, 451, 411, predicted: true),
             };
-            var merged = ReaimSegmentAssembler.CoalesceSameOrbitFragments(segs);
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
             Assert.Equal(2, merged.Count);
         }
 
         [Fact]
         public void CoalesceSameOrbitFragments_NullOrSingle_PassThrough()
         {
-            Assert.Null(ReaimSegmentAssembler.CoalesceSameOrbitFragments(null));
+            Assert.Null(TrajectoryMath.CoalesceSameOrbitFragments(null));
             var one = new List<OrbitSegment> { Seg("Kerbin", 100, 200, 100) };
-            Assert.Same(one, ReaimSegmentAssembler.CoalesceSameOrbitFragments(one));
+            Assert.Same(one, TrajectoryMath.CoalesceSameOrbitFragments(one));
         }
 
         [Fact]

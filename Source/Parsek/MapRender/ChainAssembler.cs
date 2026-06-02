@@ -44,7 +44,16 @@ namespace Parsek.MapRender
                     windowStartUT, windowEndUT, faithfulFallback);
             }
 
-            List<OrbitSegment> orbitSegs = traj.OrbitSegments ?? new List<OrbitSegment>();
+            // Coalesce same-orbit fragments the recorder split at recording-mode transitions
+            // (background/foreground switches, scene changes) into one continuous segment. Without this a
+            // long parking coast arrives as several identical-orbit OrbitSegments with sampling gaps, and
+            // under a loop the compressed clock sweeps the head across a short fragment (e.g. a ~40s tail)
+            // in under a render frame -> the icon flashes at the wrong phase in the chain's interior gap
+            // (the s15 "Kerbal X" decouple seam). The escape burn (hugely different elements) is never
+            // merged. Loop-and-faithful safe: merging same-orbit fragments is visually identical to the
+            // recorded coast either way, and the recorded data is untouched (a NEW list is returned).
+            List<OrbitSegment> orbitSegs =
+                TrajectoryMath.CoalesceSameOrbitFragments(traj.OrbitSegments) ?? new List<OrbitSegment>();
             List<(double startUT, double endUT)> cover =
                 GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(orbitSegs, surface);
 
