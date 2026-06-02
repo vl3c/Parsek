@@ -785,6 +785,29 @@ In-game (live KSP): map↔TS parity, a faithful Mun mission watched through a fu
 (incl. landing), a re-aimed Duna mission to orbital arrival, a moon-flyby arrival, a high-warp
 SOI seam, self-overlapping instances, camera-focus through a swap.
 
+**Primary in-game regression target: the `icon-off-orbit` angle drives to ~0 (binding).** The
+concrete defect the rewrite exists to kill is the looped-re-aim *icon-rotated-off-its-line* bug
+(save `s15`, mission "Duna One", members "Kerbal X" hyperbolic Kerbin escape ecc~1.19 plus "Kerbal X
+Probe" elliptical Kerbin orbit ecc~0.69): the orbit LINE is drawn correctly (recorded inertial
+inc/LAN/argPe) but the ICON sits ~96.5 deg *around the body* from it, a pure rotation
+(`iconR == orbitEffR` to the metre), equal to the reference body's rotation over the loop shift
+(`loopShift / siderealDay`). Root cause: **two mechanisms** drive one ghost. The line stays at the
+raw recorded inertial epoch while the icon / orbit-raise gap-glide tracks the now-rotated body
+(introduced by `9966ace`, PR #1003, shipped as a known open issue). The live metric already exists
+on `main` (PR #1014): `MapRenderProbe` emits the gated Tier-C `icon-off-orbit` anomaly logging
+`angleIconVsOrbitEff` (the angle between the icon's body-relative position and its orbit's own
+predicted body-relative position at the drive clock; pure predicate `MapRenderTrace.IsIconOffOrbit`,
+threshold `IconOffOrbitMinAngleDeg = 1 deg`). **Success assertion: on the looped re-aim mission with
+`mapRenderTracing` on, `angleIconVsOrbitEff` goes to ~0 for both ghosts (was ~96.5 deg).** The chain
+model makes this true *by construction* (§6.5 invariant 2): a `StockConic` loiter / capture / escape
+is one segment whose icon RIDES THE SAME `OrbitSegment` conic at `DriveUT` (ONE mechanism), drawn
+relative to the LIVE body, with the WHOLE ghost's frame (line + icon + gap-glide + mesh + sibling
+stages) unified at once, never per-element. The reconciler (§6.8) must carry this as a standing parity
+check. Do NOT re-attempt the recorded dead-ends: per-element LAN rotation (`3136477`, reverted
+`2cbaec4`); gap-glide-only inertial reseed (Fix A, PR #1012, the gap is ~2 frames and the loiter is
+the bulk of the window); re-aim relaunch alignment to whole body rotations (Fix B, conflicts with the
+transfer window). See the looped-re-aim entry in `docs/dev/todo-and-known-bugs.md`.
+
 ## 15. Open questions
 
 1. **Proto-vessel re-seed latency vs make-before-break atomicity.** Does KSP let a
