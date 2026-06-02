@@ -87,6 +87,9 @@ namespace Parsek
         private readonly Dictionary<uint, double> lastJumpEmitRealtime = new Dictionary<uint, double>();
         // Soft rate-limit timestamps for the per-pid icon-off-orbit anomaly.
         private readonly Dictionary<uint, double> lastOffOrbitEmitRealtime = new Dictionary<uint, double>();
+        // Soft rate-limit timestamps for the per-pid polyline-orbit-overlap anomaly (a PERSISTENT
+        // condition through a whole burn, so it must not fire every frame).
+        private readonly Dictionary<uint, double> lastPolylineOverlapEmitRealtime = new Dictionary<uint, double>();
         // Pids that have already had their Tier-A FirstPosition event emitted on
         // the first end-of-frame truth read for that pid. Cleared on scene change
         // alongside the other per-pid state, so re-entering a scene re-emits a
@@ -137,6 +140,7 @@ namespace Parsek
             lastLineToggleFrame.Clear();
             lastJumpEmitRealtime.Clear();
             lastOffOrbitEmitRealtime.Clear();
+            lastPolylineOverlapEmitRealtime.Clear();
             firstPositionEmittedPids.Clear();
         }
 
@@ -251,6 +255,10 @@ namespace Parsek
             string bodyOrbitKey = bodyName + "|"
                 + MapRenderTrace.FormatDouble(sma, "F0") + "|"
                 + MapRenderTrace.FormatDouble(ecc, "F4");
+            // Capture the orbit the icon was on LAST frame BEFORE EmitTruthOnChange overwrites it, so a
+            // teleport line below can name BOTH orbits it jumped between (e.g. loiter -> synthesized
+            // burn arc). "(first)" on the very first sample for this pid.
+            string fromOrbit = lastBodyOrbit.TryGetValue(pid, out string priorOrbit) ? priorOrbit : "(first)";
             EmitTruthOnChange(lastBodyOrbit, pid, bodyOrbitKey,
                 MapRenderTrace.RenderSurface.ProtoOrbitLine, pidKey, currentUT,
                 "body-orbit",
@@ -286,10 +294,16 @@ namespace Parsek
             bool polylineOwns = GhostMapPresence.IsPolylineOwningGhostPhase(pid);
             string overlap = MapRenderTrace.ReconcilePolylineOverlap(
                 polylineOwns, lineActive, drawIcons);
-            if (!string.IsNullOrEmpty(overlap))
+            if (!string.IsNullOrEmpty(overlap) && PassesPolylineOverlapRateLimit(pid, realtime))
+                // Name the orbit the icon is wrongly shown on (sma/ecc): during a polyline-owned burn the
+                // icon must NOT ride a per-frame synthesized orbit. Rate-limited per pid (the condition is
+                // persistent through the burn, so without this it would fire every frame).
                 MapRenderTrace.EmitAnomaly(
                     MapRenderTrace.RenderSurface.Polyline, pidKey, currentUT, currentUT,
-                    "polyline-orbit-overlap", overlap);
+                    "polyline-orbit-overlap",
+                    string.Format(ic, "{0} icon-on-orbit sma={1} ecc={2} body={3} drawIcons={4} lineActive={5}",
+                        overlap, MapRenderTrace.FormatDouble(sma, "F0"),
+                        MapRenderTrace.FormatDouble(ecc, "F4"), bodyName, drawIcons, lineActive));
 
             // --- Tier-C new-pipeline reconcile: intent (shadow) vs the OLD path's truth ---
             // If the new render pipeline recorded a GhostRenderIntent for this pid THIS frame
@@ -392,19 +406,29 @@ namespace Parsek
                         double dPosWorld = prevWorldPos.TryGetValue(pid, out prevWorld)
                             ? (worldPos - prevWorld).magnitude
                             : double.NaN;
+                        // Emphasize the teleport: lead with the jump magnitude as a MULTIPLE of the
+                        // expected orbital motion (the headline red flag), and name BOTH orbits it jumped
+                        // between (fromOrbit -> toOrbit) so a reseed onto a synthesized burn arc reads in
+                        // one line. ratio = dPos / expected (NaN-safe; "inf" when expected is ~0).
+                        double jumpRatio = expectedMotion > 1.0 ? dPos / expectedMotion : double.NaN;
+                        string ratioStr = double.IsNaN(jumpRatio)
+                            ? (dPos > 1.0 ? "inf" : "0")
+                            : jumpRatio.ToString("F0", ic);
                         MapRenderTrace.EmitAnomaly(
                             MapRenderTrace.RenderSurface.ProtoIcon, pidKey, currentUT, currentUT,
-                            "icon-jump",
+                            "icon-teleport",
                             string.Format(ic,
-                                "dPos={0}m expectedDP={1}m dPosWorld={2}m warpRate={3} dt={4} body={5} lineActive={6} renderer.enabled={7} sma={8} ecc={9} bodyRelPos={10}",
+                                "TELEPORT dPos={0}m = {1}x expected({2}m) | fromOrbit=[{3}] toOrbit=[sma={4} ecc={5}] body={6} | lineActive={7} drawIcons={8} dPosWorld={9}m warpRate={10} dt={11} bodyRelPos={12}",
                                 MapRenderTrace.FormatDouble(dPos, "F0"),
+                                ratioStr,
                                 MapRenderTrace.FormatDouble(expectedMotion, "F0"),
+                                fromOrbit,
+                                MapRenderTrace.FormatDouble(sma, "F0"),
+                                MapRenderTrace.FormatDouble(ecc, "F4"),
+                                bodyName, lineActive, drawIcons,
                                 MapRenderTrace.FormatDouble(dPosWorld, "F0"),
                                 UnityWarpRate().ToString("F0", ic),
                                 UnityUnscaledDeltaTime().ToString("F4", ic),
-                                bodyName, lineActive, rendererEnabled,
-                                MapRenderTrace.FormatDouble(sma, "F0"),
-                                MapRenderTrace.FormatDouble(ecc, "F4"),
                                 MapRenderTrace.FormatVector3d(bodyRelPos)));
                     }
                 }
@@ -578,6 +602,16 @@ namespace Parsek
                 && realtime - last < OffOrbitAnomalyMinIntervalSeconds)
                 return false;
             lastOffOrbitEmitRealtime[pid] = realtime;
+            return true;
+        }
+
+        private bool PassesPolylineOverlapRateLimit(uint pid, double realtime)
+        {
+            double last;
+            if (lastPolylineOverlapEmitRealtime.TryGetValue(pid, out last)
+                && realtime - last < OffOrbitAnomalyMinIntervalSeconds)
+                return false;
+            lastPolylineOverlapEmitRealtime[pid] = realtime;
             return true;
         }
 
