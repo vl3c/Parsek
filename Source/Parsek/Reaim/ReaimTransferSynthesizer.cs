@@ -17,6 +17,14 @@ namespace Parsek.Reaim
     // (the Sun); deeper chains (Ike via Duna) are deferred.
     internal static class ReaimTransferSynthesizer
     {
+        // Workstream B (design §6.9): the pure Lambert solve is taken through a replaceable
+        // ITransferSolver seam (the swap-a-library boundary) instead of calling UvLambert.Solve
+        // directly. Defaults to the verbatim UvLambert delegation, so behaviour is identical and the
+        // existing UvLambertTests + canaries still guard the math. Tests can substitute a stub to
+        // verify the synthesizer routes through the interface and to fault-inject a no-solution
+        // without needing a degenerate-geometry fixture.
+        internal static ITransferSolver TransferSolver = UvLambertTransferSolver.Default;
+
         // Reject an absurd Lambert result before it reaches CalculatePatch (plan review M3): a sane
         // heliocentric transfer between two bound planets is elliptic (0 <= e < 1) with a positive,
         // finite semi-major axis. A hyperbolic / NaN / non-positive-sma result means the window's
@@ -141,7 +149,7 @@ namespace Parsek.Reaim
                 r1, launchBody.orbit.getOrbitalVelocityAtUT(departureUT).xzy);
             r2 = ProjectOntoPlane(r2, launchPlaneNormal);
 
-            if (!UvLambert.Solve(mu, r1, r2, tofSeconds, prograde, out Vector3d v1, out _))
+            if (!TransferSolver.Solve(mu, r1, r2, tofSeconds, prograde, out Vector3d v1, out _))
             {
                 failReason = "lambert no solution (degenerate geometry / non-convergence)";
                 return false;
