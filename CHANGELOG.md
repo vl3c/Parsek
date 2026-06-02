@@ -8,6 +8,7 @@ All notable changes to Parsek are documented here.
 
 ### Fixed
 
+- Fixed a brief wrong-position flash of a looped interplanetary mission's map icon at a staging/separation seam. A parking-orbit coast the recorder stored as several fragments is now drawn as one continuous orbit during looped playback, so the icon no longer jumps for a few frames before settling onto the escape trajectory.
 - Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
 - Fixed a brief flash of the previous orbit circle on the map at the moment a looped mission's next orbit was about to appear (the old orbit line was redrawn for a fraction of a second before the new one loaded).
 - Fixed a looped mission's map icon vanishing off into deep space on its escape trajectory out of a planet's sphere of influence (the icon was placed at the live time instead of the replayed time, so the open escape path flung it far past where the mission actually was).
