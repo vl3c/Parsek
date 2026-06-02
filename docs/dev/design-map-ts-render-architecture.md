@@ -790,23 +790,29 @@ concrete defect the rewrite exists to kill is the looped-re-aim *icon-rotated-of
 (save `s15`, mission "Duna One", members "Kerbal X" hyperbolic Kerbin escape ecc~1.19 plus "Kerbal X
 Probe" elliptical Kerbin orbit ecc~0.69): the orbit LINE is drawn correctly (recorded inertial
 inc/LAN/argPe) but the ICON sits ~96.5 deg *around the body* from it, a pure rotation
-(`iconR == orbitEffR` to the metre), equal to the reference body's rotation over the loop shift
-(`loopShift / siderealDay`). Root cause: **two mechanisms** drive one ghost. The line stays at the
-raw recorded inertial epoch while the icon / orbit-raise gap-glide tracks the now-rotated body
-(introduced by `9966ace`, PR #1003, shipped as a known open issue). The live metric already exists
-on `main` (PR #1014): `MapRenderProbe` emits the gated Tier-C `icon-off-orbit` anomaly logging
-`angleIconVsOrbitEff` (the angle between the icon's body-relative position and its orbit's own
-predicted body-relative position at the drive clock; pure predicate `MapRenderTrace.IsIconOffOrbit`,
+(`iconR == orbitEffR` to the metre). **CONFIRMED root cause (2026-06-02), not a body-rotation
+projection but a CLOCK mismatch:** the `icon-off-orbit` metric logged `lonIcon ~= lonOrbitLive` (NOT
+`lonOrbitEff`) and `angleIconVsOrbitEff ~= angleEffVsLive`, i.e. the icon resolves at the orbit's LIVE
+phase while the line is drawn at effUT; the gap is the orbital phase advance over the loop shift.
+Decompiling `Vessel.GetWorldPos3D` / `VesselPrecalculate` shows why: a packed ghost's world position
+is `CoMD = referenceBody.position + orbitDriver.pos`, rebuilt EVERY FixedUpdate by re-propagating the
+orbit at the LIVE Planetarium clock - so `GhostOrbitIconDrivePatch`'s `UpdateFromUT(effUT)` is
+overwritten and the icon always lands at `orbit(liveUT)`. The raw-epoch + per-frame-effUT-drive scheme
+(introduced by `9966ace`, PR #1003) was built on the false premise that the drive controls the icon.
+The live metric already exists on `main` (PR #1014): `MapRenderProbe` emits the gated Tier-C
+`icon-off-orbit` anomaly logging `angleIconVsOrbitEff` (pure predicate `MapRenderTrace.IsIconOffOrbit`,
 threshold `IconOffOrbitMinAngleDeg = 1 deg`). **Success assertion: on the looped re-aim mission with
-`mapRenderTracing` on, `angleIconVsOrbitEff` goes to ~0 for both ghosts (was ~96.5 deg).** The chain
-model makes this true *by construction* (§6.5 invariant 2): a `StockConic` loiter / capture / escape
-is one segment whose icon RIDES THE SAME `OrbitSegment` conic at `DriveUT` (ONE mechanism), drawn
-relative to the LIVE body, with the WHOLE ghost's frame (line + icon + gap-glide + mesh + sibling
-stages) unified at once, never per-element. The reconciler (§6.8) must carry this as a standing parity
-check. Do NOT re-attempt the recorded dead-ends: per-element LAN rotation (`3136477`, reverted
-`2cbaec4`); gap-glide-only inertial reseed (Fix A, PR #1012, the gap is ~2 frames and the loiter is
-the bulk of the window); re-aim relaunch alignment to whole body rotations (Fix B, conflicts with the
-transfer window). See the looped-re-aim entry in `docs/dev/todo-and-known-bugs.md`.
+`mapRenderTracing` + `mapRenderDirectorDrive` on, `angleIconVsOrbitEff` goes to ~0 for both ghosts
+(was ~96.5 deg).** **The fix (Phase-8a director-drive, §6.5 invariant 2 achieved through the EPOCH):**
+since the icon's only resolved clock is LIVE, `StockConicTreatment.SeedAndDriveLive` bakes the loop
+shift into the orbit epoch (`SetOrbit(..., epoch + shift, ...)`) so that live-clock evaluation lands on
+the recorded phase (`M(live) = MAE + n*(effUT - epoch)`). This is the IDENTICAL phase the legacy
+effUT-drive intended, moves PHASE only (LAN/inc/argPe untouched), and is re-seeded every frame in the
+drive Prefix (no rate-limited-reseed stall). The arc clip uses LIVE bounds when the epoch is baked,
+keeping line + icon in one clock. Do NOT re-attempt the recorded dead-ends: per-element LAN rotation
+(`3136477`, reverted `2cbaec4`); gap-glide-only inertial reseed (Fix A, PR #1012, the gap is ~2 frames
+and the loiter is the bulk of the window); re-aim relaunch alignment to whole body rotations (Fix B,
+conflicts with the transfer window). See the looped-re-aim entry in `docs/dev/todo-and-known-bugs.md`.
 
 ## 15. Open questions
 

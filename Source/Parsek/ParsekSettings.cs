@@ -58,7 +58,7 @@ namespace Parsek
         public bool mapRenderTracing = false;
 
         [GameParameters.CustomParameterUI("Map/TS new render drive (EXPERIMENTAL)",
-            toolTip = "When enabled, the new map-render pipeline (the Director's StockConicTreatment) drives each conic ghost's orbit + icon from one source, fixing the looped-re-aim icon-rotated-off-its-line bug. Experimental Phase-8a flip; off uses the existing path. Leave off unless validating the rewrite.")]
+            toolTip = "When enabled, the new map-render pipeline (the Director's StockConicTreatment) drives each conic ghost's orbit + icon from one source: it bakes the loop time-shift into the orbit epoch so the icon lands on its recorded orbit phase. Targets the looped-re-aim icon-rotated-off-its-line bug; UNDER VALIDATION. Experimental Phase-8a flip; off uses the existing path. Leave off unless validating the rewrite.")]
         public bool mapRenderDirectorDrive = false;
 
         [GameParameters.CustomParameterUI("Readable sidecar mirrors (Warning: extra disk usage)",

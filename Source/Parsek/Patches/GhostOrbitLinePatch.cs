@@ -147,6 +147,18 @@ namespace Parsek.Patches
             var decision = ResolveIconDriveDecision(currentUT, startUT, endUT, shift, onArc);
 
             double driveUT = decision.DriveUT;
+            // The LIVE-frame UT the icon should be placed at this frame (currentUT on-arc; the live
+            // window/arc bound when clamped). The director-drive path below bakes the loop shift into
+            // the orbit epoch and propagates at THIS live UT (KSP re-derives a packed ghost's icon
+            // world position at the live clock, so the legacy effUT propagation never reaches the icon);
+            // the legacy path keeps using the effUT driveUT above.
+            double liveDriveUT;
+            switch (decision.Reason)
+            {
+                case "past-window": liveDriveUT = endUT; break;
+                case "before-window": liveDriveUT = startUT; break;
+                default: liveDriveUT = currentUT; break; // on-arc-drive (off-arc overwrites below)
+            }
             if (decision.Reason == "off-arc")
             {
                 // Off the visible (above-ground) arc — clamp to the nearest arc endpoint in
@@ -168,6 +180,7 @@ namespace Parsek.Patches
                 }
                 double clampUTShifted = (distToEnd <= distToStart) ? endUT : startUT;
                 driveUT = GhostMapPresence.MapLiveUTToEffUT(clampUTShifted, shift);
+                liveDriveUT = clampUTShifted;
             }
 
             if (decision.Suppressed)
@@ -183,40 +196,55 @@ namespace Parsek.Patches
                     startUT, endUT, decision.Suppressed, HighLogic.LoadedScene),
                 1.0);
 
-            // Phase 8a (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): re-assert the new
-            // pipeline's Director conic for this ghost so the icon rides the SAME inertial elements the
-            // orbit line is drawn from - one source - which eliminates the looped-re-aim
-            // icon-rotated-off-its-line desync (the old path lets a body-fixed reseed move the icon off
-            // the inertial line). SeedAndDrive re-seeds the segment elements + propagates at driveUT;
-            // the propagate + SetPosition below then place the icon on that conic. No fresh seed (gate
-            // off, tracing+shadow not producing one this frame, or a non-StockConic segment) -> the
-            // legacy drive runs unchanged. Bodies match for the v1 same-body case; an SOI-mismatched
-            // seed body falls back to the driver's reference body.
+            // Phase 8a director-drive (EXPERIMENTAL, gated by mapRenderDirectorDrive, default off): the
+            // NEW render pipeline owns this StockConic icon by baking the loop shift into the orbit
+            // EPOCH and propagating at the LIVE clock - the only place a packed ghost's icon world
+            // position actually resolves (KSP rebuilds CoMD = referenceBody.position + orbitDriver.pos
+            // by re-propagating the orbit at the live Planetarium clock every FixedUpdate, discarding the
+            // legacy effUT drive). With the shift in the epoch, that live re-propagation lands on the
+            // recorded phase, so the icon rides the SAME orbit the line is drawn from - the looped
+            // re-aim icon-rotated-off-its-line fix. Re-seeded every frame (this Prefix fires per
+            // FixedUpdate), so there is no rate-limited-reseed stall. No fresh seed (gate off, shadow not
+            // producing one, or a non-StockConic segment) -> the legacy effUT drive runs unchanged.
+            // Bodies match for the v1 same-body case; an SOI-mismatched seed body falls back to the
+            // driver's reference body.
+            double propagateUT = driveUT;
+            bool directorDriveActive = false;
             if (ParsekSettings.Current != null && ParsekSettings.Current.mapRenderDirectorDrive)
             {
-                double lanBefore = orbit.LAN;
                 bool fresh = Parsek.MapRender.ShadowRenderDriver.TryGetFreshStockConicSeed(
                     pid, Time.frameCount, out OrbitSegment dirSeg, out string dirBody);
                 if (fresh)
                 {
                     CelestialBody seedBody = FlightGlobals.GetBodyByName(dirBody) ?? __instance.referenceBody;
-                    Parsek.MapRender.StockConicTreatment.SeedAndDrive(orbit, dirSeg, seedBody, driveUT);
+                    if (seedBody != null)
+                    {
+                        // Bake epoch += shift, propagate at the live drive UT. This IS the icon's final
+                        // resolved phase (the live re-propagation reuses these elements + the live clock).
+                        Parsek.MapRender.StockConicTreatment.SeedAndDriveLive(
+                            orbit, dirSeg, seedBody, shift, liveDriveUT);
+                        propagateUT = liveDriveUT;
+                        directorDriveActive = true;
+                        // Tell GhostOrbitArcPatch (LateUpdate) that this ghost's epoch carries the shift
+                        // this frame, so it clips the arc at the LIVE bounds rather than remapping to effUT.
+                        GhostMapPresence.StampDirectorEpochBaked(pid, Time.frameCount);
+                    }
                 }
-                // Diagnostic (gated): pins whether the re-seed fires + what it changed, so we can tell a
-                // freshness/order miss (fresh=false) from a later overwrite (fresh=true, lan re-asserted,
-                // yet the icon-off-orbit metric stays high).
-                ParsekLog.VerboseRateLimited("MapRender", "8a-reseed-" + pid,
+                ParsekLog.VerboseRateLimited("MapRender", "8a-drive-" + pid,
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "8a reseed pid={0} fresh={1} curFrame={2} lanBefore={3:F2} lanAfter={4:F2} seedBody={5}",
-                        pid, fresh, Time.frameCount, lanBefore, orbit.LAN, dirBody ?? "-"),
+                        "8a director-drive pid={0} fresh={1} active={2} curFrame={3} liveDriveUT={4:F1} " +
+                        "effDriveUT={5:F1} shift={6:F1} epoch+shift={7:F1} seedBody={8}",
+                        pid, fresh, directorDriveActive, Time.frameCount, liveDriveUT, driveUT, shift,
+                        directorDriveActive ? dirSeg.epoch + shift : double.NaN, dirBody ?? "-"),
                     1.0);
             }
 
             // Replicate stock OrbitDriver.updateFromParameters(bool) verbatim, but propagate at the
-            // recorded-clock driveUT instead of the live clock. Stock does updateUT = now then
-            // UpdateFromUT(updateUT); we mirror that below by recording driveUT (the UT we actually
+            // recorded-clock driveUT (legacy) or the live-clock liveDriveUT (director-drive: the epoch
+            // already carries the shift) instead of the raw live clock. Stock does updateUT = now then
+            // UpdateFromUT(updateUT); we mirror that below by recording propagateUT (the UT we actually
             // propagate at) into the private updateUT field. (orbitdriver_decomp.cs:607-726.)
-            orbit.UpdateFromUT(driveUT);
+            orbit.UpdateFromUT(propagateUT);
             Vector3d pos = orbit.pos;
             Vector3d vel = orbit.vel;
             pos.Swizzle();
@@ -231,8 +259,9 @@ namespace Parsek.Patches
             if (double.IsNaN(pos.x))
                 return true;
             // Keep the driver's recorded propagation time faithful to the position we set: stock sets
-            // updateUT = now, we propagated at driveUT. updateUT is private, injected here via ___updateUT.
-            ___updateUT = driveUT;
+            // updateUT = now, we propagated at propagateUT (effUT legacy, or liveDriveUT under the
+            // director-drive epoch-bake). updateUT is private, injected here via ___updateUT.
+            ___updateUT = propagateUT;
             __instance.pos = pos;
             __instance.vel = vel;
 
@@ -866,14 +895,21 @@ namespace Parsek.Patches
             // shift-invariant, so the stored live-frame bounds give the correct test.
             if (endUT - startUT >= orbit.period) return true;
 
-            // The OrbitDriver is now seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
+            // The OrbitDriver is normally seeded with the RAW recorded epoch (GhostOrbitIconDrivePatch
             // drives it at effUT = liveUT - shift), but the stored arc bounds are in the LIVE frame.
             // Map them back to the recorded clock so the eccentric-anomaly arc shape is computed in
             // the SAME frame the icon is driven in — keeping the line and the marker in exact
             // lockstep on arbitrarily short arcs. shift is 0 (identity) off the loop path.
+            //
+            // Director-drive (mapRenderDirectorDrive gate): GhostOrbitIconDrivePatch instead bakes the
+            // loop shift INTO the epoch (SeedAndDriveLive) so the orbit evaluates the recorded phase at
+            // the LIVE clock. In that mode the eccentric-anomaly bounds must use the LIVE UTs directly
+            // (no effUT remap), so the clipped arc matches the icon's live-clock phase. Mirror the same
+            // gate + fresh-seed test the icon-drive patch used so the two stay consistent this frame.
             double arcShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
-            double startUTRaw = GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
-            double endUTRaw = GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
+            bool arcDirectorDrive = GhostMapPresence.IsDirectorEpochBaked(pid, Time.frameCount);
+            double startUTRaw = arcDirectorDrive ? startUT : GhostMapPresence.MapLiveUTToEffUT(startUT, arcShift);
+            double endUTRaw = arcDirectorDrive ? endUT : GhostMapPresence.MapLiveUTToEffUT(endUT, arcShift);
 
             // Convert UT bounds to eccentric anomaly (same as PatchRendering/Trajectory)
             double fromE = orbit.EccentricAnomalyAtUT(startUTRaw);

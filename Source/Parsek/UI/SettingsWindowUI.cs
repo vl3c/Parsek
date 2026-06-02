@@ -469,7 +469,7 @@ namespace Parsek
 
             bool mapRenderDirectorDrive = GUILayout.Toggle(s.mapRenderDirectorDrive,
                 new GUIContent(" Map/TS new render drive (EXPERIMENTAL)",
-                    "When on, the new map-render pipeline drives each conic ghost's orbit + icon from one source, fixing the looped-re-aim icon-rotated-off-its-line bug. Experimental; off uses the existing path. Leave off unless validating the rewrite."));
+                    "When on, the new map-render pipeline drives each conic ghost's orbit + icon from one source: it bakes the loop time-shift into the orbit epoch so the icon lands on its recorded orbit phase. Targets the looped-re-aim icon-rotated-off-its-line bug; UNDER VALIDATION. Experimental; off uses the existing path. Leave off unless validating the rewrite."));
             if (mapRenderDirectorDrive != s.mapRenderDirectorDrive)
             {
                 s.mapRenderDirectorDrive = mapRenderDirectorDrive;

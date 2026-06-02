@@ -122,11 +122,18 @@ them.
   branch (PR #1014, merged from main). **Success = `angleIconVsOrbitEff` goes to ~0 for both ghosts on
   the looped re-aim mission with tracing on.** Make it an explicit in-game assertion (design §14, now
   recorded there).
-- **The fix is `StockConicTreatment` (Phase 5 / 8a):** icon and line come from ONE source - the SAME
-  `OrbitSegment` driven at `DriveUT`, in the LIVE body frame, with the whole ghost's frame unified at
-  once (line + icon + gap-glide + mesh + sibling stages), NEVER per-element. Then the angle is 0 by
-  construction (design §6.5 invariant 2). Decision-only shadow does NOT fix it (it writes nothing), so
-  until the 8a cutover the metric stays ~96.5 deg in-game: expected, not a new regression.
+- **CONFIRMED root cause (2026-06-02) + the fix:** the `icon-off-orbit` metric (`lonIcon ~= lonOrbitLive`,
+  `iconR == orbitEffR`, `angleIconVsOrbitEff ~= angleEffVsLive`) + the `Vessel.GetWorldPos3D` /
+  `VesselPrecalculate` decompile proved the icon resolves at the orbit's LIVE phase, not effUT: KSP
+  rebuilds a packed ghost's `CoMD = body.position + orbitDriver.pos` by re-propagating the orbit at the
+  LIVE clock every FixedUpdate, so the legacy `UpdateFromUT(effUT)` drive is overwritten and the icon
+  always sits at `orbit(live)`. The fix is `StockConicTreatment.SeedAndDriveLive` (Phase 8a): bake the
+  loop shift into the orbit EPOCH and propagate at LIVE, so live-clock resolution lands on the recorded
+  phase - the same phase the effUT-drive intended, moving PHASE only (LAN/inc/argPe untouched, so NOT the
+  reverted per-element rotation), re-seeded every frame (no stall). `GhostOrbitArcPatch` clips at LIVE
+  bounds when the epoch is baked; the probe measures against the live-clock orbit so `angleIconVsOrbitEff
+  -> ~0` is the success signal. Decision-only shadow does NOT fix it (it writes nothing); the gated 8a
+  drive does. Until validated in-game, the metric stays ~96.5 deg with the gate OFF: expected.
 - **Dead-ends - do NOT repeat:** per-element LAN rotation (`3136477`, reverted `2cbaec4`),
   gap-glide-only inertial reseed (Fix A, PR #1012 - gap is ~2 frames, loiter is the bulk), re-aim
   relaunch alignment to whole body rotations (Fix B - conflicts with the transfer window). Full
@@ -150,20 +157,26 @@ reconciler for decision-vs-old-truth parity, and resolve the in-game probes befo
   TracedPath is a follower shell until 8b (the autonomous polyline still draws). STILL DEFERRED in
   Phase 5: the floating-origin frame + camera-focus draw-side, the §13 seam / moon-config logs, and
   resolving §15.1 (proto re-seed latency) in-game before the swap execution.
-- **Phase 8a - WIRED, default-OFF gated flip (NEEDS IN-GAME VALIDATION).** New setting
-  `ParsekSettings.mapRenderDirectorDrive` (Settings, EXPERIMENTAL, default false). When on,
-  `GhostOrbitIconDrivePatch` re-asserts the Director's StockConic conic each frame via
-  `StockConicTreatment.SeedAndDrive(orbit, seg, body, driveUT)` right before it propagates + positions
-  the icon, so the icon rides the SAME inertial elements the line is drawn from (one source) - the
-  icon-off-orbit fix by construction. The shadow stores the per-pid seed (`ShadowRenderDriver`
-  `seedByPid` + `TryGetFreshStockConicSeed`, same-frame freshness); `ShadowRenderDriver.Enabled` makes
-  the shadow run when tracing OR this gate is on. Default off = zero behaviour change; the legacy drive
-  runs when off / no fresh seed. **To validate:** turn on `mapRenderDirectorDrive` (+ `mapRenderTracing`
-  to read the metric) on the looped re-aim mission, expect `angleIconVsOrbitEff -> ~0` (was ~96.5).
-  KNOWN LIMITS until validated: SOI-mismatched seed body falls back to the driver body; off-arc clamp
-  driveUT is computed pre-reseed; only same-body StockConic ghosts are seeded (re-aim/overlap skipped).
-  Risk hotspot - wants a clean-context review before the gate flips default-on / the legacy path is
-  deleted (8a finalization).
+- **Phase 8a - REAL CUTOVER WIRED, default-OFF gated (NEEDS IN-GAME VALIDATION).** Setting
+  `ParsekSettings.mapRenderDirectorDrive` (Settings, EXPERIMENTAL, default false). When on, the new
+  pipeline OWNS the StockConic icon: `GhostOrbitIconDrivePatch` calls
+  `StockConicTreatment.SeedAndDriveLive(orbit, seg, body, shift, liveDriveUT)` - it bakes the loop shift
+  into the orbit EPOCH and propagates at the LIVE clock, the only clock KSP actually resolves a packed
+  ghost's icon at (`CoMD` is rebuilt from a live re-propagation every FixedUpdate, so the legacy effUT
+  drive never reached the icon - the confirmed root cause). `GhostOrbitArcPatch` clips the arc at the
+  LIVE bounds when the epoch is baked (signalled per-pid per-frame via
+  `GhostMapPresence.IsDirectorEpochBaked`), and `MapRenderProbe` compares the icon against the live-clock
+  orbit, so the metric is truthful. The earlier 8a `SeedAndDrive(raw epoch, effUT)` re-assert was proven
+  a NO-OP (the elements were already correct; the icon was off because of the CLOCK, not the elements) -
+  superseded. The shadow stores the per-pid seed (`ShadowRenderDriver` `seedByPid` +
+  `TryGetFreshStockConicSeed`, +/-2 frame freshness); `ShadowRenderDriver.Enabled` makes the shadow run
+  when tracing OR this gate is on. Default off = zero behaviour change; the legacy effUT drive runs when
+  off / no fresh seed. **To validate:** turn on `mapRenderDirectorDrive` (+ `mapRenderTracing` to read the
+  metric) on the s15 looped re-aim mission, expect `angleIconVsOrbitEff -> ~0` (was ~96.5) and the icon
+  visually on its line. KNOWN LIMITS until validated: SOI-mismatched seed body falls back to the driver
+  body; only same-body StockConic ghosts are seeded (re-aim/overlap skipped). Risk hotspot - wants a
+  clean-context review before the gate flips default-on / the legacy path is deleted (8a finalization).
+  In-game test: `DirectorDriveEpochBakePlacesIconOnRecordedPhase` (RuntimeTests, GhostMap, FLIGHT).
 - **Phase 7a - DONE (TS shadow parity).** `MapRender/TrackingStationScene.cs` (scene gate = TRACKSTATION)
   over the new shared `GhostMapSceneBase` (the scene-agnostic resolve/body/orbit plumbing extracted from
   `MapViewScene`, which is now just the FLIGHT gate). `ParsekTrackingStation.Update` runs

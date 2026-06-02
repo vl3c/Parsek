@@ -430,7 +430,15 @@ namespace Parsek
                 // driven (on-arc, line-shown) icon is checked - the genuine bug case.
                 if (offOrbit != null && !GhostMapPresence.IsIconSuppressed(pid))
                 {
-                    double offShift = GhostMapPresence.GetGhostOrbitEpochShift(pid);
+                    // Director-drive (mapRenderDirectorDrive) bakes the loop shift into the orbit EPOCH
+                    // and resolves the icon at the LIVE clock, so the orbit's own LIVE-clock position IS
+                    // the recorded phase the icon should sit on - compare against effUT = currentUT
+                    // (shift 0). The legacy raw-epoch path drives the icon at effUT = currentUT - shift,
+                    // so it keeps the recorded-clock comparison. Either way the metric stays truthful:
+                    // angleIconVsOrbitEff -> 0 when the icon rides its line.
+                    double offShift = GhostMapPresence.IsDirectorEpochBaked(pid, Time.frameCount)
+                        ? 0.0
+                        : GhostMapPresence.GetGhostOrbitEpochShift(pid);
                     double offEffUT = currentUT - offShift;
                     Vector3d orbitRelEff = OrbitRelativePositionYup(offOrbit, offEffUT);
                     // Degenerate / unresolved orbit: a zero predicted position makes

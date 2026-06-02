@@ -6,10 +6,16 @@ namespace Parsek.MapRender
     /// L4 MANAGED treatment (design §6.5): draws a conic segment with stock KSP objects (the
     /// proto-vessel icon + the OrbitRenderer line). It follows the <see cref="GhostRenderIntent"/> and
     /// drives ONE source: it seeds the proto-vessel's <see cref="Orbit"/> from the segment's
-    /// <see cref="OrbitSegment"/> elements and positions the icon by propagating THAT SAME orbit at the
-    /// intent's <c>DriveUT</c>. Because the line (drawn by stock from the orbit elements) and the icon
-    /// (the orbit's position at DriveUT) come from the one orbit, the icon rides the line by
-    /// construction - design §6.5 invariant 2. There is no separate body-fixed drive of the icon.
+    /// <see cref="OrbitSegment"/> elements so the line (drawn by stock from those elements) and the icon
+    /// ride the one orbit - design §6.5 invariant 2.
+    ///
+    /// <para>The icon-off-orbit fix lives in <see cref="SeedAndDriveLive"/>: KSP resolves a packed map
+    /// ghost's icon world position by re-propagating its orbit at the LIVE Planetarium clock, NOT at any
+    /// effUT a patch drives, so for a loop-shifted ghost the only way to land the icon on its recorded
+    /// phase is to bake the loop shift into the orbit EPOCH (so live-clock evaluation = recorded phase).
+    /// That moves PHASE only - LAN/inc/argPe are untouched - so the line shape is unchanged and the icon
+    /// sits on it. <see cref="SeedAndDrive"/> (raw epoch, drive at effUT) is the pure-test / future
+    /// cache-owning variant and does NOT by itself control the live-resolved icon.
     ///
     /// <para>"MANAGED, not fully owned": KSP co-owns <c>line.active</c> (it toggles it during SOI
     /// transitions / floating-origin shifts), so the treatment re-asserts the intent every frame and
@@ -30,11 +36,13 @@ namespace Parsek.MapRender
             => intent.Visible && intent.Treatment == Treatment.StockConic && intent.Payload.HasConic;
 
         /// <summary>
-        /// The one-source seed + drive (the fix core). Seeds the conic's inertial Kepler elements (what
-        /// stock draws the line from) and propagates the SAME orbit to <paramref name="driveUT"/> so the
-        /// icon sits on the line. Kept as an internal static so the cutover and any test harness call
-        /// the exact same drive. Mirrors the element order of the legacy
-        /// <c>GhostMapPresence.ApplyOrbitToVessel</c> seed.
+        /// Raw-epoch seed + drive at <paramref name="driveUT"/> (the recorded effUT clock). Seeds the
+        /// conic's inertial Kepler elements and propagates the SAME orbit to <paramref name="driveUT"/>.
+        /// Mirrors the element order of the legacy <c>GhostMapPresence.ApplyOrbitToVessel</c> seed.
+        /// NOTE: for a packed map ghost this does NOT control the rendered icon - KSP re-derives the
+        /// icon world position by re-propagating the orbit at the LIVE clock (see
+        /// <see cref="SeedAndDriveLive"/>); prefer that for the icon-off-orbit cutover. Retained for the
+        /// pure-test harness and any caller that owns the orbit cache directly.
         /// </summary>
         internal static void SeedAndDrive(Orbit orbit, OrbitSegment seg, CelestialBody body, double driveUT)
         {
@@ -51,6 +59,46 @@ namespace Parsek.MapRender
                 body);
             // Position the icon from the SAME orbit at the same drive clock the line is evaluated at.
             orbit.UpdateFromUT(driveUT);
+        }
+
+        /// <summary>
+        /// The one-source icon-off-orbit fix core: seed the conic with the loop shift BAKED INTO THE
+        /// EPOCH and propagate at the LIVE clock. KSP resolves a packed map ghost's world position
+        /// (<c>CoMD = referenceBody.position + orbitDriver.pos</c>, <c>VesselPrecalculate</c> /stock
+        /// <c>OrbitDriver</c>) by RE-PROPAGATING the orbit at the LIVE Planetarium clock every
+        /// FixedUpdate, discarding any effUT propagation a patch did - so driving the orbit at effUT
+        /// cannot move the icon (the live re-propagation overwrites it; that is exactly why the icon sat
+        /// ~96.5 deg off its line on the looped re-aim mission). Instead we seed the epoch shifted by
+        /// <paramref name="epochShift"/> (= <c>liveUT - effUT</c>) so evaluating the SAME orbit at the
+        /// LIVE clock lands on the recorded phase: <c>M(live) = MAE + n*(live - epoch - shift) = MAE +
+        /// n*(effUT - epoch)</c> = the recorded mean anomaly at effUT. The icon (live re-propagation) and
+        /// the line (drawn from these elements, arc-clipped at the LIVE bounds) then ride the one orbit
+        /// at the one clock - design Section 6.5 invariant 2, achieved through the epoch rather than a
+        /// per-frame effUT drive KSP overwrites.
+        ///
+        /// <para>This is the SAME phase the legacy effUT-drive intended (<c>SetOrbit(rawEpoch)</c> +
+        /// propagate at <c>live - shift</c> gives the identical mean anomaly), so it is not a new orbit;
+        /// it only moves PHASE (the epoch). LAN/inc/argPe (the inertial OrbitalFrame) are untouched, so
+        /// this does NOT repeat the reverted per-element LAN-rotation dead-end. The stored loop shift is a
+        /// constant offset between reseeds, so propagating at the live rate advances phase at the eff rate
+        /// (no sawtooth), and re-seeding every frame in the drive patch keeps it snapped with no
+        /// rate-limited-reseed stall.</para>
+        /// </summary>
+        internal static void SeedAndDriveLive(
+            Orbit orbit, OrbitSegment seg, CelestialBody body, double epochShift, double liveDriveUT)
+        {
+            if (orbit == null || body == null)
+                return;
+            orbit.SetOrbit(
+                seg.inclination,
+                seg.eccentricity,
+                seg.semiMajorAxis,
+                seg.longitudeOfAscendingNode,
+                seg.argumentOfPeriapsis,
+                seg.meanAnomalyAtEpoch,
+                seg.epoch + epochShift,
+                body);
+            orbit.UpdateFromUT(liveDriveUT);
         }
 
         public void Apply(GhostRenderIntent intent, IGhostMapScene scene, uint pid)

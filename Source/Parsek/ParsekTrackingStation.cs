@@ -91,7 +91,8 @@ namespace Parsek
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
 
         // Phase 7a decision-only shadow (design §6.7): the TS scene adapter the ShadowRenderDriver runs
-        // the new pipeline against. Only touched when mapRenderTracing is on.
+        // the new pipeline against. Only touched when the shadow is enabled (mapRenderTracing OR the
+        // mapRenderDirectorDrive gate, via ShadowRenderDriver.Enabled).
         private readonly MapRender.TrackingStationScene shadowScene = new MapRender.TrackingStationScene();
 
         internal enum AtmosphericMarkerSkipReason

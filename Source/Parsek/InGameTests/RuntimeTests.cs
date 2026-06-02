@@ -1340,6 +1340,84 @@ namespace Parsek.InGameTests
         }
 
         /// <summary>
+        /// Director-drive (Phase 8a) epoch-bake fix for the looped-re-aim icon-off-orbit bug. KSP
+        /// resolves a packed map ghost's icon world position by re-propagating its orbit at the LIVE
+        /// Planetarium clock (CoMD = referenceBody.position + orbitDriver.pos, rebuilt every
+        /// FixedUpdate), so the legacy raw-epoch orbit drawn for the LINE renders the ICON at the live
+        /// phase - ~96.5 deg off the recorded arc on the failing mission. <see cref="StockConicTreatment.SeedAndDriveLive"/>
+        /// bakes the loop shift into the EPOCH so that LIVE-clock resolution lands on the SAME recorded
+        /// phase the line is drawn from. This is the Unity-runtime guard the xUnit pure tests cannot be
+        /// (it runs a REAL KSP Orbit.SetOrbit / UpdateFromUT). Uses the exact "Kerbal X Probe" elliptical
+        /// Kerbin orbit + the huge live/recorded clock gap from the s15 "Duna One" evidence log.
+        /// </summary>
+        [InGameTest(Category = "GhostMap", Scene = GameScenes.FLIGHT,
+            Description = "Director-drive epoch-bake places the ghost icon on its recorded orbit phase at the live clock (icon-off-orbit fix)")]
+        public void DirectorDriveEpochBakePlacesIconOnRecordedPhase()
+        {
+            CelestialBody kerbin = FlightGlobals.Bodies?.Find(b => b.bodyName == "Kerbin");
+            if (kerbin == null)
+            {
+                InGameAssert.Skip("Kerbin not found in FlightGlobals.Bodies");
+                return;
+            }
+
+            // The "Kerbal X Probe" elliptical Kerbin orbit from the icon-off-orbit evidence log.
+            const double rawEpoch = 52569494.7;
+            var seg = new OrbitSegment
+            {
+                inclination = 0.1887,
+                eccentricity = 0.088283,
+                semiMajorAxis = 671928.0,
+                longitudeOfAscendingNode = 75.0,
+                argumentOfPeriapsis = 152.9042,
+                meanAnomalyAtEpoch = 1.463204,
+                epoch = rawEpoch,
+                bodyName = "Kerbin",
+                startUT = 52569494.7,
+                endUT = 52569925.6,
+            };
+
+            // The huge loop shift from the evidence: live clock ~1.40e9, recorded effUT ~6.40e7.
+            const double liveUT = 1400335935.057;
+            const double effUT = 63964105.314;
+            double shift = liveUT - effUT;
+
+            // REFERENCE: the recorded phase = the raw-epoch orbit at effUT (what the LINE is drawn from).
+            var rawOrbit = new Orbit { referenceBody = kerbin };
+            Parsek.MapRender.StockConicTreatment.SeedAndDrive(rawOrbit, seg, kerbin, effUT);
+            rawOrbit.Init();
+            rawOrbit.UpdateFromUT(effUT);
+            Vector3d recordedPhasePos = rawOrbit.pos;
+
+            // FIX: SeedAndDriveLive bakes epoch+shift; the LIVE-clock resolution (how KSP rebuilds the
+            // packed icon position) must land on the SAME recorded phase.
+            var bakedOrbit = new Orbit { referenceBody = kerbin };
+            Parsek.MapRender.StockConicTreatment.SeedAndDriveLive(bakedOrbit, seg, kerbin, shift, liveUT);
+            bakedOrbit.Init();
+            bakedOrbit.UpdateFromUT(liveUT);
+            Vector3d iconLivePos = bakedOrbit.pos;
+
+            // BUG CONTRAST: the raw-epoch orbit resolved at the LIVE clock (the pre-fix icon position).
+            rawOrbit.UpdateFromUT(liveUT);
+            Vector3d buggyLivePos = rawOrbit.pos;
+
+            double fixAngleDeg = Vector3d.Angle(iconLivePos, recordedPhasePos);
+            double fixGapMeters = (iconLivePos - recordedPhasePos).magnitude;
+            double buggyAngleDeg = Vector3d.Angle(buggyLivePos, recordedPhasePos);
+
+            InGameAssert.IsLessThan(fixAngleDeg, 0.1,
+                $"epoch-bake icon must sit on the recorded phase at the live clock " +
+                $"(angle={fixAngleDeg:F4} deg, gap={fixGapMeters:F1} m)");
+            InGameAssert.IsGreaterThan(buggyAngleDeg, 1.0,
+                $"sanity: the raw-epoch-at-live position (the bug) must be off the recorded phase " +
+                $"(angle={buggyAngleDeg:F2} deg) - else the test orbit/shift is degenerate");
+
+            ParsekLog.Info("TestRunner",
+                $"DirectorDriveEpochBake: shift={shift:F0}s fixAngle={fixAngleDeg:F4}deg " +
+                $"gap={fixGapMeters:F2}m buggyAngle={buggyAngleDeg:F2}deg");
+        }
+
+        /// <summary>
         /// Parking -> loiter orbit-RAISE gap glide (flight map). When the playback head is in the
         /// ~205 s raise gap between the parking segment (sma 671928) and the loiter segment (sma
         /// 731230), the dispatcher routes the icon onto the recorded body-fixed POINTS via
