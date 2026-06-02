@@ -880,6 +880,10 @@ namespace Parsek
         /// DDOL Driver (mirrors <c>ParsekTrackingStation.CurrentCachedLoopUnits</c>).
         /// </summary>
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
+
+        // Phase 4 decision-only shadow (design §6.7): the flight-map scene adapter the
+        // ShadowRenderDriver runs the new pipeline against. Only touched when mapRenderTracing is on.
+        private readonly MapRender.MapViewScene mapViewScene = new MapRender.MapViewScene();
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
@@ -18482,6 +18486,27 @@ namespace Parsek
 
             // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
             policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
+
+            // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
+            // over the live map ghosts and reconcile each intent against the OLD path's rendered truth
+            // via MapRenderProbe. Writes NOTHING to the stock surfaces. Wholly gated on the
+            // off-by-default mapRenderTracing setting so normal play pays nothing. Runs after
+            // CheckPendingMapVessels (map presence is current) and well before the end-of-frame probe.
+            if (MapRenderTrace.IsEnabled)
+            {
+                try
+                {
+                    mapViewScene.SetFrameInputs(cachedLoopUnits, Planetarium.GetUniversalTime());
+                    MapRender.ShadowRenderDriver.RunFrame(mapViewScene);
+                }
+                catch (System.Exception ex)
+                {
+                    // The shadow is diagnostic-only and must NEVER break the live flight update. Log
+                    // (rate-limited) and carry on; the old render path is untouched regardless.
+                    ParsekLog.VerboseRateLimited("MapRender", "shadow-run-exception",
+                        "shadow RunFrame threw (suppressed): " + ex.GetType().Name + ": " + ex.Message, 10.0);
+                }
+            }
 
             // Phase F: per-frame resource delta application removed.
             // The standalone applier (ApplyResourceDeltas, gated by ManagesOwnResources)

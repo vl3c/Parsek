@@ -73,22 +73,49 @@ behaviour-identical delegation to `UvLambert.Solve`). `ReaimTransferSynthesizer.
 injectable seam (defaults to the delegation), routing its single solve call through the interface.
 Tests: `TransferSolverInterfaceTests`. Behaviour unchanged; guarded by `UvLambertTests` + the canaries.
 
+## Phase 4 — scene adapter + decision-only shadow CORE (DONE — built + tested; in-game signal now LIVE)
+
+The decision-only shadow is wired and produces the reconciler signal in flight. Files:
+- `MapRender/IGhostMapScene.cs` — the scene adapter (design §6.6). Phase-4 (shadow) scope only:
+  `IsActive`, `CurrentUT`, `LoopUnits`, `GhostPids`, `TryResolveGhost`, `BodySurface`. The DRAW-side
+  members (projection, proto lifecycle pass-through, floating-origin frame, camera-focus continuity)
+  extend it in Phase 5, when the treatments actually draw — declaring them now, unused, would be
+  speculative.
+- `MapRender/MapViewScene.cs` — flight impl; thin pass-through to `GhostMapPresence`
+  (`TryGetCommittedTrajectoryForPid`, a new ERS-exempt physical-correlation helper) + `FlightGlobals`
+  body radii. Consumes `cachedLoopUnits` (the `MissionLoopUnitBuilder.Build` output) via `SetFrameInputs`.
+- `MapRender/ShadowRenderDriver.cs` — per ghost: assemble → sample → decide → `NoteIntent`; writes
+  NOTHING to stock. Emits the §13 locate/intent + frame-summary lines (tag `MapRender`). **Scope (MVP):
+  faithful single-instance only** — re-aim members (raw recording lacks the synthesized transfer) and
+  overlap members (per-instance phasing not modelled by a single pid→recording resolve) are SKIPPED
+  with a logged reason, so the reconciler signal stays clean; they land with the re-aim / overlap
+  wiring in a later phase. Pure helpers `ClassifyScope` + `DecideForGhost` are unit-tested.
+- `ParsekFlight` hook: after `CheckPendingMapVessels`, gated on `MapRenderTrace.IsEnabled`, wrapped in
+  try/catch (diagnostic-only; must never break the live flight update).
+Tests: `Source/Parsek.Tests/MapRender/ShadowRenderDriverTests.cs` (11). Full suite green (13262).
+
+**In-game now:** with `mapRenderTracing` on, the log carries `[MapRender] shadow ...` locate/intent
+lines and the Phase-6 reconciler emits `[MapRenderTrace] ... reason=decision-vs-old-truth` /
+`reason=gap-vs-retire` anomalies whenever the new Director's decision for a faithful ghost diverges
+from what the old path drew. That is the parity signal to validate the rewrite against.
+
+**Deferred from Phase 4 to Phase 5** (draw-side, only exercised once treatments draw): proto-vessel
+lifecycle pass-through behind the adapter, the shared per-frame floating-origin frame, and
+camera-focus continuity across a swap. Also still scoped out of the shadow: re-aim + overlap members.
+
 ## The in-game wall — what remains, and why it cannot be written blind
 
 Everything below is heavily KSP-coupled (proto-vessel / OrbitRenderer / Vectrosity / camera /
 floating-origin / `PatchedConics`) and the maintainer's standing steer is **do NOT write blind**. The
-pure, off-Unity-testable surface (Phases 0–3 pipeline, Phase 6 reconciler, B1 solver seam) is now
-complete, built, and green. The next agent should pair the phases below with **live KSP** (turn on
-`mapRenderTracing`, run the §14 verification matrix, watch the reconciler for decision-vs-old-truth
-parity), and resolve the in-game probes before the phase each gates.
+shadow (Phase 4 core) writes nothing, so it was safe to land; the phases below DRAW, so they need
+**live KSP** validation. Turn on `mapRenderTracing`, run the §14 verification matrix, watch the
+reconciler for decision-vs-old-truth parity, and resolve the in-game probes before the phase each gates.
 
-- **Phase 4–5** scene adapter `IGhostMapScene` + `MapViewScene` + the two treatments
-  (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned). Wire in **decision-only shadow**
-  (Director→intent→`GhostRenderReconciler.NoteIntent`; the Phase-6 probe reconcile is already wired and
-  dormant). Consume `LoopUnitSet` from `MissionLoopUnitBuilder.Build` directly, at a fixed exec order
-  before the stock `OrbitRenderer`. Emit the §13 locate/intent log lines here (the pure Phases 2/3 have
-  no pid/rate-limit context to log from — that was deliberately left to the scene driver). Resolve
-  §15.1 (proto re-seed latency) in-game before the swap execution.
+- **Phase 5** the two treatments (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned) +
+  the deferred Phase-4 draw-side adapter relocations (proto lifecycle, floating-origin frame, focus).
+  Resolve §15.1 (proto re-seed latency) in-game before the swap execution. For the eventual cutover,
+  move the Director decision to a fixed exec order before the stock `OrbitRenderer` (8a swaps the
+  `GhostOrbitLinePatch` decision).
 - **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2 — possible stop-point).
 - **Phase 8** per-surface cutover (8a–8e) — deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
