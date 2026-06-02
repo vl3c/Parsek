@@ -25,6 +25,19 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 KSP.log spam reduction (maprender-checkpoint investigation)
+
+- Surfaced by investigating the `2026-06-02_1856_maprender-checkpoint` capture (map-render tracer on): 86 percent of KSP.log was `[Parsek]` lines, with several per-recording / per-frame diagnostics scaling with the recording count (the 286-recording synthetic test corpus amplified them; a single test-run second emitted ~19,800 lines). The map-render tracer itself (`MapRenderTrace`, ~11k lines) was the acknowledged volume; these four sites were the spam beyond it.
+- **Spawner "Spawn suppressed for #i" (worst burst, 4,802 lines in one second):** `ParsekFlight.ComputePlaybackFlags` emitted one `VerboseOnChange` line per committed recording per frame; the free-text reason oscillates frame-to-frame for some recordings (snapshot load/unload, VesselSpawned toggling), defeating the per-identity coalescing. **Fix:** accumulate a per-reason histogram across the loop and emit ONE `VerboseRateLimited` summary after it (`BuildSpawnSuppressedSummary`, pure + unit-tested). Reuses a per-frame scratch dict; no per-recording line survives.
+- **GhostMap "Marker pos" (`ParsekUI.DrawMapMarkers`, 7,084 lines, ~93 percent `meshVsTraj=NaN` / `trajPos=(none)`):** the loiter-seam debug diagnostic was always-on and mostly carried no usable comparison. **Fix:** gated behind `MapRenderTrace.IsEnabled` (silent + skips the per-frame `TryComputeGhostWorldPosition` probe in normal play, matching the sibling `EmitMarker` above it) and emitted only when a trajectory position exists to compare against.
+- **RecordingTree per-tree "Save: tree=..." (3,965 lines):** one `Verbose` line per tree inside `ParsekScenario.SaveTreeRecordings`' committed-tree loop. **Fix:** removed the per-tree line from `RecordingTree.Save`; the loop already logs a batched summary (now also carrying total branch points), and the single-tree active/pending callers log their own `Info` line.
+- **KspStatePatcher "EnsureAvailableProtoTechNode: bypass rehydrate" (1,480 lines):** one `Verbose` line per available tech node (~80+) on every `PatchTechTree` recalc when bypass-entry-purchase is on. **Fix:** the helper reports its rehydrate stats to the caller via out params; the loop accumulates and emits one summary after the existing `PatchTechTree` Info line.
+- **Assessed and left as-is:** GhostMap `source-resolve` / `map-presence-pending-create` are already `VerboseOnChange`-coalesced per (recording, operation, decision); their volume is genuine decision-flips amplified by the test corpus, not a per-frame leak (covered by `LogSpamRateLimitTests`).
+- **Tests:** updated `LogSpamRateLimitTests` (3 `BuildSpawnSuppressedSummary` + 1 rate-limit-collapse), `FlightPlaybackExplainabilityTests` (new end-to-end batched-summary assertion + scratch-field wiring in the reflection host), `TreeLogVerificationTests` (C5 now asserts `Save` is silent), and the `EvaKerbalGhostHasVesselSnapshot` in-game canary (asserts the spawn decision directly instead of scraping the removed line). Full suite green except the environmental `InjectAllRecordings` dynamic-skip (KSP running, KSP.log locked).
+- **Status:** CLOSED 2026-06-02.
+
+---
+
 ## In progress - v0.10.0 Map/TS render tracer SECOND CUT: recordingId keying + decision-vs-truth reconciliation
 
 - Branch `maprender-second-cut` (off origin/main, which has the probe-only MVP from PR #1005). Design: `docs/dev/design-map-ts-render-tracer.md` (the second-cut sections). Builds the deferred reconciliation / shared-window / reverse-map work on top of the merged MVP.

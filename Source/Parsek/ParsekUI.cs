@@ -1306,23 +1306,31 @@ namespace Parsek
                 // recorded path (the "non-proto icon in the wrong location / not moving correctly on the
                 // polyline" seam), while a ~0 gap means the icon is on the path and any apparent freeze is
                 // just the sub-pixel parking circle at map scale. Rate-limited per recording.
-                if (meshActive && isMapView && kvp.Key < committed.Count)
+                //
+                // Gated behind the map-render tracer (off in normal play, so the per-frame
+                // TryComputeGhostWorldPosition probe is skipped too) and emitted only when a
+                // trajectory position exists to compare against: a NaN meshVsTraj (no trajPos)
+                // carries no signal, so those frames are skipped rather than logged (they were
+                // ~93% of this line's volume).
+                if (MapRenderTrace.IsEnabled && meshActive && isMapView && kvp.Key < committed.Count)
                 {
                     var recDiag = committed[kvp.Key];
                     double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         kvp.Key, recDiag.StartUT, recDiag.EndUT, currentUT,
                         flight.Engine.CurrentLoopUnits, out bool _);
-                    bool haveTraj = TryComputeGhostWorldPosition(
-                        kvp.Key, committed, headUT, out Vector3 trajPos, out _);
-                    Vector3 meshXform = state.ghost.transform.position;
-                    double meshVsTraj = haveTraj ? (meshXform - trajPos).magnitude : double.NaN;
-                    ParsekLog.VerboseRateLimited("GhostMap",
-                        "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
-                            kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
-                            meshXform.ToString("F0"), haveTraj ? trajPos.ToString("F0") : "(none)", meshVsTraj),
-                        2.0);
+                    if (TryComputeGhostWorldPosition(
+                            kvp.Key, committed, headUT, out Vector3 trajPos, out _))
+                    {
+                        Vector3 meshXform = state.ghost.transform.position;
+                        double meshVsTraj = (meshXform - trajPos).magnitude;
+                        ParsekLog.VerboseRateLimited("GhostMap",
+                            "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
+                                kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
+                                meshXform.ToString("F0"), trajPos.ToString("F0"), meshVsTraj),
+                            2.0);
+                    }
                 }
             }
 

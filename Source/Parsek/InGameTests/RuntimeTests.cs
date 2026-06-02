@@ -2135,15 +2135,20 @@ namespace Parsek.InGameTests
                 InGameAssert.IsGreaterThan(renderers.Length, 0,
                     $"Sentinel EVA ghost {spawnedGhostIndex} should render at least one child part");
 
-                bool sawNoSnapshotSuppression = captured.Any(line =>
-                    line.Contains("Spawn suppressed")
-                    && line.Contains("no vessel snapshot")
-                    && (line.Contains(evaRecordingId) || line.Contains(crewMember.name)));
+                // Spawn-suppression is now a batched per-reason histogram (no
+                // per-recording line), so assert the decision directly for this EVA
+                // recording instead of scraping the log: the EVA branch must carry a
+                // vessel snapshot, so ShouldSpawnAtRecordingEnd must not report
+                // "no vessel snapshot" for it.
+                var evaSpawnDecision = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
+                    finalizedEva, isActiveChainMember: false, isChainLooping: false);
+                bool sawNoSnapshotSuppression =
+                    evaSpawnDecision.reason == "no vessel snapshot";
                 bool sawDestroyedClassification = captured.Any(line =>
                     line.Contains("classified Destroyed by sub-surface path")
                     && line.Contains(evaRecordingId));
                 InGameAssert.IsFalse(sawNoSnapshotSuppression,
-                    "EVA branch canary should not log no-vessel-snapshot spawn suppression");
+                    "EVA branch canary should have a vessel snapshot (no no-vessel-snapshot spawn suppression)");
                 InGameAssert.IsFalse(sawDestroyedClassification,
                     "EVA branch canary should not accept a sub-surface Destroyed classification");
 
