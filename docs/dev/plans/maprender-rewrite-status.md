@@ -140,11 +140,19 @@ shadow (Phase 4 core) writes nothing, so it was safe to land; the phases below D
 **live KSP** validation. Turn on `mapRenderTracing`, run the §14 verification matrix, watch the
 reconciler for decision-vs-old-truth parity, and resolve the in-game probes before the phase each gates.
 
-- **Phase 5** the two treatments (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned) +
-  the deferred Phase-4 draw-side adapter relocations (proto lifecycle, floating-origin frame, focus).
-  Resolve §15.1 (proto re-seed latency) in-game before the swap execution. For the eventual cutover,
-  move the Director decision to a fixed exec order before the stock `OrbitRenderer` (8a swaps the
-  `GhostOrbitLinePatch` decision).
+- **Phase 5 - treatment CLASSES built (callable, wired at cutover).** `MapRender/IGhostRenderTreatment.cs`
+  + `StockConicTreatment.cs` + `TracedPathTreatment.cs`. `StockConicTreatment.SeedAndDrive` is the
+  one-source fix core: `orbit.SetOrbit(<segment elements>)` then `orbit.UpdateFromUT(driveUT)`, so the
+  line (stock-drawn from the elements) and the icon (the same orbit at driveUT) cannot disagree -
+  design §6.5 invariant 2. `IGhostMapScene` gained the draw-side `TryGetGhostOrbit` / `ResolveBody`.
+  Pure `ShouldApply` predicates are unit-tested (`TreatmentTests`, 4). Per the plan the StockConic
+  surface is NOT shadow-drawn (the old patch co-owns the stock object); it is exercised at the 8a flip.
+  TracedPath is a follower shell until 8b (the autonomous polyline still draws). STILL DEFERRED in
+  Phase 5: the floating-origin frame + camera-focus draw-side, the §13 seam / moon-config logs, and
+  resolving §15.1 (proto re-seed latency) in-game before the swap execution.
+- **Phase 8a (next) wires it:** swap `GhostOrbitLinePatch`'s decision/drive to the Director +
+  `StockConicTreatment` behind a runtime gate, at a fixed exec order before the stock `OrbitRenderer`,
+  and validate `angleIconVsOrbitEff -> ~0` in-game.
 - **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2 - possible stop-point).
 - **Phase 8** per-surface cutover (8a-8e) - deletes the scattered gates; in-game per sub-phase.
 - **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3

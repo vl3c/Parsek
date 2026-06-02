@@ -53,5 +53,18 @@ namespace Parsek.MapRender
         /// mission. Resolved against the live bodies; false for an unknown body.
         /// </summary>
         bool IsStarBody(string bodyName);
+
+        // ---- Draw-side (Phase 5): the surface handles the treatments drive ----
+
+        /// <summary>
+        /// The live ghost proto-vessel's <see cref="Orbit"/> for <paramref name="pid"/> (the object the
+        /// stock OrbitRenderer draws the line from and the icon rides). <see cref="StockConicTreatment"/>
+        /// seeds and drives THIS one orbit so the icon and line come from a single source. False when
+        /// the pid has no live proto-vessel / orbit driver.
+        /// </summary>
+        bool TryGetGhostOrbit(uint pid, out Orbit orbit);
+
+        /// <summary>Resolve a body by name against the live bodies (null when unknown).</summary>
+        CelestialBody ResolveBody(string bodyName);
     }
 }

@@ -63,5 +63,16 @@ namespace Parsek.MapRender
             CelestialBody body = FlightGlobals.GetBodyByName(bodyName);
             return body != null && body.isStar;
         }
+
+        public bool TryGetGhostOrbit(uint pid, out Orbit orbit)
+        {
+            orbit = null;
+            if (!FlightGlobals.FindVessel(pid, out Vessel v) || v == null || v.orbitDriver == null)
+                return false;
+            orbit = v.orbitDriver.orbit;
+            return orbit != null;
+        }
+
+        public CelestialBody ResolveBody(string bodyName) => FlightGlobals.GetBodyByName(bodyName);
     }
 }
