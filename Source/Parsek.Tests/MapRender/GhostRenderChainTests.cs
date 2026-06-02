@@ -32,22 +32,26 @@ namespace Parsek.Tests
                 segments: segs, windowStartUT: 0, windowEndUT: 40);
         }
 
+        // Coverage is an internal enum, so a public [Theory] method cannot take it as a parameter
+        // (CS0051). Pass its underlying int (a compile-time constant; the enum is visible to the test
+        // assembly via InternalsVisibleTo) and cast back inside.
         [Theory]
         // ut, expected coverage, expected segment index (-1 when not InSegment)
-        [InlineData(-1.0, Coverage.OutsideWindow, -1)]   // before window -> retire, not a phantom seg0
-        [InlineData(0.0, Coverage.InSegment, 0)]          // window/segment start is inclusive
-        [InlineData(5.0, Coverage.InSegment, 0)]
-        [InlineData(10.0, Coverage.InSegment, 1)]         // shared rigid boundary belongs to the later segment
-        [InlineData(19.9, Coverage.InSegment, 1)]
-        [InlineData(20.0, Coverage.InInteriorGap, -1)]    // exclusive end of a non-last segment with a following gap
-        [InlineData(25.0, Coverage.InInteriorGap, -1)]    // mid-gap -> hold, never retire/blink
-        [InlineData(30.0, Coverage.InSegment, 2)]
-        [InlineData(35.0, Coverage.InSegment, 2)]
-        [InlineData(40.0, Coverage.InSegment, 2)]         // last segment end is inclusive
-        [InlineData(40.001, Coverage.OutsideWindow, -1)]  // past end -> retire
-        [InlineData(100.0, Coverage.OutsideWindow, -1)]
-        public void ClassifyCoverage_ResolvesSegmentsGapsAndWindow(double ut, Coverage expected, int expectedIndex)
+        [InlineData(-1.0, (int)Coverage.OutsideWindow, -1)]   // before window -> retire, not a phantom seg0
+        [InlineData(0.0, (int)Coverage.InSegment, 0)]          // window/segment start is inclusive
+        [InlineData(5.0, (int)Coverage.InSegment, 0)]
+        [InlineData(10.0, (int)Coverage.InSegment, 1)]         // shared rigid boundary belongs to the later segment
+        [InlineData(19.9, (int)Coverage.InSegment, 1)]
+        [InlineData(20.0, (int)Coverage.InInteriorGap, -1)]    // exclusive end of a non-last segment with a following gap
+        [InlineData(25.0, (int)Coverage.InInteriorGap, -1)]    // mid-gap -> hold, never retire/blink
+        [InlineData(30.0, (int)Coverage.InSegment, 2)]
+        [InlineData(35.0, (int)Coverage.InSegment, 2)]
+        [InlineData(40.0, (int)Coverage.InSegment, 2)]         // last segment end is inclusive
+        [InlineData(40.001, (int)Coverage.OutsideWindow, -1)]  // past end -> retire
+        [InlineData(100.0, (int)Coverage.OutsideWindow, -1)]
+        public void ClassifyCoverage_ResolvesSegmentsGapsAndWindow(double ut, int expectedCoverage, int expectedIndex)
         {
+            Coverage expected = (Coverage)expectedCoverage;
             var chain = BuildChain();
             var cov = chain.ClassifyCoverage(ut, out RenderSegment seg, out int index);
             Assert.Equal(expected, cov);

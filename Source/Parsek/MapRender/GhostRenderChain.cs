@@ -15,7 +15,7 @@ namespace Parsek.MapRender
     internal sealed class GhostRenderChain
     {
         internal string RecordingId { get; }
-        /// <summary>Positional index into RecordingStore.CommittedRecordings (the LoopUnitSet contract).</summary>
+        /// <summary>Positional index into the committed-recordings list (the LoopUnitSet contract).</summary>
         internal int CommittedIndex { get; }
         /// <summary>Cycle/instance discriminator — distinguishes overlapping self-loop instances (design §10.8).</summary>
         internal int InstanceKey { get; }
