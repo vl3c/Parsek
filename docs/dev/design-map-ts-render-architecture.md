@@ -6,8 +6,10 @@ smear of Harmony patches + OnGUI passes + lifecycle ticks with a new module whos
 internal structure mirrors the gameplay model, reusing existing solver/playback
 code and proven snippets but re-organizing WHO decides what. It does NOT specify
 method-level code changes — that is Step 4 (explore + plan). It does NOT change the
-recording format, the re-aim solver, or the periodicity scheduler; it changes how the
-renderer CONSUMES them.*
+recording format or the scheduler's reasoning. It DOES extract the orbital solver behind a
+replaceable interface (math behavior unchanged, §6.9) and pulls in the re-aim surface-track
+closeout (descent re-stitch, single-recording ascent) so the full interplanetary chain
+renders (§4); the rest is about how the renderer CONSUMES existing scheduler/solver output.*
 
 *Supersedes the precursor note `design-map-ts-looped-mission-render.md` (folded in).
 Builds on: `docs/dev/done/plans/reaim-interplanetary-transfers.md`,
@@ -192,47 +194,57 @@ segment visible so the player sees where the ghost is going within it.
 
 ## 4. Scope (v1)
 
-The renderable chain depends on the mission type, because re-aim only engages for
-cross-parent targets and currently surfaces only conic segments:
+A looped mission is a **chain of committed members** (the LoopUnit member set — typically an
+ascent member, a transfer member, and an arrival/descent member, since the optimizer splits at
+SOI/atmosphere boundaries), sequenced by the reused span clock. Re-aim wraps **only the member
+that carries the heliocentric leg**; the others pass through faithfully. So the renderable
+chain by mission type:
 
 - **Same-parent / same-body missions (Mun, Minmus) — FAITHFUL replay.** Re-aim does not
-  engage; the recording plays as-is with periodicity-scheduled launch windows. The
-  **whole chain renders** (recorded ascent/loiter/approach/landing as TracedPath +
-  conics), because `Points` / `TrackSections` are present. This is the richest v1 case.
-- **Cross-parent interplanetary missions (Duna, Eve, …) — RE-AIMED.** `ReaimedTrajectory`
-  substitutes the heliocentric leg and exposes **`OrbitSegments` only** (`Points` /
-  `TrackSections` are empty on the re-aimed adapter), and re-aim v1 is **orbital arrival,
-  no re-stitched descent** (`reaim-interplanetary-transfers.md` defers the target-surface
-  S4 leg). So the v1 renderable interplanetary chain is the **conic subset**: departure
-  orbit/ejection, the generated transfer, and the arrival capture orbit — ending at
-  orbital arrival. The recorded ascent and descent *surface tracks* do not render for a
-  re-aimed mission until a re-aim-adapter prerequisite lands (see below).
-- **Non-looped exact recordings** keep working unchanged (the degenerate single-sub-chain
-  case, span clock = identity).
+  engage; the recording plays as-is with periodicity-scheduled launch windows. The **whole
+  chain renders** (recorded ascent/loiter/approach/landing). The richest v1 case.
+- **Cross-parent interplanetary missions (Duna, Eve, …) — RE-AIMED *per member*.** Only the
+  heliocentric member is wrapped in `ReaimedTrajectory` (conic-only — empty `Points` /
+  `TrackSections`); the ascent and arrival/descent members carry no heliocentric leg, so they
+  **pass through faithfully and render their recorded surface tracks** at recorded
+  body-relative geometry (span-clock time-shifted to stay chain-coherent). **The full recorded
+  chain therefore renders for a chain-decomposed interplanetary mission** (recorded ascent →
+  conic loiter/eject → generated transfer → conic capture → recorded descent) — NOT a
+  conic-only subset. Confirmed against the code: the orbital skeleton and chain-decomposed
+  surface tracks already work today.
+- **Non-looped exact recordings** keep working unchanged (span clock = identity).
 - **Map view (in flight) ↔ Tracking Station parity** is required for what each case renders.
 
-**Named prerequisite (out of this module, gating the full interplanetary chain):**
-re-timing the recorded surface/atmospheric ascent and descent tracks onto the synthesized
-spans — i.e. populating `Points` / `TrackSections` on the re-aimed adapter so the
-TracedPath treatment has data on a re-aimed mission. Until then, interplanetary v1 is
-conic-only / orbital-arrival. This is a solver/adapter task (§6.9), not a render task; the
-render architecture is designed for the full chain so it needs no change when the data
-arrives.
+**Pulled into this effort — the genuine remaining gaps (confirmed by investigation):**
+1. **Descent re-stitch** — the recorded descent renders at its recorded body-relative geometry
+   but is not seamed to the re-aimed arrival capture orbit; closing that rigid orbit↔landing
+   seam is the largest item (and it is near the surface, so on-camera — not a tolerated SOI seam).
+2. **Single continuous recording** — when ascent+transfer are one un-split recording, that
+   member is wrapped in `ReaimedTrajectory` and its ascent `Points` are dropped; fix by
+   re-timing the recorded ascent onto the re-aimed departure, or formalize the
+   chain-decomposition requirement.
+3. **Ascent re-timing** to the re-aimed departure, **S1 ejection synthesis**, and the
+   **arrival seam blend** (polish).
+
+These are re-aim-pipeline tasks (`ReaimedTrajectory` / `ReaimSegmentAssembler`), coordinated
+with the render module; the render architecture already targets the full chain and needs no
+change when the surface tracks arrive. Most of the chain (orbital skeleton + chain-decomposed
+surface tracks) is already implemented — items #1–#3 are the closeout.
 
 - **Deferred:** Jool / multi-moon destinations (mini-system), gravity assists, multi-hop
-  chains, plane-aware / complex transfers, the end-to-end forward chain preview, the
-  re-aimed descent/ascent surface-track re-stitch (above), and erasing the SOI-boundary
-  *direction* seam.
+  chains, plane-aware / complex transfers, the end-to-end forward chain preview, and erasing
+  the SOI-boundary *direction* seam.
 
 ## 5. Responsibility split (load-bearing)
 
 Three layers, three owners. The point is to keep the renderer simple and put the hard
 correctness in the already-working scheduler/solver:
 
-- **Solver owns *the orbital mathematics*** (transfer generation, encounter solve) behind
-  a replaceable module boundary (§6.9). We do **not** implement orbital mechanics from
-  scratch — the boundary lets a library replace the current hand-rolled Lambert with zero
-  render-side impact.
+- **Solver owns *the orbital mathematics*** (Lambert transfer + patched-conic encounter),
+  extracted in this effort behind a replaceable boundary — `ITransferSolver` (pure Lambert) +
+  `IEncounterSolver` (wraps stock `CalculatePatch`) (§6.9). We do **not** implement orbital
+  mechanics from scratch — the boundary lets a library replace the current hand-rolled solver
+  with zero render-side impact.
 - **Scheduler owns *when*.** Launch UT, loiter counts, arrival window — chosen so recorded
   arcs play against live bodies that ≈ match the recording, including the high-visibility
   moon-flyby phases.
@@ -305,6 +317,16 @@ class GhostRenderChain
     bool    IsFaithfulFallback    // solver declined → recorded-as-is (see §6.9, §10)
     // built once per (BuildSignature, reaim-window index, InstanceKey); cached; O(log n) locate by UT
 ```
+
+**Per-member, sequenced by the reused span clock.** A `GhostRenderChain` is per *committed
+member* (one `CommittedIndex`), not per whole mission. A looped mission's full
+launch→transfer→landing chain spans several members (ascent / transfer / arrival-descent);
+the existing LoopUnit + span clock already pick which member is active at `liveUT` and its
+`loopUT`, so cross-member sequencing is **reused, not rebuilt**. The Director runs per active
+member instance; the make-before-break hand-off at a member boundary is the span clock's
+existing member transition. Within a member, treatment switches at that member's own segment
+boundaries. (Only the heliocentric member is a `ReaimedTrajectory`; ascent/arrival/descent
+members are faithful, which is why their recorded surface tracks render — §4.)
 
 Two assembler rules the reviews surfaced:
 
@@ -446,18 +468,33 @@ branch (§13), not optional.
 
 ### 6.9 Orbital-solver module boundary (replaceable)
 
-Per the directive *don't implement orbital mechanics from scratch*: the transfer/encounter
-mathematics lives behind a narrow interface (e.g. `ITransferSolver` — Lambert solve,
-patched-conic encounter), so the current hand-rolled ~150-line Lambert can be swapped for a
-library with **zero render-side impact** (the renderer consumes only `OrbitSegments`,
-provenance-agnostic). The boundary also defines the **declined/degenerate** contract: when
-a window's solve fails (no encounter, energy/eccentricity rejection, steep inclination), the
-solver returns a *decline* signal; the scheduler falls back to faithful (un-re-aimed)
-replay for that window (`ReaimPlaybackResolver`'s existing "fail to faithful, never
-half-applied"), and the `ChainAssembler` marks the chain `IsFaithfulFallback=true` and
-assembles the *recorded* transfer (drawn at its recorded, off-window position) rather than a
-missing/blank transfer segment. Extracting the solver into its own module is a related
-workstream; this doc fixes the *boundary* so the render module is decoupled from it now.
+Per the directive *don't implement orbital mechanics from scratch*, the orbital math is
+extracted into its own replaceable module **in this effort**. Investigation found it already
+cleanly layered in `Reaim/`, behind a single linear caller funnel (`ReaimPlaybackResolver` →
+`ReaimTransferSynthesizer.TrySynthesizeTransfer` → `UvLambert.Solve`, each with exactly one
+production caller), so the blast radius is tiny. Two interfaces:
+
+- **`ITransferSolver`** — the pure Lambert solve (`UvLambert.Solve`: `mu, r1, r2, tof, prograde
+  → v1, v2`, fail-closed). Already zero-Unity, zero-global-state; becomes the swap-a-library
+  seam essentially verbatim. Guarded by the existing `UvLambertTests` (Curtis 5.2 textbook
+  case, round-trips, degenerate fail-closed) — a swapped impl must pass them.
+- **`IEncounterSolver`** — wraps stock `PatchedConics.CalculatePatch` + the geometric
+  proximity fallback, isolated so the Lambert swap and the encounter swap are independent.
+
+The **one signature change that buys swap-freedom:** the synthesizer returns frame-agnostic
+Kepler elements (a `TransferConic` / `OrbitSegment`) instead of a live KSP `Orbit`, so nothing
+downstream depends on `Orbit` / `CalculatePatch` semantics. **Stays Parsek-side** (NOT in the
+library boundary): the AliceWorld `.xzy` frame swizzle, `Orbit` construction, the
+plane-projection / prograde-handedness / `IsSaneTransferConic` policy, the tof-search loop,
+per-window caching, and the **declined→faithful** contract — when a window's solve declines (no
+encounter, energy/eccentricity/inclination rejection), `ReaimPlaybackResolver` returns the
+faithful recorded trajectory ("fail to faithful, never half-applied") and the `ChainAssembler`
+marks the chain `IsFaithfulFallback=true`, drawing the *recorded* transfer rather than a blank
+segment. `TransferWindowMath` (synodic/Hohmann) is already pure and may hide behind an optional
+`ITransferWindowMath` but has no swap motivation. **Test gap to close on extraction:** the
+`IEncounterSolver` (`CalculatePatch`) path has **no off-Unity test** today — only the in-game
+canaries (`CrossParentReaimCanaryInGameTest`); a `CalculatePatch` swap needs new coverage or
+relies on those.
 
 ### 6.10 Data model summary
 
@@ -473,8 +510,9 @@ each window from existing recorded data + scheduler output; no save-format chang
 - `IPlaybackTrajectory` — the unified trajectory interface; both recorded and
   `ReaimedTrajectory` implement it. The chain assembles from it.
 - `ReaimedTrajectory` (`Reaim/ReaimedTrajectory.cs`) + `ReaimPlaybackResolver` (per-window
-  cache, "fail to faithful") + the re-aim pipeline — substitutes `OrbitSegments` with the
-  synthesized transfer per window; `Points`/`TrackSections` empty (the v1 scope boundary in §4).
+  cache, "fail to faithful") + the re-aim pipeline — wraps **only the heliocentric member**,
+  substituting its `OrbitSegments` with the synthesized transfer (`Points`/`TrackSections`
+  empty on that member only); ascent/arrival/descent members pass through faithfully (§4).
 - `MissionLoopUnitBuilder` + `LoopUnit` / `LoopUnitSet` — **the loop-unit owner**; the
   Director consumes its output directly (§6.7).
 - The span clock: `TryComputeSpanLoopUT`, `DecompressSpanUT`, `ResolveTrackingStationSampleUT`
@@ -517,21 +555,23 @@ mesh/spawn half. Ghost interaction, recording, the recorder, and the scheduler's
 | Mission type | Re-aim? | Trajectory data available | Renderable chain in v1 |
 |---|---|---|---|
 | Same-body / same-parent (Mun, Minmus) | no — faithful | full `Points` + `TrackSections` + `OrbitSegments` | **whole chain**: ascent → loiter → approach → loiter → landing (TracedPath + StockConic) |
-| Cross-parent interplanetary (Duna, Eve, …) | yes — `ReaimedTrajectory` | `OrbitSegments` only (`Points`/`TrackSections` empty) | **conic subset, to orbital arrival**: departure orbit/eject → generated transfer → arrival capture orbit. Ascent/descent surface tracks deferred behind the §4 prerequisite |
+| Cross-parent interplanetary (Duna, Eve, …) | yes — **per member** (only the heliocentric member is wrapped in `ReaimedTrajectory`) | heliocentric member: `OrbitSegments` only; ascent / arrival / descent members: full recorded data | **full chain via members**: recorded ascent → conic loiter/eject → generated transfer → conic capture → recorded descent. Already works for chain-decomposed missions; the descent-seam re-stitch + single-recording ascent are the in-scope closeout (§4) |
 | Non-looped exact recording | n/a | full recorded data | identity (span clock = identity); whole recorded path |
 
-The render module is designed for the whole chain; the interplanetary row is narrower
-only because the re-aim adapter does not yet surface recorded surface tracks (§4
-prerequisite). When that data arrives, the same assembler/treatments render it with no
-architecture change.
+The render module is designed for the whole chain. For interplanetary missions the orbital
+skeleton and chain-decomposed surface tracks already render today; the remaining work (§4) is
+the descent-seam re-stitch and the single-continuous-recording ascent — both re-aim-pipeline
+tasks pulled into this effort, with no render-architecture change.
 
 ## 9. Behavior
 
 Per segment kind, as the live clock advances through a cycle window (each renders via its
 assigned treatment, icon riding the line). Which segments exist depends on §4:
 
-- **Ascent / atmospheric** (TracedPath; faithful missions only in v1): appears at launch;
-  icon rides from the surface up; full segment path visible.
+- **Ascent / atmospheric** (TracedPath): appears at launch; icon rides from the surface up;
+  full segment path visible. Renders for faithful missions and for the faithful ascent *member*
+  of a chain-decomposed re-aimed mission; dropped only when ascent+transfer are one un-split
+  recording (§4 item 2).
 - **Loiter / parking orbit** (StockConic): full ellipse; icon rides it. Loiter *count* is
   the scheduler's trim; the renderer plays exactly the orbits present in the chain.
 - **Ejection → SOI exit** (body-relative; StockConic or TracedPath by the conic test):
@@ -542,9 +582,12 @@ assigned treatment, icon riding the line). Which segments exist depends on §4:
 - **SOI entry → approach** (destination-body-relative, frame-split at any intra-arc moon
   SOI): drawn at live positions; moon flybys render correctly iff the scheduler matched the
   config.
-- **Arrival capture orbit** (StockConic): the v1 interplanetary endpoint (orbital arrival).
-- **Arrival loiter / Landing** (StockConic / TracedPath): full chain for faithful missions;
-  for re-aimed interplanetary, deferred behind the §4 prerequisite.
+- **Arrival capture orbit** (StockConic): the conic capture after SOI entry.
+- **Arrival loiter / Landing** (StockConic / TracedPath): renders for faithful missions and for
+  the faithful arrival/descent *member* of a re-aimed mission (at recorded body-relative
+  geometry). The in-scope closeout (§4) is the **re-stitch seam** between the re-aimed capture
+  orbit and the recorded descent — a rigid orbit↔landing hand-off that must connect cleanly
+  (on-camera near the surface, so not a tolerated SOI seam).
 
 Seam transitions over time:
 - **Rigid seams** (within a sub-chain; ascent↔orbit; orbit↔landing): visually continuous,
@@ -629,9 +672,9 @@ Each: scenario → expected behavior → [v1 / deferred].
 ## 11. What doesn't change
 
 - The recording format, sidecars, and segment classification.
-- The re-aim solver math, the periodicity scheduler, the span clock, the loiter compressor —
-  the renderer consumes their output; it never re-plans. (The solver gains a *module
-  boundary*, §6.9, but its behavior is unchanged.)
+- The periodicity scheduler, the span clock, the loiter compressor — the renderer consumes
+  their output; it never re-plans. The solver is extracted behind `ITransferSolver` /
+  `IEncounterSolver` (§6.9), but its *math behavior* is unchanged (guarded by `UvLambertTests`).
 - Celestial body positions — the renderer never moves a body; moon-config correctness is the
   scheduler's.
 - Ghost interaction (focus / target / Fly / re-fly) and the flight-scene 3D ghost meshes.
@@ -709,12 +752,14 @@ SOI seam, self-overlapping instances, camera-focus through a swap.
 3. **Transfer-phase debris** (§10.10) — do v1 re-aim recordings retain debris that decouples
    during the heliocentric leg? If yes, parent/child re-aim coherence is v1; if no, state the
    faithful fallback and defer.
-4. **Solver-module extraction sequencing** — is `ITransferSolver` extracted as part of this
-   rewrite or as a parallel workstream? The render module only needs the *boundary* defined;
-   the extraction can land independently.
-5. **The re-aimed surface-track prerequisite** (§4) — confirm it is a separate adapter task
-   (re-timing recorded ascent/descent `Points`/`TrackSections` onto synthesized spans) and not
-   smuggled into this rewrite.
+4. **`IEncounterSolver` off-Unity test coverage** — the `CalculatePatch` encounter path has no
+   pure test today (only in-game canaries). Before swapping that solver, add off-Unity coverage
+   or accept canary-only validation. (Solver extraction itself is RESOLVED: done in this effort
+   behind `ITransferSolver` + `IEncounterSolver`, §6.9.)
+5. **Descent-seam re-stitch fidelity** (§4 item 1) — the surface-track work is RESOLVED as IN
+   this effort; the open part is the re-stitch approach and acceptable seam tolerance between
+   the re-aimed capture orbit and the recorded descent. It is a rigid, on-camera (near-surface)
+   hand-off, so it must connect cleanly — tighter than the off-camera SOI seams.
 
 ## 16. References
 
@@ -727,8 +772,10 @@ SOI seam, self-overlapping instances, camera-focus through a swap.
 - `docs/parsek-ghost-trajectory-rendering-design.md` — existing rendering surfaces.
 - `docs/dev/design-map-ts-render-tracer.md` — the observability layer reused as the reconciler.
 - Key source seams: `GhostPlaybackLogic.cs` (span clock, LoopUnit/LoopUnitSet),
-  `Reaim/ReaimedTrajectory.cs` + `Reaim/ReaimPlaybackResolver.cs`, `IPlaybackTrajectory.cs`,
-  `GhostMapPresence.cs`, `ParsekPlaybackPolicy.cs` (`CheckPendingMapVessels`),
-  `ParsekTrackingStation.cs` (`UpdateTrackingStationGhostLifecycle`),
+  `Reaim/ReaimedTrajectory.cs` + `Reaim/ReaimPlaybackResolver.cs` + `Reaim/ReaimSegmentAssembler.cs`,
+  the solver `Reaim/UvLambert.cs` + `Reaim/ReaimTransferSynthesizer.cs` (+ `Reaim/TransferWindowMath.cs`),
+  `IPlaybackTrajectory.cs`, `GhostMapPresence.cs`, `ParsekPlaybackPolicy.cs`
+  (`CheckPendingMapVessels`), `ParsekTrackingStation.cs` (`UpdateTrackingStationGhostLifecycle`),
   `Display/GhostTrajectoryPolylineRenderer.cs`, `Patches/GhostOrbitLinePatch.cs`,
-  `MapRenderProbe.cs` / `MapRenderTrace.cs`.
+  `MapRenderProbe.cs` / `MapRenderTrace.cs`. Solver tests: `Source/Parsek.Tests/UvLambertTests.cs`,
+  `TransferWindowMathTests.cs`; in-game `CrossParentReaimCanaryInGameTest.cs`.
