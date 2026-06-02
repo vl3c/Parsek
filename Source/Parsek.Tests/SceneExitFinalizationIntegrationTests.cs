@@ -264,7 +264,7 @@ namespace Parsek.Tests
             // warnOnSubSurfaceStart: false is the background / periodic-refresh path,
             // where a sub-surface Destroyed verdict is a self-correcting transient
             // (solver torn down at the backgrounding frame). It must NOT emit a WARN
-            // or the INFO "classified Destroyed" line — only Verbose — so it stops
+            // or the INFO "classified Destroyed" line (only Verbose), so it stops
             // spamming the log with a misleading "600 km underground" message.
             Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
                 "rec-bg-quiet",
@@ -288,7 +288,7 @@ namespace Parsek.Tests
         public void SubSurfaceClassification_SceneExitPath_StillLogsAtWarn()
         {
             // The default (warnOnSubSurfaceStart: true) one-shot scene-exit path keeps
-            // the authoritative WARN — only the background path is downgraded.
+            // the authoritative WARN; only the background path is downgraded.
             Assert.True(IncompleteBallisticSceneExitFinalizer.LogSubSurfaceDestroyedClassificationOnce(
                 "rec-sceneexit-warn",
                 500.0,

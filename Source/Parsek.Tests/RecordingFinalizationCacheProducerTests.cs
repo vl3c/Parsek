@@ -849,7 +849,7 @@ namespace Parsek.Tests
             Assert.Equal(180.0, cache.TerminalUT);
             // Background / periodic-refresh path: the sub-surface Destroyed verdict is
             // a self-correcting transient, so it now logs at VERBOSE rather than WARN
-            // (the classification — terminal=Destroyed above — is unchanged). The
+            // (the classification, terminal=Destroyed above, is unchanged). The
             // companion "classified Destroyed" line is likewise Verbose, not INFO.
             Assert.Equal(1, CountLogLines(
                 "[Parsek][VERBOSE][Extrapolator]",
