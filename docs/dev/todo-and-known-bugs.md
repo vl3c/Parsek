@@ -12,6 +12,12 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Spurious "Script error: OnLevelWasLoaded" logged at startup (Unity magic-method name collision)
+
+- Surfaced by a logistics-session log sweep: two `[ERR] Script error: OnLevelWasLoaded / This message parameter has to be of type: int / The message will be ignored.` lines at startup (preceded by the deprecation WRN `OnLevelWasLoaded was found on WarpToTimeConsumer` / `... on Driver`).
+- **Root cause:** `WarpToTimeConsumer` and `GhostTrajectoryPolylineRenderer.Driver` each subscribe a scene-load handler to the KSP GameEvent `GameEvents.onLevelWasLoaded`, but named the handler method `OnLevelWasLoaded` — which is also Unity's deprecated magic-message name. Unity scans MonoBehaviours for a method called `OnLevelWasLoaded`, finds our `(GameScenes)` signature instead of the magic `(int)`, logs the `[ERR]` and ignores the magic call. The GameEvent subscription still fires correctly, so there was no functional breakage; the only symptom was the bogus startup `[ERR]`.
+- **Fix:** renamed both handlers to `HandleLevelWasLoaded` (and the matching `GameEvents.onLevelWasLoaded.Add/Remove` references). The KSP GameEvent name `GameEvents.onLevelWasLoaded` is unchanged. No behavior change; the spurious magic-method `[ERR]` is gone. Verified both files were the only `OnLevelWasLoaded`-named handlers in `Source/Parsek`.
+
 ## Done - v0.10.0 Looping recording flashed a stale recorded-UT orbit line / icon on first flight-map appearance
 
 - Surfaced by the new map/TS draw-path logging (branch `add-map-ts-draw-logging`): a looping, re-aimed recording ("Kerbal X", rec 30) logged `Map-visible orbit window ... source=stored-bounds-fallback ... windowUT=52569494-52569925` (raw recorded UT) one tick, while the live clock was ~614212164, before the next tick computed the correct loop-shifted window.
