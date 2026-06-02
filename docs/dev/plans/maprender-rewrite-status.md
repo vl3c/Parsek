@@ -66,17 +66,33 @@ Phase 4 calls `NoteIntent`). Tests: `Source/Parsek.Tests/MapRender/GhostRenderRe
   attempted blind, per the maintainer's steer. They gate Phase 3's swap-settle (modeled as a
   parameterized scene hook, not guessed) and Phase 7b.
 
-## Not started — needs build + in-game (do NOT write blind)
+## Workstream B1 — `ITransferSolver` (DONE — built + tested)
+
+`Reaim/ITransferSolver.cs`: the replaceable Lambert boundary + `UvLambertTransferSolver` (verbatim,
+behaviour-identical delegation to `UvLambert.Solve`). `ReaimTransferSynthesizer.TransferSolver` is the
+injectable seam (defaults to the delegation), routing its single solve call through the interface.
+Tests: `TransferSolverInterfaceTests`. Behaviour unchanged; guarded by `UvLambertTests` + the canaries.
+
+## The in-game wall — what remains, and why it cannot be written blind
+
+Everything below is heavily KSP-coupled (proto-vessel / OrbitRenderer / Vectrosity / camera /
+floating-origin / `PatchedConics`) and the maintainer's standing steer is **do NOT write blind**. The
+pure, off-Unity-testable surface (Phases 0–3 pipeline, Phase 6 reconciler, B1 solver seam) is now
+complete, built, and green. The next agent should pair the phases below with **live KSP** (turn on
+`mapRenderTracing`, run the §14 verification matrix, watch the reconciler for decision-vs-old-truth
+parity), and resolve the in-game probes before the phase each gates.
 
 - **Phase 4–5** scene adapter `IGhostMapScene` + `MapViewScene` + the two treatments
-  (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned) — heavy KSP (proto-vessel,
-  OrbitRenderer, Vectrosity, camera, floating-origin). Wire in **decision-only shadow** (compare
-  intent vs the OLD path's truth; write nothing to stock).
-- **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2).
+  (`StockConicTreatment` managed-vs-KSP, `TracedPathTreatment` owned). Wire in **decision-only shadow**
+  (Director→intent→`GhostRenderReconciler.NoteIntent`; the Phase-6 probe reconcile is already wired and
+  dormant). Consume `LoopUnitSet` from `MissionLoopUnitBuilder.Build` directly, at a fixed exec order
+  before the stock `OrbitRenderer`. Emit the §13 locate/intent log lines here (the pure Phases 2/3 have
+  no pid/rate-limit context to log from — that was deliberately left to the scene driver). Resolve
+  §15.1 (proto re-seed latency) in-game before the swap execution.
+- **Phase 7** `TrackingStationScene` (7a parity / 7b new behavior, gated on §15.2 — possible stop-point).
 - **Phase 8** per-surface cutover (8a–8e) — deletes the scattered gates; in-game per sub-phase.
-- **Workstream B** solver extraction: B1 `ITransferSolver` (trivial wrap of `UvLambert.Solve`,
-  guarded by `UvLambertTests`) — safe but unused until the synthesizer is rewired (needs build);
-  B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3 `TransferConic` return.
+- **Workstream B** B2 `IEncounterSolver` (wraps `CalculatePatch`, §15.4 test-gap decision) + B3
+  `TransferConic` frame-agnostic return — touch the in-game-validated re-aim path.
 - **Workstream C** surface-track closeout: C1 single-recording ascent, C2 descent re-stitch
   (on-camera seam tolerance §15.5), C3 polish.
 
