@@ -120,9 +120,13 @@ from the recorded segment classification — never a fixed template:
         ⟂ flexible SOI exit               ⟂ flexible SOI entry
 ```
 
-This is the **general target model**. What is actually renderable in v1 depends on the
-mission type (§4): a faithful same-parent mission renders the whole chain; a re-aimed
-cross-parent mission renders the conic subset + orbital arrival.
+This is the **general target model**; the **binding v1 scope is the §8 table** (read that as
+the contract — this diagram is aspirational). What is actually renderable depends on the
+mission type (§4): a faithful same-parent mission renders the whole chain, and a
+**chain-decomposed re-aimed cross-parent mission also renders the whole chain** (only the
+heliocentric member is conic; the ascent / arrival / descent members render their recorded
+surface tracks). The lone gap is a *single-recording* (un-split) interplanetary mission, where
+the ascent/descent are degraded until the §4 closeout.
 
 ### 3.2 Decoupling at the SOI joints (why re-aim exists)
 
@@ -158,7 +162,10 @@ The generated transfer is a **clean conic away from the SOI seams**. Its v1 stit
 anchors to the recorded SOI-exit state and swaps only the post-exit velocity to the
 solver's departure velocity, so the departure SOI edge carries an accepted velocity
 discontinuity (the flexible-seam artifact) — not a "byte-perfect" join. "Looks perfect"
-means the conic body itself is clean, not that the SOI seam is continuous.
+means the conic body itself is clean, not that the SOI seam is continuous. So recorded and
+synthesized segments form **one coherent chain**: seamless across rigid seams, and
+tolerated-discontinuous *only* at the two SOI seams — which are exactly the recorded↔synthesized
+boundaries.
 
 ### 3.4 Variable structure
 
@@ -177,7 +184,11 @@ Two kinds of seam error, deliberately ranked:
   zoomed, immediately obvious. This is a **scheduler** responsibility — a recorded moon
   flyby is a transient SOI pass, i.e. a binding phase constraint on that moon (the same
   machinery that already makes Mun/Minmus loop timing work well). The renderer draws the
-  arc at live positions and relies on the schedule.
+  arc at live positions and relies on the schedule. *Caveat:* this holds when the approach is
+  its own faithful member (the normal chain-decomposed case); a *single-recording* arrival's
+  approach is the known gap until §4 item 2 lands, so the #1 priority is conditional on chain
+  decomposition — an internal property the player can't see. The §4 closeout removes the
+  condition.
 - **SOI-boundary exit/entry *direction* mismatch → deferred.** "Exited to the planet's
   right but appears on the left in heliocentric zoom" is off-camera, across two zoom
   levels nobody cross-references. Accepted for v1.
@@ -407,10 +418,22 @@ read the intent: *am I the active treatment for this instance? then draw at `Dri
 - **TracedPathTreatment** fully owns its polyline + marker/label (nobody else touches them),
   so the icon and the path are produced together from one `DriveUT` and cannot disagree.
 
-**Invariants enforced structurally (for the Parsek-owned decision):**
-1. Exactly one treatment active per instance per frame (kills polyline/orbit double-draw).
-2. Icon always on and always on its current segment's line (kills icon blink and
-   icon-off-line drift).
+**Invariants (for the Parsek-owned decision):**
+1. Exactly one treatment active per instance per frame — **structurally guaranteed** (the
+   Director emits one treatment), kills polyline/orbit double-draw.
+2. **Icon on its line — guarantee strength differs by surface, be honest about it.** On
+   **TracedPath** it is *structurally guaranteed* (icon + polyline come from one `DriveUT`,
+   cannot disagree). On **StockConic** — where a clean interplanetary chain spends most of its
+   visible time — the icon and the line are two KSP-driven objects KSP co-owns, so the design
+   *contains and reconciles* rather than *prevents*: re-assert intent every frame; the
+   reconciler flags divergence. **Player-visible fallback when the reconciler catches a
+   mid-flight StockConic icon/line divergence:** re-assert and accept at most one stale frame
+   (the bounded, logged outcome). The rewrite localizes and surfaces this bug class on the
+   managed surface — it does NOT claim to eliminate it there. Across a **rigid seam** the icon
+   stays on its line (make-before-break); at a **flexible SOI seam** a *bounded jump is the
+   tolerated artifact*, classified `InInteriorGap` (NOT an anomaly — §6.4 suppresses icon-jump
+   there). So "icon always on its line" means *within a segment and across rigid seams*; the
+   flexible-seam jump is the one accepted exception, with gap-classification as its named carrier.
 3. Stock wherever the segment is a conic; traced-path only for recorded non-conic stretches.
 4. Current segment only — no forward preview across seams.
 
@@ -418,9 +441,10 @@ read the intent: *am I the active treatment for this instance? then draw at `Dri
 
 The only things implemented twice. `MapViewScene` (in flight) and `TrackingStationScene`
 each provide: position→scene-space projection, the active camera, the scene-visibility
-gate, proto-vessel spawn/drive lifecycle, **a single floating-origin frame per Director
-cycle** (so both treatments project against the same origin — closes the swap/shift offset
-jump), and **camera-focus continuity across a treatment swap** (re-home focus onto the
+gate, proto-vessel spawn/drive lifecycle, **a single floating-origin frame per frame, shared
+across ALL ghost instances** (so both treatments and every overlapping instance project against
+the same origin — closes the swap/shift offset jump and prevents a relative offset between two
+overlapping ghosts), and **camera-focus continuity across a treatment swap** (re-home focus onto the
 incoming surface, or keep a persistent focus anchor, so destroying a focused proto-vessel
 mid-swap doesn't drop the camera). The Director/Sampler/Assembler/treatment *logic* are
 written once against this adapter and never know which scene they are in.
@@ -633,7 +657,14 @@ Each: scenario → expected behavior → [v1 / deferred].
    once, at different chain positions, possibly needing different treatments simultaneously.
    *Each instance is a distinct ghost keyed by `InstanceKey`; proto-vessel pids and polyline
    legs are per-instance, NOT per-recording. SC/TS render a single span instance (no overlap
-   machinery there).* [v1 within existing caps.]
+   machinery there).* **Route-level aggregate contract** (the supply-route visual, §1): the
+   live instance set = every instance whose cycle window contains `liveUT`, capped at K (the
+   existing overlap cap — the gameplay knob for how many supply-run ghosts populate a route).
+   Under warp one frame may simultaneously spawn, hold-across-gap (§10.7), and retire different
+   instances, each via its own per-instance Director decision. A newly-entering instance appears
+   at its launch point in normal time; after a warp jump it may first appear mid-chain, using
+   the same `InInteriorGap`/hold logic (never a blink-on at a stale position). At the cap
+   boundary the furthest instance retires cleanly rather than popping. [v1 within existing caps.]
 9. **Debris ride-along (same-SOI / non-transfer).** *Its own ghost following the same
    contract; not a special seam.* [v1.]
 10. **Debris decoupling DURING the re-synthesized transfer.** A parent-anchored child off the
@@ -645,7 +676,11 @@ Each: scenario → expected behavior → [v1 / deferred].
     `ReaimPlaybackResolver.HasHeliocentricLegInWindow`, a member with no heliocentric leg
     already passes through faithful; the open part is parent/child *frame coherence*.) [v1 if
     transfer-phase debris can occur; else explicitly deferred with the faithful fallback
-    stated. Step-4 probe: whether v1 re-aim recordings retain transfer-phase debris.]
+    stated. Step-4 probe: whether v1 re-aim recordings retain transfer-phase debris.] **Note —
+    the frame abstraction itself must generalize if this is v1:** `RenderSegment.FrameBodyName`
+    holds one *body* per segment and has no slot for "anchored to a generated parent conic", so
+    the frame concept must become `frame = body | parent-generated-conic`; otherwise such debris
+    is silently forced into a body frame (the exact failure this case warns against).
 11. **Flight map ↔ Tracking Station.** *Identical contract/treatments; only the scene adapter
     differs. TS = extend the Phase-F remap into the chain model.* [v1: parity required.]
 12. **Non-looped exact recording.** *Degenerate single-sub-chain chain, span clock = identity;
