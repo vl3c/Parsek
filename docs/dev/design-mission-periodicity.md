@@ -179,7 +179,11 @@ is a free OUTPUT, not a recorded input.
 The SOI entry/exit DIRECTION and ANGLE (`L4`, `L6`) never appear as constraints. The
 recorded in-SOI arcs are anchored to entry, so WHERE the ghost crosses the SOI edge is
 irrelevant; only WHEN it crosses (which destination configuration is live then)
-matters.
+matters. One honesty note on the table's `L4` / `L6` "timing free": the DIRECTION/angle
+is genuinely free, and WHEN is flexible in the user's sense (wait as long as needed for a
+favorable configuration), but as the shipped code stands WHEN is realized by SELECTING a
+later synodic window index `k` (plus a thin tof band), not by dialing a continuous
+instant. See the honest qualifier in the collapse section below.
 
 ### What is actually misaligned across the loop shift
 
@@ -368,15 +372,19 @@ orbital phase. The solver must therefore evaluate the ACTUAL live periods from
 `IBodyInfo` and compute the joint resonance from them. For the real Bug-2 case this
 makes the problem EASIER (one effective constraint, not two). The general
 independent-moon case (a fast body with a slow moon) is what the math must handle
-correctly: it reads the live periods and lets the joint solver collapse coincident
-periods for free, the same way the same-parent path already collapses
-`Mun.rotationPeriod == Mun.orbit.period` (the tidally-locked edge case).
+correctly: it reads the live periods and lets the EXISTING tidal-collapse path handle
+coincident periods for free. `MissionPeriodicity` already treats two periods within a
+relative tolerance as one (the `tidal-collapse` method; `MissionPeriodicity.cs` around
+535 and 651-655, with the no-distinct-period branch at 1102-1127), the same mechanism
+that collapses a tidally-locked `Mun.rotationPeriod == Mun.orbit.period` pair to a single
+constraint in the same-parent path. No special-case merge is added here.
 
 ### Tolerance modes (reuse the existing Off/Loose/Precise ladder)
 
 The destination is, by construction, a TRANSITED (non-launch) body, so it slots into the
 existing `TransitedBodyRotationMode { Drop, Loose, Tight }` enum and the
-`ScheduleToleranceSecondsFor` dispatch with zero new tolerance vocabulary. The existing
+`ScheduleToleranceSecondsFor` dispatch with zero new tolerance vocabulary (the UI labels
+Off, Loose, Precise map to enum `Drop`, `Loose`, `Tight` respectively). The existing
 "Landing-body alignment" cycle button governs it; only the tooltip widens to name an
 interplanetary destination as well as the Mun.
 
@@ -422,6 +430,13 @@ The honest consequence:
 - When a recorded mission has a short loiter (1 to 3 revs) or NO destination loiter
   (direct atmospheric entry), the loiter trim contributes little or nothing, and the
   alignment must be hit on the coarse window grid + tof band alone.
+
+Target trim range (user requirement): a typical recorded mission may loiter ~100
+revolutions; the player trims that down to ~1-2 by default, with slack up to about 5-10
+revolutions to buy alignment. The same intended band applies to BOTH the launch-side
+loiter (`L2`, the shipped launch-parking compression) and the destination-side loiter
+(`L8`). The arrival solver searches `keepRevs` only within that ~1-10 band; it never
+keeps dozens of recorded revolutions just to chase a destination phase.
 
 Implementation note for the eventual plan (read-only here): `keepRevs` is currently a
 fixed default and the compressor detects all runs; using it as an alignment knob requires
@@ -469,18 +484,32 @@ joint-resonance wall. If no in-band window exists in the search horizon, we fail
 
 ### Integration with the shipped geometric (Lambert capture) seam fix
 
-This layer is strictly ON TOP of and orthogonal to the shipped geometric seam fix
-(`ReaimSegmentAssembler.ReplaceHeliocentricLeg` + the full-recorded-span render window).
-The geometric fix connects POSITIONS in recorded-span time and is invariant to which
-absolute window `k` is chosen; this layer only changes WHICH window `k` is synthesized
-for. The `IsSeamResidualTooLarge` guard (over 50 km / 5 percent radial) still bounds the
-geometric residual for any `k`, and a window whose geometry would exceed it is rejected
-as a synthesis miss and falls to faithful. So an arrival-aligned `k` can never make the
-geometric seam worse than the guard permits.
+This layer is strictly ON TOP of and orthogonal to the shipped geometric seam
+machinery (`ReaimSegmentAssembler.ReplaceHeliocentricLeg` + the full-recorded-span
+render window + the per-window Lambert synthesis in
+`ReaimPlaybackResolver.BuildWindowSegments`). That machinery connects POSITIONS in
+recorded-span time and is invariant to which absolute window `k` is chosen; this layer
+only changes WHICH window `k` is synthesized for. It does not modify
+`ReplaceHeliocentricLeg`, the render window, or the SOI handoff.
+
+How the transfer leg fails closed (corrected): it fails closed via SYNTHESIS
+CONVERGENCE, not a geometric-residual reject. When the per-window Lambert solve does not
+converge to a sane transfer conic across the +-6 percent tof search,
+`BuildWindowSegments` returns null and that window degrades to faithful replay
+(`ReaimPlaybackResolver.cs:205-211`). There is NO 50 km / 5 percent geometric-position
+reject on the heliocentric transfer leg today. So an arrival-aligned `k` that cannot be
+synthesized cannot produce garbage: it produces the un-aligned (Bug-2) faithful render
+for that window, which MUST surface as a distinct state (see the fail-closed contract).
+
+Note on `IsSeamResidualTooLarge` (do not conflate): that guard (> 50 km / 5 percent
+radial) lives in `Display/GhostTrajectoryPolylineRenderer.cs` and bounds the
+conic-anchor of the body-fixed escape / arrival BURN polylines, NOT the heliocentric
+capture. `ReplaceHeliocentricLeg` does not call it. It is a separate, orthogonal guard
+and is unaffected by the window choice `k`.
 
 Open interaction (carried to residual risks): the geometric SOI-entry instant from
 `CalculatePatch` is not identical to the rotation-aligned arrival; whether a single
-chosen window simultaneously satisfies both the geometric position seam and the
+chosen window simultaneously yields a convergent, sane capture geometry AND the
 rotation-phase match, or whether they trade off, must be validated on the real `s15`
 case.
 
@@ -545,6 +574,14 @@ horizon" readout alongside the green / amber residual), never a silent fall-thro
 
 ### Scope and the explicit deferral boundary
 
+The user asked for "Kerbin SOI to any other SOI in the star system" (with more complex
+transfers handled later). That resolves into three tiers: (a) a direct child of the Sun
+with at most one constrained moon, captured-then-deorbit (THIS phase); (b) 2+-moon
+planets (the "mini star system", e.g. Jool), which the user explicitly defers; (c)
+moons-of-planets and deep / multi-hop chains (e.g. Ike via Duna), excluded upstream by
+`ReaimClassifier`. This phase delivers tier (a); tiers (b) and (c) are the named
+deferrals below.
+
 **In scope this phase:** a SINGLE cross-parent destination SOI, Kerbin -> X, where X is a
 DIRECT child of the common ancestor (the Sun) and has AT MOST ONE constrained moon, and a
 CAPTURED-then-deorbit landing (a recorded target-body OrbitSegment arrival leg exists).
@@ -564,8 +601,8 @@ separate, larger classifier change deferred past this phase.
 
 **Decision: validate orbit-only / orbital-arrival FIRST** (risk reducer). Prove the
 arrival-UT control on ORBIT-ONLY cross-parent arrival (where the SOI seam is far from
-camera and the `IsSeamResidualTooLarge` guard tolerates it) BEFORE depending on the
-deterministic landing replay. The on-camera rigid descent (`L9`) depends on the
+camera and the upstream geometric plan already accepts a small SOI-edge seam) BEFORE
+depending on the deterministic landing replay. The on-camera rigid descent (`L9`) depends on the
 separately deferred S4 descent re-stitch (the upstream re-aim plan defers S4 entirely; the
 render-rewrite plan gates the descent re-stitch behind its seam-tolerance decision). This
 layer can be DESIGNED and validated against the orbital-arrival state now; the on-camera
@@ -642,11 +679,12 @@ the explicit rare-window opt-in.
 ### Residual risks (validate before declaring Bug 2 fixed)
 
 - The geometric SOI-entry instant from `CalculatePatch` is not identical to the
-  rotation-aligned arrival; whether a single chosen window simultaneously satisfies BOTH
-  the geometric position seam (`IsSeamResidualTooLarge` under 50 km / 5 percent) AND the
-  rotation-phase match, or whether they trade off, is unproven and must be validated on the
-  real `s15` case. If they fight, the loiter re-timer + tof band must jointly absorb both,
-  which may not be possible for every window.
+  rotation-aligned arrival; whether a single chosen window simultaneously yields BOTH a
+  convergent, sane synthesized capture geometry (the per-window Lambert solve in
+  `ReaimPlaybackResolver.BuildWindowSegments`) AND the rotation-phase match, or whether they
+  trade off, is unproven and must be validated on the real `s15` case. If they fight, the
+  loiter re-timer + tof band must jointly absorb both, which may not be possible for every
+  window.
 - The arrival-UT decision threading into the autonomous body-fixed
   `GhostTrajectoryPolylineRenderer.Driver` surface path is a design REQUIREMENT, not an
   automatic outcome (`ReaimedTrajectory` renders only from `OrbitSegments`, empty

@@ -172,8 +172,12 @@ same-parent path does (green / amber).
 cycles assuming independence. For the real Bug-2 case Ike is tidally locked, so `T_orb(Ike)`
 equals `T_rot(Ike)` and both equal Duna's rotation period to about 6 significant figures
 (around 65,517 s). They are NOT independent: an arrival that matches Duna's rotation phase
-auto-matches Ike's orbital phase. The joint solver must collapse coincident periods for
-free, exactly as the same-parent Mun `rotationPeriod == orbit.period` collapse already does.
+auto-matches Ike's orbital phase. The joint solver must let the EXISTING tidal-collapse path
+handle coincident periods for free: `MissionPeriodicity` already treats two periods within a
+relative tolerance as one (the `tidal-collapse` method; `MissionPeriodicity.cs` around 535 and
+651-655, no-distinct-period branch 1102-1127), the same mechanism that collapses a
+tidally-locked Mun `rotationPeriod == orbit.period` pair in the same-parent path. No
+special-case merge is added here.
 For the actual mission this makes Bug 2 EASIER (one effective constraint); the general
 independent-moon case (a fast body with a slow moon) is what the math must handle by reading
 live periods, never by assuming independence.
@@ -205,6 +209,13 @@ preserves the recorded exit phase relative to the run end. The honest consequenc
 - When a recorded mission has a short loiter (1 to 3 revs) or NO destination loiter (direct
   atmospheric entry), the loiter trim contributes little or nothing, and the alignment must
   be hit on the coarse window grid + tof band alone (Appendix A).
+
+Target trim range (user requirement): a typical recorded mission may loiter ~100
+revolutions; the player trims that down to ~1-2 by default, with slack up to about 5-10
+revolutions to buy alignment. The same intended band applies to BOTH the launch-side loiter
+(L2, the shipped launch-parking compression) and the destination-side loiter (L8). The
+arrival solver searches `keepRevs` only within that ~1-10 band; it never keeps dozens of
+recorded revolutions just to chase a destination phase.
 
 `keepRevs` as an alignment knob is a real (additive) API change. Today `keepRevs` is a fixed
 default and the compressor detects ALL same-body loiter runs with no notion of "the
@@ -392,8 +403,8 @@ riskiest.
 - Verify the chosen window's loop shift is the SAME shift the autonomous
   `GhostTrajectoryPolylineRenderer.Driver` body-fixed surface path reads (section 12), so the
   director orbit and the surface polyline evaluate the destination at the same effective UT.
-  VALIDATE on ORBITAL ARRIVAL FIRST (far-from-camera SOI seam, tolerated by
-  `IsSeamResidualTooLarge`).
+  VALIDATE on ORBITAL ARRIVAL FIRST (far-from-camera SOI seam, accepted by the upstream
+  geometric plan's SOI-edge seam tolerance).
 - Tests:
   - In-game canary (`RuntimeTests`, FLIGHT): a synthetic Kerbin -> Duna captured-orbit re-aim
     mission, arrival-aligned: assert the chosen window's destination rotation phase matches
@@ -425,6 +436,13 @@ riskiest.
 ---
 
 ## 8. Scope and the explicit deferral boundary
+
+The user asked for "Kerbin SOI to any other SOI in the star system" (more complex transfers
+later). That resolves into three tiers: (a) a direct child of the Sun with at most one
+constrained moon, captured-then-deorbit (THIS phase, 8a); (b) 2+-moon planets (the "mini star
+system", e.g. Jool), explicitly deferred by the user (8b); (c) moons-of-planets and deep /
+multi-hop chains (e.g. Ike via Duna), excluded upstream by `ReaimClassifier` (8b). This phase
+delivers tier (a).
 
 8a. In scope this phase: a SINGLE cross-parent destination SOI, Kerbin -> X, where X is a
 DIRECT child of the common ancestor (the Sun) and has AT MOST ONE constrained moon, and a
@@ -496,8 +514,9 @@ These were settled before build and are LOCKED. They are decisions, not open que
 3. Validate the arrival-UT control on ORBIT-ONLY cross-parent arrival FIRST (Phase A);
    on-camera body-fixed descent coincidence (Phase B) lands when the deferred S4 descent
    re-stitch ships. Phase A = orbit-only arrival alignment, provable now far from camera
-   (`ReaimedTrajectory` renders only from `OrbitSegments`; `IsSeamResidualTooLarge` tolerates
-   the SOI seam there). Phase B is gated on S4 (`map-ts-render-rewrite-phases.md` Workstream
+   (`ReaimedTrajectory` renders only from `OrbitSegments`; the far-from-camera SOI seam is
+   accepted by the upstream geometric plan there). Phase B is gated on S4
+   (`map-ts-render-rewrite-phases.md` Workstream
    C2); the body-fixed descent polyline is a separate live-clock renderer and the descent
    replay is deferred upstream.
 
@@ -511,20 +530,31 @@ These were settled before build and are LOCKED. They are decisions, not open que
 
 ## 11. Integration with the geometric (Lambert capture) seam fix
 
-This layer is strictly ON TOP of and orthogonal to the shipped geometric seam fix
-(`ReaimSegmentAssembler.ReplaceHeliocentricLeg` + the full-recorded-span render window). The
-geometric fix connects POSITIONS in recorded-span time and is invariant to which absolute
-window k is chosen; this layer only changes WHICH window k is synthesized for, so it does not
-modify `ReplaceHeliocentricLeg`, the render window, or the SOI handoff. The
-`IsSeamResidualTooLarge` guard (> 50 km / 5 percent radial) still bounds the geometric
-residual for any k; a window whose geometry would exceed it is rejected as a synthesis miss
-and falls to faithful, so an arrival-aligned k can never make the geometric seam worse than
-the guard permits.
+This layer is strictly ON TOP of and orthogonal to the shipped geometric seam machinery
+(`ReaimSegmentAssembler.ReplaceHeliocentricLeg` + the full-recorded-span render window + the
+per-window Lambert synthesis in `ReaimPlaybackResolver.BuildWindowSegments`). That machinery
+connects POSITIONS in recorded-span time and is invariant to which absolute window k is
+chosen; this layer only changes WHICH window k is synthesized for, so it does not modify
+`ReplaceHeliocentricLeg`, the render window, or the SOI handoff.
+
+How the transfer leg fails closed (corrected): via SYNTHESIS CONVERGENCE, not a
+geometric-residual reject. When the per-window Lambert solve does not converge to a sane
+transfer conic across the +-6 percent tof search, `BuildWindowSegments` returns null and that
+window degrades to faithful replay (`ReaimPlaybackResolver.cs:205-211`). There is NO 50 km /
+5 percent geometric-position reject on the heliocentric transfer leg today, so an
+arrival-aligned k that cannot be synthesized produces the un-aligned (Bug-2) faithful render
+for that window (which must surface as a distinct state, section 9), never garbage.
+
+Do not conflate `IsSeamResidualTooLarge` with the capture: that guard (> 50 km / 5 percent
+radial) lives in `Display/GhostTrajectoryPolylineRenderer.cs` and bounds the conic-anchor of
+the body-fixed escape / arrival BURN polylines (`TryAnchorLegToConicSeam`), NOT the
+heliocentric capture; `ReplaceHeliocentricLeg` does not call it. It is a separate, orthogonal
+guard, unaffected by the window choice k.
 
 Open interaction (carried to residual risks, section 13): the geometric SOI-entry instant
 from `CalculatePatch` is not identical to the rotation-aligned arrival; whether a single
-chosen window simultaneously satisfies both the geometric position seam and the rotation-phase
-match, or whether they trade off, must be validated on the real s15 case.
+chosen window simultaneously yields a convergent, sane synthesized capture geometry AND the
+rotation-phase match, or whether they trade off, must be validated on the real s15 case.
 
 ---
 
@@ -558,12 +588,13 @@ showed:
 These are carried into playtest. None block the design; all must be checked before declaring
 Bug 2 fixed.
 
-- Geometric seam vs rotation phase may fight. The geometric SOI-entry instant from
+- Geometric capture vs rotation phase may fight. The geometric SOI-entry instant from
   `CalculatePatch` is not identical to the rotation-aligned arrival; whether a single chosen
-  window simultaneously satisfies BOTH the position seam (`IsSeamResidualTooLarge` under 50 km
-  / 5 percent radial) AND the rotation-phase match, or whether they trade off, is unproven and
-  must be validated on the real s15 case. If they fight, the loiter re-timer + tof band must
-  jointly absorb both, which may not be possible for every window.
+  window simultaneously yields BOTH a convergent, sane synthesized capture geometry (the
+  per-window Lambert solve in `BuildWindowSegments`) AND the rotation-phase match, or whether
+  they trade off, is unproven and must be validated on the real s15 case. If they fight, the
+  loiter re-timer + tof band must jointly absorb both, which may not be possible for every
+  window.
 - The body-fixed descent coincidence is the literal Bug-2 surface and is UNVERIFIED.
   `ReaimedTrajectory` renders only from `OrbitSegments` (empty Points / TrackSections), so the
   central claim that the body-fixed descent coincides with the inertial orbit at the aligned
@@ -626,8 +657,10 @@ Bug 2 fixed.
 - Same-parent (Mun / Minmus) looped missions: untouched (the existing faithful periodicity
   path).
 - The shipped re-aim geometric layer: `ReplaceHeliocentricLeg`, the full-recorded-span render
-  window, `IsSeamResidualTooLarge`, `PadAlignLaunch` (launch side), the per-window Lambert
-  synthesis. This layer only SELECTS the window k they run for.
+  window, `PadAlignLaunch` (launch side), and the per-window Lambert synthesis. This layer
+  only SELECTS the window k they run for.
+- The shipped body-fixed burn-polyline conic-anchor (`TryAnchorLegToConicSeam` /
+  `IsSeamResidualTooLarge`): a separate renderer, unaffected by the window choice k.
 - The recording format (nothing new persisted; the alignment is fully derived from the
   recording's parking / arrival / surface segments + live bodies + the existing
   `BuildSignature`).
@@ -715,10 +748,12 @@ NOT bake a constant.
 Inner-moon note (the Ike collapse). For the actual Bug 2 case the moon constraint is FREE: Ike
 is tidally locked, so `T_orb(Ike) == T_rot(Ike)` and both equal Duna's rotation period to
 about six significant figures (around 65,517 to 65,518 s). An arrival that matches Duna's
-rotation phase auto-matches Ike's orbital phase; the joint solver collapses the two coincident
-periods exactly the way the same-parent path already collapses the tidally-locked Mun
-(`rotationPeriod == orbit.period`). The solver must read the LIVE periods and let the collapse
-happen, never assume the two are independent and never multiply duty cycles as if they were.
+rotation phase auto-matches Ike's orbital phase; the joint solver lets the EXISTING
+tidal-collapse path collapse the two coincident periods, the same mechanism
+(`MissionPeriodicity` tidal-collapse: relative-tolerance period equality, cs around 535 and
+651-655) that already collapses the tidally-locked Mun (`rotationPeriod == orbit.period`) in
+the same-parent path. The solver must read the LIVE periods and let that collapse happen,
+never assume the two are independent and never multiply duty cycles as if they were.
 The general independent-moon case (a fast body with a slow moon) is where a real second
 constraint appears, and its duty-cycle product genuinely lowers the window rate; that is the
 2-plus-moon boundary the design defers (section 8b).
@@ -760,8 +795,9 @@ to `D_k`. In principle a tof nudge slides the arrival instant (and thus the dest
 rotation phase) while keeping the launch endpoint pinned, which is exactly what we want. But
 the band is +-6 percent and was sized for the degeneracy dodge; whether it is wide enough to
 reach an in-band rotation phase for a no-loiter mission, and whether pushing it to its edges
-keeps the arrival geometry inside the `IsSeamResidualTooLarge` guard, is unproven and must be
-measured on the real s15 case before relying on it. If the tof band turns out to be too narrow
+keeps the per-window Lambert synthesis convergent and well-conditioned (`BuildWindowSegments`
+returns null and falls to faithful otherwise), is unproven and must be measured on the real
+s15 case before relying on it. If the tof band turns out to be too narrow
 or too ill-conditioned at its edges to serve as a phase lever, then no-loiter missions are
 honestly limited to the bare synodic grid (A.1) and reach only amber bounded-best. Widening
 the band is NOT a free change: it re-enters the conditioning territory the +-6 percent limit
