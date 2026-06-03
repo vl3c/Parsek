@@ -1233,6 +1233,7 @@ namespace Parsek
                         ghostPidForPhase,
                         Parsek.Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds);
                 Vector3 markerPos;
+                bool markerRidesPolyline = false;
                 bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
                     && !polylinePhase;
                 if (meshPositioned)
@@ -1276,6 +1277,19 @@ namespace Parsek
                             summary.MissingBody++;
                         continue;
                     }
+
+                    // Ride the conic-anchored polyline: while the trajectory polyline owns this phase, the
+                    // labeled marker (icon + label) sits ON the drawn burn line instead of the body-fixed
+                    // head, which is ~96 deg off the loiter/hyperbola conics under the loop shift. Samples
+                    // the same per-frame drawn points the line uses, so it matches exactly; a no-op outside
+                    // an anchored leg or when the leg was not drawn this frame.
+                    if (polylinePhase && kvp.Key < committed.Count
+                        && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                            committed[kvp.Key].RecordingId, sampleUT, out Vector3 onLineMarkerPos))
+                    {
+                        markerPos = onLineMarkerPos;
+                        markerRidesPolyline = true;
+                    }
                 }
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
@@ -1299,9 +1313,9 @@ namespace Parsek
                     "marker-draw-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Marker DRAWN: rec={0} vessel={1} source={2} polylinePhase={3} meshActive={4} " +
-                        "meshPositioned={5} vtype={6} drawnPos={7}",
+                        "meshPositioned={5} ridesPolyline={6} vtype={7} drawnPos={8}",
                         kvp.Key, ghostName, meshPositioned ? "mesh" : "traj", polylinePhase, meshActive,
-                        meshPositioned, vtype, markerPos.ToString("F0")),
+                        meshPositioned, markerRidesPolyline, vtype, markerPos.ToString("F0")),
                     2.0);
 
                 // MapRenderTrace IMGUI surface coverage (ImguiLabeledMarker). Decision-only: the

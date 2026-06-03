@@ -146,6 +146,15 @@ namespace Parsek.Display
             public double[] alts;
 
             /// <summary>
+            /// M recorded UTs (paired index-wise with lats/lons/alts). Used by the conic-anchor
+            /// (<see cref="TryAnchorLegToConicSeam"/>) to interpolate the seam-calibrated rotation across
+            /// the leg by recorded-time fraction (the body's rotation accrued over the leg's own span is
+            /// sub-2 deg but real). Null on legs built before this field existed -> the anchor falls back
+            /// to index-fraction interpolation.
+            /// </summary>
+            public double[] recordedUTs;
+
+            /// <summary>
             /// M scaled-body-LOCAL positions (in <c>body.scaledBody.transform</c>
             /// local space), captured ONCE on the first draw from
             /// <c>scaledBody.transform.InverseTransformPoint(LocalToScaledSpace(GetWorldSurfacePosition(...)))</c>.
@@ -401,6 +410,205 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// The world position of an OrbitSegment's RECORDED conic at <paramref name="ut"/>
+        /// (raw recorded epoch, no loop shift), built from the stored Kepler elements exactly as
+        /// <c>GhostMapPresence.ApplyOrbitToVessel</c> does. Used to locate the conic seam (the loiter's
+        /// position at the burn start / the escape's position at the burn end). Returns false on any orbit
+        /// construction fault.
+        /// </summary>
+        private static bool TryConicWorldAtUT(
+            OrbitSegment seg, CelestialBody body, double ut, out Vector3d world)
+        {
+            world = Vector3d.zero;
+            if (body == null) return false;
+            try
+            {
+                Orbit orbit = new Orbit(
+                    seg.inclination,
+                    seg.eccentricity,
+                    seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode,
+                    seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch,
+                    seg.epoch,
+                    body);
+                world = orbit.getPositionAtUT(ut);
+                return IsFiniteVec(world);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Finite-component guard for a Vector3d (KSP's Vector3d has no instance IsFinite).</summary>
+        private static bool IsFiniteVec(Vector3d v)
+            => !double.IsNaN(v.x) && !double.IsInfinity(v.x)
+               && !double.IsNaN(v.y) && !double.IsInfinity(v.y)
+               && !double.IsNaN(v.z) && !double.IsInfinity(v.z);
+
+        /// <summary>
+        /// PURE diagnostic helper: the OrbitSegment indices that bracket a non-orbital leg in recorded-UT
+        /// space - the same-body conic that ENDS at/just before the leg start (the loiter the burn leaves)
+        /// and the same-body conic that STARTS at/just after the leg end (the escape the burn enters).
+        /// <paramref name="beforeIdx"/> / <paramref name="afterIdx"/> are -1 when none. The 1 s tolerance
+        /// absorbs the boundary sample shared between a conic and the adjacent burn leg. xUnit-testable
+        /// (no Unity).
+        /// </summary>
+        internal static void FindBracketingOrbitSegments(
+            List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
+            out int beforeIdx, out int afterIdx)
+        {
+            beforeIdx = -1;
+            afterIdx = -1;
+            if (segs == null) return;
+            const double tol = 1.0;
+            double bestBeforeEnd = double.NegativeInfinity;
+            double bestAfterStart = double.PositiveInfinity;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                var s = segs[i];
+                if (s.endUT <= s.startUT) continue;
+                if (!string.Equals(s.bodyName, bodyName, StringComparison.Ordinal)) continue;
+                if (s.endUT <= legStartUT + tol && s.endUT > bestBeforeEnd)
+                {
+                    bestBeforeEnd = s.endUT;
+                    beforeIdx = i;
+                }
+                if (s.startUT >= legEndUT - tol && s.startUT < bestAfterStart)
+                {
+                    bestAfterStart = s.startUT;
+                    afterIdx = i;
+                }
+            }
+        }
+
+        /// <summary>
+        /// CONIC ANCHOR (2026-06-03): rotate a vacuum-maneuver leg's already-captured scaled-space points
+        /// so the leg lands on the faithful bracketing conic seam, fixing the loop-shift body rotation
+        /// that draws the escape burn ~96 deg off the loiter/hyperbola lines. The body-fixed capture has
+        /// the correct SHAPE but the wrong rotation (a pure spin-axis rotation = the body's rotation over
+        /// the loop shift); this calibrates that rotation DIRECTLY from the recorded OrbitSegment conics
+        /// via <c>getPositionAtUT</c> (the proven-faithful source - NOT the longitude-lift, which lands
+        /// 600-1200 km off the conic) at BOTH seam endpoints and Slerps it across the leg.
+        ///
+        /// <para>Applies ONLY to legs bracketed by a conic on BOTH sides - a vacuum maneuver BETWEEN two
+        /// orbits (the escape burn, an orbit raise, a circularization). A launch ascent (no preceding
+        /// conic) or a descent-to-surface (no following conic) is left body-fixed so it stays glued to the
+        /// rotating pad / landing site. Self-calibrating: where the body-fixed capture already coincides
+        /// with the conic (the early parking/raise region, seam gap ~0 km) the recovered rotation is
+        /// ~identity, so this is a no-op there - it does NOT regress the regions the reverted longitude-
+        /// lift broke.</para>
+        ///
+        /// <para>Rotates <c>leg.scratchScaledSpace</c> in place (the array is shared with the cached leg,
+        /// so the rotation persists into the draw). Returns true when applied. The minimal
+        /// <c>FromToRotation</c> between the two same-latitude rays IS the spin-axis rotation, so this
+        /// needs no explicit rotation-axis lookup.</para>
+        /// </summary>
+        private static bool TryAnchorLegToConicSeam(
+            Recording rec, LegPolyline leg, CelestialBody body, Transform scaledXform)
+        {
+            int m = leg.PointCount;
+            if (rec == null || body == null || m < 2 || leg.scratchScaledSpace == null) return false;
+
+            FindBracketingOrbitSegments(
+                rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT,
+                out int beforeIdx, out int afterIdx);
+            if (beforeIdx < 0 || afterIdx < 0) return false; // only vacuum maneuvers between two orbits
+
+            if (!TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBeforeWorld)
+                || !TryConicWorldAtUT(rec.OrbitSegments[afterIdx], body, leg.endUT, out Vector3d cAfterWorld))
+                return false;
+
+            Vector3 center = scaledXform != null
+                ? scaledXform.position
+                : (Vector3)ScaledSpace.LocalToScaledSpace(body.position);
+            Vector3 cBefore = (Vector3)ScaledSpace.LocalToScaledSpace(cBeforeWorld);
+            Vector3 cAfter = (Vector3)ScaledSpace.LocalToScaledSpace(cAfterWorld);
+
+            Vector3 relStart = leg.scratchScaledSpace[0] - center;
+            Vector3 relEnd = leg.scratchScaledSpace[m - 1] - center;
+            Vector3 cRelStart = cBefore - center;
+            Vector3 cRelEnd = cAfter - center;
+            if (relStart.sqrMagnitude < 1e-10f || relEnd.sqrMagnitude < 1e-10f
+                || cRelStart.sqrMagnitude < 1e-10f || cRelEnd.sqrMagnitude < 1e-10f)
+                return false;
+
+            Quaternion rotStart = Quaternion.FromToRotation(relStart, cRelStart);
+            Quaternion rotEnd = Quaternion.FromToRotation(relEnd, cRelEnd);
+
+            double t0 = leg.startUT, span = leg.endUT - leg.startUT;
+            bool haveUTs = leg.recordedUTs != null && leg.recordedUTs.Length == m && span > 0.0;
+            for (int i = 0; i < m; i++)
+            {
+                float frac = haveUTs
+                    ? (float)((leg.recordedUTs[i] - t0) / span)
+                    : (m > 1 ? (float)i / (m - 1) : 0f);
+                if (frac < 0f) frac = 0f; else if (frac > 1f) frac = 1f;
+                Quaternion rot = Quaternion.Slerp(rotStart, rotEnd, frac);
+                leg.scratchScaledSpace[i] = center + rot * (leg.scratchScaledSpace[i] - center);
+            }
+
+            // Residual proves the pin (should be ~0; nonzero only from the seam radius mismatch, not the
+            // 600-1200 km longitude-lift error). Rate-limited per rec.
+            float residStart = Vector3.Distance(leg.scratchScaledSpace[0], cBefore) * ScaledSpace.ScaleFactor / 1000f;
+            float residEnd = Vector3.Distance(leg.scratchScaledSpace[m - 1], cAfter) * ScaledSpace.ScaleFactor / 1000f;
+            ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} before=seg{4} after=seg{5} residualStart={6:F0}km residualEnd={7:F0}km",
+                    rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                    beforeIdx, afterIdx, residStart, residEnd),
+                2.0);
+            return true;
+        }
+
+        /// <summary>
+        /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
+        /// drawn polyline at <paramref name="headUT"/> (recorded frame), so the marker sits exactly on the
+        /// corrected burn line instead of the body-fixed head (~96 deg off under the loop shift). It
+        /// samples the leg's per-frame DRAWN points (<see cref="LegPolyline.scratchScaledSpace"/> - already
+        /// conic-anchored by <see cref="TryAnchorLegToConicSeam"/>, or plain body-fixed for a non-anchored
+        /// leg, so the marker always matches whatever the line actually shows - no separate rotation to
+        /// drift) and interpolates by recorded-time fraction, then converts scaled-&gt;world. Returns false
+        /// (caller keeps the body-fixed head) when the head is not inside a leg drawn THIS frame, so a stale
+        /// scratch is never read. Call only after the Driver's LateUpdate (e.g. from OnGUI marker draw).
+        /// </summary>
+        internal static bool TryAnchorMarkerToPolyline(
+            string recordingId, double headUT, out Vector3 worldPos)
+        {
+            worldPos = Vector3.zero;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            if (!polylineCache.TryGetValue(recordingId, out var set) || set.legs == null) return false;
+
+            int frame = Time.frameCount;
+            for (int li = 0; li < set.legs.Length; li++)
+            {
+                var leg = set.legs[li];
+                if (headUT < leg.startUT || headUT > leg.endUT) continue;
+                int m = leg.PointCount;
+                if (m < 2 || leg.scratchScaledSpace == null
+                    || leg.recordedUTs == null || leg.recordedUTs.Length != m
+                    || leg.lastDrawnFrame != frame)
+                    return false; // not drawn this frame -> scratch is stale -> keep the body-fixed head
+
+                // Bracket headUT between two recorded sample UTs and lerp the drawn (anchored) points.
+                int idx = m - 2;
+                for (int i = 0; i < m - 1; i++)
+                {
+                    if (headUT <= leg.recordedUTs[i + 1]) { idx = i; break; }
+                }
+                double u0 = leg.recordedUTs[idx], u1 = leg.recordedUTs[idx + 1];
+                float frac = u1 > u0 ? (float)((headUT - u0) / (u1 - u0)) : 0f;
+                if (frac < 0f) frac = 0f; else if (frac > 1f) frac = 1f;
+                Vector3 scaled = Vector3.Lerp(
+                    leg.scratchScaledSpace[idx], leg.scratchScaledSpace[idx + 1], frac);
+                worldPos = (Vector3)ScaledSpace.ScaledToLocalSpace(scaled);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Cheap content-hash key for cache invalidation (§1.4). XORs every
         /// sample UT and every TrackSection start/end UT so a
         /// supersede-time re-cut that preserves the four counts and the
@@ -651,18 +859,21 @@ namespace Parsek.Display
             var lats = new double[m];
             var lons = new double[m];
             var alts = new double[m];
+            var uts = new double[m];
             for (int i = 0; i < m; i++)
             {
                 var p = sampled[i];
                 lats[i] = p.latitude;
                 lons[i] = p.longitude;
                 alts[i] = p.altitude;
+                uts[i] = p.ut;
             }
             return new LegPolyline
             {
                 lats = lats,
                 lons = lons,
                 alts = alts,
+                recordedUTs = uts,
                 scratchScaledSpace = new Vector3[m],
                 bodyName = bodyName,
                 startUT = sampled[0].ut,
@@ -1232,6 +1443,13 @@ namespace Parsek.Display
                                     (Vector3)ScaledSpace.LocalToScaledSpace(world);
                             }
                         }
+
+                        // CONIC ANCHOR: for a vacuum maneuver between two orbits (escape burn, orbit
+                        // raise) rotate the captured body-fixed scaled points onto the faithful bracketing
+                        // conic seam so the leg CONNECTS the loiter/hyperbola lines instead of drawing
+                        // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
+                        // ascent / descent-to-surface) and where body-fixed already matches the conic.
+                        TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
 
                         CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
                         leg.vectorLine.drawStart = 0;

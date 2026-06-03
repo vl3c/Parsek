@@ -1113,5 +1113,56 @@ namespace Parsek.Tests
                 list.Add(MakePoint(startUT + i, 0.0 + 0.001 * i, 0.0, 100.0 + 10.0 * i));
             return list;
         }
+
+        // --- FindBracketingOrbitSegments (rotation-vs-not seam-gap diagnostic) ---
+
+        [Fact]
+        public void FindBracketingOrbitSegments_PicksLoiterBeforeAndEscapeAfter()
+        {
+            // loiter ends at the burn start (1000), escape starts at the burn end (1114).
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0,    endUT = 1000.0, bodyName = "Kerbin", eccentricity = 0.001 },
+                new OrbitSegment { startUT = 1114.0, endUT = 5000.0, bodyName = "Kerbin", eccentricity = 1.19 },
+            };
+
+            GhostTrajectoryPolylineRenderer.FindBracketingOrbitSegments(
+                segs, "Kerbin", 1000.0, 1114.0, out int before, out int after);
+
+            Assert.Equal(0, before);
+            Assert.Equal(1, after);
+        }
+
+        [Fact]
+        public void FindBracketingOrbitSegments_IgnoresOtherBodyAndDegenerateSegments()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 0.0,   endUT = 1000.0, bodyName = "Sun" },     // wrong body
+                new OrbitSegment { startUT = 500.0, endUT = 500.0,  bodyName = "Kerbin" },  // degenerate
+                new OrbitSegment { startUT = 200.0, endUT = 999.0,  bodyName = "Kerbin" },  // valid before
+            };
+
+            GhostTrajectoryPolylineRenderer.FindBracketingOrbitSegments(
+                segs, "Kerbin", 1000.0, 1114.0, out int before, out int after);
+
+            Assert.Equal(2, before);
+            Assert.Equal(-1, after); // no Kerbin segment starts at/after the burn end
+        }
+
+        [Fact]
+        public void FindBracketingOrbitSegments_NoneWhenNoAdjacency()
+        {
+            var segs = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 2000.0, endUT = 3000.0, bodyName = "Kerbin" }, // entirely after
+            };
+
+            GhostTrajectoryPolylineRenderer.FindBracketingOrbitSegments(
+                segs, "Kerbin", 1000.0, 1114.0, out int before, out int after);
+
+            Assert.Equal(-1, before);
+            Assert.Equal(0, after);
+        }
     }
 }

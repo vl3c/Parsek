@@ -12,6 +12,7 @@ All notable changes to Parsek are documented here.
 - Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
 - Fixed a brief flash of the previous orbit circle on the map at the moment a looped mission's next orbit was about to appear (the old orbit line was redrawn for a fraction of a second before the new one loaded).
 - Fixed a looped mission's map icon vanishing off into deep space on its escape trajectory out of a planet's sphere of influence (the icon was placed at the live time instead of the replayed time, so the open escape path flung it far past where the mission actually was).
+- Fixed a looped interplanetary mission's map trajectory line, icon, and label appearing rotated far around the planet and disconnected from the orbit lines during the escape and transfer burns. The non-orbital burn segment was drawn surface-locked while the orbit lines are time-shifted for the loop; it now anchors to its neighboring orbit lines, so the burn connects the loiter to the escape and the icon and label ride it.
 - Removed two spurious "Script error: OnLevelWasLoaded" messages printed to the log at startup. Two internal scene-load handlers collided with a deprecated Unity method name; renaming them clears the errors with no behavior change.
 
 ### UI
