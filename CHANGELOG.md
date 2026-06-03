@@ -40,6 +40,7 @@ All notable changes to Parsek are documented here.
 - The Logistics window's Status column now shows a plain-English reason in the cell (the raw status name moved to the hover tooltip), and the Cycles column adds a "/ N skipped" suffix when cycles flew but delivered nothing.
 - Deleting a supply route now asks for confirmation first instead of removing it on the single click.
 - Creating a route from a Candidate now uses the same default dispatch interval the Create Route dialog would, so window-created and dialog-created routes match.
+- Clicking Create Route on a Candidate now opens a summary confirm (origin, endpoint, resources, inventory, transit) with three choices: "Create Paused", "Create and Activate", and "Cancel". "Create and Activate" builds the route and turns on auto-dispatch in one click so it starts delivering right away.
 - The Logistics window now echoes the hovered control's tooltip in a box at the bottom, and its section headers match the house style used by Settings and Recordings.
 - The Logistics window now has a "Next" column and a detail line showing a live countdown to the next delivery, driven by the actual ghost loop clock so it lines up with when a cycle really fires. Blocked routes show a "Rechecks in" countdown to their next eligibility check instead.
 - The route detail panel now shows the last cycle's realized delivery (for example "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)", in yellow on a shortfall) plus a running "Total delivered" line, both read from the delivery ledger so there is no save-format change.
