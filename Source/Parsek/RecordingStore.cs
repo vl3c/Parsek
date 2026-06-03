@@ -6843,6 +6843,66 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Resolves a committed recording id to its display fields for the Logistics
+        /// window (H5: names instead of 8-char GUID fragments). Returns false when the
+        /// id is null/empty or not in the committed store; on success
+        /// <paramref name="recordingName"/> is the recording's display name
+        /// ("Untitled" when the vessel name is empty, matching the Recordings table),
+        /// <paramref name="treeName"/> is the owning tree/mission name (null for a
+        /// standalone recording with no tree), and <paramref name="treeOrder"/> is the
+        /// 0-based persisted position within the tree (-1 when unassigned).
+        /// <para>
+        /// This is the literal-free by-id accessor the Logistics window calls so it
+        /// never references <c>committedRecordings</c> directly and the ERS/ELS grep
+        /// gate stays green: the raw-list reads stay behind
+        /// <see cref="TryFindCommittedRecordingById"/> and
+        /// <see cref="TryResolveTreeById"/> in this already-allowlisted file. Reading
+        /// <see cref="RecordingTree.TreeName"/> for the mission name does not touch any
+        /// Missions file (MissionGroupLink keeps TreeName synced with the main mission
+        /// name).
+        /// </para>
+        /// </summary>
+        internal static bool TryResolveRecordingDisplayInfo(
+            string recordingId,
+            out string recordingName,
+            out string treeName,
+            out int treeOrder)
+        {
+            recordingName = null;
+            treeName = null;
+            treeOrder = -1;
+
+            Recording rec = TryFindCommittedRecordingById(recordingId);
+            if (rec == null)
+            {
+                ParsekLog.Verbose("RecordingStore",
+                    $"Logistics display resolve id={Shorten(recordingId)} resolved=false (not committed)");
+                return false;
+            }
+
+            recordingName = string.IsNullOrEmpty(rec.VesselName) ? "Untitled" : rec.VesselName;
+            treeOrder = rec.TreeOrder;
+
+            if (!string.IsNullOrEmpty(rec.TreeId)
+                && TryResolveTreeById(rec.TreeId, out RecordingTree tree, out _)
+                && tree != null)
+            {
+                treeName = tree.TreeName;
+            }
+
+            ParsekLog.Verbose("RecordingStore",
+                $"Logistics display resolve id={Shorten(recordingId)} resolved=true "
+                + $"name='{recordingName}' tree='{treeName ?? "<none>"}' order={treeOrder.ToString(CultureInfo.InvariantCulture)}");
+            return true;
+        }
+
+        private static string Shorten(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "<none>";
+            return id.Length > 8 ? id.Substring(0, 8) : id;
+        }
+
+        /// <summary>
         /// Re-applies the rewind-time supersede drop after <see cref="ParsekScenario.OnLoad"/>
         /// has reloaded <see cref="ParsekScenario.RecordingSupersedes"/> from the scenario
         /// node. Without this, the in-memory drop performed in <see cref="InitiateRewind"/>
