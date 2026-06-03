@@ -880,6 +880,11 @@ namespace Parsek
         /// DDOL Driver (mirrors <c>ParsekTrackingStation.CurrentCachedLoopUnits</c>).
         /// </summary>
         internal GhostPlaybackLogic.LoopUnitSet CurrentCachedLoopUnits => cachedLoopUnits;
+
+        // Phase 4 decision-only shadow (design §6.7): the flight-map scene adapter the
+        // ShadowRenderDriver runs the new pipeline against. Only touched when the shadow is enabled
+        // (mapRenderTracing OR the mapRenderDirectorDrive gate, via ShadowRenderDriver.Enabled).
+        private readonly MapRender.MapViewScene mapViewScene = new MapRender.MapViewScene();
         private readonly List<RecordingAnchorCandidate> cachedGhostRecordingAnchorCandidates =
             new List<RecordingAnchorCandidate>();
         private TrajectoryPlaybackFlags[] cachedFlags;
@@ -890,6 +895,10 @@ namespace Parsek
             new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly Dictionary<string, string> reFlyAnchorHoldReasonsThisFrame =
             new Dictionary<string, string>(StringComparer.Ordinal);
+        // Reused per-frame scratch for the batched spawn-suppression summary (see
+        // ComputePlaybackFlags). Cleared and refilled each frame; never read across frames.
+        private readonly Dictionary<string, int> spawnSuppressedReasonScratch =
+            new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly List<string> reFlyAnchorHoldReleaseScratch = new List<string>();
         private readonly Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry> reFlyDenseAbsolutePlaybackFrameCache =
             new Dictionary<string, ReFlyDenseAbsolutePlaybackFrameCacheEntry>(StringComparer.Ordinal);
@@ -18233,6 +18242,16 @@ namespace Parsek
                 committed,
                 object.ReferenceEquals(null, scenario) ? null : scenario.RecordingSupersedes,
                 object.ReferenceEquals(null, scenario) ? null : scenario.RecordingRewindRetirements);
+            // Spawn-suppression diagnostic is accumulated per-reason across the whole
+            // committed list and emitted as ONE batched summary after the loop (see the
+            // batch-counting convention in CLAUDE.md): a per-recording line here was the
+            // single worst log-spam source (one VerboseOnChange line per recording per
+            // frame, ballooning to thousands of lines/second once the committed list grows
+            // and a recording's reason oscillates frame-to-frame). The per-reason histogram
+            // preserves the "what is suppressed and why" signal without the per-item churn.
+            var spawnSuppressedByReason = spawnSuppressedReasonScratch;
+            spawnSuppressedByReason.Clear();
+            int spawnSuppressedCount = 0;
             for (int i = 0; i < committed.Count; i++)
             {
                 var rec = committed[i];
@@ -18283,29 +18302,15 @@ namespace Parsek
                     RecordReFlyAnchorHoldCandidate(
                         anchorReFlyUnstableAnchorId, anchorReFlyUnstableReason);
 
-                // Log spawn suppression reason for non-debris recordings (diagnostic).
-                // Emit only when the suppression reason flips for this recording —
-                // stable per-frame repeats (e.g., "no vessel snapshot" for the entire
-                // session) are coalesced into the suppressed counter and surfaced
-                // on the next reason change. Identity is keyed on the stable
-                // RecordingId rather than the bare list index because the committed
-                // list is dense — when a recording is discarded, later recordings
-                // shift down and the same index gets reused for a different
-                // recording. Keying on index alone would let the new occupant
-                // inherit the prior recording's cached state and mask its first
-                // emission (or surface a stale suppressed counter on the next
-                // flip). The index still appears in the message body so audits
-                // can resolve recordings post-hoc.
+                // Accumulate the spawn-suppression reason for non-debris recordings into
+                // the per-reason histogram; the batched summary is emitted after the loop.
                 if (!finalNeedsSpawn && !rec.IsDebris)
                 {
                     string reason = !spawnResult.needsSpawn ? spawnResult.reason : chainSuppressed.reason;
-                    string identity = "spawn-suppressed|"
-                        + (!string.IsNullOrEmpty(rec.RecordingId) ? rec.RecordingId : "idx-" + i);
-                    ParsekLog.VerboseOnChange(
-                        "Spawner",
-                        identity,
-                        reason ?? "(none)",
-                        $"Spawn suppressed for #{i} \"{rec.VesselName}\": {reason}");
+                    string reasonKey = string.IsNullOrEmpty(reason) ? "(none)" : reason;
+                    spawnSuppressedByReason.TryGetValue(reasonKey, out int reasonCount);
+                    spawnSuppressedByReason[reasonKey] = reasonCount + 1;
+                    spawnSuppressedCount++;
                 }
 
                 flags[i] = new TrajectoryPlaybackFlags
@@ -18340,8 +18345,46 @@ namespace Parsek
                     anchorReFlyUnstable = anchorReFlyUnstable,
                 };
             }
+            // One batched, rate-limited summary instead of one line per suppressed
+            // recording. Shared key + VerboseRateLimited hard-caps the rate so the
+            // per-frame summary cannot spam even when the committed list is large or a
+            // reason oscillates frame-to-frame.
+            if (spawnSuppressedCount > 0)
+            {
+                ParsekLog.VerboseRateLimited(
+                    "Spawner",
+                    "spawn-suppressed-summary",
+                    () => BuildSpawnSuppressedSummary(spawnSuppressedCount, spawnSuppressedByReason),
+                    2.0);
+            }
             LogReFlyAnchorHoldTransitions(frame);
             return flags;
+        }
+
+        /// <summary>
+        /// Builds the batched spawn-suppression summary line: a total plus a
+        /// per-reason histogram sorted by descending count (ties broken by reason text
+        /// for determinism). Replaces the former one-line-per-recording diagnostic that
+        /// was the worst log-spam source. Pure for unit testing.
+        /// </summary>
+        internal static string BuildSpawnSuppressedSummary(
+            int total, IReadOnlyDictionary<string, int> byReason)
+        {
+            string head = "Spawn suppressed: "
+                + total.ToString(CultureInfo.InvariantCulture) + " recording(s)";
+            if (byReason == null || byReason.Count == 0)
+                return head;
+
+            var ordered = new List<KeyValuePair<string, int>>(byReason);
+            ordered.Sort((a, b) =>
+            {
+                int byCount = b.Value.CompareTo(a.Value);
+                return byCount != 0 ? byCount : string.CompareOrdinal(a.Key, b.Key);
+            });
+            var parts = new List<string>(ordered.Count);
+            for (int r = 0; r < ordered.Count; r++)
+                parts.Add(ordered[r].Key + "=" + ordered[r].Value.ToString(CultureInfo.InvariantCulture));
+            return head + " | " + string.Join(", ", parts.ToArray());
         }
 
         /// <summary>
@@ -18482,6 +18525,28 @@ namespace Parsek
 
             // Create deferred ghost map ProtoVessels when ghosts enter orbital segments
             policy.CheckPendingMapVessels(Planetarium.GetUniversalTime());
+
+            // Phase 4 decision-only shadow: run the new map-render pipeline (chain -> sample -> intent)
+            // over the live map ghosts and reconcile each intent against the OLD path's rendered truth
+            // via MapRenderProbe. Writes NOTHING to the stock surfaces. Wholly gated on the
+            // off-by-default mapRenderTracing setting so normal play pays nothing. Runs after
+            // CheckPendingMapVessels (map presence is current) and well before the end-of-frame probe.
+            // Also runs when the experimental director-drive gate is on (it needs the StockConic seed).
+            if (MapRender.ShadowRenderDriver.Enabled)
+            {
+                try
+                {
+                    mapViewScene.SetFrameInputs(cachedLoopUnits, Planetarium.GetUniversalTime());
+                    MapRender.ShadowRenderDriver.RunFrame(mapViewScene);
+                }
+                catch (System.Exception ex)
+                {
+                    // The shadow is diagnostic-only and must NEVER break the live flight update. Log
+                    // (rate-limited) and carry on; the old render path is untouched regardless.
+                    ParsekLog.VerboseRateLimited("MapRender", "shadow-run-exception",
+                        "shadow RunFrame threw (suppressed): " + ex.GetType().Name + ": " + ex.Message, 10.0);
+                }
+            }
 
             // Phase F: per-frame resource delta application removed.
             // The standalone applier (ApplyResourceDeltas, gated by ManagesOwnResources)

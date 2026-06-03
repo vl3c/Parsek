@@ -1233,6 +1233,7 @@ namespace Parsek
                         ghostPidForPhase,
                         Parsek.Patches.GhostOrbitLinePatch.PolylineReleaseGraceSeconds);
                 Vector3 markerPos;
+                bool markerRidesPolyline = false;
                 bool meshPositioned = meshActive && state.ghost.transform.position.sqrMagnitude > 1f
                     && !polylinePhase;
                 if (meshPositioned)
@@ -1276,6 +1277,19 @@ namespace Parsek
                             summary.MissingBody++;
                         continue;
                     }
+
+                    // Ride the conic-anchored polyline: while the trajectory polyline owns this phase, the
+                    // labeled marker (icon + label) sits ON the drawn burn line instead of the body-fixed
+                    // head, which is ~96 deg off the loiter/hyperbola conics under the loop shift. Samples
+                    // the same per-frame drawn points the line uses, so it matches exactly; a no-op outside
+                    // an anchored leg or when the leg was not drawn this frame.
+                    if (polylinePhase && kvp.Key < committed.Count
+                        && Parsek.Display.GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline(
+                            committed[kvp.Key].RecordingId, sampleUT, out Vector3 onLineMarkerPos))
+                    {
+                        markerPos = onLineMarkerPos;
+                        markerRidesPolyline = true;
+                    }
                 }
 
                 string ghostName = kvp.Key < committed.Count ? committed[kvp.Key].VesselName : "Ghost";
@@ -1288,6 +1302,31 @@ namespace Parsek
                 Color markerColor = GetGhostMarkerColorForType(vtype);
                 DrawMapMarkerAt(markerPos, markerKey, ghostName, markerColor, vtype);
                 summary.Drawn++;
+
+                // Comprehensive per-marker DRAW log (always available, rate-limited, NOT tracing-gated):
+                // EVERY non-proto labelled marker logs WHERE it drew + its position SOURCE - mesh-ridden
+                // or trajectory-derived (polyline phase). A "yellow label in the wrong place" - e.g. riding
+                // the body-fixed escape-burn polyline during a burn - reads in one line: source=traj
+                // polylinePhase=True with the drawn world position. Built via the lazy Func overload so the
+                // string.Format + markerPos.ToString are paid only when the 2s rate-limit actually emits,
+                // not every frame for every ghost. (The detailed mesh-vs-recorded-path gap is tracing-gated below.)
+                int recIdxForLog = kvp.Key;
+                bool meshPositionedForLog = meshPositioned;
+                bool polylinePhaseForLog = polylinePhase;
+                bool meshActiveForLog = meshActive;
+                bool ridesPolylineForLog = markerRidesPolyline;
+                VesselType vtypeForLog = vtype;
+                Vector3 markerPosForLog = markerPos;
+                string ghostNameForLog = ghostName;
+                ParsekLog.VerboseRateLimited("GhostMap",
+                    "marker-draw-" + recIdxForLog.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Marker DRAWN: rec={0} vessel={1} source={2} polylinePhase={3} meshActive={4} " +
+                        "meshPositioned={5} ridesPolyline={6} vtype={7} drawnPos={8}",
+                        recIdxForLog, ghostNameForLog, meshPositionedForLog ? "mesh" : "traj", polylinePhaseForLog,
+                        meshActiveForLog, meshPositionedForLog, ridesPolylineForLog, vtypeForLog,
+                        markerPosForLog.ToString("F0")),
+                    2.0);
 
                 // MapRenderTrace IMGUI surface coverage (ImguiLabeledMarker). Decision-only: the
                 // labeled marker draws here in OnGUI, so the projected world position IS the truth
@@ -1306,23 +1345,31 @@ namespace Parsek
                 // recorded path (the "non-proto icon in the wrong location / not moving correctly on the
                 // polyline" seam), while a ~0 gap means the icon is on the path and any apparent freeze is
                 // just the sub-pixel parking circle at map scale. Rate-limited per recording.
-                if (meshActive && isMapView && kvp.Key < committed.Count)
+                //
+                // Gated behind the map-render tracer (off in normal play, so the per-frame
+                // TryComputeGhostWorldPosition probe is skipped too) and emitted only when a
+                // trajectory position exists to compare against: a NaN meshVsTraj (no trajPos)
+                // carries no signal, so those frames are skipped rather than logged (they were
+                // ~93% of this line's volume).
+                if (MapRenderTrace.IsEnabled && meshActive && isMapView && kvp.Key < committed.Count)
                 {
                     var recDiag = committed[kvp.Key];
                     double headUT = GhostPlaybackLogic.ResolveTrackingStationSampleUT(
                         kvp.Key, recDiag.StartUT, recDiag.EndUT, currentUT,
                         flight.Engine.CurrentLoopUnits, out bool _);
-                    bool haveTraj = TryComputeGhostWorldPosition(
-                        kvp.Key, committed, headUT, out Vector3 trajPos, out _);
-                    Vector3 meshXform = state.ghost.transform.position;
-                    double meshVsTraj = haveTraj ? (meshXform - trajPos).magnitude : double.NaN;
-                    ParsekLog.VerboseRateLimited("GhostMap",
-                        "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
-                            kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
-                            meshXform.ToString("F0"), haveTraj ? trajPos.ToString("F0") : "(none)", meshVsTraj),
-                        2.0);
+                    if (TryComputeGhostWorldPosition(
+                            kvp.Key, committed, headUT, out Vector3 trajPos, out _))
+                    {
+                        Vector3 meshXform = state.ghost.transform.position;
+                        double meshVsTraj = (meshXform - trajPos).magnitude;
+                        ParsekLog.VerboseRateLimited("GhostMap",
+                            "marker-pos-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Marker pos: rec={0} meshPositioned={1} headUT={2:F1} drawnPos={3} meshXform={4} trajPos={5} meshVsTraj={6:F0}",
+                                kvp.Key, meshPositioned, headUT, markerPos.ToString("F0"),
+                                meshXform.ToString("F0"), trajPos.ToString("F0"), meshVsTraj),
+                            2.0);
+                    }
                 }
             }
 

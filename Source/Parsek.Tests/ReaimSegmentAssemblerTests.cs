@@ -176,5 +176,94 @@ namespace Parsek.Tests
             Assert.True(ReaimSegmentAssembler.HasHeliocentricLegInWindow(
                 new List<OrbitSegment> { Seg("Sun", 600, 2600, 1000) }, "Sun", 600.0, 2600.0));
         }
+
+        // ---- CoalesceSameOrbitFragments (loop-only in-memory merge of recorder-split parking fragments) ----
+
+        [Fact]
+        public void CoalesceSameOrbitFragments_MergesContiguousSameOrbitFragmentsAcrossGaps()
+        {
+            // The recorder split one parking coast into 3 same-orbit fragments with sampling gaps
+            // (background/foreground switches). They must coalesce into one continuous segment.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 200, 100),
+                Seg("Kerbin", 250, 400, 250),  // 50s gap
+                Seg("Kerbin", 411, 451, 411),  // 11s gap, a ~40s tail (the s15 spurious fragment)
+            };
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
+            Assert.Single(merged);
+            Assert.Equal(100.0, merged[0].startUT, 3);  // first fragment's start
+            Assert.Equal(451.0, merged[0].endUT, 3);    // last fragment's end (spans the gaps)
+            Assert.Equal(100.0, merged[0].epoch, 3);    // first fragment's epoch anchors the merged arc
+        }
+
+        [Fact]
+        public void CoalesceSameOrbitFragments_KeepsRealManeuverBoundary()
+        {
+            // Parking fragments (same orbit) then an escape burn (hugely different sma/ecc) stay separate.
+            var burn = Seg("Kerbin", 451, 60000, 451, sma: -3.8e6);
+            burn.eccentricity = 1.19; // hyperbolic - far outside the equivalence tolerance
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 400, 100),
+                Seg("Kerbin", 411, 451, 411),
+                burn,
+            };
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
+            Assert.Equal(2, merged.Count);
+            Assert.Equal(100.0, merged[0].startUT, 3);
+            Assert.Equal(451.0, merged[0].endUT, 3);          // the two parking fragments merged
+            Assert.Equal(-3.8e6, merged[1].semiMajorAxis, 0); // the burn kept as its own boundary
+        }
+
+        [Fact]
+        public void CoalesceSameOrbitFragments_DoesNotMergeAcrossPredictedMismatch()
+        {
+            // A predicted (ballistic-tail) segment must not fold into a non-predicted parking arc even
+            // when the elements coincide - the kind classification stays honest.
+            var segs = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 400, 100, predicted: false),
+                Seg("Kerbin", 411, 451, 411, predicted: true),
+            };
+            var merged = TrajectoryMath.CoalesceSameOrbitFragments(segs);
+            Assert.Equal(2, merged.Count);
+        }
+
+        [Fact]
+        public void CoalesceSameOrbitFragments_NullOrSingle_PassThrough()
+        {
+            Assert.Null(TrajectoryMath.CoalesceSameOrbitFragments(null));
+            var one = new List<OrbitSegment> { Seg("Kerbin", 100, 200, 100) };
+            Assert.Same(one, TrajectoryMath.CoalesceSameOrbitFragments(one));
+        }
+
+        [Fact]
+        public void ReplaceHeliocentricLeg_CoalescesFragmentedParkingBeforeTransfer()
+        {
+            // s15 "Kerbal X" shape: the parking coast arrives as 3 same-orbit Kerbin fragments (recorder
+            // split, incl. a short tail), then the Sun transfer. After re-aim, the parking fragments
+            // coalesce into one segment so the loop clock never lands the head in the short tail.
+            var member = new List<OrbitSegment>
+            {
+                Seg("Kerbin", 100, 300, 100),
+                Seg("Kerbin", 320, 560, 320),
+                Seg("Kerbin", 575, 600, 575),  // the spurious short tail before the transfer
+                Seg("Sun", 600, 2600, 1000, sma: 1.0e9),
+            };
+            var transfer = Seg("Sun", 0, 0, 0, sma: 2.0e10);
+
+            var segs = ReaimSegmentAssembler.ReplaceHeliocentricLeg(
+                member, transfer, "Sun", recordedDepartureUT: 600.0, recordedArrivalUT: 2600.0,
+                transferRenderStartUT: double.NaN, transferRenderEndUT: double.NaN);
+
+            Assert.NotNull(segs);
+            Assert.Equal(2, segs.Count);              // one coalesced parking + the transfer (was 4)
+            Assert.Equal("Kerbin", segs[0].bodyName);
+            Assert.Equal(100.0, segs[0].startUT, 3);
+            Assert.Equal(600.0, segs[0].endUT, 3);    // the 575-600 tail is no longer its own segment
+            Assert.Equal("Sun", segs[1].bodyName);
+            Assert.Equal(600.0, segs[1].startUT, 3);
+        }
     }
 }
