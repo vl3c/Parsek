@@ -23,6 +23,9 @@ namespace Parsek.Reaim
         // existing UvLambertTests + canaries still guard the math. Tests can substitute a stub to
         // verify the synthesizer routes through the interface and to fault-inject a no-solution
         // without needing a degenerate-geometry fixture.
+        // NOTE: process-wide mutable static. A test that overrides it MUST restore the default in its
+        // teardown (try/finally or IDisposable), or it leaks into sibling tests and causes a flaky-test
+        // trap. No test mutates it today (TransferSolverInterfaceTests only assert the default type).
         internal static ITransferSolver TransferSolver = UvLambertTransferSolver.Default;
 
         // Reject an absurd Lambert result before it reaches CalculatePatch (plan review M3): a sane

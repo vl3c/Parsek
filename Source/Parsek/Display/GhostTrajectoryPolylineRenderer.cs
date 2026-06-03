@@ -521,28 +521,34 @@ namespace Parsek.Display
             Recording rec, LegPolyline leg, CelestialBody body, int beforeIdx, int afterIdx)
         {
             if (rec == null || body == null || leg.PointCount < 1) return;
-            var ic = System.Globalization.CultureInfo.InvariantCulture;
-            string seamInfo = "before=none(ascent)";
-            if (beforeIdx >= 0
-                && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
-            {
-                Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
-                double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
-                Vector3d relBf = bf - body.position;
-                Vector3d relC = cBefore - body.position;
-                double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
-                double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
-                var s = rec.OrbitSegments[beforeIdx];
-                seamInfo = string.Format(ic,
-                    "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
-                    beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
-            }
+            // Lazy Func: the conic build (new Orbit + getPositionAtUT via TryConicWorldAtUT) +
+            // GetWorldSurfacePosition + atan2 + format run ONLY when the 2s rate-limit actually emits, not
+            // every frame this one-sided leg draws.
             ParsekLog.VerboseRateLimited(Tag, "polyline.onesided." + rec.RecordingId,
-                string.Format(ic,
-                    "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
-                    "reason=one-sided-bracket {4} after={5}",
-                    rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
-                    seamInfo, afterIdx >= 0 ? ("seg" + afterIdx) : "none"),
+                () =>
+                {
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    string seamInfo = "before=none(ascent)";
+                    if (beforeIdx >= 0
+                        && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
+                    {
+                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
+                        double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
+                        Vector3d relBf = bf - body.position;
+                        Vector3d relC = cBefore - body.position;
+                        double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
+                        double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
+                        var s = rec.OrbitSegments[beforeIdx];
+                        seamInfo = string.Format(ic,
+                            "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
+                            beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
+                    }
+                    return string.Format(ic,
+                        "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
+                        "reason=one-sided-bracket {4} after={5}",
+                        rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                        seamInfo, afterIdx >= 0 ? ("seg" + afterIdx) : "none");
+                },
                 2.0);
         }
 
@@ -1600,50 +1606,58 @@ namespace Parsek.Display
                         // (e.g. the escape-burn leg, ~100s span) the icon dwells on, drawn far from the
                         // inertial loiter/hyperbolic orbits, is the body-fixed-vs-inertial loop-shift
                         // rotation: compare lon0/lonN here to the probe's lonOrbit* for the same ghost.
-                        string activeLegInfo = "activeLeg=none";
-                        if (activeLeg >= 0)
+                        // Built lazily: the two LegPointBodyRelLonDeg (=GetWorldSurfacePosition) calls run
+                        // only when one of the two logs below actually emits (rate-limit elapsed / change),
+                        // not every frame for a multi-leg recording.
+                        int activeLegCaptured = activeLeg;
+                        var setCaptured = set;
+                        GameScenes sceneCaptured = scene;
+                        Func<string> activeLegInfoFactory = () =>
                         {
-                            var al = set.legs[activeLeg];
+                            if (activeLegCaptured < 0) return "activeLeg=none";
+                            var al = setCaptured.legs[activeLegCaptured];
                             int mAl = al.PointCount;
-                            CelestialBody alBody = ResolveBodyByName(scene, al.bodyName);
+                            CelestialBody alBody = ResolveBodyByName(sceneCaptured, al.bodyName);
                             if (alBody != null && mAl >= 1)
-                                activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                return string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                     "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} lon0={6:F1} lonN={7:F1} alt0={8:F0} altN={9:F0}",
-                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl,
+                                    activeLegCaptured, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl,
                                     LegPointBodyRelLonDeg(alBody, al.lats[0], al.lons[0], al.alts[0]),
                                     LegPointBodyRelLonDeg(alBody, al.lats[mAl - 1], al.lons[mAl - 1], al.alts[mAl - 1]),
                                     al.alts[0], al.alts[mAl - 1]);
-                            else
-                                activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} (no body/pts)",
-                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl);
-                        }
+                            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} (no body/pts)",
+                                activeLegCaptured, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl);
+                        };
 
+                        bool anyDrawnCaptured = anyDrawn;
+                        double headUtCaptured = headUT;
                         ParsekLog.VerboseRateLimited(DriverTag, "polyline.head." + rec.RecordingId,
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} {5} " +
                                 "firstLeg=[{6:F1},{7:F1}] lastLeg=[{8:F1},{9:F1}] body0={10} bodyN={11}",
-                                rec.RecordingId, set.legs.Length, headUT, activeLeg, anyDrawn, activeLegInfo,
-                                set.legs[0].startUT, set.legs[0].endUT,
-                                set.legs[set.legs.Length - 1].startUT, set.legs[set.legs.Length - 1].endUT,
-                                set.legs[0].bodyName ?? "(null)", set.legs[set.legs.Length - 1].bodyName ?? "(null)"),
+                                rec.RecordingId, setCaptured.legs.Length, headUtCaptured, activeLegCaptured, anyDrawnCaptured, activeLegInfoFactory(),
+                                setCaptured.legs[0].startUT, setCaptured.legs[0].endUT,
+                                setCaptured.legs[setCaptured.legs.Length - 1].startUT, setCaptured.legs[setCaptured.legs.Length - 1].endUT,
+                                setCaptured.legs[0].bodyName ?? "(null)", setCaptured.legs[setCaptured.legs.Length - 1].bodyName ?? "(null)"),
                             2.0);
 
                         // CHANGE-based companion to the rate-limited head log: a discrete event whenever the
                         // active leg, its body, or the drawn state flips. The polyline's part of the SOI-exit
                         // blink (active leg jumps a Kerbin escape leg -> the Sun transfer leg, or drawn toggles
                         // on/off in a head-in-gap frame) shows as alternating MapTraj-style lines instead of
-                        // being hidden in the 2s rate-limited samples.
+                        // being hidden in the 2s rate-limited samples. The cheap state key is built eagerly;
+                        // the GetWorldSurfacePosition-heavy detail is deferred to the change emit.
                         string activeLegBody = activeLeg >= 0
                             ? (set.legs[activeLeg].bodyName ?? "(null)") : "none";
                         ParsekLog.VerboseOnChange(DriverTag, "polyline-active." + rec.RecordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "{0}|{1}|{2}", activeLeg, activeLegBody, anyDrawn),
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Polyline active-leg CHANGED: rec={0} headUT={1:F1} activeLeg={2} body={3} " +
                                 "drawn={4} legs={5} {6}",
-                                rec.RecordingId, headUT, activeLeg, activeLegBody, anyDrawn, set.legs.Length,
-                                activeLegInfo));
+                                rec.RecordingId, headUtCaptured, activeLegCaptured, activeLegBody, anyDrawnCaptured, setCaptured.legs.Length,
+                                activeLegInfoFactory()));
                     }
 
                     if (anyDrawn)
@@ -1696,14 +1710,21 @@ namespace Parsek.Display
                 // active-leg CHANGED" lines carry each leg's span, so this + those pin which two legs overlap.
                 if (frameDrawn >= 1)
                 {
-                    var drawnIds = new List<string>(activeLegRecordings);
-                    drawnIds.Sort(StringComparer.Ordinal);
+                    // Key on the cheap drawn-COUNT (the Bug-3 signal is 1<->2); build the rec list lazily so
+                    // the steady state (drawn unchanged) pays no per-frame List/Join/Format allocation.
+                    int drawnCount = frameDrawn;
+                    var legRecs = activeLegRecordings;
+                    var sceneForLog = scene;
                     ParsekLog.VerboseOnChange(DriverTag, "polyline.drawset",
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "{0}|{1}", frameDrawn, string.Join(",", drawnIds.ToArray())),
-                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                            "Polyline draw-set CHANGED: scene={0} drawn={1} warp={2:F0}x recs=[{3}]",
-                            scene, frameDrawn, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray())));
+                        drawnCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        () =>
+                        {
+                            var drawnIds = new List<string>(legRecs);
+                            drawnIds.Sort(StringComparer.Ordinal);
+                            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline draw-set CHANGED: scene={0} drawn={1} warp={2:F0}x recs=[{3}]",
+                                sceneForLog, drawnCount, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray()));
+                        });
                 }
             }
 

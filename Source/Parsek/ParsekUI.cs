@@ -1305,17 +1305,27 @@ namespace Parsek
 
                 // Comprehensive per-marker DRAW log (always available, rate-limited, NOT tracing-gated):
                 // EVERY non-proto labelled marker logs WHERE it drew + its position SOURCE - mesh-ridden
-                // or trajectory-derived (polyline phase). Cheap (markerPos is already computed for the
-                // draw). A "yellow label in the wrong place" - e.g. riding the body-fixed escape-burn
-                // polyline during a burn - then reads in one line: source=traj polylinePhase=True with the
-                // drawn world position. (The detailed mesh-vs-recorded-path gap stays tracing-gated below.)
+                // or trajectory-derived (polyline phase). A "yellow label in the wrong place" - e.g. riding
+                // the body-fixed escape-burn polyline during a burn - reads in one line: source=traj
+                // polylinePhase=True with the drawn world position. Built via the lazy Func overload so the
+                // string.Format + markerPos.ToString are paid only when the 2s rate-limit actually emits,
+                // not every frame for every ghost. (The detailed mesh-vs-recorded-path gap is tracing-gated below.)
+                int recIdxForLog = kvp.Key;
+                bool meshPositionedForLog = meshPositioned;
+                bool polylinePhaseForLog = polylinePhase;
+                bool meshActiveForLog = meshActive;
+                bool ridesPolylineForLog = markerRidesPolyline;
+                VesselType vtypeForLog = vtype;
+                Vector3 markerPosForLog = markerPos;
+                string ghostNameForLog = ghostName;
                 ParsekLog.VerboseRateLimited("GhostMap",
-                    "marker-draw-" + kvp.Key.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "marker-draw-" + recIdxForLog.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                         "Marker DRAWN: rec={0} vessel={1} source={2} polylinePhase={3} meshActive={4} " +
                         "meshPositioned={5} ridesPolyline={6} vtype={7} drawnPos={8}",
-                        kvp.Key, ghostName, meshPositioned ? "mesh" : "traj", polylinePhase, meshActive,
-                        meshPositioned, markerRidesPolyline, vtype, markerPos.ToString("F0")),
+                        recIdxForLog, ghostNameForLog, meshPositionedForLog ? "mesh" : "traj", polylinePhaseForLog,
+                        meshActiveForLog, meshPositionedForLog, ridesPolylineForLog, vtypeForLog,
+                        markerPosForLog.ToString("F0")),
                     2.0);
 
                 // MapRenderTrace IMGUI surface coverage (ImguiLabeledMarker). Decision-only: the

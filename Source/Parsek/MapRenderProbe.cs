@@ -122,6 +122,9 @@ namespace Parsek
             GameEvents.FromToAction<GameScenes, GameScenes> action)
         {
             ClearAllPerPidState();
+            // Also flush MapRenderTrace's pid-keyed stores (detailed windows + line/render intents) so they
+            // do not grow unbounded across the AppDomain lifetime; mirrors this probe's own per-pid reset.
+            MapRenderTrace.Reset();
             ParsekLog.Verbose(MapRenderTrace.Tag,
                 string.Format(ic,
                     "probe per-pid state cleared on scene switch from={0} to={1}",
