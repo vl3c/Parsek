@@ -744,14 +744,17 @@ namespace Parsek
 
         private void ApplyPendingActions(double currentUT)
         {
-            // Any of these mutate route state (status, cadence, membership), which
-            // changes the legibility cache inputs (H1 countdown, H3 badge). Force a
-            // recompute next frame so a player action refreshes the cells immediately
-            // instead of waiting out the ~1s timer (mirrors the candidate-cache
-            // invalidation idiom below for Create Route).
+            // These four mutate route state HERE (status / cadence), which changes the
+            // legibility cache inputs (H1 countdown, H3 badge). Force a recompute next
+            // frame so a player action refreshes the cells immediately instead of
+            // waiting out the ~1s timer. Create and Delete are deliberately NOT listed:
+            // in this method they only SPAWN their confirm dialogs, and the actual
+            // mutation (plus its cache invalidation) happens later in the dialog
+            // callbacks (Create dirties both caches on a successful build; a Delete just
+            // removes the route, whose stale cache entry is never drawn again). Listing
+            // them here would force a wasted full recompute on every dialog open / Cancel.
             bool routeStateMutated =
                 pendingPause != null || pendingActivate != null || pendingSendOnce != null
-                || pendingConfirmDeleteRoute != null || pendingCreate != null
                 || pendingCadenceRoute != null;
 
             if (pendingPause != null)
