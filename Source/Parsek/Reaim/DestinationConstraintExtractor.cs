@@ -130,6 +130,9 @@ namespace Parsek.Reaim
 
         private static void LogExtract(string targetBody, DestinationConstraintSet r)
         {
+            // Intentional shared gate: the summary reuses MissionPeriodicity.SuppressLogging (the same
+            // periodicity subsystem family) rather than a selector-owned flag, so tests silence/observe
+            // the whole family with one switch.
             if (MissionPeriodicity.SuppressLogging)
                 return;
             ParsekLog.Verbose("ReaimArrival",

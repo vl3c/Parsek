@@ -212,6 +212,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void MoonRotation_NotCountedAsMoonConfig()
+        {
+            // A moon's ROTATION constraint must never be mistaken for a MoonConfig (which is an Orbital
+            // SOI entry). With Rotation(Ike) present, only the Orbital(Ike) counts as the moon; Ike's
+            // rotation is dropped, and DestRotation stays the target (Duna) rotation.
+            var all = new List<PhaseConstraint>
+            {
+                Rotation("Duna"),
+                Rotation("Ike"),                       // a moon's rotation - must be ignored entirely
+                Orbital("Ike", period: 65518.0),       // the only thing that makes Ike a constrained moon
+            };
+            var bodies = Bodies(("Duna", "Sun"), ("Ike", "Duna"));
+
+            var r = DestinationConstraintExtractor.ExtractDestinationConstraints(all, "Duna", bodies);
+
+            Assert.True(r.Supported);
+            Assert.Equal(1, r.ConstrainedMoonCount);           // the Orbital(Ike), not the Rotation(Ike)
+            Assert.Equal(2, r.Constraints.Count);              // DestRotation(Duna) + MoonConfig(Ike)
+            Assert.Equal("Duna", r.Constraints[0].BodyName);   // DestRotation is the target's rotation
+            Assert.Equal(ConstraintKind.Rotation, r.Constraints[0].Kind);
+            Assert.DoesNotContain(r.Constraints, c => c.Kind == ConstraintKind.Rotation && c.BodyName == "Ike");
+        }
+
+        [Fact]
         public void DoesNotMutateInput()
         {
             // Pure selector: the caller's constraint list is untouched (it is the live extraction output).
