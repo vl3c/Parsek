@@ -510,6 +510,43 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
+        /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
+        /// this logs the world gap + body-relative longitude delta between the leg's body-fixed start and
+        /// the preceding orbit's seam at that UT - i.e. how far the INERTIAL orbit's deorbit point
+        /// overshoots the BODY-FIXED landing track under the loop shift, the overshoot the proto icon rides
+        /// before it teleports onto this body-fixed descent. Rate-limited per rec; render-neutral.
+        /// </summary>
+        private static void EmitOneSidedBracketDiagnostic(
+            Recording rec, LegPolyline leg, CelestialBody body, int beforeIdx, int afterIdx)
+        {
+            if (rec == null || body == null || leg.PointCount < 1) return;
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string seamInfo = "before=none(ascent)";
+            if (beforeIdx >= 0
+                && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
+            {
+                Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
+                double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
+                Vector3d relBf = bf - body.position;
+                Vector3d relC = cBefore - body.position;
+                double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
+                double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
+                var s = rec.OrbitSegments[beforeIdx];
+                seamInfo = string.Format(ic,
+                    "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
+                    beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
+            }
+            ParsekLog.VerboseRateLimited(Tag, "polyline.onesided." + rec.RecordingId,
+                string.Format(ic,
+                    "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
+                    "reason=one-sided-bracket {4} after={5}",
+                    rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                    seamInfo, afterIdx >= 0 ? ("seg" + afterIdx) : "none"),
+                2.0);
+        }
+
+        /// <summary>
         /// CONIC ANCHOR (2026-06-03): rotate a vacuum-maneuver leg's already-captured scaled-space points
         /// so the leg lands on the faithful bracketing conic seam, fixing the loop-shift body rotation
         /// that draws the escape burn ~96 deg off the loiter/hyperbola lines. The body-fixed capture has
@@ -540,7 +577,18 @@ namespace Parsek.Display
             FindBracketingOrbitSegments(
                 rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT,
                 out int beforeIdx, out int afterIdx);
-            if (beforeIdx < 0 || afterIdx < 0) return false; // only vacuum maneuvers between two orbits
+            if (beforeIdx < 0 || afterIdx < 0)
+            {
+                // One-sided bracket -> leg stays body-fixed (correct: a launch ascent off the rotating pad
+                // = after-only; a descent-to-surface = before-only). Bug 2 / Root B diagnostic: for the
+                // descent case (an orbit BEFORE, surface after) log the world gap + body-relative longitude
+                // delta between the leg's body-fixed start and the preceding orbit's seam = how far the
+                // INERTIAL orbit's deorbit point overshoots the BODY-FIXED landing track under the loop
+                // shift (the overshoot the proto icon rides before it teleports onto this body-fixed
+                // descent). Render-neutral.
+                EmitOneSidedBracketDiagnostic(rec, leg, body, beforeIdx, afterIdx);
+                return false;
+            }
 
             if (!TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBeforeWorld)
                 || !TryConicWorldAtUT(rec.OrbitSegments[afterIdx], body, leg.endUT, out Vector3d cAfterWorld))
