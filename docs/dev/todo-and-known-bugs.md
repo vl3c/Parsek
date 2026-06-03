@@ -12,6 +12,24 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## Done - v0.10.0 Logistics UI Phase 1 quick-wins (QW1-QW8)
+
+Plan: `docs/dev/plans/logistics-ui-improvements.md` (Phase 1, the no-new-data / presentation-only quick wins). All eight items confined to `Source/Parsek/UI/LogisticsWindowUI.cs`, `Source/Parsek/UI/LogisticsButtonState.cs` (new), `Source/Parsek/ParsekUI.cs`, and (for QW8's single-source-of-truth broken classifier) `Source/Parsek/Logistics/RouteStatusPolicy.cs`; no Missions file, no ledger / `CommittedRecordings` read, ERS/ELS grep gate stays green.
+
+- **QW1 (window-create interval):** `CreateRouteFromCandidate` now derives the default dispatch interval through `ResolveWindowCreateInterval(candidate)`, which wraps the SAME `RouteCreationDialog.ComputeRootToUndockSpan` the Create Route dialog feeds into the builder, so a window-created route and a dialog-created route get the identical interval for the same candidate. The hardcoded `30.0` placeholder (and the `interval=30s` log literal) are gone.
+- **QW2 (delete confirm):** the route X button no longer deletes on the single click; it sets a deferred `pendingConfirmDeleteRoute`, and `ApplyPendingActions` spawns a `MultiOptionDialog` ("Delete route '<name>'? This cannot be undone.") whose Delete button calls `RouteStore.RemoveRoute` directly in its callback (the Wipe-All precedent in `ParsekUI`). The removal runs in the callback rather than via a frame-reset deferred field on purpose: the pending fields are nulled at the top of every `DrawWindow` pass, so an asynchronously set delete request would be clobbered before `ApplyPendingActions` could read it; running it in the callback is safe because the callback fires outside the window's route iteration. Pure `BuildDeleteConfirmBody(Route)` with a short-id name fallback.
+- **QW3 (section headers):** `DrawSectionHeader` now renders through the shared house `GetSectionHeaderStyle()` (matching Settings / Recordings / Timeline / Missions) instead of a hand-rolled tinted label; the now-unused `sectionHeaderStyle` field was removed.
+- **QW4 (status reason in cell):** the Status cell shows the plain-English `StatusReason(route.Status)` (promoted to `internal static`); the raw enum token moved to the hover tooltip.
+- **QW5 (cycle count):** new `internal static FormatCycleCount(completed, skipped)` renders "completed / N skipped" when any cycle was blocked, else just the completed count (InvariantCulture).
+- **QW6 (tooltip echo):** the window echoes the hovered control's `GUI.tooltip` in a box at the bottom (SpawnControlUI form, no new style field), gated by pure `ResolveTooltipEcho(string)` with a zero-height placeholder on the no-tooltip branch to keep the IMGUI control count stable.
+- **QW7 (tab strip):** dropped the inert single "Supply Routes" `GUILayout.Toolbar` strip and its dead `selectedTab` / `toggleButtonStyle` / `TabLabels` state (zero readers, no serialization). The sections now draw directly under the top spacer.
+- **QW8 (button count + broken tint):** the main-window Logistics button shows a live route count ("Logistics (N)") and tints red (`0.95, 0.45, 0.45`) when any route is hard-broken (EndpointLost / MissingSourceRecording / SourceChanged), color restored on every path. Pure `LogisticsButtonState.FormatLogisticsButtonLabel(int)` + `AnyRouteHardBroken(IEnumerable<RouteStatus>)` enumerate `RouteStore.CommittedRoutes` (gate-safe, no ledger read); a rate-limited Verbose logs when the broken tint is applied. The broken set is not duplicated in the UI helper: `AnyRouteHardBroken` delegates to a new `RouteStatusPolicy.Broken(RouteStatus)` classifier (the third predicate alongside `BindsTree` / `GhostDriving`), so the button tint and the status policy share one fail-loud exhaustive switch.
+
+- **Coverage:** xUnit `RouteWindowIntervalTests`, `LogisticsWindowUIDeleteConfirmTests`, `LogisticsButtonStateTests`, the new `Broken` predicate rows in `RouteStatusPolicyTests`, plus new `LogisticsWindowUIStatusReasonTests` / `LogisticsWindowUICycleCountTests` / `LogisticsWindowUITooltipEchoTests` cases in `LogisticsWindowUISendingButtonTests.cs`. QW3 / QW7 are pure presentation / inert-control removal (no new decision to test). Full suite green (13785).
+- **Status:** CLOSED 2026-06-03 (pending in-game confirmation of the visual changes).
+
+---
+
 ## Done - v0.10.0 Send Once gave no feedback (looked dead) + delivery write was not observable end-to-end
 
 - Playtest (`logs/2026-06-01_2342_supply-run-check/`, save `l2`, KSP.log ~23:38-23:39). Two supply routes (`3ff5b346` -> "rover fuel 0", `7ab0e8b6` -> "rover fuel 1") delivering LiquidFuel. The player pressed Send Once several times per route "to get it to work" and could not tell whether any fuel actually moved.

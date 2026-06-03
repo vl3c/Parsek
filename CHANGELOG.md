@@ -36,6 +36,11 @@ All notable changes to Parsek are documented here.
 
 - New "Logistics" button (grouped with Timeline and Recordings) opens a Supply Routes window with three sections: Active Routes, Paused Routes, and Candidates (available in both Flight and Space Center). Rows expand (click the name, Recordings-window caret style) to a detail panel showing the delivery manifest, transit, interval, next-dispatch countdown, and source recordings. Active rows have Pause; Paused rows have Send Once (fire one cycle when conditions allow, then stay Paused) and Activate (turn on periodic dispatch); Candidate rows have Create Route (promotes to a Paused route). Status text is colored and names the blocking reason (green dispatching/in-transit, yellow waiting/full, red endpoint-lost/source-missing/source-changed, grey paused).
 - After Send Once, the route's action shows a greyed-out "Sending..." button until the cycle reaches its dispatch window and delivers, so the click reads as registered and the route reads as armed-and-waiting rather than idle. (Send Once does not fire instantly: dispatch waits for the looping run to reach its dock point, which can be up to a full run away.)
+- The main-window Logistics button now shows a live route count ("Logistics (N)") and tints red when any route is broken (destination lost, source recording missing, or source changed), so a problem is visible without opening the window.
+- The Logistics window's Status column now shows a plain-English reason in the cell (the raw status name moved to the hover tooltip), and the Cycles column adds a "/ N skipped" suffix when cycles flew but delivered nothing.
+- Deleting a supply route now asks for confirmation first instead of removing it on the single click.
+- Creating a route from a Candidate now uses the same default dispatch interval the Create Route dialog would, so window-created and dialog-created routes match.
+- The Logistics window now echoes the hovered control's tooltip in a box at the bottom, and its section headers match the house style used by Settings and Recordings.
 
 ### Bug Fixes
 

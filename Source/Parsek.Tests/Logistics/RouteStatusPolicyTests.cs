@@ -7,8 +7,9 @@ using Xunit;
 namespace Parsek.Tests.Logistics
 {
     /// <summary>
-    /// Per-value matrix for <see cref="RouteStatusPolicy.BindsTree"/> and
-    /// <see cref="RouteStatusPolicy.GhostDriving"/>. Both predicates are
+    /// Per-value matrix for <see cref="RouteStatusPolicy.BindsTree"/>,
+    /// <see cref="RouteStatusPolicy.GhostDriving"/>, and
+    /// <see cref="RouteStatusPolicy.Broken"/>. All three predicates are
     /// pinned exhaustively so an enum append fails loudly: the count pin trips,
     /// and any unclassified value throws via the switch default arm.
     /// </summary>
@@ -92,10 +93,36 @@ namespace Parsek.Tests.Logistics
             Assert.False(RouteStatusPolicy.GhostDriving(status));
         }
 
-        // Full-matrix snapshot of the two predicates, so the exact partition is
+        // Broken is TRUE only for the three hard-broken states that need player
+        // action (the single source of truth the Logistics button tint reads).
+        [Theory]
+        [InlineData((int)RouteStatus.EndpointLost)]
+        [InlineData((int)RouteStatus.MissingSourceRecording)]
+        [InlineData((int)RouteStatus.SourceChanged)]
+        public void Broken_IsTrue_ForHardBrokenStates(int statusOrdinal)
+        {
+            var status = (RouteStatus)statusOrdinal;
+            Assert.True(RouteStatusPolicy.Broken(status));
+        }
+
+        // Broken is FALSE for every live state and for Paused.
+        [Theory]
+        [InlineData((int)RouteStatus.Active)]
+        [InlineData((int)RouteStatus.InTransit)]
+        [InlineData((int)RouteStatus.WaitingForResources)]
+        [InlineData((int)RouteStatus.WaitingForFunds)]
+        [InlineData((int)RouteStatus.DestinationFull)]
+        [InlineData((int)RouteStatus.Paused)]
+        public void Broken_IsFalse_ForLiveAndPausedStates(int statusOrdinal)
+        {
+            var status = (RouteStatus)statusOrdinal;
+            Assert.False(RouteStatusPolicy.Broken(status));
+        }
+
+        // Full-matrix snapshot of all three predicates, so the exact partition is
         // documented in one place and any reclassification is a visible diff.
         [Fact]
-        public void FullMatrix_PinsBothPredicates()
+        public void FullMatrix_PinsAllThreePredicates()
         {
             var expectedGhostDriving = new Dictionary<RouteStatus, bool>
             {
@@ -110,6 +137,19 @@ namespace Parsek.Tests.Logistics
                 { RouteStatus.Paused, false },
             };
 
+            var expectedBroken = new Dictionary<RouteStatus, bool>
+            {
+                { RouteStatus.Active, false },
+                { RouteStatus.InTransit, false },
+                { RouteStatus.WaitingForResources, false },
+                { RouteStatus.WaitingForFunds, false },
+                { RouteStatus.DestinationFull, false },
+                { RouteStatus.EndpointLost, true },
+                { RouteStatus.MissingSourceRecording, true },
+                { RouteStatus.SourceChanged, true },
+                { RouteStatus.Paused, false },
+            };
+
             var values = Enum.GetValues(typeof(RouteStatus)).Cast<RouteStatus>().ToArray();
 
             foreach (var s in values)
@@ -119,10 +159,18 @@ namespace Parsek.Tests.Logistics
                     expectedGhostDriving.ContainsKey(s),
                     $"RouteStatus.{s} is not pinned in the GhostDriving matrix");
                 Assert.Equal(expectedGhostDriving[s], RouteStatusPolicy.GhostDriving(s));
+                Assert.True(
+                    expectedBroken.ContainsKey(s),
+                    $"RouteStatus.{s} is not pinned in the Broken matrix");
+                Assert.Equal(expectedBroken[s], RouteStatusPolicy.Broken(s));
             }
 
             // Every pinned key is a real enum value (catches a stale matrix row).
             foreach (var key in expectedGhostDriving.Keys)
+            {
+                Assert.Contains(key, values);
+            }
+            foreach (var key in expectedBroken.Keys)
             {
                 Assert.Contains(key, values);
             }
