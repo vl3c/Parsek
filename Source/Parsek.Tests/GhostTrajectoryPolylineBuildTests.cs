@@ -1164,5 +1164,39 @@ namespace Parsek.Tests
             Assert.Equal(-1, before);
             Assert.Equal(0, after);
         }
+
+        // --- IsSeamResidualTooLarge (conic-anchor Duna/Ike regression guard) ---
+
+        [Fact]
+        public void IsSeamResidualTooLarge_KerbinEscapeZeroResidual_Anchors()
+        {
+            // The Kerbin escape burn seam met the leg exactly (residual 0 km) -> must NOT be rejected.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamResidualTooLarge(0f, 0f, 730f));
+        }
+
+        [Theory]
+        [InlineData(46543f, 46392f, 37000f)] // Duna leg 11 (arrival hyperbola arm)
+        [InlineData(599f, 590f, 810f)]       // Ike flyby leg 12
+        [InlineData(430f, 3041f, 380f)]      // alt-60km leg (elliptical-bracketed yet far off)
+        public void IsSeamResidualTooLarge_DunaIkeArrivalLegs_Rejected(
+            float residStartKm, float residEndKm, float legRadiusKm)
+        {
+            Assert.True(GhostTrajectoryPolylineRenderer.IsSeamResidualTooLarge(
+                residStartKm, residEndKm, legRadiusKm));
+        }
+
+        [Fact]
+        public void IsSeamResidualTooLarge_SmallAbsoluteOnLargeRadius_RejectedByAbsoluteFloor()
+        {
+            // 60 km residual on a huge radius: relative is tiny but the absolute floor still rejects it.
+            Assert.True(GhostTrajectoryPolylineRenderer.IsSeamResidualTooLarge(60f, 10f, 1_000_000f));
+        }
+
+        [Fact]
+        public void IsSeamResidualTooLarge_TinyResidualWithinTolerance_Anchors()
+        {
+            // A few km on a 730 km orbit (under the 50 km floor and under 5 percent) -> anchor.
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSeamResidualTooLarge(3f, 4f, 730f));
+        }
     }
 }

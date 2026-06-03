@@ -455,6 +455,32 @@ namespace Parsek.Display
         /// absorbs the boundary sample shared between a conic and the adjacent burn leg. xUnit-testable
         /// (no Unity).
         /// </summary>
+        /// <summary>Absolute floor for the conic-anchor seam-residual reject (km); covers small-radius bodies.</summary>
+        internal const float AnchorMaxResidualKm = 50f;
+
+        /// <summary>Relative (fraction of leg radius) ceiling for the conic-anchor seam-residual reject.</summary>
+        internal const float AnchorMaxRelResidual = 0.05f;
+
+        /// <summary>
+        /// PURE guard predicate (Duna/Ike arrival regression): should the conic-anchor REJECT a leg (keep it
+        /// body-fixed) because the bracketing conic seam does NOT meet the leg endpoints? The conic-anchor is
+        /// only valid for a vacuum maneuver whose endpoints lie ON the bracketing orbits (residual ~0, e.g.
+        /// the Kerbin escape burn = 0 km). A Duna/Ike ARRIVAL HYPERBOLA's <c>getPositionAtUT</c> at the leg
+        /// boundary lands an inbound arm tens of Mm from the leg, so the radial residual is huge (430-46543
+        /// km) and rotating to it would swing the leg to the wrong arm. Reject when the radial residual
+        /// exceeds the absolute floor OR the relative fraction of the leg radius. (A radius-only / "ecc&lt;1"
+        /// test is insufficient: a mis-bracketed ELLIPTICAL leg measured 430-3041 km off.) xUnit-testable.
+        /// </summary>
+        internal static bool IsSeamResidualTooLarge(
+            float predResidStartKm, float predResidEndKm, float legRadiusKm)
+        {
+            if (predResidStartKm > AnchorMaxResidualKm || predResidEndKm > AnchorMaxResidualKm)
+                return true;
+            float relResid = legRadiusKm > 1f
+                ? Mathf.Max(predResidStartKm, predResidEndKm) / legRadiusKm : 0f;
+            return relResid > AnchorMaxRelResidual;
+        }
+
         internal static void FindBracketingOrbitSegments(
             List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
             out int beforeIdx, out int afterIdx)
@@ -534,6 +560,39 @@ namespace Parsek.Display
                 || cRelStart.sqrMagnitude < 1e-10f || cRelEnd.sqrMagnitude < 1e-10f)
                 return false;
 
+            // GUARD (Duna/Ike arrival regression): the body-fixed-vs-conic offset is a pure spin-axis
+            // rotation ONLY when the conic seam actually MEETS the leg endpoints (same radius). At Kerbin
+            // the bracketing conics are near-circular, so the seam coincides with the leg (residual 0 km).
+            // At a Duna/Ike ARRIVAL HYPERBOLA the bracketing conic's getPositionAtUT lands tens of Mm from
+            // the leg (an inbound arm far from periapsis), so FromToRotation would swing the whole leg -
+            // and the marker that rides it - to the WRONG arm. Reject when the seam radius does not match
+            // the leg endpoint radius. The radial residual is the proven discriminator: 0 km at Kerbin vs
+            // 430-46543 km at Duna/Ike; an "elliptical-only / ecc<1" test is NOT sufficient (a mis-bracketed
+            // ELLIPTICAL leg measured 430-3041 km off). Computed BEFORE mutating so a rejected leg stays
+            // body-fixed and TryAnchorMarkerToPolyline samples the body-fixed points.
+            float sf = (float)ScaledSpace.ScaleFactor;
+            float predResidStartKm = Mathf.Abs(relStart.magnitude - cRelStart.magnitude) * sf / 1000f;
+            float predResidEndKm = Mathf.Abs(relEnd.magnitude - cRelEnd.magnitude) * sf / 1000f;
+            float legRadiusKm = relStart.magnitude * sf / 1000f;
+            float relResid = legRadiusKm > 1f
+                ? Mathf.Max(predResidStartKm, predResidEndKm) / legRadiusKm : 0f;
+            var segB = rec.OrbitSegments[beforeIdx];
+            var segA = rec.OrbitSegments[afterIdx];
+            if (IsSeamResidualTooLarge(predResidStartKm, predResidEndKm, legRadiusKm))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Anchor leg SKIPPED: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false reason=seam-mismatch " +
+                        "predResidStart={4:F0}km predResidEnd={5:F0}km legRadius={6:F0}km relResid={7:F2} " +
+                        "before=seg{8}(ecc={9:F3} sma={10:F0}) after=seg{11}(ecc={12:F3} sma={13:F0})",
+                        rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                        predResidStartKm, predResidEndKm, legRadiusKm, relResid,
+                        beforeIdx, segB.eccentricity, segB.semiMajorAxis,
+                        afterIdx, segA.eccentricity, segA.semiMajorAxis),
+                    2.0);
+                return false; // leave the leg body-fixed; the marker rides the body-fixed head
+            }
+
             Quaternion rotStart = Quaternion.FromToRotation(relStart, cRelStart);
             Quaternion rotEnd = Quaternion.FromToRotation(relEnd, cRelEnd);
 
@@ -549,15 +608,20 @@ namespace Parsek.Display
                 leg.scratchScaledSpace[i] = center + rot * (leg.scratchScaledSpace[i] - center);
             }
 
-            // Residual proves the pin (should be ~0; nonzero only from the seam radius mismatch, not the
-            // 600-1200 km longitude-lift error). Rate-limited per rec.
-            float residStart = Vector3.Distance(leg.scratchScaledSpace[0], cBefore) * ScaledSpace.ScaleFactor / 1000f;
-            float residEnd = Vector3.Distance(leg.scratchScaledSpace[m - 1], cAfter) * ScaledSpace.ScaleFactor / 1000f;
+            // Residual proves the pin (should be ~0 after the guard). Enriched with the bracketing-conic
+            // sma/ecc + applied rotation angles so a future mismatch is self-evident without cross-grep.
+            float residStart = Vector3.Distance(leg.scratchScaledSpace[0], cBefore) * sf / 1000f;
+            float residEnd = Vector3.Distance(leg.scratchScaledSpace[m - 1], cAfter) * sf / 1000f;
             ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} before=seg{4} after=seg{5} residualStart={6:F0}km residualEnd={7:F0}km",
+                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=true before=seg{4}(ecc={5:F3} sma={6:F0}) " +
+                    "after=seg{7}(ecc={8:F3} sma={9:F0}) residualStart={10:F0}km residualEnd={11:F0}km " +
+                    "rotAngleStart={12:F1} rotAngleEnd={13:F1}",
                     rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
-                    beforeIdx, afterIdx, residStart, residEnd),
+                    beforeIdx, segB.eccentricity, segB.semiMajorAxis,
+                    afterIdx, segA.eccentricity, segA.semiMajorAxis, residStart, residEnd,
+                    Quaternion.Angle(Quaternion.identity, rotStart),
+                    Quaternion.Angle(Quaternion.identity, rotEnd)),
                 2.0);
             return true;
         }
@@ -1570,11 +1634,29 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
+                        "Polyline frame: scene={0} drawn={1} warp={10:F0}x suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
                         frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
-                        frameLegsHeadUtGated, frameDeactivated, polylineCache.Count),
+                        frameLegsHeadUtGated, frameDeactivated, polylineCache.Count,
+                        TimeWarp.CurrentRate),
                     5.0);
+
+                // DOUBLE-DRAW PIN (Bug 3): the 5 s rate-limited summary hides transient drawn>=2 frames
+                // (the co-drawn landing seam). Emit on CHANGE of (drawn-count + the co-drawn recording set),
+                // so a brief two-leg overlap is never rate-limited away. Names the recordings drawing this
+                // frame + the warp rate (the user reports the second line only at 1x). The per-rec "Polyline
+                // active-leg CHANGED" lines carry each leg's span, so this + those pin which two legs overlap.
+                if (frameDrawn >= 1)
+                {
+                    var drawnIds = new List<string>(activeLegRecordings);
+                    drawnIds.Sort(StringComparer.Ordinal);
+                    ParsekLog.VerboseOnChange(DriverTag, "polyline.drawset",
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "{0}|{1}", frameDrawn, string.Join(",", drawnIds.ToArray())),
+                        string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "Polyline draw-set CHANGED: scene={0} drawn={1} warp={2:F0}x recs=[{3}]",
+                            scene, frameDrawn, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray())));
+                }
             }
 
             /// <summary>
