@@ -41,6 +41,11 @@ All notable changes to Parsek are documented here.
 - Deleting a supply route now asks for confirmation first instead of removing it on the single click.
 - Creating a route from a Candidate now uses the same default dispatch interval the Create Route dialog would, so window-created and dialog-created routes match.
 - The Logistics window now echoes the hovered control's tooltip in a box at the bottom, and its section headers match the house style used by Settings and Recordings.
+- The Logistics window now has a "Next" column and a detail line showing a live countdown to the next delivery, driven by the actual ghost loop clock so it lines up with when a cycle really fires. Blocked routes show a "Rechecks in" countdown to their next eligibility check instead.
+- The route detail panel now shows the last cycle's realized delivery (for example "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)", in yellow on a shortfall) plus a running "Total delivered" line, both read from the delivery ledger so there is no save-format change.
+- A new "Delivery" column gives an at-a-glance verdict per route: green "Delivering", yellow "Flying, not delivering" for a route whose ghost is flying but blocked from transferring, grey "Paused", or "New (not yet run)".
+- The Logistics window's Destination column now names the target vessel when it can be resolved, falling back to body, situation, and coordinates (kept in the hover tooltip) when the target is unloaded.
+- Source recordings in the detail panel now show recording and tree (mission) names (for example "Mun Fuel Run (rec 3 of tree 'Munar Logistics')") instead of raw 8-character id fragments, with the short id kept in the hover tooltip.
 
 ### Bug Fixes
 

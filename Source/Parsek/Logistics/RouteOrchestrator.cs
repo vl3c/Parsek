@@ -599,6 +599,87 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// READ-ONLY next-dock-crossing countdown accessor (H1, UI layer). Given a
+        /// route and the current UT, returns in <paramref name="seconds"/> the
+        /// wall-clock-UT seconds until the route's loop clock next reaches the
+        /// recorded dock PHASE (one delivery == one dock crossing). Built for the
+        /// Logistics window's "Next delivery" countdown; the window THROTTLES the
+        /// call (the <see cref="ResolveLoopUnit"/> build is not free) and never sees
+        /// a <see cref="GhostPlaybackLogic.LoopUnit"/> or the raw committed lists, so
+        /// the ERS/ELS grep gate stays green with no allowlist change (the only raw
+        /// read stays behind <see cref="ResolveLoopUnit"/> in this allowlisted file).
+        ///
+        /// <para><b>Strictly read-only.</b> Mirrors the
+        /// <see cref="ProcessLoopRoute"/> resolve path
+        /// (<see cref="ResolveLoopUnit"/>) but mutates NOTHING: it never touches
+        /// <see cref="Route.LastObservedLoopCycleIndex"/> or any loop-clock state.
+        /// Only <see cref="ProcessLoopRoute"/> advances the dispatch phase.</para>
+        ///
+        /// <para>Returns <c>false</c> (<paramref name="seconds"/> = 0) when the route
+        /// is not ghost-driving (<see cref="RouteStatusPolicy.GhostDriving"/> false:
+        /// Paused / EndpointLost / MissingSourceRecording / SourceChanged), has no
+        /// resolvable loop unit this tick, carries a non-v0 schedule / loiter cut, or
+        /// the recorded dock UT falls outside the unit's span. The window shows a
+        /// dash / falls back to its wait-state countdown in those cases.</para>
+        /// </summary>
+        /// <param name="route">The route to count down for.</param>
+        /// <param name="nowUT">Current game UT.</param>
+        /// <param name="seconds">Seconds until the next dock crossing (always &gt; 0
+        /// on success); 0 on a false return.</param>
+        /// <returns>True when a finite next-dock-crossing countdown exists.</returns>
+        internal static bool TryComputeSecondsToNextDockCrossing(
+            Route route, double nowUT, out double seconds)
+        {
+            seconds = 0.0;
+
+            if (route == null)
+                return false;
+
+            // Status gate: only ghost-driving routes run the loop clock, so only
+            // they have a next-crossing. Mirrors ProcessLoopRoute's first gate.
+            if (!RouteStatusPolicy.GhostDriving(route.Status))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "next-cross-" + route.Id,
+                    $"NextDockCrossing: route {ShortIdForLog(route)} status={route.Status} " +
+                    "not ghost-driving, no countdown", 5.0);
+                return false;
+            }
+
+            // Resolve the backing-mission loop unit (test seam or live build). The
+            // raw committed-list read stays inside ResolveLoopUnit in this
+            // allowlisted file.
+            GhostPlaybackLogic.LoopUnit? unitOpt = ResolveLoopUnit(route, nowUT);
+            if (!unitOpt.HasValue)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "next-cross-" + route.Id,
+                    $"NextDockCrossing: route {ShortIdForLog(route)} no resolvable loop unit, no countdown",
+                    5.0);
+                return false;
+            }
+            GhostPlaybackLogic.LoopUnit unit = unitOpt.Value;
+
+            // Pure crossing-to-seconds math (gate-safe; reads only LoopUnit accessors).
+            bool ok = RouteLoopClock.TryComputeSecondsToNextDockCrossing(
+                unit, nowUT, route.RecordedDockUT, route.LastObservedLoopCycleIndex, out seconds);
+            if (!ok)
+            {
+                ParsekLog.VerboseRateLimited(Tag, "next-cross-" + route.Id,
+                    $"NextDockCrossing: route {ShortIdForLog(route)} dock-out-of-span/non-v0 " +
+                    $"(dockUT={route.RecordedDockUT.ToString("R", IC)} " +
+                    $"spanStart={unit.SpanStartUT.ToString("R", IC)} spanEnd={unit.SpanEndUT.ToString("R", IC)}) " +
+                    "no countdown", 5.0);
+                seconds = 0.0;
+                return false;
+            }
+
+            ParsekLog.VerboseRateLimited(Tag, "next-cross-" + route.Id,
+                $"NextDockCrossing: route {ShortIdForLog(route)} secondsToNextDock={seconds.ToString("R", IC)} " +
+                $"at ut={nowUT.ToString("R", IC)} lastObserved={route.LastObservedLoopCycleIndex.ToString(IC)}",
+                5.0);
+            return true;
+        }
+
+        /// <summary>
         /// Resolves the route's backing-mission loop unit for this tick. Routes
         /// through the <see cref="LoopUnitResolverForTesting"/> seam when set;
         /// otherwise builds it from live KSP state via the same selector / Build

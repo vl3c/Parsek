@@ -1,3 +1,4 @@
+using System;
 using System.Globalization;
 
 namespace Parsek.Logistics
@@ -198,6 +199,117 @@ namespace Parsek.Logistics
             if (!IsDockUTInSpan(unit, recordedDockUT))
                 return false;
             return dockCycleIndex > lastObservedLoopCycleIndex;
+        }
+
+        /// <summary>
+        /// Pure read-only countdown to the NEXT dock crossing (H1). Computes the
+        /// absolute UT at which the loop clock will next reach the recorded dock
+        /// PHASE and returns <c>nextDockUT - <paramref name="nowUT"/></c> in
+        /// <paramref name="seconds"/>. Read-only: touches NO clock or route state,
+        /// the loop clock is never advanced.
+        ///
+        /// <para><b>Same clock as <see cref="TryGetRouteLoopState"/> /
+        /// <see cref="IsDockCrossing"/>.</b> For the uniform v0 path (schedule and
+        /// loiter cuts both null) the inner clock plays
+        /// <c>loopUT = SpanStartUT + (elapsed - k*cadence)</c> in cycle <c>k</c>
+        /// (<c>elapsed = nowUT - PhaseAnchorUT</c>), with the cadence clamped to
+        /// <see cref="LoopTiming.MinCycleDuration"/> EXACTLY as
+        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> clamps it. The dock
+        /// PHASE of cycle <c>k</c> is reached when <c>loopUT &gt;= recordedDockUT</c>,
+        /// i.e. at the absolute instant
+        /// <c>dockUT_k = PhaseAnchorUT + k*cadence + (recordedDockUT - SpanStartUT)</c>.
+        /// This routine finds the smallest cycle index <c>k</c> whose
+        /// <c>dockUT_k</c> is strictly greater than <paramref name="nowUT"/> AND not
+        /// already consumed (<c>k &gt; <paramref name="lastObservedLoopCycleIndex"/></c>,
+        /// matching <see cref="IsDockCrossing"/>'s re-fire guard), then returns
+        /// <c>dockUT_k - nowUT</c>.</para>
+        ///
+        /// <para><b>Span gate.</b> Returns <c>false</c> (<paramref name="seconds"/> = 0)
+        /// when <paramref name="recordedDockUT"/> is not in the unit's span
+        /// (<see cref="IsDockUTInSpan"/>): a dock outside the span never fires, so
+        /// there is no crossing to count down to.</para>
+        ///
+        /// <para><b>Non-v0 paths.</b> A unit carrying a relaunch schedule
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/>) or loiter cuts
+        /// (<see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/>) is a future
+        /// inter-body / re-aim loop whose dock UTs are non-uniform; v0 same-body
+        /// routes carry null for both (see the class remarks). Returns <c>false</c>
+        /// for those rather than approximating with the uniform formula.</para>
+        ///
+        /// <para>Pure: no logging (the orchestrator-side accessor owns the
+        /// rate-limited per-route summary, mirroring
+        /// <see cref="IsDockCrossing"/> / <see cref="ComputeDockCycleIndex"/>).</para>
+        /// </summary>
+        /// <param name="unit">The route's backing-mission loop unit (read-only).</param>
+        /// <param name="nowUT">Game UT to count down from.</param>
+        /// <param name="recordedDockUT">The recorded dock UT the delivery binds to.</param>
+        /// <param name="lastObservedLoopCycleIndex">Highest dock cycle already
+        /// delivered; the next crossing is strictly after this cycle.</param>
+        /// <param name="seconds">On success, the wall-clock-UT seconds until the next
+        /// dock crossing (always &gt; 0); 0 on a false return.</param>
+        /// <returns>True when a finite next-dock-crossing countdown exists.</returns>
+        internal static bool TryComputeSecondsToNextDockCrossing(
+            GhostPlaybackLogic.LoopUnit unit,
+            double nowUT,
+            double recordedDockUT,
+            long lastObservedLoopCycleIndex,
+            out double seconds)
+        {
+            seconds = 0.0;
+
+            // Non-v0 paths (inter-body relaunch schedule / re-aim loiter cuts) have
+            // non-uniform dock UTs; do not approximate with the uniform formula. v0
+            // same-body routes carry null for both, so this never trips for them.
+            if (unit.RelaunchSchedule != null)
+                return false;
+            if (unit.LoiterCuts != null && unit.LoiterCuts.Count > 0)
+                return false;
+
+            // A dock outside the span never produces a crossing (same gate the
+            // crossing detector applies).
+            if (!IsDockUTInSpan(unit, recordedDockUT))
+                return false;
+
+            double span = unit.SpanEndUT - unit.SpanStartUT;
+            if (span <= 0.0)
+                return false;
+
+            // SAME cadence clamp as TryComputeSpanLoopUT (edge 14): the span clock
+            // clamps the cadence to MinCycleDuration internally, so the dock-UT
+            // spacing must use the identical clamped value or the countdown drifts.
+            double cadence = Math.Max(unit.CadenceSeconds, LoopTiming.MinCycleDuration);
+            if (cadence <= 0.0)
+                return false;
+
+            // dockUT_k = PhaseAnchorUT + k*cadence + (recordedDockUT - SpanStartUT).
+            // The phase offset is the in-span distance from span start to the dock.
+            double dockPhaseOffset = recordedDockUT - unit.SpanStartUT;
+            double cycleZeroDockUT = unit.PhaseAnchorUT + dockPhaseOffset;
+
+            // Smallest cycle index k whose dock instant is strictly AFTER nowUT.
+            double rawCyclesElapsed = (nowUT - cycleZeroDockUT) / cadence;
+            long k = (long)Math.Floor(rawCyclesElapsed) + 1;
+
+            // Never count down to a cycle whose dock has already been delivered
+            // (matches IsDockCrossing's dockCycleIndex > lastObservedLoopCycleIndex
+            // guard). lastObservedLoopCycleIndex defaults to -1 (nothing delivered),
+            // so the floor here is cycle 0.
+            long minCycle = lastObservedLoopCycleIndex + 1;
+            if (k < minCycle)
+                k = minCycle;
+            if (k < 0)
+                k = 0;
+
+            double nextDockUT = cycleZeroDockUT + k * cadence;
+
+            // Guard the strict-after invariant against floating-point edge cases at
+            // an exactly-on-the-dock boundary: if rounding left us at or before
+            // nowUT, advance one cycle so the countdown is always strictly positive.
+            if (nextDockUT <= nowUT)
+                nextDockUT += cadence;
+
+            seconds = nextDockUT - nowUT;
+            return true;
         }
 
         /// <summary>

@@ -50,6 +50,47 @@ namespace Parsek
         private float lastCandidateComputeRealtime = -1f;
         private const float CandidateRecomputeIntervalSeconds = 1.0f;
 
+        // Throttled per-route legibility cache (Phase 2 H1/H2/H3). Recomputing the
+        // next-dock-crossing countdown (H1, a LoopUnit build) and the realized /
+        // cumulative delivery summary (H2/H3, an ELS scan) is NOT free, and many
+        // routes can be open at once, so we recompute the WHOLE dictionary on a
+        // realtime timer (mirrors the candidate cache) once per ~1s rather than per
+        // route per IMGUI frame. The draw path only READS the cache by route.Id.
+        // In-memory instance state only: it is rebuilt from RouteStore + the ledger
+        // and persists nothing across save/load.
+        private readonly Dictionary<string, RouteLegibility> legibilityCache =
+            new Dictionary<string, RouteLegibility>();
+        private float lastLegibilityComputeRealtime = -1f;
+        private const float LegibilityRecomputeIntervalSeconds = 1.0f;
+
+        /// <summary>
+        /// One route's recomputed-on-timer legibility values: the H1 next-delivery
+        /// countdown (seconds + which branch), the H2 last-cycle realized line + its
+        /// shortfall tint flag + the cumulative total line, and the H3 delivery
+        /// badge. Built once per cache refresh, read by route.Id while drawing.
+        /// </summary>
+        private struct RouteLegibility
+        {
+            // H1: next-delivery / rechecks-in countdown.
+            public LogisticsCountdownPresentation.CountdownBranch CountdownBranch;
+            public double CountdownSeconds;
+
+            // H2: realized delivery for the latest cycle + cumulative total.
+            public bool HasDeliveries;
+            public string LastCycleText;     // "delivered 40.0 of 150.0 LiquidFuel (110.0 did not fit)"
+            public bool LastCycleShortfall;  // drives the yellow tint
+            public string CumulativeText;    // "1240.0 LiquidFuel, 30.0 Oxidizer" or "(none)"
+
+            // H3: delivering vs flying-not-delivering badge.
+            public LogisticsDeliveryPresentation.DeliveryBadge Badge;
+
+            // H4: destination cell. Resolved here (not on the draw path) because the
+            // unresolved-surface-endpoint fallback does an O(vessels) FlightGlobals
+            // scan that must not run every IMGUI frame.
+            public string DestinationText;     // resolved vessel name, or coords fallback
+            public string DestinationTooltip;  // coords when the name resolved, else empty
+        }
+
         // Deferred mutations: collected during the draw loop and applied after the
         // scroll view so we never mutate RouteStore.CommittedRoutes mid-iteration.
         private Route pendingPause;
@@ -80,20 +121,23 @@ namespace Parsek
         // Column widths. Header and rows use the same constants and live in the
         // same per-section box, so columns line up like the Recordings window.
         private const float ColW_Num = 30f;        // "#" row-index column (per section)
-        private const float ColW_Origin = 120f;
+        private const float ColW_Origin = 95f;      // compacted (QW-origin short: "KSC (funds)" / "depot pid=N")
         private const float ColW_Destination = 180f;
         private const float ColW_Interval = 70f;
         private const float ColW_Transit = 70f;
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
-        private const float ColW_Status = 320f;     // wide enough for the plain-English reason text (QW4)
+        private const float ColW_NextDelivery = 90f; // H1 "Next delivery" countdown ("T-12m 5s")
+        private const float ColW_Status = 240f;     // plain-English reason text; H3 badge now carries the at-a-glance verdict so the reason can wrap
+        private const float ColW_Badge = 120f;      // H3 "Flying, not delivering" / "Delivering" badge
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
-        // Fixed columns now total ~1060px (wider Status reason text + Cyc skipped
-        // count from QW4/QW5), so the window floor leaves the expanding Name column
+        // Fixed columns now total ~1165px (Status/Origin compacted to claw back
+        // ~105px, plus the two new H1 Next-delivery + H3 badge columns), so the
+        // window floor is raised in step with them to keep the expanding Name column
         // a usable share instead of crushing it.
-        private const float MinWindowWidth = 1180f;
+        private const float MinWindowWidth = 1300f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -118,7 +162,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1260, 340);
+                windowRect = new Rect(x, mainWindowRect.y, 1380, 340);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -176,6 +220,11 @@ namespace Parsek
             double currentUT = TryGetCurrentUT();
             IReadOnlyList<Route> routes = RouteStore.CommittedRoutes;
             List<RouteCandidate> candidates = GetCandidates();
+
+            // Throttled per-route legibility recompute (H1/H2/H3). Runs at most once
+            // per ~1s over the committed routes, NOT per row per IMGUI frame; the
+            // row/detail draw paths only read the cache afterward.
+            RefreshLegibilityCacheIfDue(routes, currentUT);
 
             // Split stored routes by enablement. Active section holds everything
             // that is not Paused (running, blocked-active, and hard-broken).
@@ -279,7 +328,9 @@ namespace Parsek
             GUILayout.Label("Interval", h, GUILayout.Width(ColW_Interval));
             GUILayout.Label("Transit", h, GUILayout.Width(ColW_Transit));
             GUILayout.Label("Cyc", h, GUILayout.Width(ColW_Cycles));
+            GUILayout.Label("Next", h, GUILayout.Width(ColW_NextDelivery));
             GUILayout.Label("Status", h, GUILayout.Width(ColW_Status));
+            GUILayout.Label("Delivery", h, GUILayout.Width(ColW_Badge));
             GUILayout.Label("Actions", h, GUILayout.Width(ColW_Actions));
             GUILayout.EndHorizontal();
         }
@@ -301,8 +352,17 @@ namespace Parsek
             if (GUILayout.Button($"{arrow} {route.Name ?? "<unnamed>"}", GUI.skin.label, GUILayout.ExpandWidth(true)))
                 ToggleExpanded(rowKey, route.Name);
 
+            // Read the throttled per-route legibility values once for this row (H1
+            // countdown, H3 badge, H4 destination); the draw path never recomputes.
+            RouteLegibility leg = GetLegibility(route);
+
             GUILayout.Label(FormatOrigin(route), GUILayout.Width(ColW_Origin));
-            GUILayout.Label(FormatDestination(route), GUILayout.Width(ColW_Destination));
+            // H4: name the destination vessel (resolved from the endpoint PID) instead
+            // of bare coords; coords move to the hover tooltip on fallback. Resolved on
+            // the ~1 Hz cache refresh, so this cell just reads the cached strings.
+            GUILayout.Label(
+                new GUIContent(leg.DestinationText ?? "-", leg.DestinationTooltip ?? string.Empty),
+                GUILayout.Width(ColW_Destination));
             // Interval cell shows BOTH the cadence multiplier and the resulting human
             // cadence (e.g. "1x (~14m)"); the full stepper lives in the detail panel.
             GUILayout.Label(
@@ -317,10 +377,26 @@ namespace Parsek
                     "Completed deliveries / blocked cycles (the ghost flew but delivered nothing)."),
                 GUILayout.Width(ColW_Cycles));
 
+            // H1 "Next" cell: time to the next dock crossing (a delivery), or the
+            // wait-state retry countdown when blocked. Read from the throttled cache
+            // (leg, fetched above); both branches show the bare countdown here, the
+            // detail line names which.
+            GUILayout.Label(
+                new GUIContent(NextDeliveryCellText(leg),
+                    "Time until this route's next scheduled delivery (next dock crossing). A blocked route shows when it next rechecks eligibility."),
+                GUILayout.Width(ColW_NextDelivery));
+
             // Show the plain-English reason IN the cell; keep the raw enum name in
             // the hover tooltip (a one-word state token for players who want it).
             GUILayout.Label(new GUIContent(StatusReason(route.Status), route.Status.ToString()),
                 StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
+
+            // H3 "Delivery" badge: the at-a-glance verdict (green Delivering /
+            // yellow Flying-not-delivering / grey Paused / cyan New).
+            GUILayout.Label(
+                new GUIContent(LogisticsDeliveryPresentation.DeliveryBadgeLabel(leg.Badge),
+                    "Whether the route's last cycle actually delivered cargo, or the ghost flew but transferred nothing."),
+                BadgeStyleFor(leg.Badge), GUILayout.Width(ColW_Badge));
 
             // Fixed-width action cell so every row's Name-expand is identical and
             // the data columns stay aligned across sections and the header.
@@ -420,8 +496,13 @@ namespace Parsek
             GUILayout.Label("-", GUILayout.Width(ColW_Interval));
             GUILayout.Label(FormatDuration(CandidateTransit(candidate)), GUILayout.Width(ColW_Transit));
             GUILayout.Label("-", GUILayout.Width(ColW_Cycles));
+            // Next-delivery placeholder: candidates have not been promoted to a route
+            // yet, so there is no dispatch schedule (keeps the cell count == header).
+            GUILayout.Label("-", GUILayout.Width(ColW_NextDelivery));
             GUILayout.Label(new GUIContent("eligible", "A sealed, valid Supply Run. Create Route promotes it to a Paused route you can Send Once / Activate."),
                 statusStyleCyan, GUILayout.Width(ColW_Status));
+            // Delivery-badge placeholder for the same reason.
+            GUILayout.Label("-", GUILayout.Width(ColW_Badge));
 
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
             if (GUILayout.Button(new GUIContent("Create Route",
@@ -440,20 +521,101 @@ namespace Parsek
         private void DrawRouteDetail(Route route, double currentUT)
         {
             GUILayout.BeginVertical(GUI.skin.box);
+            RouteLegibility leg = GetLegibility(route);
+
             string deliv = FormatRouteDelivery(route);
             DetailLine($"Delivers per cycle: {deliv}");
             DetailLine($"Status: {route.Status} - {StatusReason(route.Status)}");
-            if (route.Status == RouteStatus.Active || route.Status == RouteStatus.InTransit)
+
+            // H1: live next-dock-crossing countdown (replaces the dead NextDispatchUT
+            // self-timer). For a blocked wait-state route the cache yields the
+            // "Rechecks in" branch (NextEligibilityCheckUT retry) instead. The branch
+            // wording + the real FormatCountdown formatting are paired here; the cache
+            // only stored the branch + seconds.
+            string countdownLine = LogisticsCountdownPresentation.FormatDetailCountdownLine(
+                leg.CountdownBranch, SelectiveSpawnUI.FormatCountdown(leg.CountdownSeconds));
+            if (countdownLine != null)
+                DetailLine(countdownLine);
+
+            // H2: realized delivery for the latest cycle (yellow when something did not
+            // fit) plus the cumulative total across all cycles. Both come from the
+            // throttled ELS scan in the legibility cache.
+            if (leg.HasDeliveries)
             {
-                double until = route.NextDispatchUT - currentUT;
-                DetailLine(until > 0
-                    ? $"Next dispatch in {SelectiveSpawnUI.FormatCountdown(until)}"
-                    : "Next dispatch due");
+                DetailLine($"Last cycle: {leg.LastCycleText}",
+                    leg.LastCycleShortfall ? statusStyleYellow : detailStyle);
+                DetailLine($"Total delivered: {leg.CumulativeText}");
             }
+
             DetailLine($"Interval: {FormatDuration(route.DispatchInterval)}   Transit: {FormatDuration(route.TransitDuration)}   Cycles: {route.CompletedCycles}");
             DrawCadenceStepper(route);
-            DetailLine($"Source recordings: {FormatSourceRecordingIds(route)}");
+
+            // H5: resolved recording / tree (mission) names instead of 8-char GUID
+            // fragments; the short id moves to the hover tooltip.
+            DrawSourceRecordingsLine(route);
             GUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Draws the "Source recordings:" detail line (H5) with resolved recording +
+        /// owning-tree (mission) names. Each id is resolved through the literal-free
+        /// <see cref="RecordingStore.TryResolveRecordingDisplayInfo"/> accessor (the raw
+        /// committed-list read stays in that already-allowlisted file, so no raw
+        /// committed-list literal lands here and the ERS/ELS grep gate stays
+        /// green). The 8-char short id is kept as the cell's hover tooltip only. Drawn
+        /// only when a row is expanded, so the per-id store lookups are not per-frame
+        /// for collapsed rows.
+        /// </summary>
+        private void DrawSourceRecordingsLine(Route route)
+        {
+            (string text, string tooltip) = BuildSourceRecordingsContent(route);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(new GUIContent(text, tooltip), detailStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Builds the H5 "Source recordings:" line text plus its short-id hover
+        /// tooltip. Resolves each route source id to a display name + tree position +
+        /// tree/mission name via the literal-free RecordingStore accessor and the pure
+        /// <see cref="LogisticsDeliveryPresentation.FormatSourceRecordingDisplay"/>
+        /// formatter; unresolved ids (not in the committed store) fall back to the short
+        /// id verbatim. The tooltip carries the comma-joined short ids so the raw
+        /// identifiers stay reachable on hover. Logs one Verbose batch summary
+        /// (resolved-vs-total) for the route, not per id.
+        /// </summary>
+        private static (string text, string tooltip) BuildSourceRecordingsContent(Route route)
+        {
+            if (route?.RecordingIds == null || route.RecordingIds.Count == 0)
+                return ("Source recordings: -", string.Empty);
+
+            var textSb = new StringBuilder("Source recordings: ");
+            var tipSb = new StringBuilder();
+            int resolved = 0;
+            for (int i = 0; i < route.RecordingIds.Count; i++)
+            {
+                string id = route.RecordingIds[i];
+                string shortId = ShortId(id);
+                bool ok = RecordingStore.TryResolveRecordingDisplayInfo(
+                    id, out string recName, out string treeName, out int treeOrder);
+                if (ok) resolved++;
+                // TreeOrder is the 0-based persisted order within the tree; humans read
+                // "rec 3", so display the 1-based position (0-based -1 unassigned -> 0,
+                // which the formatter drops as an unknown position).
+                int humanPos = treeOrder >= 0 ? treeOrder + 1 : 0;
+                string display = LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(
+                    shortId, ok ? recName : null, treeName, humanPos);
+
+                if (i > 0) { textSb.Append(", "); tipSb.Append(", "); }
+                textSb.Append(display);
+                tipSb.Append(shortId);
+            }
+
+            ParsekLog.Verbose("UI",
+                $"Logistics: source recordings line route={ShortId(route.Id)} " +
+                $"resolved={resolved.ToString(CultureInfo.InvariantCulture)}/{route.RecordingIds.Count.ToString(CultureInfo.InvariantCulture)}");
+            return (textSb.ToString(), tipSb.ToString());
         }
 
         // Cadence stepper (Phase 6): "- N x (~human) +" where N is the dispatch
@@ -501,16 +663,57 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             DetailLine($"Would deliver per cycle: {FormatManifest(candidate.Analysis.ResourceDeliveryManifest, candidate.Analysis.InventoryDeliveryManifest)}");
             DetailLine($"Transit: {FormatDuration(CandidateTransit(candidate))}");
-            string srcId = candidate.Analysis.SourceRecording?.RecordingId;
-            DetailLine($"Source recording: {ShortId(srcId)}   Tree: {ShortId(candidate.Tree?.Id)}");
+
+            // H5: the candidate already holds its source Recording + owning Tree in
+            // hand, so resolve display names directly (no store lookup needed). Short
+            // id moves to the hover tooltip.
+            (string text, string tooltip) = BuildCandidateSourceContent(candidate);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label(new GUIContent(text, tooltip), detailStyle, GUILayout.ExpandWidth(true));
+            GUILayout.EndHorizontal();
             GUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Builds the candidate-detail "Source recording:" line text + short-id tooltip
+        /// (H5). The candidate's <see cref="RouteCandidate.Analysis"/> SourceRecording
+        /// and <see cref="RouteCandidate.Tree"/> are already in hand, so the recording
+        /// name (VesselName, "Untitled" when empty), the 1-based tree position
+        /// (TreeOrder + 1), and the tree/mission name (TreeName) come straight off them
+        /// with no committed-store lookup. Routes through the same pure
+        /// <see cref="LogisticsDeliveryPresentation.FormatSourceRecordingDisplay"/>
+        /// formatter as the route line.
+        /// </summary>
+        private static (string text, string tooltip) BuildCandidateSourceContent(RouteCandidate candidate)
+        {
+            Recording src = candidate?.Analysis?.SourceRecording;
+            string srcId = src?.RecordingId;
+            string shortId = ShortId(srcId);
+
+            if (src == null)
+                return ($"Source recording: {shortId}", shortId);
+
+            string recName = string.IsNullOrEmpty(src.VesselName) ? "Untitled" : src.VesselName;
+            string treeName = candidate.Tree?.TreeName;
+            int humanPos = src.TreeOrder >= 0 ? src.TreeOrder + 1 : 0;
+            string display = LogisticsDeliveryPresentation.FormatSourceRecordingDisplay(
+                shortId, recName, treeName, humanPos);
+            return ($"Source recording: {display}", shortId);
         }
 
         private void DetailLine(string text)
         {
+            DetailLine(text, detailStyle);
+        }
+
+        // Detail line with an explicit style (e.g. statusStyleYellow for the H2
+        // shortfall line). Same indented full-width layout as the default overload.
+        private void DetailLine(string text, GUIStyle style)
+        {
             GUILayout.BeginHorizontal();
             GUILayout.Space(24f);
-            GUILayout.Label(text, detailStyle, GUILayout.ExpandWidth(true));
+            GUILayout.Label(text, style ?? detailStyle, GUILayout.ExpandWidth(true));
             GUILayout.EndHorizontal();
         }
 
@@ -541,6 +744,16 @@ namespace Parsek
 
         private void ApplyPendingActions(double currentUT)
         {
+            // Any of these mutate route state (status, cadence, membership), which
+            // changes the legibility cache inputs (H1 countdown, H3 badge). Force a
+            // recompute next frame so a player action refreshes the cells immediately
+            // instead of waiting out the ~1s timer (mirrors the candidate-cache
+            // invalidation idiom below for Create Route).
+            bool routeStateMutated =
+                pendingPause != null || pendingActivate != null || pendingSendOnce != null
+                || pendingConfirmDeleteRoute != null || pendingCreate != null
+                || pendingCadenceRoute != null;
+
             if (pendingPause != null)
             {
                 bool ok = RouteOrchestrator.TryPause(pendingPause);
@@ -577,6 +790,9 @@ namespace Parsek
                     $"Logistics: Cadence route={ShortId(pendingCadenceRoute.Id)} N={pendingCadenceMultiplier} " +
                     $"result={(changed ? "applied" : "unchanged")}");
             }
+
+            if (routeStateMutated)
+                lastLegibilityComputeRealtime = -1f;
 
             pendingPause = null;
             pendingActivate = null;
@@ -738,6 +954,235 @@ namespace Parsek
         }
 
         // ------------------------------------------------------------------
+        // Per-route legibility cache (throttled): H1 next-delivery countdown,
+        // H2 realized / cumulative delivery, H3 delivery badge.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Recomputes the whole per-route legibility cache on the realtime timer
+        /// (mirrors <see cref="GetCandidates"/>). For each committed route it builds:
+        /// the H1 next-dock-crossing countdown (throttled <see cref="RouteOrchestrator"/>
+        /// accessor + the wait-state retry fallback branch), and the H2/H3 realized /
+        /// cumulative delivery summary + badge from a SINGLE ELS scan of the route's
+        /// <c>RouteCargoDelivered</c> rows (H3 reuses H2's scan). Emits one batch-summary
+        /// Verbose line after the pass (route count + how many had deliveries), never
+        /// per route. Called once per frame at the top of <see cref="DrawWindow"/>; the
+        /// timer / dirty-flag gate keeps the LoopUnit build + ledger scan to ~1 Hz.
+        /// </summary>
+        private void RefreshLegibilityCacheIfDue(IReadOnlyList<Route> routes, double currentUT)
+        {
+            float now = Time.realtimeSinceStartup;
+            if (lastLegibilityComputeRealtime >= 0f
+                && now - lastLegibilityComputeRealtime < LegibilityRecomputeIntervalSeconds)
+                return;
+            lastLegibilityComputeRealtime = now;
+
+            legibilityCache.Clear();
+            int routeCount = routes?.Count ?? 0;
+            int withCountdown = 0;
+            int withDeliveries = 0;
+            for (int i = 0; i < routeCount; i++)
+            {
+                Route route = routes[i];
+                if (route == null || string.IsNullOrEmpty(route.Id)) continue;
+
+                RouteLegibility leg = ComputeRouteLegibility(route, currentUT);
+                legibilityCache[route.Id] = leg;
+                if (leg.CountdownBranch != LogisticsCountdownPresentation.CountdownBranch.None)
+                    withCountdown++;
+                if (leg.HasDeliveries)
+                    withDeliveries++;
+            }
+
+            ParsekLog.Verbose("UI",
+                $"Logistics legibility cache refreshed routes={routeCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"withCountdown={withCountdown.ToString(CultureInfo.InvariantCulture)} " +
+                $"withDeliveries={withDeliveries.ToString(CultureInfo.InvariantCulture)}");
+        }
+
+        /// <summary>
+        /// Builds one route's legibility values. H1: asks the throttled read-only
+        /// orchestrator accessor for the next dock crossing, then picks the
+        /// next-delivery vs wait-state "rechecks in" branch via
+        /// <see cref="LogisticsCountdownPresentation.ResolveDetailCountdown"/>. H2/H3:
+        /// scans the ledger once for this route's realized deliveries and reduces them
+        /// to the latest-cycle line, its shortfall flag, the cumulative total, and the
+        /// delivery badge.
+        /// </summary>
+        private RouteLegibility ComputeRouteLegibility(Route route, double currentUT)
+        {
+            var leg = new RouteLegibility();
+
+            // H1: next dock crossing (read-only; the LoopUnit build stays behind the
+            // allowlisted RouteOrchestrator accessor).
+            bool hasCrossing = RouteOrchestrator.TryComputeSecondsToNextDockCrossing(
+                route, currentUT, out double secondsToCrossing);
+            LogisticsCountdownPresentation.CountdownDecision countdown =
+                LogisticsCountdownPresentation.ResolveDetailCountdown(
+                    route.Status, route.NextEligibilityCheckUT,
+                    hasCrossing, secondsToCrossing, currentUT);
+            leg.CountdownBranch = countdown.Branch;
+            leg.CountdownSeconds = countdown.Seconds;
+
+            // H2 / H3: one ELS scan -> realized + cumulative + badge.
+            LogisticsDeliveryPresentation.RouteDeliverySummary summary =
+                CollectRouteDeliverySummary(route.Id);
+            leg.HasDeliveries = summary.HasAny;
+            leg.LastCycleText = summary.HasAny
+                ? LogisticsDeliveryPresentation.FormatRealizedDelivery(summary.LastRequested, summary.LastActual)
+                : null;
+            leg.LastCycleShortfall = summary.HasAny
+                && LogisticsDeliveryPresentation.HasShortfall(summary.LastRequested, summary.LastActual);
+            leg.CumulativeText = LogisticsDeliveryPresentation.FormatCumulativeTotal(summary.CumulativeTotal);
+
+            bool ghostDriving = RouteStatusPolicy.GhostDriving(route.Status);
+            LogisticsDeliveryPresentation.DeliveryOutcome lastOutcome = ClassifyLastOutcome(route.Status, summary);
+            leg.Badge = LogisticsDeliveryPresentation.ClassifyDeliveryBadge(
+                ghostDriving, lastOutcome, route.CompletedCycles, route.SkippedCycles);
+
+            // H4: resolve the destination cell here (it touches FlightGlobals and, on an
+            // unresolved surface endpoint, scans all vessels), so the draw path only
+            // reads the cached strings.
+            ResolveDestinationCell(route, out string destText, out string destTooltip);
+            leg.DestinationText = destText;
+            leg.DestinationTooltip = destTooltip;
+
+            return leg;
+        }
+
+        /// <summary>
+        /// Derives the H3 last-cycle delivery outcome for the badge from a route's
+        /// status and its realized-delivery summary. A blocked-but-flying wait state
+        /// (<see cref="LogisticsCountdownPresentation.IsWaitState"/>) forces
+        /// <see cref="LogisticsDeliveryPresentation.DeliveryOutcome.None"/> regardless
+        /// of any stale row, because this cycle is delivering nothing. Otherwise a full
+        /// fill (no requested manifest) is Full and a recorded shortfall is Partial; no
+        /// delivered row at all is None. Pure for unit testing.
+        /// </summary>
+        internal static LogisticsDeliveryPresentation.DeliveryOutcome ClassifyLastOutcome(
+            RouteStatus status,
+            LogisticsDeliveryPresentation.RouteDeliverySummary summary)
+        {
+            if (LogisticsCountdownPresentation.IsWaitState(status))
+                return LogisticsDeliveryPresentation.DeliveryOutcome.None;
+            if (summary == null || !summary.HasAny || summary.LastActual == null || summary.LastActual.Count == 0)
+                return LogisticsDeliveryPresentation.DeliveryOutcome.None;
+            return summary.LastRequested != null && summary.LastRequested.Count > 0
+                ? LogisticsDeliveryPresentation.DeliveryOutcome.Partial
+                : LogisticsDeliveryPresentation.DeliveryOutcome.Full;
+        }
+
+        /// <summary>
+        /// Scans the effective ledger state (<see cref="EffectiveState.ComputeELS"/>,
+        /// gate-safe and already tombstone-filtered) for this route's
+        /// <see cref="GameActionType.RouteCargoDelivered"/> rows and reduces them to a
+        /// <see cref="LogisticsDeliveryPresentation.RouteDeliverySummary"/> (latest
+        /// cycle + cumulative total). Mirrors
+        /// <c>RouteOrchestrator.IsDeliveryAlreadyInLedger</c>'s scan idiom and
+        /// catch-as-empty convention. Matches rows by RouteId only (all cycles), NOT by
+        /// cycle id. This is the one non-pure piece of H2/H3 (it needs a live Scenario
+        /// for ComputeELS), so it stays in the window file and feeds the pure
+        /// summary/format helpers; called only on the ~1 Hz cache refresh.
+        /// </summary>
+        private static LogisticsDeliveryPresentation.RouteDeliverySummary CollectRouteDeliverySummary(string routeId)
+        {
+            var rows = new List<LogisticsDeliveryPresentation.DeliveryRow>();
+            if (string.IsNullOrEmpty(routeId))
+                return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+
+            IReadOnlyList<GameAction> els;
+            try
+            {
+                els = EffectiveState.ComputeELS();
+            }
+            catch (System.Exception ex)
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics delivery scan: ComputeELS threw {ex.GetType().Name}: {ex.Message}; treating as no deliveries");
+                return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+            }
+
+            if (els != null)
+            {
+                for (int i = 0; i < els.Count; i++)
+                {
+                    GameAction a = els[i];
+                    if (a == null) continue;
+                    if (a.Type != GameActionType.RouteCargoDelivered) continue;
+                    if (!string.Equals(a.RouteId, routeId, System.StringComparison.Ordinal)) continue;
+                    rows.Add(new LogisticsDeliveryPresentation.DeliveryRow(
+                        a.RouteResourceManifest, a.RouteRequestedResourceManifest, a.UT));
+                }
+            }
+            return LogisticsDeliveryPresentation.SummarizeRouteDeliveries(rows);
+        }
+
+        /// <summary>
+        /// Reads a route's cached legibility values by id. Returns a default
+        /// (no-countdown / no-deliveries / <see cref="LogisticsDeliveryPresentation.DeliveryBadge.Paused"/>)
+        /// struct when the route is absent from the cache (e.g. the very first frame
+        /// before the timer has fired). The draw path never recomputes; it only reads
+        /// here.
+        /// </summary>
+        private RouteLegibility GetLegibility(Route route)
+        {
+            if (route != null && !string.IsNullOrEmpty(route.Id)
+                && legibilityCache.TryGetValue(route.Id, out RouteLegibility leg))
+                return leg;
+            return default(RouteLegibility);
+        }
+
+        // The H1 "Next" cell text for a cached countdown: the bare formatted countdown
+        // (next delivery or wait-state recheck), or "-" when there is no countdown.
+        // Uses the established FormatCountdown idiom (T-/T+); the pure branch->text
+        // mapping is in LogisticsCountdownPresentation.
+        private static string NextDeliveryCellText(RouteLegibility leg)
+        {
+            return LogisticsCountdownPresentation.FormatNextDeliveryCell(
+                leg.CountdownBranch, SelectiveSpawnUI.FormatCountdown(leg.CountdownSeconds));
+        }
+
+        /// <summary>
+        /// Resolves the H4 Destination cell strings for the legibility cache: the
+        /// resolved destination vessel name as the text (coords in the hover tooltip),
+        /// or the coords string as the text with no extra tooltip when the vessel
+        /// cannot be resolved (e.g. it is unloaded / out of range). The live
+        /// <see cref="RouteEndpointResolver.TryResolveEndpoint"/> call (which touches
+        /// FlightGlobals and, on an unresolved surface endpoint, scans every vessel) is
+        /// why this runs on the ~1 Hz cache refresh and NOT per IMGUI frame; the pure
+        /// <see cref="LogisticsDeliveryPresentation.FormatDestinationDisplay"/> picks
+        /// name-vs-coords. Logs the resolve decision (rate-limited per route).
+        /// </summary>
+        private void ResolveDestinationCell(Route route, out string text, out string tooltip)
+        {
+            if (route?.Stops == null || route.Stops.Count == 0 || route.Stops[0] == null)
+            {
+                text = "-";
+                tooltip = string.Empty;
+                return;
+            }
+
+            RouteEndpoint endpoint = route.Stops[0].Endpoint;
+            string coords = LogisticsDeliveryPresentation.FormatEndpointCoords(endpoint);
+
+            string resolvedName = null;
+            bool resolved = RouteEndpointResolver.TryResolveEndpoint(endpoint, out Vessel v, out string reason);
+            if (resolved && v != null)
+                resolvedName = v.vesselName;
+
+            text = LogisticsDeliveryPresentation.FormatDestinationDisplay(resolvedName, endpoint);
+            // When the name resolved, the coords go to the tooltip; on the coords
+            // fallback the cell already shows the coords, so no extra tooltip.
+            tooltip = resolved ? coords : string.Empty;
+
+            ParsekLog.VerboseRateLimited("UI", "dest-resolve-" + route.Id,
+                resolved
+                    ? $"Logistics: destination route={ShortId(route.Id)} resolved=true name='{resolvedName}'"
+                    : $"Logistics: destination route={ShortId(route.Id)} resolved=false reason='{reason}' (showing coords)",
+                5.0);
+        }
+
+        // ------------------------------------------------------------------
         // Formatting helpers
         // ------------------------------------------------------------------
 
@@ -781,14 +1226,6 @@ namespace Parsek
                 && src.RouteOriginProof.StartDockedOriginVesselPid != 0)
                 return "depot pid=" + src.RouteOriginProof.StartDockedOriginVesselPid.ToString(CultureInfo.InvariantCulture);
             return "-";
-        }
-
-        private static string FormatDestination(Route route)
-        {
-            if (route.Stops == null || route.Stops.Count == 0) return "-";
-            RouteStop stop = route.Stops[0];
-            if (stop == null) return "-";
-            return FormatEndpointShort(stop.Endpoint);
         }
 
         private static string FormatEndpointShort(RouteEndpoint? ep)
@@ -872,18 +1309,6 @@ namespace Parsek
             return sb.Length > 0 ? sb.ToString() : "(nothing)";
         }
 
-        private static string FormatSourceRecordingIds(Route route)
-        {
-            if (route.RecordingIds == null || route.RecordingIds.Count == 0) return "-";
-            var sb = new StringBuilder();
-            for (int i = 0; i < route.RecordingIds.Count; i++)
-            {
-                if (sb.Length > 0) sb.Append(", ");
-                sb.Append(ShortId(route.RecordingIds[i]));
-            }
-            return sb.ToString();
-        }
-
         private static string ShortId(string id)
         {
             if (string.IsNullOrEmpty(id)) return "<none>";
@@ -923,6 +1348,25 @@ namespace Parsek
                 case RouteStatus.SourceChanged: return "Source recording changed - recreate the route";
                 case RouteStatus.Paused: return "Paused - not auto-dispatching";
                 default: return status.ToString();
+            }
+        }
+
+        // H3 badge color: green delivering / yellow flying-not-delivering / cyan new /
+        // grey paused. Reuses the existing status-text styles so the badge column
+        // matches the Status cell palette.
+        private GUIStyle BadgeStyleFor(LogisticsDeliveryPresentation.DeliveryBadge badge)
+        {
+            switch (badge)
+            {
+                case LogisticsDeliveryPresentation.DeliveryBadge.Delivering:
+                    return statusStyleGreen;
+                case LogisticsDeliveryPresentation.DeliveryBadge.FlyingNotDelivering:
+                    return statusStyleYellow;
+                case LogisticsDeliveryPresentation.DeliveryBadge.New:
+                    return statusStyleCyan;
+                case LogisticsDeliveryPresentation.DeliveryBadge.Paused:
+                default:
+                    return statusStyleGrey;
             }
         }
 
