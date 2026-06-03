@@ -247,6 +247,59 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ShouldDriveGapFromPoints_FalseForLaunchAscent()
+        {
+            // The from-ground launch ascent has NO preceding OrbitSegment (the gap starts at the
+            // recording's UT0, with only a single post-ascent orbit segment ahead of it). The carry
+            // gap requires an OrbitSegment bracket on BOTH sides, so the launch ascent never reaches
+            // the gap glide -- and therefore never reaches the inertial branch, which is exactly what
+            // keeps the climbing-from-the-rotating-pad rocket surface-locked. This documents that
+            // invariant: a single-segment recording whose only gap is the pre-first-segment launch
+            // window returns false.
+            var traj = BuildRecording();
+            // Keep ONLY the loiter segment (simulating: orbit reached AFTER the launch ascent, no
+            // parking segment before the ascent window). UT before the single segment is the launch
+            // ascent: no previous segment to bracket the gap.
+            var single = new List<OrbitSegment> { traj.OrbitSegments[1] };
+            double launchAscentUT = ParkingStartUT + 50.0;   // well before the single segment start
+            Assert.True(launchAscentUT < single[0].startUT);
+            Assert.False(GhostMapPresence.ShouldDriveGapFromPoints(single, traj, launchAscentUT),
+                "Launch ascent (no preceding OrbitSegment) must not reach the points glide / inertial branch.");
+        }
+
+        // === Inertial-frame gate predicate (ShouldSeedGapGlideInertial) ===
+
+        [Fact]
+        public void ShouldSeedGapGlideInertial_TrueOnlyForGapReasonAndAbsoluteBranch()
+        {
+            Assert.True(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", "absolute"),
+                "The inertial branch fires for the gap-glide reason on the Absolute branch.");
+        }
+
+        [Fact]
+        public void ShouldSeedGapGlideInertial_FalseForOtherReasons()
+        {
+            // SOI-gap checkpoint, terminal fallback, null reason: keep the body-fixed seed.
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial(null, "absolute"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("", "absolute"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("soi-gap-checkpoint", "absolute"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("terminal-fallback", "absolute"));
+        }
+
+        [Fact]
+        public void ShouldSeedGapGlideInertial_FalseForNonAbsoluteBranches()
+        {
+            // Relative anchor-local offsets, body-fixed-primary debris, orbital-checkpoint coasts:
+            // the inertial reconstruction reads geographic lat/lon/alt and only the Absolute branch
+            // carries those, so every other branch keeps the unchanged body-fixed seed.
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", "relative"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", "body-fixed-primary"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", "orbital-checkpoint"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", "no-section"));
+            Assert.False(GhostMapPresence.ShouldSeedGapGlideInertial("orbit-raise-gap-points", null));
+        }
+
+        [Fact]
         public void ShouldDriveGapFromPoints_FalseForCrossBodyGap()
         {
             // A cross-body gap (an SOI crossing, e.g. Kerbin -> Mun) is handled by the OrbitalCheckpoint

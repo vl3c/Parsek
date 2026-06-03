@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using ClickThroughFix;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -221,11 +222,38 @@ namespace Parsek
 
             // --- Logistics (v0, available in both Flight and KSC) ---
             // Grouped with Timeline + Recordings as the primary navigation set.
-            if (GUILayout.Button("Logistics"))
+            // The label carries a live route count ("Logistics (N)", mirroring the
+            // Real Spawn Control idiom) and the whole button tints red when any
+            // route is hard-broken (EndpointLost / MissingSourceRecording /
+            // SourceChanged) so a problem is visible without opening the window.
+            IReadOnlyList<Route> logisticsRoutes = RouteStore.CommittedRoutes;
+            int logisticsRouteCount = logisticsRoutes != null ? logisticsRoutes.Count : 0;
+            bool anyLogisticsBroken = LogisticsButtonState.AnyRouteHardBroken(
+                logisticsRoutes != null
+                    ? logisticsRoutes.Select(r => r.Status)
+                    : Enumerable.Empty<RouteStatus>());
+            if (anyLogisticsBroken)
             {
-                logisticsUI.IsOpen = !logisticsUI.IsOpen;
-                ParsekLog.Verbose("UI",
-                    $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
+                ParsekLog.VerboseRateLimited("UI", "logistics-button-broken-tint",
+                    string.Format(CultureInfo.InvariantCulture,
+                        "Logistics button broken-state tint applied (routeCount={0})",
+                        logisticsRouteCount));
+            }
+            Color prevLogisticsColor = GUI.color;
+            if (anyLogisticsBroken)
+                GUI.color = new Color(0.95f, 0.45f, 0.45f);
+            try
+            {
+                if (GUILayout.Button(LogisticsButtonState.FormatLogisticsButtonLabel(logisticsRouteCount)))
+                {
+                    logisticsUI.IsOpen = !logisticsUI.IsOpen;
+                    ParsekLog.Verbose("UI",
+                        $"Logistics window toggled: {(logisticsUI.IsOpen ? "open" : "closed")}");
+                }
+            }
+            finally
+            {
+                GUI.color = prevLogisticsColor;
             }
 
             GUILayout.Space(SpacingLarge);

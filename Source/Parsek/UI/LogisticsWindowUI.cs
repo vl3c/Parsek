@@ -55,7 +55,13 @@ namespace Parsek
         private Route pendingPause;
         private Route pendingActivate;
         private Route pendingSendOnce;
-        private string pendingDeleteRouteId;
+        // Two-step delete: the X button captures the route to confirm here during
+        // the draw loop; ApplyPendingActions spawns the confirm dialog (once) and
+        // clears the field. The dialog's Delete button calls RouteStore.RemoveRoute
+        // directly in its callback (the Wipe-All precedent, ParsekUI), which is safe
+        // because the callback fires outside the draw-loop route iteration. Deletion
+        // never happens without the player confirming.
+        private Route pendingConfirmDeleteRoute;
         private RouteCandidate pendingCreate;
         // Deferred cadence edit: the stepper records (route, new N) during the draw
         // loop; ApplyPendingActions recomputes DispatchInterval = N x span after the
@@ -69,14 +75,7 @@ namespace Parsek
         private GUIStyle statusStyleRed;     // EndpointLost / MissingSourceRecording / SourceChanged
         private GUIStyle statusStyleGrey;    // Paused
         private GUIStyle statusStyleCyan;    // Candidate "eligible"
-        private GUIStyle sectionHeaderStyle;
         private GUIStyle detailStyle;
-
-        // Tab bar (GUILayout.Toolbar splits the window width across buttons).
-        // Only Supply Routes today; reserved for future Schedule / Resources tabs.
-        private GUIStyle toggleButtonStyle;
-        private int selectedTab;
-        private static readonly string[] TabLabels = new[] { "Supply Routes" };
 
         // Column widths. Header and rows use the same constants and live in the
         // same per-section box, so columns line up like the Recordings window.
@@ -85,13 +84,16 @@ namespace Parsek
         private const float ColW_Destination = 180f;
         private const float ColW_Interval = 70f;
         private const float ColW_Transit = 70f;
-        private const float ColW_Cycles = 45f;
-        private const float ColW_Status = 140f;
+        private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
+        private const float ColW_Status = 320f;     // wide enough for the plain-English reason text (QW4)
         private const float ColW_Actions = 190f;   // fixed action cell so Name-expand is identical every row
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
-        private const float MinWindowWidth = 980f;
+        // Fixed columns now total ~1060px (wider Status reason text + Cyc skipped
+        // count from QW4/QW5), so the window floor leaves the expanding Name column
+        // a usable share instead of crushing it.
+        private const float MinWindowWidth = 1180f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -116,7 +118,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1000, 340);
+                windowRect = new Rect(x, mainWindowRect.y, 1260, 340);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -188,17 +190,11 @@ namespace Parsek
                 else activeRoutes.Add(r);
             }
 
-            // Tab bar. GUILayout.Toolbar splits the full window width across the
-            // buttons; with one label it is a single full-width button, and
-            // future Schedule / Resources tabs split the width automatically.
-            selectedTab = GUILayout.Toolbar(selectedTab, TabLabels, toggleButtonStyle);
-            GUILayout.Space(SpacingSmall);
-
             // Reset deferred actions for this frame.
             pendingPause = null;
             pendingActivate = null;
             pendingSendOnce = null;
-            pendingDeleteRouteId = null;
+            pendingConfirmDeleteRoute = null;
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
@@ -212,6 +208,24 @@ namespace Parsek
             DrawCandidateSectionBubble($"Candidates ({candidates.Count})", candidates);
 
             GUILayout.EndScrollView();
+
+            // Tooltip echo box (matches SpawnControlUI / SettingsWindowUI house
+            // style). Read GUI.tooltip AFTER all controls have drawn this frame so
+            // it reflects the currently hovered control, then echo it in a box so
+            // hovering any cell / button shows its help text in-window. When no
+            // control is hovered, emit a zero-height placeholder label so the
+            // window keeps a layout entry here and does not pop its height as the
+            // box appears and disappears (same approach as SpawnControlUI).
+            (bool showEcho, string echoText) = ResolveTooltipEcho(GUI.tooltip);
+            if (showEcho)
+            {
+                GUILayout.Space(SpacingSmall);
+                GUILayout.Label(echoText, GUI.skin.box);
+            }
+            else
+            {
+                GUILayout.Label("", GUILayout.Height(0));
+            }
 
             // Full-width Close button at the bottom (matches Kerbals / Settings windows).
             GUILayout.Space(SpacingSmall);
@@ -296,9 +310,16 @@ namespace Parsek
                     "Dispatch cadence = N x run duration. 1x is the floor (fastest the run allows); raise N in the detail panel to launch less often."),
                 GUILayout.Width(ColW_Interval));
             GUILayout.Label(FormatDuration(route.TransitDuration), GUILayout.Width(ColW_Transit));
-            GUILayout.Label(route.CompletedCycles.ToString(CultureInfo.InvariantCulture), GUILayout.Width(ColW_Cycles));
+            // Completed deliveries, plus "/ N skipped" when cycles were blocked
+            // (ghost flew but delivered nothing). Tooltip spells out the semantics.
+            GUILayout.Label(
+                new GUIContent(FormatCycleCount(route.CompletedCycles, route.SkippedCycles),
+                    "Completed deliveries / blocked cycles (the ghost flew but delivered nothing)."),
+                GUILayout.Width(ColW_Cycles));
 
-            GUILayout.Label(new GUIContent(route.Status.ToString(), StatusReason(route.Status)),
+            // Show the plain-English reason IN the cell; keep the raw enum name in
+            // the hover tooltip (a one-word state token for players who want it).
+            GUILayout.Label(new GUIContent(StatusReason(route.Status), route.Status.ToString()),
                 StatusStyleFor(route.Status), GUILayout.Width(ColW_Status));
 
             // Fixed-width action cell so every row's Name-expand is identical and
@@ -335,7 +356,7 @@ namespace Parsek
                     pendingActivate = route;
             }
             if (GUILayout.Button(new GUIContent("X", "Delete this route"), GUILayout.Width(22)))
-                pendingDeleteRouteId = route.Id;
+                pendingConfirmDeleteRoute = route;
             GUILayout.FlexibleSpace();
             GUILayout.EndHorizontal();
 
@@ -495,8 +516,13 @@ namespace Parsek
 
         private void DrawSectionHeader(string text)
         {
+            // Use the shared house section-header bar (bold label in a box,
+            // left-aligned, full-width) so Logistics headers match Settings /
+            // Recordings / Timeline / Missions instead of the old tinted-label
+            // look. GetSectionHeaderStyle lazily builds the style each call, so it
+            // is safe to call straight from the draw path (matches SettingsWindowUI).
             GUILayout.Space(SpacingSmall);
-            GUILayout.Label(text, sectionHeaderStyle);
+            GUILayout.Label(text, parentUI.GetSectionHeaderStyle());
         }
 
         private void ToggleExpanded(string key, string nameForLog)
@@ -530,10 +556,13 @@ namespace Parsek
                 bool ok = RouteOrchestrator.TrySendOneCycleNow(pendingSendOnce, currentUT);
                 ParsekLog.Info("UI", $"Logistics: Send Once route={ShortId(pendingSendOnce.Id)} result={(ok ? "armed" : "rejected")}");
             }
-            if (!string.IsNullOrEmpty(pendingDeleteRouteId))
+            if (pendingConfirmDeleteRoute != null)
             {
-                bool ok = RouteStore.RemoveRoute(pendingDeleteRouteId);
-                ParsekLog.Info("UI", $"Logistics: Delete route={ShortId(pendingDeleteRouteId)} result={(ok ? "removed" : "not-found")}");
+                // Spawns the modal confirm once on the click frame; the actual
+                // RouteStore.RemoveRoute runs in the dialog's Delete callback (see
+                // SpawnDeleteRouteConfirmation), never here, so deletion is gated on
+                // an explicit confirm.
+                SpawnDeleteRouteConfirmation(pendingConfirmDeleteRoute);
             }
             if (pendingCreate != null)
             {
@@ -552,10 +581,91 @@ namespace Parsek
             pendingPause = null;
             pendingActivate = null;
             pendingSendOnce = null;
-            pendingDeleteRouteId = null;
+            pendingConfirmDeleteRoute = null;
             pendingCreate = null;
             pendingCadenceRoute = null;
             pendingCadenceMultiplier = 0;
+        }
+
+        /// <summary>
+        /// Spawns the modal "Delete route '...'? This cannot be undone." confirm
+        /// (mirrors the Wipe-All confirmation idiom in
+        /// <see cref="ParsekUI.ShowWipeRecordingsConfirmation"/>). The Delete button
+        /// calls <see cref="RouteStore.RemoveRoute"/> directly in its callback, the
+        /// same way Wipe-All performs its destructive action in-callback; this is
+        /// safe because the callback fires outside the window's route iteration, and
+        /// it avoids the frame-top deferred-field reset that would otherwise clobber
+        /// an asynchronously set delete request. Cancel only logs. Deletion never
+        /// happens without a confirm.
+        /// </summary>
+        private void SpawnDeleteRouteConfirmation(Route route)
+        {
+            if (route == null)
+                return;
+
+            // Capture the id locally so the Delete closure does not depend on a
+            // mutable instance field that ApplyPendingActions nulls this frame.
+            string routeId = route.Id;
+            string body = BuildDeleteConfirmBody(route);
+
+            ParsekLog.Info("UI",
+                $"Logistics: Delete route={ShortId(routeId)} confirm dialog spawned");
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekLogisticsDeleteRouteConfirm",
+                    body,
+                    "Confirm: Delete Route",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Delete", () =>
+                    {
+                        bool ok = RouteStore.RemoveRoute(routeId);
+                        ParsekLog.Info("UI",
+                            $"Logistics: Delete route={ShortId(routeId)} confirmed result={(ok ? "removed" : "not-found")}");
+                    }),
+                    new DialogGUIButton("Cancel", () =>
+                    {
+                        ParsekLog.Verbose("UI",
+                            $"Logistics: Delete route={ShortId(routeId)} cancelled");
+                    })),
+                false, HighLogic.UISkin);
+        }
+
+        /// <summary>
+        /// Builds the body text for the route-delete confirm dialog. Uses the
+        /// route's display name when present, falling back to its short id so the
+        /// player always sees an identifier (never the literal "null"). Pure and
+        /// Unity-free for unit testing.
+        /// </summary>
+        internal static string BuildDeleteConfirmBody(Route route)
+        {
+            string name = route != null && !string.IsNullOrEmpty(route.Name)
+                ? route.Name
+                : ShortId(route?.Id);
+            return $"Delete route '{name}'?\n\nThis cannot be undone.";
+        }
+
+        /// <summary>
+        /// The default dispatch interval a window-created route gets, resolved
+        /// through the SAME span helper the Create Route dialog feeds into its
+        /// <see cref="RouteBuilder.RouteCreationInputs.DispatchIntervalSeconds"/>
+        /// (<see cref="RouteCreationDialog.ComputeRootToUndockSpan"/>): the rendered
+        /// [root..dock] span (== the route's TransitDuration, the N=1 cadence floor),
+        /// floored at 1.0. Routing both the window and the dialog through one helper
+        /// guarantees a window create and a dialog create produce the identical
+        /// interval for the same candidate analysis. Pure for unit testing; returns
+        /// the helper's floor (1.0) when the candidate / analysis / tree is null.
+        /// </summary>
+        internal static double ResolveWindowCreateInterval(RouteCandidate candidate)
+        {
+            double interval = RouteCreationDialog.ComputeRootToUndockSpan(
+                candidate?.Analysis, candidate?.Tree);
+            ParsekLog.Verbose("UI",
+                $"Logistics: window create interval resolved tree={ShortId(candidate?.Tree?.Id)} " +
+                $"interval={interval.ToString("R", CultureInfo.InvariantCulture)}s");
+            return interval;
         }
 
         private void CreateRouteFromCandidate(RouteCandidate candidate)
@@ -570,20 +680,27 @@ namespace Parsek
                 ? HighLogic.CurrentGame.Mode
                 : Game.Modes.SANDBOX;
 
-            // v0 debug placeholder interval (30s) so cycles repeat quickly in
-            // testing; created Paused so the player verifies via Send Once before
-            // turning on periodic dispatch. allowIntervalBelowTransit because the
-            // placeholder is intentionally shorter than a real flight's transit.
+            // Window-created routes use the SAME default interval the Create Route
+            // dialog computes: the rendered [root..dock] span (== TransitDuration,
+            // N=1 cadence floor). Both paths funnel through
+            // RouteCreationDialog.ComputeRootToUndockSpan so a route created from
+            // the window is identical (in interval) to one created from the dialog
+            // for the same candidate analysis. Created Paused so the player verifies
+            // via Send Once before turning on periodic dispatch.
+            double interval = ResolveWindowCreateInterval(candidate);
             var inputs = new RouteBuilder.RouteCreationInputs
             {
                 Name = null, // RouteBuilder generates a default name
-                DispatchIntervalSeconds = 30.0
+                DispatchIntervalSeconds = interval
             };
 
             RouteBuilder.RouteBuildOutcome outcome = RouteBuilder.BuildRoute(
                 candidate.Analysis, candidate.Tree, inputs, mode,
                 idFactory: null,
                 initialStatus: RouteStatus.Paused,
+                // Belt-and-suspenders: the dock-based span should never be below
+                // transit, but keep the window path permissive so a degenerate
+                // span can never reject a player-initiated create.
                 allowIntervalBelowTransit: true);
 
             if (outcome.Route != null)
@@ -595,7 +712,7 @@ namespace Parsek
                 // single loop owner is never contended. Route looping wins.
                 RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
                 ParsekLog.Info("UI",
-                    $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval=30s)");
+                    $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");
             }
             else
             {
@@ -712,6 +829,18 @@ namespace Parsek
             return string.Format(CultureInfo.InvariantCulture, "{0:F1}d", seconds / 21600.0); // Kerbin days
         }
 
+        // Cyc-column text (Phase QW5): completed deliveries, plus a "/ N skipped"
+        // suffix when any cycle was blocked (ghost flew, delivered nothing). When
+        // nothing was skipped, just the completed count so the common case stays
+        // compact. Both numbers format with InvariantCulture. Pure for unit testing.
+        internal static string FormatCycleCount(int completed, int skipped)
+        {
+            if (skipped > 0)
+                return completed.ToString(CultureInfo.InvariantCulture)
+                    + " / " + skipped.ToString(CultureInfo.InvariantCulture) + " skipped";
+            return completed.ToString(CultureInfo.InvariantCulture);
+        }
+
         private static string FormatRouteDelivery(Route route)
         {
             if (route.Stops == null || route.Stops.Count == 0) return "-";
@@ -761,9 +890,26 @@ namespace Parsek
             return id.Length > 8 ? id.Substring(0, 8) : id;
         }
 
+        /// <summary>
+        /// Decides whether the bottom tooltip echo box should render and with what
+        /// text. Returns (false, "") when there is no hovered-control tooltip this
+        /// frame (the caller then emits a zero-height placeholder so the IMGUI
+        /// control count stays stable), or (true, tooltip) when a control is
+        /// hovered. Pure and Unity-free for unit testing.
+        /// </summary>
+        internal static (bool show, string text) ResolveTooltipEcho(string guiTooltip)
+        {
+            if (string.IsNullOrEmpty(guiTooltip))
+                return (false, string.Empty);
+            return (true, guiTooltip);
+        }
+
         // Human-readable reason for a status. For blocked-active states this
         // explains why a cycle is "visual-only" (ghost flies, nothing transfers).
-        private static string StatusReason(RouteStatus status)
+        // Rendered IN the Status cell (the raw enum moves to the hover tooltip), so
+        // every RouteStatus must map to a non-empty player-readable string. Pure and
+        // Unity-free for unit testing.
+        internal static string StatusReason(RouteStatus status)
         {
             switch (status)
             {
@@ -816,21 +962,6 @@ namespace Parsek
             statusStyleGrey.normal.textColor = new Color(0.7f, 0.7f, 0.7f);
             statusStyleCyan = new GUIStyle(GUI.skin.label);
             statusStyleCyan.normal.textColor = new Color(0.65f, 0.85f, 1f);
-
-            sectionHeaderStyle = new GUIStyle(GUI.skin.label) { fontStyle = FontStyle.Bold };
-            sectionHeaderStyle.normal.textColor = new Color(0.85f, 0.9f, 1f);
-
-            // Tab-bar button: selected tab looks pressed via onNormal.background
-            // copied from GUI.skin.button.active (matches Kerbals/Career idiom).
-            toggleButtonStyle = new GUIStyle(GUI.skin.button)
-            {
-                fontStyle = FontStyle.Bold,
-                alignment = TextAnchor.MiddleCenter
-            };
-            toggleButtonStyle.onNormal.background = GUI.skin.button.active.background;
-            toggleButtonStyle.onHover.background = GUI.skin.button.active.background;
-            toggleButtonStyle.onNormal.textColor = Color.white;
-            toggleButtonStyle.onHover.textColor = Color.white;
 
             detailStyle = new GUIStyle(GUI.skin.label) { wordWrap = true };
             detailStyle.normal.textColor = new Color(0.8f, 0.8f, 0.8f);
