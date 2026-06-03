@@ -293,12 +293,13 @@ namespace Parsek.Logistics
             // Never count down to a cycle whose dock has already been delivered
             // (matches IsDockCrossing's dockCycleIndex > lastObservedLoopCycleIndex
             // guard). lastObservedLoopCycleIndex defaults to -1 (nothing delivered),
-            // so the floor here is cycle 0.
+            // so the floor is cycle 0; clamp the floor itself non-negative to keep k
+            // >= 0 even if a pathological lastObserved is below -1.
             long minCycle = lastObservedLoopCycleIndex + 1;
+            if (minCycle < 0)
+                minCycle = 0;
             if (k < minCycle)
                 k = minCycle;
-            if (k < 0)
-                k = 0;
 
             double nextDockUT = cycleZeroDockUT + k * cadence;
 

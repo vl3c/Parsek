@@ -1129,7 +1129,17 @@ namespace Parsek
             if (route != null && !string.IsNullOrEmpty(route.Id)
                 && legibilityCache.TryGetValue(route.Id, out RouteLegibility leg))
                 return leg;
-            return default(RouteLegibility);
+            // Cache miss (route not yet refreshed this cycle, or a null/empty id the
+            // refresh loop skipped): return an explicit "unknown" struct. Badge MUST be
+            // set to Paused, NOT left at the struct default, because DeliveryBadge
+            // default is Delivering (= 0) and an unknown route must never flash the
+            // green "Delivering" verdict (wrong-direction failure). DestinationText "-"
+            // matches the empty-cell convention.
+            return new RouteLegibility
+            {
+                Badge = LogisticsDeliveryPresentation.DeliveryBadge.Paused,
+                DestinationText = "-"
+            };
         }
 
         // The H1 "Next" cell text for a cached countdown: the bare formatted countdown
