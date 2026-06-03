@@ -779,9 +779,13 @@ namespace Parsek
             }
             if (pendingCreate != null)
             {
-                CreateRouteFromCandidate(pendingCreate);
-                // Force a candidate recompute next frame so the promoted run leaves the list.
-                lastCandidateComputeRealtime = -1f;
+                // Spawns the informed confirm once on the click frame; the actual
+                // RouteBuilder.BuildRoute (+ TryActivate on "Create and Activate")
+                // runs in the dialog button callbacks (see
+                // SpawnCreateRouteConfirmation), never here, so a route is created
+                // only on an explicit confirm and the candidate / legibility caches
+                // are dirtied in-callback once the route actually exists.
+                SpawnCreateRouteConfirmation(pendingCreate);
             }
             if (pendingCadenceRoute != null)
             {
@@ -864,6 +868,105 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Spawns the informed "Create Supply Route?" confirm for a candidate: a
+        /// window-owned <see cref="MultiOptionDialog"/> rendering
+        /// <see cref="RouteCreationFormatters.BuildSummaryBlock"/> (the SAME summary
+        /// the post-commit auto-dialog shows) with three buttons: "Create Paused"
+        /// (the existing window-create behavior), "Create and Activate" (build then
+        /// <see cref="RouteOrchestrator.TryActivate"/>), and "Cancel". Mirrors
+        /// <see cref="SpawnDeleteRouteConfirmation"/>: the candidate is captured into
+        /// a LOCAL so the closures do not depend on the <c>pendingCreate</c> instance
+        /// field that <see cref="ApplyPendingActions"/> nulls this frame, and each
+        /// create callback runs the build DIRECTLY in the closure (the
+        /// dialog-callback fires asynchronously, outside the draw pass, so setting a
+        /// frame-reset deferred field would be silently clobbered before
+        /// ApplyPendingActions reads it). After a build the callback dirties both
+        /// the candidate cache (the promoted run leaves the Candidates list) and the
+        /// legibility cache (the new route's cells appear immediately). This does NOT
+        /// touch <see cref="RouteCreationDialog"/>: that post-commit auto-dialog is
+        /// unchanged.
+        /// </summary>
+        private void SpawnCreateRouteConfirmation(RouteCandidate candidate)
+        {
+            if (candidate?.Analysis == null || candidate.Tree == null)
+            {
+                ParsekLog.Warn("UI", "Logistics: Create Route confirm - null candidate/analysis/tree, ignored");
+                return;
+            }
+
+            // Capture into locals so the (asynchronous) button closures do not depend
+            // on a mutable instance field that ApplyPendingActions nulls this frame.
+            RouteCandidate cand = candidate;
+            Game.Modes mode = HighLogic.CurrentGame != null
+                ? HighLogic.CurrentGame.Mode
+                : Game.Modes.SANDBOX;
+            // Same summary call the post-commit auto-dialog makes (analysis + mode +
+            // tree); passing cand.Tree makes the Transit line resolve the real
+            // [root..dock] span so the dialog matches the route that gets built.
+            string body = RouteCreationFormatters.BuildSummaryBlock(cand.Analysis, mode, cand.Tree);
+
+            ParsekLog.Info("UI",
+                $"Logistics: Create Route confirm dialog spawned tree={ShortId(cand.Tree.Id)} mode={mode}");
+
+            PopupDialog.SpawnPopupDialog(
+                new Vector2(0.5f, 0.5f),
+                new Vector2(0.5f, 0.5f),
+                new MultiOptionDialog(
+                    "ParsekLogisticsCreateRouteConfirm",
+                    body,
+                    "Create Supply Route?",
+                    HighLogic.UISkin,
+                    new DialogGUIButton("Create Paused", () =>
+                        HandleCreateRouteChoice(cand, LogisticsCreatePresentation.CreateRouteChoice.CreatePaused)),
+                    new DialogGUIButton("Create and Activate", () =>
+                        HandleCreateRouteChoice(cand, LogisticsCreatePresentation.CreateRouteChoice.CreateAndActivate)),
+                    new DialogGUIButton("Cancel", () =>
+                        HandleCreateRouteChoice(cand, LogisticsCreatePresentation.CreateRouteChoice.Cancel))),
+                false, HighLogic.UISkin);
+        }
+
+        /// <summary>
+        /// Runs the in-callback work for a Create Route confirm button. The pure
+        /// <see cref="LogisticsCreatePresentation"/> decision drives the branch:
+        /// <see cref="LogisticsCreatePresentation.ShouldBuild"/> gates the build and
+        /// <see cref="LogisticsCreatePresentation.ShouldActivate"/> gates the
+        /// post-build <see cref="RouteOrchestrator.TryActivate"/>, so the button ->
+        /// effect mapping is unit-tested off the IMGUI path. The build runs DIRECTLY
+        /// here (this is a dialog-button callback, fired asynchronously outside the
+        /// draw pass; the SpawnDeleteRouteConfirmation precedent) so a frame-reset
+        /// deferred field would be clobbered at frame top before ApplyPendingActions
+        /// reads it. After a build both caches are dirtied so the promoted run leaves
+        /// the Candidates list and the new route's cells appear immediately.
+        /// </summary>
+        private void HandleCreateRouteChoice(RouteCandidate cand, LogisticsCreatePresentation.CreateRouteChoice choice)
+        {
+            if (!LogisticsCreatePresentation.ShouldBuild(choice))
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics: Create Route cancelled tree={ShortId(cand?.Tree?.Id)}");
+                return;
+            }
+
+            Route r = CreateRouteFromCandidate(cand);
+            bool activated = false;
+            if (r != null && LogisticsCreatePresentation.ShouldActivate(choice))
+                activated = RouteOrchestrator.TryActivate(r, TryGetCurrentUT());
+
+            // Only dirty the caches when a route was actually created: the promoted run
+            // then leaves the Candidates list and the new route's H1/H2/H3/H4 cells
+            // appear immediately. On a builder reject (r == null) nothing changed, so a
+            // forced recompute would be wasted work.
+            if (r != null)
+            {
+                lastCandidateComputeRealtime = -1f;
+                lastLegibilityComputeRealtime = -1f;
+            }
+
+            ParsekLog.Info("UI",
+                $"Logistics: Create Route choice={choice} tree={ShortId(cand?.Tree?.Id)} result={(r != null ? "created" : "rejected")} activated={activated}");
+        }
+
+        /// <summary>
         /// The default dispatch interval a window-created route gets, resolved
         /// through the SAME span helper the Create Route dialog feeds into its
         /// <see cref="RouteBuilder.RouteCreationInputs.DispatchIntervalSeconds"/>
@@ -884,12 +987,23 @@ namespace Parsek
             return interval;
         }
 
-        private void CreateRouteFromCandidate(RouteCandidate candidate)
+        /// <summary>
+        /// Builds (and stores) a Paused route from a candidate via the single
+        /// <see cref="RouteBuilder.BuildRoute"/> funnel and returns the built
+        /// <see cref="Route"/> (or null on a null candidate or a builder reject).
+        /// The H6 confirm callbacks call this to build, then the "Create and
+        /// Activate" branch additionally calls
+        /// <see cref="RouteOrchestrator.TryActivate"/> on the returned non-null
+        /// route; returning the route keeps a single AddRoute +
+        /// manual-loop-clear funnel and guarantees the window-created route's
+        /// interval / geometry stays identical to today.
+        /// </summary>
+        private Route CreateRouteFromCandidate(RouteCandidate candidate)
         {
             if (candidate?.Analysis == null || candidate.Tree == null)
             {
                 ParsekLog.Warn("UI", "Logistics: Create Route - null candidate/analysis/tree, ignored");
-                return;
+                return null;
             }
 
             Game.Modes mode = HighLogic.CurrentGame != null
@@ -929,12 +1043,12 @@ namespace Parsek
                 RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");
+                return outcome.Route;
             }
-            else
-            {
-                ParsekLog.Info("UI",
-                    $"Logistics: Create Route rejected tree={ShortId(candidate.Tree.Id)} reason={outcome.RejectReason ?? "<none>"}");
-            }
+
+            ParsekLog.Info("UI",
+                $"Logistics: Create Route rejected tree={ShortId(candidate.Tree.Id)} reason={outcome.RejectReason ?? "<none>"}");
+            return null;
         }
 
         // ------------------------------------------------------------------
