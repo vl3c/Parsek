@@ -204,6 +204,111 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(5L, route.LastObservedLoopCycleIndex);
         }
 
+        // ==================================================================
+        // M1: ParseAndSnapInterval (typed target seconds -> snapped N)
+        // ==================================================================
+
+        // catches: the snap not ceiling the typed seconds to the next whole run
+        // multiple. A target just over one span (301 over a 300 span) must snap UP
+        // to N=2, never round down to N=1, so the route never dispatches faster than
+        // the run allows. 599 (just under two spans) still ceils to 2; an exact span
+        // boundary (300, 600) lands on the lower multiple (1, 2).
+        [Theory]
+        [InlineData("301", 300.0, 2)]
+        [InlineData("599", 300.0, 2)]
+        [InlineData("600", 300.0, 2)]
+        [InlineData("300", 300.0, 1)]
+        [InlineData("900", 300.0, 3)]
+        [InlineData("700", 300.0, 3)]
+        public void ParseAndSnapInterval_CeilsToNextMultiple(string text, double span, int expectedN)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
+            Assert.True(ok);
+            Assert.Equal(expectedN, n);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("ParseAndSnapInterval") && l.Contains("N=" + expectedN));
+        }
+
+        // catches: a typed time below a single span snapping below the 1x floor. Any
+        // positive target under one span (50, 0.5 over a 300 span) ceils to 1.
+        [Theory]
+        [InlineData("50", 300.0)]
+        [InlineData("0.5", 300.0)]
+        [InlineData("1", 300.0)]
+        public void ParseAndSnapInterval_BelowOneSpan_FloorsAtOne(string text, double span)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
+            Assert.True(ok);
+            Assert.Equal(1, n);
+        }
+
+        // catches: garbage / empty / non-positive input being accepted and then fed
+        // to ApplyMultiplier (which would silently clamp 0 up to 1 and wrongly reset
+        // an already-raised cadence). All reject: return false, N=0.
+        [Theory]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("abc")]
+        [InlineData("NaN")]
+        [InlineData("Infinity")]
+        [InlineData("-100")]
+        [InlineData("0")]
+        public void ParseAndSnapInterval_Garbage_Rejects(string text)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, 300.0, out int n);
+            Assert.False(ok);
+            Assert.Equal(0, n);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("ParseAndSnapInterval") && l.Contains("reject"));
+        }
+
+        // catches: a comma being silently reinterpreted as a decimal point on a
+        // comma-locale system. The parse uses NumberStyles.Float (no AllowThousands)
+        // with InvariantCulture, so "1,5" is NOT parsed as 1.5 (which a comma-locale
+        // Parse would do): it is rejected outright. This pins that a comma can never
+        // sneak through to produce a wrong cadence; the player re-types with a dot.
+        [Fact]
+        public void ParseAndSnapInterval_CommaNotTreatedAsDecimal_Rejects()
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval("1,5", 300.0, out int n);
+            Assert.False(ok); // NOT parsed as 1.5; comma rejected under InvariantCulture Float
+            Assert.Equal(0, n);
+        }
+
+        // catches: a non-positive / non-finite span being snapped against (a divide
+        // that would yield 0 / NaN / Infinity). Reject regardless of the text.
+        [Theory]
+        [InlineData("600", 0.0)]
+        [InlineData("600", -300.0)]
+        [InlineData("600", double.NaN)]
+        [InlineData("600", double.PositiveInfinity)]
+        public void ParseAndSnapInterval_BadSpan_Rejects(string text, double span)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
+            Assert.False(ok);
+            Assert.Equal(0, n);
+        }
+
+        // catches: the snap not feeding ApplyMultiplier correctly end-to-end. A
+        // typed 700 over a 300 span snaps to N=3; ApplyMultiplier then sets
+        // DispatchInterval = 3 * 300 = 900 and logs the cadence change.
+        [Fact]
+        public void ParseAndSnapInterval_FeedsApplyMultiplier_RoundTrip()
+        {
+            Route route = RouteWithSpan(span: 300.0, multiplier: 1);
+
+            bool ok = RouteCadence.ParseAndSnapInterval("700", route.TransitDuration, out int n);
+            Assert.True(ok);
+            Assert.Equal(3, n);
+
+            bool changed = RouteCadence.ApplyMultiplier(route, n);
+            Assert.True(changed);
+            Assert.Equal(3, route.CadenceMultiplier);
+            Assert.Equal(900.0, route.DispatchInterval);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Route]") && l.Contains("RouteCadence") && l.Contains("1x->3x"));
+        }
+
         // catches (LST-3 end-to-end): after a cadence change the next in-span dock
         // crossing fires EXACTLY once. Without the -1 rebase a stale lastObserved
         // (here 3) would never be exceeded by the post-change cycleIndex (smaller

@@ -420,5 +420,113 @@ namespace Parsek
                     "{0} (rec {1})", recordingName, humanTreePosition);
             return recordingName;
         }
+
+        // ------------------------------------------------------------------
+        // M4: disambiguate DestinationFull (free-capacity context) and offer a
+        // re-scan for a recoverable surface EndpointLost.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// One destination resource's capacity context: how much the route asked
+        /// to deliver this cycle (<see cref="Requested"/>) and how much free
+        /// capacity the destination vessel currently has (<see cref="Free"/>). The
+        /// LIVE free-capacity read (LiveDeliveryCapacityProbe over a real Vessel)
+        /// happens in the window's ~1 Hz legibility pass, never in this pure layer;
+        /// these are already-resolved numbers.
+        /// </summary>
+        internal readonly struct CapacityEntry
+        {
+            internal CapacityEntry(string resource, double requested, double free)
+            {
+                Resource = resource;
+                Requested = requested;
+                Free = free;
+            }
+
+            /// <summary>Full stock resource key (no abbreviation).</summary>
+            internal string Resource { get; }
+
+            /// <summary>Amount the route requested to deliver this cycle.</summary>
+            internal double Requested { get; }
+
+            /// <summary>Free capacity on the destination vessel for this resource.</summary>
+            internal double Free { get; }
+        }
+
+        /// <summary>
+        /// Formats the DestinationFull free-capacity context line, e.g.
+        /// "Munar Station tanks full: 0.0 of 150.0 LiquidFuel free" (multi-resource
+        /// comma-joined, ordinal-sorted by resource key for stable ordering like
+        /// <see cref="FormatRealizedDelivery"/>). Each entry renders as
+        /// "&lt;free&gt; of &lt;requested&gt; &lt;resource&gt; free" with F1 +
+        /// InvariantCulture and the full stock resource key. A null / empty entry
+        /// list yields "(capacity unknown)" so the line is never blank when the
+        /// route is DestinationFull but the destination could not be probed.
+        /// </summary>
+        /// <param name="destinationName">The resolved destination vessel name, or
+        /// null / empty when it could not be resolved (falls back to "Destination").</param>
+        /// <param name="entries">Already-resolved per-resource (requested, free)
+        /// pairs.</param>
+        internal static string FormatCapacityContext(
+            string destinationName, IReadOnlyList<CapacityEntry> entries)
+        {
+            string name = string.IsNullOrEmpty(destinationName) ? "Destination" : destinationName;
+            if (entries == null || entries.Count == 0)
+                return name + " tanks full: (capacity unknown)";
+
+            // Sort by resource key (ordinal) so the per-resource order is stable
+            // across cache refreshes, matching the other delivery formatters.
+            var sorted = new List<CapacityEntry>(entries);
+            sorted.Sort((a, b) => string.CompareOrdinal(a.Resource, b.Resource));
+
+            var sb = new StringBuilder();
+            sb.Append(name).Append(" tanks full: ");
+            bool first = true;
+            foreach (CapacityEntry entry in sorted)
+            {
+                if (!first) sb.Append(", ");
+                first = false;
+                sb.Append(entry.Free.ToString("F1", CultureInfo.InvariantCulture))
+                  .Append(" of ")
+                  .Append(entry.Requested.ToString("F1", CultureInfo.InvariantCulture))
+                  .Append(' ')
+                  .Append(string.IsNullOrEmpty(entry.Resource) ? "<unknown>" : entry.Resource)
+                  .Append(" free");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Pure decision: whether the route detail panel should offer a "Re-scan for
+        /// endpoint" button. True only for a recoverable SURFACE endpoint loss, i.e.
+        /// <paramref name="status"/> == <see cref="RouteStatus.EndpointLost"/> AND the
+        /// endpoint is a surface endpoint with a known body. The surface-proximity
+        /// fallback in RouteEndpointResolver can only re-find a SURFACE target; an
+        /// orbital endpoint loss re-runs the identical baked-PID lookup, so re-scan
+        /// cannot recover it (the caller shows a disabled note instead, see
+        /// <see cref="RescanIneligibleReason"/>).
+        /// </summary>
+        internal static bool ShouldOfferEndpointRescan(RouteStatus status, RouteEndpoint endpoint)
+        {
+            return status == RouteStatus.EndpointLost
+                && endpoint.IsSurface
+                && !string.IsNullOrEmpty(endpoint.BodyName);
+        }
+
+        /// <summary>
+        /// The disabled-note explanation when a re-scan is not offered for an
+        /// EndpointLost route. An orbital endpoint (not surface) can only be matched
+        /// by its baked target PID, so re-scan cannot help: the player must re-create
+        /// the route. A surface endpoint with no body name carries no anchor for the
+        /// surface-proximity fallback. Both cases steer the player to re-create.
+        /// </summary>
+        internal static string RescanIneligibleReason(RouteEndpoint endpoint)
+        {
+            if (!endpoint.IsSurface)
+                return "Orbital endpoint: only the baked target PID can be matched. "
+                    + "Re-create the route to point at a new vessel.";
+            return "Endpoint has no body reference to re-scan. "
+                + "Re-create the route to point at a new vessel.";
+        }
     }
 }

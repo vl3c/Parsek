@@ -50,6 +50,14 @@ namespace Parsek
         private float lastCandidateComputeRealtime = -1f;
         private const float CandidateRecomputeIntervalSeconds = 1.0f;
 
+        // M3 near-miss cache: the "recently committed trees not yet eligible" list
+        // (DeriveNearMisses walks every committed tree through RouteAnalysisEngine,
+        // exactly like DeriveCandidates), throttled on the SAME ~1 Hz timer as the
+        // candidate cache so the subsection never scans live on the IMGUI draw path.
+        // The draw path only READS this cached list.
+        private List<RouteNearMiss> cachedNearMisses = new List<RouteNearMiss>();
+        private float lastNearMissComputeRealtime = -1f;
+
         // Throttled per-route legibility cache (Phase 2 H1/H2/H3). Recomputing the
         // next-dock-crossing countdown (H1, a LoopUnit build) and the realized /
         // cumulative delivery summary (H2/H3, an ELS scan) is NOT free, and many
@@ -89,6 +97,14 @@ namespace Parsek
             // scan that must not run every IMGUI frame.
             public string DestinationText;     // resolved vessel name, or coords fallback
             public string DestinationTooltip;  // coords when the name resolved, else empty
+
+            // M4: DestinationFull free-capacity context line, e.g. "Munar Station
+            // tanks full: 0.0 of 150.0 LiquidFuel free". Built ONLY for a
+            // DestinationFull route, from a LIVE LiveDeliveryCapacityProbe over the
+            // resolved destination Vessel, here on the ~1 Hz refresh (never per
+            // IMGUI frame). Null for any other status; the detail draw path reads
+            // this cached string.
+            public string CapacityContext;
         }
 
         // Deferred mutations: collected during the draw loop and applied after the
@@ -96,6 +112,14 @@ namespace Parsek
         private Route pendingPause;
         private Route pendingActivate;
         private Route pendingSendOnce;
+        // M6: which routes were armed via Send Once (not Pause). Both arming paths set
+        // the same Route.PauseAfterCurrentCycle flag and a Send-Once arm un-pauses
+        // Paused -> Active -> InTransit while still armed, so route.Status alone cannot
+        // tell a Send-Once-in-transit from a Pause-armed-in-transit. This UI-side set
+        // (populated when a Send Once succeeds, pruned on the ~1 Hz refresh) records the
+        // provenance so the disabled-button label is correct for the whole cycle; the
+        // status heuristic stays the fallback for entries lost across save/reload.
+        private readonly HashSet<string> sendOnceArmedRouteIds = new HashSet<string>();
         // Two-step delete: the X button captures the route to confirm here during
         // the draw loop; ApplyPendingActions spawns the confirm dialog (once) and
         // clears the field. The dialog's Delete button calls RouteStore.RemoveRoute
@@ -110,6 +134,28 @@ namespace Parsek
         private Route pendingCadenceRoute;
         private int pendingCadenceMultiplier;
 
+        // M1 inline interval text field (deferred-commit, SettingsWindowUI idiom).
+        // Keyed by route.Id (NOT a row index) because routes are re-sectioned /
+        // added / removed between frames. While editing, the typed text is held here
+        // and committed on Enter or click-outside through ParseAndSnapInterval ->
+        // ApplyMultiplier (run DIRECTLY in the commit, not via a frame-reset pending
+        // field, per the QW2 lesson). intervalEditRect is the field's screen rect for
+        // the click-outside-to-commit hit test.
+        private string intervalEditRouteId;
+        private string intervalEditText;
+        private bool intervalEditFocused;
+        private Rect intervalEditRect;
+
+        // M2 detail-panel route rename (deferred-commit, RecordingsTableUI idiom).
+        // Keyed by route.Id for the same re-sectioning reason as the interval edit.
+        // The rename commit writes Route.Name directly (already persisted via the
+        // existing codec, so no schema work); empty / whitespace / unchanged input is
+        // rejected by the pure LogisticsRenamePresentation.ComputeRouteRename helper.
+        private string renamingRouteId;
+        private string renamingRouteText;
+        private bool renamingRouteFocused;
+        private Rect renamingRouteRect;
+
         // Status text styles (lazy; mirrors RecordingsTableUI.EnsureStatusStyles).
         private GUIStyle statusStyleGreen;   // Active / InTransit
         private GUIStyle statusStyleYellow;  // WaitingForResources / WaitingForFunds / DestinationFull
@@ -123,7 +169,11 @@ namespace Parsek
         private const float ColW_Num = 30f;        // "#" row-index column (per section)
         private const float ColW_Origin = 95f;      // compacted (QW-origin short: "KSC (funds)" / "depot pid=N")
         private const float ColW_Destination = 180f;
-        private const float ColW_Interval = 70f;
+        // Widened from 70f for the M1 inline cadence control: a compact "[-] field
+        // [+]" stepper (decrement, an editable target-seconds TextField, increment)
+        // plus a small "Nx" multiplier label needs the extra width; the read-only
+        // "Nx (~human)" label no longer lives here.
+        private const float ColW_Interval = 150f;
         private const float ColW_Transit = 70f;
         private const float ColW_Cycles = 80f;     // "3 / 1 skipped" fits without clipping (QW5)
         private const float ColW_NextDelivery = 90f; // H1 "Next delivery" countdown ("T-12m 5s")
@@ -133,11 +183,12 @@ namespace Parsek
 
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 8f;
-        // Fixed columns now total ~1165px (Status/Origin compacted to claw back
-        // ~105px, plus the two new H1 Next-delivery + H3 badge columns), so the
-        // window floor is raised in step with them to keep the expanding Name column
-        // a usable share instead of crushing it.
-        private const float MinWindowWidth = 1300f;
+        // Fixed columns now total ~1245px (Status/Origin compacted to claw back
+        // ~105px, plus the two new H1 Next-delivery + H3 badge columns and the M1
+        // wider Interval column for the inline cadence stepper), so the window floor
+        // is raised in step with them to keep the expanding Name column a usable
+        // share instead of crushing it.
+        private const float MinWindowWidth = 1380f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -220,6 +271,16 @@ namespace Parsek
             double currentUT = TryGetCurrentUT();
             IReadOnlyList<Route> routes = RouteStore.CommittedRoutes;
             List<RouteCandidate> candidates = GetCandidates();
+            // M3: committed-but-not-yet-eligible trees, throttled on the same ~1 Hz
+            // timer as the candidates above (never derived on the draw path).
+            List<RouteNearMiss> nearMisses = GetNearMisses();
+
+            // Click outside an active inline edit field (M1 interval / M2 rename) ->
+            // commit it. Runs BEFORE the rows draw (matching the RecordingsTableUI
+            // defocus ordering) so the commit lands this frame; the rect was captured
+            // on the previous frame's draw. Both commits run their action directly
+            // (no frame-reset pending field), so an async click cannot be clobbered.
+            HandleLogisticsDefocus(routes);
 
             // Throttled per-route legibility recompute (H1/H2/H3). Runs at most once
             // per ~1s over the committed routes, NOT per row per IMGUI frame; the
@@ -254,7 +315,7 @@ namespace Parsek
             // header and data columns share the box and line up exactly.
             DrawRouteSectionBubble($"Active Routes ({activeRoutes.Count})", activeRoutes, RouteSection.Active, currentUT);
             DrawRouteSectionBubble($"Paused Routes ({pausedRoutes.Count})", pausedRoutes, RouteSection.Paused, currentUT);
-            DrawCandidateSectionBubble($"Candidates ({candidates.Count})", candidates);
+            DrawCandidateSectionBubble($"Candidates ({candidates.Count})", candidates, nearMisses);
 
             GUILayout.EndScrollView();
 
@@ -291,6 +352,52 @@ namespace Parsek
             ApplyPendingActions(currentUT);
         }
 
+        /// <summary>
+        /// Commits an active inline edit (M1 interval field / M2 rename field) when
+        /// the player clicks OUTSIDE its field rect, mirroring
+        /// <c>RecordingsTableUI.HandleRecordingsDefocus</c> and the SettingsWindowUI
+        /// click-outside-commit. Only acts on a MouseDown whose position is outside
+        /// the captured field rect (a non-zero-width rect from the previous frame's
+        /// draw). The route is resolved by the stored edit id from
+        /// <paramref name="routes"/>; both commit helpers run their action directly,
+        /// so a resolved-null id just clears the edit state.
+        /// </summary>
+        private void HandleLogisticsDefocus(IReadOnlyList<Route> routes)
+        {
+            if (Event.current.type != EventType.MouseDown)
+                return;
+
+            Vector2 mouse = Event.current.mousePosition;
+
+            if (renamingRouteId != null && renamingRouteRect.width > 0
+                && !renamingRouteRect.Contains(mouse))
+            {
+                CommitRouteRename(FindRouteById(routes, renamingRouteId));
+            }
+            else if (intervalEditRouteId != null && intervalEditRect.width > 0
+                && !intervalEditRect.Contains(mouse))
+            {
+                Route route = FindRouteById(routes, intervalEditRouteId);
+                if (route != null)
+                    CommitIntervalEdit(route);
+                else
+                    ClearIntervalEdit();
+            }
+        }
+
+        private static Route FindRouteById(IReadOnlyList<Route> routes, string id)
+        {
+            if (routes == null || string.IsNullOrEmpty(id))
+                return null;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                Route r = routes[i];
+                if (r != null && string.Equals(r.Id, id, System.StringComparison.Ordinal))
+                    return r;
+            }
+            return null;
+        }
+
         private void DrawRouteSectionBubble(string title, List<Route> rows, RouteSection section, double currentUT)
         {
             DrawSectionHeader(title);
@@ -304,7 +411,7 @@ namespace Parsek
             GUILayout.Space(SpacingSmall);
         }
 
-        private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows)
+        private void DrawCandidateSectionBubble(string title, List<RouteCandidate> rows, List<RouteNearMiss> nearMisses)
         {
             DrawSectionHeader(title);
             GUILayout.BeginVertical(GUI.skin.box);
@@ -313,8 +420,75 @@ namespace Parsek
                 GUILayout.Label("  No eligible Supply Runs. Fly a one-way transport that docks, transfers cargo to the destination, and undocks, then commit and seal the recording.", detailStyle);
             for (int i = 0; i < rows.Count; i++)
                 DrawCandidateRow(rows[i], i + 1);
+
+            // M3: a collapsible subsection that surfaces WHY a recently committed tree
+            // is NOT a candidate (not fully sealed, or sealed-but-ineligible), so the
+            // player can tell "I have not committed/sealed it yet" apart from "the run
+            // does not match the dock-deliver-undock proof". Reads only the cached list.
+            DrawNearMissSubsection(nearMisses);
+
             GUILayout.EndVertical();
             GUILayout.Space(SpacingSmall);
+        }
+
+        // M3 near-miss subsection key (collapsible via the shared expandedRows set).
+        private const string NearMissSectionKey = "nearmiss:section";
+
+        /// <summary>
+        /// Draws the M3 "Recently committed trees not yet eligible" collapsible
+        /// subsection at the bottom of the Candidates bubble. A caret header toggled
+        /// through the shared <see cref="expandedRows"/> / <see cref="ToggleExpanded"/>
+        /// idiom (fixed key <see cref="NearMissSectionKey"/>); when expanded, one line
+        /// per <see cref="RouteNearMiss"/> showing the tree display name and its
+        /// blocking reason from the pure
+        /// <see cref="LogisticsRejectPresentation.DescribeNearMiss"/>. Nothing renders
+        /// when the cached near-miss list is empty. All reads are against the cached
+        /// list (built on the ~1 Hz timer in <see cref="GetNearMisses"/>), never live
+        /// on the IMGUI draw path.
+        /// </summary>
+        private void DrawNearMissSubsection(List<RouteNearMiss> nearMisses)
+        {
+            if (nearMisses == null || nearMisses.Count == 0)
+                return;
+
+            bool expanded = expandedRows.Contains(NearMissSectionKey);
+            string arrow = expanded ? "\u25bc" : "\u25b6";
+            GUILayout.Space(SpacingSmall);
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(8f);
+            if (GUILayout.Button(
+                    new GUIContent(
+                        $"{arrow} Recently committed trees not yet eligible ({nearMisses.Count.ToString(CultureInfo.InvariantCulture)})",
+                        "Committed trees that are not Supply Run candidates yet, with the reason: not fully sealed, or sealed but the run does not match the dock-deliver-undock proof."),
+                    GUI.skin.label, GUILayout.ExpandWidth(true)))
+                ToggleExpanded(NearMissSectionKey, "near-miss subsection");
+            GUILayout.EndHorizontal();
+
+            if (!expanded)
+                return;
+
+            for (int i = 0; i < nearMisses.Count; i++)
+            {
+                RouteNearMiss nm = nearMisses[i];
+                if (nm == null) continue;
+                string treeName = NearMissTreeLabel(nm.Tree);
+                string reason = LogisticsRejectPresentation.DescribeNearMiss(
+                    nm.Status, nm.NotSealed, nm.ReflyableCount);
+                DetailLine($"{treeName} - {reason}");
+            }
+        }
+
+        // Display label for a near-miss tree: the player-visible TreeName, falling
+        // back to the short tree id and then "<unnamed>" so a row is never blank.
+        private static string NearMissTreeLabel(RecordingTree tree)
+        {
+            if (tree == null)
+                return "<unnamed>";
+            if (!string.IsNullOrEmpty(tree.TreeName))
+                return tree.TreeName;
+            if (!string.IsNullOrEmpty(tree.Id))
+                return ShortId(tree.Id);
+            return "<unnamed>";
         }
 
         private void DrawColumnHeader()
@@ -363,12 +537,13 @@ namespace Parsek
             GUILayout.Label(
                 new GUIContent(leg.DestinationText ?? "-", leg.DestinationTooltip ?? string.Empty),
                 GUILayout.Width(ColW_Destination));
-            // Interval cell shows BOTH the cadence multiplier and the resulting human
-            // cadence (e.g. "1x (~14m)"); the full stepper lives in the detail panel.
-            GUILayout.Label(
-                new GUIContent(FormatCadence(route),
-                    "Dispatch cadence = N x run duration. 1x is the floor (fastest the run allows); raise N in the detail panel to launch less often."),
-                GUILayout.Width(ColW_Interval));
+            // M1: inline cadence control in the Interval cell. A compact "[-] field
+            // [+]" stepper plus a small "Nx" multiplier label. The -/+ buttons reuse
+            // the existing deferred-mutation fields (committed synchronously in
+            // ApplyPendingActions the same frame); the editable field types a target
+            // interval in seconds and commits on Enter / click-outside through
+            // ParseAndSnapInterval -> ApplyMultiplier (run directly in the commit).
+            DrawIntervalCell(route);
             GUILayout.Label(FormatDuration(route.TransitDuration), GUILayout.Width(ColW_Transit));
             // Completed deliveries, plus "/ N skipped" when cycles were blocked
             // (ghost flew but delivered nothing). Tooltip spells out the semantics.
@@ -403,16 +578,25 @@ namespace Parsek
             GUILayout.BeginHorizontal(GUILayout.Width(ColW_Actions));
             if (ShouldShowSendingButton(route))
             {
-                // Armed one-shot / in-flight cycle (Send Once, or Pause while
-                // InTransit): the route will dispatch one cycle at the next
-                // dispatch window, then return to Paused. Show a disabled
-                // "Sending..." button so the click reads as registered and the
-                // route reads as armed-and-waiting rather than idle.
+                // Armed one-shot / in-flight cycle. Both arming paths set the same
+                // PauseAfterCurrentCycle flag, so M6 resolves which action armed it
+                // from the send-once provenance set first (authoritative within the
+                // session) and falls back to the route's status only for entries lost
+                // across save/reload: a Pause requested while InTransit reads "Pausing
+                // after this cycle..." (it finishes the current cycle then stops); a
+                // Send Once arm reads "Sending one cycle...". The button stays disabled
+                // either way so the click reads as registered and the route reads as
+                // armed-and-waiting rather than idle. Wider than the old "Sending..."
+                // cell so the longer pause label does not clip.
+                bool sendOnceArmed = !string.IsNullOrEmpty(route.Id)
+                    && sendOnceArmedRouteIds.Contains(route.Id);
+                ArmedSendKind armedKind = ResolveArmedKind(sendOnceArmed, route.Status);
                 bool prevEnabled = GUI.enabled;
                 GUI.enabled = false;
-                GUILayout.Button(new GUIContent("Sending...",
-                        "Armed: this route will dispatch one cycle at the next dispatch window (funds, resources, endpoint, and alignment permitting), then return to Paused."),
-                    GUILayout.Width(74));
+                GUILayout.Button(new GUIContent(
+                        LabelForArmedState(armedKind),
+                        TooltipForArmedState(armedKind)),
+                    GUILayout.Width(160f));
                 GUI.enabled = prevEnabled;
             }
             else if (section == RouteSection.Active)
@@ -440,6 +624,167 @@ namespace Parsek
 
             if (expanded)
                 DrawRouteDetail(route, currentUT);
+        }
+
+        /// <summary>
+        /// Draws the M1 inline cadence control inside the Interval cell of a route
+        /// row: a compact "[-] field [+]" stepper plus a small "Nx" multiplier label.
+        /// The "-" / "+" buttons step the multiplier through the existing
+        /// deferred-mutation fields (committed synchronously the same frame in
+        /// <see cref="ApplyPendingActions"/>), so the +/- path is NOT the QW2
+        /// frame-reset trap. The editable TextField holds a typed target interval in
+        /// seconds using the SettingsWindowUI deferred-commit idiom
+        /// (<see cref="GUI.SetNextControlName"/> keyed per route, edit-start on focus,
+        /// commit on Enter / click-outside); its commit runs
+        /// <see cref="RouteCadence.ParseAndSnapInterval"/> -> the snapped N ->
+        /// <see cref="RouteCadence.ApplyMultiplier"/> DIRECTLY in
+        /// <see cref="CommitIntervalEdit"/> (never via a frame-reset pending field).
+        /// </summary>
+        private void DrawIntervalCell(Route route)
+        {
+            string controlName = "LogiInterval_" + (route.Id ?? "<no-id>");
+            bool editingThis = renamingRouteId == null
+                && string.Equals(intervalEditRouteId, route.Id, System.StringComparison.Ordinal);
+            int n = Route.ClampCadenceMultiplier(route.CadenceMultiplier);
+
+            GUILayout.BeginHorizontal(GUILayout.Width(ColW_Interval));
+
+            // "-" decrements the multiplier (no-op + greyed at the 1x floor). Routes
+            // through the synchronous deferred fields like the detail-panel stepper.
+            bool atFloor = n <= 1;
+            GUI.enabled = !atFloor;
+            if (GUILayout.Button(new GUIContent("-",
+                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch more often"),
+                    GUILayout.Width(20f)))
+            {
+                pendingCadenceRoute = route;
+                pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, -1);
+            }
+            GUI.enabled = true;
+
+            // Editable target-interval field (seconds). Deferred commit: while not
+            // editing this route we show the live interval value and arm editing when
+            // the field gains focus; while editing we hold the typed text and commit
+            // on Enter (focus-loss / click-outside is handled in HandleLogisticsDefocus).
+            if (!editingThis)
+            {
+                string display = FormatIntervalFieldValue(route.DispatchInterval);
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(display, GUILayout.Width(64f));
+                if (GUI.GetNameOfFocusedControl() == controlName)
+                {
+                    intervalEditRouteId = route.Id;
+                    intervalEditText = newText;
+                    intervalEditFocused = true;
+                    intervalEditRect = GUILayoutUtility.GetLastRect();
+                    ParsekLog.Verbose("UI",
+                        $"Logistics: interval edit started route={ShortId(route.Id)} value='{newText}'");
+                }
+            }
+            else
+            {
+                bool submit = Event.current.type == EventType.KeyDown
+                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancel = Event.current.type == EventType.KeyDown
+                    && Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName(controlName);
+                string newText = GUILayout.TextField(intervalEditText, GUILayout.Width(64f));
+                intervalEditRect = GUILayoutUtility.GetLastRect();
+                if (newText != intervalEditText)
+                    intervalEditText = newText;
+
+                if (!intervalEditFocused)
+                {
+                    GUI.FocusControl(controlName);
+                    intervalEditFocused = true;
+                }
+
+                if (submit)
+                {
+                    CommitIntervalEdit(route);
+                    Event.current.Use();
+                }
+                else if (cancel)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Logistics: interval edit cancelled route={ShortId(route.Id)}");
+                    ClearIntervalEdit();
+                    Event.current.Use();
+                }
+            }
+
+            if (GUILayout.Button(new GUIContent("+", "Dispatch less often"), GUILayout.Width(20f)))
+            {
+                pendingCadenceRoute = route;
+                pendingCadenceMultiplier = RouteCadence.StepMultiplier(n, +1);
+            }
+
+            // Compact "Nx" multiplier readout (the human duration moves to the tooltip
+            // so the cell stays narrow); hovering shows "Nx (~human)".
+            GUILayout.Label(
+                new GUIContent(
+                    string.Format(CultureInfo.InvariantCulture, "{0}x", n),
+                    "Dispatch cadence = N x run duration. Type a target interval (seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows)."),
+                GUILayout.Width(28f));
+
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Commits the M1 inline interval edit for <paramref name="route"/>: parses
+        /// the typed target seconds and snaps it to a cadence multiplier via
+        /// <see cref="RouteCadence.ParseAndSnapInterval"/>, then applies it through
+        /// <see cref="RouteCadence.ApplyMultiplier"/> DIRECTLY here (not via a
+        /// frame-reset pending field). A rejected parse (empty / garbage /
+        /// non-positive) leaves the route unchanged and Warn-logs (mirrors
+        /// <c>CommitAutoLoopEdit</c>'s reject branch). On a real change the legibility
+        /// cache is dirtied (<c>lastLegibilityComputeRealtime = -1f</c>) so the
+        /// route's cells refresh immediately rather than waiting out the ~1s timer.
+        /// Always clears the edit state.
+        /// </summary>
+        private void CommitIntervalEdit(Route route)
+        {
+            string typed = intervalEditText;
+            double span = route != null ? route.TransitDuration : 0.0;
+            if (RouteCadence.ParseAndSnapInterval(typed, span, out int multiplier))
+            {
+                bool changed = RouteCadence.ApplyMultiplier(route, multiplier);
+                ParsekLog.Info("UI",
+                    $"Logistics: interval edit committed route={ShortId(route?.Id)} typed='{typed}' " +
+                    $"N={multiplier.ToString(CultureInfo.InvariantCulture)} result={(changed ? "applied" : "unchanged")}");
+                if (changed)
+                    lastLegibilityComputeRealtime = -1f;
+            }
+            else
+            {
+                ParsekLog.Warn("UI",
+                    $"Logistics: interval edit rejected route={ShortId(route?.Id)} typed='{typed}' " +
+                    $"span={span.ToString("R", CultureInfo.InvariantCulture)} (route unchanged)");
+            }
+            ClearIntervalEdit();
+        }
+
+        private void ClearIntervalEdit()
+        {
+            intervalEditRouteId = null;
+            intervalEditText = null;
+            intervalEditFocused = false;
+            intervalEditRect = default;
+            GUIUtility.keyboardControl = 0;
+        }
+
+        /// <summary>
+        /// Formats the editable interval field's display value: a plain seconds count
+        /// (InvariantCulture, no unit suffix so the typed-and-displayed forms match).
+        /// A non-positive / non-finite interval shows "0" so the field is always
+        /// editable. Pure for unit testing.
+        /// </summary>
+        internal static string FormatIntervalFieldValue(double seconds)
+        {
+            if (seconds <= 0.0 || double.IsNaN(seconds) || double.IsInfinity(seconds))
+                return "0";
+            return seconds.ToString("F0", CultureInfo.InvariantCulture);
         }
 
         /// <summary>
@@ -471,6 +816,93 @@ namespace Parsek
                     // hard-broken endpoint/source state: not actively sending,
                     // so show the normal action buttons.
                     return false;
+            }
+        }
+
+        /// <summary>
+        /// Which action armed a route's <see cref="Route.PauseAfterCurrentCycle"/>
+        /// flag (M6). There is no separately tracked armedBy field; both arming
+        /// paths set the same bool, so the armer is inferred from the route's status
+        /// at the moment the disabled affordance is shown.
+        /// </summary>
+        internal enum ArmedSendKind
+        {
+            /// <summary>Armed by Send Once (Active / blocked-active dispatchable wait).</summary>
+            SendOnce = 0,
+
+            /// <summary>Armed by Pause requested while the cycle was InTransit.</summary>
+            PauseAfterCycle = 1,
+        }
+
+        /// <summary>
+        /// HEURISTIC fallback for which action armed
+        /// <see cref="Route.PauseAfterCurrentCycle"/> when the send-once provenance is
+        /// unknown (e.g. lost across save/reload). The two orchestrator paths leave
+        /// disjoint statuses AT ARM TIME: <c>TrySendOneCycleNow</c> leaves the route
+        /// Active (un-pausing from Paused) or a blocked-active wait; <c>TryPause</c>
+        /// sets the flag only on the InTransit branch. But a Send-Once arm then
+        /// dispatches Active -> InTransit while still armed, so once the cycle is in
+        /// flight status alone reads InTransit for BOTH paths. That is why the live
+        /// label uses <see cref="ResolveArmedKind"/> with the
+        /// <c>sendOnceArmedRouteIds</c> provenance set as the authoritative source and
+        /// this status heuristic only as the post-reload fallback.
+        /// </summary>
+        internal static ArmedSendKind ClassifyArmedSend(RouteStatus priorStatus)
+        {
+            return priorStatus == RouteStatus.InTransit
+                ? ArmedSendKind.PauseAfterCycle
+                : ArmedSendKind.SendOnce;
+        }
+
+        /// <summary>
+        /// Resolves the armed-state kind for the disabled-button label (M6). When the
+        /// route is known to have been armed by Send Once (<paramref name="sendOnceArmed"/>,
+        /// from the UI provenance set) the answer is unambiguously
+        /// <see cref="ArmedSendKind.SendOnce"/> regardless of the route's current status,
+        /// which fixes the mislabel where a Send-Once cycle that has dispatched to
+        /// InTransit would otherwise read "Pausing after this cycle...". Otherwise it
+        /// falls back to the <see cref="ClassifyArmedSend"/> status heuristic. Pure.
+        /// </summary>
+        internal static ArmedSendKind ResolveArmedKind(bool sendOnceArmed, RouteStatus priorStatus)
+        {
+            return sendOnceArmed ? ArmedSendKind.SendOnce : ClassifyArmedSend(priorStatus);
+        }
+
+        /// <summary>
+        /// The disabled-button label for an armed state (M6). A Pause-armed route
+        /// shows "Pausing after this cycle..."; a Send-Once-armed route shows
+        /// "Sending one cycle...". Plain ASCII (literal three dots), no glyphs.
+        /// </summary>
+        internal static string LabelForArmedState(ArmedSendKind kind)
+        {
+            switch (kind)
+            {
+                case ArmedSendKind.PauseAfterCycle:
+                    return "Pausing after this cycle...";
+                case ArmedSendKind.SendOnce:
+                default:
+                    return "Sending one cycle...";
+            }
+        }
+
+        /// <summary>
+        /// The hover tooltip for an armed state (M6). The Send-Once branch reuses the
+        /// existing Send-Once "Sending..." tooltip text verbatim so the prior
+        /// behavior is preserved; the Pause branch explains the finish-current-cycle
+        /// -then-stop semantics. Plain ASCII.
+        /// </summary>
+        internal static string TooltipForArmedState(ArmedSendKind kind)
+        {
+            switch (kind)
+            {
+                case ArmedSendKind.PauseAfterCycle:
+                    return "Pause requested: this route finishes its current cycle, "
+                        + "then stops auto-dispatching.";
+                case ArmedSendKind.SendOnce:
+                default:
+                    return "Armed: this route will dispatch one cycle at the next dispatch "
+                        + "window (funds, resources, endpoint, and alignment permitting), "
+                        + "then return to Paused.";
             }
         }
 
@@ -523,9 +955,33 @@ namespace Parsek
             GUILayout.BeginVertical(GUI.skin.box);
             RouteLegibility leg = GetLegibility(route);
 
+            // M2: rename affordance as the panel header. Renaming writes Route.Name
+            // (already persisted), so no schema change.
+            DrawRouteRenameRow(route);
+
             string deliv = FormatRouteDelivery(route);
             DetailLine($"Delivers per cycle: {deliv}");
             DetailLine($"Status: {route.Status} - {StatusReason(route.Status)}");
+
+            // M5: one-line ownership note whenever the route binds a tree (it always
+            // does for a live route). Tells the player that creating this route
+            // disabled any manual loop on its source tree, mirroring the toast shown
+            // once at create time. Resolved from CommittedTrees by id (cheap, drawn
+            // only on expand).
+            DrawRouteOwnsTreeNote(route);
+
+            // M4: for a DestinationFull route, the live free-capacity context line
+            // ("Munar Station tanks full: 0.0 of 150.0 LiquidFuel free") so the player
+            // can tell full tanks apart from a misrouted delivery. Computed in the
+            // ~1 Hz legibility cache (CapacityContext), so this just reads the string.
+            if (route.Status == RouteStatus.DestinationFull && !string.IsNullOrEmpty(leg.CapacityContext))
+                DetailLine(leg.CapacityContext, statusStyleYellow);
+
+            // M4: for a recoverable surface EndpointLost route, a "Re-scan for endpoint"
+            // button; otherwise a disabled-with-explanation note (an orbital endpoint
+            // can only be matched by its baked PID, so re-scan cannot recover it).
+            if (route.Status == RouteStatus.EndpointLost)
+                DrawEndpointRescan(route);
 
             // H1: live next-dock-crossing countdown (replaces the dead NextDispatchUT
             // self-timer). For a blocked wait-state route the cache yields the
@@ -554,6 +1010,254 @@ namespace Parsek
             // fragments; the short id moves to the hover tooltip.
             DrawSourceRecordingsLine(route);
             GUILayout.EndVertical();
+        }
+
+        /// <summary>
+        /// Draws the M5 detail-panel ownership note: "This route owns tree '...';
+        /// manual looping is disabled while it exists." for the route's source tree.
+        /// The tree name is resolved from <see cref="RecordingStore.CommittedTrees"/>
+        /// by the route's first source-ref tree id (or the backing-mission tree id),
+        /// falling back to the short tree id when the name cannot resolve, so the note
+        /// is never blank. Drawn only when the route resolves a source tree (skipped on
+        /// a degenerate route with no tree). Cheap (a by-id store lookup) and drawn
+        /// only on expand, mirroring the H5 source-recordings line.
+        /// </summary>
+        private void DrawRouteOwnsTreeNote(Route route)
+        {
+            string treeId = ResolveRouteSourceTreeId(route);
+            if (string.IsNullOrEmpty(treeId))
+                return;
+            string treeName = ResolveTreeDisplayName(treeId);
+            DetailLine(LogisticsCreatePresentation.FormatRouteOwnsTreeNote(treeName));
+        }
+
+        /// <summary>
+        /// Draws the M4 EndpointLost re-scan affordance. For a recoverable surface
+        /// endpoint (<see cref="LogisticsDeliveryPresentation.ShouldOfferEndpointRescan"/>)
+        /// it renders a "Re-scan for endpoint" button; otherwise a disabled-with-note
+        /// label explaining why re-scan cannot help (orbital endpoints can only be
+        /// matched by the baked PID). The button does its work DIRECTLY in the click
+        /// branch (this is the synchronous draw path, not an async dialog callback, so
+        /// the QW2 frame-reset-field trap does not apply and an inline action is
+        /// correct): it calls <see cref="RouteEndpointResolver.TryResolveEndpoint"/>,
+        /// logs the outcome, and on success clears
+        /// <see cref="Route.NextEligibilityCheckUT"/> so the orchestrator re-attempts
+        /// the cycle on the next tick (instead of waiting out the 30s retry interval),
+        /// then dirties the legibility cache so the destination cell + capacity context
+        /// refresh next frame. It does NOT flip the route status: the orchestrator's
+        /// dispatch evaluator re-resolves the endpoint every retry tick and recovers
+        /// the status itself. A re-scan miss just re-logs and leaves the route
+        /// EndpointLost (the orchestrator keeps retrying on its own clock).
+        /// </summary>
+        private void DrawEndpointRescan(Route route)
+        {
+            RouteStop stop = route?.Stops != null && route.Stops.Count > 0 ? route.Stops[0] : null;
+            if (stop == null)
+                return;
+            RouteEndpoint endpoint = stop.Endpoint;
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+
+            if (LogisticsDeliveryPresentation.ShouldOfferEndpointRescan(route.Status, endpoint))
+            {
+                if (GUILayout.Button(new GUIContent("Re-scan for endpoint",
+                        "Search the destination body for a surface vessel near the recorded endpoint, then retry delivery immediately if found."),
+                        GUILayout.Width(180f)))
+                {
+                    bool resolved = RouteEndpointResolver.TryResolveEndpoint(
+                        endpoint, out Vessel v, out string reason);
+                    if (resolved && v != null)
+                    {
+                        // Clear the retry rate-limit so the orchestrator re-resolves and
+                        // recovers the status on the very next tick (it owns the status
+                        // flip; we never set Active here).
+                        route.NextEligibilityCheckUT = null;
+                        ParsekLog.Info("UI",
+                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=true name='{v.vesselName}' (cleared retry gate)");
+                    }
+                    else
+                    {
+                        ParsekLog.Info("UI",
+                            $"Logistics: endpoint re-scan route={ShortId(route.Id)} resolved=false reason='{reason}' (still EndpointLost)");
+                    }
+                    // Refresh the destination cell + capacity context next frame.
+                    lastLegibilityComputeRealtime = -1f;
+                }
+            }
+            else
+            {
+                bool prevEnabled = GUI.enabled;
+                GUI.enabled = false;
+                GUILayout.Button(new GUIContent("Re-scan for endpoint",
+                    LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint)),
+                    GUILayout.Width(180f));
+                GUI.enabled = prevEnabled;
+                GUILayout.Label(LogisticsDeliveryPresentation.RescanIneligibleReason(endpoint),
+                    detailStyle, GUILayout.ExpandWidth(true));
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Resolves the route's source tree id for the M5 ownership note: the first
+        /// non-empty <c>SourceRefs[].TreeId</c>, falling back to
+        /// <see cref="Route.BackingMissionTreeId"/>. Returns null when neither is set.
+        /// </summary>
+        private static string ResolveRouteSourceTreeId(Route route)
+        {
+            if (route == null)
+                return null;
+            if (route.SourceRefs != null)
+            {
+                for (int s = 0; s < route.SourceRefs.Count; s++)
+                {
+                    RouteSourceRef sref = route.SourceRefs[s];
+                    if (sref != null && !string.IsNullOrEmpty(sref.TreeId))
+                        return sref.TreeId;
+                }
+            }
+            return string.IsNullOrEmpty(route.BackingMissionTreeId) ? null : route.BackingMissionTreeId;
+        }
+
+        /// <summary>
+        /// Resolves a tree's player-visible display name from
+        /// <see cref="RecordingStore.CommittedTrees"/> by id (M5). Falls back to the
+        /// short tree id, then "<unknown tree>", so the ownership note / toast never
+        /// shows a null name. Reads CommittedTrees (NOT the grep-gated
+        /// CommittedRecordings list), so it stays off the ERS/ELS gate.
+        /// </summary>
+        private static string ResolveTreeDisplayName(string treeId)
+        {
+            if (string.IsNullOrEmpty(treeId))
+                return "<unknown tree>";
+            var trees = RecordingStore.CommittedTrees;
+            if (trees != null)
+            {
+                for (int i = 0; i < trees.Count; i++)
+                {
+                    RecordingTree t = trees[i];
+                    if (t != null && string.Equals(t.Id, treeId, System.StringComparison.Ordinal))
+                    {
+                        if (!string.IsNullOrEmpty(t.TreeName))
+                            return t.TreeName;
+                        break;
+                    }
+                }
+            }
+            return ShortId(treeId);
+        }
+
+        /// <summary>
+        /// Draws the M2 detail-panel rename row: a "Name:" label plus either a
+        /// "Rename" button (when not editing this route) or a deferred-commit
+        /// TextField (when editing), ported from the RecordingsTableUI rename idiom.
+        /// Editing is keyed by <see cref="Route.Id"/> (NOT a row index) because routes
+        /// are re-sectioned / added / removed between frames. Commit lands on Enter
+        /// (here) or click-outside (<see cref="HandleLogisticsDefocus"/>); Escape
+        /// cancels. The committed name immediately shows in the row because
+        /// <see cref="DrawRouteRow"/> reads <see cref="Route.Name"/> live.
+        /// </summary>
+        private void DrawRouteRenameRow(Route route)
+        {
+            const string controlName = "LogiRouteRename";
+            bool editingThis = string.Equals(renamingRouteId, route.Id, System.StringComparison.Ordinal);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.Space(24f);
+            GUILayout.Label("Name:", detailStyle, GUILayout.Width(46f));
+
+            if (!editingThis)
+            {
+                GUILayout.Label(route.Name ?? "<unnamed>", detailStyle, GUILayout.ExpandWidth(true));
+                if (GUILayout.Button(new GUIContent("Rename", "Edit this route's name"), GUILayout.Width(70f)))
+                {
+                    // Editing the interval and the name at once would cross-wire the
+                    // two deferred commits; the interval edit-start already suppresses
+                    // itself while a rename is active, so clear any pending interval
+                    // edit before arming the rename.
+                    ClearIntervalEdit();
+                    renamingRouteId = route.Id;
+                    renamingRouteText = route.Name ?? string.Empty;
+                    renamingRouteFocused = false;
+                    renamingRouteRect = default;
+                    ParsekLog.Verbose("UI",
+                        $"Logistics: rename started route={ShortId(route.Id)} current='{route.Name}'");
+                }
+            }
+            else
+            {
+                bool submit = Event.current.type == EventType.KeyDown
+                    && (Event.current.keyCode == KeyCode.Return || Event.current.keyCode == KeyCode.KeypadEnter);
+                bool cancel = Event.current.type == EventType.KeyDown
+                    && Event.current.keyCode == KeyCode.Escape;
+
+                GUI.SetNextControlName(controlName);
+                renamingRouteText = GUILayout.TextField(renamingRouteText ?? string.Empty, GUILayout.ExpandWidth(true));
+                renamingRouteRect = GUILayoutUtility.GetLastRect();
+
+                if (!renamingRouteFocused)
+                {
+                    GUI.FocusControl(controlName);
+                    renamingRouteFocused = true;
+                }
+
+                if (submit)
+                {
+                    CommitRouteRename(route);
+                    Event.current.Use();
+                }
+                else if (cancel)
+                {
+                    ParsekLog.Verbose("UI",
+                        $"Logistics: rename cancelled route={ShortId(route.Id)}");
+                    ClearRouteRename();
+                    Event.current.Use();
+                }
+            }
+
+            GUILayout.EndHorizontal();
+        }
+
+        /// <summary>
+        /// Commits the M2 rename for <paramref name="route"/>: routes the typed text
+        /// through the pure <see cref="LogisticsRenamePresentation.ComputeRouteRename"/>
+        /// (trim + empty-guard + unchanged-guard), and on a real change writes
+        /// <see cref="Route.Name"/> directly and Info-logs the from/to. Empty /
+        /// whitespace / unchanged input leaves the name untouched. Always clears the
+        /// rename edit state. Tolerates a null route (the field id resolved to nothing)
+        /// by just clearing.
+        /// </summary>
+        private void CommitRouteRename(Route route)
+        {
+            if (route == null)
+            {
+                ClearRouteRename();
+                return;
+            }
+
+            if (LogisticsRenamePresentation.ComputeRouteRename(route.Name, renamingRouteText, out string committed))
+            {
+                ParsekLog.Info("UI",
+                    $"Logistics: route renamed from '{route.Name}' to '{committed}' (route={ShortId(route.Id)})");
+                route.Name = committed;
+            }
+            else
+            {
+                ParsekLog.Verbose("UI",
+                    $"Logistics: rename no-op route={ShortId(route.Id)} typed='{renamingRouteText}' (empty/whitespace/unchanged)");
+            }
+            ClearRouteRename();
+        }
+
+        private void ClearRouteRename()
+        {
+            renamingRouteId = null;
+            renamingRouteText = null;
+            renamingRouteFocused = false;
+            renamingRouteRect = default;
+            GUIUtility.keyboardControl = 0;
         }
 
         /// <summary>
@@ -637,7 +1341,7 @@ namespace Parsek
             bool atFloor = n <= 1;
             GUI.enabled = !atFloor;
             if (GUILayout.Button(new GUIContent("-",
-                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch less often"),
+                    atFloor ? "Already at the minimum (1x = the fastest the run allows)" : "Dispatch more often"),
                     GUILayout.Width(24f)))
             {
                 pendingCadenceRoute = route;
@@ -770,6 +1474,10 @@ namespace Parsek
             if (pendingSendOnce != null)
             {
                 bool ok = RouteOrchestrator.TrySendOneCycleNow(pendingSendOnce, currentUT);
+                // Record the Send-Once provenance (M6) so the armed-button label stays
+                // "Sending one cycle..." even after the cycle dispatches to InTransit.
+                if (ok && !string.IsNullOrEmpty(pendingSendOnce.Id))
+                    sendOnceArmedRouteIds.Add(pendingSendOnce.Id);
                 ParsekLog.Info("UI", $"Logistics: Send Once route={ShortId(pendingSendOnce.Id)} result={(ok ? "armed" : "rejected")}");
             }
             if (pendingConfirmDeleteRoute != null)
@@ -1043,7 +1751,20 @@ namespace Parsek
                 // manually looped recording/mission. Activating a route turns OFF any
                 // pre-existing manual loop (mission + per-recording) on its tree so the
                 // single loop owner is never contended. Route looping wins.
-                RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
+                int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(outcome.Route, TryGetCurrentUT());
+                // M5: a manual loop was actually turned off by this create, so tell the
+                // player with a one-shot toast (and the always-visible detail note). The
+                // toast fires ONLY when something was cleared, never on every create.
+                // Done DIRECTLY here in the synchronous create path (no PopupDialog
+                // callback / frame-reset field), so the QW2 trap does not apply.
+                if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
+                {
+                    string treeName = ResolveTreeDisplayName(ResolveRouteSourceTreeId(outcome.Route));
+                    string toast = LogisticsCreatePresentation.FormatManualLoopTurnedOffToast(treeName);
+                    ParsekLog.ScreenMessage(toast, 5f);
+                    ParsekLog.Info("UI",
+                        $"Logistics: manual loop turned off by create route={ShortId(outcome.Route.Id)} tree='{treeName}' cleared={cleared.ToString(CultureInfo.InvariantCulture)} (toast posted)");
+                }
                 ParsekLog.Info("UI",
                     $"Logistics: Create Route from candidate tree={ShortId(candidate.Tree.Id)} -> route={ShortId(outcome.Route.Id)} name='{outcome.Route.Name}' (Paused, interval={interval.ToString("R", CultureInfo.InvariantCulture)}s)");
                 return outcome.Route;
@@ -1068,6 +1789,24 @@ namespace Parsek
                 lastCandidateComputeRealtime = now;
             }
             return cachedCandidates ?? new List<RouteCandidate>();
+        }
+
+        // M3: the throttled "recently committed trees not yet eligible" near-miss
+        // list. Same ~1 Hz timer as GetCandidates (both derive from the same
+        // committed trees through RouteAnalysisEngine), so the subsection never
+        // scans live on the IMGUI draw path. Gate-safe: DeriveNearMisses reads only
+        // RecordingTree.Recordings[].MergeState + RouteAnalysisEngine, no raw
+        // committed-recording / ledger read.
+        private List<RouteNearMiss> GetNearMisses()
+        {
+            float now = Time.realtimeSinceStartup;
+            if (lastNearMissComputeRealtime < 0f
+                || now - lastNearMissComputeRealtime >= CandidateRecomputeIntervalSeconds)
+            {
+                cachedNearMisses = RouteCandidateFinder.DeriveNearMisses();
+                lastNearMissComputeRealtime = now;
+            }
+            return cachedNearMisses ?? new List<RouteNearMiss>();
         }
 
         // ------------------------------------------------------------------
@@ -1095,6 +1834,11 @@ namespace Parsek
             lastLegibilityComputeRealtime = now;
 
             legibilityCache.Clear();
+            // M6: prune the Send-Once provenance set to routes that still exist and are
+            // still armed, so a disarmed/deleted route never leaks a stale entry. Only
+            // allocate when the set is non-empty (the common case is empty).
+            bool pruneArmed = sendOnceArmedRouteIds.Count > 0;
+            HashSet<string> stillArmed = pruneArmed ? new HashSet<string>() : null;
             int routeCount = routes?.Count ?? 0;
             int withCountdown = 0;
             int withDeliveries = 0;
@@ -1102,6 +1846,8 @@ namespace Parsek
             {
                 Route route = routes[i];
                 if (route == null || string.IsNullOrEmpty(route.Id)) continue;
+                if (pruneArmed && route.PauseAfterCurrentCycle)
+                    stillArmed.Add(route.Id);
 
                 RouteLegibility leg = ComputeRouteLegibility(route, currentUT);
                 legibilityCache[route.Id] = leg;
@@ -1110,6 +1856,8 @@ namespace Parsek
                 if (leg.HasDeliveries)
                     withDeliveries++;
             }
+            if (pruneArmed)
+                sendOnceArmedRouteIds.RemoveWhere(id => !stillArmed.Contains(id));
 
             ParsekLog.Verbose("UI",
                 $"Logistics legibility cache refreshed routes={routeCount.ToString(CultureInfo.InvariantCulture)} " +
@@ -1159,12 +1907,65 @@ namespace Parsek
 
             // H4: resolve the destination cell here (it touches FlightGlobals and, on an
             // unresolved surface endpoint, scans all vessels), so the draw path only
-            // reads the cached strings.
-            ResolveDestinationCell(route, out string destText, out string destTooltip);
+            // reads the cached strings. The resolved Vessel is surfaced too so the M4
+            // capacity probe below reuses this single TryResolveEndpoint pass instead
+            // of a second O(vessels) scan.
+            ResolveDestinationCell(route, out string destText, out string destTooltip, out Vessel destVessel);
             leg.DestinationText = destText;
             leg.DestinationTooltip = destTooltip;
 
+            // M4: when the route is DestinationFull, append a live free-capacity
+            // context line so the player can tell "tanks are full" apart from a
+            // misrouted delivery. The LIVE LiveDeliveryCapacityProbe read runs HERE in
+            // the ~1 Hz pass (never per IMGUI frame) and only for the DestinationFull
+            // status; every other status leaves CapacityContext null.
+            if (route.Status == RouteStatus.DestinationFull)
+                leg.CapacityContext = ResolveCapacityContext(route, destVessel, destText);
+
             return leg;
+        }
+
+        /// <summary>
+        /// Builds the M4 DestinationFull free-capacity context line for the legibility
+        /// cache. Reads the route's first stop's <see cref="RouteStop.DeliveryManifest"/>
+        /// (the requested amounts) and, for each resource, the LIVE free capacity on the
+        /// resolved destination <paramref name="destVessel"/> via a
+        /// <see cref="LiveDeliveryCapacityProbe"/> constructed with the same
+        /// <c>loaded &amp;&amp; !packed</c> gate the orchestrator uses (so the reported
+        /// number matches what a real delivery would fill). When the vessel could not be
+        /// resolved or the manifest is empty, the entry list is empty and the pure
+        /// <see cref="LogisticsDeliveryPresentation.FormatCapacityContext"/> renders a
+        /// "(capacity unknown)" line. This is the one non-pure piece of M4 (it touches a
+        /// live Vessel), so it stays in the window file and runs only on the ~1 Hz
+        /// refresh; the draw path reads the cached string. Logs the probe decision
+        /// (rate-limited per route).
+        /// </summary>
+        private string ResolveCapacityContext(Route route, Vessel destVessel, string destName)
+        {
+            var entries = new List<LogisticsDeliveryPresentation.CapacityEntry>();
+            Dictionary<string, double> manifest =
+                route?.Stops != null && route.Stops.Count > 0 && route.Stops[0] != null
+                    ? route.Stops[0].DeliveryManifest
+                    : null;
+
+            if (destVessel != null && manifest != null && manifest.Count > 0)
+            {
+                bool destinationIsLoaded = destVessel.loaded && !destVessel.packed;
+                var probe = new LiveDeliveryCapacityProbe(destVessel, destinationIsLoaded);
+                foreach (KeyValuePair<string, double> kv in manifest)
+                {
+                    if (string.IsNullOrEmpty(kv.Key)) continue;
+                    double free = probe.ProbeResourceFreeCapacity(kv.Key);
+                    entries.Add(new LogisticsDeliveryPresentation.CapacityEntry(kv.Key, kv.Value, free));
+                }
+            }
+
+            ParsekLog.VerboseRateLimited("UI", "dest-capacity-" + route.Id,
+                $"Logistics: capacity context route={ShortId(route.Id)} dest='{destName}' " +
+                $"resolved={(destVessel != null ? "true" : "false")} resources={entries.Count.ToString(CultureInfo.InvariantCulture)}",
+                5.0);
+
+            return LogisticsDeliveryPresentation.FormatCapacityContext(destName, entries);
         }
 
         /// <summary>
@@ -1280,8 +2081,9 @@ namespace Parsek
         /// <see cref="LogisticsDeliveryPresentation.FormatDestinationDisplay"/> picks
         /// name-vs-coords. Logs the resolve decision (rate-limited per route).
         /// </summary>
-        private void ResolveDestinationCell(Route route, out string text, out string tooltip)
+        private void ResolveDestinationCell(Route route, out string text, out string tooltip, out Vessel resolvedVessel)
         {
+            resolvedVessel = null;
             if (route?.Stops == null || route.Stops.Count == 0 || route.Stops[0] == null)
             {
                 text = "-";
@@ -1295,7 +2097,12 @@ namespace Parsek
             string resolvedName = null;
             bool resolved = RouteEndpointResolver.TryResolveEndpoint(endpoint, out Vessel v, out string reason);
             if (resolved && v != null)
+            {
                 resolvedName = v.vesselName;
+                // Surface the resolved Vessel so the M4 capacity probe reuses this one
+                // resolve pass instead of a second O(vessels) surface scan.
+                resolvedVessel = v;
+            }
 
             text = LogisticsDeliveryPresentation.FormatDestinationDisplay(resolvedName, endpoint);
             // When the name resolved, the coords go to the tooltip; on the coords

@@ -82,6 +82,109 @@ namespace Parsek.Tests.Logistics
     }
 
     /// <summary>
+    /// Pins the M6 armed-state classifier and labels
+    /// (<see cref="LogisticsWindowUI.ClassifyArmedSend"/> /
+    /// <see cref="LogisticsWindowUI.LabelForArmedState"/> /
+    /// <see cref="LogisticsWindowUI.TooltipForArmedState"/>). Both arming paths set
+    /// the same <see cref="Route.PauseAfterCurrentCycle"/> flag, so the armer is
+    /// inferred from the route's status: InTransit means Pause-mid-cycle, any other
+    /// dispatchable status means Send Once. <see cref="RouteStatus"/> is internal, so
+    /// theories take int ordinals and cast inside (mirrors the sibling tests).
+    /// </summary>
+    public class LogisticsWindowUIArmedStateTests
+    {
+        // catches: an InTransit arm being labeled as a Send Once. A Pause requested
+        // while InTransit must classify as PauseAfterCycle and read
+        // "Pausing after this cycle...".
+        [Fact]
+        public void InTransit_ClassifiesPauseAfterCycle_AndLabels()
+        {
+            var kind = LogisticsWindowUI.ClassifyArmedSend(RouteStatus.InTransit);
+            Assert.Equal(LogisticsWindowUI.ArmedSendKind.PauseAfterCycle, kind);
+            Assert.Equal("Pausing after this cycle...", LogisticsWindowUI.LabelForArmedState(kind));
+        }
+
+        // catches: a Send-Once-armed dispatchable status being mislabeled as a pause.
+        // Active / the blocked-active waits / DestinationFull all classify as SendOnce
+        // and read "Sending one cycle...".
+        [Theory]
+        [InlineData((int)RouteStatus.Active)]
+        [InlineData((int)RouteStatus.WaitingForResources)]
+        [InlineData((int)RouteStatus.WaitingForFunds)]
+        [InlineData((int)RouteStatus.DestinationFull)]
+        public void Dispatchable_ClassifiesSendOnce_AndLabels(int statusOrdinal)
+        {
+            var kind = LogisticsWindowUI.ClassifyArmedSend((RouteStatus)statusOrdinal);
+            Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
+            Assert.Equal("Sending one cycle...", LogisticsWindowUI.LabelForArmedState(kind));
+        }
+
+        // catches: the two labels collapsing into one. The whole point of M6 is that
+        // a pause-armed route reads differently from a send-once-armed route, and
+        // neither is the raw enum token.
+        [Fact]
+        public void Labels_DifferAndAreNotEnumTokens()
+        {
+            string pause = LogisticsWindowUI.LabelForArmedState(
+                LogisticsWindowUI.ArmedSendKind.PauseAfterCycle);
+            string send = LogisticsWindowUI.LabelForArmedState(
+                LogisticsWindowUI.ArmedSendKind.SendOnce);
+
+            Assert.NotEqual(pause, send);
+            Assert.NotEqual(LogisticsWindowUI.ArmedSendKind.PauseAfterCycle.ToString(), pause);
+            Assert.NotEqual(LogisticsWindowUI.ArmedSendKind.SendOnce.ToString(), send);
+        }
+
+        // catches: empty or shared tooltips. Each armed state carries a distinct,
+        // non-empty explanatory tooltip.
+        [Fact]
+        public void Tooltips_NonEmptyAndDistinct()
+        {
+            string pause = LogisticsWindowUI.TooltipForArmedState(
+                LogisticsWindowUI.ArmedSendKind.PauseAfterCycle);
+            string send = LogisticsWindowUI.TooltipForArmedState(
+                LogisticsWindowUI.ArmedSendKind.SendOnce);
+
+            Assert.False(string.IsNullOrEmpty(pause));
+            Assert.False(string.IsNullOrEmpty(send));
+            Assert.NotEqual(pause, send);
+        }
+
+        // THE M6 bug fix: a Send-Once arm un-pauses Paused -> Active -> InTransit while
+        // still armed, so once the cycle is in flight status alone reads InTransit for
+        // BOTH a Send-Once and a Pause arm. ResolveArmedKind honors the send-once
+        // provenance set, so a Send-Once-in-transit stays "Sending one cycle..." and is
+        // NOT mislabeled "Pausing after this cycle...".
+        [Fact]
+        public void ResolveArmedKind_SendOnceArmed_StaysSendOnce_EvenInTransit()
+        {
+            var kind = LogisticsWindowUI.ResolveArmedKind(sendOnceArmed: true, RouteStatus.InTransit);
+            Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
+            Assert.Equal("Sending one cycle...", LogisticsWindowUI.LabelForArmedState(kind));
+        }
+
+        // A genuine Pause-mid-cycle arm (not in the send-once set) reads PauseAfterCycle.
+        [Fact]
+        public void ResolveArmedKind_NotSendOnce_InTransit_IsPauseAfterCycle()
+        {
+            var kind = LogisticsWindowUI.ResolveArmedKind(sendOnceArmed: false, RouteStatus.InTransit);
+            Assert.Equal(LogisticsWindowUI.ArmedSendKind.PauseAfterCycle, kind);
+        }
+
+        // When provenance is unknown (post-reload), a non-InTransit armed route falls
+        // back to the status heuristic, which reads SendOnce.
+        [Theory]
+        [InlineData((int)RouteStatus.Active)]
+        [InlineData((int)RouteStatus.Paused)]
+        [InlineData((int)RouteStatus.WaitingForResources)]
+        public void ResolveArmedKind_NotSendOnce_NonTransit_FallsBackToSendOnce(int statusOrdinal)
+        {
+            var kind = LogisticsWindowUI.ResolveArmedKind(sendOnceArmed: false, (RouteStatus)statusOrdinal);
+            Assert.Equal(LogisticsWindowUI.ArmedSendKind.SendOnce, kind);
+        }
+    }
+
+    /// <summary>
     /// Pins <see cref="LogisticsWindowUI.StatusReason"/>, the pure mapping that
     /// QW4 renders IN the Status cell (the raw enum name moves to the hover
     /// tooltip). Every <see cref="RouteStatus"/> must map to a non-empty,
@@ -144,6 +247,42 @@ namespace Parsek.Tests.Logistics
         public void FormatCycleCount_MatchesExpected(int completed, int skipped, string expected)
         {
             Assert.Equal(expected, LogisticsWindowUI.FormatCycleCount(completed, skipped));
+        }
+    }
+
+    /// <summary>
+    /// Pins <see cref="LogisticsWindowUI.FormatIntervalFieldValue"/>, the pure
+    /// formatter for the M1 inline interval text field's displayed value: a plain
+    /// seconds count (InvariantCulture, no unit suffix so the typed and displayed
+    /// forms round-trip through <see cref="RouteCadence.ParseAndSnapInterval"/>), with
+    /// a "0" fallback for a non-positive / non-finite interval so the field is always
+    /// editable. Unity-free, so exercised directly.
+    /// </summary>
+    public class LogisticsWindowUIIntervalFieldTests
+    {
+        [Theory]
+        [InlineData(600.0, "600")]
+        [InlineData(1800.0, "1800")]
+        // Rounds to whole seconds (the field types whole seconds).
+        [InlineData(599.6, "600")]
+        // Large value: InvariantCulture must not inject a thousands separator, so the
+        // displayed text re-parses cleanly through ParseAndSnapInterval.
+        [InlineData(86400.0, "86400")]
+        public void FormatIntervalFieldValue_FormatsWholeSeconds(double seconds, string expected)
+        {
+            Assert.Equal(expected, LogisticsWindowUI.FormatIntervalFieldValue(seconds));
+        }
+
+        // catches: a zero / negative / NaN / Infinity interval rendering "-" or empty
+        // (which a player cannot edit). Falls back to "0" so the field is editable.
+        [Theory]
+        [InlineData(0.0)]
+        [InlineData(-300.0)]
+        [InlineData(double.NaN)]
+        [InlineData(double.PositiveInfinity)]
+        public void FormatIntervalFieldValue_NonPositiveOrNonFinite_ReturnsZero(double seconds)
+        {
+            Assert.Equal("0", LogisticsWindowUI.FormatIntervalFieldValue(seconds));
         }
     }
 
