@@ -183,33 +183,6 @@ namespace Parsek.Display
             /// were sampled against (for live body.position lookup).</summary>
             public string bodyName;
 
-            /// <summary>M recorded UTs (paired index-wise with lats/lons/alts). Needed by an INERTIAL leg
-            /// to lift each point's body-fixed longitude to its recorded inertial longitude
-            /// (lon + initialRotation + recordedUT*360/period). Null for legs built before this field
-            /// existed (treated as body-fixed).</summary>
-            public double[] recordedUTs;
-
-            /// <summary>
-            /// True when this leg is an ORBITAL-VACUUM phase (ExoPropulsive / ExoBallistic - the escape
-            /// burn, orbit-raise gap) that must render in the recorded INERTIAL frame to match the
-            /// epoch-baked orbit lines. False for SURFACE phases (Atmospheric / SurfaceMobile /
-            /// SurfaceStationary / Approach - ascent off the rotating pad) which stay body-fixed. Set at
-            /// build time from the source TrackSection.environment; the merge splits on a change so a leg
-            /// is never half-surface / half-inertial.
-            /// </summary>
-            public bool isInertial;
-
-            /// <summary>
-            /// Cached per-point INERTIAL body-relative offset (metres, world axes), computed once on first
-            /// draw for an <see cref="isInertial"/> leg as
-            /// <c>body.GetRelSurfacePosition(lat, liftedLon, alt)</c>. TIME-INVARIANT (GetRelSurfacePosition
-            /// is pure spherical math; only GetWorldSurfacePosition applies the live BodyFrame rotation), so
-            /// per frame the world position is just <c>body.position + inertialRelOffsets[i]</c> - no
-            /// BodyFrame sampling, hence inherently jitter-free and unaffected by the loop-shift body
-            /// rotation. Null until the first inertial-leg draw (and for body-fixed legs).
-            /// </summary>
-            public Vector3d[] inertialRelOffsets;
-
             /// <summary>Leg's first sample's recorded UT.</summary>
             public double startUT;
 
@@ -428,68 +401,6 @@ namespace Parsek.Display
         }
 
         /// <summary>
-        /// PURE: is a segment environment an ORBITAL-VACUUM phase that must render INERTIAL (so it matches
-        /// the epoch-baked orbit lines under a loop shift) rather than body-fixed? True for
-        /// <see cref="SegmentEnvironment.ExoPropulsive"/> (above-atmosphere thrust - the escape burn) and
-        /// <see cref="SegmentEnvironment.ExoBallistic"/> (above-atmosphere coast - the orbit-raise gap).
-        /// False for Atmospheric / SurfaceMobile / SurfaceStationary / Approach, which genuinely rotate
-        /// with the planet (the launch ascent off the rotating pad stays glued to its site). This is the
-        /// classification - NOT an altitude threshold, which would wrongly flip the high-altitude top of a
-        /// surface-launch ascent to inertial and detach it from the pad.
-        /// </summary>
-        internal static bool IsInertialEnvironment(SegmentEnvironment env)
-            => env == SegmentEnvironment.ExoPropulsive || env == SegmentEnvironment.ExoBallistic;
-
-        /// <summary>
-        /// PURE: lift a recorded body-FIXED longitude to its recorded INERTIAL longitude by adding the
-        /// body's rotation phase at the point's recorded UT (initialRotation + recordedUT*360/period).
-        /// This is the exact lift the orbit lines / the inertial gap-glide use (OrbitReseed.cs:109-110,
-        /// proven co-located by the in-game GhostMapGapGlideSeedsInertialPositionUnderLoopShift test).
-        /// Projecting (lat, this lifted longitude, alt) through <c>GetRelSurfacePosition</c> on the live
-        /// body yields the recorded INERTIAL position - independent of the live body rotation, so it does
-        /// not drift with the loop shift. Returns the input unchanged when the period is non-finite/zero
-        /// (caller falls back to body-fixed).
-        /// </summary>
-        internal static double ComputeInertialLongitudeDeg(
-            double bodyFixedLonDeg, double recordedUT, double rotationPeriod, double initialRotationDeg)
-        {
-            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod)
-                || System.Math.Abs(rotationPeriod) < 1.0)
-                return bodyFixedLonDeg;
-            double phaseDeg = initialRotationDeg + (recordedUT * 360.0) / rotationPeriod;
-            return OrbitReseed.WrapLongitudeDegrees(bodyFixedLonDeg + phaseDeg);
-        }
-
-        /// <summary>
-        /// Computes an inertial leg's per-point body-relative inertial offsets (metres, world axes) -
-        /// <c>GetRelSurfacePosition(lat, liftedLon, alt)</c> with the longitude lifted to the recorded
-        /// rotation phase. Time-invariant, so the draw loop caches the result on the leg and only adds the
-        /// live <c>body.position</c> per frame. Returns null (caller falls back to body-fixed) when the
-        /// body's rotation period cannot be resolved - never strands the polyline.
-        /// </summary>
-        private static Vector3d[] ComputeInertialRelOffsets(LegPolyline leg, CelestialBody body)
-        {
-            if (body == null || leg.recordedUTs == null) return null;
-            if (!OrbitSeedResolver.TryResolveRotationPeriod(body, out double rotationPeriod))
-            {
-                ParsekLog.Warn(Tag, string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline inertial leg: body={0} rotationPeriod unresolved - body-fixed fallback for this leg",
-                    body.bodyName ?? "?"));
-                return null;
-            }
-            double initialRotation = OrbitSeedResolver.ResolveInitialRotation(body);
-            int m = leg.PointCount;
-            var offsets = new Vector3d[m];
-            for (int i = 0; i < m; i++)
-            {
-                double inertialLon = ComputeInertialLongitudeDeg(
-                    leg.lons[i], leg.recordedUTs[i], rotationPeriod, initialRotation);
-                offsets[i] = body.GetRelSurfacePosition(leg.lats[i], inertialLon, leg.alts[i]);
-            }
-            return offsets;
-        }
-
-        /// <summary>
         /// Cheap content-hash key for cache invalidation (§1.4). XORs every
         /// sample UT and every TrackSection start/end UT so a
         /// supersede-time re-cut that preserves the four counts and the
@@ -580,10 +491,7 @@ namespace Parsek.Display
             // (1) Collect every non-orbital sample into one stream. Per-section
             //     dispatch + the orbital-interval filter are unchanged; the merge
             //     into one leg per contiguous span happens in step (2).
-            // Each collected point carries the FRAME CLASS of its source section (inertial vs body-fixed),
-            // captured HERE because the merge + BuildLegFromBodyFixedPoints keep only lat/lon/alt/ut and
-            // the TrackSection.environment tag is gone by the time legs exist.
-            var pts = new List<(TrajectoryPoint pt, bool inertial)>();
+            var pts = new List<TrajectoryPoint>();
             if (rec.TrackSections != null)
             {
                 for (int s = 0; s < rec.TrackSections.Count; s++)
@@ -596,18 +504,15 @@ namespace Parsek.Display
                             skippedRelativeWithoutBodyFixed++;
                         continue;
                     }
-                    bool inertial = IsInertialEnvironment(section.environment);
                     var filtered = FilterPointsForLeg(source, section.startUT, section.endUT, orbitalIntervals);
-                    for (int j = 0; j < filtered.Count; j++)
-                        pts.Add((filtered[j], inertial));
+                    pts.AddRange(filtered);
                     sectionPointCount += filtered.Count;
                 }
             }
 
             // Flat Recording.Points OUTSIDE every section range (and outside any
             // orbital interval) fold into the same stream (pre/post-section
-            // fallback coverage). No section -> no environment tag; default body-fixed
-            // (these are typically surface-ish pre/post coverage).
+            // fallback coverage).
             if (rec.Points != null && rec.Points.Count > 0)
             {
                 for (int i = 0; i < rec.Points.Count; i++)
@@ -615,7 +520,7 @@ namespace Parsek.Display
                     var p = rec.Points[i];
                     if (IsInsideAnySection(p.ut, rec.TrackSections)) continue;
                     if (IsInsideAnyOrbitalInterval(p.ut, orbitalIntervals)) continue;
-                    pts.Add((p, false));
+                    pts.Add(p);
                     flatPointCount++;
                 }
             }
@@ -626,14 +531,12 @@ namespace Parsek.Display
             //     contiguous same-body samples MERGE into one leg, so the head-UT
             //     draw gate shows a whole non-orbital span (the full burn arc)
             //     instead of a single fragmented section.
-            pts.Sort((a, b) => a.pt.ut.CompareTo(b.pt.ut));
+            pts.Sort((a, b) => a.ut.CompareTo(b.ut));
             var run = new List<TrajectoryPoint>();
             string runBody = null;
-            bool runInertial = false;
             for (int i = 0; i < pts.Count; i++)
             {
-                var p = pts[i].pt;
-                bool pInertial = pts[i].inertial;
+                var p = pts[i];
                 if (run.Count > 0)
                 {
                     var prev = run[run.Count - 1];
@@ -642,24 +545,18 @@ namespace Parsek.Display
                     // body, so an SOI crossing recorded at a single UT still starts a new
                     // leg below instead of being silently dropped.
                     if (sameBody && p.ut == prev.ut) continue;
-                    // Split a new leg on a body change, an orbit-arc gap, OR a FRAME-CLASS change
-                    // (inertial<->body-fixed) so a leg is never half-surface / half-vacuum: the inertial
-                    // lift must apply to the whole leg or none of it (a surface->vacuum straddle would
-                    // detach the surface part from the pad).
                     bool breakRun =
-                        !sameBody
-                        || pInertial != runInertial
-                        || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
+                        !sameBody || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
                     if (breakRun)
                     {
-                        FlushPolylineRun(run, runBody, runInertial, legs);
+                        FlushPolylineRun(run, runBody, legs);
                         run.Clear();
                     }
                 }
-                if (run.Count == 0) { runBody = p.bodyName; runInertial = pInertial; }
+                if (run.Count == 0) runBody = p.bodyName;
                 run.Add(p);
             }
-            FlushPolylineRun(run, runBody, runInertial, legs);
+            FlushPolylineRun(run, runBody, legs);
 
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -691,11 +588,11 @@ namespace Parsek.Display
         /// with no resolvable body are dropped.
         /// </summary>
         private static void FlushPolylineRun(
-            List<TrajectoryPoint> run, string body, bool isInertial, List<LegPolyline> legs)
+            List<TrajectoryPoint> run, string body, List<LegPolyline> legs)
         {
             if (run == null || run.Count < 2) return;
             if (string.IsNullOrEmpty(body)) return;
-            legs.Add(BuildLegFromBodyFixedPoints(run, body, isInertial));
+            legs.Add(BuildLegFromBodyFixedPoints(run, body));
         }
 
         /// <summary>
@@ -747,29 +644,25 @@ namespace Parsek.Display
         /// position per frame via <c>CelestialBody.GetWorldSurfacePosition</c>.
         /// </summary>
         internal static LegPolyline BuildLegFromBodyFixedPoints(
-            List<TrajectoryPoint> points, string bodyName, bool isInertial = false)
+            List<TrajectoryPoint> points, string bodyName)
         {
             var sampled = DownsamplePreservingEndpoints(points, MaxPolylinePointsPerLeg);
             int m = sampled.Count;
             var lats = new double[m];
             var lons = new double[m];
             var alts = new double[m];
-            var uts = new double[m];
             for (int i = 0; i < m; i++)
             {
                 var p = sampled[i];
                 lats[i] = p.latitude;
                 lons[i] = p.longitude;
                 alts[i] = p.altitude;
-                uts[i] = p.ut;
             }
             return new LegPolyline
             {
                 lats = lats,
                 lons = lons,
                 alts = alts,
-                recordedUTs = uts,
-                isInertial = isInertial,
                 scratchScaledSpace = new Vector3[m],
                 bodyName = bodyName,
                 startUT = sampled[0].ut,
@@ -1294,43 +1187,6 @@ namespace Parsek.Display
                         // oscillating. Falls back to the live per-frame path only when
                         // the scaled body is not available (the points then jitter under
                         // warp exactly as before, but at least render).
-                        if (leg.isInertial)
-                        {
-                            // INERTIAL leg (orbital-vacuum: escape burn / orbit-raise gap): render in the
-                            // recorded INERTIAL frame so it lands on the epoch-baked orbit lines, instead of
-                            // body-fixed (which rotates ~96 deg off under a large loop shift). Each point's
-                            // inertial body-relative offset is TIME-INVARIANT (GetRelSurfacePosition is pure
-                            // spherical math), so compute it ONCE (first draw, needs the live body's
-                            // rotationPeriod + initialRotation) and per frame just add the live body.position.
-                            // This bypasses the scaledBody jitter capture below (which freezes a body-FIXED
-                            // local that spins with the planet - wrong for an inertial point) and is itself
-                            // jitter-free (no BodyFrame is sampled). On a degraded (non-finite) rotation
-                            // period the offsets are null -> fall back to the body-fixed projection.
-                            if (leg.inertialRelOffsets == null || leg.inertialRelOffsets.Length != m)
-                                leg.inertialRelOffsets = ComputeInertialRelOffsets(leg, body);
-                            if (leg.inertialRelOffsets != null)
-                            {
-                                for (int i = 0; i < m; i++)
-                                    leg.scratchScaledSpace[i] = (Vector3)ScaledSpace.LocalToScaledSpace(
-                                        body.position + leg.inertialRelOffsets[i]);
-                            }
-                            else
-                            {
-                                for (int i = 0; i < m; i++)
-                                    leg.scratchScaledSpace[i] = (Vector3)ScaledSpace.LocalToScaledSpace(
-                                        body.GetWorldSurfacePosition(leg.lats[i], leg.lons[i], leg.alts[i]));
-                            }
-                            CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
-                            leg.vectorLine.drawStart = 0;
-                            leg.vectorLine.drawEnd = m - 1;
-                            if (!leg.vectorLine.active) leg.vectorLine.active = true;
-                            leg.vectorLine.Draw3D();
-                            leg.lastDrawnFrame = drawFrame;
-                            set.legs[li] = leg;
-                            anyDrawn = true;
-                            continue;
-                        }
-
                         var scaledBody = body.scaledBody;
                         Transform scaledXform = scaledBody != null ? scaledBody.transform : null;
                         if (scaledXform != null)
@@ -1422,15 +1278,15 @@ namespace Parsek.Display
                             CelestialBody alBody = ResolveBodyByName(scene, al.bodyName);
                             if (alBody != null && mAl >= 1)
                                 activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} inertial={5} pts={6} bodyFixedLon0={7:F1} bodyFixedLonN={8:F1} alt0={9:F0} altN={10:F0}",
-                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", al.isInertial, mAl,
+                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} lon0={6:F1} lonN={7:F1} alt0={8:F0} altN={9:F0}",
+                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl,
                                     LegPointBodyRelLonDeg(alBody, al.lats[0], al.lons[0], al.alts[0]),
                                     LegPointBodyRelLonDeg(alBody, al.lats[mAl - 1], al.lons[mAl - 1], al.alts[mAl - 1]),
                                     al.alts[0], al.alts[mAl - 1]);
                             else
                                 activeLegInfo = string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} inertial={5} pts={6} (no body/pts)",
-                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", al.isInertial, mAl);
+                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} (no body/pts)",
+                                    activeLeg, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl);
                         }
 
                         ParsekLog.VerboseRateLimited(DriverTag, "polyline.head." + rec.RecordingId,
