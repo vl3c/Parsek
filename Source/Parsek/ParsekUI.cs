@@ -222,10 +222,10 @@ namespace Parsek
 
             // --- Logistics (v0, available in both Flight and KSC) ---
             // Grouped with Timeline + Recordings as the primary navigation set.
-            // The label carries a live route count ("Logistics (N)", mirroring the
-            // Real Spawn Control idiom) and the whole button tints red when any
-            // route is hard-broken (EndpointLost / MissingSourceRecording /
-            // SourceChanged) so a problem is visible without opening the window.
+            // The whole button tints red when any route is hard-broken (EndpointLost /
+            // MissingSourceRecording / SourceChanged) so a problem is visible without
+            // opening the window. The label is just "Logistics" (no live count); the
+            // route count is still computed for the broken-tint diagnostic log only.
             IReadOnlyList<Route> logisticsRoutes = RouteStore.CommittedRoutes;
             int logisticsRouteCount = logisticsRoutes != null ? logisticsRoutes.Count : 0;
             bool anyLogisticsBroken = LogisticsButtonState.AnyRouteHardBroken(
@@ -244,7 +244,7 @@ namespace Parsek
                 GUI.color = new Color(0.95f, 0.45f, 0.45f);
             try
             {
-                if (GUILayout.Button(LogisticsButtonState.FormatLogisticsButtonLabel(logisticsRouteCount)))
+                if (GUILayout.Button("Logistics"))
                 {
                     logisticsUI.IsOpen = !logisticsUI.IsOpen;
                     ParsekLog.Verbose("UI",
