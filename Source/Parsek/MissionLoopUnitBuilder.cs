@@ -246,6 +246,7 @@ namespace Parsek
             ReaimMissionPlan? reaimPlan = null;
             ReaimWindowPlanner.ReaimWindowSchedule? reaimSchedule = null;
             IReadOnlyList<GhostPlaybackLogic.LoopCut> loiterCuts = null;
+            ArrivalHoldPlanner.ArrivalHoldResult arrivalHold = ArrivalHoldPlanner.ArrivalHoldResult.None;
             if (bodyInfo != null)
             {
                 ConstraintExtraction extraction = MissionPeriodicity.ExtractConstraints(
@@ -517,6 +518,24 @@ namespace Parsek
                                     $"compressedSpan={(recordedSpan - totalCut).ToString("F0", ric)}" +
                                     $"/{recordedSpan.ToString("F0", ric)}");
                             }
+
+                            // Destination-SOI arrival alignment (re-aim cross-parent landing): the loop-clock
+                            // arrival HOLD that defers the in-SOI replay so the destination's rotation phase at
+                            // the deorbit recurs to recorded. None (hold 0) for alignment off / an unsupported
+                            // destination / an orbit-only arrival, leaving the span clock byte-identical.
+                            // extraction is in scope; phaseAnchorUT + loiterCuts are final (post pad-align).
+                            arrivalHold = ArrivalHoldPlanner.ComputeArrivalHold(
+                                extraction.Constraints, plan.TargetBody, plan.RecordedArrivalUT,
+                                transitedBodyRotationMode, phaseAnchorUT, spanStartUT, loiterCuts, bodyInfo);
+                            if (arrivalHold.Applied && !SuppressLogging)
+                            {
+                                var aic = CultureInfo.InvariantCulture;
+                                ParsekLog.Info("Reaim",
+                                    $"MissionLoopUnit: mission='{mission.Name}' ARRIVAL HOLD dest={plan.TargetBody} " +
+                                    $"hold={arrivalHold.HoldSeconds.ToString("R", aic)}s at " +
+                                    $"recordedArrivalUT={plan.RecordedArrivalUT.ToString("R", aic)} " +
+                                    $"(aligns the deorbit rotation phase, mode={transitedBodyRotationMode})");
+                            }
                         }
                         else if (!SuppressLogging)
                         {
@@ -542,7 +561,7 @@ namespace Parsek
             unit = new GhostPlaybackLogic.LoopUnit(
                 ownerIndex, memberArray, spanStartUT, spanEndUT, effectiveCadence, phaseAnchorUT,
                 effectiveOverlapCadence, memberWindowByIndex, relaunchSchedule, reaimPlan, reaimSchedule,
-                loiterCuts);
+                loiterCuts, arrivalHold.HoldSeconds, arrivalHold.HoldAtUT);
 
             if (!SuppressLogging)
             {
