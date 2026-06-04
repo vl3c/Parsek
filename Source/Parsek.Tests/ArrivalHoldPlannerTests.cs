@@ -113,5 +113,20 @@ namespace Parsek.Tests
             Assert.Equal(50.0, r.HoldSeconds, 9);
             Assert.Equal(1000.0, r.HoldAtUT, 9);
         }
+
+        [Fact]
+        public void Landing_WithDestinationSideLoiterCut_ReturnsNone()
+        {
+            // A cut AFTER the SOI entry (a recorded destination parking orbit) breaks the entry->deorbit
+            // rigidity, so the hold fails closed (deferred to the L8 pre-landing trim). A launch-side cut
+            // (before entry) does NOT trip this - see Landing_AccountsForLaunchSideLoiterCompression.
+            var destCut = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 1100.0, LengthSeconds = 200.0 },  // after arrival 1000
+            };
+            var r = ArrivalHoldPlanner.ComputeArrivalHold(
+                DunaLanding, "Duna", 1000.0, TransitedBodyRotationMode.Loose, 350.0, 0.0, destCut, new HoldFake(100.0));
+            Assert.False(r.Applied);
+        }
     }
 }

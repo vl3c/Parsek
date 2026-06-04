@@ -54,6 +54,19 @@ namespace Parsek.Reaim
             if (!destSet.Supported || !destSet.HasLandingRotation)
                 return ArrivalHoldResult.None;
 
+            // A destination-side loiter cut (a recorded parking orbit excised AFTER SOI entry) compresses the
+            // in-SOI duration by whole orbital periods, breaking the rigidity that lets an entry-referenced
+            // hold align the deorbit (the alignment would land off by cut mod T_rot). That is the deferred
+            // pre-landing-trim (L8) case: fail closed to faithful (no hold) here rather than apply a
+            // partially-aligned hold. Launch-side cuts (before SOI entry) are fine - CompressSpanUT already
+            // folds them into liveEntryUT below.
+            if (loiterCuts != null)
+            {
+                for (int i = 0; i < loiterCuts.Count; i++)
+                    if (loiterCuts[i].EndUT > recordedArrivalUT)
+                        return ArrivalHoldResult.None;
+            }
+
             double tRot = bodyInfo.RotationPeriod(targetBody);
             if (double.IsNaN(tRot) || double.IsInfinity(tRot) || tRot <= 0.0)
                 return ArrivalHoldResult.None;

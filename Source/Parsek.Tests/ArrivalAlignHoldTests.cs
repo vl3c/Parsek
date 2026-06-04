@@ -201,5 +201,22 @@ namespace Parsek.Tests
             Check(550.0, 600.0);   // within the hold: held at the recorded boundary 600
             Check(900.0, 800.0);   // after the hold: deferred; compressed 700 -> recorded 800 (cut skipped)
         }
+
+        [Fact]
+        public void Clock_HoldClampedSoEffectiveSpanNeverExceedsCadence()
+        {
+            // Pathological: a 200 s hold with cadence 1100 and span 1000 would make effectiveSpan 1200 > the
+            // cadence, wrapping a cycle mid-span. The clamp caps the hold at cadence - span = 100, so
+            // effectiveSpan == cadence and the in-SOI replay is never truncated. (No real caller trips this;
+            // the re-aim cadence is synodic.) Verify the hold defers by only the clamped 100 s, not 200.
+            void Loop(double currentUT, out double loopUT)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT, 0.0, 0.0, 1000.0, 1100.0, out loopUT, out long _, out bool _,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: 200.0, arrivalHoldAtUT: 600.0);
+            }
+            Loop(650.0, out double a); Assert.Equal(600.0, a, Tol);   // within the clamped hold: held at 600
+            Loop(1050.0, out double b); Assert.Equal(950.0, b, Tol);  // after: deferred by the clamped 100 (not 200)
+        }
     }
 }

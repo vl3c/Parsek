@@ -7084,6 +7084,12 @@ namespace Parsek
             // caller (passing the default 0 hold) stays byte-identical. The re-aim cadence is the synodic
             // period, far larger than span + hold, so the hold never pushes effectiveSpan past the cadence.
             double hold = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
+            // Defense-in-depth: never let the hold push the active span past the cadence (a mid-span cycle
+            // wrap would silently truncate the in-SOI replay). No current caller can trip this (the re-aim
+            // cadence is the synodic period, far larger than span + hold), but this clock is shared by ALL
+            // ghost playback, so the bound is enforced rather than merely assumed.
+            if (hold > 0.0 && compressedSpan + hold > cycleDuration)
+                hold = Math.Max(0.0, cycleDuration - compressedSpan);
             double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
             double effectiveSpan = compressedSpan + hold;
 
