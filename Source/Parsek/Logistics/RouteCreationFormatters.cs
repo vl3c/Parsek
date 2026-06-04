@@ -70,7 +70,7 @@ namespace Parsek.Logistics
         /// <summary>
         /// Map a non-eligible <see cref="RouteAnalysisStatus"/> to player-facing
         /// reject text. <see cref="RouteAnalysisStatus.Eligible"/> returns an
-        /// empty string — callers should not invoke this on the happy path.
+        /// empty string - callers should not invoke this on the happy path.
         /// </summary>
         internal static string FormatRejectMessage(RouteAnalysisStatus status)
         {
@@ -79,13 +79,13 @@ namespace Parsek.Logistics
                 case RouteAnalysisStatus.Eligible:
                     return string.Empty;
                 case RouteAnalysisStatus.MissingRouteProof:
-                    return "Recording has no route proof — log the dock event to enable a Supply Route.";
+                    return "Recording has no route proof - log the dock event to enable a Supply Route.";
                 case RouteAnalysisStatus.MultipleConnectionWindows:
-                    return "Multiple dock windows detected — multi-stop routes are not yet supported in v1.";
+                    return "Multiple dock windows detected - multi-stop routes are not yet supported in v1.";
                 case RouteAnalysisStatus.NoDeliveryManifest:
-                    return "No delivery payload detected — check that cargo actually moved from transport to destination.";
+                    return "No delivery payload detected - check that cargo actually moved from transport to destination.";
                 case RouteAnalysisStatus.MixedPickupDelivery:
-                    return "Mixed pickup and delivery detected — Supply Routes must be one-way in v1.";
+                    return "Mixed pickup and delivery detected - Supply Routes must be one-way in v1.";
                 case RouteAnalysisStatus.MissingEndpointProof:
                     return "Endpoint vessel could not be identified at dock time.";
                 default:
@@ -115,7 +115,7 @@ namespace Parsek.Logistics
             var sb = new StringBuilder();
             if (analysis == null || !analysis.IsEligible)
             {
-                // Defensive — callers should gate on IsEligible. Render the
+                // Defensive - callers should gate on IsEligible. Render the
                 // reject message so the dialog body is never blank.
                 sb.Append(analysis != null
                     ? FormatRejectMessage(analysis.Status)

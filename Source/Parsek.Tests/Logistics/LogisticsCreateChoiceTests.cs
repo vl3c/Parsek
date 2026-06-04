@@ -92,5 +92,40 @@ namespace Parsek.Tests.Logistics
             Assert.False(LogisticsCreatePresentation.ShouldActivate(CreateRouteChoice.CreatePaused));
             Assert.Equal(RouteStatus.Paused, route.Status);
         }
+
+        // ------------------------------------------------------------------
+        // M5: the toast-should-fire decision + the two pure strings.
+        // ------------------------------------------------------------------
+
+        [Theory]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(0, false)]
+        [InlineData(-1, false)]
+        public void ShouldToastManualLoopCleared_OnlyPositiveCount(int cleared, bool expected)
+        {
+            // The toast must fire ONLY when a manual loop was actually turned off.
+            Assert.Equal(expected, LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared));
+        }
+
+        [Fact]
+        public void FormatManualLoopTurnedOffToast_NamesTreeAndExplainsOwnership()
+        {
+            string toast = LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("Munar Logistics");
+
+            Assert.Equal(
+                "Manual loop on 'Munar Logistics' turned off: a route now owns this tree",
+                toast);
+        }
+
+        [Fact]
+        public void FormatRouteOwnsTreeNote_NamesTreeAndStatesLoopingDisabled()
+        {
+            string note = LogisticsCreatePresentation.FormatRouteOwnsTreeNote("Munar Logistics");
+
+            Assert.Equal(
+                "This route owns tree 'Munar Logistics'; manual looping is disabled while it exists.",
+                note);
+        }
     }
 }

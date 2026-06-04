@@ -151,13 +151,16 @@ namespace Parsek.Logistics
         /// <param name="currentUT">Game UT, passed to
         /// <see cref="MissionStore.SetLoopEnabled"/> (it stamps a loop anchor on
         /// enable; on disable the value is ignored).</param>
-        internal static void ForceClearManualLoopForRouteTree(string treeId, double currentUT)
+        /// <returns>The total number of manual loops actually turned off (mission
+        /// loops + per-recording loops). 0 when the tree had no manual loop, so the
+        /// caller can fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
+        internal static int ForceClearManualLoopForRouteTree(string treeId, double currentUT)
         {
             if (string.IsNullOrEmpty(treeId))
             {
                 ParsekLog.Verbose(Tag,
                     "ForceClearManualLoopForRouteTree: null/empty treeId: skipped");
-                return;
+                return 0;
             }
 
             // (a) Mission loop surface. SetLoopEnabled only flips bools on
@@ -210,6 +213,7 @@ namespace Parsek.Logistics
             ParsekLog.Info(Tag,
                 $"ForceClearManualLoopForRouteTree: tree={treeId} cleared " +
                 $"{missionsCleared} mission loop(s) + {recordingsCleared} per-recording loop(s)");
+            return missionsCleared + recordingsCleared;
         }
 
         /// <summary>
@@ -220,15 +224,19 @@ namespace Parsek.Logistics
         /// with no resolvable source trees is a no-op (Verbose-logged). Each tree
         /// is cleared at most once.
         /// </summary>
-        internal static void ForceClearManualLoopForRoute(Route route, double currentUT)
+        /// <returns>The total number of manual loops actually turned off across the
+        /// distinct source trees (0 when nothing was cleared), so the create path can
+        /// fire a "loop turned off" toast ONLY on a real clear (M5).</returns>
+        internal static int ForceClearManualLoopForRoute(Route route, double currentUT)
         {
             if (route == null)
             {
                 ParsekLog.Verbose(Tag, "ForceClearManualLoopForRoute: null route: skipped");
-                return;
+                return 0;
             }
 
             var seen = new HashSet<string>(StringComparer.Ordinal);
+            int totalCleared = 0;
 
             // Prefer the explicit source-ref tree ids; fall back to the
             // backing-mission tree id when source refs are absent (defensive).
@@ -240,13 +248,13 @@ namespace Parsek.Logistics
                     if (sref == null || string.IsNullOrEmpty(sref.TreeId))
                         continue;
                     if (seen.Add(sref.TreeId))
-                        ForceClearManualLoopForRouteTree(sref.TreeId, currentUT);
+                        totalCleared += ForceClearManualLoopForRouteTree(sref.TreeId, currentUT);
                 }
             }
             if (!string.IsNullOrEmpty(route.BackingMissionTreeId)
                 && seen.Add(route.BackingMissionTreeId))
             {
-                ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT);
+                totalCleared += ForceClearManualLoopForRouteTree(route.BackingMissionTreeId, currentUT);
             }
 
             if (seen.Count == 0)
@@ -254,6 +262,8 @@ namespace Parsek.Logistics
                 ParsekLog.Verbose(Tag,
                     $"ForceClearManualLoopForRoute: route {ShortId(route.Id)} has no resolvable source tree(s): nothing cleared");
             }
+
+            return totalCleared;
         }
 
         // True when any of the route's SourceRefs carries the given tree id.

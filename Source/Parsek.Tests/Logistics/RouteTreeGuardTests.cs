@@ -304,6 +304,59 @@ namespace Parsek.Tests.Logistics
         }
 
         // -----------------------------------------------------------------
+        // M5: ForceClear* return the cleared count so the create path can fire the
+        // toast ONLY on a real clear.
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void ForceClear_ReturnsClearedCount_MissionPlusRecording()
+        {
+            Recording looping = Rec("rec-1", "tree-X", loop: true);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-X", looping));
+
+            MissionStore.EnsureDefaultsForTrees(
+                new List<RecordingTree> { TreeWithRecordings("tree-X", looping) });
+            Mission mission = MissionStore.FindOriginalMission("tree-X");
+            MissionStore.SetLoopEnabled(mission, true, 100.0);
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRouteTree("tree-X", 200.0);
+
+            // 1 mission loop + 1 per-recording loop.
+            Assert.Equal(2, cleared);
+        }
+
+        [Fact]
+        public void ForceClear_ReturnsZero_WhenNoManualLoopOnTree()
+        {
+            // A sealed tree with no looping recording and no looping mission.
+            Recording notLooping = Rec("rec-1", "tree-X", loop: false);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-X", notLooping));
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRouteTree("tree-X", 200.0);
+
+            Assert.Equal(0, cleared);
+        }
+
+        [Fact]
+        public void ForceClear_SecondCallReturnsZero_Idempotent()
+        {
+            Recording looping = Rec("rec-1", "tree-X", loop: true);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-X", looping));
+
+            int first = RouteTreeGuard.ForceClearManualLoopForRouteTree("tree-X", 100.0);
+            int second = RouteTreeGuard.ForceClearManualLoopForRouteTree("tree-X", 200.0);
+
+            Assert.Equal(1, first);
+            Assert.Equal(0, second);
+        }
+
+        [Fact]
+        public void ForceClear_NullTreeId_ReturnsZero()
+        {
+            Assert.Equal(0, RouteTreeGuard.ForceClearManualLoopForRouteTree(null, 100.0));
+        }
+
+        // -----------------------------------------------------------------
         // ForceClearManualLoopForRoute (AddRoute-site convenience)
         // -----------------------------------------------------------------
 
@@ -336,6 +389,93 @@ namespace Parsek.Tests.Logistics
 
             Assert.Contains(logLines, l =>
                 l.Contains(GuardTag) && l.Contains("null route"));
+        }
+
+        [Fact]
+        public void ForceClearForRoute_ReturnsSummedCountAcrossTrees()
+        {
+            Recording loopY = Rec("rec-y", "tree-Y", loop: true);
+            Recording loopZ = Rec("rec-z", "tree-Z", loop: true);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-Y", loopY));
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-Z", loopZ));
+
+            Route multi = new RouteFixtureBuilder()
+                .WithId("route-B")
+                .WithName("route-B")
+                .WithBackingMissionTreeId("tree-Y")
+                .WithSourceRef(SourceRef("rec-y", "tree-Y"))
+                .WithSourceRef(SourceRef("rec-z", "tree-Z"))
+                .Build();
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(multi, 100.0);
+
+            // One per-recording loop on each of the two distinct trees.
+            Assert.Equal(2, cleared);
+        }
+
+        [Fact]
+        public void ForceClearForRoute_ReturnsZero_WhenNoManualLoops()
+        {
+            Recording notLooping = Rec("rec-y", "tree-Y", loop: false);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-Y", notLooping));
+
+            Route route = RouteOnTree("route-A", "tree-Y");
+
+            Assert.Equal(0, RouteTreeGuard.ForceClearManualLoopForRoute(route, 100.0));
+        }
+
+        [Fact]
+        public void ForceClearForRoute_NullRoute_ReturnsZero()
+        {
+            Assert.Equal(0, RouteTreeGuard.ForceClearManualLoopForRoute(null, 100.0));
+        }
+
+        // -----------------------------------------------------------------
+        // M5: the toast fires (via ParsekLog.ScreenMessage) ONLY when a manual
+        // loop was actually cleared. Pins the count-plumbing -> ShouldToast ->
+        // FormatManualLoopTurnedOffToast -> ScreenMessage seam (the IMGUI create
+        // wiring in CreateRouteFromCandidate is not unit-testable, so we drive the
+        // same pure surface it calls and assert the screen-message sink).
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void Toast_PostedWhenLoopActuallyCleared()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+
+            Recording looping = Rec("rec-1", "tree-X", loop: true);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-X", looping));
+            Route route = RouteOnTree("route-A", "tree-X");
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(route, 100.0);
+            // Drive the same pure decision + format the create path runs.
+            if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
+                ParsekLog.ScreenMessage(
+                    LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("tree-X"), 5f);
+
+            Assert.True(cleared > 0);
+            Assert.Contains(toasts, t => t.Contains("turned off: a route now owns this tree"));
+        }
+
+        [Fact]
+        public void Toast_NotPostedWhenNothingCleared()
+        {
+            var toasts = new List<string>();
+            ParsekLog.ScreenMessageSinkForTesting = (msg, dur) => toasts.Add(msg);
+
+            // A sealed tree with no looping recording / mission: nothing to clear.
+            Recording notLooping = Rec("rec-1", "tree-X", loop: false);
+            RecordingStore.AddCommittedTreeForTesting(TreeWithRecordings("tree-X", notLooping));
+            Route route = RouteOnTree("route-A", "tree-X");
+
+            int cleared = RouteTreeGuard.ForceClearManualLoopForRoute(route, 100.0);
+            if (LogisticsCreatePresentation.ShouldToastManualLoopCleared(cleared))
+                ParsekLog.ScreenMessage(
+                    LogisticsCreatePresentation.FormatManualLoopTurnedOffToast("tree-X"), 5f);
+
+            Assert.Equal(0, cleared);
+            Assert.Empty(toasts);
         }
     }
 }

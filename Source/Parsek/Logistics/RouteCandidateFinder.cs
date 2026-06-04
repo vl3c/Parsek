@@ -17,6 +17,30 @@ namespace Parsek.Logistics
     }
 
     /// <summary>
+    /// A committed recording tree that is NOT (yet) a Supply Run candidate, with
+    /// the reason surfaced for the M3 near-miss subsection. Two disjoint reason
+    /// families:
+    /// <list type="bullet">
+    ///   <item><b>Not fully sealed</b> (<see cref="NotSealed"/> true): at least one
+    ///   recording is still re-flyable (<see cref="MergeState"/> !=
+    ///   <see cref="MergeState.Immutable"/>); <see cref="ReflyableCount"/> counts
+    ///   them. <see cref="Status"/> is unused in this case.</item>
+    ///   <item><b>Sealed but ineligible</b> (<see cref="NotSealed"/> false):
+    ///   <see cref="Status"/> carries the <see cref="RouteAnalysisEngine"/> reject
+    ///   status.</item>
+    /// </list>
+    /// Eligible trees (whether already promoted or still an open candidate) are NOT
+    /// near-misses and are excluded by <see cref="RouteCandidateFinder.DeriveNearMisses"/>.
+    /// </summary>
+    internal sealed class RouteNearMiss
+    {
+        internal RecordingTree Tree;
+        internal RouteAnalysisStatus Status;
+        internal bool NotSealed;
+        internal int ReflyableCount;
+    }
+
+    /// <summary>
     /// Derives Supply Run candidates from committed recording trees. A tree
     /// becomes a candidate only when it is <b>fully sealed</b> (every recording
     /// is <see cref="MergeState.Immutable"/> — committed and slot-closed, so the
@@ -143,6 +167,115 @@ namespace Parsek.Logistics
                 $"[missingProof={missingProof} multiWindow={multiWindow} " +
                 $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} noManifest={noManifest}]");
             return result;
+        }
+
+        /// <summary>
+        /// Production entry point: derive near-misses from the live stores.
+        /// </summary>
+        internal static List<RouteNearMiss> DeriveNearMisses()
+        {
+            return DeriveNearMisses(RecordingStore.CommittedTrees);
+        }
+
+        /// <summary>
+        /// Pure derivation of the "recently committed trees not yet eligible"
+        /// near-miss list. Walks the same committed trees in the same order as
+        /// <see cref="DeriveCandidates"/>; for each tree: a not-fully-sealed tree
+        /// yields a <see cref="RouteNearMiss"/> with <see cref="RouteNearMiss.NotSealed"/>
+        /// set and a re-flyable count; a sealed-but-ineligible tree yields a
+        /// near-miss carrying its <see cref="RouteAnalysisStatus"/>; an eligible
+        /// tree (whether already promoted to a route or still an open candidate) is
+        /// NOT a near-miss and is skipped. Exposed for direct xUnit testing without
+        /// touching the static stores. Gate-safe: reads only
+        /// <see cref="RecordingTree.Recordings"/>[].<see cref="MergeState"/> and the
+        /// <see cref="RouteAnalysisEngine"/>, never a raw ledger / committed read.
+        /// </summary>
+        internal static List<RouteNearMiss> DeriveNearMisses(
+            IReadOnlyList<RecordingTree> committedTrees)
+        {
+            var result = new List<RouteNearMiss>();
+            if (committedTrees == null || committedTrees.Count == 0)
+            {
+                ParsekLog.Verbose(Tag, "DeriveNearMisses: no committed trees");
+                return result;
+            }
+
+            int notSealed = 0;
+            int ineligible = 0;
+            // Per-reason breakdown of the ineligible count, mirroring DeriveCandidates'
+            // batch-summary convention (one Verbose line after the loop, never per item).
+            int missingProof = 0, multiWindow = 0, missingEndpoint = 0,
+                mixedPickup = 0, noManifest = 0;
+            for (int i = 0; i < committedTrees.Count; i++)
+            {
+                RecordingTree tree = committedTrees[i];
+                if (tree == null)
+                    continue;
+
+                if (!IsTreeFullySealed(tree))
+                {
+                    notSealed++;
+                    result.Add(new RouteNearMiss
+                    {
+                        Tree = tree,
+                        NotSealed = true,
+                        ReflyableCount = CountReflyableRecordings(tree)
+                    });
+                    continue;
+                }
+
+                RouteAnalysisResult analysis =
+                    RouteAnalysisEngine.AnalyzeTree(tree, RouteAnalysisLogMode.Quiet);
+                if (analysis == null || !analysis.IsEligible)
+                {
+                    ineligible++;
+                    RouteAnalysisStatus status =
+                        analysis?.Status ?? RouteAnalysisStatus.MissingRouteProof;
+                    switch (status)
+                    {
+                        case RouteAnalysisStatus.MissingRouteProof: missingProof++; break;
+                        case RouteAnalysisStatus.MultipleConnectionWindows: multiWindow++; break;
+                        case RouteAnalysisStatus.MissingEndpointProof: missingEndpoint++; break;
+                        case RouteAnalysisStatus.MixedPickupDelivery: mixedPickup++; break;
+                        case RouteAnalysisStatus.NoDeliveryManifest: noManifest++; break;
+                    }
+                    result.Add(new RouteNearMiss
+                    {
+                        Tree = tree,
+                        Status = status,
+                        NotSealed = false
+                    });
+                    continue;
+                }
+
+                // Eligible (candidate or already promoted): not a near-miss, skip.
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"DeriveNearMisses: trees={committedTrees.Count} nearMisses={result.Count} " +
+                $"notSealed={notSealed} ineligible={ineligible} " +
+                $"[missingProof={missingProof} multiWindow={multiWindow} " +
+                $"missingEndpoint={missingEndpoint} mixedPickup={mixedPickup} noManifest={noManifest}]");
+            return result;
+        }
+
+        // Count of recordings in the tree that are still re-flyable (MergeState !=
+        // Immutable, i.e. NotCommitted or CommittedProvisional). Null slots are
+        // excluded to match IsTreeFullySealed, which treats a null slot as
+        // can't-prove-unsealed and skips it.
+        private static int CountReflyableRecordings(RecordingTree tree)
+        {
+            if (tree?.Recordings == null)
+                return 0;
+            int count = 0;
+            foreach (Recording rec in tree.Recordings.Values)
+            {
+                if (rec == null)
+                    continue;
+                if (rec.MergeState != MergeState.Immutable)
+                    count++;
+            }
+            return count;
         }
 
         // Set of recording ids already referenced by a stored route's SourceRefs,
