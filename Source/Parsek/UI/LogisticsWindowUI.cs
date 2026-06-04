@@ -1395,6 +1395,10 @@ namespace Parsek
                 ParsekLog.Info("UI",
                     $"Logistics: route renamed from '{route.Name}' to '{committed}' (route={ShortId(route.Id)})");
                 route.Name = committed;
+                // Dirty the legibility cache so a sort-by-Name re-sorts immediately on
+                // rename rather than lagging until the next ~1 Hz refresh (mirrors
+                // CommitIntervalEdit's invalidation for a sort-by-Interval change).
+                lastLegibilityComputeRealtime = -1f;
             }
             else
             {
