@@ -241,7 +241,7 @@ namespace Parsek
         // than its content. The remaining columns (Status / Destination) are candidates
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
-        private const float MinWindowWidth = 1310f;
+        private const float MinWindowWidth = 1360f;
         private const float MinWindowHeight = 220f;
 
         public bool IsOpen
@@ -266,7 +266,7 @@ namespace Parsek
             if (windowRect.width < 1f)
             {
                 float x = mainWindowRect.x + mainWindowRect.width + 10;
-                windowRect = new Rect(x, mainWindowRect.y, 1310, 340);
+                windowRect = new Rect(x, mainWindowRect.y, 1360, 340);
                 ParsekLog.Verbose("UI",
                     $"Logistics window initial position: x={windowRect.x.ToString("F0", CultureInfo.InvariantCulture)} y={windowRect.y.ToString("F0", CultureInfo.InvariantCulture)}");
             }
@@ -645,6 +645,14 @@ namespace Parsek
             // countdown, H3 badge, H4 destination); the draw path never recomputes.
             RouteLegibility leg = GetLegibility(route);
 
+            // A route armed via Send Once is doing a single one-shot cycle, so its
+            // cadence/interval is irrelevant: hide the Interval cell while it sends once
+            // (the disabled "Sending one cycle..." action still shows in the Actions cell).
+            bool sendOnceArmed = !string.IsNullOrEmpty(route.Id)
+                && sendOnceArmedRouteIds.Contains(route.Id);
+            bool sendingOnce = ShouldShowSendingButton(route)
+                && ResolveArmedKind(sendOnceArmed, route.Status) == ArmedSendKind.SendOnce;
+
             GUILayout.Label(FormatOrigin(route), GUILayout.Width(ColW_Origin));
             // H4: name the destination vessel (resolved from the endpoint PID) instead
             // of bare coords; coords move to the hover tooltip on fallback. Resolved on
@@ -656,9 +664,13 @@ namespace Parsek
             // [+]" stepper plus a small "Nx" multiplier label. The -/+ buttons reuse
             // the existing deferred-mutation fields (committed synchronously in
             // ApplyPendingActions the same frame); the editable field types a target
-            // interval in seconds and commits on Enter / click-outside through
+            // interval and commits on Enter / click-outside through
             // ParseAndSnapInterval -> ApplyMultiplier (run directly in the commit).
-            DrawIntervalCell(route);
+            // Hidden (empty cell, same width to keep columns aligned) while sending once.
+            if (sendingOnce)
+                GUILayout.Label(GUIContent.none, GUILayout.Width(ColW_Interval));
+            else
+                DrawIntervalCell(route);
             // L2: the standalone Transit column was dropped to narrow the window; the
             // transit value now rides in the Interval cell's "Nx" tooltip (DrawIntervalCell)
             // and the expand-panel detail line, so no Transit cell is drawn here.
@@ -720,9 +732,8 @@ namespace Parsek
                 // Send Once arm reads "Sending one cycle...". The button stays disabled
                 // either way so the click reads as registered and the route reads as
                 // armed-and-waiting rather than idle. Wider than the old "Sending..."
-                // cell so the longer pause label does not clip.
-                bool sendOnceArmed = !string.IsNullOrEmpty(route.Id)
-                    && sendOnceArmedRouteIds.Contains(route.Id);
+                // cell so the longer pause label does not clip. (sendOnceArmed was
+                // computed once at the top of the row.)
                 ArmedSendKind armedKind = ResolveArmedKind(sendOnceArmed, route.Status);
                 bool prevEnabled = GUI.enabled;
                 GUI.enabled = false;
@@ -741,7 +752,7 @@ namespace Parsek
             {
                 if (GUILayout.Button(new GUIContent("Send Once",
                         "Fire one cycle at the next moment conditions allow (funds, resources, endpoint, alignment), then stay Paused."),
-                        GUILayout.Width(74)))
+                        GUILayout.Width(79)))
                     pendingSendOnce = route;
                 if (GUILayout.Button(new GUIContent("Activate",
                         "Turn on periodic auto-dispatch on this route's interval."),
@@ -871,7 +882,7 @@ namespace Parsek
                 new GUIContent(
                     string.Format(CultureInfo.InvariantCulture, "{0}x", n),
                     string.Format(CultureInfo.InvariantCulture,
-                        "Dispatch cadence = N x run duration (transit {0}). Type a target interval (seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
+                        "Dispatch cadence = N x run duration (transit {0}). Type a target interval (e.g. 30m, 2h, 1d, or a plain number = seconds) in the field, or use -/+; the value snaps up to the next whole run-multiple (1x is the floor, the fastest the run allows).",
                         FormatDuration(route.TransitDuration))),
                 GUILayout.Width(28f));
 
@@ -922,16 +933,18 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Formats the editable interval field's display value: a plain seconds count
-        /// (InvariantCulture, no unit suffix so the typed-and-displayed forms match).
-        /// A non-positive / non-finite interval shows "0" so the field is always
-        /// editable. Pure for unit testing.
+        /// Formats the editable interval field's display value: a friendly duration
+        /// WITH a unit (e.g. "14.0m", "1.6d") via <see cref="FormatDuration"/>, so the
+        /// player reads the cadence at a glance. It round-trips through the unit-aware
+        /// <see cref="RouteCadence.ParseAndSnapInterval"/> (which accepts that same
+        /// "Nm"/"Nh"/"Nd"/"Ns"/plain-number form). A non-positive / non-finite interval
+        /// shows "0" so the field is always editable. Pure for unit testing.
         /// </summary>
         internal static string FormatIntervalFieldValue(double seconds)
         {
             if (seconds <= 0.0 || double.IsNaN(seconds) || double.IsInfinity(seconds))
                 return "0";
-            return seconds.ToString("F0", CultureInfo.InvariantCulture);
+            return FormatDuration(seconds);
         }
 
         /// <summary>

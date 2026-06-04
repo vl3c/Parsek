@@ -14,9 +14,12 @@ namespace Parsek.Logistics
     internal static class RouteCadence
     {
         /// <summary>
-        /// Parses a player-typed target dispatch interval (in seconds) and snaps
-        /// it UP to the nearest whole multiple of <paramref name="span"/> (the
-        /// route's natural run duration, <see cref="Route.TransitDuration"/>):
+        /// Parses a player-typed target dispatch interval and snaps it UP to the
+        /// nearest whole multiple of <paramref name="span"/> (the route's natural run
+        /// duration, <see cref="Route.TransitDuration"/>). The text may carry an
+        /// optional trailing unit (<c>s</c>, <c>m</c>/<c>min</c>, <c>h</c>, <c>d</c> =
+        /// Kerbin day = 21600 s); a plain number is read as seconds. So "30m", "2 h",
+        /// "1d", "90s", and "1800" are all accepted:
         /// <c>N = ceil(target / span)</c>, floored at 1 via
         /// <see cref="Route.ClampCadenceMultiplier"/>. CEIL (not round) is the
         /// contract: a typed time always snaps up to the next full run-multiple
@@ -62,19 +65,34 @@ namespace Parsek.Logistics
                 return false;
             }
 
-            double target;
+            // Accept an optional trailing unit so the friendly displayed form (e.g.
+            // "14.0m", "1.6d") round-trips and the player can type "30m", "2 h", "1d",
+            // "90s", or a plain number (= seconds, backward compatible). "d" is a Kerbin
+            // day (21600 s = 6 h), matching the window's FormatDuration. Check "min"
+            // before the single-letter units so "20 min" is not mis-stripped.
+            string raw = text.Trim();
+            string lower = raw.ToLowerInvariant();
+            double unitFactor = 1.0; // seconds
+            if (lower.EndsWith("min")) { unitFactor = 60.0; raw = raw.Substring(0, raw.Length - 3); }
+            else if (lower.EndsWith("s")) { unitFactor = 1.0; raw = raw.Substring(0, raw.Length - 1); }
+            else if (lower.EndsWith("m")) { unitFactor = 60.0; raw = raw.Substring(0, raw.Length - 1); }
+            else if (lower.EndsWith("h")) { unitFactor = 3600.0; raw = raw.Substring(0, raw.Length - 1); }
+            else if (lower.EndsWith("d")) { unitFactor = 21600.0; raw = raw.Substring(0, raw.Length - 1); }
+
+            double number;
             bool parsed = double.TryParse(
-                text.Trim(),
+                raw.Trim(),
                 System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture,
-                out target);
-            if (!parsed || double.IsNaN(target) || double.IsInfinity(target) || target <= 0.0)
+                out number);
+            if (!parsed || double.IsNaN(number) || double.IsInfinity(number) || number <= 0.0)
             {
                 ParsekLog.Verbose("Route",
                     $"RouteCadence.ParseAndSnapInterval text='{text.Trim()}' span={FormatR(span)} " +
                     "-> reject (unparseable/non-positive/non-finite target)");
                 return false;
             }
+            double target = number * unitFactor;
 
             int n = Route.ClampCadenceMultiplier((int)System.Math.Ceiling(target / span));
             multiplier = n;

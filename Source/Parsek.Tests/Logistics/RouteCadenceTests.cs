@@ -229,6 +229,39 @@ namespace Parsek.Tests.Logistics
                 l.Contains("[Route]") && l.Contains("ParseAndSnapInterval") && l.Contains("N=" + expectedN));
         }
 
+        // M1 (units): the typed value may carry a trailing unit (s / m / min / h /
+        // d = Kerbin day = 21600 s); a plain number is read as seconds. The target in
+        // seconds is number * unit, then ceiled to the next whole span multiple. The
+        // friendly displayed form (e.g. "14.0m") round-trips back through here.
+        [Theory]
+        [InlineData("600s", 300.0, 2)]    // 600 s = 2 x 300
+        [InlineData("10m", 600.0, 1)]     // 10 min = 600 s = 1 x 600
+        [InlineData("20m", 600.0, 2)]     // 20 min = 1200 s = 2 x 600
+        [InlineData("20 min", 600.0, 2)]  // spelled-out unit + space
+        [InlineData("2h", 3600.0, 2)]     // 2 h = 7200 s = 2 x 3600
+        [InlineData("1d", 21600.0, 1)]    // 1 Kerbin day = 21600 s = 1 x 21600
+        [InlineData("14.0m", 840.0, 1)]   // friendly-display round-trip: 14 min = 840 s
+        [InlineData("1200", 600.0, 2)]    // plain number still = seconds (backward compat)
+        public void ParseAndSnapInterval_ParsesUnitSuffix(string text, double span, int expectedN)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, span, out int n);
+            Assert.True(ok);
+            Assert.Equal(expectedN, n);
+        }
+
+        // catches: a bare unit with no number ("m", "d") or a unit appended to garbage
+        // being accepted; all reject (return false, N=0).
+        [Theory]
+        [InlineData("m")]
+        [InlineData("d")]
+        [InlineData("abcd")]
+        public void ParseAndSnapInterval_UnitWithoutNumber_Rejects(string text)
+        {
+            bool ok = RouteCadence.ParseAndSnapInterval(text, 300.0, out int n);
+            Assert.False(ok);
+            Assert.Equal(0, n);
+        }
+
         // catches: a typed time below a single span snapping below the 1x floor. Any
         // positive target under one span (50, 0.5 over a 300 span) ceils to 1.
         [Theory]
