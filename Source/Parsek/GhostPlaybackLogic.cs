@@ -6905,6 +6905,61 @@ namespace Parsek
             return t;
         }
 
+        // === Destination-SOI arrival HOLD (re-aim cross-parent landing alignment) =================
+        // The INVERSE of a loiter cut. A loiter cut REMOVES recorded-span time (the loop plays faster,
+        // skipping the excised parking). An arrival hold INSERTS dead time at the heliocentric->capture
+        // boundary: the in-SOI replay starts LATER in live time so the destination's rotation phase at
+        // the in-SOI entry recurs to its recorded value (the fix for the looped re-aimed landing's
+        // ~131-degree rotation offset). It does not touch the launch pad or the transfer (both upstream
+        // of the boundary), and a zero hold is the identity (byte-identical to today). See
+        // docs/dev/design-mission-periodicity.md and docs/dev/plans/reaim-destination-arrival-alignment.md.
+        // These two helpers are PURE and (this phase) UNWIRED; the loop clock wiring is the next phase.
+
+        /// <summary>
+        /// The minimal forward HOLD (seconds, in [0, T_rot)) that defers the in-SOI replay so the
+        /// destination's rotation phase at the in-SOI entry matches its recorded value. The recorded entry
+        /// sits at rotation phase <c>recordedArrivalUT mod T_rot</c>; the unshifted live entry sits at
+        /// <c>entryLiveUT mod T_rot</c>. The hold that aligns them is
+        /// <c>(recordedArrivalUT - entryLiveUT) mod T_rot</c>, normalized to [0, T_rot). Returns 0 for a
+        /// degenerate rotation period (no rotation constraint =&gt; no hold) or a NaN input. Pure.
+        /// </summary>
+        internal static double ComputeArrivalAlignHoldSeconds(
+            double recordedArrivalUT, double entryLiveUT, double rotationPeriod)
+        {
+            if (double.IsNaN(rotationPeriod) || double.IsInfinity(rotationPeriod) || rotationPeriod <= 0.0)
+                return 0.0;
+            if (double.IsNaN(recordedArrivalUT) || double.IsNaN(entryLiveUT))
+                return 0.0;
+            double m = (recordedArrivalUT - entryLiveUT) % rotationPeriod;
+            if (m < 0.0)
+                m += rotationPeriod;
+            return m;
+        }
+
+        /// <summary>
+        /// Effective-span phase -&gt; compressed-span phase under an arrival HOLD of
+        /// <paramref name="holdSeconds"/> inserted at compressed-span phase position
+        /// <paramref name="holdPhasePos"/> (the heliocentric-&gt;capture boundary, in compressed-span phase
+        /// from spanStart). Before the boundary the mapping is identity; ACROSS the hold window the phase
+        /// is HELD at the boundary (the ghost waits at SOI arrival); AFTER it, the phase resumes shifted
+        /// EARLIER by the hold (the recorded in-SOI sequence, just deferred in live time). The inverse of
+        /// the removal <see cref="CompressSpanUT"/> performs: this INSERTS dead time. Identity for
+        /// <paramref name="holdSeconds"/> &lt;= 0. The caller then maps the returned compressed-span phase
+        /// through <see cref="DecompressSpanUT"/> (loiter cuts) to the recorded loopUT, so holds and cuts
+        /// compose. Pure.
+        /// </summary>
+        internal static double ApplyArrivalHoldToPhase(
+            double effectivePhase, double holdPhasePos, double holdSeconds)
+        {
+            if (double.IsNaN(holdSeconds) || holdSeconds <= 0.0)
+                return effectivePhase;
+            if (effectivePhase <= holdPhasePos)
+                return effectivePhase;                  // before the boundary: identity
+            if (effectivePhase <= holdPhasePos + holdSeconds)
+                return holdPhasePos;                    // within the hold: held at the boundary (waiting)
+            return effectivePhase - holdSeconds;        // after the hold: recorded sequence, deferred
+        }
+
         /// <summary>
         /// Span loop clock for a chain-loop unit. Walks a single loop phase over the whole
         /// unit span [<paramref name="spanStartUT"/>, <paramref name="spanEndUT"/>] and
