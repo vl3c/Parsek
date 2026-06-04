@@ -252,23 +252,24 @@ namespace Parsek.Tests.Logistics
 
     /// <summary>
     /// Pins <see cref="LogisticsWindowUI.FormatIntervalFieldValue"/>, the pure
-    /// formatter for the M1 inline interval text field's displayed value: a plain
-    /// seconds count (InvariantCulture, no unit suffix so the typed and displayed
-    /// forms round-trip through <see cref="RouteCadence.ParseAndSnapInterval"/>), with
-    /// a "0" fallback for a non-positive / non-finite interval so the field is always
-    /// editable. Unity-free, so exercised directly.
+    /// formatter for the M1 inline interval text field's displayed value: a friendly
+    /// duration WITH a unit (s / m / h / d via <see cref="LogisticsWindowUI.FormatDuration"/>)
+    /// that round-trips through the unit-aware
+    /// <see cref="RouteCadence.ParseAndSnapInterval"/>, with a "0" fallback for a
+    /// non-positive / non-finite interval so the field is always editable. Unity-free,
+    /// so exercised directly.
     /// </summary>
     public class LogisticsWindowUIIntervalFieldTests
     {
         [Theory]
-        [InlineData(600.0, "600")]
-        [InlineData(1800.0, "1800")]
-        // Rounds to whole seconds (the field types whole seconds).
-        [InlineData(599.6, "600")]
-        // Large value: InvariantCulture must not inject a thousands separator, so the
-        // displayed text re-parses cleanly through ParseAndSnapInterval.
-        [InlineData(86400.0, "86400")]
-        public void FormatIntervalFieldValue_FormatsWholeSeconds(double seconds, string expected)
+        [InlineData(45.0, "45s")]       // under a minute
+        [InlineData(600.0, "10.0m")]    // 10 minutes
+        [InlineData(1800.0, "30.0m")]   // 30 minutes
+        [InlineData(7200.0, "2.0h")]    // 2 hours
+        [InlineData(86400.0, "4.0d")]   // 4 Kerbin days (21600 s each)
+        // InvariantCulture: the decimal point is always "." regardless of locale.
+        [InlineData(599.6, "10.0m")]
+        public void FormatIntervalFieldValue_FormatsFriendlyDurationWithUnit(double seconds, string expected)
         {
             Assert.Equal(expected, LogisticsWindowUI.FormatIntervalFieldValue(seconds));
         }

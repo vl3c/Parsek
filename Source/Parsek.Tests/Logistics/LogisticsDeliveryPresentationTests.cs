@@ -336,6 +336,124 @@ namespace Parsek.Tests.Logistics
         }
 
         // ------------------------------------------------------------------
+        // L1: ClassifyPausedRoute / PausedRouteLabelText / ShouldShowSendOnceGuidance
+        // ------------------------------------------------------------------
+
+        // A never-run paused route (no completed cycles) classifies as New.
+        [Fact]
+        public void ClassifyPausedRoute_ZeroCycles_IsNew()
+        {
+            Assert.Equal(LogisticsDeliveryPresentation.PausedRouteLabel.New,
+                LogisticsDeliveryPresentation.ClassifyPausedRoute(0));
+        }
+
+        // A route that has completed one or more cycles classifies as Paused.
+        [Theory]
+        [InlineData(1)]
+        [InlineData(5)]
+        public void ClassifyPausedRoute_PositiveCycles_IsPaused(int completed)
+        {
+            Assert.Equal(LogisticsDeliveryPresentation.PausedRouteLabel.Paused,
+                LogisticsDeliveryPresentation.ClassifyPausedRoute(completed));
+        }
+
+        // The New label text is byte-identical to the H3 badge's New label, so the L1
+        // Status cell and the H3 Delivery badge column never spell "New" two ways.
+        [Fact]
+        public void PausedRouteLabelText_New_MatchesH3BadgeNewLabel()
+        {
+            string l1Text = LogisticsDeliveryPresentation.PausedRouteLabelText(
+                LogisticsDeliveryPresentation.PausedRouteLabel.New);
+            Assert.Equal("New (not yet run)", l1Text);
+            Assert.Equal(
+                LogisticsDeliveryPresentation.DeliveryBadgeLabel(LogisticsDeliveryPresentation.DeliveryBadge.New),
+                l1Text);
+        }
+
+        // The Paused label text reads "Paused".
+        [Fact]
+        public void PausedRouteLabelText_Paused_IsPaused()
+        {
+            Assert.Equal("Paused",
+                LogisticsDeliveryPresentation.PausedRouteLabelText(
+                    LogisticsDeliveryPresentation.PausedRouteLabel.Paused));
+        }
+
+        // The Send Once guidance shows only on a never-run paused row.
+        [Theory]
+        [InlineData(0, true)]
+        [InlineData(1, false)]
+        [InlineData(7, false)]
+        public void ShouldShowSendOnceGuidance_OnlyForNeverRun(int completed, bool expected)
+        {
+            Assert.Equal(expected,
+                LogisticsDeliveryPresentation.ShouldShowSendOnceGuidance(completed));
+        }
+
+        // The guidance string is plain ASCII (no em dash, no special Unicode).
+        [Fact]
+        public void SendOnceGuidanceText_IsPlainAscii()
+        {
+            string s = LogisticsDeliveryPresentation.SendOnceGuidanceText;
+            foreach (char c in s)
+                Assert.True(c <= 0x7F, "SendOnceGuidanceText must be plain ASCII; found U+" + ((int)c).ToString("X4"));
+            Assert.Equal("New - use Send Once to test", s);
+        }
+
+        // ------------------------------------------------------------------
+        // L3: FormatWouldDeliver (Candidates section "Would deliver" cell)
+        // ------------------------------------------------------------------
+
+        // Resources only: "<key> <F1 amount>" comma-joined, InvariantCulture.
+        [Fact]
+        public void FormatWouldDeliver_ResourcesOnly_FormatsF1Invariant()
+        {
+            var resources = new Dictionary<string, double> { { "LiquidFuel", 150.0 } };
+            Assert.Equal("LiquidFuel 150.0",
+                LogisticsDeliveryPresentation.FormatWouldDeliver(resources, null));
+        }
+
+        // Inventory only: "<N> inventory item(s)" with no resource clause.
+        [Fact]
+        public void FormatWouldDeliver_InventoryOnly_CountsItems()
+        {
+            var inventory = new List<InventoryPayloadItem>
+            {
+                new InventoryPayloadItem(),
+                new InventoryPayloadItem(),
+            };
+            Assert.Equal("2 inventory item(s)",
+                LogisticsDeliveryPresentation.FormatWouldDeliver(null, inventory));
+        }
+
+        // Both resources and inventory: comma-joined, resources first.
+        [Fact]
+        public void FormatWouldDeliver_ResourcesAndInventory_CommaJoined()
+        {
+            var resources = new Dictionary<string, double> { { "Ore", 40.0 } };
+            var inventory = new List<InventoryPayloadItem> { new InventoryPayloadItem() };
+            Assert.Equal("Ore 40.0, 1 inventory item(s)",
+                LogisticsDeliveryPresentation.FormatWouldDeliver(resources, inventory));
+        }
+
+        // Empty / null both ways falls back to "(nothing)" (never a blank cell).
+        [Fact]
+        public void FormatWouldDeliver_NullBoth_IsNothing()
+        {
+            Assert.Equal("(nothing)",
+                LogisticsDeliveryPresentation.FormatWouldDeliver(null, null));
+        }
+
+        // Empty (non-null) collections also fall back to "(nothing)".
+        [Fact]
+        public void FormatWouldDeliver_EmptyBoth_IsNothing()
+        {
+            Assert.Equal("(nothing)",
+                LogisticsDeliveryPresentation.FormatWouldDeliver(
+                    new Dictionary<string, double>(), new List<InventoryPayloadItem>()));
+        }
+
+        // ------------------------------------------------------------------
         // H4: FormatDestinationDisplay + FormatEndpointCoords
         // ------------------------------------------------------------------
 

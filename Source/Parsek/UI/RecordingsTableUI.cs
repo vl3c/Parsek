@@ -5597,8 +5597,13 @@ namespace Parsek
             statusStyleStatic = new GUIStyle(GUI.skin.label) { padding = statusPadding };
             statusStyleStatic.normal.textColor = new Color(1f, 0.72f, 0.25f);
 
+            // L4: only the Stationary cyan matches the shared house palette
+            // (0.65, 0.85, 1); pull it from the centralized ParsekUI source. The other
+            // four recording-lifecycle colors above (white / green / 0.5 grey / orange)
+            // are a separate semantic set and stay local literals so the Recordings
+            // window colors do not shift.
             statusStyleStationary = new GUIStyle(GUI.skin.label) { padding = statusPadding };
-            statusStyleStationary.normal.textColor = new Color(0.65f, 0.85f, 1f);
+            statusStyleStationary.normal.textColor = parentUI.GetStatusColor(ParsekUI.StatusColorKind.Cyan);
         }
 
         /// <summary>

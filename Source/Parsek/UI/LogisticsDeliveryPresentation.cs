@@ -339,6 +339,114 @@ namespace Parsek
         }
 
         // ------------------------------------------------------------------
+        // L1: separate never-run-yet from intentionally-paused routes.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// The two Paused-section Status-cell labels. A route that has never completed
+        /// a cycle reads <see cref="New"/> ("New (not yet run)" in cyan); a route that
+        /// has run before and was deliberately paused reads <see cref="Paused"/>
+        /// ("Paused" in grey). This is a Status-cell refinement only, separate from the
+        /// H3 <see cref="DeliveryBadge"/> column (whose badge cell stays grey "Paused"
+        /// for any paused route since it is keyed on ghost-driving state).
+        /// </summary>
+        internal enum PausedRouteLabel
+        {
+            /// <summary>Never run: CompletedCycles == 0 (cyan).</summary>
+            New = 0,
+
+            /// <summary>Deliberately paused after running: CompletedCycles &gt; 0 (grey).</summary>
+            Paused = 1,
+        }
+
+        /// <summary>
+        /// The one-line guidance shown under a never-run paused row, pointing the
+        /// player at Send Once to fire a test cycle. Plain ASCII, no glyphs.
+        /// </summary>
+        internal const string SendOnceGuidanceText = "New - use Send Once to test";
+
+        /// <summary>
+        /// Classifies a Paused-section route as never-run (<see cref="PausedRouteLabel.New"/>)
+        /// versus deliberately-paused (<see cref="PausedRouteLabel.Paused"/>) from its
+        /// completed-cycle count. A route with no completed cycles has never delivered,
+        /// so it reads "New (not yet run)"; one or more completed cycles means it ran
+        /// and was then paused. SkippedCycles is intentionally ignored (a never-run but
+        /// blocked route still reads "New" per the L1 spec). Pure, caller passes only
+        /// the count.
+        /// </summary>
+        internal static PausedRouteLabel ClassifyPausedRoute(int completedCycles)
+        {
+            return completedCycles <= 0 ? PausedRouteLabel.New : PausedRouteLabel.Paused;
+        }
+
+        /// <summary>
+        /// The Status-cell text for a Paused-section label. <see cref="PausedRouteLabel.New"/>
+        /// reuses the exact H3 badge string for <see cref="DeliveryBadge.New"/> so the
+        /// badge column and this Status cell never diverge; <see cref="PausedRouteLabel.Paused"/>
+        /// reads "Paused".
+        /// </summary>
+        internal static string PausedRouteLabelText(PausedRouteLabel label)
+        {
+            switch (label)
+            {
+                case PausedRouteLabel.New:
+                    return DeliveryBadgeLabel(DeliveryBadge.New);
+                case PausedRouteLabel.Paused:
+                default:
+                    return DeliveryBadgeLabel(DeliveryBadge.Paused);
+            }
+        }
+
+        /// <summary>
+        /// Whether the "Send Once to test" guidance line should show for a paused row.
+        /// Only never-run rows (CompletedCycles == 0) get the guidance; a route that has
+        /// already run does not.
+        /// </summary>
+        internal static bool ShouldShowSendOnceGuidance(int completedCycles)
+        {
+            return completedCycles <= 0;
+        }
+
+        // ------------------------------------------------------------------
+        // L3: Candidates section "Would deliver" cell formatter.
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Formats a candidate's would-deliver-per-cycle manifest for the L3 Candidates
+        /// section "Would deliver" column (and reused by the candidate detail line). The
+        /// inputs are the candidate analysis's already-built resource + inventory
+        /// delivery manifests; a null resource map and a null / empty inventory list
+        /// yield "(nothing)". Resources render as "&lt;key&gt; &lt;F1 amount&gt;"
+        /// comma-joined (full stock key, no abbreviation) in dictionary order, followed
+        /// by "&lt;N&gt; inventory item(s)" when any inventory payload is present. F1 +
+        /// InvariantCulture so comma-locale systems render identically. Mirrors the
+        /// window's prior private FormatManifest exactly so the rendered cell text does
+        /// not change. Pure and Unity-free for unit testing.
+        /// </summary>
+        internal static string FormatWouldDeliver(
+            IReadOnlyDictionary<string, double> resources,
+            IReadOnlyList<InventoryPayloadItem> inventory)
+        {
+            var sb = new StringBuilder();
+            if (resources != null)
+            {
+                foreach (KeyValuePair<string, double> kv in resources)
+                {
+                    if (sb.Length > 0) sb.Append(", ");
+                    sb.Append(kv.Key).Append(' ')
+                      .Append(kv.Value.ToString("F1", CultureInfo.InvariantCulture));
+                }
+            }
+            int invCount = inventory?.Count ?? 0;
+            if (invCount > 0)
+            {
+                if (sb.Length > 0) sb.Append(", ");
+                sb.Append(invCount.ToString(CultureInfo.InvariantCulture)).Append(" inventory item(s)");
+            }
+            return sb.Length > 0 ? sb.ToString() : "(nothing)";
+        }
+
+        // ------------------------------------------------------------------
         // H4: name the destination vessel instead of bare coordinates.
         // ------------------------------------------------------------------
 

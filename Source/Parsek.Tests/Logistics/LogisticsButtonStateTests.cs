@@ -1,6 +1,4 @@
 using System.Collections.Generic;
-using System.Globalization;
-using System.Threading;
 using Parsek;
 using Parsek.Logistics;
 using Xunit;
@@ -8,43 +6,16 @@ using Xunit;
 namespace Parsek.Tests.Logistics
 {
     /// <summary>
-    /// Pins <see cref="LogisticsButtonState.FormatLogisticsButtonLabel"/> and
-    /// <see cref="LogisticsButtonState.AnyRouteHardBroken"/>, the two pure helpers
-    /// (QW8) behind the main-window Logistics button's live count and red
-    /// broken-state tint. Both are Unity-free, so exercised directly. Theories take
-    /// the status as an <c>int</c> ordinal because <see cref="RouteStatus"/> is
-    /// <c>internal</c> and cannot appear in a public test-method signature
-    /// (mirrors <see cref="LogisticsWindowUISendingButtonTests"/>).
+    /// Pins <see cref="LogisticsButtonState.AnyRouteHardBroken"/>, the pure helper
+    /// (QW8) behind the main-window Logistics button's red broken-state tint. The
+    /// button label is a plain "Logistics" literal (no count), so there is nothing
+    /// to test there. Unity-free, so exercised directly. Theories take the status as
+    /// an <c>int</c> ordinal because <see cref="RouteStatus"/> is <c>internal</c> and
+    /// cannot appear in a public test-method signature (mirrors
+    /// <see cref="LogisticsWindowUISendingButtonTests"/>).
     /// </summary>
     public class LogisticsButtonStateTests
     {
-        [Theory]
-        [InlineData(0, "Logistics (0)")]
-        [InlineData(3, "Logistics (3)")]
-        // InvariantCulture must not inject a thousands separator on a large count.
-        [InlineData(1000, "Logistics (1000)")]
-        public void FormatLogisticsButtonLabel_MatchesExpected(int count, string expected)
-        {
-            Assert.Equal(expected, LogisticsButtonState.FormatLogisticsButtonLabel(count));
-        }
-
-        // Even under a comma-decimal culture the label stays InvariantCulture: the
-        // count is a plain int so the (N) form must not pick up locale grouping.
-        [Fact]
-        public void FormatLogisticsButtonLabel_IsInvariantUnderCommaLocale()
-        {
-            CultureInfo prev = Thread.CurrentThread.CurrentCulture;
-            try
-            {
-                Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                Assert.Equal("Logistics (1000)", LogisticsButtonState.FormatLogisticsButtonLabel(1000));
-            }
-            finally
-            {
-                Thread.CurrentThread.CurrentCulture = prev;
-            }
-        }
-
         [Fact]
         public void NullSequence_IsNotBroken()
         {
