@@ -365,10 +365,11 @@ namespace Parsek
             scrollPos = GUILayout.BeginScrollView(scrollPos, GUILayout.ExpandHeight(true));
 
             // Each section is its own gray bubble with its own header row, so the
-            // header and data columns share the box and line up exactly.
-            DrawRouteSectionBubble($"Active Routes ({activeRoutes.Count})", activeRoutes, RouteSection.Active, currentUT);
-            DrawRouteSectionBubble($"Paused Routes ({pausedRoutes.Count})", pausedRoutes, RouteSection.Paused, currentUT);
-            DrawCandidateSectionBubble($"Candidates ({candidates.Count})", candidates, nearMisses);
+            // header and data columns share the box and line up exactly. Titles are the
+            // plain section name (no count), centered (see DrawSectionHeader).
+            DrawRouteSectionBubble("Active Routes", activeRoutes, RouteSection.Active, currentUT);
+            DrawRouteSectionBubble("Paused Routes", pausedRoutes, RouteSection.Paused, currentUT);
+            DrawCandidateSectionBubble("Candidates", candidates, nearMisses);
 
             GUILayout.EndScrollView();
 
@@ -1593,14 +1594,21 @@ namespace Parsek
 
         private void DrawSectionHeader(string text)
         {
-            // Use the shared house section-header bar (bold label in a box,
-            // left-aligned, full-width) so Logistics headers match Settings /
-            // Recordings / Timeline / Missions instead of the old tinted-label
-            // look. GetSectionHeaderStyle lazily builds the style each call, so it
-            // is safe to call straight from the draw path (matches SettingsWindowUI).
+            // Use the shared house section-header bar (bold label in a box, full-width)
+            // so Logistics headers match Settings / Recordings / Timeline / Missions,
+            // but CENTER the text via a local clone so the shared (left-aligned) style
+            // those other windows use is not changed. Built once and reused.
+            if (sectionHeaderCenteredStyle == null)
+            {
+                sectionHeaderCenteredStyle = new GUIStyle(parentUI.GetSectionHeaderStyle())
+                {
+                    alignment = TextAnchor.MiddleCenter
+                };
+            }
             GUILayout.Space(SpacingSmall);
-            GUILayout.Label(text, parentUI.GetSectionHeaderStyle());
+            GUILayout.Label(text, sectionHeaderCenteredStyle, GUILayout.ExpandWidth(true));
         }
+        private GUIStyle sectionHeaderCenteredStyle;
 
         private void ToggleExpanded(string key, string nameForLog)
         {
