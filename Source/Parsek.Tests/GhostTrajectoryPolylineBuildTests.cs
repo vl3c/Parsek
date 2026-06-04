@@ -414,6 +414,344 @@ namespace Parsek.Tests
             Assert.Equal(pts[999].ut, down[cap - 1].ut);
         }
 
+        // --- Render-time densification (sparse-leg smoothing) ---
+
+        [Fact]
+        public void Densify_SparseArc_SubdividesToTarget()
+        {
+            // The s15 Duna deorbit leg shape: ~35 degrees of longitude over a
+            // handful of samples (here 3, ~17.5 deg per chord) renders as a
+            // faceted polygon. Densify must subdivide each chord so every drawn
+            // segment spans at most the target angular step.
+            double[] lats = { 0.0, 0.0, 0.0 };
+            double[] lons = { 73.9, 91.0, 108.6 };
+            double[] alts = { 58245.0, 54000.0, 49998.0 };
+            double[] uts = { 70963373.6, 70963513.0, 70963652.6 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts,
+                GhostTrajectoryPolylineRenderer.DensifyTargetSegmentDegrees,
+                GhostTrajectoryPolylineRenderer.MaxDensifiedPointsPerLeg,
+                out var oLats, out var oLons, out var oAlts, out var oUts);
+
+            // Far more points than the 3 recorded samples (~35 deg / 0.3 deg).
+            Assert.True(oLons.Length > 100,
+                "expected dense subdivision, got " + oLons.Length);
+            // No drawn segment exceeds the target angular step (allow a hair of
+            // float slack).
+            for (int i = 0; i < oLons.Length - 1; i++)
+            {
+                double seg = GhostTrajectoryPolylineRenderer.GreatCircleArcDegrees(
+                    oLats[i], oLons[i], oLats[i + 1], oLons[i + 1]);
+                Assert.True(seg <= GhostTrajectoryPolylineRenderer.DensifyTargetSegmentDegrees + 1e-6,
+                    "segment " + i + " spanned " + seg + " deg");
+            }
+        }
+
+        [Fact]
+        public void Densify_PreservesRecordedEndpointsExactly()
+        {
+            double[] lats = { 1.0, 2.5 };
+            double[] lons = { 73.9, 108.6 };
+            double[] alts = { 58245.0, 49998.0 };
+            double[] uts = { 1000.0, 2000.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out var oAlts, out var oUts);
+
+            // First and last vertices are the recorded samples, byte-for-byte.
+            Assert.Equal(lats[0], oLats[0]);
+            Assert.Equal(lons[0], oLons[0]);
+            Assert.Equal(alts[0], oAlts[0]);
+            Assert.Equal(uts[0], oUts[0]);
+            int last = oLats.Length - 1;
+            Assert.Equal(lats[1], oLats[last]);
+            Assert.Equal(lons[1], oLons[last]);
+            Assert.Equal(alts[1], oAlts[last]);
+            Assert.Equal(uts[1], oUts[last]);
+        }
+
+        [Fact]
+        public void Densify_PreservesAllInteriorRecordedVerticesExactly()
+        {
+            // Recorded interior samples must remain vertices unchanged; only
+            // points BETWEEN them are inserted.
+            double[] lats = { 0.0, 0.0, 0.0 };
+            double[] lons = { 0.0, 20.0, 40.0 };
+            double[] alts = { 60000.0, 55000.0, 50000.0 };
+            double[] uts = { 100.0, 200.0, 300.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out var oAlts, out var oUts);
+
+            // Each recorded (lon, alt, ut) triple appears exactly in the output.
+            for (int r = 0; r < lons.Length; r++)
+            {
+                int found = -1;
+                for (int i = 0; i < oLons.Length; i++)
+                {
+                    if (oLons[i] == lons[r] && oAlts[i] == alts[r] && oUts[i] == uts[r])
+                    {
+                        found = i;
+                        break;
+                    }
+                }
+                Assert.True(found >= 0, "recorded sample " + r + " not preserved verbatim");
+            }
+        }
+
+        [Fact]
+        public void Densify_UTStrictlyIncreasing()
+        {
+            double[] lats = { 0.0, 0.0, 0.0 };
+            double[] lons = { 0.0, 17.0, 34.0 };
+            double[] alts = { 60000.0, 55000.0, 50000.0 };
+            double[] uts = { 70963373.6, 70963513.0, 70963652.6 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out _, out _, out _, out var oUts);
+
+            for (int i = 1; i < oUts.Length; i++)
+                Assert.True(oUts[i] > oUts[i - 1],
+                    "UT not strictly increasing at " + i + ": " + oUts[i - 1] + " -> " + oUts[i]);
+        }
+
+        [Fact]
+        public void Densify_AlreadyDense_ReturnedUnchanged()
+        {
+            // A leg already finer than the target (0.01 deg/segment) must NOT be
+            // touched: same length, identical values. This is the dense in-atmo
+            // descent that must not regress or balloon.
+            int n = 50;
+            var lats = new double[n];
+            var lons = new double[n];
+            var alts = new double[n];
+            var uts = new double[n];
+            for (int i = 0; i < n; i++)
+            {
+                lats[i] = 0.0;
+                lons[i] = i * 0.01; // 0.01 deg per segment, well under 0.3
+                alts[i] = 50000.0 - i * 100.0;
+                uts[i] = 1000.0 + i;
+            }
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out var oAlts, out var oUts);
+
+            Assert.Equal(n, oLons.Length);
+            for (int i = 0; i < n; i++)
+            {
+                Assert.Equal(lats[i], oLats[i]);
+                Assert.Equal(lons[i], oLons[i]);
+                Assert.Equal(alts[i], oAlts[i]);
+                Assert.Equal(uts[i], oUts[i]);
+            }
+        }
+
+        [Fact]
+        public void Densify_RespectsHardCap()
+        {
+            // A pathologically coarse arc (a near-half-circumference chord) would
+            // need hundreds of inserts; the hard cap must bound the output.
+            double[] lats = { 0.0, 0.0 };
+            double[] lons = { -90.0, 90.0 }; // 180 deg great-circle arc
+            double[] alts = { 60000.0, 50000.0 };
+            double[] uts = { 100.0, 200.0 };
+            int cap = 64;
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, cap,
+                out var oLats, out var oLons, out _, out var oUts);
+
+            Assert.True(oLons.Length <= cap,
+                "output " + oLons.Length + " exceeded cap " + cap);
+            // Endpoints still preserved even when capped.
+            Assert.Equal(lons[0], oLons[0]);
+            Assert.Equal(lons[1], oLons[oLons.Length - 1]);
+            // UT still monotone under the cap.
+            for (int i = 1; i < oUts.Length; i++)
+                Assert.True(oUts[i] > oUts[i - 1]);
+        }
+
+        [Fact]
+        public void Densify_LongitudeSeamCrossing_NoWildSwing()
+        {
+            // Crossing the +/-180 seam: a raw lat/lon lerp would swing the
+            // inserted point ~360 deg the wrong way (through lon 0). Slerping the
+            // surface unit normal keeps every inserted point on the short
+            // great-circle arc, so consecutive inserted longitudes stay near the
+            // seam (either ~+180 or ~-180), never near 0.
+            double[] lats = { 0.0, 0.0 };
+            double[] lons = { 175.0, -175.0 }; // 10 deg arc across the seam
+            double[] alts = { 50000.0, 50000.0 };
+            double[] uts = { 100.0, 200.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out _, out _);
+
+            Assert.True(oLons.Length > 10);
+            // Every interior point must be near the seam (|lon| > 170), never
+            // near the far side (lon ~0).
+            for (int i = 0; i < oLons.Length; i++)
+                Assert.True(System.Math.Abs(oLons[i]) > 170.0,
+                    "interpolant " + i + " swung to lon " + oLons[i] + " (wrong way across the seam)");
+            // And each drawn segment is small (no chord through the body).
+            for (int i = 0; i < oLons.Length - 1; i++)
+            {
+                double seg = GhostTrajectoryPolylineRenderer.GreatCircleArcDegrees(
+                    oLats[i], oLons[i], oLats[i + 1], oLons[i + 1]);
+                Assert.True(seg <= 0.3 + 1e-6, "segment " + i + " spanned " + seg + " deg");
+            }
+        }
+
+        [Fact]
+        public void Densify_PoleCrossing_StaysOnSphere()
+        {
+            // An arc passing near the pole: a raw lat/lon lerp distorts badly
+            // there. Slerping the unit normal keeps every point on the unit
+            // sphere, so re-deriving the great-circle arc per segment stays
+            // bounded by the target.
+            double[] lats = { 88.0, 88.0 };
+            double[] lons = { 0.0, 180.0 }; // over the top of the pole
+            double[] alts = { 50000.0, 50000.0 };
+            double[] uts = { 100.0, 200.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out _, out _);
+
+            for (int i = 0; i < oLats.Length; i++)
+            {
+                Assert.True(oLats[i] >= -90.0 && oLats[i] <= 90.0,
+                    "lat out of range at " + i + ": " + oLats[i]);
+                Assert.True(oLons[i] >= -180.0 - 1e-9 && oLons[i] <= 180.0 + 1e-9,
+                    "lon out of range at " + i + ": " + oLons[i]);
+            }
+            for (int i = 0; i < oLats.Length - 1; i++)
+            {
+                double seg = GhostTrajectoryPolylineRenderer.GreatCircleArcDegrees(
+                    oLats[i], oLons[i], oLats[i + 1], oLons[i + 1]);
+                Assert.True(seg <= 0.3 + 1e-6, "segment " + i + " spanned " + seg + " deg");
+            }
+        }
+
+        [Fact]
+        public void Densify_AltitudeLinearlyInterpolated()
+        {
+            // Midpoint of a single chord must carry the linearly interpolated
+            // altitude (the body-fixed contract: inserted points land at the
+            // right altitude so GetWorldSurfacePosition maps them correctly).
+            double[] lats = { 0.0, 0.0 };
+            double[] lons = { 0.0, 1.0 };
+            double[] alts = { 60000.0, 50000.0 };
+            double[] uts = { 100.0, 200.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out _, out _, out var oAlts, out _);
+
+            // Inserted altitudes are monotone between the two endpoints (60000 ->
+            // 50000) and strictly inside the band.
+            for (int i = 1; i < oAlts.Length - 1; i++)
+            {
+                Assert.True(oAlts[i] < oAlts[i - 1] || oAlts[i] == oAlts[i - 1],
+                    "altitude not monotone descending at " + i);
+                Assert.True(oAlts[i] < 60000.0 && oAlts[i] > 50000.0,
+                    "interpolated altitude out of band at " + i + ": " + oAlts[i]);
+            }
+        }
+
+        [Fact]
+        public void Densify_SinglePoint_ReturnedVerbatim()
+        {
+            double[] lats = { 5.0 };
+            double[] lons = { 10.0 };
+            double[] alts = { 50000.0 };
+            double[] uts = { 100.0 };
+
+            GhostTrajectoryPolylineRenderer.DensifyBodyFixedArcs(
+                lats, lons, alts, uts, 0.3, 512,
+                out var oLats, out var oLons, out var oAlts, out var oUts);
+
+            Assert.Single(oLats);
+            Assert.Equal(5.0, oLats[0]);
+            Assert.Equal(10.0, oLons[0]);
+            Assert.Equal(50000.0, oAlts[0]);
+            Assert.Equal(100.0, oUts[0]);
+        }
+
+        [Fact]
+        public void GreatCircleArcDegrees_KnownArc()
+        {
+            // Equator: lon 0 to lon 90 is a 90-degree great-circle arc.
+            double arc = GhostTrajectoryPolylineRenderer.GreatCircleArcDegrees(
+                0.0, 0.0, 0.0, 90.0);
+            Assert.True(System.Math.Abs(arc - 90.0) < 1e-6, "arc was " + arc);
+            // Identical points: zero arc.
+            double zero = GhostTrajectoryPolylineRenderer.GreatCircleArcDegrees(
+                12.0, 34.0, 12.0, 34.0);
+            Assert.True(zero < 1e-6, "arc was " + zero);
+        }
+
+        [Fact]
+        public void SlerpLatLon_MidpointHalvesTheArc()
+        {
+            // t=0.5 on an equatorial 0..90 arc lands at lon 45 (lat 0).
+            GhostTrajectoryPolylineRenderer.SlerpLatLon(
+                0.0, 0.0, 0.0, 90.0, 0.5, out double lat, out double lon);
+            Assert.True(System.Math.Abs(lat) < 1e-6, "lat was " + lat);
+            Assert.True(System.Math.Abs(lon - 45.0) < 1e-6, "lon was " + lon);
+        }
+
+        [Fact]
+        public void BuildLeg_SparseDunaDeorbitArc_DensifiesAndPreservesSpan()
+        {
+            // End-to-end through BuildLegFromBodyFixedPoints: the s15 leg shape
+            // (sparse ~35 deg Duna arc) is subdivided, but the leg's recorded
+            // span endpoints are preserved exactly.
+            var pts = new List<TrajectoryPoint>
+            {
+                MakePoint(70963373.6, -2.8, 73.9, 58245.0, "Duna"),
+                MakePoint(70963513.0, -2.7, 91.0, 54000.0, "Duna"),
+                MakePoint(70963652.6, -2.6, 108.6, 49998.0, "Duna")
+            };
+
+            var leg = GhostTrajectoryPolylineRenderer.BuildLegFromBodyFixedPoints(
+                pts, "Duna", out int preDensifyCount);
+
+            Assert.Equal(3, preDensifyCount);
+            Assert.True(leg.PointCount > 100,
+                "expected densified leg, got " + leg.PointCount);
+            Assert.True(leg.PointCount <=
+                GhostTrajectoryPolylineRenderer.MaxDensifiedPointsPerLeg);
+            // Recorded span endpoints preserved exactly.
+            Assert.Equal(70963373.6, leg.startUT);
+            Assert.Equal(70963652.6, leg.endUT);
+            Assert.Equal(58245.0, leg.alts[0]);
+            Assert.Equal(49998.0, leg.alts[leg.PointCount - 1]);
+        }
+
+        [Fact]
+        public void BuildLegs_SparseLeg_LogsDensifySummary()
+        {
+            var rec = new Recording { RecordingId = "rec-densify-log" };
+            // A sparse ~30 deg arc on the equator: must densify and log post>pre.
+            rec.Points.Add(MakePoint(100.0, 0.0, 0.0, 60000.0, "Duna"));
+            rec.Points.Add(MakePoint(200.0, 0.0, 30.0, 50000.0, "Duna"));
+
+            GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
+
+            Assert.Contains(logLines, l => l.Contains("[GhostMap]")
+                && l.Contains("Polyline densify:")
+                && l.Contains("rec=rec-densify-log")
+                && l.Contains("densifiedLegs=1"));
+        }
+
         [Fact]
         public void BuildLegs_AbsoluteSectionAboveCap_CapsPointCount()
         {

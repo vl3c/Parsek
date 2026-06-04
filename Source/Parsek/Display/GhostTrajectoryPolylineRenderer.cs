@@ -52,6 +52,28 @@ namespace Parsek.Display
         internal const int MaxPolylinePointsPerLeg = 200;
 
         /// <summary>
+        /// Render-time densification target: the maximum great-circle arc (in
+        /// degrees) a single drawn polyline segment is allowed to span before
+        /// <see cref="DensifyBodyFixedArcs"/> inserts interpolated vertices
+        /// between two recorded samples. A sparsely sampled body-fixed deorbit
+        /// arc (e.g. the s15 Duna descent leg: 39 recorded samples across ~35
+        /// degrees, ~0.9 deg/segment) renders as a visible faceted polygon
+        /// against the dense in-atmo descent below it; subdividing each chord to
+        /// at most this angular step makes the arc read smooth. Recorded vertices
+        /// are preserved exactly; only points BETWEEN them are inserted.
+        /// </summary>
+        internal const double DensifyTargetSegmentDegrees = 0.3;
+
+        /// <summary>
+        /// Hard per-leg vertex ceiling after densification. Keeps the per-frame
+        /// <c>GetWorldSurfacePosition</c> + ScaledSpace cost bounded across many
+        /// simultaneous ghosts even when a leg's recorded chords are very coarse.
+        /// A leg already finer than <see cref="DensifyTargetSegmentDegrees"/> is
+        /// returned unchanged and never approaches this cap.
+        /// </summary>
+        internal const int MaxDensifiedPointsPerLeg = 512;
+
+        /// <summary>
         /// Per-body surface geometry needed to decide whether an OrbitSegment is
         /// degenerate (its drawn conic plunges below the SURFACE so the orbit line
         /// cannot usably trace it). Injected into the pure builder via
@@ -860,6 +882,13 @@ namespace Parsek.Display
             pts.Sort((a, b) => a.ut.CompareTo(b.ut));
             var run = new List<TrajectoryPoint>();
             string runBody = null;
+            // Densification batch counters (one summary after the loop, per the
+            // batch-counting convention): recorded vertices BEFORE subdivision vs
+            // total drawn vertices AFTER, and how many legs were actually
+            // subdivided (sparse arcs) vs left verbatim (already dense).
+            int preDensifyTotal = 0;
+            int postDensifyTotal = 0;
+            int densifiedLegs = 0;
             for (int i = 0; i < pts.Count; i++)
             {
                 var p = pts[i];
@@ -875,14 +904,16 @@ namespace Parsek.Display
                         !sameBody || OrbitalIntervalBetween(prev.ut, p.ut, orbitalIntervals);
                     if (breakRun)
                     {
-                        FlushPolylineRun(run, runBody, legs);
+                        FlushPolylineRun(run, runBody, legs,
+                            ref preDensifyTotal, ref postDensifyTotal, ref densifiedLegs);
                         run.Clear();
                     }
                 }
                 if (run.Count == 0) runBody = p.bodyName;
                 run.Add(p);
             }
-            FlushPolylineRun(run, runBody, legs);
+            FlushPolylineRun(run, runBody, legs,
+                ref preDensifyTotal, ref postDensifyTotal, ref densifiedLegs);
 
             ParsekLog.Verbose(Tag,
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
@@ -890,6 +921,20 @@ namespace Parsek.Display
                     rec.RecordingId,
                     legs.Count, sectionPointCount, flatPointCount,
                     skippedRelativeWithoutBodyFixed, excludedBelowSurfaceSegments));
+
+            // Densification one-shot summary (per recording content change, not
+            // per frame): recorded vertices before subdivision vs drawn vertices
+            // after, the count of legs actually subdivided, the angular target,
+            // and the per-leg cap. A sparse deorbit arc shows post > pre; an
+            // already-dense recording shows post == pre and densifiedLegs=0.
+            if (legs.Count > 0)
+            {
+                ParsekLog.Verbose(Tag,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Polyline densify: rec={0} legs={1} prePoints={2} postPoints={3} densifiedLegs={4} targetDeg={5:F2} capPerLeg={6}",
+                        rec.RecordingId, legs.Count, preDensifyTotal, postDensifyTotal,
+                        densifiedLegs, DensifyTargetSegmentDegrees, MaxDensifiedPointsPerLeg));
+            }
 
             // FIX #27 one-shot: when the cover excluded degenerate
             // below-surface segments, the descent samples they used to drop
@@ -910,15 +955,23 @@ namespace Parsek.Display
 
         /// <summary>
         /// Appends a merged non-orbital run to <paramref name="legs"/> as one leg
-        /// (downsampled, endpoints preserved). Runs shorter than two points or
-        /// with no resolvable body are dropped.
+        /// (downsampled, then render-densified, endpoints preserved). Runs shorter
+        /// than two points or with no resolvable body are dropped. Accumulates the
+        /// densification batch counters (recorded vertices before subdivision vs
+        /// drawn vertices after, and the subdivided-leg count) for the one-shot
+        /// build summary.
         /// </summary>
         private static void FlushPolylineRun(
-            List<TrajectoryPoint> run, string body, List<LegPolyline> legs)
+            List<TrajectoryPoint> run, string body, List<LegPolyline> legs,
+            ref int preDensifyTotal, ref int postDensifyTotal, ref int densifiedLegs)
         {
             if (run == null || run.Count < 2) return;
             if (string.IsNullOrEmpty(body)) return;
-            legs.Add(BuildLegFromBodyFixedPoints(run, body));
+            var leg = BuildLegFromBodyFixedPoints(run, body, out int preDensifyCount);
+            legs.Add(leg);
+            preDensifyTotal += preDensifyCount;
+            postDensifyTotal += leg.PointCount;
+            if (leg.PointCount > preDensifyCount) densifiedLegs++;
         }
 
         /// <summary>
@@ -971,9 +1024,20 @@ namespace Parsek.Display
         /// </summary>
         internal static LegPolyline BuildLegFromBodyFixedPoints(
             List<TrajectoryPoint> points, string bodyName)
+            => BuildLegFromBodyFixedPoints(points, bodyName, out _);
+
+        /// <summary>
+        /// As <see cref="BuildLegFromBodyFixedPoints(List{TrajectoryPoint}, string)"/>,
+        /// also reporting the recorded vertex count BEFORE render-densification
+        /// (the downsampled count) via <paramref name="preDensifyCount"/> so the
+        /// caller can log a before/after subdivision summary.
+        /// </summary>
+        internal static LegPolyline BuildLegFromBodyFixedPoints(
+            List<TrajectoryPoint> points, string bodyName, out int preDensifyCount)
         {
             var sampled = DownsamplePreservingEndpoints(points, MaxPolylinePointsPerLeg);
             int m = sampled.Count;
+            preDensifyCount = m;
             var lats = new double[m];
             var lons = new double[m];
             var alts = new double[m];
@@ -986,17 +1050,252 @@ namespace Parsek.Display
                 alts[i] = p.altitude;
                 uts[i] = p.ut;
             }
+
+            // Render-time subdivision: a coarsely sampled body-fixed arc (the
+            // s15 Duna deorbit leg: 39 samples across ~35 degrees) draws as a
+            // faceted polygon. Insert interpolated vertices between recorded
+            // samples so each drawn segment spans at most
+            // DensifyTargetSegmentDegrees of great-circle arc, preserving the
+            // recorded samples exactly. Computed ONCE here (not per frame); the
+            // Driver's per-frame loop iterates leg.PointCount over these larger
+            // arrays unchanged. A leg already finer than the target is returned
+            // verbatim (the dense in-atmo descent does NOT regress or balloon).
+            DensifyBodyFixedArcs(
+                lats, lons, alts, uts,
+                DensifyTargetSegmentDegrees, MaxDensifiedPointsPerLeg,
+                out var dLats, out var dLons, out var dAlts, out var dUts);
+            int dm = dLats.Length;
+
             return new LegPolyline
             {
-                lats = lats,
-                lons = lons,
-                alts = alts,
-                recordedUTs = uts,
-                scratchScaledSpace = new Vector3[m],
+                lats = dLats,
+                lons = dLons,
+                alts = dAlts,
+                recordedUTs = dUts,
+                scratchScaledSpace = new Vector3[dm],
                 bodyName = bodyName,
-                startUT = sampled[0].ut,
-                endUT = sampled[m - 1].ut
+                startUT = dUts[0],
+                endUT = dUts[dm - 1]
             };
+        }
+
+        /// <summary>
+        /// Render-time densification (pure, xUnit-testable, no Unity native
+        /// calls). Inserts interpolated vertices between consecutive recorded
+        /// body-fixed samples so each drawn chord spans at most
+        /// <paramref name="targetSegmentDeg"/> of great-circle arc, leaving the
+        /// recorded samples themselves EXACTLY in place (they remain vertices;
+        /// only points BETWEEN them are inserted). This subdivides a sparsely
+        /// sampled deorbit / entry arc so the polyline renders as a smooth curve
+        /// instead of a faceted polygon, while a leg already finer than the
+        /// target is returned unchanged (the dense in-atmo descent does not
+        /// regress or balloon).
+        ///
+        /// <para>Interpolation runs on the body-fixed SURFACE UNIT NORMAL: each
+        /// (lat, lon) pair maps to a unit direction on the sphere, the two
+        /// endpoint normals are Slerped (great-circle), the result is converted
+        /// back to (lat, lon), and altitude is linearly interpolated. Slerping
+        /// the unit normal is robust at the +/-180 longitude seam and near the
+        /// poles (no raw lat/lon lerp, which would cut a chord through the body
+        /// or wrap badly across the dateline), and the result lands on the body
+        /// so <c>CelestialBody.GetWorldSurfacePosition(lat, lon, alt)</c> maps it
+        /// correctly. UT is linearly interpolated so the recorded-time fraction
+        /// the conic-anchor and marker-rider use stays monotone.</para>
+        ///
+        /// <para>The output is hard-capped at <paramref name="hardCap"/> vertices
+        /// to keep the per-frame cost bounded across many ghosts: the per-chord
+        /// insertion count is clamped so the total never exceeds the cap (a
+        /// pathologically coarse leg degrades to fewer-than-target subdivisions
+        /// rather than an unbounded vertex explosion).</para>
+        /// </summary>
+        internal static void DensifyBodyFixedArcs(
+            double[] lats, double[] lons, double[] alts, double[] uts,
+            double targetSegmentDeg, int hardCap,
+            out double[] outLats, out double[] outLons, out double[] outAlts, out double[] outUts)
+        {
+            int n = lats != null ? lats.Length : 0;
+            // Degenerate / nothing-to-subdivide: return verbatim copies so the
+            // caller always owns fresh arrays (the leg mutates scratch in place).
+            if (n < 2 || lons == null || alts == null || uts == null
+                || lons.Length != n || alts.Length != n || uts.Length != n)
+            {
+                outLats = CopyArray(lats, n);
+                outLons = CopyArray(lons, n);
+                outAlts = CopyArray(alts, n);
+                outUts = CopyArray(uts, n);
+                return;
+            }
+            if (targetSegmentDeg <= 0.0) targetSegmentDeg = DensifyTargetSegmentDegrees;
+            if (hardCap < n) hardCap = n; // never drop recorded samples
+
+            // Pass 1: how many interpolated points each chord needs to hit the
+            // target angular step, then scale down uniformly if the total would
+            // breach the hard cap.
+            int segs = n - 1;
+            var insertsPerSeg = new int[segs];
+            int totalInserts = 0;
+            for (int i = 0; i < segs; i++)
+            {
+                double arcDeg = GreatCircleArcDegrees(lats[i], lons[i], lats[i + 1], lons[i + 1]);
+                int needed = (int)System.Math.Ceiling(arcDeg / targetSegmentDeg) - 1;
+                if (needed < 0) needed = 0;
+                insertsPerSeg[i] = needed;
+                totalInserts += needed;
+            }
+
+            int budget = hardCap - n; // interpolated points we may still add
+            if (budget < 0) budget = 0;
+            if (totalInserts > budget && totalInserts > 0)
+            {
+                // Scale every chord's insert count down proportionally so the
+                // total fits the budget. Coarse legs degrade gracefully to a
+                // bounded subdivision rather than overflowing the cap.
+                double scale = (double)budget / totalInserts;
+                int scaledTotal = 0;
+                for (int i = 0; i < segs; i++)
+                {
+                    int scaled = (int)System.Math.Floor(insertsPerSeg[i] * scale);
+                    if (scaled < 0) scaled = 0;
+                    insertsPerSeg[i] = scaled;
+                    scaledTotal += scaled;
+                }
+                totalInserts = scaledTotal;
+            }
+
+            int outN = n + totalInserts;
+            outLats = new double[outN];
+            outLons = new double[outN];
+            outAlts = new double[outN];
+            outUts = new double[outN];
+
+            int w = 0;
+            for (int i = 0; i < segs; i++)
+            {
+                // Always emit the recorded start vertex of this chord EXACTLY.
+                outLats[w] = lats[i];
+                outLons[w] = lons[i];
+                outAlts[w] = alts[i];
+                outUts[w] = uts[i];
+                w++;
+
+                int inserts = insertsPerSeg[i];
+                for (int k = 1; k <= inserts; k++)
+                {
+                    double t = (double)k / (inserts + 1);
+                    SlerpLatLon(
+                        lats[i], lons[i], lats[i + 1], lons[i + 1], t,
+                        out double iLat, out double iLon);
+                    outLats[w] = iLat;
+                    outLons[w] = iLon;
+                    outAlts[w] = alts[i] + (alts[i + 1] - alts[i]) * t;
+                    outUts[w] = uts[i] + (uts[i + 1] - uts[i]) * t;
+                    w++;
+                }
+            }
+            // Final recorded vertex (closes the last chord), emitted exactly.
+            outLats[w] = lats[n - 1];
+            outLons[w] = lons[n - 1];
+            outAlts[w] = alts[n - 1];
+            outUts[w] = uts[n - 1];
+        }
+
+        /// <summary>Returns a fresh copy of the first <paramref name="n"/> elements
+        /// (or an empty array when the source is null / n is zero).</summary>
+        private static double[] CopyArray(double[] src, int n)
+        {
+            if (src == null || n <= 0) return new double[0];
+            var dst = new double[n];
+            System.Array.Copy(src, dst, n);
+            return dst;
+        }
+
+        /// <summary>
+        /// Great-circle central angle (degrees) between two (lat, lon) points,
+        /// via the dot product of their surface unit normals. Pure double math
+        /// (no Unity native calls); robust across the +/-180 longitude seam.
+        /// </summary>
+        internal static double GreatCircleArcDegrees(
+            double latA, double lonA, double latB, double lonB)
+        {
+            LatLonToUnit(latA, lonA, out double ax, out double ay, out double az);
+            LatLonToUnit(latB, lonB, out double bx, out double by, out double bz);
+            double dot = ax * bx + ay * by + az * bz;
+            if (dot > 1.0) dot = 1.0; else if (dot < -1.0) dot = -1.0;
+            return System.Math.Acos(dot) * (180.0 / System.Math.PI);
+        }
+
+        /// <summary>
+        /// Great-circle (Slerp) interpolation of the surface unit normal between
+        /// two (lat, lon) points, returning the interpolated (lat, lon). Pure
+        /// double math; robust at the +/-180 longitude seam and near the poles
+        /// (no raw lat/lon lerp). At <paramref name="t"/>=0 / 1 it reproduces the
+        /// endpoints exactly. Falls back to a linear unit-vector blend when the
+        /// two normals are nearly identical or antipodal (Slerp is ill-defined
+        /// there; the endpoints are so close any blend is sub-degree).
+        /// </summary>
+        internal static void SlerpLatLon(
+            double latA, double lonA, double latB, double lonB, double t,
+            out double lat, out double lon)
+        {
+            LatLonToUnit(latA, lonA, out double ax, out double ay, out double az);
+            LatLonToUnit(latB, lonB, out double bx, out double by, out double bz);
+            double dot = ax * bx + ay * by + az * bz;
+            if (dot > 1.0) dot = 1.0; else if (dot < -1.0) dot = -1.0;
+            double theta = System.Math.Acos(dot);
+            double rx, ry, rz;
+            double sinTheta = System.Math.Sin(theta);
+            if (sinTheta < 1e-9)
+            {
+                // Near-identical (or antipodal) endpoints: linear blend of the
+                // unit vectors, then renormalize. The endpoints are within a
+                // hair of each other, so the interpolant is sub-degree either way.
+                rx = ax + (bx - ax) * t;
+                ry = ay + (by - ay) * t;
+                rz = az + (bz - az) * t;
+            }
+            else
+            {
+                double s0 = System.Math.Sin((1.0 - t) * theta) / sinTheta;
+                double s1 = System.Math.Sin(t * theta) / sinTheta;
+                rx = ax * s0 + bx * s1;
+                ry = ay * s0 + by * s1;
+                rz = az * s0 + bz * s1;
+            }
+            UnitToLatLon(rx, ry, rz, out lat, out lon);
+        }
+
+        /// <summary>
+        /// Maps a body-fixed (lat, lon) in degrees to a surface unit normal.
+        /// Uses the same spherical convention as KSP's body-fixed frame: z = up
+        /// at the north pole, the (x, y) plane carries longitude. The absolute
+        /// axis assignment is irrelevant here because every densify call maps both
+        /// endpoints through the SAME convention and converts back, so the round
+        /// trip is self-consistent (the recorded vertices are preserved exactly).
+        /// </summary>
+        private static void LatLonToUnit(
+            double latDeg, double lonDeg, out double x, out double y, out double z)
+        {
+            double lat = latDeg * (System.Math.PI / 180.0);
+            double lon = lonDeg * (System.Math.PI / 180.0);
+            double cosLat = System.Math.Cos(lat);
+            x = cosLat * System.Math.Cos(lon);
+            y = cosLat * System.Math.Sin(lon);
+            z = System.Math.Sin(lat);
+        }
+
+        /// <summary>Inverse of <see cref="LatLonToUnit"/>: a unit normal back to
+        /// (lat, lon) in degrees. Longitude is normalized into [-180, 180].</summary>
+        private static void UnitToLatLon(
+            double x, double y, double z, out double latDeg, out double lonDeg)
+        {
+            double mag = System.Math.Sqrt(x * x + y * y + z * z);
+            if (mag > 1e-12)
+            {
+                x /= mag; y /= mag; z /= mag;
+            }
+            if (z > 1.0) z = 1.0; else if (z < -1.0) z = -1.0;
+            latDeg = System.Math.Asin(z) * (180.0 / System.Math.PI);
+            lonDeg = System.Math.Atan2(y, x) * (180.0 / System.Math.PI);
         }
 
         /// <summary>
