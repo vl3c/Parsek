@@ -100,23 +100,125 @@ functions of absolute UT:
   This is the 131-degree offset.
 - Each inner moon ORBITAL phase, period `T_orb(moon)` (`IBodyInfo.OrbitPeriod`).
 
-Every FLEXIBLE link reduces to a single SELECTED scalar: the arrival window index k
-(target arrival UT `A_k`). Given k, L0 / L4 / L6 are `A_k` minus the regenerated transfer
-time, pad-quantized by the EXISTING `PadAlignLaunch`; L5 is regenerated, not chosen; L2
-already ships; L8 is a COARSE integer-period re-timer (section 4).
+### HARD REQUIREMENT: the synodic launch cadence is preserved
 
-The honest qualifier: `A_k` is selectable only on the SYNODIC window grid (about 2 Kerbin
-years for Kerbin to Duna) plus a thin time-of-flight band plus integer loiter steps. It is
-NOT a continuous knob. Confirmed in source: `ReaimPlaybackResolver.BuildWindowSegments`
+The looped launch cadence MUST stay at the synodic period (about 2 Kerbin years for
+Kerbin to Duna). The feature does NOT relaunch only at rare naturally aligned windows.
+Every synodic window is a launch opportunity. Arrival alignment is achieved by spending the
+FLEXIBLE knobs WITHIN each window, never by skipping ahead to a window where the bodies
+happen to be naturally aligned. If a given window cannot be aligned by any available knob,
+it FAILS CLOSED to faithful for THAT window (showing the un-aligned arrival as a visible
+state, section 9) and the next synodic window is still on cadence. Either way the cadence
+stays synodic. An earlier draft mis-modelled this as "collapse to ONE selected scalar k =
+a synodic window index, selected on the ~2-year grid"; taken literally that would degrade
+launch opportunities from every ~2 years to (at Loose) roughly every ~140 years. That
+single-grid-scalar conclusion is WRONG and is replaced by the multi-knob model here. See
+`docs/dev/design-mission-periodicity.md` (the HARD REQUIREMENT block and the
+cadence-preserving multi-knob model) for the authoritative statement.
+
+### The two arrival flex points
+
+Inside the destination SOI there are exactly TWO distinct alignment knobs, reasoned about
+separately:
+
+- Arrival flex point #1: destination SOI-ENTRY timing. Choose WHEN the ghost enters the
+  destination SOI so the internal system configuration (the destination's rotation phase
+  and any inner moon's orbital phase) matches the recorded entry, so moon approaches render
+  like the original (the same flexibility Kerbin -> Mun uses). Realized through L4 / L6
+  timing slack, spent within the window via the tof band around the recorded departure.
+- Arrival flex point #2: destination LOITER-orbit count. When a destination loiter was
+  recorded and the mission is not going directly to landing / atmospheric entry, choose the
+  number of destination loiter orbits to align EXACTLY with the recorded landing-trajectory
+  end. This is L8, the integer-period re-timer (section 4).
+
+They are NOT fully independent: when a mission records NO destination loiter (the s15
+"Duna One" case below), the in-SOI sequence is rigid (capture-then-land within one
+destination day), nothing remains for #2 to trim, and the SOI-entry timing (#1) ALONE also
+aligns the landing.
+
+### The cadence-preserving multi-knob model
+
+Every FLEXIBLE link is spent JOINTLY per synodic window, NOT collapsed to a single
+grid-selected scalar. Per window k (the coarse cadence knob, fixed at the synodic period
+and never lengthened):
+
+- Coarse (selects the window, preserves cadence): the synodic window index k. Window k has
+  departure `D_k = RecordedDepartureUT + k * synodic` and arrival near `D_k + tof`. Every k
+  is a launch opportunity; we do not skip k values to find a naturally aligned one.
+- Fine arrival lever (arrival flex point #1): the tof band around the recorded departure.
+  The departure stays pinned at `D_k`; only the target end moves, sliding the arrival
+  instant and thus the destination rotation phase. A TINY nudge (a fraction of a percent of
+  tof, far inside the band) sweeps a full destination rotation.
+- Launch-side trim: the L2 launch-parking compression (already ships).
+- Destination-side trim (arrival flex point #2): the L8 destination loiter count, a coarse
+  integer re-timer, used only when a loiter was recorded.
+
+Given k and these knobs, L0 / L4 / L6 follow (`A_k` minus the regenerated transfer time,
+pad-quantized by the EXISTING `PadAlignLaunch`); L5 is regenerated, not chosen.
+
+### Worked example: Duna One (s15), the tof band is the active arrival knob
+
+Verified from `logs/2026-06-03_1951_duna-arrival/KSP.log` (ReaimDiag dump) and the s15
+recording `61e9177...prec`:
+
+- LAUNCH side: a Kerbin parking loiter of ~132 days, already compressed by the shipped
+  single launch-side loiter cut (`cut#0 start=52570174 len=11393869`, the L2 trim).
+- Heliocentric transfer: `tof = 6,854,613 s` (about 79.3 days). Kerbin -> Duna synodic =
+  `19,653,076 s` (about 2.1 Kerbin years), the on-cadence launch interval.
+- INSIDE the Duna SOI: arrival `70,898,646` to last orbit segment end `70,963,653` is about
+  `65,007 s` (~18.1 hours, about 0.99 of one Duna rotation): an arrival hyperbola
+  (negative-sma capture), then a few SUB-1-revolution low orbits (revs 0.45 / 0.32 / 0.02 /
+  0.09, about 0.88 rev total), then the descent. So Duna One records NO destination parking
+  loiter (captures and lands within ~1 Duna day). It DOES record a brief Ike SOI transit
+  (two short hyperbolic Ike orbit segments, ~37 minutes total, about 16 hours after Duna
+  arrival), but that transit imposes NO INDEPENDENT constraint: Ike is tidally locked to
+  Duna, so its orbital phase collapses onto Duna's rotation phase (the tidal-collapse note,
+  section 3a). Aligning Duna's rotation auto-aligns Ike, so there is one effective
+  destination constraint, not two.
+
+Implication: knob #2 has nothing to trim and there is no moon to align (the brief Ike
+transit collapses onto Duna's rotation, section 3a), so the ONLY within-window alignment
+knob is the thin tof band used as a small phase lever on the SOI-entry timing (#1). The
+arithmetic is favorable: tof is ~79.3 days; the +-6 percent band is +-4.76 days; one Duna
+rotation is `65,518 s` = 0.758 days. So a tof nudge of less than 0.5 percent of tof (about
++-0.38 days, well inside the band, which has roughly 12x that range) would sweep a full
+Duna rotation phase, and because the in-SOI sequence is rigid (no loiter) aligning the
+entry rotation phase would ALSO align the landing.
+
+But this tof-as-phase-lever is NOT yet validated: it is the open feasibility crux of
+section 13 (the one true crux) and Appendix A.2. v1 keeps step 0 (the recorded tof) primary
+and uses the band ONLY as a 180-degree degeneracy dodge, NOT as a deliberate phase lever.
+The honest consequence: for Duna One the Bug-2 fix HINGES on validating the
+tof-as-phase-lever. IF it validates (a sub-half-percent nudge, far inside the +-6 percent
+band, kept geometrically faithful), it would align every synodic window and preserve the
+~2.1 Kerbin-year cadence. Until and unless it validates, Duna One reaches alignment only on
+naturally favorable windows or the amber bounded-best, and otherwise FAILS CLOSED to
+faithful (the un-aligned arrival shown above). The synodic launch cadence is preserved
+EITHER WAY: the cadence guarantee never depends on the tof lever, only the ALIGNMENT of
+Duna One does.
+
+### The honest qualifier (quantized, but spent within the window)
+
+`A_k` is NOT a continuous knob; the arrival is QUANTIZED (synodic window k + a thin tof
+band + integer loiter steps). Confirmed in source: `ReaimPlaybackResolver.BuildWindowSegments`
 (`ReaimPlaybackResolver.cs:139-211`) pins the heliocentric departure at the nominal
 `D_k = RecordedDepartureUT + k * synodic` and searches ONLY the time-of-flight within
 about +-6 percent (`TofSearchStepFraction = 0.005`, `SearchMaxSteps = 12`). The tof search
-is a 180-degree single-rev Lambert degeneracy dodge (step 0 = recorded tof converges for
-almost every window), NOT an arrival slider. The code carries an explicit comment that
-searching the DEPARTURE to move the arrival was tried and reverted (the "transfer hung in
-front of Kerbin" regression, `ReaimPlaybackResolver.cs:165-178`). So the design respects: A
-is a SELECTED window index plus bounded knobs, with a BOUNDED feasibility envelope, not a
-freely dialed scalar.
+exists primarily as a 180-degree single-rev Lambert degeneracy dodge (step 0 = recorded tof
+converges for almost every window). The code carries an explicit comment that searching the
+DEPARTURE to move the arrival was tried and reverted (the "transfer hung in front of
+Kerbin" regression, `ReaimPlaybackResolver.cs:165-178`).
+
+These honest facts are respected, but they do NOT imply the cadence-degrading conclusion
+that the feature selects a rare naturally aligned window. The arrival is quantized, yet the
+knobs are spent JOINTLY WITHIN each synodic window to align that window; the launch cadence
+stays synodic. The crucial nuance, distinct from the reverted DEPARTURE search: a TINY tof
+nudge (far inside the +-6 percent conditioning bound) is a safe arrival PHASE LEVER, because
+it moves only the target end while the launch endpoint stays glued to `D_k`. That is what
+lets a no-loiter mission like Duna One align every window from the tof band alone. So the
+design respects: the arrival is window-quantized plus bounded knobs, spent jointly per
+window, with a BOUNDED feasibility envelope (Appendix A) and fail-closed-to-faithful per
+window, not a freely dialed scalar and not a rare grid-selected window.
 
 ---
 
@@ -166,6 +268,13 @@ worst residual) window, never accumulating drift (the residual at k is an absolu
 of k, so the offsets cancel). Objective `worst(k) = max(DestRotation residual,
 max_m MoonConfig residual)`. Report `ResidualSeconds` and `WithinTolerance` exactly as the
 same-parent path does (green / amber).
+
+This scan-k is the v1 selection WITHIN the on-cadence synodic grid (it chooses among the
+pad-aligned windows launched every synodic period, plus the integer loiter re-timer); it
+never skips a launch. A window it cannot bring in-tolerance fails closed to faithful (still
+launched on cadence), and the tof-as-phase-lever (Appendix A.2) is the deferred extension
+that would let MORE windows align within cadence. So "scan k" selects the RENDER alignment
+per on-cadence window, not the launch cadence.
 
 3a. The live joint resonance, NOT a duty-cycle product. The solver reads the ACTUAL live
 `IBodyInfo` periods and computes the joint resonance from them; it NEVER multiplies duty
@@ -302,7 +411,13 @@ candidate window the launch is already pixel-perfect on its pad, and we are free
 window whose ARRIVAL matches the destination. We are NOT waiting for a universal alignment;
 we are choosing, among the infinitely many pad-aligned windows, one whose destination
 configuration is in band. If no in-band window exists in the horizon, we fail closed
-(section 9); we do not chase a global resonance.
+(section 9); we do not chase a global resonance. "Pick the window whose arrival matches" is
+NOT window-skipping against the HARD synodic cadence: the scan stays on the on-cadence
+synodic grid (the pad-aligned windows launched every synodic period) plus the integer
+loiter re-timer, and a window it cannot bring in-band fails closed to faithful (still
+launched on cadence). So this selects the RENDER alignment per on-cadence window, not the
+launch cadence; the tof-as-phase-lever (Appendix A.2) is the deferred extension that would
+let MORE windows align within that same cadence.
 
 ---
 
@@ -670,6 +785,53 @@ Bug 2 fixed.
 
 ## 15. What does NOT change
 
+### Regression fence: the launch -> destination-SOI-entry pipeline is shipped and confirmed-good (do NOT regress)
+
+The user confirmed in playtest that the ENTIRE pipeline from launch up to the moment the
+ghost ENTERS the destination SOI renders correctly. That stretch is SHIPPED and
+confirmed-good and MUST NOT be regressed by this feature. The only thing broken (and the
+only thing this feature fixes) is the in-SOI arrival AFTER SOI entry: the ~131-degree
+rotation / landing misalignment once the ghost is inside the destination SOI.
+
+The following are SHIPPED and confirmed-good in playtest. They MUST stay byte-identical
+when destination alignment is OFF, and their generation machinery is NEVER modified by this
+feature:
+
+- recorded ascent and body-fixed landing playback (L1 / L9: meshes + animations exact);
+- launch-side loiter playback and its compression (`ReaimLoiterCompressor`, L2);
+- the launch-pad rotation lock (`ReaimWindowPlanner.PadAlignLaunch`);
+- the escape burn / departure SOI exit (L3);
+- the per-window HELIOCENTRIC TRANSFER regeneration
+  (`ReaimPlaybackResolver.BuildWindowSegments` /
+  `ReaimSegmentAssembler.ReplaceHeliocentricLeg`) and the accepted SOI-edge geometric seam;
+- everything up to and INCLUDING destination-SOI ENTRY.
+
+This feature is CONFINED to the destination-side in-SOI arrival temporal / rotation
+alignment (what happens AFTER SOI entry). With alignment OFF (or unsupported, or no aligned
+window found), the entire launch -> SOI-entry pipeline is byte-identical to today. That is
+the fail-closed contract (section 9): the feature either aligns the in-SOI arrival or
+visibly does nothing, and either way the upstream pipeline is untouched.
+
+THE ONE HONEST EXCEPTION: the only upstream parameter this feature can affect is the
+heliocentric transfer's TIME OF FLIGHT, and only via the tof SELECTION inside
+`ReaimPlaybackResolver`'s EXISTING +-6 percent search band (the tof-as-phase-lever, section
+13 / Appendix A.2), and only when alignment is engaged. It does NOT modify the
+transfer-generation machinery. Alignment-off selects the recorded tof (today's exact
+behavior); when engaged the nudge is sub-0.5 percent of tof (visually faithful: the
+transfer still renders as the same clean regenerated arc); and it FAILS CLOSED to the
+recorded tof if it cannot stay geometrically faithful. So the working heliocentric transfer
+is preserved: same machinery, recorded tof by default, at most a sub-0.5 percent in-band tof
+selection when alignment is on, fail-closed otherwise. This is the one sanctioned upstream
+touch point and it stays gated behind alignment-engaged + fail-closed; it is the open
+feasibility crux of section 13 and Appendix A.2, not a free dial.
+
+Implementation guardrail: any P3+ code change is additive and gated such that the launch ->
+SOI-entry pipeline code paths are unchanged when alignment is off. A reviewer must verify
+this directly: it is the same "null / off => byte-identical" invariant Phases 1-2 already
+hold to.
+
+### The rest of What does NOT change
+
 - Same-parent (Mun / Minmus) looped missions: untouched (the existing faithful periodicity
   path).
 - The shipped re-aim geometric layer: `ReplaceHeliocentricLeg`, the full-recorded-span render
@@ -726,11 +888,15 @@ Loose     T_rot * (5.0/360)       ~910 s       ~0.0139    ~1 in 72     (~140 yr)
 Off       constraint dropped      n/a          1.0        every window (rotation ignored)
 ```
 
-"Naked" means without using the tof band or the loiter re-timer. Read plainly: Precise on the
-bare window grid is effectively never (about 1,440 windows is centuries of in-game time,
-which brushes the dead-end-5 regime). Loose on the bare grid is about 1 window in 72, roughly
-140 Kerbin years, still impractical as the sole mechanism. The bare synodic grid alone does
-NOT solve Bug 2 for any realistic patience. Two amplifiers change this:
+"Naked" means without using the tof band or the loiter re-timer. These are NOT the launch
+cadence: the launch cadence stays synodic (the HARD REQUIREMENT in section 1), and the
+"naked recurrence" column only describes how often a window would align if NO knob were
+spent. It is stated to show why the bare grid is not the mechanism, NOT to set the cadence.
+Read plainly: Precise on the bare window grid is effectively never (about 1,440 windows is
+centuries of in-game time, which brushes the dead-end-5 regime). Loose on the bare grid is
+about 1 window in 72, roughly 140 Kerbin years, still impractical as the sole mechanism. The
+bare synodic grid alone does NOT solve Bug 2 for any realistic patience. Two amplifiers
+change this, and they are what make alignment a per-window (on-cadence) operation:
 
 - The tof band. A +-6 percent tof slide moves the arrival UT by roughly +-6 percent of the
   recorded transfer time (a handful of days for Kerbin to Duna). Against `T_rot(dest)` about
