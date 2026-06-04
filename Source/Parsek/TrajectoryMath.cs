@@ -249,6 +249,63 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Coalesces consecutive same-orbit OrbitSegments (LOOP-ONLY, IN-MEMORY) into one continuous
+        /// segment. The recorder splits a single coast into several fragments with the SAME Kepler
+        /// elements (it closes + reopens a segment at every recording-mode transition -
+        /// background/foreground vessel switch, scene change - with no coalescing). On the faithful first
+        /// play those fragments replay at exact UT over real time and are invisible; but under a LOOP the
+        /// compressed span clock can sweep the playback head across a short fragment (e.g. a ~40s parking
+        /// tail right before an escape burn) and out of its bounds in under one render frame, opening a
+        /// gap where the map icon flashes at the wrong phase (the s15 "Kerbal X" decouple seam). Merging
+        /// the fragments into one segment means the head is always inside one continuous segment across
+        /// the whole coast, so there is no mid-frame seam to flash on.
+        ///
+        /// <para>Both map renderers must call this on the list they consume - they do NOT share one
+        /// upstream point: the legacy path coalesces inside <c>ReaimSegmentAssembler.ReplaceHeliocentricLeg</c>
+        /// (its in-memory re-aim list), and the new MapRender pipeline coalesces inside
+        /// <c>ChainAssembler.Build</c> (the raw recorded <c>traj.OrbitSegments</c>). Pure; assumes
+        /// <paramref name="segs"/> is sorted by startUT (recorded segments are appended in time order;
+        /// re-aim sorts before calling). Never mutates the recorded data - it returns a NEW list.</para>
+        ///
+        /// <para>Merges adjacent segments while <see cref="AreOrbitSegmentsEquivalentForMapDisplay"/>
+        /// holds AND <c>isPredicted</c> matches, taking [first.startUT, last.endUT] and KEEPING the FIRST
+        /// fragment's elements / epoch / frame (the predicate ignores epoch + mean anomaly; the first
+        /// fragment's epoch correctly anchors the merged arc). A real maneuver (the escape burn changes
+        /// sma by millions, ecc 0.0013 -> 1.19) is far outside the predicate tolerance, so boundaries that
+        /// matter are preserved; the <c>isPredicted</c> guard keeps a predicted ballistic-tail segment
+        /// from folding into a non-predicted coast. Element equivalence is the load-bearing test, NOT the
+        /// gap duration - same-orbit fragments coalesce no matter how large the sampling gap.</para>
+        /// </summary>
+        internal static System.Collections.Generic.List<OrbitSegment> CoalesceSameOrbitFragments(
+            System.Collections.Generic.List<OrbitSegment> segs)
+        {
+            if (segs == null || segs.Count < 2)
+                return segs;
+
+            var merged = new System.Collections.Generic.List<OrbitSegment>(segs.Count);
+            OrbitSegment current = segs[0];
+            for (int i = 1; i < segs.Count; i++)
+            {
+                OrbitSegment next = segs[i];
+                if (current.isPredicted == next.isPredicted
+                    && AreOrbitSegmentsEquivalentForMapDisplay(current, next))
+                {
+                    // Same orbit, contiguous fragment: extend the running segment over the gap + the new
+                    // data. Keep the first fragment's elements/epoch (anchors the merged arc).
+                    if (next.endUT > current.endUT)
+                        current.endUT = next.endUT;
+                }
+                else
+                {
+                    merged.Add(current);
+                    current = next;
+                }
+            }
+            merged.Add(current);
+            return merged;
+        }
+
+        /// <summary>
         /// Shortest angular distance in degrees between two angles, accounting for
         /// the 0/360 wraparound. Inputs may be in any range (degrees); the result
         /// is always in [0, 180]. Use this instead of raw <c>Math.Abs(a - b)</c>

@@ -134,7 +134,12 @@ namespace Parsek.Reaim
                 return null; // no heliocentric leg in this member -> faithful (body-relative legs follow their bodies)
 
             result.Sort((a, b) => a.startUT.CompareTo(b.startUT));
-            return result;
+            // Coalesce same-orbit fragments the recorder split at recording-mode transitions, so a looped
+            // member never lands its playback head in a too-short fragment (the decouple-seam flash). This
+            // is the LEGACY/re-aim consumer's call; the new MapRender pipeline coalesces separately in
+            // ChainAssembler (the two renderers do not share an upstream list). Loop-only + in-memory -
+            // the recorded data is never touched. See TrajectoryMath.CoalesceSameOrbitFragments.
+            return TrajectoryMath.CoalesceSameOrbitFragments(result);
         }
     }
 }

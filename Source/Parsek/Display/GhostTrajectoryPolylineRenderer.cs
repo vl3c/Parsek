@@ -146,6 +146,15 @@ namespace Parsek.Display
             public double[] alts;
 
             /// <summary>
+            /// M recorded UTs (paired index-wise with lats/lons/alts). Used by the conic-anchor
+            /// (<see cref="TryAnchorLegToConicSeam"/>) to interpolate the seam-calibrated rotation across
+            /// the leg by recorded-time fraction (the body's rotation accrued over the leg's own span is
+            /// sub-2 deg but real). Null on legs built before this field existed -> the anchor falls back
+            /// to index-fraction interpolation.
+            /// </summary>
+            public double[] recordedUTs;
+
+            /// <summary>
             /// M scaled-body-LOCAL positions (in <c>body.scaledBody.transform</c>
             /// local space), captured ONCE on the first draw from
             /// <c>scaledBody.transform.InverseTransformPoint(LocalToScaledSpace(GetWorldSurfacePosition(...)))</c>.
@@ -282,6 +291,27 @@ namespace Parsek.Display
                 string.Format(System.Globalization.CultureInfo.InvariantCulture,
                     "Polyline cache refresh: rec={0} legs={1} hash={2:X}",
                     id, legArray.Length, hash));
+
+            // Full leg STRUCTURE (once per content change, not per frame): every leg's index, recorded
+            // [start,end] span, length, body, point count, and altitude range - so the complete polyline
+            // layout is always in the log and a long non-orbital leg (e.g. the ~100s escape burn the icon
+            // dwells on) is identifiable by span + high altitude (orbital-vacuum) without a screenshot.
+            if (legArray.Length > 0)
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < legArray.Length; i++)
+                {
+                    var lg = legArray[i];
+                    int mi = lg.PointCount;
+                    sb.AppendFormat(System.Globalization.CultureInfo.InvariantCulture,
+                        "{0}:[{1:F1}-{2:F1} {3:F0}s {4} pts={5} alt={6:F0}..{7:F0}] ",
+                        i, lg.startUT, lg.endUT, lg.endUT - lg.startUT, lg.bodyName ?? "?", mi,
+                        mi > 0 ? lg.alts[0] : 0.0, mi > 0 ? lg.alts[mi - 1] : 0.0);
+                }
+                ParsekLog.Verbose(Tag,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Polyline legs: rec={0} count={1} | {2}", id, legArray.Length, sb.ToString().TrimEnd()));
+            }
         }
 
         /// <summary>
@@ -363,6 +393,338 @@ namespace Parsek.Display
         internal static bool ShouldDrawLegAtHeadUT(
             double legStartUT, double legEndUT, double headUT)
             => headUT >= legStartUT && headUT <= legEndUT;
+
+        /// <summary>
+        /// Diagnostic: body-relative WORLD longitude (degrees, atan2(z,x) in Y-up world axes) of a
+        /// recorded leg point as it is ACTUALLY DRAWN - i.e. <c>GetWorldSurfacePosition(lat,lon,alt)</c>
+        /// on the LIVE body minus the body centre. This is the leg's body-FIXED position; comparing it to
+        /// the orbit's inertial longitude (the MapRenderProbe icon-off-orbit lonOrbit*) exposes how far
+        /// the polyline is rotated from the orbits under the loop shift (the escape-burn "isolated
+        /// segment" sits ~one body-rotation-over-the-shift off the inertial loiter/hyperbolic). Matches
+        /// <c>MapRenderProbe.LongitudeDeg</c> so the two numbers are directly comparable.
+        /// </summary>
+        private static double LegPointBodyRelLonDeg(CelestialBody body, double lat, double lon, double alt)
+        {
+            Vector3d rel = body.GetWorldSurfacePosition(lat, lon, alt) - body.position;
+            return System.Math.Atan2(rel.z, rel.x) * (180.0 / System.Math.PI);
+        }
+
+        /// <summary>
+        /// The world position of an OrbitSegment's RECORDED conic at <paramref name="ut"/>
+        /// (raw recorded epoch, no loop shift), built from the stored Kepler elements exactly as
+        /// <c>GhostMapPresence.ApplyOrbitToVessel</c> does. Used to locate the conic seam (the loiter's
+        /// position at the burn start / the escape's position at the burn end). Returns false on any orbit
+        /// construction fault.
+        /// </summary>
+        private static bool TryConicWorldAtUT(
+            OrbitSegment seg, CelestialBody body, double ut, out Vector3d world)
+        {
+            world = Vector3d.zero;
+            if (body == null) return false;
+            try
+            {
+                Orbit orbit = new Orbit(
+                    seg.inclination,
+                    seg.eccentricity,
+                    seg.semiMajorAxis,
+                    seg.longitudeOfAscendingNode,
+                    seg.argumentOfPeriapsis,
+                    seg.meanAnomalyAtEpoch,
+                    seg.epoch,
+                    body);
+                world = orbit.getPositionAtUT(ut);
+                return IsFiniteVec(world);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Finite-component guard for a Vector3d (KSP's Vector3d has no instance IsFinite).</summary>
+        private static bool IsFiniteVec(Vector3d v)
+            => !double.IsNaN(v.x) && !double.IsInfinity(v.x)
+               && !double.IsNaN(v.y) && !double.IsInfinity(v.y)
+               && !double.IsNaN(v.z) && !double.IsInfinity(v.z);
+
+        /// <summary>
+        /// PURE diagnostic helper: the OrbitSegment indices that bracket a non-orbital leg in recorded-UT
+        /// space - the same-body conic that ENDS at/just before the leg start (the loiter the burn leaves)
+        /// and the same-body conic that STARTS at/just after the leg end (the escape the burn enters).
+        /// <paramref name="beforeIdx"/> / <paramref name="afterIdx"/> are -1 when none. The 1 s tolerance
+        /// absorbs the boundary sample shared between a conic and the adjacent burn leg. xUnit-testable
+        /// (no Unity).
+        /// </summary>
+        /// <summary>Absolute floor for the conic-anchor seam-residual reject (km); covers small-radius bodies.</summary>
+        internal const float AnchorMaxResidualKm = 50f;
+
+        /// <summary>Relative (fraction of leg radius) ceiling for the conic-anchor seam-residual reject.</summary>
+        internal const float AnchorMaxRelResidual = 0.05f;
+
+        /// <summary>
+        /// PURE guard predicate (Duna/Ike arrival regression): should the conic-anchor REJECT a leg (keep it
+        /// body-fixed) because the bracketing conic seam does NOT meet the leg endpoints? The conic-anchor is
+        /// only valid for a vacuum maneuver whose endpoints lie ON the bracketing orbits (residual ~0, e.g.
+        /// the Kerbin escape burn = 0 km). A Duna/Ike ARRIVAL HYPERBOLA's <c>getPositionAtUT</c> at the leg
+        /// boundary lands an inbound arm tens of Mm from the leg, so the radial residual is huge (430-46543
+        /// km) and rotating to it would swing the leg to the wrong arm. Reject when the radial residual
+        /// exceeds the absolute floor OR the relative fraction of the leg radius. (A radius-only / "ecc&lt;1"
+        /// test is insufficient: a mis-bracketed ELLIPTICAL leg measured 430-3041 km off.) xUnit-testable.
+        /// </summary>
+        internal static bool IsSeamResidualTooLarge(
+            float predResidStartKm, float predResidEndKm, float legRadiusKm)
+        {
+            if (predResidStartKm > AnchorMaxResidualKm || predResidEndKm > AnchorMaxResidualKm)
+                return true;
+            float relResid = legRadiusKm > 1f
+                ? Mathf.Max(predResidStartKm, predResidEndKm) / legRadiusKm : 0f;
+            return relResid > AnchorMaxRelResidual;
+        }
+
+        internal static void FindBracketingOrbitSegments(
+            List<OrbitSegment> segs, string bodyName, double legStartUT, double legEndUT,
+            out int beforeIdx, out int afterIdx)
+        {
+            beforeIdx = -1;
+            afterIdx = -1;
+            if (segs == null) return;
+            const double tol = 1.0;
+            double bestBeforeEnd = double.NegativeInfinity;
+            double bestAfterStart = double.PositiveInfinity;
+            for (int i = 0; i < segs.Count; i++)
+            {
+                var s = segs[i];
+                if (s.endUT <= s.startUT) continue;
+                if (!string.Equals(s.bodyName, bodyName, StringComparison.Ordinal)) continue;
+                if (s.endUT <= legStartUT + tol && s.endUT > bestBeforeEnd)
+                {
+                    bestBeforeEnd = s.endUT;
+                    beforeIdx = i;
+                }
+                if (s.startUT >= legEndUT - tol && s.startUT < bestAfterStart)
+                {
+                    bestAfterStart = s.startUT;
+                    afterIdx = i;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Diagnostic (Bug 2 / Root B): a polyline leg bracketed by an orbit on only ONE side stays
+        /// body-fixed (launch ascent = after-only; descent-from-orbit = before-only). For the descent case
+        /// this logs the world gap + body-relative longitude delta between the leg's body-fixed start and
+        /// the preceding orbit's seam at that UT - i.e. how far the INERTIAL orbit's deorbit point
+        /// overshoots the BODY-FIXED landing track under the loop shift, the overshoot the proto icon rides
+        /// before it teleports onto this body-fixed descent. Rate-limited per rec; render-neutral.
+        /// </summary>
+        private static void EmitOneSidedBracketDiagnostic(
+            Recording rec, LegPolyline leg, CelestialBody body, int beforeIdx, int afterIdx)
+        {
+            if (rec == null || body == null || leg.PointCount < 1) return;
+            // Lazy Func: the conic build (new Orbit + getPositionAtUT via TryConicWorldAtUT) +
+            // GetWorldSurfacePosition + atan2 + format run ONLY when the 2s rate-limit actually emits, not
+            // every frame this one-sided leg draws.
+            ParsekLog.VerboseRateLimited(Tag, "polyline.onesided." + rec.RecordingId,
+                () =>
+                {
+                    var ic = System.Globalization.CultureInfo.InvariantCulture;
+                    string seamInfo = "before=none(ascent)";
+                    if (beforeIdx >= 0
+                        && TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBefore))
+                    {
+                        Vector3d bf = body.GetWorldSurfacePosition(leg.lats[0], leg.lons[0], leg.alts[0]);
+                        double gapKm = Vector3d.Distance(bf, cBefore) / 1000.0;
+                        Vector3d relBf = bf - body.position;
+                        Vector3d relC = cBefore - body.position;
+                        double lonBf = System.Math.Atan2(relBf.z, relBf.x) * (180.0 / System.Math.PI);
+                        double lonSeam = System.Math.Atan2(relC.z, relC.x) * (180.0 / System.Math.PI);
+                        var s = rec.OrbitSegments[beforeIdx];
+                        seamInfo = string.Format(ic,
+                            "before=seg{0}(ecc={1:F3} sma={2:F0}) overshootGap={3:F0}km lonBodyFixed={4:F1} lonOrbitSeam={5:F1}",
+                            beforeIdx, s.eccentricity, s.semiMajorAxis, gapKm, lonBf, lonSeam);
+                    }
+                    return string.Format(ic,
+                        "Anchor leg SKIPPED (one-sided): rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false " +
+                        "reason=one-sided-bracket {4} after={5}",
+                        rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                        seamInfo, afterIdx >= 0 ? ("seg" + afterIdx) : "none");
+                },
+                2.0);
+        }
+
+        /// <summary>
+        /// CONIC ANCHOR (2026-06-03): rotate a vacuum-maneuver leg's already-captured scaled-space points
+        /// so the leg lands on the faithful bracketing conic seam, fixing the loop-shift body rotation
+        /// that draws the escape burn ~96 deg off the loiter/hyperbola lines. The body-fixed capture has
+        /// the correct SHAPE but the wrong rotation (a pure spin-axis rotation = the body's rotation over
+        /// the loop shift); this calibrates that rotation DIRECTLY from the recorded OrbitSegment conics
+        /// via <c>getPositionAtUT</c> (the proven-faithful source - NOT the longitude-lift, which lands
+        /// 600-1200 km off the conic) at BOTH seam endpoints and Slerps it across the leg.
+        ///
+        /// <para>Applies ONLY to legs bracketed by a conic on BOTH sides - a vacuum maneuver BETWEEN two
+        /// orbits (the escape burn, an orbit raise, a circularization). A launch ascent (no preceding
+        /// conic) or a descent-to-surface (no following conic) is left body-fixed so it stays glued to the
+        /// rotating pad / landing site. Self-calibrating: where the body-fixed capture already coincides
+        /// with the conic (the early parking/raise region, seam gap ~0 km) the recovered rotation is
+        /// ~identity, so this is a no-op there - it does NOT regress the regions the reverted longitude-
+        /// lift broke.</para>
+        ///
+        /// <para>Rotates <c>leg.scratchScaledSpace</c> in place (the array is shared with the cached leg,
+        /// so the rotation persists into the draw). Returns true when applied. The minimal
+        /// <c>FromToRotation</c> between the two same-latitude rays IS the spin-axis rotation, so this
+        /// needs no explicit rotation-axis lookup.</para>
+        /// </summary>
+        private static bool TryAnchorLegToConicSeam(
+            Recording rec, LegPolyline leg, CelestialBody body, Transform scaledXform)
+        {
+            int m = leg.PointCount;
+            if (rec == null || body == null || m < 2 || leg.scratchScaledSpace == null) return false;
+
+            FindBracketingOrbitSegments(
+                rec.OrbitSegments, leg.bodyName, leg.startUT, leg.endUT,
+                out int beforeIdx, out int afterIdx);
+            if (beforeIdx < 0 || afterIdx < 0)
+            {
+                // One-sided bracket -> leg stays body-fixed (correct: a launch ascent off the rotating pad
+                // = after-only; a descent-to-surface = before-only). Bug 2 / Root B diagnostic: for the
+                // descent case (an orbit BEFORE, surface after) log the world gap + body-relative longitude
+                // delta between the leg's body-fixed start and the preceding orbit's seam = how far the
+                // INERTIAL orbit's deorbit point overshoots the BODY-FIXED landing track under the loop
+                // shift (the overshoot the proto icon rides before it teleports onto this body-fixed
+                // descent). Render-neutral.
+                EmitOneSidedBracketDiagnostic(rec, leg, body, beforeIdx, afterIdx);
+                return false;
+            }
+
+            if (!TryConicWorldAtUT(rec.OrbitSegments[beforeIdx], body, leg.startUT, out Vector3d cBeforeWorld)
+                || !TryConicWorldAtUT(rec.OrbitSegments[afterIdx], body, leg.endUT, out Vector3d cAfterWorld))
+                return false;
+
+            Vector3 center = scaledXform != null
+                ? scaledXform.position
+                : (Vector3)ScaledSpace.LocalToScaledSpace(body.position);
+            Vector3 cBefore = (Vector3)ScaledSpace.LocalToScaledSpace(cBeforeWorld);
+            Vector3 cAfter = (Vector3)ScaledSpace.LocalToScaledSpace(cAfterWorld);
+
+            Vector3 relStart = leg.scratchScaledSpace[0] - center;
+            Vector3 relEnd = leg.scratchScaledSpace[m - 1] - center;
+            Vector3 cRelStart = cBefore - center;
+            Vector3 cRelEnd = cAfter - center;
+            if (relStart.sqrMagnitude < 1e-10f || relEnd.sqrMagnitude < 1e-10f
+                || cRelStart.sqrMagnitude < 1e-10f || cRelEnd.sqrMagnitude < 1e-10f)
+                return false;
+
+            // GUARD (Duna/Ike arrival regression): the body-fixed-vs-conic offset is a pure spin-axis
+            // rotation ONLY when the conic seam actually MEETS the leg endpoints (same radius). At Kerbin
+            // the bracketing conics are near-circular, so the seam coincides with the leg (residual 0 km).
+            // At a Duna/Ike ARRIVAL HYPERBOLA the bracketing conic's getPositionAtUT lands tens of Mm from
+            // the leg (an inbound arm far from periapsis), so FromToRotation would swing the whole leg -
+            // and the marker that rides it - to the WRONG arm. Reject when the seam radius does not match
+            // the leg endpoint radius. The radial residual is the proven discriminator: 0 km at Kerbin vs
+            // 430-46543 km at Duna/Ike; an "elliptical-only / ecc<1" test is NOT sufficient (a mis-bracketed
+            // ELLIPTICAL leg measured 430-3041 km off). Computed BEFORE mutating so a rejected leg stays
+            // body-fixed and TryAnchorMarkerToPolyline samples the body-fixed points.
+            float sf = (float)ScaledSpace.ScaleFactor;
+            float predResidStartKm = Mathf.Abs(relStart.magnitude - cRelStart.magnitude) * sf / 1000f;
+            float predResidEndKm = Mathf.Abs(relEnd.magnitude - cRelEnd.magnitude) * sf / 1000f;
+            float legRadiusKm = relStart.magnitude * sf / 1000f;
+            float relResid = legRadiusKm > 1f
+                ? Mathf.Max(predResidStartKm, predResidEndKm) / legRadiusKm : 0f;
+            var segB = rec.OrbitSegments[beforeIdx];
+            var segA = rec.OrbitSegments[afterIdx];
+            if (IsSeamResidualTooLarge(predResidStartKm, predResidEndKm, legRadiusKm))
+            {
+                ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
+                    string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                        "Anchor leg SKIPPED: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=false reason=seam-mismatch " +
+                        "predResidStart={4:F0}km predResidEnd={5:F0}km legRadius={6:F0}km relResid={7:F2} " +
+                        "before=seg{8}(ecc={9:F3} sma={10:F0}) after=seg{11}(ecc={12:F3} sma={13:F0})",
+                        rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                        predResidStartKm, predResidEndKm, legRadiusKm, relResid,
+                        beforeIdx, segB.eccentricity, segB.semiMajorAxis,
+                        afterIdx, segA.eccentricity, segA.semiMajorAxis),
+                    2.0);
+                return false; // leave the leg body-fixed; the marker rides the body-fixed head
+            }
+
+            Quaternion rotStart = Quaternion.FromToRotation(relStart, cRelStart);
+            Quaternion rotEnd = Quaternion.FromToRotation(relEnd, cRelEnd);
+
+            double t0 = leg.startUT, span = leg.endUT - leg.startUT;
+            bool haveUTs = leg.recordedUTs != null && leg.recordedUTs.Length == m && span > 0.0;
+            for (int i = 0; i < m; i++)
+            {
+                float frac = haveUTs
+                    ? (float)((leg.recordedUTs[i] - t0) / span)
+                    : (m > 1 ? (float)i / (m - 1) : 0f);
+                if (frac < 0f) frac = 0f; else if (frac > 1f) frac = 1f;
+                Quaternion rot = Quaternion.Slerp(rotStart, rotEnd, frac);
+                leg.scratchScaledSpace[i] = center + rot * (leg.scratchScaledSpace[i] - center);
+            }
+
+            // Residual proves the pin (should be ~0 after the guard). Enriched with the bracketing-conic
+            // sma/ecc + applied rotation angles so a future mismatch is self-evident without cross-grep.
+            float residStart = Vector3.Distance(leg.scratchScaledSpace[0], cBefore) * sf / 1000f;
+            float residEnd = Vector3.Distance(leg.scratchScaledSpace[m - 1], cAfter) * sf / 1000f;
+            ParsekLog.VerboseRateLimited(Tag, "polyline.anchor." + rec.RecordingId,
+                string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                    "Anchor leg: rec={0} leg=[{1:F1},{2:F1}] body={3} anchored=true before=seg{4}(ecc={5:F3} sma={6:F0}) " +
+                    "after=seg{7}(ecc={8:F3} sma={9:F0}) residualStart={10:F0}km residualEnd={11:F0}km " +
+                    "rotAngleStart={12:F1} rotAngleEnd={13:F1}",
+                    rec.RecordingId, leg.startUT, leg.endUT, leg.bodyName ?? "(null)",
+                    beforeIdx, segB.eccentricity, segB.semiMajorAxis,
+                    afterIdx, segA.eccentricity, segA.semiMajorAxis, residStart, residEnd,
+                    Quaternion.Angle(Quaternion.identity, rotStart),
+                    Quaternion.Angle(Quaternion.identity, rotEnd)),
+                2.0);
+            return true;
+        }
+
+        /// <summary>
+        /// Rides the polyline with a labeled marker (icon + label): returns the world position ON the
+        /// drawn polyline at <paramref name="headUT"/> (recorded frame), so the marker sits exactly on the
+        /// corrected burn line instead of the body-fixed head (~96 deg off under the loop shift). It
+        /// samples the leg's per-frame DRAWN points (<see cref="LegPolyline.scratchScaledSpace"/> - already
+        /// conic-anchored by <see cref="TryAnchorLegToConicSeam"/>, or plain body-fixed for a non-anchored
+        /// leg, so the marker always matches whatever the line actually shows - no separate rotation to
+        /// drift) and interpolates by recorded-time fraction, then converts scaled-&gt;world. Returns false
+        /// (caller keeps the body-fixed head) when the head is not inside a leg drawn THIS frame, so a stale
+        /// scratch is never read. Call only after the Driver's LateUpdate (e.g. from OnGUI marker draw).
+        /// </summary>
+        internal static bool TryAnchorMarkerToPolyline(
+            string recordingId, double headUT, out Vector3 worldPos)
+        {
+            worldPos = Vector3.zero;
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            if (!polylineCache.TryGetValue(recordingId, out var set) || set.legs == null) return false;
+
+            int frame = Time.frameCount;
+            for (int li = 0; li < set.legs.Length; li++)
+            {
+                var leg = set.legs[li];
+                if (headUT < leg.startUT || headUT > leg.endUT) continue;
+                int m = leg.PointCount;
+                if (m < 2 || leg.scratchScaledSpace == null
+                    || leg.recordedUTs == null || leg.recordedUTs.Length != m
+                    || leg.lastDrawnFrame != frame)
+                    return false; // not drawn this frame -> scratch is stale -> keep the body-fixed head
+
+                // Bracket headUT between two recorded sample UTs and lerp the drawn (anchored) points.
+                int idx = m - 2;
+                for (int i = 0; i < m - 1; i++)
+                {
+                    if (headUT <= leg.recordedUTs[i + 1]) { idx = i; break; }
+                }
+                double u0 = leg.recordedUTs[idx], u1 = leg.recordedUTs[idx + 1];
+                float frac = u1 > u0 ? (float)((headUT - u0) / (u1 - u0)) : 0f;
+                if (frac < 0f) frac = 0f; else if (frac > 1f) frac = 1f;
+                Vector3 scaled = Vector3.Lerp(
+                    leg.scratchScaledSpace[idx], leg.scratchScaledSpace[idx + 1], frac);
+                worldPos = (Vector3)ScaledSpace.ScaledToLocalSpace(scaled);
+                return true;
+            }
+            return false;
+        }
 
         /// <summary>
         /// Cheap content-hash key for cache invalidation (§1.4). XORs every
@@ -615,18 +977,21 @@ namespace Parsek.Display
             var lats = new double[m];
             var lons = new double[m];
             var alts = new double[m];
+            var uts = new double[m];
             for (int i = 0; i < m; i++)
             {
                 var p = sampled[i];
                 lats[i] = p.latitude;
                 lons[i] = p.longitude;
                 alts[i] = p.altitude;
+                uts[i] = p.ut;
             }
             return new LegPolyline
             {
                 lats = lats,
                 lons = lons,
                 alts = alts,
+                recordedUTs = uts,
                 scratchScaledSpace = new Vector3[m],
                 bodyName = bodyName,
                 startUT = sampled[0].ut,
@@ -868,7 +1233,7 @@ namespace Parsek.Display
                 instance = this;
                 DontDestroyOnLoad(gameObject);
                 GameEvents.onGameStateLoad.Add(OnGameStateLoad);
-                GameEvents.onLevelWasLoaded.Add(OnLevelWasLoaded);
+                GameEvents.onLevelWasLoaded.Add(HandleLevelWasLoaded);
                 ParsekLog.Verbose(DriverTag,
                     "GhostTrajectoryPolylineRenderer.Driver awake (DDOL singleton)");
             }
@@ -879,7 +1244,7 @@ namespace Parsek.Display
                 {
                     instance = null;
                     GameEvents.onGameStateLoad.Remove(OnGameStateLoad);
-                    GameEvents.onLevelWasLoaded.Remove(OnLevelWasLoaded);
+                    GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
@@ -891,8 +1256,15 @@ namespace Parsek.Display
             /// new scene (MINOR-1 / MINOR-2). The DDOL Driver outlives scene
             /// transitions, so a stale controller from the previous scene must
             /// not be reused.
+            ///
+            /// Named HandleLevelWasLoaded (not OnLevelWasLoaded) to avoid colliding
+            /// with Unity's deprecated magic message of that name: Unity scans
+            /// MonoBehaviours for a method called OnLevelWasLoaded and, finding our
+            /// GameScenes-typed handler instead of the magic int signature, logs a
+            /// spurious "[ERR] Script error: OnLevelWasLoaded" on every scene load.
+            /// The real subscription is the KSP GameEvent GameEvents.onLevelWasLoaded.
             /// </summary>
-            private void OnLevelWasLoaded(GameScenes scene)
+            private void HandleLevelWasLoaded(GameScenes scene)
             {
                 cachedControllerScene = (GameScenes)(-1);
                 cachedTsController = null;
@@ -1190,6 +1562,13 @@ namespace Parsek.Display
                             }
                         }
 
+                        // CONIC ANCHOR: for a vacuum maneuver between two orbits (escape burn, orbit
+                        // raise) rotate the captured body-fixed scaled points onto the faithful bracketing
+                        // conic seam so the leg CONNECTS the loiter/hyperbola lines instead of drawing
+                        // ~96 deg off under the loop shift. No-op for legs not bracketed both sides (launch
+                        // ascent / descent-to-surface) and where body-fixed already matches the conic.
+                        TryAnchorLegToConicSeam(rec, leg, body, scaledXform);
+
                         CopyLegIntoVectorLine(leg.vectorLine, leg.scratchScaledSpace, 0);
                         leg.vectorLine.drawStart = 0;
                         leg.vectorLine.drawEnd = m - 1;
@@ -1221,30 +1600,64 @@ namespace Parsek.Display
                                 break;
                             }
                         }
+
+                        // LOGGING GAP FILL: the DRAWN leg's span, length, body, and its body-relative
+                        // WORLD longitude (where the polyline actually renders). A long isolated segment
+                        // (e.g. the escape-burn leg, ~100s span) the icon dwells on, drawn far from the
+                        // inertial loiter/hyperbolic orbits, is the body-fixed-vs-inertial loop-shift
+                        // rotation: compare lon0/lonN here to the probe's lonOrbit* for the same ghost.
+                        // Built lazily: the two LegPointBodyRelLonDeg (=GetWorldSurfacePosition) calls run
+                        // only when one of the two logs below actually emits (rate-limit elapsed / change),
+                        // not every frame for a multi-leg recording.
+                        int activeLegCaptured = activeLeg;
+                        var setCaptured = set;
+                        GameScenes sceneCaptured = scene;
+                        Func<string> activeLegInfoFactory = () =>
+                        {
+                            if (activeLegCaptured < 0) return "activeLeg=none";
+                            var al = setCaptured.legs[activeLegCaptured];
+                            int mAl = al.PointCount;
+                            CelestialBody alBody = ResolveBodyByName(sceneCaptured, al.bodyName);
+                            if (alBody != null && mAl >= 1)
+                                return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                    "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} lon0={6:F1} lonN={7:F1} alt0={8:F0} altN={9:F0}",
+                                    activeLegCaptured, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl,
+                                    LegPointBodyRelLonDeg(alBody, al.lats[0], al.lons[0], al.alts[0]),
+                                    LegPointBodyRelLonDeg(alBody, al.lats[mAl - 1], al.lons[mAl - 1], al.alts[mAl - 1]),
+                                    al.alts[0], al.alts[mAl - 1]);
+                            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "DRAWN-leg{0}=[{1:F1},{2:F1}] span={3:F0}s body={4} pts={5} (no body/pts)",
+                                activeLegCaptured, al.startUT, al.endUT, al.endUT - al.startUT, al.bodyName ?? "(null)", mAl);
+                        };
+
+                        bool anyDrawnCaptured = anyDrawn;
+                        double headUtCaptured = headUT;
                         ParsekLog.VerboseRateLimited(DriverTag, "polyline.head." + rec.RecordingId,
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                                "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} " +
-                                "firstLeg=[{5:F1},{6:F1}] lastLeg=[{7:F1},{8:F1}] body0={9} bodyN={10}",
-                                rec.RecordingId, set.legs.Length, headUT, activeLeg, anyDrawn,
-                                set.legs[0].startUT, set.legs[0].endUT,
-                                set.legs[set.legs.Length - 1].startUT, set.legs[set.legs.Length - 1].endUT,
-                                set.legs[0].bodyName ?? "(null)", set.legs[set.legs.Length - 1].bodyName ?? "(null)"),
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline head: rec={0} legs={1} headUT={2:F1} activeLeg={3} drawn={4} {5} " +
+                                "firstLeg=[{6:F1},{7:F1}] lastLeg=[{8:F1},{9:F1}] body0={10} bodyN={11}",
+                                rec.RecordingId, setCaptured.legs.Length, headUtCaptured, activeLegCaptured, anyDrawnCaptured, activeLegInfoFactory(),
+                                setCaptured.legs[0].startUT, setCaptured.legs[0].endUT,
+                                setCaptured.legs[setCaptured.legs.Length - 1].startUT, setCaptured.legs[setCaptured.legs.Length - 1].endUT,
+                                setCaptured.legs[0].bodyName ?? "(null)", setCaptured.legs[setCaptured.legs.Length - 1].bodyName ?? "(null)"),
                             2.0);
 
                         // CHANGE-based companion to the rate-limited head log: a discrete event whenever the
                         // active leg, its body, or the drawn state flips. The polyline's part of the SOI-exit
                         // blink (active leg jumps a Kerbin escape leg -> the Sun transfer leg, or drawn toggles
                         // on/off in a head-in-gap frame) shows as alternating MapTraj-style lines instead of
-                        // being hidden in the 2s rate-limited samples.
+                        // being hidden in the 2s rate-limited samples. The cheap state key is built eagerly;
+                        // the GetWorldSurfacePosition-heavy detail is deferred to the change emit.
                         string activeLegBody = activeLeg >= 0
                             ? (set.legs[activeLeg].bodyName ?? "(null)") : "none";
                         ParsekLog.VerboseOnChange(DriverTag, "polyline-active." + rec.RecordingId,
                             string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "{0}|{1}|{2}", activeLeg, activeLegBody, anyDrawn),
-                            string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
                                 "Polyline active-leg CHANGED: rec={0} headUT={1:F1} activeLeg={2} body={3} " +
-                                "drawn={4} legs={5}",
-                                rec.RecordingId, headUT, activeLeg, activeLegBody, anyDrawn, set.legs.Length));
+                                "drawn={4} legs={5} {6}",
+                                rec.RecordingId, headUtCaptured, activeLegCaptured, activeLegBody, anyDrawnCaptured, setCaptured.legs.Length,
+                                activeLegInfoFactory()));
                     }
 
                     if (anyDrawn)
@@ -1283,11 +1696,36 @@ namespace Parsek.Display
 
                 ParsekLog.VerboseRateLimited(DriverTag, "polyline.frame.summary",
                     string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                        "Polyline frame: scene={0} drawn={1} suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
+                        "Polyline frame: scene={0} drawn={1} warp={10:F0}x suppressed={2} hidden={3} staticSkip={4} noLegs={5} noBody={6} headUtGated={7} deactivated={8} cached={9}",
                         scene, frameDrawn, frameSkippedSuppressed, frameSkippedHidden,
                         frameSkippedStatic, frameSkippedNoLegs, frameSkippedNoBody,
-                        frameLegsHeadUtGated, frameDeactivated, polylineCache.Count),
+                        frameLegsHeadUtGated, frameDeactivated, polylineCache.Count,
+                        TimeWarp.CurrentRate),
                     5.0);
+
+                // DOUBLE-DRAW PIN (Bug 3): the 5 s rate-limited summary hides transient drawn>=2 frames
+                // (the co-drawn landing seam). Emit on CHANGE of (drawn-count + the co-drawn recording set),
+                // so a brief two-leg overlap is never rate-limited away. Names the recordings drawing this
+                // frame + the warp rate (the user reports the second line only at 1x). The per-rec "Polyline
+                // active-leg CHANGED" lines carry each leg's span, so this + those pin which two legs overlap.
+                if (frameDrawn >= 1)
+                {
+                    // Key on the cheap drawn-COUNT (the Bug-3 signal is 1<->2); build the rec list lazily so
+                    // the steady state (drawn unchanged) pays no per-frame List/Join/Format allocation.
+                    int drawnCount = frameDrawn;
+                    var legRecs = activeLegRecordings;
+                    var sceneForLog = scene;
+                    ParsekLog.VerboseOnChange(DriverTag, "polyline.drawset",
+                        drawnCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        () =>
+                        {
+                            var drawnIds = new List<string>(legRecs);
+                            drawnIds.Sort(StringComparer.Ordinal);
+                            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                                "Polyline draw-set CHANGED: scene={0} drawn={1} warp={2:F0}x recs=[{3}]",
+                                sceneForLog, drawnCount, TimeWarp.CurrentRate, string.Join(",", drawnIds.ToArray()));
+                        });
+                }
             }
 
             /// <summary>

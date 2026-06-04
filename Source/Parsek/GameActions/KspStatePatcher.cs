@@ -303,6 +303,10 @@ namespace Parsek
             int alreadyAvailable = 0;
             int alreadyUnavailable = 0;
             int missingTargets = 0;
+            // Bypass-rehydrate stats accumulated across the tech-tree loop and emitted
+            // as ONE summary after it (the tree has ~80+ nodes; a per-node line here was
+            // a per-item-in-loop log over a large collection on every recalc).
+            int bypassRehydratedNodes = 0, bypassTotalPartsAdded = 0, bypassFallbackNodes = 0;
             var seen = new HashSet<string>(StringComparer.Ordinal);
             List<string> missingTargetIds = null;
 
@@ -324,7 +328,14 @@ namespace Parsek
                     else
                         alreadyAvailable++;
 
-                    proto = EnsureAvailableProtoTechNode(tech, proto);
+                    proto = EnsureAvailableProtoTechNode(
+                        tech, proto, out int bypassPartsAdded, out bool bypassFallbackUsed);
+                    if (bypassPartsAdded >= 0)
+                    {
+                        bypassRehydratedNodes++;
+                        bypassTotalPartsAdded += bypassPartsAdded;
+                        if (bypassFallbackUsed) bypassFallbackNodes++;
+                    }
                     ResearchAndDevelopment.Instance.SetTechState(techId, proto);
                     tech.state = RDTech.State.Available;
                 }
@@ -369,6 +380,11 @@ namespace Parsek
                 $"missingTargets={missingTargets.ToString(IC)}, " +
                 $"utCutoff={cutoffLabel}, baselineUt={baselineLabel}");
 
+            if (bypassRehydratedNodes > 0)
+                ParsekLog.Verbose(Tag,
+                    $"EnsureAvailableProtoTechNode: bypass rehydrated {bypassRehydratedNodes.ToString(IC)} tech node(s), " +
+                    $"{bypassTotalPartsAdded.ToString(IC)} part(s) added, {bypassFallbackNodes.ToString(IC)} via fallback");
+
             if (missingTargets > 0 && missingTargetIds != null)
             {
                 ParsekLog.Verbose(Tag,
@@ -377,8 +393,16 @@ namespace Parsek
             }
         }
 
-        private static ProtoTechNode EnsureAvailableProtoTechNode(ProtoTechNode tech, ProtoTechNode existing)
+        // Reports bypass-rehydrate stats to the caller for a batched summary instead of
+        // logging per node: <paramref name="bypassPartsAdded"/> is the net parts added by
+        // the rehydrate (-1 when bypass is inactive, so the caller skips this node), and
+        // <paramref name="bypassFallbackUsed"/> flags the AddPurchasedParts fallback path.
+        private static ProtoTechNode EnsureAvailableProtoTechNode(
+            ProtoTechNode tech, ProtoTechNode existing,
+            out int bypassPartsAdded, out bool bypassFallbackUsed)
         {
+            bypassPartsAdded = -1;
+            bypassFallbackUsed = false;
             var proto = existing ?? new ProtoTechNode();
             proto.techID = tech.techID;
             proto.state = RDTech.State.Available;
@@ -397,11 +421,11 @@ namespace Parsek
                 int beforeCount = proto.partsPurchased.Count;
                 int added = AddPurchasedPartsForTech(proto, tech.techID, PartLoader.LoadedPartsList);
                 if (added == 0 && beforeCount == 0 && tech.partsPurchased != null)
+                {
                     AddPurchasedParts(proto, tech.partsPurchased);
-                ParsekLog.Verbose(Tag,
-                    $"EnsureAvailableProtoTechNode: bypass rehydrate techId={tech.techID} " +
-                    $"before={beforeCount.ToString(IC)} added={added.ToString(IC)} " +
-                    $"after={proto.partsPurchased.Count.ToString(IC)}");
+                    bypassFallbackUsed = true;
+                }
+                bypassPartsAdded = proto.partsPurchased.Count - beforeCount;
             }
 
             return proto;

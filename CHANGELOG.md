@@ -75,6 +75,12 @@ All notable changes to Parsek are documented here.
 - Creating a supply route from a flight that kept recording past its launch (for example a rover that launched, then later docked) no longer fails with "origin unresolvable". The launch site and body are now stored on the flight's first (root) recording, so the route can identify its KSC origin.
 - Repeated landed deliveries of the same craft to the same ground base no longer stack on top of each other and explode when you load into the scene. Each newly materialized landed vessel is now nudged a few metres clear of existing same-spot vessels at the Space Center / Tracking Station (where nothing is loaded and the old collision check could not see the on-rails vessels already parked there).
 - A supply route's looping ghost now stops at the dock (the moment of delivery) instead of flying on through the docked period: the docked-together combined vessel no longer appears at the end of each loop. The route now loops the launch-to-dock run, so the cadence shortens to that run's duration.
+- Fixed a brief wrong-position flash of a looped interplanetary mission's map icon at a staging/separation seam. A parking-orbit coast the recorder stored as several fragments is now drawn as one continuous orbit during looped playback, so the icon no longer jumps for a few frames before settling onto the escape trajectory.
+- Fixed a brief stale ghost orbit-line and icon flash when a looping recording first appears on the flight map (the loop time-shift was applied one frame late on initial map creation).
+- Fixed a brief flash of the previous orbit circle on the map at the moment a looped mission's next orbit was about to appear (the old orbit line was redrawn for a fraction of a second before the new one loaded).
+- Fixed a looped mission's map icon vanishing off into deep space on its escape trajectory out of a planet's sphere of influence (the icon was placed at the live time instead of the replayed time, so the open escape path flung it far past where the mission actually was).
+- Fixed a looped interplanetary mission's map trajectory line, icon, and label appearing rotated far around the planet and disconnected from the orbit lines during the escape and transfer burns. The non-orbital burn segment was drawn surface-locked while the orbit lines are time-shifted for the loop; it now anchors to its neighboring orbit lines, so the burn connects the loiter to the escape and the icon and label ride it.
+- Removed two spurious "Script error: OnLevelWasLoaded" messages printed to the log at startup. Two internal scene-load handlers collided with a deprecated Unity method name; renaming them clears the errors with no behavior change.
 
 ### UI
 
@@ -165,6 +171,7 @@ All notable changes to Parsek are documented here.
 ### Internals
 
 - The `[Engine] engine-frame-iter` diagnostic trace now reports each ghost's per-frame visibility outcome (`[out:vis=.. retired=.. zone=.. rdist=..]`), not just its pre-render inputs, and auto-enables during a Re-Fly session. This pins down the still-open "ghost vanishes at the Inertial-frame transition" case by showing whether a ghost was actually hidden and why, rather than only that it was iterated.
+- Cut KSP.log spam from four per-recording / per-frame diagnostics that scaled with the recording count (spawn suppression, the map "Marker pos" loiter-seam trace, the per-tree save line, and the tech-tree bypass-rehydrate line). Each is now a batched summary or gated behind the map-render tracer instead of one line per recording per frame.
 
 ### Known limitations
 
