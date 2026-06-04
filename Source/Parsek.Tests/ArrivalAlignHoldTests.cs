@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Xunit;
 
 namespace Parsek.Tests
@@ -128,6 +129,77 @@ namespace Parsek.Tests
             double holdPhasePos = 500.0, hold = 70.0, recordedPos = 530.0;
             Assert.Equal(recordedPos,
                 GhostPlaybackLogic.ApplyArrivalHoldToPhase(recordedPos + hold, holdPhasePos, hold), Tol);
+        }
+
+        // === TryComputeSpanLoopUT with the arrival hold (3b loop-clock wiring) ================
+
+        [Fact]
+        public void Clock_NoHold_NoCut_IsIdentityToTheRecordedSpan()
+        {
+            // No hold + no cuts: loopUT = spanStartUT + phaseInCycle (the pre-hold behavior). cadence > span.
+            bool ok = GhostPlaybackLogic.TryComputeSpanLoopUT(
+                300.0, 0.0, 0.0, 1000.0, 2000.0,
+                out double loopUT, out long cyc, out bool tail);
+            Assert.True(ok);
+            Assert.Equal(300.0, loopUT, Tol);
+            Assert.Equal(0, cyc);
+            Assert.False(tail);
+
+            // Past the span: parked at spanEnd, tail set.
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                1500.0, 0.0, 0.0, 1000.0, 2000.0, out loopUT, out cyc, out tail);
+            Assert.Equal(1000.0, loopUT, Tol);
+            Assert.True(tail);
+        }
+
+        [Fact]
+        public void Clock_WithHold_BeforeIdentity_WithinHeld_AfterDeferred()
+        {
+            // Hold of 200 s at recorded-span boundary 600 (span 0..1000, cadence 2000 > span+hold). Before the
+            // boundary: identity (launch + transfer unchanged). Within the hold [600,800]: held at 600 (the
+            // ghost waits at SOI arrival). After: the recorded in-SOI replay, deferred by the hold.
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 2000, hold = 200, holdAt = 600;
+            void Check(double currentUT, double expect)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT, anchor, s0, s1, cad, out double loopUT, out long _, out bool _,
+                    schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt);
+                Assert.Equal(expect, loopUT, Tol);
+            }
+            Check(500.0, 500.0);   // before the boundary: identity
+            Check(700.0, 600.0);   // within the hold: held at the boundary
+            Check(900.0, 700.0);   // after the hold: recorded loopUT deferred by 200
+            Check(1150.0, 950.0);  // still in the deferred in-SOI replay
+
+            // Past effectiveSpan (1200): parked at spanEnd, tail set.
+            GhostPlaybackLogic.TryComputeSpanLoopUT(
+                1300.0, anchor, s0, s1, cad, out double lp, out long _, out bool tail,
+                schedule: null, loiterCuts: null, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt);
+            Assert.Equal(1000.0, lp, Tol);
+            Assert.True(tail);
+        }
+
+        [Fact]
+        public void Clock_HoldComposesWithLoiterCut()
+        {
+            // A loiter cut [200,300] (excise 100 s, before the boundary) composes with a 200 s hold at the
+            // recorded boundary 600. Compressed boundary = 600 - 100 = 500. The cut shifts recorded UTs up by
+            // 100 after 200; the hold then holds at the recorded boundary 600 and defers the in-SOI replay.
+            var cuts = new List<GhostPlaybackLogic.LoopCut>
+            {
+                new GhostPlaybackLogic.LoopCut { StartUT = 200.0, LengthSeconds = 100.0 },
+            };
+            const double anchor = 0, s0 = 0, s1 = 1000, cad = 2000, hold = 200, holdAt = 600;
+            void Check(double currentUT, double expect)
+            {
+                GhostPlaybackLogic.TryComputeSpanLoopUT(
+                    currentUT, anchor, s0, s1, cad, out double loopUT, out long _, out bool _,
+                    schedule: null, loiterCuts: cuts, arrivalHoldSeconds: hold, arrivalHoldAtUT: holdAt);
+                Assert.Equal(expect, loopUT, Tol);
+            }
+            Check(400.0, 500.0);   // compressed phase 400 (< compressed boundary 500): skip the cut -> recorded 500
+            Check(550.0, 600.0);   // within the hold: held at the recorded boundary 600
+            Check(900.0, 800.0);   // after the hold: deferred; compressed 700 -> recorded 800 (cut skipped)
         }
     }
 }

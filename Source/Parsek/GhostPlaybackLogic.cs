@@ -7004,7 +7004,9 @@ namespace Parsek
             out long cycleIndex,
             out bool isInInterCycleTail,
             MissionRelaunchSchedule schedule = null,
-            IReadOnlyList<LoopCut> loiterCuts = null)
+            IReadOnlyList<LoopCut> loiterCuts = null,
+            double arrivalHoldSeconds = 0.0,
+            double arrivalHoldAtUT = double.NaN)
         {
             loopUT = spanStartUT;
             cycleIndex = 0;
@@ -7056,7 +7058,17 @@ namespace Parsek
             // the boundary-rollback below are unchanged. Empty/null cuts => effectiveSpan == span and the
             // remap is the identity, so every non-re-aim caller is byte-identical.
             double totalCut = TotalCutLength(loiterCuts);
-            double effectiveSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+            double compressedSpan = (totalCut > 0.0 && totalCut < span) ? span - totalCut : span;
+            // Arrival HOLD (re-aim cross-parent landing alignment): the INVERSE of a loiter cut. A cut
+            // REMOVES recorded-span time (compressedSpan); the hold INSERTS it at the heliocentric->capture
+            // boundary, so the in-SOI replay defers and the destination rotation phase at the deorbit recurs
+            // to recorded. holdPhasePos is that boundary in compressed-span phase. A zero/degenerate hold
+            // leaves effectiveSpan == compressedSpan and the remap below the identity, so every existing
+            // caller (passing the default 0 hold) stays byte-identical. The re-aim cadence is the synodic
+            // period, far larger than span + hold, so the hold never pushes effectiveSpan past the cadence.
+            double hold = (arrivalHoldSeconds > 0.0 && !double.IsInfinity(arrivalHoldSeconds)) ? arrivalHoldSeconds : 0.0;
+            double holdPhasePos = hold > 0.0 ? CompressSpanUT(arrivalHoldAtUT, loiterCuts) - spanStartUT : double.NaN;
+            double effectiveSpan = compressedSpan + hold;
 
             // Epsilon-tolerant boundary, matching ComputeLoopPhaseFromUT: at exactly a cycle
             // boundary (phaseInCycle ~ 0 with cycleIndex > 0) the clock shows the PRIOR cycle's
@@ -7080,9 +7092,12 @@ namespace Parsek
             // boundary handled above). isInInterCycleTail is true exactly in that parked tail —
             // the phase ran past the span and we are idling at spanEnd until the next cycle.
             double clampedPhase = phaseInCycle >= effectiveSpan ? effectiveSpan : phaseInCycle;
-            loopUT = (effectiveSpan < span)
-                ? DecompressSpanUT(spanStartUT + clampedPhase, loiterCuts) // skip the excised loiters
-                : spanStartUT + clampedPhase;                              // no cuts: identity
+            // Remove the arrival hold (held at the boundary, then deferred), then DecompressSpanUT through
+            // the loiter cuts to the recorded loopUT - holds and cuts compose. hold == 0 makes
+            // ApplyArrivalHoldToPhase the identity and DecompressSpanUT is identity for empty cuts, so a unit
+            // with neither is byte-identical to the pre-hold clock.
+            double cutPhase = ApplyArrivalHoldToPhase(clampedPhase, holdPhasePos, hold);
+            loopUT = DecompressSpanUT(spanStartUT + cutPhase, loiterCuts);
             isInInterCycleTail = (phaseInCycle >= effectiveSpan);
             return true;
         }
